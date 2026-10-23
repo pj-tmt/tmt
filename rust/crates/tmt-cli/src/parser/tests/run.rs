@@ -256,3 +256,32 @@ fn resume_move_requires_an_explicit_identity_and_conflicts_with_inspection() {
         );
     }
 }
+
+#[test]
+fn resume_driver_implies_the_stop_move_path_and_rejects_inspection() {
+    for movement in [false, true] {
+        let mut input = vec![
+            "resume", "worker", "--driver", "claude", "--model", "sonnet",
+        ];
+        if movement {
+            input.push("--move");
+        }
+        match parsed(&input).invocation {
+            Invocation::Resume {
+                driver,
+                move_running,
+                model,
+                ..
+            } => {
+                assert_eq!(driver.as_deref(), Some("claude"));
+                assert!(move_running);
+                assert_eq!(model.as_deref(), Some("sonnet"));
+            }
+            other => panic!("unexpected driver switch: {other:?}"),
+        }
+    }
+    for flag in ["--show", "--forget", "--forget-launch"] {
+        assert!(parse(&args(&["resume", "worker", "--driver", "codex", flag])).is_err());
+    }
+    assert!(parse(&args(&["resume", "--driver", "claude"])).is_err());
+}

@@ -123,7 +123,7 @@ fn session_upgrade_preserves_binding_and_rolls_back_observations_with_history() 
         .execute_batch("DROP TRIGGER reject_session_migration;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 61);
+    assert_eq!(storage.health().unwrap().schema_version, 62);
     let row = oracle.query_row(
         "SELECT id, identity_id, pane_id, bound_at, last_verified_at, runtime_state, last_transition FROM bindings",
         [], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?)),
@@ -180,7 +180,7 @@ fn driver_state_upgrade_keeps_remembered_sessions_without_state() {
     .unwrap();
     old.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 61);
+    assert_eq!(storage.health().unwrap().schema_version, 62);
     storage.close().unwrap();
     let oracle = Connection::open(&path).unwrap();
     let row: (String, Option<String>, Option<i64>, Option<i64>) = oracle
@@ -286,5 +286,66 @@ fn consumption_attribution_migration_preserves_legacy_bucket_without_backfill() 
     assert_eq!(bucket["complete"], true);
     assert!(bucket.get("cacheWriteTokens").is_none());
     assert!(bucket.get("byModel").is_none());
+    storage.close().unwrap();
+}
+
+#[test]
+fn inactive_driver_upgrade_is_atomic_and_keeps_the_current_coordinates() {
+    let root = TestDirectory::new();
+    let path = root.path.join("driver-upgrade.db");
+    let mut old = Connection::open(&path).unwrap();
+    test_support::seed_history(&mut old);
+    apply_through(&mut old, 61).unwrap();
+    old.execute_batch("INSERT INTO identity_session_preferences
+        (identity_id,preferred_harness,remembered_harness,runtime_mode,provider_session_id,driver_state_version,driver_state,channel)
+        VALUES ('old-id','claude','claude','default','kept',1,'{\"model\":\"sonnet\"}',1);
+        CREATE TRIGGER reject_driver_records BEFORE INSERT ON _migrations WHEN NEW.version=62
+        BEGIN SELECT RAISE(ABORT,'injected driver record migration failure'); END;").unwrap();
+    old.close().unwrap();
+    assert_eq!(
+        Storage::open(&path).err().unwrap().migration_version,
+        Some(62)
+    );
+    let oracle = Connection::open(&path).unwrap();
+    assert_eq!(
+        oracle
+            .query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE name='identity_resume_records'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    assert_eq!(oracle.query_row("SELECT provider_session_id FROM identity_session_preferences WHERE identity_id='old-id'", [], |row| row.get::<_, String>(0)).unwrap(), "kept");
+    oracle
+        .execute_batch("DROP TRIGGER reject_driver_records;")
+        .unwrap();
+    oracle.close().unwrap();
+    let mut storage = Storage::open(&path).unwrap();
+    assert_eq!(storage.health().unwrap().schema_version, 62);
+    let preferences = storage.session_preferences("old-id").unwrap();
+    assert_eq!(preferences.channel, Some(true));
+    assert!(preferences.retained.is_empty());
+    assert_eq!(
+        preferences
+            .remembered
+            .as_ref()
+            .unwrap()
+            .provider_session
+            .as_str(),
+        "kept"
+    );
+    assert_eq!(
+        preferences
+            .remembered
+            .as_ref()
+            .unwrap()
+            .state
+            .as_ref()
+            .unwrap()
+            .document(),
+        "{\"model\":\"sonnet\"}"
+    );
     storage.close().unwrap();
 }

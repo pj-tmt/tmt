@@ -306,6 +306,10 @@ const MIGRATIONS: &[Migration] = &[
         "record how long a digest rule keeps a member's oldest held message",
         "schema/061.sql"
     ),
+    migration!(
+        "retain an inactive resume record per driver",
+        "schema/062.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

@@ -140,6 +140,7 @@ mod tests {
             .unwrap()
             .identity;
         let preferences = SessionPreferences {
+            retained: Vec::new(),
             channel: Some(true),
             preferred_harness: Some(HarnessId::new("claude").unwrap()),
             remembered: Some(RememberedSession {

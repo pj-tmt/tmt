@@ -114,6 +114,7 @@ mod tests {
         )
         .unwrap();
         let mut preferences = SessionPreferences {
+            retained: Vec::new(),
             channel: None,
             preferred_harness: None,
             remembered: Some(RememberedSession {
@@ -163,6 +164,7 @@ mod tests {
         let registry = RuntimeRegistry::first_party();
         let project = |state| {
             let preferences = SessionPreferences {
+                retained: Vec::new(),
                 channel: None,
                 preferred_harness: None,
                 remembered: Some(RememberedSession {

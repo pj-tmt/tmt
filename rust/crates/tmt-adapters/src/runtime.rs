@@ -476,6 +476,42 @@ mod tests {
     }
 
     #[test]
+    fn switch_input_stays_one_literal_message_after_provider_settings_and_policy() {
+        let registry = RuntimeRegistry::first_party();
+        for name in ["claude", "codex"] {
+            let harness = HarnessId::new(name).unwrap();
+            let lifecycle = registry.lifecycle(&harness).unwrap();
+            let mut command = registry.relaunch(&harness).unwrap();
+            assert!(lifecycle.resume_settings(
+                &mut command,
+                &launch_preset::LaunchSettings {
+                    model: Some("chosen-model".into()),
+                    effort: Some("high".into()),
+                }
+            ));
+            let message = "-untrusted notes\n--model must stay literal";
+            assert!(lifecycle.initial_message(&mut command, message));
+            lifecycle.prepare_launch(&mut command, std::path::Path::new("/private-state"), false);
+            assert_eq!(
+                &command.args[command.args.len() - 2..],
+                &[OsString::from("--"), OsString::from(message)]
+            );
+            assert_eq!(
+                command
+                    .args
+                    .iter()
+                    .filter(|arg| *arg == "chosen-model")
+                    .count(),
+                1
+            );
+            if name == "codex" {
+                assert!(command.args.iter().any(|arg| arg == "--no-daemon"));
+                assert!(command.args.iter().any(|arg| arg == "/private-state"));
+            }
+        }
+    }
+
+    #[test]
     fn maximum_send_duration_is_computed_from_registered_drivers() {
         struct Budget(std::time::Duration);
         impl Driver for Budget {
@@ -1028,6 +1064,7 @@ mod tests {
         use tmt_core::binding::session::DriverState;
         let registry = RuntimeRegistry::first_party();
         let remembered = |harness: &str, state: Option<DriverState>| SessionPreferences {
+            retained: Vec::new(),
             channel: None,
             preferred_harness: None,
             remembered: Some(RememberedSession {
@@ -1210,6 +1247,7 @@ mod tests {
             }
 
             let mut preferences = SessionPreferences {
+                retained: Vec::new(),
                 channel: None,
                 preferred_harness: None,
                 remembered: Some(RememberedSession {

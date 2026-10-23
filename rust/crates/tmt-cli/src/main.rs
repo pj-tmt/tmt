@@ -282,6 +282,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::Resume {
             name,
+            driver,
             move_running,
             show,
             forget_launch,
@@ -297,6 +298,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
                 forget_launch,
                 forget,
                 run_command::Resume {
+                    driver: driver.as_deref(),
                     retry,
                     move_running,
                 },

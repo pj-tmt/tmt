@@ -1,6 +1,6 @@
 ---
 name: tmt
-description: 'Coordinate local agents with TMT: send `tmt talk` through a host pane (tmux or Herdr) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`.'
+description: "Coordinate local agents with TMT: send `tmt talk` through a host pane (tmux or Herdr) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`."
 ---
 
 # TMT
@@ -903,7 +903,7 @@ explicitly override those values; present allowed environment keys override stor
 ones, even when empty. `tmt resume --show <name>` displays the preset without
 launching; `tmt resume --forget-launch <name>` clears it while retaining the session.
 Without an associated preset, resume reports that it uses the registered driver.
-It never starts fresh: when nothing is remembered or the driver cannot resume it,
+Ordinary resume never starts fresh: when nothing is remembered or the driver cannot resume it,
 it fails and says
 `Start fresh with: tmt run <name>`. Starting fresh is the user's call. A resume
 that fails before the provider confirms the session marks it stale; a stale
@@ -922,6 +922,20 @@ or an unverified/shared agent cannot be stopped this way. TMT never stops a
 shared Codex channel server. If the old agent does not exit, nothing new starts and the
 binding stays put. Exit the old agent in its pane, then rerun the exact command
 printed in the error. TMT never force-kills it or falls back to a fresh session.
+
+To switch the agent behind the same identity, run
+`tmt resume <name> --driver claude --model claude-sonnet-5-5` (or `--driver codex`).
+This includes the stop/move path and launches in this command's pane; no extra
+`--move` is needed. TMT asks the old agent once to save a handoff in its notes,
+waits up to 30 seconds for its reply, then uses the same verified one-TERM stop.
+If it has gone or does not answer, bounded notes and open-request metadata supply
+the handoff. The new agent receives that context as its first message; it is not
+proof that any request was answered. UUID, name, role, board row, notes and open
+requests stay. The old driver's exact session is retained, so switching back
+resumes it; a driver's first use starts a new session. Provider settings stay
+untouched. Unsupported/shared runtimes refuse before stopping anything. If the
+selected message channel cannot take initial handoff input, use the error's
+`--no-channel` command. Inspect both panes before retrying an uncertain launch.
 
 TMT records the owned command's exit and keeps the pane binding. Its exit status
 is the command's status, or 128 plus a terminating signal number. It reaps only

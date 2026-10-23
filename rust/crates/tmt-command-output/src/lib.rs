@@ -127,6 +127,11 @@ impl Failure {
         self
     }
 
+    /// The action-specific remedy, before an outer layer adds effect context.
+    pub fn suggestion_text(&self) -> Option<&str> {
+        self.suggestion.as_deref()
+    }
+
     pub fn suggestion(mut self, suggestion: String) -> Self {
         self.suggestion = Some(suggestion);
         self

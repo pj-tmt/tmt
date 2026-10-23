@@ -461,6 +461,7 @@ fn running_row_with_usage(
     });
     row.resume = crate::output::resume_document(
         &tmt_core::binding::session::SessionPreferences {
+            retained: Vec::new(),
             channel: None,
             preferred_harness: None,
             remembered: row.remembered.clone(),

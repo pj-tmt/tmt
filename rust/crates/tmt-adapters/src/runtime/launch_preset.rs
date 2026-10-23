@@ -153,6 +153,45 @@ pub fn read(storage: &Storage, identity: &str) -> Result<Option<LaunchPreset>, S
     Ok(read_document(storage, identity)?.and_then(|document| decode(&document)))
 }
 
+/// An inactive driver's preset is usable only for that exact retained session.
+pub fn read_for_session(
+    storage: &Storage,
+    identity: &str,
+    session: &RememberedSession,
+) -> Result<Option<LaunchPreset>, StorageError> {
+    if let Some(preset) = read(storage, identity)?.filter(|preset| preset.matches(session)) {
+        return Ok(Some(preset));
+    }
+    let key = MetadataKey::parse(&format!("resume.driver.{}", session.harness.as_str()))
+        .expect("validated harness key");
+    Ok(match storage.get_metadata(identity, &key)? {
+        MetadataLookup::Found(document) => {
+            decode(&document).filter(|preset| preset.matches(session))
+        }
+        _ => None,
+    })
+}
+
+/// Preserve a validated associated preset when its driver becomes inactive.
+/// Resume coordinates still come from the session record, never this metadata.
+pub fn retain(
+    storage: &mut Storage,
+    identity: &str,
+    preset: &LaunchPreset,
+) -> Result<(), StorageError> {
+    let (Some(harness), Some(document)) = (preset.harness.as_ref(), preset.document()) else {
+        return Ok(());
+    };
+    let changes = MetadataChanges::new(vec![MetadataChange {
+        key: MetadataKey::parse(&format!("resume.driver.{harness}"))
+            .expect("validated harness key"),
+        expect: MetadataExpectation::Any,
+        then: MetadataAction::Set(document),
+    }])
+    .expect("one valid retained launch preset");
+    storage.apply_metadata(identity, &changes).map(|_| ())
+}
+
 fn read_document(storage: &Storage, identity: &str) -> Result<Option<String>, StorageError> {
     Ok(
         match storage.get_metadata(identity, &MetadataKey::parse(KEY).unwrap())? {
@@ -186,12 +225,24 @@ pub fn remember(
 }
 
 pub fn clear(storage: &mut Storage, identity: &str) -> Result<bool, StorageError> {
-    apply(
-        storage,
-        identity,
-        MetadataExpectation::Any,
-        MetadataAction::Remove,
-    )
+    let mut changes = vec![MetadataChange {
+        key: MetadataKey::parse(KEY).unwrap(),
+        expect: MetadataExpectation::Any,
+        then: MetadataAction::Remove,
+    }];
+    if let Some(session) = storage.session_preferences(identity)?.remembered {
+        changes.push(MetadataChange {
+            key: MetadataKey::parse(&format!("resume.driver.{}", session.harness.as_str()))
+                .expect("validated harness key"),
+            expect: MetadataExpectation::Any,
+            then: MetadataAction::Remove,
+        });
+    }
+    let changes = MetadataChanges::new(changes).expect("distinct launch keys");
+    Ok(matches!(
+        storage.apply_metadata(identity, &changes)?,
+        MetadataApply::Applied { .. }
+    ))
 }
 
 pub fn associate(
@@ -317,6 +368,58 @@ mod tests {
             |key| Some(if key == ENV_KEYS[0] { "55" } else { "60" }.into()),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn retained_presets_match_only_their_driver_and_clear_without_reappearing() {
+        use tmt_core::binding::{BindingRepository, session::SessionPreferences};
+        let root = TestDirectory::new();
+        let mut storage = Storage::open(root.path.join("retained.db")).unwrap();
+        let identity = create_or_resolve(&mut storage, "Switch", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let registry = RuntimeRegistry::first_party();
+        let claude = session("claude", "sonnet");
+        let codex = session("codex", "sol");
+        let mut old = capture(&["--effort", "high"]);
+        old.associate(&claude, &registry);
+        retain(&mut storage, &identity.id, &old).unwrap();
+        let mut newer = capture(&["--effort", "low"]);
+        newer.executable = "codex".into();
+        newer.associate(&codex, &registry);
+        remember(&mut storage, &identity.id, &newer).unwrap();
+        assert_eq!(
+            read_for_session(&storage, &identity.id, &claude).unwrap(),
+            Some(old)
+        );
+        assert_eq!(
+            read_for_session(&storage, &identity.id, &codex).unwrap(),
+            Some(newer)
+        );
+        let mut replaced = claude.clone();
+        replaced.provider_session = ProviderSessionId::new("different").unwrap();
+        assert!(
+            read_for_session(&storage, &identity.id, &replaced)
+                .unwrap()
+                .is_none()
+        );
+        let preferences = SessionPreferences {
+            remembered: Some(claude.clone()),
+            ..SessionPreferences::default()
+        };
+        storage
+            .with_binding_transaction::<_, StorageError>(|records| {
+                records.set_session_preferences(&identity.id, &preferences)?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(clear(&mut storage, &identity.id).unwrap());
+        assert!(
+            read_for_session(&storage, &identity.id, &claude)
+                .unwrap()
+                .is_none()
+        );
+        storage.close().unwrap();
     }
 
     #[test]

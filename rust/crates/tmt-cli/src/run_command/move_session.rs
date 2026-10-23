@@ -56,6 +56,12 @@ pub(super) fn launch_failure(
                 crate::output::shell_word(name)
             ));
         }
+        super::LaunchEffect::OldEnded => {
+            error
+                .message
+                .push_str(" The old agent has ended. No new agent was launched.");
+            format!("tmt resume --move -- {}", crate::output::shell_word(name))
+        }
         super::LaunchEffect::BoundHere => {
             error
                 .message
@@ -86,10 +92,14 @@ fn context(paths: &ConfigPaths, identity: &Identity) -> Result<IdentityContextSn
         .ok_or_else(|| refusal("IDENTITY_CONFLICT", "The identity changed before moving."))
 }
 
+type Handoff<'a> = &'a mut dyn FnMut(&tmt_core::binding::Binding) -> Result<(), Failure>;
+
 pub(super) struct MoveRequest<'a> {
     pub identity: &'a Identity,
     pub preferences: &'a SessionPreferences,
     pub lifecycle: &'a dyn RuntimeLifecycle,
+    pub switching: bool,
+    pub handoff: Option<Handoff<'a>>,
 }
 
 pub(super) fn move_binding(
@@ -104,6 +114,8 @@ pub(super) fn move_binding(
         identity,
         preferences,
         lifecycle,
+        switching,
+        handoff,
     } = request;
     let session = preferences.remembered.as_ref().ok_or_else(|| {
         refusal(
@@ -137,6 +149,15 @@ pub(super) fn move_binding(
         && old.server.socket_path == snapshot.server.socket_path
         && old.pane_id == pane
     {
+        if switching {
+            if let Some(key) = &old.session.key {
+                let observed =
+                    observe_runtime_process(&UnixCommandRunner, key.incarnation.pid(), deadline)
+                        .map_err(|error| refusal("PROCESS_ERROR", error))?;
+                super::resume::check_process(&identity.name, pane, &key.incarnation, &observed)?;
+            }
+            return Ok(None);
+        }
         return Err(refusal(
             "RUNTIME_CONFLICT",
             "The identity is already bound to this pane; use ordinary resume here.",
@@ -262,6 +283,39 @@ pub(super) fn move_binding(
             ));
         }
         RuntimeLiveness::Gone => (),
+    }
+    if observed.matches(&key.incarnation) == RuntimeLiveness::Alive
+        && let Some(handoff) = handoff
+    {
+        handoff(old)?;
+        // The request may admit prompt/Stop observations. Recapture and re-prove
+        // every endpoint and preference after it, without ever asking twice.
+        let refreshed = context(paths, identity)?;
+        let same = refreshed.entry.binding.as_ref().is_some_and(|current| {
+            current.id == old.id
+                && current.session.key == old.session.key
+                && current.session.launch_owner == old.session.launch_owner
+        });
+        if !same {
+            return Err(refusal(
+                "IDENTITY_CONFLICT",
+                "The old attachment changed during handoff; no stop was requested.",
+            ));
+        }
+        return move_binding(
+            storage,
+            host,
+            paths,
+            pane,
+            MoveRequest {
+                identity,
+                preferences: &refreshed.preferences,
+                lifecycle,
+                switching,
+                handoff: None,
+            },
+            effect,
+        );
     }
     let runner = UnixCommandRunner;
     // Recheck both endpoints and all captured records under the same writer
