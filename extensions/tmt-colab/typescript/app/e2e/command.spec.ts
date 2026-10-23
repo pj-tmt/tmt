@@ -201,3 +201,52 @@ for (const [failure, sentence, pairingRequired, label] of [
     }
   });
 }
+
+test('connection guide copy keeps exact commands, native admission and denial feedback with a decorative mark', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto('/test/command-browser.html');
+  const fixture = '/test/command-browser.tsx';
+  await page.evaluate(async (fixture) => (await import(fixture)).mountGuide(), fixture);
+  const copies = page.getByRole('button', { name: 'Copy', exact: true });
+  await expect(copies).toHaveCount(2);
+  await expect(copies.first()).toBeDisabled();
+  await expect(copies.last()).toBeDisabled();
+  const link = 'https://demo-guide.web.app/pair#public-config';
+  await page.evaluate(async ({ fixture, link }) => (await import(fixture)).mountGuide(link), {
+    fixture,
+    link,
+  });
+  const expected = [`tmt remote add team '${link}'`, 'tmt remote --remote team sync sign-in'];
+  for (const [index, command] of expected.entries()) {
+    const copy = copies.nth(index);
+    await expect(copy).toBeEnabled();
+    await expect(copy.locator('svg[aria-hidden="true"]')).toHaveCount(1);
+    await page.evaluate(() => navigator.clipboard.writeText('unchanged'));
+    await copy.dispatchEvent('click');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('unchanged');
+    await copy.focus();
+    await page.keyboard.press('Enter');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(command);
+    await expect(page.locator('.tmt-ui-command').nth(index).getByRole('status')).toHaveText(
+      'Copied.',
+    );
+  }
+  await page.evaluate(() =>
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new Error('denied');
+        },
+      },
+    }),
+  );
+  await copies.first().click();
+  await expect(page.locator('.tmt-ui-command').first().getByRole('status')).toHaveText(
+    'Clipboard unavailable. Select and copy the displayed command.',
+  );
+  await expect(page.locator('.tmt-ui-command-text').first()).toHaveText(expected[0]);
+});

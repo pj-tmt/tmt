@@ -283,6 +283,15 @@ Rename and delete use a centered shared dialog that replaces the manager and ret
 card action on cancel. This preserves the one-overlay rule instead of the website's stacked
 surfaces. The shared regular drawer owns geometry; products never override its internal width.
 
+### Colab page dialogs
+
+New page presents the literal machine command with its Copy action, the return instruction and
+Close in the shared dialog footer. The host-owned copy contents include one decorative mark;
+clipboard feedback describes copying, never execution. Lifecycle confirmations use the shared
+footer and its divider, with a bordered Cancel beside the operation action. Titles, affected scope,
+restore and destructive consequence words remain product-owned. Shared dialog geometry and
+presentation stay in the browser leaf; products do not override its internals.
+
 ### Quick switcher
 
 Colab's **Search pages** header action and Cmd/Ctrl+K open a modal

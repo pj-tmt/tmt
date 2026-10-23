@@ -108,7 +108,56 @@ test('New page gives the command that creates a page on the machine', async ({ p
   await app(page).getByRole('button', { name: 'New page' }).click();
   const dialog = page.getByRole('dialog', { name: 'New page' });
   await expect(dialog).toContainText('tmt colab page create --title "Notes" --layout column');
+  await expect(dialog).toContainText('Return to your TMT workspace after creating the page.');
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(app(page).getByRole('button', { name: 'New page' })).toBeFocused();
+  await expect(rows(page)).toHaveCount(50);
+  await app(page).getByRole('button', { name: 'New page' }).click();
   await dialog.getByRole('button', { name: 'Close New page' }).click();
   await expect(dialog).toHaveCount(0);
   await expect(app(page).getByRole('button', { name: 'New page' })).toBeFocused();
 });
+
+for (const width of [1586, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`website page dialogs remain contained at ${width} ${theme}`, async ({ page }) => {
+      await mount(page, width, theme);
+      await page.setViewportSize({ width, height: 992 });
+      const opener = app(page).getByRole('button', { name: 'New page', exact: true });
+      await opener.click();
+      const create = app(page).getByRole('dialog', { name: 'New page', exact: true });
+      await expect(
+        create.locator('footer').getByRole('button', { name: 'Close', exact: true }),
+      ).toBeVisible();
+      await expect(
+        create
+          .getByRole('button', { name: 'Copy', exact: true })
+          .locator('svg[aria-hidden="true"]'),
+      ).toHaveCount(1);
+      expect(await create.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      await page.screenshot({ path: await capturePath(`new-page-${width}-${theme}.png`) });
+      await create.getByRole('button', { name: 'Close', exact: true }).click();
+      await expect(opener).toBeFocused();
+      const menu = rows(page)
+        .first()
+        .getByRole('button', { name: /^Actions for/ });
+      await menu.click();
+      await page.getByRole('menuitem', { name: 'Archive…', exact: true }).click();
+      const archive = app(page).getByRole('dialog');
+      await expect(archive).toContainText(
+        'An archived page stays readable, but nobody can edit it.',
+      );
+      await expect(archive.locator('footer')).toHaveCSS('border-top-width', '1px');
+      const cancel = archive.locator('footer').getByRole('button', { name: 'Cancel', exact: true });
+      await expect(cancel).toHaveCSS('border-top-width', '1px');
+      expect(await archive.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.screenshot({ path: await capturePath(`archive-${width}-${theme}.png`) });
+      await cancel.click();
+      await expect(archive).toHaveCount(0);
+      await expect(menu).toBeFocused();
+      expect(await page.evaluate(() => window.__pageOperations)).toEqual([]);
+    });
