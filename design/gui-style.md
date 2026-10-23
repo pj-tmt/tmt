@@ -276,10 +276,15 @@ counts and wrap on compact screens; the hero owns the heading and the shell bar 
 Colab's **Search pages** header action and Cmd/Ctrl+K open a modal
 [BrowserDialog](browser-ui/README.md#dialog) over the current page. It uses the
 same search editor and label/author filters as the page list; collections are not
-part of v1. Pages remain inert title text, with muted author/labels and the
-existing mark-plus-word Waiting state. The current page is excluded.
+part of v1. The website `/#/colab/pages` Search surface (concept38 fallback) supplies the
+layout: query with a search mark, a folder/project picker and shortcut row, divider,
+file-marked results with title and project/author metadata, then keyboard hints in the
+shared footer. Results preserve native page links and show only real metadata, with the
+mark-plus-word Needs-you chip at the right. The current page is excluded. Project choices
+write the same search edit as the query chips; plural memberships wrap inside a result.
+The shared dialog owns its header rule, width and scrim.
 
-- Keep one search row above a scrollable, single-column result list, with no
+- Keep the query and project rows above a scrollable, single-column result list, with no
   loading flash when a cached list is available. The input keeps focus while
   arrows move the active result. Filter suggestions get the keys first; otherwise
   Enter opens that result. Escape closes suggestions, then the dialog and returns

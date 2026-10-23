@@ -837,6 +837,11 @@ changed scope, a second stale head and unknown outcomes never rebuild (colab-v1 
   the next connection to poll), and the cloud pass (`Inbound::settle`) after it read new link
   originals or first read a page.
 
+`quick-switcher-dialog.tsx` composes the website Search presentation over the existing
+source and ranking owners. Its project menu edits the same `SearchEdit` as query chips;
+there is no separate filter state. The result list keeps native links, plural memberships
+and real author/waiting metadata, with a shared-dialog footer for keyboard hints.
+
 The quick switcher's data (#2599) is React-free except one hook. `quick-switcher.ts` ranks the
 list's own `PageSummary` rows for the list's own `PageFilter` (no second index or parser): match
 strength of the free text, then a page waiting for you, then `max(opened, updated)`, ties by title
