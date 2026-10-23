@@ -975,7 +975,6 @@ impl<R: CommandRunner> Restore<'_, R> {
                 [
                     "#{pane_id}",
                     "#{pane_pid}",
-                    "#{pane_current_command}",
                     "#{pane_tty}",
                     "#{pane_start_command}",
                 ]
@@ -983,33 +982,18 @@ impl<R: CommandRunner> Restore<'_, R> {
             ],
         )?;
         let fields: Vec<_> = output.trim_end_matches('\n').split(SEP).collect();
-        if fields.len() != 5
+        // The shell's own name is no evidence: /bin/sh is dash on one system and bash on
+        // another. Its pid and start, the start command, the terminal and the ids are.
+        if fields.len() != 4
             || fields[0] != created.pane
             || number(fields[1])? != created.process.pid()
-            || fields[2] != "sh"
-            || fields[4] != BOOTSTRAP_COMMAND.join(" ")
-            || !crate::process::terminal::foreground(fields[3], created.process.pid())
+            || fields[3] != BOOTSTRAP_COMMAND.join(" ")
+            || !crate::process::terminal::foreground(fields[2], created.process.pid())
             || self.live(created.process.pid())? != created.process
         {
             return Err(bootstrap_changed());
         }
-        let checks = [
-            format!("#{{==:#{{pane_id}},{}}}", created.pane),
-            format!("#{{==:#{{pane_pid}},{}}}", created.process.pid()),
-            format!("#{{==:#{{session_id}},{}}}", created.session),
-            format!("#{{==:#{{window_id}},{}}}", created.window),
-            "#{==:#{pane_current_command},sh}".into(),
-            format!(
-                "#{{==:#{{pane_start_command}},{}}}",
-                BOOTSTRAP_COMMAND.join(" ")
-            ),
-            "#{==:#{window_panes},1}".into(),
-            "#{==:#{window_linked_sessions},1}".into(),
-            "#{>=:#{session_windows},2}".into(),
-            "#{==:#{session_attached},0}".into(),
-            "#{==:#{@tmt.agent},}".into(),
-            "#{==:#{@tmt.workspace-command},}".into(),
-        ];
+        let checks = bootstrap_checks(created);
         self.guard(
             Some(&created.pane),
             &checks,
@@ -1017,6 +1001,26 @@ impl<R: CommandRunner> Restore<'_, R> {
         )?;
         Ok(())
     }
+}
+
+/// What must still hold of the placeholder shell before its pane is killed.
+fn bootstrap_checks(created: &Created) -> Vec<String> {
+    vec![
+        format!("#{{==:#{{pane_id}},{}}}", created.pane),
+        format!("#{{==:#{{pane_pid}},{}}}", created.process.pid()),
+        format!("#{{==:#{{session_id}},{}}}", created.session),
+        format!("#{{==:#{{window_id}},{}}}", created.window),
+        format!(
+            "#{{==:#{{pane_start_command}},{}}}",
+            BOOTSTRAP_COMMAND.join(" ")
+        ),
+        "#{==:#{window_panes},1}".into(),
+        "#{==:#{window_linked_sessions},1}".into(),
+        "#{>=:#{session_windows},2}".into(),
+        "#{==:#{session_attached},0}".into(),
+        "#{==:#{@tmt.agent},}".into(),
+        "#{==:#{@tmt.workspace-command},}".into(),
+    ]
 }
 
 /// Only a kernel refusal proves that a remaining socket has no listener.

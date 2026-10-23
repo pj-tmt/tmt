@@ -345,7 +345,7 @@ fn bootstrap_pid_or_process_mismatch_removes_nothing() {
     assert!(tmux.runner.scripted.calls.borrow().is_empty());
     tmux.runner.replaced.set(false);
     tmux.runner.scripted.push_output(
-        format!("%4{SEP}99{SEP}sh{SEP}/dev/tty{SEP}/bin/sh -i\n").into_bytes(),
+        format!("%4{SEP}99{SEP}/dev/tty{SEP}/bin/sh -i\n").into_bytes(),
         vec![],
     );
     assert!(owner.remove_bootstrap(&created).is_err());
@@ -360,7 +360,6 @@ fn bootstrap_pid_or_process_mismatch_removes_nothing() {
             [
                 "#{pane_id}",
                 "#{pane_pid}",
-                "#{pane_current_command}",
                 "#{pane_tty}",
                 "#{pane_start_command}"
             ]
@@ -439,7 +438,7 @@ fn bootstrap_with_a_different_start_command_is_retained_before_terminal_or_kill_
     let mut owner = restore(&tmux);
     let created = owner.created(&created_output(2, 3, 4, 0)).unwrap();
     tmux.runner.scripted.push_output(
-        format!("%4{SEP}20{SEP}sh{SEP}/dev/tty{SEP}/bin/sh user-script\n").into_bytes(),
+        format!("%4{SEP}20{SEP}/dev/tty{SEP}/bin/sh user-script\n").into_bytes(),
         vec![],
     );
     assert!(owner.remove_bootstrap(&created).is_err());
@@ -662,4 +661,38 @@ fn a_failed_session_says_how_to_clear_what_it_left() {
     let merged = partial_note(&record, true);
     assert!(!merged.contains("close that session"), "{merged}");
     assert!(merged.contains("work-restored"), "{merged}");
+}
+
+#[test]
+fn the_placeholder_shell_is_proven_without_its_name() {
+    // macOS reports `bash` for /bin/sh -i and Linux `sh` or `dash`: no name may be required.
+    let tmux = Tmux::new(Runner::default());
+    let mut owner = restore(&tmux);
+    let created = owner.created(&created_output(2, 3, 4, 0)).unwrap();
+    let checks = bootstrap_checks(&created).join(" ");
+    assert!(!checks.contains("pane_current_command"), "{checks}");
+    for proof in [
+        "pane_pid",
+        "pane_start_command",
+        "session_id",
+        "window_id",
+        "window_panes",
+    ] {
+        assert!(checks.contains(proof), "{proof}: {checks}");
+    }
+    // The read-back asks for no shell name either, so a `bash` placeholder is the same as `sh`.
+    tmux.runner.scripted.push_output(
+        format!("%4{SEP}20{SEP}/dev/tty{SEP}/bin/sh user-script\n").into_bytes(),
+        vec![],
+    );
+    assert!(owner.remove_bootstrap(&created).is_err());
+    let calls = tmux.runner.scripted.calls.borrow();
+    assert!(
+        !calls[0]
+            .args
+            .iter()
+            .any(|arg| arg.contains("pane_current_command")),
+        "{:?}",
+        calls[0].args
+    );
 }
