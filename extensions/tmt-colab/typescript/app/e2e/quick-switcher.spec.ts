@@ -313,3 +313,18 @@ for (const width of [1586, 390]) {
     });
   }
 }
+
+for (const [platform, hint] of [
+  ['MacIntel', '⌘K'],
+  ['Win32', 'Ctrl K'],
+] as const) {
+  test(`search and header use the same platform hint ${platform}`, async ({ page }) => {
+    await page.addInitScript((platform) => {
+      Object.defineProperty(navigator, 'platform', { get: () => platform });
+    }, platform);
+    await mount(page);
+    await expect(control(page).locator('kbd')).toHaveText(hint);
+    await control(page).click();
+    await expect(dialog(page).locator('.quick-switcher-shortcut')).toHaveText(hint);
+  });
+}

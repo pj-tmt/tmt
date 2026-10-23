@@ -22,7 +22,7 @@ import { pageTitle } from './page-index.js';
 import { rankPages } from './quick-switcher.js';
 import { useSwitcherSource } from './quick-switcher-source.js';
 import { QuickSwitcherContext, useQuickSwitcher } from './quick-switcher-context.js';
-import { admitsSwitcherShortcut } from './quick-switcher-key.js';
+import { admitsSwitcherShortcut, usesCommandKey } from './quick-switcher-key.js';
 import { text } from './strings.js';
 import type { PageTransport } from './transport.js';
 import { useNotificationModalPresence } from './reply-notification-context.js';
@@ -278,10 +278,7 @@ export function QuickSwitcherHost({
                       }}
                     />
                     <kbd className="quick-switcher-shortcut">
-                      {typeof navigator !== 'undefined' &&
-                      /Mac|iPhone|iPad|iPod/.test(navigator.platform)
-                        ? '⌘ K'
-                        : 'Ctrl K'}
+                      {usesCommandKey() ? '⌘K' : 'Ctrl K'}
                     </kbd>
                   </div>
                   <div className="quick-switcher-rule" />
