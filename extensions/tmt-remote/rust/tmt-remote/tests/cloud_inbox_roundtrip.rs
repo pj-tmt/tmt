@@ -108,8 +108,8 @@ struct Wire {
 impl Wire {
     fn seed_inbox(&self, id: &str, carrier: &[u8]) {
         use base64::{Engine, engine::general_purpose::STANDARD};
-        let name = format!("{ROOT}/m/{MACHINE}/peers/{PEER}/inbox/{id}");
-        self.documents.lock().unwrap().insert(name.clone(), json!({"name":name,"createTime":STAMP,"fields":{"peerId":{"stringValue":PEER},"carrier":{"bytesValue":STANDARD.encode(carrier)},"createdAt":{"timestampValue":STAMP}}}));
+        let name = format!("{ROOT}/m/{MACHINE}/inbox/{id}");
+        self.documents.lock().unwrap().insert(name.clone(), json!({"name":name,"createTime":STAMP,"fields":{"peer":{"stringValue":PEER},"carrier":{"bytesValue":STANDARD.encode(carrier)},"createdAt":{"timestampValue":STAMP}}}));
     }
 }
 impl Http for Wire {
@@ -193,10 +193,14 @@ impl Http for Wire {
                 return Err(AuthError::unavailable());
             }
             Operation::Query => {
+                assert!(
+                    request.url().ends_with(&format!("/m/{MACHINE}:runQuery")),
+                    "machine remains the parent"
+                );
                 assert_eq!(input["structuredQuery"]["limit"], 1);
                 assert_eq!(
                     input["structuredQuery"]["from"],
-                    json!([{"collectionId":"inbox","allDescendants":true}])
+                    json!([{"collectionId":"inbox","allDescendants":false}])
                 );
                 let after =
                     input["structuredQuery"]["startAt"]["values"][1]["referenceValue"].as_str();
@@ -297,7 +301,7 @@ fn sender_restart_recovers_frozen_outcomes_after_lost_create_answer_or_response_
             deny_responses: AtomicBool::new(false),
             fail_queries: AtomicBool::new(false),
             lose_response_for: Mutex::new(
-                lose_response.then(|| format!("{ROOT}/m/{MACHINE}/peers/{PEER}/responses/{ID}")),
+                lose_response.then(|| format!("{ROOT}/m/{MACHINE}/responses/{ID}")),
             ),
         });
         let driver = world.driver(provider(Arc::clone(&wire), "owner"));
@@ -329,7 +333,7 @@ fn sender_restart_recovers_frozen_outcomes_after_lost_create_answer_or_response_
                     .documents
                     .lock()
                     .unwrap()
-                    .contains_key(&format!("{ROOT}/m/{MACHINE}/peers/{PEER}/responses/{ID}"))
+                    .contains_key(&format!("{ROOT}/m/{MACHINE}/responses/{ID}"))
             );
         }
         let database = world.owner_layout.directory.join("remote.db");
@@ -777,7 +781,7 @@ fn lost_response_post_does_not_block_later_carriers_or_repeat_after_restart() {
     std::fs::write(world.core.root.join("multi"), b"per-operation receipts").unwrap();
     let middle = "55555555-5555-4555-8555-555555555555";
     let last = "77777777-7777-4777-8777-777777777777";
-    let response = format!("{ROOT}/m/{MACHINE}/peers/{PEER}/responses/{middle}");
+    let response = format!("{ROOT}/m/{MACHINE}/responses/{middle}");
     let wire = Arc::new(Wire {
         documents: Mutex::new(BTreeMap::new()),
         owner: Mutex::new(Weak::new()),
@@ -819,7 +823,7 @@ fn lost_response_post_does_not_block_later_carriers_or_repeat_after_restart() {
         wire.documents
             .lock()
             .unwrap()
-            .contains_key(&format!("{ROOT}/m/{MACHINE}/peers/{PEER}/responses/{last}"))
+            .contains_key(&format!("{ROOT}/m/{MACHINE}/responses/{last}"))
     );
     let database = world.owner_layout.directory.join("remote.db");
     let inspect = || {
@@ -1117,6 +1121,186 @@ fn unknown_owned_lookup_is_permanent_but_real_store_failure_holds_the_checkpoint
         wire.documents
             .lock()
             .unwrap()
-            .contains_key(&format!("{ROOT}/m/{MACHINE}/peers/{PEER}/responses/{last}"))
+            .contains_key(&format!("{ROOT}/m/{MACHINE}/responses/{last}"))
+    );
+}
+
+#[test]
+fn sender_before_claim_refusal_can_make_its_first_post_without_reading_a_missing_document() {
+    struct BeforeClaimBudget(AtomicBool);
+    impl NativeBudgetPort for BeforeClaimBudget {
+        fn usage(&self, _: &str) -> Result<NativeUsage, SyncError> {
+            Ok(NativeUsage::new(NOW))
+        }
+        fn charge(&self, _: &str, _: &Model, _: u64, _: Time) -> Result<Decision, SyncError> {
+            if self.0.load(Ordering::SeqCst) {
+                return Err(SyncError::BudgetExhausted(
+                    tmt_remote::firestore_budget::Refusal {
+                        reset_at_ms: NOW + 1000,
+                        retry_after_ms: 1000,
+                    },
+                ));
+            }
+            Ok(Decision::Allow)
+        }
+        fn flush(&self) -> Result<(), SyncError> {
+            Ok(())
+        }
+    }
+    let mut world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+    let wire = Arc::new(Wire {
+        documents: Mutex::new(BTreeMap::new()),
+        owner: Mutex::new(Weak::new()),
+        cancel_after_create: Mutex::new(None),
+        requests: Mutex::new(vec![]),
+        deny_responses: AtomicBool::new(false),
+        fail_queries: AtomicBool::new(false),
+        lose_response_for: Mutex::new(None),
+    });
+    let driver = world.driver(provider(wire.clone(), "owner"));
+    *wire.owner.lock().unwrap() = Arc::downgrade(&driver);
+    let budget = Arc::new(BeforeClaimBudget(AtomicBool::new(true)));
+    let runtime = Arc::new(NativeRuntime::new(
+        wire.clone(),
+        Arc::new(ClockPort),
+        Arc::new(ClockPort),
+        budget.clone(),
+    ));
+    let sender = Sender::new(
+        Provider::new(
+            Arc::new(Auth("peer")),
+            runtime,
+            Model::new(4, 4).unwrap(),
+            MACHINE,
+        )
+        .unwrap(),
+        Arc::new(Mutex::new(world.sender_store.take().unwrap())),
+        PEER,
+        world.key.clone(),
+    )
+    .unwrap();
+    let stopped = AtomicBool::new(false);
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(10),
+        cancelled: &stopped,
+    };
+    let raw=json!({"version":1,"remote":"team","createdAtMs":NOW,"requestId":ID,"from":{"id":PEER,"name":"peer"},"target":{"id":TARGET,"name":"target"},"message":"before-claim effect"}).to_string();
+    let error = ready(sender.prepared(raw.as_bytes(), &world.descriptor, "team", NOW, &io))
+        .err()
+        .unwrap();
+    assert_eq!(error.code, "REMOTE_BUDGET_EXHAUSTED");
+    assert!(wire.requests.lock().unwrap().is_empty());
+    let inspect =
+        rusqlite::Connection::open(world.sender_layout.directory.join("remote.db")).unwrap();
+    let attempted: bool = inspect
+        .query_row(
+            "SELECT attempted FROM cloud_transport WHERE kind='outbox' AND id=?1",
+            [ID],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(!attempted);
+    budget.0.store(false, Ordering::SeqCst);
+    let answer =
+        ready(sender.prepared(raw.as_bytes(), &world.descriptor, "team", NOW, &io)).unwrap();
+    assert_eq!(answer.state, tmt_remote::cloud_command::State::Sent);
+    assert_eq!(world.core.sends(), 1);
+    let calls = wire.requests.lock().unwrap();
+    assert_eq!(
+        calls[0].0,
+        Operation::Commit,
+        "unattempted frozen bytes need no missing-document read"
+    );
+}
+
+#[test]
+fn missing_response_then_owner_reply_within_the_call_returns_the_confirmed_outcome() {
+    struct DeferredOwner {
+        wire: Arc<Wire>,
+        owner: Mutex<Weak<InboxDriver>>,
+        notified: AtomicBool,
+    }
+    impl Http for DeferredOwner {
+        fn send(
+            &self,
+            request: &Request,
+            deadline: u64,
+            cancel: &dyn Cancellation,
+        ) -> Result<Response, AuthError> {
+            let reply = self.wire.send(request, deadline, cancel)?;
+            if request.operation() == Operation::Read
+                && request.url().contains("/responses/")
+                && reply.status == 404
+                && !self.notified.swap(true, Ordering::SeqCst)
+            {
+                let owner = self.owner.lock().unwrap().upgrade().unwrap();
+                let stopped = AtomicBool::new(false);
+                let io = IoBudget {
+                    deadline: Instant::now() + Duration::from_secs(5),
+                    cancelled: &stopped,
+                };
+                ready(owner.reconcile(NOW, &io)).unwrap();
+            }
+            Ok(reply)
+        }
+    }
+    let mut world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+    let wire = Arc::new(Wire {
+        documents: Mutex::new(BTreeMap::new()),
+        owner: Mutex::new(Weak::new()),
+        cancel_after_create: Mutex::new(None),
+        requests: Mutex::new(vec![]),
+        deny_responses: AtomicBool::new(false),
+        fail_queries: AtomicBool::new(false),
+        lose_response_for: Mutex::new(None),
+    });
+    let deferred = Arc::new(DeferredOwner {
+        wire: wire.clone(),
+        owner: Mutex::new(Weak::new()),
+        notified: AtomicBool::new(false),
+    });
+    let make_provider = |uid| {
+        Provider::new(
+            Arc::new(Auth(uid)),
+            Arc::new(NativeRuntime::new(
+                deferred.clone(),
+                Arc::new(ClockPort),
+                Arc::new(ClockPort),
+                Arc::new(Budget(Mutex::new(NativeUsage::new(NOW)))),
+            )),
+            Model::new(4, 4).unwrap(),
+            MACHINE,
+        )
+        .unwrap()
+    };
+    let owner = world.driver(make_provider("owner"));
+    *deferred.owner.lock().unwrap() = Arc::downgrade(&owner);
+    let sender = Sender::new(
+        make_provider("peer"),
+        Arc::new(Mutex::new(world.sender_store.take().unwrap())),
+        PEER,
+        world.key.clone(),
+    )
+    .unwrap();
+    let stopped = AtomicBool::new(false);
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(10),
+        cancelled: &stopped,
+    };
+    let raw=json!({"version":1,"remote":"team","createdAtMs":NOW,"requestId":ID,"from":{"id":PEER,"name":"peer"},"target":{"id":TARGET,"name":"target"},"message":"delayed owner effect"}).to_string();
+    let answer =
+        ready(sender.prepared(raw.as_bytes(), &world.descriptor, "team", NOW, &io)).unwrap();
+    assert_eq!(answer.state, tmt_remote::cloud_command::State::Sent);
+    assert_eq!(world.core.sends(), 1);
+    assert!(deferred.notified.load(Ordering::SeqCst));
+    assert_eq!(
+        wire.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(op, path)| *op == Operation::Read && path.contains("/responses/"))
+            .count(),
+        3,
+        "sender observes missing then present, plus the owner's publication readback"
     );
 }

@@ -5,35 +5,41 @@ service cloud.firestore {
       return request.auth != null &&
         get(/databases/$(database)/documents/m/$(machine)).data.uid == request.auth.uid;
     }
-    function peerUser(machine, peer) {
-      let row = get(/databases/$(database)/documents/m/$(machine)/peers/$(peer)).data;
-      return request.auth != null && row.uid == request.auth.uid &&
-        row.revoked == false && row.expiresAt > request.time;
+    function routedPeer(machine) {
+      return get(/databases/$(database)/documents/m/$(machine)/peers/$(request.auth.uid)).data;
     }
-    function carrier(peer) {
-      return request.resource.data.keys().hasOnly(['peerId', 'carrier', 'createdAt']) &&
-        request.resource.data.keys().hasAll(['peerId', 'carrier', 'createdAt']) &&
-        request.resource.data.peerId == peer &&
+    function carrier() {
+      return request.resource.data.keys().hasOnly(['peer', 'carrier', 'createdAt']) &&
+        request.resource.data.keys().hasAll(['peer', 'carrier', 'createdAt']) &&
+        request.resource.data.peer is string &&
+        request.resource.data.peer.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}') &&
         request.resource.data.carrier is bytes &&
         request.resource.data.carrier.size() > 0 &&
         request.resource.data.carrier.size() <= CLOUD_CARRIER_BYTES &&
         request.resource.data.createdAt == request.time;
     }
-    match /m/{machine}/peers/{peer}/inbox/{id} {
-      allow create: if peerUser(machine, peer) && carrier(peer) &&
-        id.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}');
-      allow get: if machineOwner(machine) || peerUser(machine, peer);
-      allow delete: if machineOwner(machine);
+    function peerCreate(machine) {
+      let row = routedPeer(machine);
+      return request.auth != null && row.revoked == false && row.expiresAt > request.time &&
+        request.resource.data.peer == row.peer;
     }
-    match /m/{machine}/peers/{peer}/responses/{id} {
-      allow create: if machineOwner(machine) && carrier(peer) &&
-        id.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}');
-      allow get: if machineOwner(machine) || peerUser(machine, peer);
-      allow delete: if machineOwner(machine);
+    function peerRead(machine) {
+      let row = routedPeer(machine);
+      return request.auth != null && row.revoked == false && row.expiresAt > request.time &&
+        (resource == null || resource.data.peer == row.peer);
     }
-    // Rules v2 collection-group authorization remains scoped to the selected machine.
-    match /m/{machine}/{tail=**}/inbox/{id} {
+    match /m/{machine}/inbox/{id} {
+      allow create: if carrier() && peerCreate(machine) &&
+        id.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}');
+      allow get: if machineOwner(machine) || peerRead(machine);
       allow list: if machineOwner(machine) && request.query.limit == 1;
+      allow delete: if machineOwner(machine);
+    }
+    match /m/{machine}/responses/{id} {
+      allow create: if machineOwner(machine) && carrier() &&
+        id.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}');
+      allow get: if machineOwner(machine) || peerRead(machine);
+      allow delete: if machineOwner(machine);
     }
     match /{document=**} {
       allow read, write: if false;

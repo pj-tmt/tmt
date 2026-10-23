@@ -116,6 +116,16 @@ impl Http for Wire {
         cancel: &dyn Cancellation,
     ) -> Result<Response, AuthError> {
         let response = self.http.send(request, deadline, cancel)?;
+        if response.status >= 400 {
+            let value: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
+            let known: Option<tmt_remote::error::CloudProviderStatus> =
+                serde_json::from_value(value["error"]["status"].clone()).ok();
+            println!(
+                "cloud HTTP failure operation={:?} status={} error_status={known:?}",
+                request.operation(),
+                response.status
+            );
+        }
         self.counts
             .lock()
             .unwrap()
@@ -132,7 +142,11 @@ impl Http for Wire {
                     deadline: Instant::now() + Duration::from_secs(30),
                     cancelled: &cancelled,
                 };
-                ready(owner.reconcile(self.clock.now().wall_ms, &io)).unwrap();
+                if let Err(error) = ready(owner.reconcile(self.clock.now().wall_ms, &io)) {
+                    self.report("reconciliation-failure");
+                    eprintln!("cloud reconciliation refusal {}", error.json_value());
+                    panic!("owner reconciliation refused");
+                }
             }
         }
         Ok(response)
@@ -241,8 +255,8 @@ fn ordinary_users_deliver_recover_restart_revoke_and_stop_before_budget_io() {
         &format!("m/{MACHINE}"),
         json!({"uid":{"stringValue":"owner"}}),
     );
-    let peer_row = |revoked| json!({"uid":{"stringValue":"peer"},"revoked":{"booleanValue":revoked},"expiresAt":{"timestampValue":"2035-01-01T00:00:00Z"}});
-    admin.seed(&format!("m/{MACHINE}/peers/{PEER}"), peer_row(false));
+    let peer_row = |revoked| json!({"peer":{"stringValue":PEER},"revoked":{"booleanValue":revoked},"expiresAt":{"timestampValue":"2035-01-01T00:00:00Z"}});
+    admin.seed(&format!("m/{MACHINE}/peers/peer"), peer_row(false));
     let clock = Arc::new(SystemClock::default());
     let now = clock.now().wall_ms;
     let mut world = World::new(now, Arc::new(CurrentIdentity));
@@ -287,7 +301,7 @@ fn ordinary_users_deliver_recover_restart_revoke_and_stop_before_budget_io() {
     let auth = Auth("peer");
     let token = ready(auth.token(&io)).unwrap().token;
     let root = format!("projects/{PROJECT}/databases/(default)/documents");
-    let path = format!("/v1/{root}/m/{MACHINE}/peers/{PEER}/inbox/{id}");
+    let path = format!("/v1/{root}/m/{MACHINE}/inbox/{id}");
     // Updates and deletes are never sender capabilities, even for its own ID.
     assert_eq!(
         admin
@@ -302,8 +316,8 @@ fn ordinary_users_deliver_recover_restart_revoke_and_stop_before_budget_io() {
     );
     assert_eq!(admin.status("DELETE", &path, Value::Null, &token).0, 403);
     let fresh = uuid_v4().unwrap();
-    let name = format!("{root}/m/{MACHINE}/peers/{PEER}/inbox/{fresh}");
-    let write = json!({"update":{"name":name,"fields":{"peerId":{"stringValue":PEER},"carrier":{"bytesValue":"eA=="},"extra":{"booleanValue":true}}},"updateTransforms":[{"fieldPath":"createdAt","setToServerValue":"REQUEST_TIME"}],"currentDocument":{"exists":false}});
+    let name = format!("{root}/m/{MACHINE}/inbox/{fresh}");
+    let write = json!({"update":{"name":name,"fields":{"peer":{"stringValue":PEER},"carrier":{"bytesValue":"eA=="},"extra":{"booleanValue":true}}},"updateTransforms":[{"fieldPath":"createdAt","setToServerValue":"REQUEST_TIME"}],"currentDocument":{"exists":false}});
     assert_eq!(
         admin
             .status(
@@ -322,7 +336,47 @@ fn ordinary_users_deliver_recover_restart_revoke_and_stop_before_budget_io() {
         403,
         "other uid cannot read ciphertext"
     );
-    println!("cloud rules_controls=4 refused=4 (fixture HTTP, excluded from driver wire totals)");
+    let missing = format!("/v1/{root}/m/{MACHINE}/responses/{fresh}");
+    assert_eq!(
+        admin.status("GET", &missing, Value::Null, &token).0,
+        404,
+        "routed peer may observe a missing response"
+    );
+    assert_eq!(
+        admin.status("GET", &missing, Value::Null, &stranger).0,
+        403,
+        "non-routed uid cannot observe even a missing ID"
+    );
+    // A registered other peer cannot adopt a carrier simply by guessing its ID.
+    let other_peer = uuid_v4().unwrap();
+    admin.seed(&format!("m/{MACHINE}/peers/stranger"), json!({"peer":{"stringValue":other_peer},"revoked":{"booleanValue":false},"expiresAt":{"timestampValue":"2035-01-01T00:00:00Z"}}));
+    assert_eq!(
+        admin
+            .status(
+                "GET",
+                &format!("/v1/{root}/m/{MACHINE}/responses/{id}"),
+                Value::Null,
+                &stranger
+            )
+            .0,
+        403,
+        "routed foreign peer cannot read this carrier"
+    );
+    assert_eq!(
+        admin
+            .status(
+                "POST",
+                &format!("/v1/{root}/m/{MACHINE}:runQuery"),
+                json!({"structuredQuery":{"from":[{"collectionId":"responses"}],"limit":1}}),
+                &token
+            )
+            .0,
+        403,
+        "response lists are denied even to the sender"
+    );
+    println!(
+        "cloud rules_controls=8 refused=7 missing=1 (fixture HTTP, excluded from driver wire totals)"
+    );
 
     // A new serving window consumes the same persisted journal and descriptor/keyring.
     drop(driver);
@@ -375,7 +429,7 @@ fn ordinary_users_deliver_recover_restart_revoke_and_stop_before_budget_io() {
     );
     budget.refuse.store(false, Ordering::SeqCst);
     world.owner_store.lock().unwrap().revoke(PEER).unwrap();
-    admin.seed(&format!("m/{MACHINE}/peers/{PEER}"), peer_row(true));
+    admin.seed(&format!("m/{MACHINE}/peers/peer"), peer_row(true));
     let denied = raw.replace(&id, &uuid_v4().unwrap());
     let error = ready(sender.prepared(
         denied.as_bytes(),

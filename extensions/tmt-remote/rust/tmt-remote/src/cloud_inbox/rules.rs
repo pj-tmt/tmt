@@ -20,5 +20,14 @@ mod tests {
             2
         );
         assert!(!rules.contains("allow update"));
+        assert!(rules.contains("match /m/{machine}/inbox/{id}"));
+        assert!(rules.contains("peerCreate(machine)"));
+        assert!(rules.contains("peerRead(machine)"));
+        assert_eq!(
+            rules.matches("allow list:").count(),
+            1,
+            "responses cannot list"
+        );
+        assert!(!rules.contains("{tail=**}"));
     }
 }

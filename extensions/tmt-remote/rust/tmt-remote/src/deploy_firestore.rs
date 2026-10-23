@@ -118,9 +118,8 @@ impl DeployPreflightError {
             Some(provider) => format!("Firebase could not read {} (HTTP {}). Nothing changed in your Firebase project.", provider.operation.label(), provider.status),
             None => "Firebase refused to list the project's current setup. Nothing changed in your Firebase project.".into(),
         };
-        let mut error = crate::error::RemoteError::new(code, &message);
-        error.provider = self.provider;
-        error
+        let error = crate::error::RemoteError::new(code, &message);
+        error.with_deploy_provider(self.provider)
     }
 }
 #[derive(Debug)]

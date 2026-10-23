@@ -34,18 +34,21 @@ impl Document {
     ) -> Result<Self, RemoteError> {
         let name = value["name"].as_str().ok_or_else(invalid)?;
         let suffix = name
-            .strip_prefix(&format!("{root}/m/{machine}/peers/"))
+            .strip_prefix(&format!("{root}/m/{machine}/{stream}/"))
             .ok_or_else(invalid)?;
-        let segments: Vec<_> = suffix.split('/').collect();
-        if segments.len() != 3 || segments[1] != stream {
-            return Err(invalid());
-        }
-        canonical::uuid(segments[0]).map_err(|_| invalid())?;
-        canonical::uuid(segments[2]).map_err(|_| invalid())?;
+        canonical::uuid(suffix).map_err(|_| invalid())?;
         let fields = value["fields"].as_object().ok_or_else(invalid)?;
-        if fields.len() != 3 || fields.get("peerId") != Some(&json!({"stringValue":segments[0]})) {
+        let peer = fields
+            .get("peer")
+            .and_then(Value::as_object)
+            .filter(|field| field.len() == 1)
+            .and_then(|field| field.get("stringValue"))
+            .and_then(Value::as_str)
+            .ok_or_else(invalid)?;
+        if fields.len() != 3 {
             return Err(invalid());
         }
+        canonical::uuid(peer).map_err(|_| invalid())?;
         let created_ms = timestamp(value["createTime"].as_str().ok_or_else(invalid)?)?;
         if fields
             .get("createdAt")
@@ -80,8 +83,8 @@ impl Document {
             return Err(invalid());
         }
         Ok(Self {
-            peer: segments[0].into(),
-            id: segments[2].into(),
+            peer: peer.into(),
+            id: suffix.into(),
             created_ms,
             bytes,
             cursor: json!({"values":[fields["createdAt"].clone(),{"referenceValue":name}],"before":false}),
@@ -94,7 +97,7 @@ pub(crate) fn create_carrier(name: &str, peer: &str, carrier: &[u8]) -> Result<V
     }
     canonical::uuid(peer).map_err(|_| invalid())?;
     Ok(
-        json!({"update":{"name":name,"fields":{"peerId":{"stringValue":peer},"carrier":{"bytesValue":STANDARD.encode(carrier)}}},"updateTransforms":[{"fieldPath":"createdAt","setToServerValue":"REQUEST_TIME"}],"currentDocument":{"exists":false}}),
+        json!({"update":{"name":name,"fields":{"peer":{"stringValue":peer},"carrier":{"bytesValue":STANDARD.encode(carrier)}}},"updateTransforms":[{"fieldPath":"createdAt","setToServerValue":"REQUEST_TIME"}],"currentDocument":{"exists":false}}),
     )
 }
 fn invalid() -> RemoteError {

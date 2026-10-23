@@ -346,7 +346,7 @@ fn owned_read_provenance_separates_unavailable_from_store_failure_without_wire_c
         .store
         .owned(&f.grant, &uuid_v4().unwrap(), f.now)
         .unwrap_err();
-    assert_eq!(absent.owned_read, Some(OwnedReadFailure::Unavailable));
+    assert_eq!(absent.owned_read(), Some(OwnedReadFailure::Unavailable));
     assert_eq!(
         serde_json::to_vec(&absent.json_value()).unwrap(),
         serde_json::to_vec(&database("owned state absent").json_value()).unwrap()
@@ -363,7 +363,7 @@ fn owned_read_provenance_separates_unavailable_from_store_failure_without_wire_c
         .owned(&f.grant, &owned.id, f.now + RECOVERY)
         .unwrap_err();
     for error in [foreign, expired] {
-        assert_eq!(error.owned_read, Some(OwnedReadFailure::Unavailable));
+        assert_eq!(error.owned_read(), Some(OwnedReadFailure::Unavailable));
         assert_eq!(
             serde_json::to_vec(&error.json_value()).unwrap(),
             serde_json::to_vec(&database("owned state unavailable").json_value()).unwrap()
@@ -374,6 +374,6 @@ fn owned_read_provenance_separates_unavailable_from_store_failure_without_wire_c
         .execute_batch("ALTER TABLE operations RENAME TO unavailable_operations")
         .unwrap();
     let failure = f.store.owned(&f.grant, &owned.id, f.now).unwrap_err();
-    assert_eq!(failure.owned_read, Some(OwnedReadFailure::Store));
+    assert_eq!(failure.owned_read(), Some(OwnedReadFailure::Store));
     assert_eq!(failure.code, "REMOTE_STATE_UNAVAILABLE");
 }

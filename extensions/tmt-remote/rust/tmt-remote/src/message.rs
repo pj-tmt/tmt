@@ -59,7 +59,7 @@ impl MessageService {
                 )
                 .map(|bytes| MessageAnswer {
                     bytes,
-                    owned_read: error.owned_read,
+                    owned_read: error.owned_read(),
                 }),
         }
     }
@@ -110,7 +110,7 @@ impl MessageService {
                 }
                 permit.response(&payload).map(|bytes| MessageAnswer {
                     bytes,
-                    owned_read: error.owned_read,
+                    owned_read: error.owned_read(),
                 })
             })
     }

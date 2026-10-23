@@ -1,7 +1,7 @@
 //! Ordinary-user Firestore calls through the serving project's existing Auth/HTTP/budget owner.
 use super::document::{self, Document};
 use crate::{
-    error::RemoteError,
+    error::{CloudProviderDiagnostic, CloudProviderOperation, RemoteError},
     firebase_auth::Operation,
     firestore_budget::{Model, READ_LOOKUPS, WRITE_LOOKUPS},
     native_sync::{NativeRuntime, client::RestCall},
@@ -71,10 +71,7 @@ impl Provider {
         if !["inbox", "responses"].contains(&stream) {
             return Err(invalid());
         }
-        Ok(format!(
-            "{}/m/{}/peers/{peer}/{stream}/{id}",
-            self.root, self.machine
-        ))
+        Ok(format!("{}/m/{}/{stream}/{id}", self.root, self.machine))
     }
     async fn call(
         &self,
@@ -140,10 +137,17 @@ impl Provider {
             return Ok(None);
         }
         if response.status != 200 {
-            return Err(status(response.status));
+            return Err(status(
+                CloudProviderOperation::for_stream(Operation::Read, stream),
+                &response,
+            ));
         }
         let value = crate::wire::strict_json(&response.body).ok_or_else(invalid)?;
-        Document::read(&value, &self.root, &self.machine, stream).map(Some)
+        let document = Document::read(&value, &self.root, &self.machine, stream)?;
+        if document.peer() != peer {
+            return Err(invalid());
+        }
+        Ok(Some(document))
     }
     /// Caller durably claims the exact bytes before invoking this once. This method never retries.
     /// Every response, including 2xx, is observed by the same ID before it is called confirmed.
@@ -172,7 +176,10 @@ impl Provider {
             && (400..500).contains(&answer.status)
             && ![409, 429].contains(&answer.status)
         {
-            return Err(status(answer.status));
+            return Err(status(
+                CloudProviderOperation::for_stream(Operation::Commit, stream),
+                &answer,
+            ));
         }
         // A cancelled/deadline call remains unknown. Never turn it into a retry.
         io.check().map_err(|_| unavailable())?;
@@ -182,7 +189,7 @@ impl Provider {
             .await
             .map_err(|_| unavailable())
     }
-    /// One machine-scoped collection-group query, independent of peer count.
+    /// One shallow machine inbox query, independent of peer count.
     pub(crate) async fn inbox(
         &self,
         from_ms: u64,
@@ -193,7 +200,7 @@ impl Provider {
         if limit == 0 || limit > crate::journal::OPERATIONS as usize {
             return Err(invalid());
         }
-        let mut value = json!({"structuredQuery":{"from":[{"collectionId":"inbox","allDescendants":true}],"where":{"fieldFilter":{"field":{"fieldPath":"createdAt"},"op":"GREATER_THAN_OR_EQUAL","value":{"timestampValue":stamp(from_ms)}}},"orderBy":[{"field":{"fieldPath":"createdAt"},"direction":"ASCENDING"},{"field":{"fieldPath":"__name__"},"direction":"ASCENDING"}],"limit":limit}});
+        let mut value = json!({"structuredQuery":{"from":[{"collectionId":"inbox","allDescendants":false}],"where":{"fieldFilter":{"field":{"fieldPath":"createdAt"},"op":"GREATER_THAN_OR_EQUAL","value":{"timestampValue":stamp(from_ms)}}},"orderBy":[{"field":{"fieldPath":"createdAt"},"direction":"ASCENDING"},{"field":{"fieldPath":"__name__"},"direction":"ASCENDING"}],"limit":limit}});
         if let Some(after) = after {
             value["structuredQuery"]["startAt"] = after.clone();
         }
@@ -209,7 +216,7 @@ impl Provider {
             .await?
             .ok_or_else(unavailable)?;
         if response.status != 200 {
-            return Err(status(response.status));
+            return Err(status(CloudProviderOperation::InboxQuery, &response));
         }
         let values = crate::wire::strict_json(&response.body)
             .and_then(|v| v.as_array().cloned())
@@ -287,16 +294,38 @@ fn stamp(ms: u64) -> String {
 fn sync_error(error: SyncError) -> RemoteError {
     RemoteError::new(error.code(), "Cloud transport refused the request.")
 }
-fn status(status: u16) -> RemoteError {
-    RemoteError::new(
-        if status == 403 {
+impl CloudProviderOperation {
+    fn for_stream(operation: Operation, stream: &str) -> Self {
+        match (operation, stream) {
+            (Operation::Read, "inbox") => Self::InboxRead,
+            (Operation::Read, _) => Self::ResponseRead,
+            (Operation::Commit, "inbox") => Self::InboxCreate,
+            _ => Self::ResponseCreate,
+        }
+    }
+}
+fn status(
+    operation: CloudProviderOperation,
+    response: &crate::firebase_auth::Response,
+) -> RemoteError {
+    let error = RemoteError::new(
+        if response.status == 403 {
             "REMOTE_CLOUD_ACCESS_DENIED"
         } else {
             "REMOTE_CLOUD_PROVIDER_UNAVAILABLE"
         },
         "Cloud transport could not confirm the request.",
-    )
+    );
+    // The ordinary HTTP owner already bounds the body. Admit just the fixed status enum.
+    let error_status = crate::wire::strict_json(&response.body)
+        .and_then(|value| serde_json::from_value(value["error"]["status"].clone()).ok());
+    error.with_cloud_provider(CloudProviderDiagnostic {
+        operation,
+        status: response.status,
+        error_status,
+    })
 }
+
 fn invalid() -> RemoteError {
     RemoteError::new(
         "REMOTE_CLOUD_DOCUMENT_INVALID",
@@ -443,5 +472,132 @@ mod tests {
             }
             assert_eq!(*budget.charged.lock().unwrap(), vec![WRITE_LOOKUPS]);
         }
+    }
+    struct Rejected(&'static str);
+    impl Http for Rejected {
+        fn send(
+            &self,
+            request: &Request,
+            _: u64,
+            _: &dyn Cancellation,
+        ) -> Result<Response, AuthError> {
+            assert_eq!(request.operation(), Operation::Query);
+            Ok(Response {
+                status: 400,
+                retry_after_ms: None,
+                body: self.0.as_bytes().to_vec(),
+            })
+        }
+    }
+    #[test]
+    fn provider_refusal_retains_only_fixed_operation_http_status_and_known_status() {
+        for (body, known) in [
+            (
+                r#"{"error":{"status":"FAILED_PRECONDITION","message":"SECRET_MARKER","details":["SECRET_MARKER"]}}"#,
+                true,
+            ),
+            (
+                r#"{"error":{"status":"SECRET_MARKER","message":"SECRET_MARKER"}}"#,
+                false,
+            ),
+        ] {
+            let budget = Arc::new(Budget {
+                refuse: false,
+                charged: Mutex::new(vec![]),
+            });
+            let runtime = Arc::new(NativeRuntime::new(
+                Arc::new(Rejected(body)),
+                Arc::new(Ports),
+                Arc::new(Ports),
+                budget,
+            ));
+            let provider = Provider::new(
+                Arc::new(Auth),
+                runtime,
+                Model::new(4, 4).unwrap(),
+                "11111111-1111-4111-8111-111111111111",
+            )
+            .unwrap();
+            let cancelled = AtomicBool::new(false);
+            let io = IoBudget {
+                deadline: Instant::now() + Duration::from_secs(1),
+                cancelled: &cancelled,
+            };
+            let mut future = pin!(provider.inbox(0, 1, None, &io));
+            let Poll::Ready(Err(error)) = future
+                .as_mut()
+                .poll(&mut Context::from_waker(std::task::Waker::noop()))
+            else {
+                panic!("ready refusal");
+            };
+            let value = error.json_value();
+            assert_eq!(error.code, "REMOTE_CLOUD_PROVIDER_UNAVAILABLE");
+            assert_eq!(value["error"]["provider"]["operation"], "inbox-query");
+            assert_eq!(value["error"]["provider"]["status"], 400);
+            if known {
+                assert_eq!(
+                    value["error"]["provider"]["errorStatus"],
+                    "FAILED_PRECONDITION"
+                );
+            } else {
+                assert!(value["error"]["provider"].get("errorStatus").is_none());
+            }
+            assert!(!value.to_string().contains("SECRET_MARKER"));
+        }
+    }
+    #[test]
+    fn exact_id_read_refuses_another_peers_carrier_in_the_shared_machine_collection() {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        struct Foreign;
+        impl Http for Foreign {
+            fn send(
+                &self,
+                request: &Request,
+                _: u64,
+                _: &dyn Cancellation,
+            ) -> Result<Response, AuthError> {
+                assert_eq!(request.operation(), Operation::Read);
+                assert!(request.url().ends_with("/m/11111111-1111-4111-8111-111111111111/responses/22222222-2222-4222-8222-222222222222"));
+                Ok(Response { status:200, retry_after_ms:None, body:serde_json::to_vec(&json!({
+                    "name":"projects/demo-cloud/databases/(default)/documents/m/11111111-1111-4111-8111-111111111111/responses/22222222-2222-4222-8222-222222222222",
+                    "createTime":"2026-10-23T04:00:00Z",
+                    "fields":{"peer":{"stringValue":"33333333-3333-4333-8333-333333333333"},"carrier":{"bytesValue":STANDARD.encode(b"opaque")},"createdAt":{"timestampValue":"2026-10-23T04:00:00Z"}}
+                })).unwrap() })
+            }
+        }
+        let runtime = Arc::new(NativeRuntime::new(
+            Arc::new(Foreign),
+            Arc::new(Ports),
+            Arc::new(Ports),
+            Arc::new(Budget {
+                refuse: false,
+                charged: Mutex::new(vec![]),
+            }),
+        ));
+        let provider = Provider::new(
+            Arc::new(Auth),
+            runtime,
+            Model::new(4, 4).unwrap(),
+            "11111111-1111-4111-8111-111111111111",
+        )
+        .unwrap();
+        let cancel = AtomicBool::new(false);
+        let io = IoBudget {
+            deadline: Instant::now() + Duration::from_secs(1),
+            cancelled: &cancel,
+        };
+        let mut future = pin!(provider.get(
+            "44444444-4444-4444-8444-444444444444",
+            "responses",
+            "22222222-2222-4222-8222-222222222222",
+            &io
+        ));
+        let Poll::Ready(Err(error)) = future
+            .as_mut()
+            .poll(&mut Context::from_waker(std::task::Waker::noop()))
+        else {
+            panic!("foreign peer must refuse")
+        };
+        assert_eq!(error.code, "REMOTE_CLOUD_DOCUMENT_INVALID");
     }
 }

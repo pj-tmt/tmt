@@ -164,14 +164,15 @@ impl Sender {
             if now.saturating_sub(old.created_ms) >= crate::journal::RECOVERY {
                 return Err(expired());
             }
-            let mut observed = self
-                .provider
-                .get(&self.peer, "inbox", e.id, io)
-                .await
-                .map_err(|_| unconfirmed())?;
-            if observed.is_none() && !old.attempted {
-                observed = self
-                    .provider
+            let observed = if old.attempted {
+                self.provider
+                    .get(&self.peer, "inbox", e.id, io)
+                    .await
+                    .map_err(|_| unconfirmed())?
+            } else {
+                // No durable claim means no HTTP mutation was invoked. Make its first
+                // create from the frozen bytes, with the ordinary Auth/budget/claim fence.
+                self.provider
                     .create(
                         &self.peer,
                         "inbox",
@@ -180,8 +181,8 @@ impl Sender {
                         self.claim(e.id),
                         io,
                     )
-                    .await?;
-            }
+                    .await?
+            };
             match observed {
                 Some(doc) if doc.bytes() == old.carrier => {
                     return self.recover(e.id, descriptor, now, io).await;

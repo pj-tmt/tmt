@@ -152,15 +152,28 @@ fn entropy_failure_refuses_before_signing_and_each_seal_has_a_fresh_seed() {
 }
 
 #[test]
-fn provider_document_uses_output_create_time_and_exact_peer_namespace() {
+fn provider_document_uses_output_create_time_and_exact_machine_namespace() {
     use base64::{Engine, engine::general_purpose::STANDARD};
     use serde_json::json;
     let root = "projects/demo-cloud/databases/(default)/documents";
     let machine = "11111111-1111-4111-8111-111111111111";
-    let row = json!({"name":format!("{root}/m/{machine}/peers/{PEER}/inbox/{ID}"),"createTime":"2026-10-23T04:00:00.123456789Z","fields":{"peerId":{"stringValue":PEER},"carrier":{"bytesValue":STANDARD.encode(b"ciphertext")},"createdAt":{"timestampValue":"2026-10-23T04:00:00.123Z"}}});
+    let row = json!({"name":format!("{root}/m/{machine}/inbox/{ID}"),"createTime":"2026-10-23T04:00:00.123456789Z","fields":{"peer":{"stringValue":PEER},"carrier":{"bytesValue":STANDARD.encode(b"ciphertext")},"createdAt":{"timestampValue":"2026-10-23T04:00:00.123Z"}}});
     let document = super::document::Document::read(&row, root, machine, "inbox").unwrap();
     assert_eq!(document.created_ms(), 1_792_728_000_123);
     assert_eq!(document.bytes(), b"ciphertext");
+    assert_eq!(document.peer(), PEER);
+    for name in [
+        format!("{root}/m/{machine}/peers/{PEER}/inbox/{ID}"),
+        format!("{root}/m/{PEER}/inbox/{ID}"),
+    ] {
+        let mut bad = row.clone();
+        bad["name"] = json!(name);
+        assert!(super::document::Document::read(&bad, root, machine, "inbox").is_err());
+    }
+    let mut bad_peer = row.clone();
+    bad_peer["fields"]["peer"] = json!({"stringValue":"not-a-uuid"});
+    assert!(super::document::Document::read(&bad_peer, root, machine, "inbox").is_err());
+
     for field in ["name", "createTime", "fields"] {
         let mut bad = row.clone();
         bad.as_object_mut().unwrap().remove(field);
@@ -168,7 +181,7 @@ fn provider_document_uses_output_create_time_and_exact_peer_namespace() {
     }
     let mut missing_peer = row.clone();
     let fields = missing_peer["fields"].as_object_mut().unwrap();
-    fields.remove("peerId");
+    fields.remove("peer");
     fields.insert("unexpected".into(), json!({"stringValue": PEER}));
     assert!(super::document::Document::read(&missing_peer, root, machine, "inbox").is_err());
     let mut bad = row.clone();
@@ -269,7 +282,7 @@ fn encrypted_offline_delivery_uses_common_hold_and_survives_new_door_window() {
         now / 1000 % 60,
         now % 1000
     );
-    let value = json!({"name":format!("{provider_root}/m/{machine}/peers/{PEER}/inbox/{ID}"),"createTime":stamp,"fields":{"peerId":{"stringValue":PEER},"carrier":{"bytesValue":STANDARD.encode(&carrier)},"createdAt":{"timestampValue":stamp}}});
+    let value = json!({"name":format!("{provider_root}/m/{machine}/inbox/{ID}"),"createTime":stamp,"fields":{"peer":{"stringValue":PEER},"carrier":{"bytesValue":STANDARD.encode(&carrier)},"createdAt":{"timestampValue":stamp}}});
     let document = Document::read(&value, provider_root, machine, "inbox").unwrap();
     let fresh = |fresh_id: &str, created: u64| {
         let mut fresh_payload: serde_json::Value = serde_json::from_str(&payload).unwrap();
@@ -301,9 +314,7 @@ fn encrypted_offline_delivery_uses_common_hold_and_survives_new_door_window() {
         )
         .unwrap();
         let mut fresh_doc = value.clone();
-        fresh_doc["name"] = json!(format!(
-            "{provider_root}/m/{machine}/peers/{PEER}/inbox/{fresh_id}"
-        ));
+        fresh_doc["name"] = json!(format!("{provider_root}/m/{machine}/inbox/{fresh_id}"));
         fresh_doc["fields"]["carrier"] = json!({"bytesValue":STANDARD.encode(fresh_carrier)});
         (
             Document::read(&fresh_doc, provider_root, machine, "inbox").unwrap(),

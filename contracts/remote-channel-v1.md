@@ -2231,25 +2231,36 @@ freshness. That local gate is unchanged. Cloud timestamps must instead be within
 carrier document's output-only provider `createTime`; offline owner wake-up is not the freshness clock.
 An unprocessed carrier expires after `journal::RECOVERY` (30 days), with `REMOTE_CLOUD_MESSAGE_EXPIRED`.
 
-Inbox and response paths are `/m/<machineId>/peers/<peerId>/inbox/<operationId>` and the corresponding
-`responses/<operationId>`. A document contains exactly `peerId`, ciphertext `carrier` bytes and server
+Inbox and response paths are `/m/<machineId>/inbox/<operationId>` and
+`/m/<machineId>/responses/<operationId>`. A document contains exactly `peer`, ciphertext `carrier` bytes and server
 `createdAt`. The operation ID is a lowercase UUIDv4. There is no chunking, manifest, plaintext fallback
 or provider-side operation authority. One carrier fits `firestore_limits::DOCUMENT_PAYLOAD_BYTES`;
 `limits::CLOUD_ENVELOPE_BYTES` is the largest conservative envelope cap below that bound. The prepared
 message cap also reserves worst-case JSON escaping/base64. Oversize refuses as
 `REMOTE_CLOUD_MESSAGE_TOO_LARGE` before a write. Rules admit only the registered Firebase uid in its
-peer inbox, the receiving owner in responses, exact fields/size and create-only storage. Neither writer
+machine inbox via its owner-written peer routing row, the receiving owner in responses, exact fields/size
+and create-only storage. Exact-ID reads require the document's peer to match the caller's routed peer
+(or the machine owner). A routed peer may also GET a missing ID (404), so observation can wait for a
+response; a non-routed uid cannot. Response listing is denied. Neither writer
 may update a carrier. Senders never delete. The receiving owner removes retained inbox/response pairs
 after journal retention; the one transport table is pruned only after that cleanup. Test fixtures alone
 seed machine/peer registrations; this does not activate the namespace in a real deploy or add a bootstrap shortcut.
+The owner-written routing row is `/m/<machineId>/peers/<Firebase-uid>` with `{peer,revoked,expiresAt}`;
+create and exact GET each use one routing lookup. #4538 owns enrollment and automatic re-routing:
+the local Store maps native peers to uids, revocation fences all of that peer's uid rows in the same
+operation, and at most one route per native peer is live (a new one supersedes the old). Lost or renewed
+Firebase credentials re-route from the signed native identity automatically, without a new pairing step.
 
 The driver uses ordinary Auth, HTTP, cancellation and the persistent project budget shared with native
-sealed-document sync. One machine-scoped inbox query, one document per provider page, covers all native
-peers. Its checkpoint is one provider create-time value per peer with a 120-second overlap; only a full
+sealed-document sync. One shallow query of the selected machine's inbox, ordered and filtered by
+`createdAt`, covers all native peers with one document per provider page. No collection-group scan or
+recursive wildcard is used. Its checkpoint is one provider create-time value per peer with a 120-second overlap; only a full
 bounded reconciliation advances it. The existing journal handles repeated IDs and effects. Store/serve
 lease ownership is unchanged: one additive `cloud_transport` table freezes exact request bytes/digest,
 response ciphertext and publication attempt before HTTP. An ambiguous create is observed at that same
-ID, never automatically re-posted or resealed. Changed bytes under an ID refuse. A duplicate returns
+ID, never automatically re-posted or resealed. A frozen outbox row without a durable send claim makes
+its first create directly, without a preparation GET; the usual Auth/budget/claim fence still runs.
+Changed bytes under an ID refuse. A duplicate returns
 only frozen response ciphertext. Context secrets stay in memory for the bounded in-flight call; after
 sender restart, observe the original request ID, then use a fresh signed `operation.show` request and
 new HPKE context to read the original journal outcome. The old encrypted response remains unread until
@@ -2263,7 +2274,11 @@ The existing attempt flag survives restart; neither the mutation nor its respons
 The journal preserves an internal typed distinction between an absent/foreign/expired owned read
 and a real Store failure. Only the cloud classifier consumes that distinction: the former is a
 per-document permanent refusal, the latter remains retryable. Both keep the existing
-`REMOTE_STATE_UNAVAILABLE` wire answer; no existence distinction or marker is exposed. Existing
+`REMOTE_STATE_UNAVAILABLE` wire answer; no existence distinction or marker is exposed.
+`REMOTE_CLOUD_PROVIDER_UNAVAILABLE` includes sanitized `error.provider` evidence: fixed `operation`
+(`inbox-read`, `response-read`, `inbox-query`, `inbox-create` or `response-create`), numeric HTTP `status`,
+and optional `errorStatus` from the canonical Google RPC status enum. Unknown status text is omitted;
+provider body/message, token, carrier and resource identifiers never cross this diagnostic boundary. Existing
 `REMOTE_INTENT_CONFLICT` and `REMOTE_CURSOR_EXPIRED` are also per-document permanent refusals.
 Permanent malformed, undecryptable, foreign, retired-key,
 revoked or expired carriers receive one immutable refusal code in the same transport row and existing
