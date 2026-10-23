@@ -1350,7 +1350,12 @@ renameSync(output+'.tmp',output);
       const where = (needle: string) => {
         const rows = screen().split('\n');
         const y = rows.findIndex((row) => row.includes(needle));
-        expect(y, `${needle} on screen`).toBeGreaterThanOrEqual(0);
+        let evidence = '';
+        if (y < 0) {
+          const attempts = requestAttempts(fixture);
+          evidence = `\nStored attempts: ${JSON.stringify(attempts)}\nAfter store read:\n${screen()}`;
+        }
+        expect(y, `${needle} on screen:\n${rows.join('\n')}${evidence}`).toBeGreaterThanOrEqual(0);
         return { x: [...rows[y]!.slice(0, rows[y]!.indexOf(needle))].length, y };
       };
       // Pointer reports as the terminal sends them: press, motion with the button held, release.
@@ -1422,7 +1427,12 @@ renameSync(output+'.tmp',output);
       const where = (needle: string) => {
         const rows = screen().split('\n');
         const y = rows.findIndex((row) => row.includes(needle));
-        expect(y, `${needle} on screen:\n${screen()}`).toBeGreaterThanOrEqual(0);
+        let evidence = '';
+        if (y < 0) {
+          const attempts = requestAttempts(fixture);
+          evidence = `\nStored attempts: ${JSON.stringify(attempts)}\nAfter store read:\n${screen()}`;
+        }
+        expect(y, `${needle} on screen:\n${rows.join('\n')}${evidence}`).toBeGreaterThanOrEqual(0);
         return { x: [...rows[y]!.slice(0, rows[y]!.indexOf(needle))].length, y };
       };
       const pointer = (code: number, final: 'M' | 'm', x: number, y: number) =>
