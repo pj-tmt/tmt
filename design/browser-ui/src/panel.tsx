@@ -38,19 +38,28 @@ export function BrowserPanel({
 }: BrowserPanelProps) {
   const label = useId();
   const heading = useRef<HTMLHeadingElement>(null);
+  const panel = useRef<HTMLElement>(null);
   const current = useRef({ focusFallback });
   current.current = { focusFallback };
   useLayoutEffect(() => {
     const node = heading.current;
-    if (!open || !node) return;
-    const origin = node.ownerDocument.activeElement;
+    const surface = panel.current;
+    if (!open || !node || !surface) return;
+    const document = surface.ownerDocument;
+    const origin = document.activeElement;
     node.focus({ preventScroll: true });
-    return () => restoreOverlayFocus(origin, current.current.focusFallback);
+    return () => {
+      const active = document.activeElement;
+      // A non-modal region must not reclaim focus already moved into the page.
+      if (!active || active === document.body || surface.contains(active))
+        restoreOverlayFocus(origin, current.current.focusFallback);
+    };
   }, [open]);
   if (!open) return null;
   return (
     <aside
       {...attributes}
+      ref={panel}
       className={`tmt-ui-panel ${className}`}
       data-mode={mode}
       aria-labelledby={label}

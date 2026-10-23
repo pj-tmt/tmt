@@ -439,7 +439,9 @@ modal or page inertness; keyboard and pointer navigation outside remain availabl
 An unconsumed, trusted, unmodified, non-repeated Escape **inside** the region or
 Close requests `onDismiss('escape' | 'close', event)`. The host admits dismissal by
 changing `open`; refusal leaves content and focus intact. Admitted closure or
-unmount returns focus to the connected opener, or `focusFallback`. Changing mode
+unmount returns focus to the connected opener, or `focusFallback`, only when
+focus is still inside the panel or has fallen to the document body/null. A page
+control already holding focus keeps it during a host-driven close. Changing mode
 or other props while open does not refocus the heading. Drafts, selection,
 breakpoints and coordination with modal drawers remain host-owned.
 

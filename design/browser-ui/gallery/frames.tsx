@@ -429,6 +429,7 @@ function NotificationsFrame() {
 
 function PanelFrame({ params }: { params: URLSearchParams }) {
   const [open, setOpen] = useState(params.get('open') !== 'false');
+  const hostClose = params.get('host-close');
   const [width, setWidth] = useState(window.innerWidth);
   const [refusals, setRefusals] = useState(0);
   const [pageActions, setPageActions] = useState(0);
@@ -456,49 +457,54 @@ function PanelFrame({ params }: { params: URLSearchParams }) {
           type="button"
           variant="secondary"
           label="Page action"
-          onActivate={() => setPageActions((n) => n + 1)}
+          onActivate={() => {
+            setPageActions((n) => n + 1);
+            if (hostClose === 'close' || hostClose === 'unmount') setOpen(false);
+          }}
         />
         <p id="page-action-status">Page actions {pageActions}</p>
         <p role="status">{refusals ? `Dismissal refused ${refusals}` : ''}</p>
       </div>
       <div className="gallery-panel-column">
-        <BrowserPanel
-          open={open}
-          title="Discussion"
-          caption="1 / 2"
-          mode={mode}
-          focusFallback={() =>
-            Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
-              (node) => node.textContent === 'Page action',
-            ) ?? null
-          }
-          onDismiss={() => {
-            if (params.get('refuse') === 'true') setRefusals((n) => n + 1);
-            else setOpen(false);
-          }}
-        >
-          <BrowserAction
-            type="button"
-            variant="text"
-            label="Remove opener"
-            onActivate={() => setShowOpener(false)}
-          />
-          <p>Navigation feedback</p>
-          <blockquote>The page decides its shape.</blockquote>
-          <BrowserField
-            controlId="panel-reply"
-            label="Reply"
-            renderControl={(props) => (
-              <textarea
-                {...props}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') event.preventDefault();
-                }}
-              />
-            )}
-          />
-          <BrowserAction type="button" variant="secondary" label="Reply" onActivate={() => {}} />
-        </BrowserPanel>
+        {(open || hostClose !== 'unmount') && (
+          <BrowserPanel
+            open={open}
+            title="Discussion"
+            caption="1 / 2"
+            mode={mode}
+            focusFallback={() =>
+              Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+                (node) => node.textContent === 'Page action',
+              ) ?? null
+            }
+            onDismiss={() => {
+              if (params.get('refuse') === 'true') setRefusals((n) => n + 1);
+              else setOpen(false);
+            }}
+          >
+            <BrowserAction
+              type="button"
+              variant="text"
+              label="Remove opener"
+              onActivate={() => setShowOpener(false)}
+            />
+            <p>Navigation feedback</p>
+            <blockquote>The page decides its shape.</blockquote>
+            <BrowserField
+              controlId="panel-reply"
+              label="Reply"
+              renderControl={(props) => (
+                <textarea
+                  {...props}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') event.preventDefault();
+                  }}
+                />
+              )}
+            />
+            <BrowserAction type="button" variant="secondary" label="Reply" onActivate={() => {}} />
+          </BrowserPanel>
+        )}
       </div>
     </div>
   );

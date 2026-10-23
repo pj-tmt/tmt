@@ -187,3 +187,41 @@ test('panel mode changes retain the host draft and current control focus', async
     await expect(reply).toBeFocused();
   }
 });
+
+for (const theme of ['light', 'dark'] as const)
+  for (const width of [1440, 1024, 390])
+    for (const close of ['close', 'unmount']) {
+      test(`panel host ${close} ${width} ${theme} preserves page control focus`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 992 });
+        await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+        await page.goto(`/?frame=panel&open=false&host-close=${close}&theme=${theme}`);
+        const opener = page.getByRole('button', { name: 'Discussion', exact: true });
+        await opener.click();
+        const panel = page.getByRole('complementary', { name: 'Discussion' });
+        await expect(panel.getByRole('heading')).toBeFocused();
+        const outside = page.getByRole('button', { name: 'Page action', exact: true });
+        await outside.focus();
+        await outside.click();
+        await expect(panel).toHaveCount(0);
+        await expect(outside).toBeFocused();
+        await expect(opener).not.toBeFocused();
+      });
+    }
+
+for (const close of ['close', 'unmount']) {
+  test(`panel host ${close} returns focus when it was inside the panel`, async ({ page }) => {
+    await page.goto(`/?frame=panel&open=false&host-close=${close}`);
+    const opener = page.getByRole('button', { name: 'Discussion', exact: true });
+    await opener.click();
+    const panel = page.getByRole('complementary', { name: 'Discussion' });
+    await expect(panel.getByRole('heading')).toBeFocused();
+    // A host-driven state change does not move focus to the control invoking it.
+    await page
+      .getByRole('button', { name: 'Page action', exact: true })
+      .evaluate((node) => node.click());
+    await expect(panel).toHaveCount(0);
+    await expect(opener).toBeFocused();
+  });
+}
