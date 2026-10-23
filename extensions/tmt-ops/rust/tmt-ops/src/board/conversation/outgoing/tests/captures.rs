@@ -787,36 +787,45 @@ fn one_turn_for_three_sends(restored: bool, now: u64) -> App {
     app
 }
 
-#[test]
-fn one_turn_that_answered_three_sends_paints_its_answer_under_the_last_in_live_and_restored_chat() {
+/// Regression guard for several sends typed during one agent turn (#4631): the turn's one answer
+/// is bound to the first send, and must be painted under the last send it covers.
+fn assert_one_turn_answer_is_under_the_last_send(restored: bool) {
     const NOW: u64 = 1_791_600_000_000;
     crate::status::with_now_ms(NOW, || {
-        for restored in [false, true] {
-            let app = one_turn_for_three_sends(restored, NOW);
-            // The first frame prepares the new text; the second paints it.
-            board_frame(&app, 160, 60);
-            let frame = board_frame(&app, 160, 60);
-            let at = |needle: &str| {
-                frame
-                    .find(needle)
-                    .unwrap_or_else(|| panic!("restored={restored}: {needle:?} missing\n{frame}"))
-            };
-            assert_eq!(
-                frame.matches(TURN_ANSWER).count(),
-                1,
-                "restored={restored}: the answer paints once\n{frame}"
-            );
-            assert!(
-                at(TURN_TEXTS[0]) < at(TURN_TEXTS[1])
-                    && at(TURN_TEXTS[1]) < at(TURN_TEXTS[2])
-                    && at(TURN_TEXTS[2]) < at(TURN_ANSWER),
-                "restored={restored}: the answer follows the last send\n{frame}"
-            );
-            assert_eq!(
-                frame.matches("delivered · answered below").count(),
-                2,
-                "restored={restored}: the first two sends point at the answer, the last carries it\n{frame}"
-            );
-        }
+        let app = one_turn_for_three_sends(restored, NOW);
+        // The first frame prepares the new text; the second paints it.
+        board_frame(&app, 160, 60);
+        let frame = board_frame(&app, 160, 60);
+        let at = |needle: &str| {
+            frame
+                .find(needle)
+                .unwrap_or_else(|| panic!("restored={restored}: {needle:?} missing\n{frame}"))
+        };
+        assert_eq!(
+            frame.matches(TURN_ANSWER).count(),
+            1,
+            "restored={restored}: the answer paints once\n{frame}"
+        );
+        assert!(
+            at(TURN_TEXTS[0]) < at(TURN_TEXTS[1])
+                && at(TURN_TEXTS[1]) < at(TURN_TEXTS[2])
+                && at(TURN_TEXTS[2]) < at(TURN_ANSWER),
+            "restored={restored}: the answer follows the last send\n{frame}"
+        );
+        assert_eq!(
+            frame.matches("delivered · answered below").count(),
+            2,
+            "restored={restored}: the first two sends point at the answer, the last carries it\n{frame}"
+        );
     });
+}
+
+#[test]
+fn several_sends_typed_during_one_turn_paint_its_answer_under_the_last_in_live_chat() {
+    assert_one_turn_answer_is_under_the_last_send(false);
+}
+
+#[test]
+fn several_sends_typed_during_one_turn_paint_its_answer_under_the_last_in_restored_chat() {
+    assert_one_turn_answer_is_under_the_last_send(true);
 }
