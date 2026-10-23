@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
+import { backToPageList } from '../test/home-list.js';
 import { rgb, tokens } from './tokens.js';
 
 // Use the shipped author starter rather than maintaining another palette fixture.
@@ -142,12 +143,7 @@ for (const width of [1440, 390]) {
         await page.emulateMedia({ colorScheme: os === 'dark' ? 'light' : 'dark' });
         await palette(page, theme);
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-        // Back to the list: the module crumb, or under 480px (where the shell clips that crumb) the
-        // module menu's All pages.
-        const fixture = page.locator('#layout-fixture');
-        if (width < 480)
-          await fixture.locator('.tmt-ui-module-menu a', { hasText: 'All pages' }).click();
-        else await fixture.getByRole('link', { name: /^Colab · local/ }).click();
+        await backToPageList(page);
         await expect(frame).toHaveCount(0);
         await page
           .locator('#layout-fixture')

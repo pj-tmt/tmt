@@ -2,11 +2,18 @@ import {
   createContext,
   useContext,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
-import { mountShell, type ShellControls, type ShellMenu, type ShellView } from './shell.js';
+import {
+  mountShell,
+  type ShellControls,
+  type ShellMenu,
+  type ShellTools,
+  type ShellView,
+} from './shell.js';
 import type { ShellSlot } from './shell-host.js';
 
 export interface BrowserShellProps {
@@ -21,11 +28,19 @@ const ShellBar = createContext<HTMLElement | null>(null);
  * there is no shell. */
 export const useShellBar = () => useContext(ShellBar);
 
+const ShellToolsContext = createContext<ShellTools | null>(null);
+/** The bar's right-hand cluster (`search`, `chip`): a host renders its search control and its status
+ * chip there (a portal), or in place when there is no shell. */
+export const useShellTools = () => useContext(ShellToolsContext);
+
 /** React hosts inside the one TMT web shell; the rail and menu use the shared static renderer. */
 export function BrowserShell({ view, select, children }: BrowserShellProps) {
   const root = useRef<HTMLDivElement>(null);
   const controls = useRef<ShellControls | null>(null);
   const [bar, setBar] = useState<HTMLDivElement | null>(null);
+  const [search, setSearch] = useState<HTMLDivElement | null>(null);
+  const [chip, setChip] = useState<HTMLDivElement | null>(null);
+  const tools = useMemo(() => (search && chip ? { search, chip } : null), [search, chip]);
   const latest = useRef(select);
   latest.current = select;
   useLayoutEffect(() => {
@@ -46,10 +61,18 @@ export function BrowserShell({ view, select, children }: BrowserShellProps) {
     <div ref={root} className="tmt-ui-shell">
       <div className="tmt-ui-shell-content">
         <div ref={setBar} className="tmt-ui-shell-bar" />
+        <div className="tmt-ui-shell-tools">
+          <div ref={setSearch} className="tmt-ui-shell-tools-search" />
+          <div ref={setChip} className="tmt-ui-shell-tools-chip" />
+        </div>
         <div className="tmt-ui-shell-main">
-          {/* Children mount once the header slot exists (the same commit, before paint), so a
-              host header portals into it from its first mount and is never remounted. */}
-          <ShellBar value={bar}>{bar ? children : null}</ShellBar>
+          {/* Children mount once the header and tool slots exist (the same commit, before paint),
+              so a host header portals into them from its first mount and is never remounted. */}
+          <ShellBar value={bar}>
+            <ShellToolsContext.Provider value={tools}>
+              {bar && tools ? children : null}
+            </ShellToolsContext.Provider>
+          </ShellBar>
         </div>
       </div>
     </div>
@@ -71,5 +94,9 @@ export function HostedShell({ slot, menu, select, children }: HostedShellProps) 
   useLayoutEffect(() => {
     slot.setMenu(menu, (id, href) => Boolean(latest.current?.(id, href)));
   }, [slot, menu]);
-  return <ShellBar value={slot.bar}>{children}</ShellBar>;
+  return (
+    <ShellBar value={slot.bar}>
+      <ShellToolsContext.Provider value={slot.tools}>{children}</ShellToolsContext.Provider>
+    </ShellBar>
+  );
 }

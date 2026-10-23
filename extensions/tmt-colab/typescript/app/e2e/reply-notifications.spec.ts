@@ -555,9 +555,9 @@ for (const [width, theme, shell] of [
       );
       await expect(block).toHaveCount(1);
       if (shell) {
-        await run(page, 'shellCrumb');
-        await expect(page.locator('[data-shell-crumb]')).toHaveCount(1);
-        await expect(page.locator('[data-shell-crumb]')).toBeHidden();
+        await run(page, 'shellPlaceholder');
+        await expect(page.locator('[data-shell-placeholder]')).toHaveCount(1);
+        await expect(page.locator('[data-shell-placeholder]')).toBeHidden();
       }
       // A question starts closed; its compact row owns placement until arrival opens the controls.
       const placement = destination === 'Answer' ? page.locator('.question-compact-block') : block;
@@ -584,7 +584,7 @@ for (const [width, theme, shell] of [
         return {
           top: node.getBoundingClientRect().top,
           header: document
-            .querySelector('.tmt-ui-header:not([data-shell-crumb])')!
+            .querySelector('.tmt-ui-header:not([data-shell-placeholder])')!
             .getBoundingClientRect().bottom,
           width: css.outlineWidth,
           style: css.outlineStyle,

@@ -40,8 +40,9 @@ for (const width of [1440, 390])
       // at every width (#4116), so the phone width exercises that path.
       await fixture(page, { home: width === 1440 });
       const header = page.locator('#remote-header-fixture header');
+      const cluster = page.locator('#remote-header-fixture .tmt-ui-shell-tools');
       if (width === 1440) {
-        const chip = header.getByRole('link', { name: 'Remote: 3 live sessions' });
+        const chip = cluster.getByRole('link', { name: 'Remote: 3 live sessions' });
         await expect(chip).toBeVisible();
         await expect.poll(() => readCount(page)).toBe(1);
         await capture(page, `count-3-${width}-${theme}`);
@@ -71,7 +72,9 @@ for (const width of [1440, 390])
         await chip.click();
         await expect(page).toHaveURL(new URL('/settings', page.url()).href);
       } else {
-        await expect(header.getByRole('link', { name: /^Remote:/ })).toHaveCount(0);
+        await expect(
+          page.locator('#remote-header-fixture').getByRole('link', { name: /^Remote:/ }),
+        ).toHaveCount(0);
         await header.getByRole('button', { name: 'More', exact: true }).click();
         const row = page.getByRole('menuitem', { name: 'Remote: 3 live sessions' });
         await expect(row).toBeVisible();
@@ -114,13 +117,14 @@ for (const width of [1440, 390])
       for (const count of [0, 1]) {
         await fixture(page, { count, home: true });
         const header = page.locator('#remote-header-fixture header');
+        const cluster = page.locator('#remote-header-fixture .tmt-ui-shell-tools');
         if (width === 390) await header.getByRole('button', { name: 'More', exact: true }).click();
         const control =
           width === 390
             ? page.getByRole('menuitem', {
                 name: count ? 'Remote: 1 live session' : 'Remote: no live sessions',
               })
-            : header.getByRole('link', {
+            : cluster.getByRole('link', {
                 name: count ? 'Remote: 1 live session' : 'Remote: no live sessions',
               });
         await expect(control).toBeVisible();
@@ -129,18 +133,19 @@ for (const width of [1440, 390])
       }
       await fixture(page, { unconfirmed: true, home: true });
       const header = page.locator('#remote-header-fixture header');
+      const cluster = page.locator('#remote-header-fixture .tmt-ui-shell-tools');
       if (width === 390) await header.getByRole('button', { name: 'More', exact: true }).click();
       const control =
         width === 390
           ? page.getByRole('menuitem', { name: 'Remote: session count unconfirmed' })
-          : header.getByRole('button', { name: 'Remote: session count unconfirmed' });
+          : cluster.getByRole('button', { name: 'Remote: session count unconfirmed' });
       await expect(control).toHaveText('Remote · offline');
       await control.hover();
       await expect(page.getByText("Couldn't confirm live sessions right now.")).toBeVisible();
       await expect(page.getByRole('menuitem', { name: 'Open Remote settings' })).toHaveCount(0);
       await capture(page, `unconfirmed-${width}-${theme}`);
       await fixture(page, { hidden: true, home: true });
-      await expect(header.getByText(/^Remote ·/)).toHaveCount(0);
+      await expect(page.locator('#remote-header-fixture').getByText(/^Remote ·/)).toHaveCount(0);
       expect(await readCount(page)).toBe(0);
       await capture(page, `hidden-${width}-${theme}`);
     });
@@ -241,7 +246,9 @@ for (const width of [1440, 390])
     await page.setViewportSize({ width, height: 900 });
     await fixture(page);
     const header = page.locator('#remote-header-fixture header');
-    await expect(header.getByRole('link', { name: /^Remote:/ })).toHaveCount(0);
+    await expect(
+      page.locator('#remote-header-fixture').getByRole('link', { name: /^Remote:/ }),
+    ).toHaveCount(0);
     await expect(header.locator('.page-attention')).toHaveCount(0);
     await header.getByRole('button', { name: 'More', exact: true }).click();
     const items = page.getByRole('menuitem');

@@ -14,10 +14,6 @@
   width: var(--tmt-ui-header-icon-size);
   height: var(--tmt-ui-header-icon-size);
 }
-.quick-switcher-control .tmt-ui-icon-action-icon > span {
-  white-space: nowrap;
-  font-size: 12px;
-}
 .quick-switcher-title {
   display: block;
   overflow: hidden;
@@ -39,9 +35,4 @@
 }
 .quick-switcher-dialog .page-list-search-field {
   margin: 0;
-}
-@media (max-width: 640px) {
-  .quick-switcher-control .tmt-ui-icon-action-icon > span {
-    display: none;
-  }
 }

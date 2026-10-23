@@ -59,7 +59,13 @@ for (const width of [1440, 390])
       // Nothing waits and nothing shows; no Remote chip and no access chip.
       await expect(header.getByText('Nothing waits')).toBeHidden();
       await expect(header.locator('.remote-header-chip')).toHaveCount(0);
-      expect(await names(page)).toEqual(['Search pages', 'Discussion (0)', 'Agents', 'More']);
+      // Search sits in the shell bar's cluster, to the right of the page's own actions.
+      expect(await names(page)).toEqual(['Discussion (0)', 'Agents', 'More']);
+      await expect(
+        page
+          .locator('.tmt-ui-shell-tools')
+          .getByRole('button', { name: 'Search pages', exact: true }),
+      ).toBeVisible();
       await expect(header.locator('.page-connection')).toHaveText('Private · Live');
       if (process.env.COLAB_CAPTURE_DIR)
         await page.screenshot({ path: capturePath(`header-idle-${width}-${theme}.png`) });

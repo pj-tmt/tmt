@@ -132,3 +132,19 @@
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
+/* A key hint in the icon slot (`<Search /><kbd>⌘K</kbd>`) is quiet: small, secondary ink, a rule-edged
+   key. A touch screen has no keyboard to hint at. */
+.tmt-ui-icon-action-icon > kbd {
+  box-sizing: border-box;
+  padding: 1px 6px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-s);
+  color: var(--tmt-ui-color-secondary);
+  font: 500 11px/1.4 var(--tmt-ui-font-body);
+  white-space: nowrap;
+}
+@media (pointer: coarse) {
+  .tmt-ui-icon-action-icon > kbd {
+    display: none;
+  }
+}

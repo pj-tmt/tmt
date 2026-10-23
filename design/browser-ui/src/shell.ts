@@ -69,6 +69,15 @@ export interface ShellPlace {
   href: string;
 }
 
+/** The counts a menu entry draws, in order: a plain total only above zero (a page list of none has
+ * nothing to count), then the needs-you count, which exists only above zero. */
+export function entryCounts(item: { total?: number; count?: ShellCount }): ShellCount[] {
+  return [
+    ...(item.total ? [shellCount(item.total, 'plain')] : []),
+    ...(item.count ? [item.count] : []),
+  ];
+}
+
 /** Counts above 99 read `99+`; needs-you counts carry the ◆ mark and colour. */
 export function shellCount(value: number, kind: 'needs-you' | 'plain' = 'needs-you'): ShellCount {
   return { text: countText(value), needsYou: kind === 'needs-you' };
@@ -253,7 +262,10 @@ export function describedMenu(module: ShellModule, place: ShellPlace): ShellMenu
       id: entry.id,
       label: entry.label,
       href: entry.path,
-      count: entry.count ? shellCount(entry.count.value, entry.count.kind) : undefined,
+      count:
+        entry.count && entry.count.value > 0
+          ? shellCount(entry.count.value, entry.count.kind)
+          : undefined,
       current: false,
     };
     if (last && last.label === entry.group) last.items.push(item);
@@ -316,7 +328,14 @@ function count(document: Document, value: ShellCount): HTMLElement {
   return badge;
 }
 
+/** The bar's right-hand cluster: a module fills `search` and `chip`; an empty slot takes no room. */
+export interface ShellTools {
+  readonly search: HTMLElement;
+  readonly chip: HTMLElement;
+}
+
 export interface ShellControls {
+  readonly tools: ShellTools;
   update(view: ShellView): void;
   dispose(): void;
 }
@@ -363,7 +382,41 @@ export function mountShell(
   const menu = document.createElement('nav');
   menu.className = 'tmt-ui-module-menu';
   root.prepend(open, rail);
-  root.querySelector(':scope > .tmt-ui-shell-content > .tmt-ui-shell-bar')!.after(menu);
+  const bar = root.querySelector(':scope > .tmt-ui-shell-content > .tmt-ui-shell-bar')!;
+  bar.after(menu);
+  // The cluster is the bar's second layer: it sits over the bar's right end and tells the host
+  // header how much room to leave (`--tmt-ui-shell-tools-width`). A React shell draws the element
+  // itself, so its modules can portal into the slots on their first render.
+  const slotOf = (parent: HTMLElement, name: 'search' | 'chip') => {
+    const existing = parent.querySelector<HTMLElement>(`:scope > .tmt-ui-shell-tools-${name}`);
+    if (existing) return existing;
+    const created = document.createElement('div');
+    created.className = `tmt-ui-shell-tools-${name}`;
+    parent.append(created);
+    return created;
+  };
+  const drawn = root.querySelector<HTMLElement>(
+    ':scope > .tmt-ui-shell-content > .tmt-ui-shell-tools',
+  );
+  const toolsRoot = drawn ?? document.createElement('div');
+  if (!drawn) {
+    toolsRoot.className = 'tmt-ui-shell-tools';
+    bar.after(toolsRoot);
+  }
+  const tools: ShellTools = {
+    search: slotOf(toolsRoot, 'search'),
+    chip: slotOf(toolsRoot, 'chip'),
+  };
+  const reserve = () => {
+    // An empty cluster reserves nothing: the stylesheet's 0px default stands and the root keeps no
+    // inline style.
+    const width = toolsRoot.offsetWidth;
+    if (width > 0) root.style.setProperty('--tmt-ui-shell-tools-width', `${width}px`);
+    else root.style.removeProperty('--tmt-ui-shell-tools-width');
+  };
+  const watchTools = typeof ResizeObserver === 'function' ? new ResizeObserver(reserve) : undefined;
+  watchTools?.observe(toolsRoot);
+  reserve();
 
   let collapsed = railCollapsed();
   const setDrawer = (shown: boolean) => {
@@ -465,11 +518,11 @@ export function mountShell(
     label.textContent = item.label;
     if (!item.note) label.title = item.label;
     anchor.append(label);
-    if (item.total !== undefined || item.count) {
+    const shown = entryCounts(item);
+    if (shown.length) {
       const counts = document.createElement('span');
       counts.className = 'tmt-ui-shell-counts';
-      if (item.total !== undefined) counts.append(count(document, shellCount(item.total, 'plain')));
-      if (item.count) counts.append(count(document, item.count));
+      for (const value of shown) counts.append(count(document, value));
       anchor.append(counts);
     }
     return anchor;
@@ -579,8 +632,12 @@ export function mountShell(
   setDrawer(false);
   render(view);
   return {
+    tools,
     update: render,
     dispose() {
+      watchTools?.disconnect();
+      root.style.removeProperty('--tmt-ui-shell-tools-width');
+      if (!drawn) toolsRoot.remove();
       phone?.removeEventListener('change', rewidth);
       document.removeEventListener('keydown', close);
       document.removeEventListener('pointerdown', outside);

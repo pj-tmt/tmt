@@ -93,8 +93,9 @@ test('inside the TMT app a crash keeps the rail and the header bar', async ({ pa
   await expect(page.getByRole('alert')).toContainText('Page unavailable');
   expect(await hostState(page)).toMatchObject({ rail: true, barHeaders: 1, mainHeaders: 0 });
   expect((await hostState(page)).brand).toMatch(/tmt/i);
-  // The bar reads `<module> / <page>`.
-  expect((await hostState(page)).bar).toMatch(/Colab\s*\/\s*Page unavailable/);
+  // The bar reads the page title alone; the module name is not a crumb.
+  expect((await hostState(page)).bar).toMatch(/Page unavailable/);
+  expect((await hostState(page)).bar).not.toMatch(/Colab\s*\//);
   // A sentence, not the exception; the exception is behind Details.
   await expect(page.locator('#spa-slot').getByText('This page could not be shown.')).toBeVisible();
   await expect(page.locator('#spa-slot').getByText('page.title.trim')).toBeHidden();

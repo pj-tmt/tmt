@@ -535,9 +535,3 @@ body:not(:has(.tmt-ui-shell)) {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-
-/* The brand, a divider, then the page title, as in Colab's header. */
-.header-divider {
-  flex: none;
-  color: var(--tmt-ui-color-secondary);
-}

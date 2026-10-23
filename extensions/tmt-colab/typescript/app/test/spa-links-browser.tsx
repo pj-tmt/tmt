@@ -150,12 +150,14 @@ function newSlot(url: string): ShellSlot {
   slotHost.id = 'spa-slot';
   const bar = document.createElement('div');
   const main = document.createElement('div');
-  slotHost.append(bar, main);
+  const tools = { search: document.createElement('div'), chip: document.createElement('div') };
+  slotHost.append(bar, tools.search, tools.chip, main);
   document.body.append(slotHost);
   history.replaceState(null, '', url);
   return {
     main,
     bar,
+    tools,
     basePath: '/colab/',
     answer: () => undefined,
     setMenu: () => {},
@@ -259,8 +261,8 @@ export function hostState() {
     rail: !!slotHost?.querySelector('.tmt-ui-rail'),
     brand: slotHost?.querySelector('.tmt-ui-shell-brand')?.textContent ?? '',
     bar: bar?.textContent ?? '',
-    // The host's own crumb is a header too; Colab's is the other.
-    barHeaders: bar?.querySelectorAll('header:not([data-shell-crumb])').length ?? 0,
+    // The host's own placeholder is a header too; Colab's is the other.
+    barHeaders: bar?.querySelectorAll('header:not([data-shell-placeholder])').length ?? 0,
     mainHeaders: main?.querySelectorAll('header').length ?? 0,
     alert: main?.querySelector('[role="alert"]')?.textContent ?? '',
   };

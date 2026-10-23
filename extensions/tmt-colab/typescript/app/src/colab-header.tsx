@@ -1,6 +1,6 @@
 import { RemoteHeaderChip, RemoteMoreMenu, useRemoteHeaderAvailable } from './remote-header.js';
 import type { ReactNode, Ref } from 'react';
-import { BrowserHeader, useShellBar } from '@tmt/browser-ui/react';
+import { BrowserHeader, useShellBar, useShellTools } from '@tmt/browser-ui/react';
 import { createPortal } from 'react-dom';
 import { text } from './strings.js';
 import './colab-header.css';
@@ -55,6 +55,7 @@ export function ColabHeader({
       ? undefined
       : text.brandIdentity(deviceName ? `local · ${deviceName}` : 'local');
   const bar = useShellBar();
+  const tools = useShellTools();
   if (embedded)
     return (
       <header className="colab-embedded-bar" ref={headerRef} aria-label={title}>
@@ -62,24 +63,25 @@ export function ColabHeader({
         {status}
       </header>
     );
+  // In the shell the rail names the module and the search and the presence chip sit in the bar's
+  // own cluster; the header keeps the page's title, status and actions.
+  const clustered = bar !== null && tools !== null;
+  const chip = remoteChip && remoteAvailable ? <RemoteHeaderChip /> : null;
   const header = (
     <BrowserHeader
-      productLabel={text.product}
+      productLabel={bar ? (identity ?? text.product) : text.product}
+      inShell={bar !== null}
       headingPrefix={
-        // The host's bar reads `<module> / <page>`: any header in it has the divider.
-        remote === undefined && !bar ? undefined : (
+        bar !== null ? (
+          remote !== undefined && crumb !== undefined ? (
+            <CrumbGroup>{crumb}</CrumbGroup>
+          ) : undefined
+        ) : remote === undefined ? undefined : (
           <>
             <span className="colab-title-divider" aria-hidden="true">
               /
             </span>
-            {remote !== undefined && crumb !== undefined && (
-              <span className="colab-crumb-group">
-                {crumb}
-                <span className="colab-title-divider" aria-hidden="true">
-                  /
-                </span>
-              </span>
-            )}
+            {crumb !== undefined && <CrumbGroup>{crumb}</CrumbGroup>}
           </>
         )
       }
@@ -100,7 +102,7 @@ export function ColabHeader({
       }
       actions={
         <>
-          <QuickSwitcherControl />
+          {!clustered && <QuickSwitcherControl />}
           {actions}
           {remoteMenu && (
             <span className="remote-home-more">
@@ -110,9 +112,9 @@ export function ColabHeader({
         </>
       }
       status={
-        (remoteChip && remoteAvailable) || status !== undefined ? (
+        (!clustered && chip) || status !== undefined ? (
           <>
-            {remoteChip && <RemoteHeaderChip />}
+            {!clustered && chip}
             {status}
           </>
         ) : undefined
@@ -120,5 +122,24 @@ export function ColabHeader({
       headerRef={headerRef}
     />
   );
-  return bar ? createPortal(header, bar) : header;
+  if (!bar) return header;
+  return (
+    <>
+      {createPortal(header, bar)}
+      {tools && createPortal(<QuickSwitcherControl />, tools.search)}
+      {tools && chip && createPortal(chip, tools.chip)}
+    </>
+  );
+}
+
+/** A crumb before the title, with its own separator after it. */
+function CrumbGroup({ children }: { children: ReactNode }) {
+  return (
+    <span className="colab-crumb-group">
+      {children}
+      <span className="colab-title-divider" aria-hidden="true">
+        /
+      </span>
+    </span>
+  );
 }
