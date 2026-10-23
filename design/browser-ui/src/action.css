@@ -54,6 +54,16 @@
   text-decoration: underline;
   text-underline-offset: var(--tmt-ui-host-action-underline-offset);
 }
+.tmt-ui-action[data-variant='ghost'] {
+  color: var(--tmt-ui-color-secondary);
+  border: 0;
+  background: transparent;
+  text-decoration: none;
+}
+.tmt-ui-action[data-variant='ghost']:not(:disabled):hover,
+.tmt-ui-action[data-variant='ghost']:not(:disabled):focus-visible {
+  color: var(--tmt-ui-color-text);
+}
 /* With a mark slot, only the label is underlined, so a busy mark never sits on the rule. */
 .tmt-ui-action[data-variant='text']:has(> .tmt-ui-action-mark) {
   text-decoration: none;
@@ -88,7 +98,8 @@
   border-color: var(--tmt-ui-color-focus);
   outline: 0;
 }
-.tmt-ui-action[data-variant='text']:focus-visible {
+.tmt-ui-action[data-variant='text']:focus-visible,
+.tmt-ui-action[data-variant='ghost']:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
@@ -101,7 +112,8 @@
 .tmt-ui-action:disabled {
   background: var(--tmt-ui-surface-disabled);
 }
-.tmt-ui-action[data-variant='text']:disabled {
+.tmt-ui-action[data-variant='text']:disabled,
+.tmt-ui-action[data-variant='ghost']:disabled {
   background: transparent;
 }
 /* The mark is a 1em square centred on the label's line box; its svg fills it as a block, so no
@@ -137,6 +149,6 @@
   grid-row: 1;
 }
 
-.tmt-ui-action-mark[data-busy='false'] {
+.tmt-ui-action-mark[data-busy='false']:not([data-leading]) {
   visibility: hidden;
 }

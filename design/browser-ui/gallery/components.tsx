@@ -26,9 +26,10 @@ import {
   type BrowserTab,
   BusyMark,
 } from '../src/react.js';
+import { ActionExample } from './action-example.js';
 import { Cell, Cells, FramePair, Pair, Section, noop, type Theme } from './kit.js';
 
-const variants = ['primary', 'secondary', 'text', 'destructive'] as const;
+const variants = ['primary', 'secondary', 'text', 'destructive', 'ghost'] as const;
 
 export function BrandSection() {
   const sizes = [16, 20, 24, 32, 48, 64, 96];
@@ -184,6 +185,30 @@ export function ActionsSection() {
           }
         </Pair>
       ))}
+      <Pair title="BrowserAction · leading icon and busy mark">
+        {(theme) =>
+          stateCells((state) => (
+            <BrowserAction
+              type="button"
+              variant="secondary"
+              label="New project"
+              leadingIcon={<Plus />}
+              busyMark={<BusyMark />}
+              busy={state === 'busy'}
+              disabled={state === 'disabled'}
+              disabledReason={state === 'disabled' ? 'Read only' : undefined}
+              disabledReasonId={'leading-' + theme + '-reason'}
+              onActivate={noop}
+            />
+          ))
+        }
+      </Pair>
+      <Pair
+        title="Project actions · ghost and leading icon"
+        note="The example host completes its pending state with Finish example."
+      >
+        {() => <ActionExample />}
+      </Pair>
       <Pair
         title="Action group · one primary, the rest secondary or text"
         note="A group holds at most one enabled primary, its main action. Decline sits beside Approve as secondary; Cancel is text."
@@ -203,24 +228,26 @@ export function ActionsSection() {
 export function IconActionsSection() {
   return (
     <Section id="icon-actions">
-      {variants.map((variant) => (
-        <Pair key={variant} title={`BrowserIconAction · ${variant}`}>
-          {() =>
-            stateCells((state) => (
-              <BrowserIconAction
-                type="button"
-                variant={variant}
-                label={variant === 'destructive' ? 'Delete' : 'Add'}
-                icon={variant === 'destructive' ? <Trash2 /> : <Plus />}
-                disabled={state === 'disabled'}
-                busy={state === 'busy'}
-                busyMark={<BusyMark />}
-                onActivate={noop}
-              />
-            ))
-          }
-        </Pair>
-      ))}
+      {variants
+        .filter((variant) => variant !== 'ghost')
+        .map((variant) => (
+          <Pair key={variant} title={`BrowserIconAction · ${variant}`}>
+            {() =>
+              stateCells((state) => (
+                <BrowserIconAction
+                  type="button"
+                  variant={variant}
+                  label={variant === 'destructive' ? 'Delete' : 'Add'}
+                  icon={variant === 'destructive' ? <Trash2 /> : <Plus />}
+                  disabled={state === 'disabled'}
+                  busy={state === 'busy'}
+                  busyMark={<BusyMark />}
+                  onActivate={noop}
+                />
+              ))
+            }
+          </Pair>
+        ))}
       <Pair title="Pressed and expanded">
         {(theme) => (
           <Cells>
