@@ -1,8 +1,68 @@
-import { expect, test, type Page, type BrowserContext, type Locator } from '@playwright/test';
+import {
+  expect,
+  test as base,
+  type Page,
+  type BrowserContext,
+  type Locator,
+} from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { homeList, showAllPages } from '../test/home-list.js';
 import { text } from '../src/strings.js';
 import * as c from '@tmt/colab-client';
+
+// Observe the browser's initiator rather than changing fetch or competing for route ownership.
+// Only these recovery cases need to distinguish a list read from a title/background read.
+const test = base.extend<{ pagesReadTrace: void }>({
+  pagesReadTrace: [
+    async ({ page }, use, info) => {
+      if (!info.title.startsWith('Back to the list refreshes an ended session once')) {
+        await use();
+        return;
+      }
+      const session = await page.context().newCDPSession(page);
+      const reads = new Map<
+        string,
+        {
+          timestamp: number;
+          frames: { name: string; source: string; line: number }[];
+          status?: number;
+        }
+      >();
+      let truncated = false;
+      session.on('Network.requestWillBeSent', ({ requestId, request, timestamp, initiator }) => {
+        if (!new URL(request.url).pathname.endsWith('/api/pages')) return;
+        if (reads.size >= 64) {
+          truncated = true;
+          return;
+        }
+        reads.set(requestId, {
+          timestamp,
+          frames: (initiator.stack?.callFrames ?? []).slice(0, 32).map((frame) => ({
+            name: frame.functionName.slice(0, 80),
+            source: frame.url ? new URL(frame.url).pathname.slice(0, 200) : '',
+            line: frame.lineNumber + 1,
+          })),
+        });
+      });
+      session.on('Network.responseReceived', ({ requestId, response }) => {
+        const read = reads.get(requestId);
+        if (read) read.status = response.status;
+      });
+      try {
+        await session.send('Network.enable');
+        await use();
+      } finally {
+        if (info.status !== info.expectedStatus)
+          await info.attach('pages-read-initiators', {
+            body: JSON.stringify({ reads: [...reads.values()], truncated }),
+            contentType: 'application/json',
+          });
+        await session.detach();
+      }
+    },
+    { auto: true },
+  ],
+});
 
 // Keep only error diagnostics: other console levels can include fixture data.
 const pageErrors = new WeakMap<Page, string[]>();
