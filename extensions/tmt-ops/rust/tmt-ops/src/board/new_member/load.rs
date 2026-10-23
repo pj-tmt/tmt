@@ -194,7 +194,7 @@ fn launch(core: &Core, review: &model::Review) -> Result<Outcome, SquadError> {
     );
     // A launch may have partially succeeded despite its exit status. Observe
     // before reporting it; never automatically launch again or close a pane.
-    let observed_until = Instant::now() + Duration::from_secs(5);
+    let observed_until = Instant::now() + Duration::from_secs(30);
     loop {
         let listed=core.json_within(&["ls"],observed_until.saturating_duration_since(Instant::now())).map_err(|e|unavailable(format!("Launch outcome unknown: {} Draft kept; check public state before trying again.",e.message)))?;
         let found: Vec<_> = listed["identities"]
@@ -238,7 +238,7 @@ fn launch(core: &Core, review: &model::Review) -> Result<Outcome, SquadError> {
                             "Created {} in Common pool; squad add failed: {reason}\nRepair after checking: {}",
                             review.name,
                             crate::launch::line(&[
-                                review.command[0].clone(),
+                                review.display.command[0].clone(),
                                 "ops".into(),
                                 "sq".into(),
                                 "add".into(),

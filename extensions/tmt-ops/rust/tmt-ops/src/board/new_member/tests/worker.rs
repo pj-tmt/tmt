@@ -12,7 +12,7 @@ impl Fixture {
             std::env::temp_dir().join(format!("ops-new-member-{}", crate::id::new_v4().unwrap()));
         std::fs::create_dir(&root).unwrap();
         let driver = root.join("driver.py");
-        std::fs::write(&driver,r#"import json, pathlib, sys
+        std::fs::write(&driver,r#"import json, pathlib, sys, time
 r=pathlib.Path(__file__).parent
 a=sys.argv[1:]
 with (r/'calls').open('a') as f:f.write(json.dumps(a)+'\n')
@@ -24,7 +24,7 @@ elif a[:1]==['api']:json.load(sys.stdin);print(json.dumps({'dataRoot':str(r/'dat
 elif a[:1]==['ls']:
  rows=[]
  if (r/'existing').exists():rows.append({'id':'old','name':'new-worker','location':{'host':'tmux'}})
- if (r/'launched').exists():rows.append({'id':'33333333-3333-4333-8333-333333333333','name':'new-worker','location':{'host':'tmux','session':'a space'}})
+ if (r/'launched').exists() and (not (r/'delay-bind').exists() or time.time()-float((r/'launched').read_text()) >= 6):rows.append({'id':'33333333-3333-4333-8333-333333333333','name':'new-worker','location':{'host':'tmux','session':'a space'}})
  print(json.dumps({'identities':rows}))
 elif a[:2]==['identity','show']:
  if (r/'existing').exists() or (r/'existing-alias').exists():print(json.dumps({'identity':{'id':'old','name':'new-worker'}}))
@@ -43,10 +43,10 @@ else:print(json.dumps({'error':{'code':'UNEXPECTED','message':str(a)}}));sys.exi
         let host_driver = root.join("host.py");
         std::fs::write(
             &host_driver,
-            r#"import json, pathlib, sys
+            r#"import json, pathlib, sys, time
 r=pathlib.Path(__file__).parent
 with (r/'launches').open('a') as f:f.write(json.dumps(sys.argv[1:])+'\n')
-(r/'launched').write_text('new bound identity')
+(r/'launched').write_text(str(time.time()))
 "#,
         )
         .unwrap();
@@ -125,6 +125,7 @@ fn reviewed_one_word_launch_observes_new_uuid_and_never_reuses_an_existing_name(
 fn failed_join_still_reports_the_created_uuid_in_pool_with_repair() {
     let f = Fixture::new();
     let mut review = f.review();
+    review.display.command[0] = "tmt".into();
     review.room = Some(crate::membership::workspace::RoomTarget {
         id: "11111111-1111-4111-8111-111111111111".into(),
         name: "platform".into(),
@@ -145,7 +146,11 @@ fn failed_join_still_reports_the_created_uuid_in_pool_with_repair() {
             assert!(!id.is_empty());
             assert!(room.is_none());
             assert!(message.contains("Created new-worker in Common pool"));
-            assert!(message.contains("ops sq add --squad platform -- 33333333"));
+            assert!(
+                message
+                    .contains("Repair after checking: tmt ops sq add --squad platform -- 33333333")
+            );
+            assert!(!message.contains(f.core.executable().to_str().unwrap()));
         }
         _ => panic!(),
     }
@@ -185,5 +190,35 @@ fn human_executable_uses_only_the_first_executable_tmt_on_path() {
     assert_eq!(
         load::display_executable(f.core.executable(), None),
         f.core.executable().to_str().unwrap()
+    );
+}
+
+#[test]
+fn launch_observes_a_binding_registered_after_the_old_five_second_window() {
+    let f = Fixture::new();
+    std::fs::write(
+        f.root.join("delay-bind"),
+        "wait six seconds after host return",
+    )
+    .unwrap();
+    let review = f.review();
+    let result = complete(
+        &f.core,
+        Task {
+            owner: 1,
+            work: Work::Launch(review),
+            config: None,
+        },
+    )
+    .result;
+    assert!(
+        matches!(result, Ok(Outcome::Created { ref id, .. }) if id == "33333333-3333-4333-8333-333333333333")
+    );
+    assert_eq!(
+        std::fs::read_to_string(f.root.join("launches"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
     );
 }
