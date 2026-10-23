@@ -1,6 +1,5 @@
 import { useId, type ComponentPropsWithoutRef, type ReactNode, type SyntheticEvent } from 'react';
-import { X } from 'lucide-react';
-import { BrowserIconAction } from './icon-action.js';
+import { DrawerHeader } from './drawer-header.js';
 import { useModalDialog } from './modal-dialog.js';
 
 export type BrowserDrawerDismissReason = 'escape' | 'backdrop' | 'close';
@@ -59,26 +58,13 @@ export function BrowserDrawer({
       data-state={open ? 'open' : 'closed'}
       aria-labelledby={label}
     >
-      <header className="tmt-ui-drawer-header">
-        <div className="tmt-ui-drawer-heading">
-          <h2 id={label}>{title}</h2>
-          {caption && <div className="tmt-ui-drawer-caption">{caption}</div>}
-        </div>
-        {headerActions !== undefined && (
-          <div className="tmt-ui-drawer-header-actions">{headerActions}</div>
-        )}
-        <BrowserIconAction
-          type="button"
-          variant="text"
-          label={`Close ${title}`}
-          tooltipLabel={`Close ${title} · Esc`}
-          ariaKeyShortcuts="Escape"
-          icon={<X />}
-          onActivate={(event) => {
-            if (event.isTrusted) onDismiss('close', event);
-          }}
-        />
-      </header>
+      <DrawerHeader
+        title={title}
+        caption={caption}
+        headerActions={headerActions}
+        label={label}
+        onClose={(event) => onDismiss('close', event)}
+      />
       {notice && <div className="tmt-ui-drawer-notice">{notice}</div>}
       <div className="tmt-ui-drawer-body">{children}</div>
       {actions !== undefined && <footer className="tmt-ui-drawer-actions">{actions}</footer>}

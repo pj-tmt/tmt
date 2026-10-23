@@ -1,5 +1,5 @@
 import { useId, type ComponentPropsWithoutRef, type ReactNode, type SyntheticEvent } from 'react';
-import { X } from 'lucide-react';
+import { X, TriangleAlert } from 'lucide-react';
 import { BrowserIconAction } from './icon-action.js';
 import { useModalDialog, type ModalDismissReason } from './modal-dialog.js';
 import { usePresence } from './presence.js';
@@ -11,6 +11,8 @@ export interface BrowserDialogProps extends Omit<
 > {
   open: boolean;
   title: string;
+  size?: 'regular' | 'wide';
+  presentation?: 'standard' | 'confirm';
   children: ReactNode;
   /** The actions row under the body (for example Move and Cancel), spaced by a token gap. */
   actions?: ReactNode;
@@ -26,6 +28,8 @@ export interface BrowserDialogProps extends Omit<
 export function BrowserDialog({
   open,
   title,
+  size = 'regular',
+  presentation = 'standard',
   children,
   actions,
   keepMounted = false,
@@ -45,10 +49,17 @@ export function BrowserDialog({
       {...attributes}
       {...modal}
       className={`tmt-ui-dialog ${className}`}
+      data-size={size}
+      data-presentation={presentation}
       data-state={open ? 'open' : 'closed'}
       aria-labelledby={label}
     >
       <header className="tmt-ui-dialog-header">
+        {presentation === 'confirm' && (
+          <div className="tmt-ui-dialog-confirm-mark" aria-hidden="true">
+            <TriangleAlert />
+          </div>
+        )}
         <h2 id={label}>{title}</h2>
         <BrowserIconAction
           type="button"

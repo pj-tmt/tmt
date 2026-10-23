@@ -17,7 +17,7 @@ There is no root entry. `@tmt/browser-ui/static.css` exports checked
 `loadShellAnswer` and the framework-free `mountShell` renderer, with Lucide icon data
 (`src/shell-icons.ts`, ISC, `src/LICENSE.lucide`); `@tmt/browser-ui/chart` exports the framework-free chart painters and their pure models ([Charts](../gui-style.md#charts)), including opt-in monotone areas and the six-colour `tmt-ui-chart-seats` palette; `@tmt/browser-ui/react`
 exports `BrandMark`, `BrandLockup`, `BrowserShell` (with `useShellBar`, the header slot, and `useShellTools`, the bar's search and chip slots), `BrowserHeader` (`inShell` draws no brand and keeps the product in its accessible name; `titleVisible={false}` draws no heading, for a page whose hero is its heading, and keeps `<product> · <title>` as the landmark's name), `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
-`BrowserToggle`, `BrowserCheckbox`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserDialog`, `BrowserMenu`, `BrowserTabs`, `BrowserNotifications`, `BrowserChips`, `BrowserChip` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
+`BrowserToggle`, `BrowserCheckbox`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserDialog`, `BrowserPanel`, `BrowserMenu`, `BrowserTabs`, `BrowserNotifications`, `BrowserChips`, `BrowserChip` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
 lucide-react 1.52.0. React components use built-in icons for controls such as Drawer
 and Notifications dismissal; IconAction also accepts a caller-supplied icon.
 Static serving requires neither peer.
@@ -40,7 +40,12 @@ node design/browser-ui/scripts/generate-static-css.mjs --write
 node design/browser-ui/scripts/generate-static-css.mjs --check
 ```
 
-The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
+The generator assembles the authored fragments and minifies component rules with the pinned
+Vite CSS compiler (Lightning CSS, with modern CSS retained). The token projection keeps
+its original declarations and spelling. Only that generated distribution
+is excluded from formatting; authored CSS remains formatted. Source-level policy tests inspect
+the assembled source, byte checks inspect the distribution, and browser comparisons verify
+that compilation preserves computed paint and layout. The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
 size (level 9) of `generated/static.css` plus `generated/ui.css` to +15% of the 18,824-byte pre-v2 baseline (21,647 bytes). The GUI lead approved this
 budget for the scoped v2 panel, dialog/confirm, ghost/icon action, tinted Notice and shell
 metrics work; the original 10% predates that scope. Class encapsulation is retained, and any
@@ -395,12 +400,18 @@ from that map or is not rendered or called in the gallery source.
 It shares its private show/close/dismiss/focus-return lifetime with Drawer and
 renders in place, without a portal or body scroll lock. The opaque surface has one 1px
 edge, `radius-l` corners and the overlay shadow, and enters and leaves with the base motion
-(see Motion). Its width is at most 600px, with
-16px viewport/safe-area margins, reduced to 4px through 480px; its height is
+(see Motion). `size="regular"` (default) caps width at 590px; `size="wide"` caps it at
+800px. Both retain 16px viewport/safe-area margins; height is
 capped by the available viewport. The body scrolls with contained overscroll and
 stacks its children with the `space-l` gap (a bare action, icon action or menu keeps
 its own width). Optional `actions` render an end-aligned footer row with the
 `space-s` gap; Drawer takes the same `actions` prop.
+
+`presentation="confirm"` centers a decorative warning mark, the string title and
+body and centers its footer actions. The host supplies a secondary Cancel and
+primary archive action; delete-type confirmation uses the existing destructive
+action. It does not change admission, command ownership or
+the one-overlay rule; the separate `./ui Dialog` API is unchanged.
 
 The host supplies `open`, title, children and `onDismiss(reason, event)`.
 Children may consume Escape for a suggestion level before the dialog sees it.
@@ -413,6 +424,25 @@ new destination instead. `keepMounted` retains host content while closed; it is
 false by default. Values, admission, loading, listbox semantics and navigation
 remain host-owned.
 
+## Non-modal panel
+
+`BrowserPanel` is a controlled `aside` labelled by its string heading. It shares
+Drawer's heading, optional position caption and Close control. The host selects
+`mode="column" | "card" | "sheet"`; the panel does not infer a product breakpoint.
+Column mode leaves grid, reflow, dividers and sticky positioning to the host.
+The floating card is 330px wide, 12px from the right and bottom, and starts at the
+header token plus 13px. The sheet has 7px side/bottom insets and a 75dvh maximum
+height. Floating modes use the radius scale and single overlay shadow.
+
+Opening focuses the heading. This region creates no scrim, focus trap, top-layer
+modal or page inertness; keyboard and pointer navigation outside remain available.
+An unconsumed, trusted, unmodified, non-repeated Escape **inside** the region or
+Close requests `onDismiss('escape' | 'close', event)`. The host admits dismissal by
+changing `open`; refusal leaves content and focus intact. Admitted closure or
+unmount returns focus to the connected opener, or `focusFallback`. Changing mode
+or other props while open does not refocus the heading. Drafts, selection,
+breakpoints and coordination with modal drawers remain host-owned.
+
 ## Drawer and Menu
 
 Value-menu triggers use a centered ChevronDown icon in the shared icon box. A menu without a value
@@ -424,11 +454,13 @@ nothing); the menu then behaves as if its trigger had been pressed.
 Drawer and Menu render in place; native top-layer promotion keeps ancestor overflow and transforms from clipping them. Keep the mount point visible. Drawer uses native modal containment at every width, without body scroll locking.
 Its independently scrolling body uses `overscroll-behavior: contain`. It leaves
 8px below the shared header and at the right/bottom edges, 4px through 480px,
-including safe-area insets. Regular width is at most 440px; wide is 660px; compact
+including safe-area insets. Regular width is `min(430px, 100vw - 18px)` and through 640px uses
+`100vw - 12px`, with safe-area space retained. Wide remains 660px and compact
 fills the available width. The opaque surface has one 1px edge, `radius-l` corners and the
 overlay shadow, and slides from its edge with the base motion (see Motion). Its scrim covers the header and iframe: a first outside
 press dismisses only, a second press acts on the uncovered control. Browser-only
-`scrim` starts at black 12% light / 32% dark.
+`scrim` is `#12332942` in light and `#030A11AE` in dark; modal drawers
+and BrowserDialog also blur the page behind by 3px.
 
 Optional `headerActions` renders host-owned controls immediately before Close in DOM
 and keyboard order, with shared spacing. Omitted, it adds no element or layout change;

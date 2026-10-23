@@ -6,6 +6,7 @@ import {
   BrowserAction,
   BrowserDialog,
   BrowserDrawer,
+  BrowserPanel,
   BrowserField,
   BrowserHeader,
   BrowserIconAction,
@@ -223,8 +224,10 @@ function HostedFrame() {
   );
 }
 
-function DialogFrame() {
-  const [open, setOpen] = useState(true);
+function DialogFrame({ params }: { params: URLSearchParams }) {
+  const [open, setOpen] = useState(params.get('open') !== 'false');
+  const confirm = params.get('presentation') === 'confirm';
+  const deleting = confirm && params.get('intent') === 'delete';
   return (
     <>
       <BrowserAction
@@ -235,44 +238,56 @@ function DialogFrame() {
       />
       <BrowserDialog
         open={open}
-        title="Move to project"
+        title={confirm ? (deleting ? 'Delete page?' : 'Archive page?') : 'Move to project'}
+        size={params.get('size') === 'wide' ? 'wide' : 'regular'}
+        presentation={confirm ? 'confirm' : 'standard'}
         onDismiss={() => setOpen(false)}
         actions={
           <>
             <BrowserAction
               type="button"
-              variant="text"
+              variant={confirm ? 'secondary' : 'text'}
               label="Cancel"
               onActivate={() => setOpen(false)}
             />
             <BrowserAction
               type="button"
-              variant="primary"
-              label="Move"
+              variant={deleting ? 'destructive' : 'primary'}
+              label={confirm ? (deleting ? 'Delete page' : 'Archive page') : 'Move'}
               onActivate={() => setOpen(false)}
             />
           </>
         }
       >
-        <BrowserField
-          controlId="dialog-project"
-          label="Project"
-          renderControl={(props) => <input {...props} defaultValue="Release planning" />}
-        />
-        <BrowserField
-          controlId="dialog-note"
-          label="Note"
-          description="Shown to the project's members."
-          descriptionId="dialog-note-description"
-          renderControl={(props) => <input {...props} placeholder="Optional" />}
-        />
+        {confirm ? (
+          <p>
+            {deleting
+              ? 'This permanently removes the page. Copies already made cannot be taken back.'
+              : 'An archived page stays readable, but nobody can edit it. You can restore it from Archived.'}
+          </p>
+        ) : (
+          <>
+            <BrowserField
+              controlId="dialog-project"
+              label="Project"
+              renderControl={(props) => <input {...props} defaultValue="Release planning" />}
+            />
+            <BrowserField
+              controlId="dialog-note"
+              label="Note"
+              description="Shown to the project's members."
+              descriptionId="dialog-note-description"
+              renderControl={(props) => <input {...props} placeholder="Optional" />}
+            />
+          </>
+        )}
       </BrowserDialog>
     </>
   );
 }
 
 function DrawerFrame({ params }: { params: URLSearchParams }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(params.get('open') !== 'false');
   return (
     <>
       <BrowserAction
@@ -412,6 +427,83 @@ function NotificationsFrame() {
   );
 }
 
+function PanelFrame({ params }: { params: URLSearchParams }) {
+  const [open, setOpen] = useState(params.get('open') !== 'false');
+  const [width, setWidth] = useState(window.innerWidth);
+  const [refusals, setRefusals] = useState(0);
+  const [pageActions, setPageActions] = useState(0);
+  const [showOpener, setShowOpener] = useState(true);
+  useEffect(() => {
+    const resize = () => setWidth(window.innerWidth);
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
+  const mode = width >= 1180 ? 'column' : width > 760 ? 'card' : 'sheet';
+  return (
+    <div className="gallery-panel-demo" data-mode={mode} data-open={open || undefined}>
+      <div className="gallery-panel-page">
+        <h1>Ops UI proposal</h1>
+        {showOpener && (
+          <BrowserAction
+            type="button"
+            variant="secondary"
+            label="Discussion"
+            onActivate={() => setOpen(true)}
+          />
+        )}
+        <p>The page remains available while its discussion is open.</p>
+        <BrowserAction
+          type="button"
+          variant="secondary"
+          label="Page action"
+          onActivate={() => setPageActions((n) => n + 1)}
+        />
+        <p id="page-action-status">Page actions {pageActions}</p>
+        <p role="status">{refusals ? `Dismissal refused ${refusals}` : ''}</p>
+      </div>
+      <div className="gallery-panel-column">
+        <BrowserPanel
+          open={open}
+          title="Discussion"
+          caption="1 / 2"
+          mode={mode}
+          focusFallback={() =>
+            Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+              (node) => node.textContent === 'Page action',
+            ) ?? null
+          }
+          onDismiss={() => {
+            if (params.get('refuse') === 'true') setRefusals((n) => n + 1);
+            else setOpen(false);
+          }}
+        >
+          <BrowserAction
+            type="button"
+            variant="text"
+            label="Remove opener"
+            onActivate={() => setShowOpener(false)}
+          />
+          <p>Navigation feedback</p>
+          <blockquote>The page decides its shape.</blockquote>
+          <BrowserField
+            controlId="panel-reply"
+            label="Reply"
+            renderControl={(props) => (
+              <textarea
+                {...props}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') event.preventDefault();
+                }}
+              />
+            )}
+          />
+          <BrowserAction type="button" variant="secondary" label="Reply" onActivate={() => {}} />
+        </BrowserPanel>
+      </div>
+    </div>
+  );
+}
+
 export function frameFor(name: string, params: URLSearchParams): ReactNode {
   switch (name) {
     case 'notice':
@@ -427,7 +519,9 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
     case 'hosted':
       return <HostedFrame />;
     case 'dialog':
-      return <DialogFrame />;
+      return <DialogFrame params={params} />;
+    case 'panel':
+      return <PanelFrame params={params} />;
     case 'drawer':
       return <DrawerFrame params={params} />;
     case 'source':
@@ -506,6 +600,26 @@ export function OverlaysSection() {
   return (
     <Section id="overlays">
       <FramePair title="BrowserDialog" frame="dialog" height={360} />
+      <FramePair
+        title="BrowserDialog · wide"
+        frame="dialog"
+        params={{ size: 'wide' }}
+        height={360}
+      />
+      <FramePair
+        title="BrowserDialog · archive confirmation"
+        frame="dialog"
+        params={{ presentation: 'confirm' }}
+        height={360}
+      />
+      <FramePair
+        title="BrowserDialog · delete confirmation"
+        frame="dialog"
+        params={{ presentation: 'confirm', intent: 'delete' }}
+        height={360}
+      />
+      <FramePair title="BrowserPanel · non-modal card" frame="panel" width={1024} height={440} />
+      <FramePair title="BrowserPanel · non-modal sheet" frame="panel" width={390} height={500} />
       <FramePair title="BrowserDrawer" frame="drawer" height={420} />
       <FramePair title="BrowserDrawer · host header Save" frame="source" height={420} />
     </Section>

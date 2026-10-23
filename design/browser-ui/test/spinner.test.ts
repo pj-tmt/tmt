@@ -1,11 +1,11 @@
+import { staticCss } from './static-css.js';
 import { expect, it } from 'vite-plus/test';
-import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { browserUiClasses, busyDots } from '../src/static';
 import { BusyMark, busyFrames } from '../src/spinner';
 
-const css = readFileSync(new URL('../generated/static.css', import.meta.url), 'utf8');
+const css = staticCss;
 /** The declarations of the first rule whose selector list contains `selector`, outside any @media. */
 const rule = (source: string, selector: string) =>
   new RegExp(`(?:^|\\n)([^{}@]*${selector.replace(/[.[\]'>]/g, '\\$&')}[^{}]*)\\{([^}]*)\\}`).exec(
