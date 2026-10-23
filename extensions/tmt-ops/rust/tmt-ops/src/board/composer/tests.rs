@@ -412,9 +412,9 @@ fn first_enter_focuses_retained_uuid_draft_and_only_a_new_active_press_submits()
     for width in [160, 100, 60] {
         let mut app = crate::board::app::workspace::tests::board();
         draw(&mut app, width, 18);
-        assert_eq!(app.bindings()["t"].text, "talk-measure");
+        assert_eq!(app.bindings()["M"].text, "talk-measure");
         assert_eq!(
-            app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE)),
+            app.key(KeyEvent::new(KeyCode::Char('M'), KeyModifiers::NONE)),
             Effect::None
         );
         assert!(app.input.is_none());
@@ -501,9 +501,9 @@ fn scoped_enter_preserves_group_inspect_and_explicit_keys_in_help_and_hints() {
         let keys = crate::config::workspace_defaults(scope);
         assert_eq!(keys["enter"].verb, crate::action::Verb::Talk);
         assert_eq!(
-            keys.contains_key("t"),
+            keys.contains_key("M"),
             !scope.is_reader(),
-            "t switches Talk and Measure outside readers"
+            "M switches Talk and Measure outside readers"
         );
         assert_eq!(
             keys.get("double-click").map(|action| action.text.as_str()),

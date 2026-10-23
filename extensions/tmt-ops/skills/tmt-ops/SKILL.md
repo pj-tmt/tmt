@@ -296,7 +296,7 @@ Agents holds the whole workspace: a full-width Usage band (global usage and prov
 limits) above two columns. The left column lists squads, agents or pinned ones; the
 right column shows the selected target as Talk (the conversation) or Measure (TOK in the saved range,
 STATE, DIGEST and TIMERS cells, the soonest timers, the Digest table and who talks to
-whom). `f` cycles the left chips Squads / Agents / Pinned and `t` toggles Talk / Measure;
+whom). `f` cycles the left chips Squads / Agents / Pinned and `M` toggles Talk / Measure;
 both controls sit on their pane's top rule. The shell attention bar stays global.
 Digest keeps the same identity context and existing Core-owned policy controls. A
 squad's theme applies to Agents/Digest.

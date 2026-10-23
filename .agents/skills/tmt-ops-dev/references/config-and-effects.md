@@ -177,7 +177,7 @@ in the stored complete ID set, but the picker identifies them as fixed and refus
 move actions. Digest retains independently movable panels.
 Authored `overview`, `overview-view` and `overview-filter` actions receive a located
 retirement notice. Their text stays intact and is not applied; the `agents-filter`
-(`f`) and `talk-measure` (`t`) actions replace them.
+(`f`) and `talk-measure` (`M`) actions replace them.
 
 The explicit `all-timers` action opens the all-room read context and is the
 default `c` when nothing is selected. Authored `timers` keeps the selected scope, and compatible global,
