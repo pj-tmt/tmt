@@ -34,7 +34,8 @@ import {
   verifyDeclaration,
 } from './release-declaration.mjs';
 import { readReleaseSourceAtRef } from './release-source-at-ref.mjs';
-import { componentOfProduct } from './native-release-policy.mjs';
+import { componentOfProduct, productOfTag } from './native-release-policy.mjs';
+import { reconcilePublishedTags } from './release-tag-refs.mjs';
 import {
   attributeCutCommits,
   parseReleaseCommits,
@@ -295,8 +296,8 @@ function spawn(command, args, options = {}) {
   if (result.error) throw result.error;
   return result;
 }
-const git = (args) => {
-  const result = spawn('git', args);
+const git = (args, input) => {
+  const result = spawn('git', args, { input, timeout: args[0] === 'fetch' ? 30_000 : 120_000 });
   if (result.status !== 0)
     throw new Error(`git ${args[0]} failed: ${result.stderr.trim()}`, {
       cause: { status: result.status },
@@ -327,6 +328,14 @@ export function releaseCommits({ from, to, product, map, workspace }, readGit = 
 }
 
 function earlyChecks({ product, tag, release, releases, repository }) {
+  // Freeze metadata once, then import only its missing published refs before
+  // declaration ancestry caches or migration history can observe stale tags.
+  reconcilePublishedTags(
+    releases
+      .filter((row) => row.draft !== true && productOfTag(row.tag_name))
+      .map((row) => row.tag_name),
+    git
+  );
   const sha = release.target_commitish;
   // Compatibility is a preflight, never a hold-skippable publication permission.
   if (declaresMinimumCli(product)) {
