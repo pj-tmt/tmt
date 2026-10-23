@@ -614,7 +614,9 @@ never authorizes a resend. The fallback is a no-follow notebook prefix of at mos
 16 KiB, explicitly marked when truncated, plus at most 20 open-request metadata
 items (ID, sender ID and age, with an overflow marker). No request body or receipt
 is copied. The new driver's first input labels all of this as untrusted context
-and points to `tmt x show` for request details; text is never completion evidence.
+and points to `tmt x show <request-id> --incoming --identity <name>` for request
+details. Literal closing notebook delimiters are escaped within the notes; text
+is never completion evidence.
 
 After handoff, re-read and revalidate the old attachment, caller destination and
 session preferences. Reuse the move path's immediate native PID/start recheck,
