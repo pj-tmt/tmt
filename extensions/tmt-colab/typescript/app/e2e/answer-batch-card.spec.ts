@@ -33,6 +33,7 @@ async function answerThree(page: Page, group: Locator) {
 async function openRecorded(group: Locator, index: number) {
   const row = group.locator('.question-line').nth(index);
   await expect(row).toHaveAttribute('aria-expanded', 'false');
+  await expect(row).toBeEnabled();
   await row.click();
 }
 
