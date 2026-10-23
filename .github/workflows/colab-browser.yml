@@ -254,7 +254,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 6 component)"
+          shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 7 component)"
           read -r -a files <<< "$shard_files"
           if [ "${#files[@]}" -eq 0 ]; then
             echo 'No component spec files selected for this shard.' >&2

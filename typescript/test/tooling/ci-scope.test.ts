@@ -3551,9 +3551,9 @@ describe('required CI gate', () => {
     expect(app).not.toContain('--with-deps');
     // Whole-file shards retain separate concurrency groups and evidence; none cancels another.
     expect(app).toContain('fail-fast: false');
-    expect(app).toContain('shard: [1, 2, 3, 4, 5, 6]');
+    expect(app).toContain('shard: [1, 2, 3, 4, 5, 6, 7]');
     expect(app).toContain(
-      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 6 component)"'
+      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 7 component)"'
     );
     expect(app).not.toContain('--shard=');
     expect(app).toContain('--reporter=dot,json');
