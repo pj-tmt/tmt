@@ -366,14 +366,16 @@ as products do; nothing is redrawn. It shows each demo in a light and a dark col
 `data-theme`, and pins hover/focus by mirroring the leaf's own `:hover`/`:focus-visible` rules
 onto gallery attributes (`gallery/force-states.ts`). The shell, dialog, drawer, open menu and
 notifications render in iframes of the gallery itself (`?frame=<name>&theme=<theme>`), because
-they need a viewport or the top layer; the phone shell is a 390px frame. The gallery loads web
+they need a viewport or the top layer; the phone shell is a 390px frame. `?frame=charts`
+shows the real chart demos without competing overlay frames for keyboard-focus checks. The gallery loads web
 fonts from Google Fonts and supplies Colab's host metrics.
 
-A side outline (wide screens) or a header dropdown lists the sections and follows the scroll;
-the section's name is the page heading's suffix.
+When mounted as a local preview route, a side outline (wide screens) or a header dropdown
+lists the sections and follows the scroll; the section's name is the page heading's suffix.
 
-It is never built or exported: `package.json` exports do not name `gallery/`, and only
-`vite.gallery.config.ts` serves it. `gallery/covered.ts` maps every value export of
+`vite.gallery.config.ts` serves the standalone gallery. The workspace export
+`@tmt/browser-ui/gallery/frames` exposes its frame renderer for local preview hosts; it does not
+add a product route. `gallery/covered.ts` maps every value export of
 `src/react.ts` to its section; `tsc` and `test/gallery.test.ts` fail when an export is missing
 from that map or is not rendered or called in the gallery source.
 
