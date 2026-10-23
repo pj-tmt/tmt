@@ -1463,18 +1463,20 @@ for (const surface of ['chat', 'thread'] as const)
       const button = window.getByRole('button', { name: text.askRecheck });
       await expect(button).toHaveCount(1);
       await expect(button).toHaveAccessibleName('Check again');
-      // A countdown that wraps has one box per line; the control follows the last one.
+      // A countdown that wraps has one text box per line; the control follows the last word.
       const clock = await clockLine.evaluate((node) => {
-        const rects = node.getClientRects();
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const rects = [...range.getClientRects()].filter((rect) => rect.width > 0);
         const last = rects[rects.length - 1];
         return { x: last.x, y: last.y, width: last.width, height: last.height };
       });
       const control = await button.boundingBox();
       // The same line as the countdown, and after it.
       expect(
-        Math.abs(control!.y + control!.height / 2 - (clock!.y + clock!.height / 2)),
+        Math.abs(control!.y + control!.height / 2 - (clock.y + clock.height / 2)),
       ).toBeLessThan(control!.height / 2);
-      expect(control!.x).toBeGreaterThanOrEqual(clock!.x + clock!.width);
+      expect(control!.x).toBeGreaterThanOrEqual(clock.x + clock.width);
       const captures = process.env.COLAB_ACTIVITY_CAPTURE_DIR;
       if (captures) {
         mkdirSync(captures, { recursive: true });
