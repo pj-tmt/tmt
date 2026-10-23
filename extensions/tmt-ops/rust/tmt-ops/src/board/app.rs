@@ -2289,6 +2289,28 @@ impl App {
             self.notice_clock.clear();
         }
     }
+    /// The notice for a job still running: held back until the spinner delay, so a job
+    /// that finishes sooner paints nothing. A result or failure uses `set_notice`.
+    pub(in crate::board) fn set_progress(&mut self, text: String) {
+        self.set_notice(Some(text), false);
+        let delay = super::view::SPINNER_DELAY.as_millis() as u64;
+        self.notice_clock
+            .hold_until(crate::status::now_ms() + delay);
+    }
+
+    /// The notice to paint now; a held progress notice asks the frame loop to wake
+    /// at the instant it becomes visible.
+    pub(in crate::board) fn shown_notice(&self) -> Option<&str> {
+        let text = self.notice.as_deref()?;
+        match self.notice_clock.hidden_until(crate::status::now_ms()) {
+            Some(until_ms) => {
+                super::view::ClockSurface::admit_delay_gate(self, until_ms);
+                None
+            }
+            None => Some(text),
+        }
+    }
+
     pub(in crate::board) fn expire_notice(&mut self, now: Instant) -> bool {
         if self.notice_clock.expired(now) {
             self.set_notice(None, false);

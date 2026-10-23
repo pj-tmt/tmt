@@ -51,7 +51,11 @@ impl FeedbackClock {
 
     pub(in crate::board) fn animates(&self, now_ms: u64) -> bool {
         self.motion
-            && matches!(self.progress, progress::Progress::Working { since_ms } if since_ms <= now_ms)
+            && matches!(
+                self.progress,
+                progress::Progress::Working { since_ms } | progress::Progress::Stated { since_ms }
+                    if since_ms <= now_ms
+            )
     }
 }
 
@@ -305,7 +309,19 @@ impl Session {
             changed |= entry.observe_sending(now_ms);
             if matches!(&entry.outcome, Some(Ok(accepted)) if accepted.passthrough || accepted.message_state_label.is_some())
             {
-                entry.feedback_clock = None;
+                // Core's words are the status; a `working` mark alone moves.
+                entry.feedback_clock = matches!(
+                    &entry.outcome,
+                    Some(Ok(accepted)) if accepted.message_state_label.as_deref()
+                        .is_some_and(|label| label.starts_with("⠹ "))
+                )
+                .then(|| FeedbackClock {
+                    progress: progress::Progress::Stated {
+                        since_ms: entry.started_ms,
+                    },
+                    name: crate::board::notes::single_line(name),
+                    motion,
+                });
                 continue;
             }
             // The reply exists and is being read: keep the line as painted.
