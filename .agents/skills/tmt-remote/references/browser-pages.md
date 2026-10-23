@@ -115,6 +115,10 @@ only when every waiting read's signal aborted. `whileVisible(intervalMs, signal,
 the document visible, at once on showing again, doubling the wait after each failed read up to
 eight times. `/ops` reads `ops` every 5 s through `ops-source.ts`, repaints only when the board
 changed and gives each reason one sentence with what to do; Digest uses the same client.
+Explicit narrow Agents selection opens the shared read-only agent drawer. Each section retains
+its logical selection; the drawer refreshes from the current board and resolves the current
+opener or fallback on dismissal. The page closes section drawers on a section change, unavailable
+board or route abort, without returning focus into a departed view.
 `test/owner-reads.test.ts` runs every vector of `owner-reads-v1.json` through it.
 
 `ops-page.ts` owns the section menu and that read lifetime; `ops-agents.ts`,

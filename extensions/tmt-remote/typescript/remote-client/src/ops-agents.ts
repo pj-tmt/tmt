@@ -2,7 +2,18 @@
 import { browserUiClasses } from '@tmt/browser-ui/static';
 import { createIcon } from '@tmt/browser-ui/glyph';
 import { AGENT_STATES, type AgentState, type OpsAgent, type OpsBoard } from './ops-source.js';
-import { bySquad, el, keyOf, mark, pageHead, plural, stateChip, statsStrip } from './ops-parts.js';
+import { agentDrawer } from './ops-drawer.js';
+import {
+  bySquad,
+  el,
+  keyOf,
+  mark,
+  pageFoot,
+  pageHead,
+  plural,
+  stateChip,
+  statsStrip,
+} from './ops-parts.js';
 
 /** The agents page's filters: a tab per state, `Idle` covering an idle alert too. */
 type Filter = 'all' | 'needs-you' | 'working' | 'idle' | 'blocked' | 'offline' | 'unknown';
@@ -24,7 +35,29 @@ interface AgentsState {
   selected?: string;
 }
 
-export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void } {
+/** Below this width the page has no room for the detail card: a selection opens the drawer. */
+const DRAWER_WIDTH = '(max-width: 1050px)';
+
+/** A sentence that stands where a table would, with its icon. */
+function noResults(text: string): HTMLParagraphElement {
+  const node = el('p', 'ops-empty ops-no-results');
+  node.append(createIcon('search'), text);
+  return node;
+}
+
+/** The Agents detail card's observation-only footer. */
+function detailNote(): HTMLParagraphElement {
+  const note = el('p', 'ops-detail-note');
+  note.append(createIcon('lock'), 'Observation only. No agent controls.');
+  return note;
+}
+
+/** A model name in the monospace the board uses for names it did not write. */
+function modelValue(model: string | undefined): HTMLSpanElement {
+  return el('span', browserUiClasses.tableMono, model || '—');
+}
+
+export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void; close(): void } {
   const state: AgentsState = { filter: 'all', query: '', collapsed: new Set() };
   let board: OpsBoard | undefined;
   const page = el('div', 'ops-agents-page');
@@ -87,17 +120,32 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
   detail.setAttribute('aria-label', 'Selected agent');
   card.append(cardHead, scroll);
   grid.append(card, detail);
-  const foot = el('p', 'ops-foot', 'Read-only · Refreshes while visible');
-  page.append(head, stats, banner, grid, foot);
+  let openedFrom: HTMLElement | undefined;
+  const drawer = agentDrawer({
+    returnFocus(agent) {
+      const selector = openedFrom?.classList.contains(browserUiClasses.bannerRow)
+        ? '.' + browserUiClasses.bannerRow
+        : '.' + browserUiClasses.tableSelect;
+      return [...page.querySelectorAll<HTMLElement>(selector)].find(
+        (node) => node.dataset.agent === keyOf(agent),
+      );
+    },
+    fallback: () => search,
+  });
+  page.append(head, stats, banner, grid, pageFoot(), drawer.node);
 
   function choose(filter: Filter): void {
     state.filter = filter;
     renderTable();
   }
-  function select(agent: OpsAgent): void {
+  function select(agent: OpsAgent, from?: HTMLElement): void {
     state.selected = keyOf(agent);
     renderTable();
     renderDetail();
+    if (!matchMedia(DRAWER_WIDTH).matches) return;
+    // The drawer resolves the current counterpart after refresh, not a detached opener.
+    openedFrom = from;
+    drawer.open(agent);
   }
   const matches = (agent: OpsAgent): boolean => {
     const filter = FILTERS.find((item) => item.id === state.filter)!;
@@ -137,17 +185,12 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
     for (const agent of waiting) {
       const row = el('button', browserUiClasses.bannerRow);
       row.type = 'button';
-      row.addEventListener('click', () => {
-        state.selected = keyOf(agent);
-        renderTable();
-        renderDetail();
-      });
-      const word = el('span');
-      word.append(mark('diamond'), AGENT_STATES['needs-you'].word);
+      row.dataset.agent = keyOf(agent);
+      row.addEventListener('click', () => select(agent, row));
       row.append(
         mark('diamond', 'waiting'),
         el('span', undefined, agent.name),
-        word,
+        stateChip('needs-you'),
         el('span', undefined, agent.pending ?? agent.task ?? ''),
         el('span', undefined, agent.next ?? ''),
         createIcon('chevron-right'),
@@ -218,12 +261,17 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
           const pick = el('button', browserUiClasses.tableSelect);
           pick.type = 'button';
           pick.setAttribute('aria-pressed', String(keyOf(agent) === state.selected));
+          pick.dataset.agent = keyOf(agent);
           pick.append(mark(info.mark, info.tone), document.createTextNode(agent.name));
-          pick.addEventListener('click', () => select(agent));
+          pick.addEventListener('click', () => select(agent, pick));
           who.append(pick);
           const status = el('td');
           status.append(stateChip(agent.state));
-          const work = el('td', undefined, agent.task || '—');
+          const work = el(
+            'td',
+            agent.task ? undefined : browserUiClasses.tableQuiet,
+            agent.task || '—',
+          );
           // Under the compact width the model and the waiting count move under the work.
           work.append(
             el(
@@ -234,7 +282,7 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
                 .join(' · '),
             ),
           );
-          const model = el('td', undefined, agent.model || '—');
+          const model = el('td', browserUiClasses.tableMono, agent.model || '—');
           model.dataset.compactHide = '';
           const waiting = el('td');
           waiting.dataset.compactHide = '';
@@ -253,7 +301,9 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
     scroll.replaceChildren(
       shown
         ? table
-        : el('p', 'ops-empty', board.agents.length ? 'No agents match.' : 'No agents yet.'),
+        : board.agents.length
+          ? noResults('No agents match your filters.')
+          : el('p', 'ops-empty', 'No agents yet.'),
     );
   }
   function renderDetail(): void {
@@ -262,7 +312,7 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
       detail.replaceChildren(
         el('h3', browserUiClasses.cardTitle, 'Agent'),
         el('p', 'ops-empty', 'No agents yet.'),
-        el('p', 'ops-detail-note', 'Observation only, no agent controls'),
+        detailNote(),
       );
       return;
     }
@@ -280,20 +330,22 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
     fact('Name', agent.name);
     fact('Squad', agent.squad);
     fact('Role', agent.role === 'lead' ? 'Lead' : 'Member');
-    fact('Model', agent.model || '—');
+    fact('Model', modelValue(agent.model));
     fact('State', stateChip(agent.state, agent.stateText || undefined));
-    const block = (term: string, value: string) => {
+    const block = (term: string, value: string, tone?: string) => {
       const part = el('div', 'ops-detail-block');
-      part.append(el('p', 'ops-detail-label', term), el('p', undefined, value));
+      const label = el('p', 'ops-detail-label', term);
+      if (tone) label.dataset.tone = tone;
+      part.append(label, el('p', undefined, value));
       return part;
     };
     detail.replaceChildren(
       headline,
       facts,
-      block('Task', agent.task || '—'),
-      block('Next step', agent.next || '—'),
-      ...(agent.pending ? [block('Waiting on you', agent.pending)] : []),
-      el('p', 'ops-detail-note', 'Observation only, no agent controls'),
+      block('Task', agent.task || 'No task recorded'),
+      block('Next step', agent.next || 'No next step recorded'),
+      ...(agent.pending ? [block('Waiting on you', agent.pending, 'waiting')] : []),
+      detailNote(),
     );
   }
   return {
@@ -319,6 +371,8 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
       renderBanner();
       renderTable();
       renderDetail();
+      drawer.update(next.agents);
     },
+    close: () => drawer.close(),
   };
 }

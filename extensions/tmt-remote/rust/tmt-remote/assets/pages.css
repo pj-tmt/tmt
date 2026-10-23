@@ -179,7 +179,6 @@ body:not(:has(.tmt-ui-shell)) {
   display: none;
 }
 
-
 /* Home: what needs you across modules, then recent pages, as shared list rows. Its own class name,
    since a Colab route in the same document has its own `.home`. */
 .tmt-home {
@@ -442,9 +441,18 @@ body:not(:has(.tmt-ui-shell)) {
   overflow-wrap: anywhere;
 }
 .ops-detail-note {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
   margin: auto 0 0;
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
+}
+.ops-no-results {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tmt-ui-space-s);
 }
 .ops-empty,
 .ops-foot {
@@ -563,12 +571,13 @@ body:not(:has(.tmt-ui-shell)) {
   .ops-timers-page .ops-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-}
-@media (max-width: 760px) {
+
+  /* No room for the detail card: a selection opens the drawer instead. */
   .ops-detail {
     display: none;
   }
-
+}
+@media (max-width: 760px) {
   .ops-agents-tools .tmt-ui-tabs,
   .ops-agents-tools .tmt-ui-search-field {
     flex: 1 1 100%;

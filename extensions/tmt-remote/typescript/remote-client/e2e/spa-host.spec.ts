@@ -891,9 +891,9 @@ test.describe('the Ops route on the owner read', () => {
       'ring',
     );
     await expect(rows.nth(1).locator('.tmt-ui-chip').first()).toContainText('Offline');
-    // Every mark is drawn in one box, whatever the state.
+    // Every state mark is drawn in one box, whatever the state (the foot's small dot is not one).
     const boxes = await page
-      .locator('#ops-section .tmt-ui-state-mark')
+      .locator('#ops-section :not(.ops-foot) > .tmt-ui-state-mark')
       .evaluateAll((marks) =>
         marks.map((mark) => [
           mark.getBoundingClientRect().width,
@@ -1038,6 +1038,9 @@ test.describe('the Ops route on the owner read', () => {
     const banner = section.locator('.tmt-ui-banner');
     await expect(banner).toContainText('1 agent needs your attention');
     await expect(banner.locator('.tmt-ui-banner-row')).toContainText(['core-1']);
+    // The state is a chip, as in the rows below, and the strip says "State unavailable".
+    await expect(banner.locator('.tmt-ui-banner-row .tmt-ui-chip')).toHaveText('Needs you');
+    await expect(section.locator('.tmt-ui-stat-caption').last()).toHaveText('State unavailable');
     await banner.getByRole('button', { name: 'View all' }).click();
     await expect(section.getByRole('tab', { name: 'Needs you' })).toHaveAttribute(
       'aria-selected',
@@ -1054,11 +1057,23 @@ test.describe('the Ops route on the owner read', () => {
     await search.fill('ux');
     await expect(rows.locator('.tmt-ui-table-select')).toHaveText(['ux-lead', 'ux-1']);
     await search.fill('nobody');
-    await expect(section).toContainText('No agents match.');
+    await expect(section.locator('.ops-no-results')).toHaveText('No agents match your filters.');
+    await expect(section.locator('.ops-no-results svg')).toBeVisible();
     await search.fill('');
     // The first agent that needs the person is selected on load, so the panel is never empty.
     const detail = page.locator('#ops-detail');
     await expect(detail.locator('dd').first()).toHaveText('core-1');
+    // Model is monospace; a missing task is a quiet dash in the table and a sentence in the card.
+    await expect(rows.first().locator('td').nth(3)).toHaveCSS('font-family', /mono/i);
+    await expect(rows.nth(2).locator('td').nth(2)).toHaveClass(/tmt-ui-table-quiet/);
+    await expect(rows.nth(2).locator('td').nth(2)).toContainText('—');
+    await expect(detail).toContainText('No next step recorded');
+    await expect(detail.locator('.ops-detail-label[data-tone="waiting"]')).toHaveText(
+      'Waiting on you',
+    );
+    await expect(detail.locator('.ops-detail-note')).toHaveText(
+      'Observation only. No agent controls.',
+    );
     await expect(section.locator('.tmt-ui-table-select', { hasText: 'core-1' })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -1084,6 +1099,84 @@ test.describe('the Ops route on the owner read', () => {
     await section.getByRole('button', { name: 'tmt-lead' }).click();
     await expect(detail.locator('dd').first()).toHaveText('tmt-lead');
     await expect(rows.first()).toHaveAttribute('data-selected', '');
+    await page.close();
+  });
+
+  test('below 1050px an agent opens in a drawer and focus returns to its row', async () => {
+    const { page } = await openApp('/ops', async (page) => {
+      await stub(page, [squadBoard()]);
+    });
+    await page.setViewportSize({ width: 900, height: 900 });
+    const section = page.locator('#ops-section');
+    const drawer = page.locator('dialog.tmt-ui-drawer');
+    await expect(page.locator('#ops-detail')).toBeHidden();
+    await expect(drawer).toBeHidden();
+    await section.getByRole('button', { name: 'tmt-lead' }).click();
+    await expect(drawer).toBeVisible();
+    await expect(drawer.locator('h2')).toHaveText('tmt-lead');
+    await expect(drawer).toContainText('review');
+    await page.keyboard.press('Escape');
+    await expect(drawer).toBeHidden();
+    await expect(section.getByRole('button', { name: 'tmt-lead' })).toBeFocused();
+    // A banner row opens the same drawer.
+    await section.locator('.tmt-ui-banner-row').click();
+    await expect(drawer.locator('h2')).toHaveText('core-1');
+    await expect(drawer).toContainText('approve the plan');
+    await drawer.getByRole('button', { name: 'Close core-1' }).click();
+    await expect(section.locator('.tmt-ui-banner-row')).toBeFocused();
+    await page.close();
+  });
+
+  test('the Agents drawer follows refreshes, handles removal and closes on route departure', async () => {
+    let current = squadBoard();
+    const { page } = await openApp('/ops', async (page) => {
+      await stub(page, [current]);
+      await page.route(`${origin}/r/owner/x/-/ops`, (route) =>
+        route.fulfill({ json: { ...current, observedAtMs: Date.now() } }),
+      );
+    });
+    await page.setViewportSize({ width: 900, height: 900 });
+    const section = page.locator('#ops-section');
+    const bannerRow = section.locator('.tmt-ui-banner-row');
+    await bannerRow.click();
+    const drawer = page.getByRole('dialog', { name: 'core-1', exact: true });
+    await expect(drawer).toContainText('approve the plan');
+    current = {
+      ...current,
+      agents: current.agents.map((agent) =>
+        agent.name === 'core-1' ? { ...agent, pending: 'review the updated plan' } : agent,
+      ),
+    };
+    await expect(drawer).toContainText('review the updated plan', { timeout: 8000 });
+    await expect(drawer).not.toContainText('approve the plan');
+    await page.keyboard.press('Escape');
+    await expect(bannerRow).toBeFocused();
+
+    await section.getByRole('button', { name: 'tmt-lead', exact: true }).click();
+    const removed = page.getByRole('dialog', { name: 'tmt-lead', exact: true });
+    current = { ...current, agents: current.agents.filter((agent) => agent.name !== 'tmt-lead') };
+    await expect(removed).toContainText('This agent is no longer on the board.', { timeout: 8000 });
+    await expect(removed.locator('dd')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(section.getByRole('searchbox', { name: 'Filter agents' })).toBeFocused();
+
+    await section.getByRole('button', { name: 'core-1', exact: true }).click();
+    await expect(drawer).toBeVisible();
+    await page.evaluate(() => {
+      location.hash = 'schedules';
+    });
+    await expect(page.getByRole('heading', { name: 'Keep the rhythm visible.' })).toBeVisible();
+    await page.evaluate(() => {
+      location.hash = 'agents';
+    });
+    await expect(section.locator('dialog.tmt-ui-drawer')).not.toHaveAttribute('open');
+    await section.getByRole('button', { name: 'core-1', exact: true }).click();
+    await expect(drawer).toBeVisible();
+    await page
+      .locator('nav.tmt-ui-rail a[data-id="digest"]')
+      .evaluate((node: HTMLAnchorElement) => node.click());
+    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'digest');
+    await expect(page.locator('dialog.tmt-ui-drawer')).toHaveCount(0);
     await page.close();
   });
 
@@ -1231,16 +1324,25 @@ test.describe('the Ops route on the owner read', () => {
     });
     const rows = page.locator('#ops-section tbody tr:not(.tmt-ui-table-group)');
     await expect(rows).toHaveCount(2);
+    await page.setViewportSize({ width: 900, height: 900 });
+    await rows.locator('.tmt-ui-table-select').first().click();
+    await expect(page.locator('dialog.tmt-ui-drawer')).toBeVisible();
     down = true;
     await expect(page.locator('#ops-note')).toHaveText(
       'Your machine did not answer. This page tries again shortly.',
       { timeout: 8000 },
     );
     await expect(page.locator('#ops-note')).not.toContainText('Pair');
+    await expect(page.locator('dialog.tmt-ui-drawer')).toHaveCount(0);
     // Back up: the next read (after the doubled wait) shows the board again and clears the note.
     down = false;
     await expect(rows).toHaveCount(2, { timeout: 15_000 });
     await expect(page.locator('#ops-note')).toBeHidden();
+    await expect(page.locator('dialog.tmt-ui-drawer')).not.toHaveAttribute('open');
+    await rows.locator('.tmt-ui-table-select').first().click();
+    await expect(page.locator('dialog.tmt-ui-drawer')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(rows.locator('.tmt-ui-table-select').first()).toBeFocused();
     await page.close();
   });
 

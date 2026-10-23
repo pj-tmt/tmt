@@ -86,7 +86,7 @@ const STATS: readonly {
   { label: 'offline', caption: 'Not running', tone: 'muted', shape: 'ring', states: ['offline'] },
   {
     label: 'unknown',
-    caption: 'Status unavailable',
+    caption: 'State unavailable',
     tone: 'muted',
     shape: 'unknown',
     states: ['unknown'],

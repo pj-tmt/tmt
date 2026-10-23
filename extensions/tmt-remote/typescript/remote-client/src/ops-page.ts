@@ -40,6 +40,7 @@ export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void
   };
   const paint = () => {
     const section = current();
+    if (section !== 'agents') views.agents.close();
     if (section !== 'squads') views.squads.close();
     shell.setMenu({
       title: 'Ops',
@@ -76,7 +77,11 @@ export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void
     }
   };
   window.addEventListener('hashchange', paint, { signal: shell.signal });
-  shell.signal.addEventListener('abort', () => views.squads.close(), { once: true });
+  const closeDrawers = () => {
+    views.agents.close();
+    views.squads.close();
+  };
+  shell.signal.addEventListener('abort', closeDrawers, { once: true });
   paint();
   // The board while the route is visible, at the board's own cadence; a page repaints only when
   // the board changed, so a reader's place and selection stay.
@@ -88,6 +93,7 @@ export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void
     if (seen !== last) {
       last = seen;
       if (next.unavailable) {
+        closeDrawers();
         board = undefined;
         main.replaceChildren();
         notAvailable(note, next.unavailable);
