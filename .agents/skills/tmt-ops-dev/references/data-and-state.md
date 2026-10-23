@@ -266,6 +266,16 @@ projects its typed results/errors. The board consumes the same typed service dir
   from errors. Unsupported/corrupt data and unsafe files fail closed without repair. A
   candidate is written inside the database transaction and `before_publish` (the service's
   repeated room/actor/assignment admission) runs before it commits: a refusal discards it.
+- A conversation list (`--member`) is a second key of the same `checklist` kind,
+  `<room-uuid>/<member-uuid>` (both canonical UUIDs, so it cannot equal a room key), with an
+  optional `memberId` in its document that must equal the key's second half like `roomId` does.
+  Room documents carry no `memberId`, so their bytes are unchanged and no migration exists. Its
+  one checklist UUID is derived from the pair (`Id::conversation_checklist`), so a caller never
+  supplies it. `resolve_member` runs once in the adapter (UUID through `references.resolve`,
+  which also finds a retired identity; a name through `identity show`, active only); the service
+  and store see only the UUID. Every admission re-resolves the member: unknown is
+  `CHECKLIST_MEMBER_UNAVAILABLE`, retired is readable and refuses writes. Admission to the
+  room and the actor's authority are those of the room list. No Core schema or contract changes.
 - A write queues behind another writer for at most five seconds; a spent budget is
   `CHECKLIST_STORAGE_ERROR` saying nothing was saved with the one retry, and a commit that
   timed out is `CHECKLIST_OUTCOME_UNKNOWN`. The implementation limits are 64 MiB per document
