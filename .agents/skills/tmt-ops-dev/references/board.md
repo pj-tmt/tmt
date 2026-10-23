@@ -90,8 +90,9 @@ checked on launch, never promised resumable. Missing, stale, basic or failed evi
 stays unavailable. Core's nullable `session.unbound` is part of the frozen evidence:
 only explicit true paints `! unbound` and the explanation; missing activity, missing
 fields and null do not infer it. Flat/tree rows share that projection. The unbound
-dialog offers only **Copy command**, using the exact UUID argv, with the muted hint
+dialog previews the exact UUID command and offers only **Copy command**, with the muted hint
 **Run it in the agent's pane**; no foreground handoff is available for that observation.
+Only the unbound dialog uses intrinsic height; the surface retains its position count.
 Existing memory/read guards still apply. Host / Session drops whole before other Agents tracks.
 Resume/Move review freezes the UUID and observed session. A changed selection or
 observation invalidates it; confirmation requires fully painted review text and choices.

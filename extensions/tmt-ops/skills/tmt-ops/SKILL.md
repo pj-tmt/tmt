@@ -343,7 +343,7 @@ anchors. `e` opens full observed member values. `R` opens Session for the select
 agent in either list or conversation focus. Host / Session shows the observed host
 and remembered/unavailable state and yields first at narrow widths. Core's explicit
 `session.unbound: true` instead shows `! unbound`; a missing or null field does not imply it.
-Session explains the unbound provider session and offers **Copy command** for its exact
+Session explains the unbound provider session, previews and offers **Copy command** for its exact
 UUID recovery command, with **Run it in the agent's pane**. Copy keeps the board open
 and never starts a foreground handoff for this observation. Session shows
 full host coordinates, remembered driver/session and last activity when observed.

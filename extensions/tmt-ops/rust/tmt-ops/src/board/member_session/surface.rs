@@ -120,18 +120,34 @@ impl Controller {
                 }
             }),
         }
+        if let Some(command) = self.recovery_command() {
+            lines.push(format!("Command: {}", command.line()));
+        }
         lines
     }
     pub fn render(&self, frame: &mut Frame, app: &App, look: Look, body: Rect) {
         static TEMPLATE: OnceLock<tmt_tui::components::surface::Template<()>> = OnceLock::new();
-        let template = TEMPLATE.get_or_init(|| {
+        static UNBOUND_TEMPLATE: OnceLock<tmt_tui::components::surface::Template<()>> =
+            OnceLock::new();
+        let unbound = self.task.evidence.is_unbound();
+        let template = if unbound {
+            &UNBOUND_TEMPLATE
+        } else {
+            &TEMPLATE
+        }
+        .get_or_init(|| {
             let mut schema = picker_surface::schema(&["cursor", "label"]);
             let tmt_tui::binding::Schema::Object(fields) = &mut schema else {
                 unreachable!("picker scene schema");
             };
             let notes = fields["notes"].clone();
             fields.insert("recovery".into(), notes);
-            picker_surface::compile(FILE, MARKUP, schema)
+            let markup = if unbound {
+                MARKUP.replace("class=\"w-110 h-32\"", "class=\"w-110\"")
+            } else {
+                MARKUP.to_owned()
+            };
+            picker_surface::compile(FILE, &markup, schema)
         });
         let mut ui = self.ui.borrow_mut();
         ui.reconcile(self.list_rows());

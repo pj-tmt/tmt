@@ -142,6 +142,9 @@ fn unbound_copy_uses_the_exact_uuid_command_and_never_opens_a_handoff() {
         let text = paint(&app, 160, 36);
         assert!(text.contains("Copy command"), "{text}");
         assert!(text.contains("Run it in the agent's pane"), "{text}");
+        let preview = format!("Command: '/opt/tmt bin/tmt' 'resume' '--' '{MEMBER}'");
+        assert!(text.contains(&preview), "{text}");
+        assert!(text.find(&preview) < text.find("Run it in the agent's pane"));
         assert!(
             !text.contains("Resume here") && !text.contains("Move here"),
             "{text}"
@@ -286,6 +289,32 @@ fn missing_activity_does_not_imply_an_unbound_session() {
         !text.contains("Session unbound") && text.contains("Resume here"),
         "{text}"
     );
+}
+
+#[test]
+fn unbound_dialog_fits_its_content_and_keeps_position_for_overflow() {
+    let mut app = remembered();
+    binding_observation(&mut app, "tmux", Some(json!(true)));
+    load(&mut app);
+    let text = paint(&app, 160, 36);
+    let controller = app.member_session.as_ref().unwrap();
+    let ui = controller.ui.borrow();
+    let map = ui.frame.as_ref().unwrap();
+    assert_eq!(ui.picker.list.scroll.limit(), 0);
+    assert_eq!(
+        usize::from(map.areas.outer.height),
+        ui.picker.list.scroll.content() + 5
+    );
+    assert!(map.areas.outer.height < 32);
+    assert!(
+        text.contains("of 13"),
+        "the surface retains its position line: {text}"
+    );
+    drop(ui);
+    paint(&app, 80, 8);
+    assert!(controller.ui.borrow().picker.list.scroll.limit() > 0);
+    paint(&app, 160, 36);
+    assert_eq!(controller.ui.borrow().picker.list.scroll.limit(), 0);
 }
 
 #[test]

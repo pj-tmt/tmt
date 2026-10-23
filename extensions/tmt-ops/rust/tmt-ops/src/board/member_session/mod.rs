@@ -109,6 +109,23 @@ pub(in crate::board) struct Controller {
     ui: RefCell<picker_surface::State>,
 }
 impl Controller {
+    fn recovery_command(&self) -> Option<Foreground> {
+        if !self.task.evidence.is_unbound() || !self.task.evidence.remembered() {
+            return None;
+        }
+        let Some(Ok(observed)) = &self.loaded else {
+            return None;
+        };
+        let OpsTarget::Member { identity_id, .. } = &self.task.target else {
+            unreachable!()
+        };
+        // TODO(#4663): Reuse the UUID handoff after Core supports UUID launch.
+        Some(Foreground::new(
+            observed.executable.clone(),
+            identity_id,
+            false,
+        ))
+    }
     pub fn invalidate(&self) {
         self.readable.set(false);
         self.ui.borrow_mut().invalidate();
@@ -214,16 +231,7 @@ impl App {
                 c.invalidate();
             }
             Some("copy") => {
-                let c = self.member_session.as_ref()?;
-                if c.task.evidence.is_unbound()
-                    && c.task.evidence.remembered()
-                    && let Some(Ok(observed)) = &c.loaded
-                {
-                    let OpsTarget::Member { identity_id, .. } = &c.task.target else {
-                        unreachable!()
-                    };
-                    // TODO(#4663): Reuse the UUID handoff after Core supports UUID launch.
-                    let command = Foreground::new(observed.executable.clone(), identity_id, false);
+                if let Some(command) = self.member_session.as_ref()?.recovery_command() {
                     return Some(Effect::Act(Request::Copy {
                         text: command.line(),
                         program: self.view.as_ref().and_then(|view| view.clipboard.clone()),
