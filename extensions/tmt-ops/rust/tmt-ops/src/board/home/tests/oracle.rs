@@ -736,7 +736,15 @@ fn captures() -> Value {
         for (look_name, look) in looks() {
             for scene in crate::board::conversation::source::scenes::SCENES {
                 let app = crate::board::conversation::source::scenes::capture_case(scene, look);
-                frames.push(capture_frame(&app, scene, look_name, 100, 36, &mut styles));
+                let (width, height) = crate::board::conversation::source::scenes::size(scene);
+                frames.push(capture_frame(
+                    &app,
+                    scene,
+                    look_name,
+                    width,
+                    height,
+                    &mut styles,
+                ));
             }
         }
         for (look_name, look) in looks() {
