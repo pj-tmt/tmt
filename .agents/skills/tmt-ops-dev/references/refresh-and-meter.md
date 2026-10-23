@@ -142,7 +142,8 @@
   or growing-transcript render between reads; the existing Session keeps retained content
   while the refresh runs. The live selected-lane demand belongs to App so painters can
   show the shell spinner glyph on the conversation rule, only after `SPINNER_DELAY` and
-  only while a source read holds retained content, without starting work or inventing a
+  only while a source read holds retained content (it turns on the shared tick when
+  `motion_allowed`, else holds `⠹`), without starting work or inventing a
   second in-flight flag. A snapshot re-reads the conversation's requests only when Core's
   change cursor moved or could not be read, or while a shown send is `batched` (its
   countdown is time-derived); the per-refresh pane-output read never shows the spinner. With no prepared Session, one centred `Loading conversation…` mark
