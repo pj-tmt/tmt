@@ -28,7 +28,7 @@ fn unanswered(probe: &Probe) -> bool {
     matches!(probe.capture, None | Some(Capture::NoAnswer))
 }
 
-/// Orders `sends` (oldest first). A send with an answered turn takes every later send that has no
+/// Orders `sends` (oldest first, so the scan ends where a turn settled). A send with an answered turn takes every later send that has no
 /// capture of its own and was sent before the turn settled as its group; the answer follows the
 /// group's last send.
 pub(super) fn place(sends: &[Probe]) -> Vec<Place> {
@@ -41,12 +41,10 @@ pub(super) fn place(sends: &[Probe]) -> Vec<Place> {
         else {
             continue;
         };
+        // `sends` are oldest first, so the scan ends where the turn settled.
         let mates: Vec<usize> = (index + 1..sends.len())
-            .filter(|later| {
-                unanswered(&sends[*later])
-                    && sends[*later].at_ms > send.at_ms
-                    && sends[*later].at_ms < *settled
-            })
+            .take_while(|later| sends[*later].at_ms < *settled)
+            .filter(|later| unanswered(&sends[*later]) && sends[*later].at_ms > send.at_ms)
             .collect();
         let Some(last) = mates.last().copied() else {
             continue;
