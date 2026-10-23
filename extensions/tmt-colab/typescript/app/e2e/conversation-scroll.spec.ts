@@ -251,7 +251,10 @@ for (const surface of ['chat'] as const) {
     await expect(jump).toHaveCount(0);
     // If the viewport now fits the entire history, every turn is already latest.
     await scroll(history, 0);
-    await page.setViewportSize({ width: 1440, height: 7000 });
+    // The viewport is the history's own height plus the drawer's chrome: a fixed 7000px stopped
+    // fitting once the turns gained their bubbles on a font with taller lines.
+    const fitting = (await history.evaluate((node) => node.scrollHeight)) + 600;
+    await page.setViewportSize({ width: 1440, height: fitting });
     await expect.poll(() => distance(history)).toBeLessThanOrEqual(1);
     await run(page, 'scrollArrival');
     await expect(window.getByTestId('comment-entry').last()).toContainText('A new turn');
