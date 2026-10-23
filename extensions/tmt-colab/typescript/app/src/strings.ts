@@ -281,6 +281,18 @@ export const text = {
   /** The More menu's entry for the page's sharing, with its state as secondary text. */
   shareItem: 'Share…',
   projectsItem: 'Projects…',
+  filesCount: (count: number) => `Page files (${count})`,
+  filesChooseTitle: 'Add a file',
+  filesChoose: 'Choose files to stage',
+  filesChooseHint: 'Stage files here, then add them to this page.',
+  filesChooseNote:
+    'Choosing files stages them locally. Add to page uploads them and saves their references.',
+  filesRemoveTitle: (filename: string) => `Remove ${filename}?`,
+  filesRemoveHint:
+    'The file reference will be removed from this page. Files on your computer stay unchanged.',
+  filesRemoveConfirm: 'Remove file',
+  filesClose: 'Close',
+  filesCancel: 'Cancel',
   filesEmpty: 'No files yet.',
   filesListLabel: 'Page files',
   filesAdd: 'Add to page',

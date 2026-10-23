@@ -32,7 +32,7 @@ async function openFiles(page: Page) {
 }
 async function attach(panel: ReturnType<Page['getByTestId']>, page: Page, files: unknown[]) {
   const chooser = page.waitForEvent('filechooser');
-  await panel.getByRole('button', { name: text.attachFiles }).click();
+  await panel.getByLabel(text.filesChoose, { exact: true }).click();
   await (await chooser).setFiles(files as never);
 }
 const add = (panel: ReturnType<Page['getByTestId']>) =>
@@ -74,7 +74,7 @@ test('Files is a peer panel: empty for a writer, then rows with a count after Ad
   await png.getByRole('button', { name: text.attachmentPreview }).click();
   const image = page.getByTestId('file-preview').locator('img');
   await expect(image).toHaveAttribute('src', /^data:image\/png;base64,/);
-  await png.getByRole('button', { name: text.attachmentHidePreview }).click();
+  await page.getByRole('button', { name: text.filesClose, exact: true }).click();
   await expect(image).toHaveCount(0);
   const download = page.waitForEvent('download');
   await rows.nth(0).getByRole('button', { name: text.attachmentDownload }).click();
@@ -115,6 +115,7 @@ test('removing a file drops its row and the count; the last removal restores the
   await add(panel).click();
   await expect(panel.getByTestId('file-row')).toHaveCount(1);
   await panel.getByRole('button', { name: text.attachRemove }).click();
+  await page.getByRole('button', { name: text.filesRemoveConfirm, exact: true }).click();
   await expect(panel.getByTestId('file-row')).toHaveCount(0);
   await expect(panel.getByText(text.filesEmpty)).toBeVisible();
   expect(await actions(page)).toContain('files:remove:1');
@@ -181,6 +182,7 @@ test('an epoch or admission change disposes shown previews and failures, and a l
   await expect(rows).toHaveCount(2);
   await rows.nth(0).getByRole('button', { name: text.attachmentPreview }).click();
   await expect(page.getByTestId('file-preview').locator('img')).toBeVisible();
+  await page.getByRole('button', { name: text.filesClose, exact: true }).click();
   await rows.nth(1).getByRole('button', { name: text.attachmentDownload }).click();
   await expect(rows.nth(1).getByRole('alert')).toHaveText(text.attachmentUnavailable);
 
@@ -208,6 +210,10 @@ test('a read that finishes after the disclosure changed drops bytes and shows re
     .toBe(true);
   await page.evaluate(async (path) => (await import(path)).advanceDisclosure(), fixture);
   await page.evaluate(async (path) => (await import(path)).releaseOpen(), fixture);
+  await expect(page.getByRole('dialog').getByRole('alert')).toHaveText(
+    text.attachmentReason.changed,
+  );
+  await page.getByRole('button', { name: text.filesClose, exact: true }).click();
   await expect(row.getByRole('button', { name: text.attachmentPreview })).toBeEnabled();
   await expect(page.getByTestId('file-preview')).toHaveCount(0);
   await expect(row.getByRole('alert')).toHaveText(text.attachmentReason.changed);
@@ -225,9 +231,21 @@ test('a slow Preview keeps its label, fences the row without greying it and show
   const row = panel.getByTestId('file-row');
   await expect(row).toHaveCount(1);
   await page.clock.pauseAt(new Date(start.getTime() + 60_000));
-  const preview = row.getByRole('button', { name: text.attachmentPreview, exact: true });
-  const download = row.getByRole('button', { name: text.attachmentDownload, exact: true });
-  const remove = row.getByRole('button', { name: text.attachRemove, exact: true });
+  const preview = row.getByRole('button', {
+    name: text.attachmentPreview,
+    exact: true,
+    includeHidden: true,
+  });
+  const download = row.getByRole('button', {
+    name: text.attachmentDownload,
+    exact: true,
+    includeHidden: true,
+  });
+  const remove = row.getByRole('button', {
+    name: text.attachRemove,
+    exact: true,
+    includeHidden: true,
+  });
   const marks = row.locator('.tmt-ui-action-mark[data-busy="true"] .tmt-ui-busy-mark');
   await preview.click();
   await expect
@@ -262,6 +280,10 @@ test('removing the last page file during a read preserves visible retry feedback
     .toBe(true);
   await page.evaluate(async (path) => (await import(path)).removePageFiles(), fixture);
   await page.evaluate(async (path) => (await import(path)).releaseOpen(), fixture);
+  await expect(page.getByRole('dialog').getByRole('alert')).toHaveText(
+    text.attachmentReason.changed,
+  );
+  await page.getByRole('button', { name: text.filesClose, exact: true }).click();
   await expect(panel.getByTestId('file-row')).toHaveCount(0);
   await expect(panel.getByRole('alert')).toHaveText(text.attachmentReason.changed);
   await expect(panel.getByTestId('file-preview')).toHaveCount(0);
@@ -328,6 +350,7 @@ test('a reader link lists files read-only and only when the page has files', asy
     'src',
     /^data:image\/png;base64,/,
   );
+  await page.getByRole('button', { name: text.filesClose, exact: true }).click();
   const download = page.waitForEvent('download');
   await rows.nth(0).getByRole('button', { name: text.attachmentDownload }).click();
   expect((await download).suggestedFilename()).toBe('report.txt');
@@ -406,7 +429,9 @@ for (const width of [1440, 390])
         'refused',
       );
       await shot('chip-refused');
-      await panel.getByRole('button', { name: text.attachRemove }).last().click();
+      await panel
+        .getByRole('button', { name: 'Remove staged file refuse.bin', exact: true })
+        .click();
       await add(panel).click();
       const rows = panel.getByTestId('file-row');
       await expect(rows).toHaveCount(2);

@@ -432,7 +432,7 @@ test('files added to the page reach another device and a read-only link byte-ide
     const panel = await openFiles(first);
     await expect(panel.getByText(text.filesEmpty)).toBeVisible();
     const chooser = first.waitForEvent('filechooser');
-    await panel.getByRole('button', { name: text.attachFiles }).click();
+    await panel.getByLabel(text.filesChoose, { exact: true }).click();
     await (await chooser).setFiles(all);
     await expect(panel.getByTestId('attachment-chip')).toHaveCount(3);
     // Choosing stored and wrote nothing: the other device still shows no files.
@@ -495,6 +495,7 @@ test('files added to the page reach another device and a read-only link byte-ide
       .filter({ hasText: 'notes.txt' })
       .getByRole('button', { name: text.attachRemove })
       .click();
+    await first.getByRole('button', { name: text.filesRemoveConfirm, exact: true }).click();
     await expect(panel.getByTestId('file-row')).toHaveCount(2, { timeout: 30_000 });
     await expect(await pageAction(second, 'Files')).toHaveAccessibleName('Files (2)', {
       timeout: 30_000,
@@ -629,7 +630,7 @@ test('export and attachment read return the same bytes as the browser, and say w
       // Two document files through the Files panel and one message attachment through Chat.
       const files = await openFiles(first);
       const chooser = first.waitForEvent('filechooser');
-      await files.getByRole('button', { name: text.attachFiles }).click();
+      await files.getByLabel(text.filesChoose, { exact: true }).click();
       await (await chooser).setFiles([notes, picture]);
       await files.getByRole('button', { name: text.filesAdd, exact: true }).click();
       await expect(files.getByTestId('file-row')).toHaveCount(2, { timeout: 30_000 });

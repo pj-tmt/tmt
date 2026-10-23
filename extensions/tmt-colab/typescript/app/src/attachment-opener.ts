@@ -210,6 +210,8 @@ export function useAttachmentOpener(
   };
   return {
     lifetime: owner,
+    /** A trusted selection captures the current read lifetime, even before a pending render. */
+    currentLifetime: resolveOwner,
     busy: state.owner === owner ? state.busy : undefined,
     failed: state.owner === owner ? state.failed : new Map<string, ReadFailure>(),
     shown: state.owner === owner ? state.shown : {},

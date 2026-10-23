@@ -107,7 +107,7 @@ import { AgentStatusPanel } from './agent-status-panel.js';
 import { AgentPresentation, useAgentPresentation } from './agent-directory.js';
 import { ChatPanel } from './chat-panel.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
-import { FilesPanel } from './files-panel.js';
+import { FilesSurface } from './files-panel.js';
 import { CreatorDefaultProvider } from './creator-default.js';
 import { CHAT_DRAFT, SavedDrafts, savedDrafts } from './saved-drafts.js';
 import { isChatThread, threadNumbers } from './thread-records.js';
@@ -2103,22 +2103,17 @@ function OpenPage({
           </SelectionAnnotation>
         )}
       {snapshot.binding?.files && (
-        <BrowserDrawer
+        <FilesSurface
           notice={endedNotice}
           focusFallback={environment.focusFallback}
           open={panel === 'files'}
-          title={text.files}
-          panel="files"
           onDismiss={() => close()}
-        >
-          <FilesPanel
-            descriptors={view.attachments ?? []}
-            files={snapshot.binding.files}
-            readOnly={archived}
-            disabled={!!liveError}
-            afterSave={() => saveSettled.current ?? Promise.resolve(true)}
-          />
-        </BrowserDrawer>
+          descriptors={view.attachments ?? []}
+          files={snapshot.binding.files}
+          readOnly={archived}
+          disabled={!!liveError}
+          afterSave={() => saveSettled.current ?? Promise.resolve(true)}
+        />
       )}
       <BrowserDrawer
         notice={endedNotice}

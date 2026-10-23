@@ -183,7 +183,7 @@ test('principals: owner, a second paired device and a read-only link read; a rev
 
     const panel = await openFiles(first);
     const chooser = first.waitForEvent('filechooser');
-    await panel.getByRole('button', { name: text.attachFiles }).click();
+    await panel.getByLabel(text.filesChoose, { exact: true }).click();
     await (await chooser).setFiles([note]);
     await panel.getByRole('button', { name: text.filesAdd, exact: true }).click();
     await expect(panel.getByTestId('file-row')).toHaveCount(1, { timeout: 30_000 });
@@ -293,7 +293,7 @@ test('cross-resource refusal and deletion: another page, a forged hash and a del
       };
       const panel = await openFiles(first);
       const chooser = first.waitForEvent('filechooser');
-      await panel.getByRole('button', { name: text.attachFiles }).click();
+      await panel.getByLabel(text.filesChoose, { exact: true }).click();
       await (await chooser).setFiles([note]);
       await panel.getByRole('button', { name: text.filesAdd, exact: true }).click();
       await expect(panel.getByTestId('file-row')).toHaveCount(1, { timeout: 30_000 });

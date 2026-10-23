@@ -31,6 +31,13 @@ confirmation owner without receiving same-space app-navigation authority.
 Attachment descriptor/manifest/selector/publication syntax and asset verification
 live in model `attachment.rs` and client `attachment.ts`, reusing existing crypto;
 [attachment-v1](../../../../extensions/tmt-colab/contracts/attachment-v1.md) owns the bytes.
+The app's `FilesSurface` (`files-panel.tsx`) owns the Files drawer and its sibling
+preview/removal dialogs. `FilesUpload` retains the picked-byte draft while the
+one-overlay view switches; `DocumentFiles` remains the typed add/remove owner.
+`useAttachmentOpener` owns admitted read lifetimes. A preview captures its current
+lifetime at trusted activation and drops its display after a disclosure change,
+without replaying the read. Owner and reader hosts share that surface.
+
 Runtime `attachments.rs`/`attachments.ts` join exact authenticated references to
 positive-sequence own creation proof and recheck current authority after committed-object
 I/O. Fold has separate writable and archive-capable read capture; frozen epochs remain

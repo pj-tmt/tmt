@@ -2,7 +2,7 @@
 import '@tmt/browser-ui/static.css';
 import '../src/style.css';
 import { createRoot, type Root } from 'react-dom/client';
-import { FilesList } from '../src/files-panel.js';
+import { FilesSurface } from '../src/files-panel.js';
 import { MessageAttachments } from '../src/message-attachments.js';
 import type { CommentView } from '../src/thread-records.js';
 import type { AttachmentBinding } from '../src/attachment-service.js';
@@ -88,7 +88,9 @@ function render() {
     <div style={{ width: 'min(360px, calc(100vw - 28px))', margin: '14px' }}>
       <p className="comment-body">These images and the grid share this left edge.</p>
       {files ? (
-        <FilesList
+        <FilesSurface
+          open
+          onDismiss={() => {}}
           descriptors={comment.attachments!.map((d) => ({
             ...d,
             source: { kind: 'document' as const, sourceDigest: '00'.repeat(32) },
