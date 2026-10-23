@@ -231,7 +231,7 @@ for (const width of [1440, 390, 320])
             ).toHaveCSS('color', color);
             await expect(card).toHaveCSS('box-shadow', 'none');
             await expect(card).toHaveCSS('border-top-width', '1px');
-            await expect(card).toHaveCSS('border-radius', '0px');
+            await expect(card).toHaveCSS('border-radius', tokens.browser.metric.radius);
             const stateWord =
               screen === 'rust-owner'
                 ? 'Update needed'
@@ -412,9 +412,10 @@ for (const width of [1440, 390, 320])
       await expect(menu.getByRole('menuitem', { name: 'Agents', exact: true })).toHaveCount(0);
       const surface = actions.getByRole('dialog', { name: 'More', exact: true });
       expect(await surface.evaluate((node) => node.matches(':modal'))).toBe(true);
-      await expect(surface).toHaveCSS('box-shadow', 'none');
+      // A floating layer carries the one overlay shadow.
+      await expect(surface).toHaveCSS('box-shadow', /60px/);
       await expect(surface).toHaveCSS('border-width', '1px');
-      await expect(surface).toHaveCSS('border-radius', '0px');
+      await expect(surface).toHaveCSS('border-radius', tokens.browser.metric.radius);
       await page.screenshot({ path: `/tmp/2314-${width}-${theme}-header-menu.png` });
       await page.keyboard.press('Escape');
       await expect(menu).toHaveCount(0);

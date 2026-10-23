@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { deriveSpaceId } from '@tmt/colab-client';
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
+import { rgb, tokens } from './tokens.js';
 import { writeExecutable } from '../../../../../typescript/test/support/executable-fixture.mjs';
 
 const checkout = fileURLToPath(new URL('../dist/', import.meta.url));
@@ -436,7 +437,7 @@ for (let run = 1; run <= 2; run++) {
         await sample
           .locator('.text-waiting')
           .evaluate((element) => getComputedStyle(element).color),
-      ).toBe('rgb(150, 69, 0)');
+      ).toBe(rgb(tokens.browser.color.waiting.light));
 
       // The same served build at the test door's root selects its sample adapter,
       // exercising the opaque renderer beneath the production response CSP.

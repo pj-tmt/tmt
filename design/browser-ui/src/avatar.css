@@ -1,0 +1,25 @@
+.tmt-ui-avatar {
+  box-sizing: border-box;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-pill);
+  background: var(--tmt-ui-surface-hover);
+  color: var(--tmt-ui-color-text);
+  font: 600 var(--tmt-ui-caption-size) / 1 var(--tmt-ui-font-body);
+  user-select: none;
+}
+.tmt-ui-avatar[data-size='s'] {
+  width: 24px;
+  height: 24px;
+}
+/* An agent is the mint selection fill with the strong accent ink; a person keeps the neutral fill.
+   Same shape and size, so the kind reads from colour alone and stays 4.5:1 in both themes. */
+.tmt-ui-avatar[data-kind='agent'] {
+  border-color: var(--tmt-ui-color-selection-edge);
+  background: var(--tmt-ui-surface-selection);
+  color: var(--tmt-ui-color-accent-strong);
+}

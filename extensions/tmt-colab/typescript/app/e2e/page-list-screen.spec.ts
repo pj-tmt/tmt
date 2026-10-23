@@ -64,7 +64,9 @@ for (const width of [1440, 390])
       if (width < 480) {
         // Two lines: the controls row, then the tabs, one line tall (a third line would add ~32px).
         expect(before.tabs.height).toBeLessThanOrEqual(48);
-        expect(before.list.y - before.search.y).toBeLessThanOrEqual(120);
+        // The v2 controls (the field's fill, the segmented tab strip) are about 6px taller than the old
+        // flat ones; a third line would still add ~32px.
+        expect(before.list.y - before.search.y).toBeLessThanOrEqual(132);
       }
       await page.screenshot({ path: await capturePath(`4273-list-${width}-${theme}.png`) });
 

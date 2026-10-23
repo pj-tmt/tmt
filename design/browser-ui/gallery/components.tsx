@@ -28,7 +28,7 @@ import {
 } from '../src/react.js';
 import { Cell, Cells, FramePair, Pair, Section, noop, type Theme } from './kit.js';
 
-const variants = ['primary', 'text', 'destructive'] as const;
+const variants = ['primary', 'secondary', 'text', 'destructive'] as const;
 
 export function BrandSection() {
   const sizes = [16, 20, 24, 32, 48, 64, 96];
@@ -66,13 +66,14 @@ export function BrandSection() {
 export function HeaderSection() {
   return (
     <Section id="header">
-      <Pair title="BrowserHeader">
+      <Pair title="BrowserHeader" stacked>
         {(theme) => (
           <div className="gallery-stack">
-            <BrowserHeader productLabel="Colab" title="Pages" />
+            <BrowserHeader productLabel="Colab" title="Pages" headingLevel="none" />
             <BrowserHeader
               productLabel="Colab"
-              title="Release plan for the remote channel"
+              headingLevel="none"
+              title="Release plan"
               caption="Updated 2 minutes ago"
               captionId={`header-caption-${theme}`}
               headingSuffix={<span>· draft</span>}
@@ -89,6 +90,24 @@ export function HeaderSection() {
                   <BrowserAction type="button" variant="primary" label="Share" onActivate={noop} />
                 </>
               }
+            />
+          </div>
+        )}
+      </Pair>
+      <Pair
+        title="BrowserHeader, long title"
+        note="A title longer than its room truncates; the suffix keeps its width."
+        stacked
+      >
+        {(theme) => (
+          <div style={{ maxWidth: 560 }}>
+            <BrowserHeader
+              productLabel="Colab"
+              headingLevel="none"
+              title="Release plan for the remote channel and the digest rollout"
+              captionId={`header-long-${theme}`}
+              headingSuffix={<span>· draft</span>}
+              status={<span>◆ 2 need you</span>}
             />
           </div>
         )}
@@ -135,6 +154,18 @@ export function ActionsSection() {
           }
         </Pair>
       ))}
+      <Pair
+        title="Action group · one primary, the rest secondary or text"
+        note="A group holds at most one enabled primary, its main action. Decline sits beside Approve as secondary; Cancel is text."
+      >
+        {() => (
+          <div className="gallery-row">
+            <BrowserAction type="button" variant="primary" label="Approve" onActivate={noop} />
+            <BrowserAction type="button" variant="secondary" label="Decline" onActivate={noop} />
+            <BrowserAction type="button" variant="text" label="Cancel" onActivate={noop} />
+          </div>
+        )}
+      </Pair>
     </Section>
   );
 }
@@ -666,6 +697,7 @@ export function NoticeSection() {
             {tones.map(([tone, mark, word]) => (
               <BrowserNotice
                 key={tone}
+                headingLevel="none"
                 tone={tone}
                 announcement="none"
                 mark={mark}

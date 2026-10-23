@@ -101,7 +101,7 @@ for (const mode of ['light', 'dark'] as const) {
     expect(await style(3, 'backgroundColor')).toBe(
       mode === 'dark' ? role('surface', 'sheet', mode) : none,
     );
-    const radius = `${tokens.browser.metric.radius}px`;
+    const radius = tokens.browser.metric.radius;
     expect(await style(4, 'borderTopLeftRadius')).toBe(radius);
     expect(await style(5, 'borderTopLeftRadius')).toBe(radius);
     expect(await style(6, 'boxShadow')).toBe('none');

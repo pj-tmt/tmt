@@ -223,7 +223,7 @@ function PageFloatingActions({
         {!enabled && !discussionOpen && (
           <BrowserIconAction
             type="button"
-            variant="primary"
+            variant="secondary"
             label={chatUnread ? `${text.chat} · ${text.chatUnread}` : text.chat}
             buttonRef={chatButton}
             hasPopup="dialog"
@@ -246,7 +246,7 @@ function PageFloatingActions({
         {(canSelect || selectPending) && (
           <BrowserIconAction
             type="button"
-            variant="primary"
+            variant="secondary"
             busy={selectPending}
             label={text.selectionMode}
             ariaKeyShortcuts={enabled ? 'c Escape' : 'c'}

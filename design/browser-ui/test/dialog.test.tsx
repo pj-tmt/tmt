@@ -19,6 +19,9 @@ vi.mock('react', async (original) => ({
   useLayoutEffect: (effect: () => (() => void) | undefined) => {
     hooks.effect = effect;
   },
+  // The presence hook holds a closing surface mounted; a static render has nothing to hold.
+  useState: (value: unknown) => [value, () => {}],
+  useEffect: () => {},
 }));
 vi.mock('../src/overlay.js', () => ({
   restoreOverlayFocus: vi.fn(),

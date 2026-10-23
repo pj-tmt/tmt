@@ -1,6 +1,7 @@
 import { brandMarkSvg } from './brand-mark-svg.js';
 import { claimIconActionTooltip } from './icon-action-tooltip.js';
 import { moduleIcon, shellIconNodes, type ShellIcon } from './shell-icons.js';
+import { countText } from './static.js';
 
 /**
  * The one TMT web shell (#3937, Colab page c5ccd17a): a global rail that collapses to icons,
@@ -70,7 +71,7 @@ export interface ShellPlace {
 
 /** Counts above 99 read `99+`; needs-you counts carry the ◆ mark and colour. */
 export function shellCount(value: number, kind: 'needs-you' | 'plain' = 'needs-you'): ShellCount {
-  return { text: value > 99 ? '99+' : String(value), needsYou: kind === 'needs-you' };
+  return { text: countText(value), needsYou: kind === 'needs-you' };
 }
 
 /** The answer this browser read last, shared by every page so each paints the same rail first. */
@@ -309,7 +310,9 @@ function count(document: Document, value: ShellCount): HTMLElement {
   const badge = document.createElement('span');
   badge.className = 'tmt-ui-shell-count';
   if (value.needsYou) badge.dataset.kind = 'needs-you';
-  badge.textContent = value.needsYou ? `◆ ${value.text}` : value.text;
+  // The number alone: the colour and the item's accessible name say what it counts.
+  badge.textContent = value.text;
+  badge.setAttribute('aria-hidden', 'true');
   return badge;
 }
 
@@ -339,37 +342,27 @@ export function mountShell(
   open.setAttribute('aria-label', 'Open navigation');
   open.setAttribute('aria-expanded', 'false');
   open.append(icon(document, 'menu'));
-  const brand = document.createElement('span');
+  // The rail's head: the TMT mark and wordmark. It is the one place the brand sits; pages carry
+  // no breadcrumb.
+  const brand = document.createElement('div');
   brand.className = 'tmt-ui-shell-brand';
-  brand.innerHTML = brandMarkSvg({ size: 24, id: 'tmt-rail' });
+  brand.innerHTML = brandMarkSvg({ size: 32, id: 'tmt-rail' });
+  const text = document.createElement('span');
+  text.className = 'tmt-ui-shell-brand-text';
   const word = document.createElement('span');
   word.className = 'tmt-ui-shell-brand-word';
-  word.textContent = 'TMT';
-  // One breadcrumb: TMT ・ <module> / <page>.
-  const dot = document.createElement('span');
-  dot.className = 'tmt-ui-shell-brand-separator';
-  dot.setAttribute('aria-hidden', 'true');
-  dot.textContent = '·';
-  brand.append(word, dot);
-  // The host's header starts where the mark ends, so the two read as one breadcrumb. The width
-  // goes into an adopted sheet, not a style attribute: pages keep no inline styles.
-  const sheet =
-    typeof ResizeObserver === 'function' && 'adoptedStyleSheets' in document
-      ? new CSSStyleSheet()
-      : undefined;
-  if (sheet) document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
-  const measure = sheet
-    ? new ResizeObserver(() =>
-        sheet.replaceSync(`.tmt-ui-shell { --tmt-ui-shell-brand-width: ${brand.offsetWidth}px; }`),
-      )
-    : undefined;
-  measure?.observe(brand);
+  word.textContent = 'tmt';
+  const sub = document.createElement('span');
+  sub.className = 'tmt-ui-shell-brand-sub';
+  sub.textContent = 'terminal team';
+  text.append(word, sub);
+  brand.append(text);
   const rail = document.createElement('nav');
   rail.className = 'tmt-ui-rail';
   rail.setAttribute('aria-label', 'TMT');
   const menu = document.createElement('nav');
   menu.className = 'tmt-ui-module-menu';
-  root.prepend(open, brand, rail);
+  root.prepend(open, rail);
   root.querySelector(':scope > .tmt-ui-shell-content > .tmt-ui-shell-bar')!.after(menu);
 
   let collapsed = railCollapsed();
@@ -462,12 +455,58 @@ export function mountShell(
     };
     return anchor;
   };
-  const railList = (items: ShellItem[], extra?: string) => {
+  // One entry of the module's pages: the same node nested in the rail on a wide screen and in the
+  // tab strip on a phone, so a page holds one set of entries whatever the width.
+  const menuEntry = (className: string, item: ShellMenuItem) => {
+    const anchor = link(className, item);
+    if (item.note) anchor.title = item.note;
+    const label = document.createElement('span');
+    label.className = 'tmt-ui-module-menu-label';
+    label.textContent = item.label;
+    if (!item.note) label.title = item.label;
+    anchor.append(label);
+    if (item.total !== undefined || item.count) {
+      const counts = document.createElement('span');
+      counts.className = 'tmt-ui-shell-counts';
+      if (item.total !== undefined) counts.append(count(document, shellCount(item.total, 'plain')));
+      if (item.count) counts.append(count(document, item.count));
+      anchor.append(counts);
+    }
+    return anchor;
+  };
+  // The current module's pages, nested under its rail item.
+  const nested = (menuView: ShellMenu) => {
+    const list = document.createElement('ul');
+    list.className = 'tmt-ui-rail-sub';
+    list.setAttribute('aria-label', menuView.title);
+    for (const group of menuView.groups) {
+      if (group.label) {
+        const heading = document.createElement('li');
+        heading.className = 'tmt-ui-rail-sub-group';
+        heading.setAttribute('role', 'presentation');
+        heading.textContent = group.label;
+        list.append(heading);
+      }
+      for (const item of group.items) {
+        const row = document.createElement('li');
+        row.append(menuEntry('tmt-ui-module-menu-item tmt-ui-rail-sub-item', item));
+        list.append(row);
+      }
+    }
+    return list;
+  };
+  const railList = (items: ShellItem[], extra?: string, pages?: ShellMenu) => {
     const list = document.createElement('ul');
     list.className = extra ? `tmt-ui-rail-items ${extra}` : 'tmt-ui-rail-items';
     for (const item of items) {
       const anchor = link('tmt-ui-rail-item', item);
-      tipFor(anchor, item.note ? `${item.label}: ${item.note}` : item.label, item.note);
+      // The count is part of the item's name (`Colab, 3 need you`), so a screen reader and the
+      // collapsed rail's tooltip say it even where the badge is only a corner dot.
+      const named = item.count
+        ? `${item.label}, ${item.count.text}${item.count.needsYou ? (item.count.text === '1' ? ' needs you' : ' need you') : ''}`
+        : item.label;
+      if (item.count) anchor.setAttribute('aria-label', named);
+      tipFor(anchor, item.note ? `${item.label}: ${item.note}` : named, item.note);
       const label = document.createElement('span');
       label.className = 'tmt-ui-rail-label';
       label.textContent = item.label;
@@ -475,6 +514,7 @@ export function mountShell(
       if (item.count) anchor.append(count(document, item.count));
       const row = document.createElement('li');
       row.append(anchor);
+      if (item.current && pages) row.append(nested(pages));
       list.append(row);
     }
     return list;
@@ -483,53 +523,43 @@ export function mountShell(
   // Hosts repaint on every data refresh; an unchanged view keeps its nodes, so a press in
   // progress and keyboard focus survive.
   let shown = '';
+  let latest = view;
+  const phone =
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(max-width: 900px)')
+      : undefined;
   const render = (next: ShellView) => {
-    const key = JSON.stringify(next);
+    latest = next;
+    const onPhone = phone?.matches === true;
+    const key = JSON.stringify([onPhone, next]);
     if (key === shown) return;
     shown = key;
     hideTip();
     rail.replaceChildren(
+      brand,
+      railList(next.rail.main, undefined, onPhone ? undefined : next.menu),
       top,
-      railList(next.rail.main),
-      railList(next.rail.bottom, 'tmt-ui-rail-bottom'),
+      railList(next.rail.bottom, 'tmt-ui-rail-bottom', onPhone ? undefined : next.menu),
     );
     root.dataset.menu = next.menu ? 'shown' : 'none';
-    if (!next.menu) {
+    if (!next.menu || !onPhone) {
       menu.replaceChildren();
-      menu.removeAttribute('aria-label');
+      if (next.menu && !onPhone) menu.setAttribute('aria-label', next.menu.title);
+      else menu.removeAttribute('aria-label');
       return;
     }
     menu.setAttribute('aria-label', next.menu.title);
     // A phone's tab strip keeps its scroll across a rebuild, then shows the current tab.
     const left = menu.scrollLeft;
     menu.replaceChildren();
+    // Group labels are headings of the nested rail; the strip holds tabs only, so a label is never
+    // drawn between them.
     for (const group of next.menu.groups) {
-      if (group.label !== undefined || menu.childElementCount > 0) {
-        const heading = document.createElement('div');
-        heading.className = 'tmt-ui-module-menu-group';
-        heading.textContent = group.label ?? '';
-        menu.append(heading);
-      }
       const list = document.createElement('ul');
       list.className = 'tmt-ui-module-menu-items';
       for (const item of group.items) {
-        const anchor = link('tmt-ui-module-menu-item', item);
-        if (item.note) anchor.title = item.note;
-        const label = document.createElement('span');
-        label.className = 'tmt-ui-module-menu-label';
-        label.textContent = item.label;
-        if (!item.note) label.title = item.label;
-        anchor.append(label);
-        if (item.total !== undefined || item.count) {
-          const counts = document.createElement('span');
-          counts.className = 'tmt-ui-shell-counts';
-          if (item.total !== undefined)
-            counts.append(count(document, shellCount(item.total, 'plain')));
-          if (item.count) counts.append(count(document, item.count));
-          anchor.append(counts);
-        }
         const row = document.createElement('li');
-        row.append(anchor);
+        row.append(menuEntry('tmt-ui-module-menu-item', item));
         list.append(row);
       }
       menu.append(list);
@@ -543,20 +573,19 @@ export function mountShell(
       else if (box.right > strip.right) menu.scrollLeft += box.right - strip.right;
     }
   };
+  const rewidth = () => render(latest);
+  phone?.addEventListener('change', rewidth);
   paint();
   setDrawer(false);
   render(view);
   return {
     update: render,
     dispose() {
+      phone?.removeEventListener('change', rewidth);
       document.removeEventListener('keydown', close);
       document.removeEventListener('pointerdown', outside);
       hideTip();
-      measure?.disconnect();
-      if (sheet)
-        document.adoptedStyleSheets = document.adoptedStyleSheets.filter((item) => item !== sheet);
       open.remove();
-      brand.remove();
       tip.remove();
       rail.remove();
       menu.remove();

@@ -37,14 +37,16 @@ for (const theme of ['light', 'dark'] as const)
       const rule = await color('--tmt-ui-surface-rule');
       const edge = await color('--tmt-ui-color-edge');
       const focus = await color('--tmt-ui-color-focus');
+      const accentEdge = await color('--tmt-ui-color-accent-strong');
       expect(rule).not.toBe(edge);
-      const frames: { selector: string; color: string }[] = [];
+      const frames: { selector: string; color: string; enabledPrimary?: boolean }[] = [];
       await page.screenshot({
         path: capturePath(`3299-controls-${width}-${theme}.png`),
         fullPage: true,
       });
       for (const selector of [
         '.tmt-ui-action[data-variant="primary"]',
+        '.tmt-ui-action[data-variant="secondary"]',
         '.tmt-ui-field-control:not(.rich-input-field)',
         '.tmt-ui-toggle',
         '.tmt-ui-chip',
@@ -60,6 +62,7 @@ for (const theme of ['light', 'dark'] as const)
           frames.push({
             selector,
             color: await control.evaluate((node) => getComputedStyle(node).borderTopColor),
+            enabledPrimary: selector.includes('primary') && (await control.isEnabled()),
           });
         }
       }
@@ -103,5 +106,8 @@ for (const theme of ['light', 'dark'] as const)
         path: capturePath(`3299-tooltip-${width}-${theme}.png`),
         fullPage: true,
       });
-      for (const frame of frames) expect(frame.color, frame.selector).toBe(rule);
+      // An enabled primary action is accent-filled and draws its edge in the strong accent; every
+      // other frame, a disabled primary included, is the rule.
+      for (const frame of frames)
+        expect(frame.color, frame.selector).toBe(frame.enabledPrimary ? accentEdge : rule);
     });

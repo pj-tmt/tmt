@@ -127,7 +127,7 @@ it('fails non-writing checks for stale, missing, duplicate and changed-token reg
     const file = path.join(root, skillFile);
     const skill = read(skillFile);
     for (const invalid of [
-      skill.replace('--ink: #343434;', '--ink: #000000;'),
+      skill.replace('--ink: #26393f;', '--ink: #000000;'),
       skill.replace(begin, ''),
       skill.replace(end, ''),
       skill + begin,

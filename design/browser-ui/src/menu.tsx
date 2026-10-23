@@ -12,6 +12,9 @@ import { ChevronDown, Ellipsis } from 'lucide-react';
 import { BrowserIconAction } from './icon-action.js';
 import { admitsOverlayEscape, outsideOverlay, restoreOverlayFocus } from './overlay.js';
 import { claimBrowserPopup, placeBrowserPopup } from './popup.js';
+import { usePresence } from './presence.js';
+import { browserUiClasses as c, countText } from './static.js';
+import type { BrowserCountTone } from './static.js';
 
 export interface BrowserMenuItem<Key extends string = string> {
   key: Key;
@@ -36,8 +39,13 @@ export interface BrowserMenuProps<Key extends string = string> {
    * accessible name stays `label`. For a command that opens a choice, not a field with a value. */
   triggerText?: string;
   /** With `valueLabel`: `crumb` is a borderless text trigger that inherits the surrounding font
-   * (a header crumb); the value truncates with an ellipsis and the chevron stays visible. */
-  variant?: 'field' | 'crumb';
+   * (a header crumb); the value truncates with an ellipsis and the chevron stays visible. With
+   * `triggerText`: `count` is a count chip (`icon`, the text, `count` and a chevron). */
+  variant?: 'field' | 'crumb' | 'count';
+  /** A `count` chip's number, boxed after the text; absent when nothing is counted. */
+  count?: number;
+  /** A `count` chip's tone: `attention` is for work that waits on the reader. */
+  tone?: BrowserCountTone;
   description?: ReactNode;
   /** Presentation transitions only; commands and selected values remain host-owned. */
   onOpenChange?(open: boolean): void;
@@ -56,6 +64,8 @@ export function BrowserMenu<Key extends string>({
   valueLabel,
   triggerText,
   variant = 'field',
+  count,
+  tone = 'neutral',
   description,
   onOpenChange,
   openRequest,
@@ -65,6 +75,7 @@ export function BrowserMenu<Key extends string>({
   const dialog = useRef<HTMLDialogElement>(null);
   const entries = useRef<(HTMLButtonElement | null)[]>([]);
   const [open, setOpen] = useState(false);
+  const present = usePresence(open, dialog);
   const first = useRef<'first' | 'last'>('first');
   const search = useRef({ text: '', at: 0 });
   const visibility = useRef({ reported: false, callback: onOpenChange });
@@ -166,9 +177,18 @@ export function BrowserMenu<Key extends string>({
         <button
           ref={trigger}
           type="button"
-          className="tmt-ui-menu-trigger"
+          className={
+            variant === 'count' ? `tmt-ui-menu-trigger ${c.countChip}` : 'tmt-ui-menu-trigger'
+          }
           {...(variant === 'crumb' ? { 'data-variant': 'crumb' } : {})}
-          aria-label={valueLabel === undefined ? label : `${label}: ${valueLabel}`}
+          {...(variant === 'count' ? { 'data-tone': tone } : {})}
+          aria-label={
+            valueLabel !== undefined
+              ? `${label}: ${valueLabel}`
+              : variant === 'count' && count !== undefined
+                ? `${label}: ${count}`
+                : label
+          }
           aria-haspopup="menu"
           aria-expanded={open}
           aria-controls={open ? id : undefined}
@@ -184,7 +204,13 @@ export function BrowserMenu<Key extends string>({
           {variant === 'field' && valueLabel !== undefined && (
             <span className="tmt-ui-menu-field-label">{label}</span>
           )}
+          {variant === 'count' && icon}
           <span className="tmt-ui-menu-value">{valueLabel ?? triggerText}</span>
+          {variant === 'count' && count !== undefined && (
+            <span className={c.count} aria-hidden="true">
+              {countText(count)}
+            </span>
+          )}
           <ChevronDown className="tmt-ui-icon" aria-hidden="true" />
         </button>
       ) : (
@@ -207,15 +233,18 @@ export function BrowserMenu<Key extends string>({
           }}
         />
       )}
-      {open && (
+      {present && (
         <dialog
           ref={dialog}
           className="tmt-ui-menu-surface"
+          data-state={open ? 'open' : 'closed'}
           tabIndex={-1}
           aria-label={label}
           onClose={(event) => {
             event.stopPropagation();
-            if (event.currentTarget === dialog.current && !event.currentTarget.open) close();
+            // See BrowserChips: our own close() arrives here after the surface left `open`.
+            if (open && event.currentTarget === dialog.current && !event.currentTarget.open)
+              close();
           }}
           onCancel={(event) => {
             event.preventDefault();

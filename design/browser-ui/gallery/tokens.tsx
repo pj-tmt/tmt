@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import tokens from '../../tokens/tokens.json';
-import { Pair, Section, type Theme } from './kit.js';
+import { BrowserAction } from '../src/react.js';
+import { Pair, Section, noop, type Theme } from './kit.js';
 import { ThemeCell } from './theme-cell.js';
 
 type Rendering = { light: string; dark: string };
@@ -95,6 +97,83 @@ function Type() {
 
 const length = /^\d+(\.\d+)?px$/;
 
+/** The motion tokens at work: one replay drives a fade, a pop and a slide on the real durations. */
+function MotionDemo() {
+  const [shown, setShown] = useState(true);
+  const move = (property: string, duration: string, from: string, to: string) => ({
+    transition: `${property} var(--tmt-ui-motion-${duration}) var(--tmt-ui-motion-ease-${shown ? 'out' : 'in'})`,
+    ...(shown ? { [property]: to } : { [property]: from }),
+  });
+  const box = {
+    width: 72,
+    height: 48,
+    border: '1px solid var(--tmt-ui-surface-rule)',
+    borderRadius: 'var(--tmt-ui-radius-l)',
+    background: 'var(--tmt-ui-surface-sheet)',
+  };
+  return (
+    <div className="gallery-stack">
+      <div className="gallery-row">
+        <BrowserAction
+          type="button"
+          variant="primary"
+          label={shown ? 'Leave' : 'Enter'}
+          onActivate={() => setShown((value) => !value)}
+        />
+        <span className="gallery-note">
+          fast {tokens.browser.motion.fast} · base {tokens.browser.motion.base} · none under reduced
+          motion
+        </span>
+      </div>
+      <div className="gallery-row">
+        <figure style={{ margin: 0 }}>
+          <div style={{ ...box, ...move('opacity', 'base', '0', '1') }} />
+          <figcaption className="gallery-cell-label">fade · base</figcaption>
+        </figure>
+        <figure style={{ margin: 0 }}>
+          <div
+            style={{
+              ...box,
+              transition: `opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-${shown ? 'out' : 'in'}), scale var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-${shown ? 'out' : 'in'})`,
+              opacity: shown ? 1 : 0,
+              scale: shown ? '1' : 'var(--tmt-ui-motion-scale)',
+            }}
+          />
+          <figcaption className="gallery-cell-label">pop · base (dialog)</figcaption>
+        </figure>
+        <figure style={{ margin: 0 }}>
+          <div style={{ overflow: 'hidden', width: 120, height: 48 }}>
+            <div
+              style={{
+                ...box,
+                width: 120,
+                transition: `translate var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-${shown ? 'out' : 'in'})`,
+                translate: shown ? '0 0' : '100% 0',
+              }}
+            />
+          </div>
+          <figcaption className="gallery-cell-label">slide · base (drawer)</figcaption>
+        </figure>
+        <figure style={{ margin: 0 }}>
+          <div
+            style={{
+              ...box,
+              transition: `opacity var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-${shown ? 'out' : 'in'}), scale var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-${shown ? 'out' : 'in'})`,
+              opacity: shown ? 1 : 0,
+              scale: shown ? '1' : 'var(--tmt-ui-motion-scale)',
+            }}
+          />
+          <figcaption className="gallery-cell-label">pop · fast (menu, tooltip)</figcaption>
+        </figure>
+      </div>
+      <p className="gallery-note">
+        Hover and press on actions use the fast duration:{' '}
+        <BrowserAction type="button" variant="text" label="Press me" onActivate={noop} />
+      </p>
+    </div>
+  );
+}
+
 export function TokensSection() {
   return (
     <Section id="tokens">
@@ -105,6 +184,12 @@ export function TokensSection() {
         {(theme) => <Swatches group={tokens.browser.surface} prefix="surface" theme={theme} />}
       </Pair>
       <Pair title="Type (tokens.font, tokens.header)">{() => <Type />}</Pair>
+      <Pair
+        title="Motion (tokens.browser.motion)"
+        note="Overlays enter and leave with these; replay shows each on the real tokens."
+      >
+        {() => <MotionDemo />}
+      </Pair>
       <div className="gallery-pair">
         <h3>Spacing and sizes (tokens.browser.metric, tokens.header)</h3>
         <p className="gallery-note">
@@ -138,18 +223,28 @@ export function TokensSection() {
         </div>
       </div>
       <Pair
-        title="Radius and focus"
-        note="Every shared surface is square; keyboard focus is a solid outline of the focus role."
+        title="Radius, focus and indicator"
+        note="Surfaces take the radius scale (chip, control, card, pill). Keyboard focus is the focus role: a recoloured edge on a bordered control, an inset outline on a borderless one; a destructive control uses its own red. The indicator is a separate straight bar, never a one-sided border on a rounded box."
       >
         {() => (
           <div className="gallery-row">
-            <span className="gallery-radius">
-              radius <code>{tokens.browser.metric.radius}</code>
-            </span>
+            {(['radius-s', 'radius', 'radius-l', 'radius-pill'] as const).map((name) => (
+              <span
+                key={name}
+                className="gallery-radius"
+                style={{ borderRadius: `var(--tmt-ui-${name})` }}
+              >
+                {name} <code>{tokens.browser.metric[name]}</code>
+              </span>
+            ))}
             <span className="gallery-focus">
               focus <code>{tokens.browser.metric['focus-width']}</code>
             </span>
+            <span className="gallery-focus gallery-focus-destructive">
+              focus destructive <code>{tokens.browser.metric['focus-width']}</code>
+            </span>
             <span className="gallery-indicator">
+              <span className="gallery-indicator-bar" aria-hidden="true" />
               indicator <code>{tokens.browser.metric['indicator-width']}</code>
             </span>
           </div>

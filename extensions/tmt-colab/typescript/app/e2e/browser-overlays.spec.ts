@@ -1,5 +1,28 @@
 import { test, expect } from '@playwright/test';
 
+test('Tab out of a menu moves focus on and the close that follows does not take it back to the trigger', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const fixture = '/test/browser-overlays.tsx';
+    (await import(fixture)).mount();
+  });
+  await page.getByRole('button', { name: 'Open drawer' }).click();
+  const trigger = page
+    .getByRole('dialog', { name: 'Fixture' })
+    .getByRole('button', { name: /^Choice:/ });
+  await trigger.click();
+  const menu = page.getByRole('menu', { name: 'Choice' });
+  await expect(menu).toBeVisible();
+  await menu.press('Tab');
+  // The menu leaves with its exit (hidden from the role tree at once, detached when it ends);
+  // its native close event arrives while it is still mounted.
+  await expect(page.locator('dialog[aria-label="Choice"]')).toHaveCount(0);
+  await expect(trigger).not.toBeFocused();
+});
+
 for (const [width, theme] of [
   [1440, 'light'],
   [390, 'dark'],

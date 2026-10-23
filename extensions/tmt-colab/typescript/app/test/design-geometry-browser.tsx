@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserAction, BrowserChip, BusyMark } from '@tmt/browser-ui/react';
 import { Chip, UiTheme } from '@tmt/browser-ui/ui';
 
-const variants = ['primary', 'text', 'destructive'] as const;
+const variants = ['primary', 'secondary', 'text', 'destructive'] as const;
 const noop = () => {};
 
 export function mountDesignGeometry() {

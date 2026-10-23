@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { tokens } from './tokens.js';
 
 async function mount(page: Page) {
   await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
@@ -41,10 +42,11 @@ for (const [width, theme] of [
     expect(await layer.evaluate((node) => node.matches(':popover-open'))).toBe(true);
     expect(await layer.evaluate((node) => node.matches(':modal'))).toBe(false);
     await expect(cards(page).first()).toHaveCSS('border-width', '1px');
-    await expect(cards(page).first()).toHaveCSS('border-radius', '0px');
-    await expect(cards(page).first()).toHaveCSS('box-shadow', 'none');
+    await expect(cards(page).first()).toHaveCSS('border-radius', tokens.browser.metric.radius);
+    // A floating layer: the one overlay shadow.
+    await expect(cards(page).first()).not.toHaveCSS('box-shadow', 'none');
     await expect(cards(page).first()).toHaveCSS('animation-name', 'none');
-    await expect(cards(page).first()).toHaveCSS('transition-duration', '0s');
+    await expect(cards(page).first()).toHaveCSS('transition-duration', /^0s(, 0s)*$/);
     await page.screenshot({ path: info.outputPath(`one-${width}-${theme}.png`) });
     await page.keyboard.press('Tab');
     await page.keyboard.press('Tab');

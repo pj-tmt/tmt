@@ -33,6 +33,10 @@ export interface LayerController {
   requestClose(reason?: LayerCloseReason, originalEvent?: Event): boolean;
 }
 
+/** The open hosted layers, bottom to top. Radix keeps a layer on its stack until its exit has played,
+ * so a leaving layer hands its Escape to the top open one here instead of swallowing it. */
+const openLayers = new Set<Pick<LayerController, 'requestClose'>>();
+
 /** Host state remains authoritative. Raw open=false/unmount bypasses this admission. */
 export function useLayerController(options: LayerControllerOptions): LayerController {
   const current = useRef(options);
@@ -57,6 +61,12 @@ export function useLayerController(options: LayerControllerOptions): LayerContro
   const requestOpen = useCallback(() => {
     if (!current.current.open) current.current.onOpenChange(true);
   }, []);
+  useLayoutEffect(() => {
+    if (!options.open) return;
+    const entry = { requestClose };
+    openLayers.add(entry);
+    return () => void openLayers.delete(entry);
+  }, [options.open, requestClose]);
   return { open: options.open, requestOpen, requestClose };
 }
 
@@ -122,7 +132,9 @@ export function focusLayerTarget(target: HTMLElement | null | undefined): boolea
 
 export function useLayerFocus(options: LayerFocusOptions, titleEntry = false) {
   const origin = useRef<HTMLElement | null>(null);
+  const surfaceNode = useRef<HTMLElement | null>(null);
   const captureOrigin = useCallback((surface: HTMLElement) => {
+    surfaceNode.current = surface;
     const active = surface.ownerDocument.activeElement;
     // Ref replay must not replace a persistent origin with focus already inside.
     if (
@@ -150,9 +162,23 @@ export function useLayerFocus(options: LayerFocusOptions, titleEntry = false) {
       // A pointer-opened menu can have no focused opener. Leave its trigger return
       // to Radix unless the host supplied an explicit persistent target.
       if (!options.returnFocus && !origin.current) return;
+      const fallback = options.focusFallback?.();
+      // The fallback is for lost focus. A layer whose exit outlasts its parent's close (a nested
+      // Popover leaving while its Dialog closes) finds focus already returned to the parent's
+      // target, and leaves it there rather than taking it to the fallback.
+      const surface = surfaceNode.current;
+      const active = surface?.ownerDocument.activeElement;
+      const placed =
+        !!surface &&
+        active instanceof HTMLElement &&
+        active !== surface.ownerDocument.body &&
+        active !== surface.ownerDocument.documentElement &&
+        active !== fallback &&
+        !surface.contains(active);
       if (
         focusLayerTarget(options.returnFocus?.() ?? origin.current) ||
-        focusLayerTarget(options.focusFallback?.())
+        (!placed && focusLayerTarget(fallback)) ||
+        placed
       )
         event.preventDefault();
       origin.current = null;
@@ -168,6 +194,11 @@ export function admitLayerDismiss(
   if (event.defaultPrevented || !controller) return;
   // One host request handles both accepted and vetoed paths; no second Radix close.
   event.preventDefault();
+  if (!controller.open) {
+    // A leaving layer takes no dismissal: its Escape goes to the open layer under it at once.
+    if (reason === 'escape') [...openLayers].at(-1)?.requestClose('escape', event);
+    return;
+  }
   const detail: unknown = 'detail' in event ? event.detail : undefined;
   const original =
     typeof detail === 'object' &&
@@ -178,6 +209,9 @@ export function admitLayerDismiss(
       : event;
   controller.requestClose(reason, original);
 }
+
+/** Radix collision padding of every floating layer: the 2-unit gutter, so none touches the viewport edge. */
+export const layerCollisionPadding = 8;
 
 /** Observe only a mounted Radix surface. Geometry uses the viewport, styling uses tokens. */
 export function observeLayerViewport(

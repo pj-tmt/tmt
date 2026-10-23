@@ -36,6 +36,7 @@ const { header: headerTokens, browser: browserTokens } = JSON.parse(
   browser: {
     color: Record<string, Record<string, string>>;
     surface: Record<string, Record<string, string>>;
+    metric: Record<string, string>;
   };
 };
 function tokenRgb(group: 'color' | 'surface', name: string, theme: 'light' | 'dark'): string {
@@ -56,6 +57,18 @@ async function expectStateColor(
       .first()
       .evaluate((sheet) => getComputedStyle(sheet).boxShadow),
   ).toBe('none');
+}
+
+/** A state or theme change eases its colours (the motion tokens): read a look once they settle. */
+async function settled(page: Page): Promise<void> {
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation instanceof CSSTransition)
+        .map((animation) => animation.finished.catch(() => undefined)),
+    ),
+  );
 }
 
 /** Observe feedback after an action without scrolling to manufacture visibility. */
@@ -96,6 +109,7 @@ async function captureState(
   directory = process.env.TMT_REMOTE_CAPTURE_DIR,
   phase?: Record<string, unknown>,
 ): Promise<void> {
+  await settled(page);
   const snapshot = await page.evaluate(() => ({
     theme: matchMedia('(prefers-color-scheme: dark)').matches
       ? ('dark' as const)
@@ -207,6 +221,10 @@ async function captureState(
     await page.evaluate(({ x, y }) => scrollTo(x, y), position);
   }
 }
+
+/** The module's pages: nested in the rail on a wide screen, a tab strip on a phone. */
+const modulePages = (page: Page) =>
+  page.locator('.tmt-ui-rail-sub:visible, nav.tmt-ui-module-menu:visible');
 
 const BINARY =
   process.env.TMT_REMOTE_BINARY ??
@@ -1450,6 +1468,7 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
           await expect(page.locator('.state-mark')).toHaveText(
             { landing: '', pairing: '◆', confirmation: '◆', error: '✗' }[state]!,
           );
+          await settled(page);
           const look = await page.evaluate(() => {
             const sheet = document.querySelector('.sheet')!;
             const style = getComputedStyle(sheet);
@@ -1518,8 +1537,9 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
                 : tokenRgb('surface', 'sheet', colorScheme),
             text: tokenRgb('color', 'text', colorScheme),
             markAboveEyebrow: true,
-            radius: '0px',
-            border: '0px',
+            // The pairing views are a flush band (no border); the others are the shared card.
+            radius: browserTokens.metric.radius,
+            border: state === 'pairing' || state === 'confirmation' ? '0px' : '1px',
             bodySize: '14px',
             headingSize: width <= 650 ? '22px' : '24px',
             opacity: '1',
@@ -1534,18 +1554,23 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
           if (state !== 'landing')
             await expectStateColor(page, colorScheme, state === 'error' ? 'blocked' : 'waiting');
           // Colab's header, from the same tokens: mark, product, then the page title. Inside the
-          // shell it follows the TMT mark in the one header row (TMT · Remote / …); the refusal
-          // page keeps the fixed full-width header.
+          // shell it sits in the top bar beside the rail (Remote / …); the refusal page keeps the
+          // fixed full-width header.
           const header = look.header;
-          const brand = page.locator('.tmt-ui-shell-brand');
-          const beside = width <= 900 || state === 'error' ? 0 : (await brand.boundingBox())!.width;
+          // The brand heads the rail now, so the shell's header runs from the rail's edge.
+          const beside =
+            width <= 900 || state === 'error'
+              ? 0
+              : (await page.locator('nav.tmt-ui-rail').boundingBox())!.width;
           expect(header).toMatchObject({
             width: state === 'error' ? width : Math.round(width - beside),
             height: parseFloat(headerTokens[width < 480 ? 'compact-height' : 'height']!),
             top: 0,
             position: state === 'error' ? 'fixed' : 'static',
-            rule: '1px',
-            background: tokenRgb('surface', 'sheet', colorScheme),
+            // The refusal page's fixed header draws its own band; in the shell the bar does.
+            rule: state === 'error' ? '1px' : '0px',
+            background:
+              state === 'error' ? tokenRgb('surface', 'sheet', colorScheme) : 'rgba(0, 0, 0, 0)',
             markViewBox: '0 0 96 96',
             // The static brand mark (design/browser-ui/generated/brand-mark-static.svg).
             markPaths: 5,
@@ -1565,12 +1590,16 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             size: headerTokens['title-size'],
             weight: headerTokens['title-weight'],
           });
-          expect(header.mark.left).toBeLessThan(header.wordmark.left);
+          // The shell's bar hides the header's mark (the brand heads the rail); the refusal page's
+          // standalone header keeps it first, and drops its wordmark on a narrow container.
+          const wordmarkShown = state === 'error' ? width > 640 : width >= 480;
+          if (state === 'error' && wordmarkShown)
+            expect(header.mark.left).toBeLessThan(header.wordmark.left);
           // A phone's shell gives the title the row: the module crumb keeps its link for assistive
           // technology but no box (shell.css), so only wider rows order it before the title.
           const phoneShell = width < 480 && state !== 'error';
           expect(header.wordmark.clipped).toBe(phoneShell);
-          if (!phoneShell) expect(header.wordmark.left).toBeLessThan(header.title.left);
+          if (wordmarkShown) expect(header.wordmark.left).toBeLessThan(header.title.left);
           await captureState(
             page,
             state,
@@ -2478,6 +2507,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   await descriptions(true);
   for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme });
+    await settled(page);
     const computed = await page.locator(`#name-${clientId}`).evaluate((input) => {
       const css = getComputedStyle(input);
       return {
@@ -2489,7 +2519,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     });
     expect(computed).toEqual({
       color: tokenRgb('color', 'text', theme),
-      background: tokenRgb('surface', 'sheet', theme),
+      background: tokenRgb('surface', 'field', theme),
       shadow: 'none',
       opacity: '1',
     });
@@ -3975,8 +4005,9 @@ for (const [width, theme] of [
     await name.fill('Recovered device');
     await row.evaluate((form) => scrollTo(0, form.getBoundingClientRect().top + scrollY - 70));
     const renameButton = row.locator('button[type=submit]');
-    const buttonLook = () =>
-      renameButton.evaluate((button) => {
+    const buttonLook = async () => {
+      await settled(page);
+      return renameButton.evaluate((button) => {
         const style = getComputedStyle(button);
         const box = button.getBoundingClientRect();
         return {
@@ -3986,6 +4017,7 @@ for (const [width, theme] of [
           height: box.height,
         };
       });
+    };
     await page.mouse.move(0, 0);
     const idleLook = await buttonLook();
     await name.press('Enter');
@@ -4028,8 +4060,8 @@ for (const [width, theme] of [
         });
       }
       await page.mouse.move(1000, 600);
-      await page.locator('.tmt-ui-module-menu').hover();
-      const foreign = page.locator('.tmt-ui-module-menu a', { hasText: /^Open foreign/ });
+      await modulePages(page).hover();
+      const foreign = modulePages(page).locator('a', { hasText: /^Open foreign/ });
       await expect(foreign).toHaveAttribute('aria-disabled', 'true');
       await expect(foreign).toHaveAttribute(
         'title',
@@ -4049,14 +4081,14 @@ for (const [width, theme] of [
     await expect(slot).toHaveAttribute('data-state', 'unknown');
     await expect(name).toBeFocused();
     await expect(name).toHaveValue('Unsent next draft');
-    await page.locator('.tmt-ui-module-menu').hover();
-    const foreign = page.locator('.tmt-ui-module-menu a', { hasText: /^Open foreign/ });
+    await modulePages(page).hover();
+    const foreign = modulePages(page).locator('a', { hasText: /^Open foreign/ });
     await expect(foreign).toHaveAttribute('aria-disabled', 'true');
     await expect(foreign).toHaveAttribute(
       'title',
       'Another change is still unconfirmed. Check the saved value first.',
     );
-    const menu = page.locator('.tmt-ui-module-menu');
+    const menu = modulePages(page);
     await expect(menu.getByRole('link', { name: 'Add remote…' })).not.toHaveAttribute(
       'aria-disabled',
     );
@@ -4464,13 +4496,13 @@ test('landing registry keeps two origins independent and confirms public-only ha
       }
       await pairAt(env, 'Registry A');
       await page.goto(`${origin}/remote/settings`);
-      await expect(page.locator('.tmt-ui-module-menu')).toContainText(/connected/i);
+      await expect(modulePages(page)).toContainText(/connected/i);
       const first = await identity();
       expect(first.extractable).toBe(false);
       await sdk('add', ['studio', `${origin}/`]);
       await sdk('add', ['desk', `${secondOrigin}/`]);
       await page.reload();
-      await expect(page.locator('.tmt-ui-module-menu')).toContainText(/connected/i);
+      await expect(modulePages(page)).toContainText(/connected/i);
       await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveText(
         'Connected',
       );
@@ -4517,7 +4549,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       expect(openB).not.toContain('machinePublicKey');
       await pairAt(secondEnv, 'Registry B');
       await page.goto(`${secondOrigin}/remote/settings`);
-      await expect(page.locator('.tmt-ui-module-menu')).toContainText(/connected/i);
+      await expect(modulePages(page)).toContainText(/connected/i);
       const second = await identity();
       expect(second.publicKey).not.toEqual(first.publicKey);
       await sdk('add', ['studio', `${secondOrigin}/`]);
@@ -4575,7 +4607,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       expect(await identity()).toEqual(second);
       // A's old fixed-key device record remains readable and unchanged after a B round trip.
       await page.goto(`${origin}/remote/settings`);
-      await expect(page.locator('.tmt-ui-module-menu')).toContainText(/connected/i);
+      await expect(modulePages(page)).toContainText(/connected/i);
       expect(await identity()).toEqual(first);
       expect((await sdk<{ entries: unknown[] }>('list')).entries).toHaveLength(2);
       // A preview cannot overwrite a concurrent edit, and an invalid import stores no row.
@@ -4668,7 +4700,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await storage.detach();
       expect(await sdk('list')).toEqual({ version: 1, entries: [] });
       await page.goto(`${secondOrigin}/remote/settings`);
-      await expect(page.locator('.tmt-ui-module-menu')).toContainText(/connected/i);
+      await expect(modulePages(page)).toContainText(/connected/i);
       expect(await identity()).toEqual(second);
       expect((await sdk<{ entries: unknown[] }>('list')).entries).toHaveLength(1);
     },
@@ -4679,13 +4711,13 @@ test('the Remote module menu lists both origins and keeps settings drafts across
   await withRegistryWorld(async ({ page, secondOrigin, secondEnv, pairAt, identity, sdk }) => {
     await pairAt(secondEnv, 'Registry B');
     await page.goto(`${secondOrigin}/remote/settings`);
-    await expect(page.locator('.tmt-ui-module-menu')).toContainText(/connected/i);
+    await expect(modulePages(page)).toContainText(/connected/i);
     const second = await identity();
     await pairAt(env, 'Registry A');
     await page.goto(`${origin}/remote/settings`);
-    await expect(page.locator('.tmt-ui-module-menu')).toContainText(/connected/i);
+    await expect(modulePages(page)).toContainText(/connected/i);
     const first = await identity();
-    const menu = page.locator('.tmt-ui-module-menu');
+    const menu = modulePages(page);
     // Status is the row for the connection; settings light their own row.
     await page.goto(`${origin}/remote/`);
     await expect(menu.getByRole('link', { name: 'Status · connected' })).toHaveAttribute(
@@ -4695,7 +4727,7 @@ test('the Remote module menu lists both origins and keeps settings drafts across
     await sdk('add', ['studio', `${origin}/`]);
     await sdk('add', ['desk', `${secondOrigin}/`]);
     await page.reload();
-    await expect(page.locator('.tmt-ui-module-menu')).toContainText(/connected/i);
+    await expect(modulePages(page)).toContainText(/connected/i);
     const currentItem = menu.getByRole('link', { name: 'studio · connected' });
     const foreignItem = menu.locator('a', { hasText: /^Open desk/ });
     await expect(currentItem).toHaveAttribute('aria-current', 'page');
@@ -4876,7 +4908,7 @@ test('Home and TMT settings render in the shell and fit both sizes and themes', 
     // The settings page is sectioned: the module menu lists the sections and the title names
     // the current one.
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('General');
-    const sections = page.locator('.tmt-ui-module-menu');
+    const sections = modulePages(page);
     await expect(sections).toHaveAttribute('aria-label', 'TMT settings');
     for (const label of ['General', 'Identities', 'Modules', 'Drivers & hooks'])
       await expect(sections.getByRole('link', { name: label, exact: true })).toBeVisible();
@@ -4976,7 +5008,7 @@ test('an unpaired Digest and Ops say what they wait for and show no invented num
     );
     await expect(page.locator('#ops-section .tmt-ui-list-row')).toHaveCount(0);
     // The sections stay in the module menu; each is empty the same way.
-    const menu = page.locator('.tmt-ui-module-menu');
+    const menu = modulePages(page);
     await menu.getByRole('link', { name: 'Squads', exact: true }).click();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Squads');
     await expect(page.locator('#ops-section .tmt-ui-list-row')).toHaveCount(0);

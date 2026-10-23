@@ -156,13 +156,15 @@ async function assertTokens(
   node: Locator,
   theme: Theme,
   role: 'paper' | 'sheet' = 'paper',
+  radius: 'radius-l' | 'radius' = 'radius-l',
 ): Promise<void> {
   await expect(node).toHaveCSS('background-color', rgb(tokens.browser.surface[role][theme]));
   await expect(node).toHaveCSS('color', rgb(tokens.browser.color.text[theme]));
   await expect(node).toHaveCSS('border-color', rgb(tokens.browser.surface.rule[theme]));
   await expect(node).toHaveCSS('border-width', tokens.browser.metric['rule-width']);
-  await expect(node).toHaveCSS('border-radius', '0px');
-  await expect(node).toHaveCSS('box-shadow', 'none');
+  await expect(node).toHaveCSS('border-radius', tokens.browser.metric[radius]!);
+  // A floating layer carries the one overlay shadow.
+  await expect(node).toHaveCSS('box-shadow', /60px/);
   await expect(node).toHaveCSS('z-index', tokens.browser.ui['z-layer']);
   await expect(node).toHaveCSS('font-size', tokens.browser.metric['command-size']);
   expect(
@@ -501,7 +503,7 @@ for (const width of [320, 390, 1440])
         await expect(
           page.getByRole('menuitem', { name: 'Open Dialog from menu', exact: true }),
         ).toBeFocused();
-        await assertTokens(page.getByRole('menu'), theme, 'sheet');
+        await assertTokens(page.getByRole('menu'), theme, 'sheet', 'radius');
         await assertBounds(page.getByRole('menu'), { left: 0, top: 0, width, height: 900 });
         await page.keyboard.press('ArrowDown');
         await expect(
@@ -604,7 +606,7 @@ for (const width of [320, 390, 1440])
         await opener.click();
         const popover = page.locator('[data-slot="popover-content"]');
         await expect(popover).toBeVisible();
-        await assertTokens(popover, theme, 'sheet');
+        await assertTokens(popover, theme, 'sheet', 'radius');
         await assertBounds(popover, { left: 0, top: 0, width, height: 900 });
         await capture(page, info, 'nested-nonmodal-popover');
         await page.keyboard.press('Escape');
@@ -628,6 +630,32 @@ for (const width of [320, 390, 1440])
           true,
         );
         await closeAndReturn(page, 'Dialog', 'Escape', trigger(page, 'Dialog'));
+      });
+      test('a leaving Popover releases input: a second Escape 20ms after the first closes the Dialog', async ({
+        page,
+      }) => {
+        await prepare(page, width, theme);
+        // Real exit motion, so the popover is still leaving when the second Escape lands.
+        await page.emulateMedia({ reducedMotion: 'no-preference' });
+        await trigger(page, 'Dialog').click();
+        const parent = surface(page, 'Dialog');
+        await parent.getByRole('button', { name: 'Nested fixture Popover', exact: true }).click();
+        const popover = page.locator('[data-slot="popover-content"]');
+        await expect(popover).toBeVisible();
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(20);
+        const leaving = await popover.evaluateAll((nodes) =>
+          nodes.map((node) => [
+            node.getAttribute('data-state'),
+            getComputedStyle(node).pointerEvents,
+          ]),
+        );
+        // Still mounted for its exit, closed, and taking no pointer input.
+        expect(leaving).toEqual([['closed', 'none']]);
+        await page.keyboard.press('Escape');
+        await expectState(page, { popoverOpen: false, dialogOpen: false });
+        await expect(surface(page, 'Dialog')).toHaveCount(0);
+        await expect(trigger(page, 'Dialog')).toBeFocused();
       });
       test('nonmodal Popover host veto holds Escape, pointer/focus outside and programmatic close', async ({
         page,
@@ -824,3 +852,20 @@ for (const width of [320, 390, 1440])
       });
     });
   }
+
+test('an end-aligned menu from a left-edge trigger stays 8px inside the 390px viewport', async ({
+  page,
+}) => {
+  await prepare(page, 390, 'light');
+  const edge = fixture(page).getByRole('button', { name: 'Edge menu trigger', exact: true });
+  expect((await edge.boundingBox())?.x).toBe(0);
+  await edge.click();
+  const menu = page.getByRole('menu', { name: 'Edge menu trigger', exact: true });
+  await expect(menu).toBeVisible();
+  // Read the box after the enter motion: a scaling surface reports a smaller box.
+  await menu.evaluate((node) => Promise.all(node.getAnimations().map((a) => a.finished)));
+  const box = await menu.boundingBox();
+  if (!box) throw new Error('Missing menu box');
+  expect(box.x).toBeGreaterThanOrEqual(8);
+  expect(box.x + box.width).toBeLessThanOrEqual(390 - 8);
+});

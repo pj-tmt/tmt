@@ -120,7 +120,9 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
     void actions.refresh();
   };
   const entered = (event: PointerEvent | FocusEvent) => {
-    const menu = (event.target as Element | null)?.closest?.('.tmt-ui-module-menu');
+    const menu = (event.target as Element | null)?.closest?.(
+      '.tmt-ui-module-menu, .tmt-ui-rail-sub',
+    );
     if (menu && !menu.contains(event.relatedTarget as Node | null)) refresh();
   };
   document.addEventListener('pointerover', entered, { signal: shell.signal });

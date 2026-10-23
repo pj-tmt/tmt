@@ -103,7 +103,7 @@ export function ExportPanel({
           <div key={name} className="export-download">
             <BrowserAction
               type="button"
-              variant="primary"
+              variant={name === pageFiles[0] ? 'primary' : 'secondary'}
               label={text.exportDownload(name)}
               disabled={blocked || state !== 'ready'}
               onActivate={(event) => {

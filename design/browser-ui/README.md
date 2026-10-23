@@ -40,16 +40,21 @@ node design/browser-ui/scripts/generate-static-css.mjs --write
 node design/browser-ui/scripts/generate-static-css.mjs --check
 ```
 
-The check compares expected bytes without writing. Consumers embed checked CSS;
+The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
+size (level 9) of `generated/static.css` plus `generated/ui.css` to +10% of what main shipped
+before the v2 style; each pull request that changes them also reports the raw sizes. Consumers embed checked CSS;
 Cargo and installed products never run the generator. Select light/system-dark
 on the document or scope `data-theme="light"`/`data-theme="dark"` on an island.
 A dark island on a light page needs dark foregrounds as well as dark surfaces.
-Every shared component is opaque, square and shadow-free; the product-owned annotation badge/pill exceptions are defined in [browser style](../gui-style.md#popover-composer). Semantic marks retain words.
+Every shared component is opaque and takes the radius scale (`radius-s`, `radius`, `radius-l`, `radius-pill`); only a floating layer (dialog, drawer, menu, popover, tooltip, autocomplete list, notification) takes the one overlay shadow, and resting surfaces stay shadow-free; the product-owned annotation badge/pill exceptions are defined in [browser style](../gui-style.md#popover-composer). Semantic marks retain words.
 Links, essential edges, selection indicators and keyboard focus are separate.
 Control frames use `--tmt-ui-surface-rule`: action, chip/add/popup, field,
-outer toggle, command/copy and icon tooltip frames share the light rule. The
-toggle indicator keeps `--tmt-ui-color-edge`; selected indicators and keyboard
-focus retain their stronger roles. These frame choices do not change token values.
+outer toggle, command/copy and icon tooltip frames share the light rule. A control
+drawn by its border alone (the toggle indicator, an unchecked checkbox or radio) uses
+`--tmt-ui-color-edge`, which keeps 3:1 against the surface behind it (WCAG 1.4.11);
+text fields and select triggers keep the soft rule by decision (see
+[browser style](../gui-style.md), Fields). Selected indicators and keyboard focus
+retain their stronger roles.
 
 `scripts/generate-brand.mjs` writes the static brand assets from the mark's one definition
 (`src/brand-mark-svg.ts`), `src/brand-mark.css` and the mark-only `brand.mark` roles in
@@ -138,7 +143,9 @@ ID; error copy does not imply invalid. The host retains value, change handler,
 ref, read-only/disabled/access decisions and original control identity. Update
 attributes on that same control when access changes; no remount or draft reset.
 
-Action uses an explicit native button type, retained visible label and optional
+Action takes one `variant`: `primary` (the accent fill, a group's one main action: at most
+one enabled primary per group of actions), `secondary` (the neutral bordered button), `text` or
+`destructive`. It uses an explicit native button type, retained visible label and optional
 busy mark. Keep the same optional `busyMark` supplied in ready and busy states;
 its leading slot remains in flow while visibility changes, with an equal trailing
 reservation that centers the label in both states and preserves button geometry
@@ -177,8 +184,9 @@ supply the focus offset. Disabled styling cannot inherit hover/selected styling.
 same native semantics and ID associations themselves; CSS owns no effects.
 
 Checkbox is one drawing, `tmt-ui-checkbox` (`browserUiClasses.checkbox`), on a real
-`<input type="checkbox">`: a flat 1em square with a rule edge, a currentColor tick when
-checked, a short bar when indeterminate, the shared focus edge and the disabled roles.
+`<input type="checkbox">`: a 1em box with an `edge` border, filled with the accent and a
+currentColor tick when checked, a short bar when indeterminate, the shared focus edge (the text
+colour's edge on a filled box) and the disabled roles.
 Static hosts put the class on their own input. `BrowserCheckbox` renders that input with
 native props (`checked`/`defaultChecked`, `onChange`, `disabled`, `name`) plus
 `indeterminate`; name it with a `<label>` or `aria-label`. The UI layer's Radix `Checkbox`
@@ -277,11 +285,11 @@ status wraps below the strip when the component is narrower than 480px. The
 strip scrolls horizontally, never wraps or animates; selection and resize keep
 the selected tab in view without moving the host page. A label wider than the
 available strip truncates visually while its full accessible name remains.
-The square panel uses a 1px rule; the selected tab joins it and carries a 2px
-top rule and strong text in the neutral text role. State marks retain their own roles.
-`variant="flush"` (default `boxed`) drops the frame and the panel padding for views of a list that
-sits on the page: the strip keeps its rule underneath and the selected tab carries a 2px
-underline instead of the top rule.
+The strip is a segmented control: a 1px rule and the control radius around the tabs, the
+selected tab on the selection fill with strong text in the neutral text role. State marks retain
+their own roles. `variant="flush"` (default `boxed`) drops the frame and the panel padding for
+views of a list that sits on the page: the strip keeps its rule underneath and the selected tab
+carries a straight 2px accent underline instead of the fill.
 No product state, routing or persistence belongs to Tabs.
 Static hosts use `tabs`, `tabsHeader`, `tabList`, `tab`, `tabMark`, `tabLabel`,
 `tabsStatus`, `tabPanel` classes and supply the same IDs, roles, selected state,
@@ -329,6 +337,9 @@ notifications render in iframes of the gallery itself (`?frame=<name>&theme=<the
 they need a viewport or the top layer; the phone shell is a 390px frame. The gallery loads web
 fonts from Google Fonts and supplies Colab's host metrics.
 
+A side outline (wide screens) or a header dropdown lists the sections and follows the scroll;
+the section's name is the page heading's suffix.
+
 It is never built or exported: `package.json` exports do not name `gallery/`, and only
 `vite.gallery.config.ts` serves it. `gallery/covered.ts` maps every value export of
 `src/react.ts` to its section; `tsc` and `test/gallery.test.ts` fail when an export is missing
@@ -338,8 +349,9 @@ from that map or is not rendered or called in the gallery source.
 
 `BrowserDialog` is a controlled, content-fitting native modal at every width.
 It shares its private show/close/dismiss/focus-return lifetime with Drawer and
-renders in place, without a portal or body scroll lock. The opaque square surface
-has one 1px edge and no shadow or animation. Its width is at most 600px, with
+renders in place, without a portal or body scroll lock. The opaque surface has one 1px
+edge, `radius-l` corners and the overlay shadow, and enters and leaves with the base motion
+(see Motion). Its width is at most 600px, with
 16px viewport/safe-area margins, reduced to 4px through 480px; its height is
 capped by the available viewport. The body scrolls with contained overscroll and
 stacks its children with the `space-l` gap (a bare action, icon action or menu keeps
@@ -369,8 +381,8 @@ Drawer and Menu render in place; native top-layer promotion keeps ancestor overf
 Its independently scrolling body uses `overscroll-behavior: contain`. It leaves
 8px below the shared header and at the right/bottom edges, 4px through 480px,
 including safe-area insets. Regular width is at most 440px; wide is 660px; compact
-fills the available width. The opaque square surface has one 1px edge and no
-shadow or animation. Its scrim covers the header and iframe: a first outside
+fills the available width. The opaque surface has one 1px edge, `radius-l` corners and the
+overlay shadow, and slides from its edge with the base motion (see Motion). Its scrim covers the header and iframe: a first outside
 press dismisses only, a second press acts on the uncovered control. Browser-only
 `scrim` starts at black 12% light / 32% dark.
 
@@ -431,8 +443,8 @@ The top layer sits below the shared header at the right, without a catching
 backdrop or autofocus. Arrival preserves focus. Natural Tab reaches controls;
 plain Escape in a focused card dismisses that card and consumes its event.
 Escape or Dismiss restores the connected, visible focus origin from before entry into the surface; Open leaves focus to the host.
-Other owners retain Escape. Opaque square cards use shared roles, a 1px edge,
-no shadow and no animation. Visual line clamps retain the complete text in the
+Other owners retain Escape. Opaque cards use shared roles, a 1px edge, the control radius and
+the overlay shadow, and enter and leave with the base motion (see Motion). Visual line clamps retain the complete text in the
 accessibility tree. A separate persistent polite status announces each newly
 displayed event once in FIFO order and holds only currently eligible text: an
 active withdrawal drops its item (clearing an emptied status) and never
@@ -463,7 +475,7 @@ restores editor focus and owns removal. Enter/Space on the remove control belong
 to that button, not the surrounding editor. Static classes and item/option types live
 in the React-free static entry; checked CSS comes from the generator.
 
-Chips have square 1px edges, one-line labels and explicit remove controls. The list
+Chips have rounded 1px edges, one-line labels and explicit remove controls. The list
 wraps; long names ellipsize without shortening accessible names. Add is disabled
 at the host's cap, with its supplied reason. Empty, loading and failure copy is
 host-supplied. Colab page-list label tokens use BrowserChip; their Lexical model,
@@ -488,6 +500,43 @@ label text, such as an agent mark and name. The required string `label` stays th
 text when `content` is absent and the accessible name of an option (`label`, plus its
 description when it has one); a chip's remove control keeps its own `removeLabel`.
 `content` never changes ordering, filtering, caps or events; the host owns what it draws.
+
+## Motion
+
+Two durations (`fast` 120ms, `base` 180ms), two easings (`ease-out` entering, `ease-in` leaving),
+the pop `scale` (0.96) and the `rise` distance (6px) are the `browser.motion` tokens; under
+`prefers-reduced-motion` every duration is 0ms, so a change is instant. A native overlay
+(dialog, drawer, menu, chips popup, notification) stays mounted with `data-state="closed"`
+until its exit has played: `usePresence(open, ref)` (`src/presence.ts`) holds the node through
+the exit transition or animation and releases it when `getAnimations()` settles. Native
+dialogs and drawers animate with `transition ... allow-discrete` and `@starting-style`; the UI
+layer's Radix layers use the named `animate-pop-*`, `animate-fade-*` and `animate-slide-*`
+classes over the `tmt-foundation-*` keyframes, with the animated content as the portal's direct
+child so Radix Presence can play the exit. A leaving layer (`data-state="closed"`) takes no pointer input, and the UI layer's `admitLayerDismiss` hands its Escape to the open hosted layer under it (the registry in `useLayerController`), so a second Escape inside the exit reaches the dialog at once; a modal Radix layer keeps Radix's body pointer lock until its exit has played. Hover and press on actions and tabs, the menu row tint
+and the rail slide use the same tokens. `design/gui-style.md` owns the rule.
+
+## Shared pieces
+
+Each piece has static classes in `browserUiClasses`, a gallery section and, where it carries
+state, a React component.
+
+- **Count chip.** `BrowserCountChip` is a button with a label, an optional boxed count (`99+`
+  above 99) and an optional leading icon; `tone="attention"` is for work that waits on the
+  reader. `BrowserMenu` with `variant="count"` (plus `triggerText`, `count`, `tone`, `icon`) is
+  the same chip as a menu trigger with a chevron; the count joins its accessible name. The
+  shell's rail counts use the same count box, and the collapsed rail shows it as a corner badge.
+- **Avatar.** `BrowserAvatar` draws the initials of a name or handle (`avatarInitials`) in a
+  round mark, size `m` or `s`; it is an image with the name as its label unless `decorative`.
+  `kind="person"` (the default) is the neutral fill; `kind="agent"` is the mint selection fill
+  with the strong accent ink (`data-kind`), so the two read apart without a glyph.
+- **Choice rows.** `BrowserChoice` is a radio or check row with a label and an optional
+  sublabel; the whole row is the target and the control is a real input (`tmt-ui-radio`,
+  `tmt-ui-checkbox`). `BrowserChoiceGroup` is the fieldset with its legend, `stack` or `inline`.
+- **Pager.** `BrowserPager` is `‹ 1/3 ›`: the host owns the 1-based position; the arrows stop at
+  the ends; the position is a polite status named `<label> 1 of 3`.
+- **Status tile.** `BrowserStatusTiles` is a description list of `BrowserStatusTile` terms: a
+  small label over a dot and a value. The dot's tone (`working`, `info`, `waiting`, `review`,
+  `blocked`, `muted`) is a hint; the value text carries the meaning.
 
 ## Isolated shadcn foundation (Slice1)
 
@@ -589,6 +638,9 @@ Tooltip retains stock Radix hover/focus timing and Escape behavior; it has no
 busy-veto controller. All portals use their originating `UiTheme` container.
 The scrim aliases the existing `browser.surface.scrim` token; layer dimensions
 follow the visual viewport with a gutter derived from existing spacing.
+The floating contents (DropdownMenu and its submenu, Popover, Tooltip) default
+`collisionPadding` to that gutter, 8 px (`layerCollisionPadding`), so no layer touches the
+viewport edge; a caller may pass its own `collisionPadding`.
 No second popup stack or domain operation lives in this leaf.
 
 Actionable hosts that require close veto must supply a controlled
@@ -605,7 +657,9 @@ target. `returnFocus` can name a persistent target; `focusFallback` must name a
 usable surviving control if the opener may disappear. Radix retains focus
 return to a menu trigger by default. Supply both `returnFocus` and `focusFallback`
 on menu content when that trigger can disappear; pointer entry does not infer
-an opener from whichever unrelated control happened to have focus. Radix owns
+an opener from whichever unrelated control happened to have focus. The
+`focusFallback` takes focus only when it is lost: a nested layer that outlasts its parent's
+close finds focus already returned to the parent's target and leaves it there. Radix owns
 containment for modal surfaces. Host autofocus handlers run first and can consume
 the event. Pinned Radix Popover is nonmodal by default: outside pointer or focus can leave
 and dismiss it, but Tab/Shift+Tab loop within its open content. Escape closes

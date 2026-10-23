@@ -10,8 +10,8 @@ export interface BrowserSectionProps extends Omit<
   heading: ReactNode;
   /** `label` is the small uppercase group label; `title` is the larger heading of a settings group. */
   variant?: 'label' | 'title';
-  /** The heading element (default `h2`). */
-  headingLevel?: 'h2' | 'h3' | 'h4';
+  /** The heading element (default `h2`); `none` renders a styled block with no heading role. */
+  headingLevel?: 'h2' | 'h3' | 'h4' | 'none';
   /** Separate this section from the next with a rule. */
   divided?: boolean;
   children: ReactNode;
@@ -24,7 +24,8 @@ export function BrowserSection({
   children,
   ...attributes
 }: BrowserSectionProps) {
-  const Heading: ElementType = headingLevel;
+  // `none`: a styled block, for a sample that must stay out of the page's heading outline.
+  const Heading: ElementType = headingLevel === 'none' ? 'div' : headingLevel;
   const headingId = useId();
   return (
     <section

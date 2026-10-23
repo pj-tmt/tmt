@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
+import { rgb, tokens } from './tokens.js';
 
 // Use the shipped author starter rather than maintaining another palette fixture.
 const skill = readFileSync(
@@ -42,12 +43,9 @@ async function palette(page: Page, theme: 'light' | 'dark') {
   const frame = page.frameLocator('#layout-fixture iframe');
   await expect(frame.locator('body')).toHaveCSS(
     'background-color',
-    theme === 'dark' ? 'rgb(8, 8, 8)' : 'rgb(250, 250, 250)',
+    rgb(tokens.browser.surface.paper[theme]),
   );
-  await expect(frame.locator('body')).toHaveCSS(
-    'color',
-    theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
-  );
+  await expect(frame.locator('body')).toHaveCSS('color', rgb(tokens.browser.color.text[theme]));
   await expect(frame.locator('html')).toHaveAttribute('data-theme', theme);
   await expect(frame.locator('html')).toHaveCSS('color-scheme', theme);
 }
@@ -90,7 +88,9 @@ for (const width of [1280, 1440, 1800, 390]) {
         content,
       };
     });
-    expect(column).toBe(width < 900 ? width : width - 450);
+    expect(column).toBe(
+      width < 900 ? width : width - Number.parseFloat(tokens.browser.metric['rail-width']!),
+    );
     expect(geometry.viewport).toBe(column);
     expect(geometry.width).toBe(Math.min(column, 1280));
     expect(geometry.x).toBe((column - geometry.width) / 2);

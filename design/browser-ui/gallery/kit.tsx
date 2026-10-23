@@ -22,17 +22,20 @@ export function Section({ id, children }: { id: SectionId; children: ReactNode }
 export function Pair({
   title,
   note,
+  stacked = false,
   children,
 }: {
   title: string;
   note?: ReactNode;
+  /** The themes stack, so the demo keeps the page's full width. */
+  stacked?: boolean;
   children: (theme: Theme) => ReactNode;
 }) {
   return (
     <div className="gallery-pair">
       <h3>{title}</h3>
       {note && <p className="gallery-note">{note}</p>}
-      <div className="gallery-columns">
+      <div className="gallery-columns" data-stacked={stacked || undefined}>
         {themes.map((theme) => (
           <div key={theme} className="gallery-column" data-theme={theme}>
             <span className="gallery-theme-label">{theme}</span>
@@ -88,6 +91,7 @@ export function Frame({
   return (
     <iframe
       className="gallery-frame"
+      loading="lazy"
       title={`${frame} ${theme}`}
       src={`?${query}`}
       style={{ width: width ?? '100%', height }}

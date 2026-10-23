@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { pageAction } from '../test/page-actions.js';
 import { text } from '../src/strings.js';
+import { rgb, tokens } from './tokens.js';
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
   return page.evaluate(
@@ -46,25 +47,31 @@ for (const width of [1440, 390])
       const card = inline.locator('.proposal-card');
       // The fixture page paints white, so its cards are light whatever the app theme (#4081).
       const scheme = 'light' as 'light' | 'dark';
-      const sheet = scheme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)';
-      const ink = scheme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)';
-      const muted = scheme === 'dark' ? 'rgb(144, 144, 144)' : 'rgb(98, 98, 98)';
+      const sheet = rgb(tokens.browser.surface.sheet[scheme]);
+      const ink = rgb(tokens.browser.color.text[scheme]);
+      const muted = rgb(tokens.browser.color.secondary[scheme]);
       await expect(card).toHaveCSS('background-color', sheet);
       await expect(card).toHaveCSS('color', ink);
       await expect(card).toHaveCSS('color-scheme', scheme);
       await expect(card.locator('.proposal-body')).toHaveCSS('color', ink);
       await expect(card.locator('.proposal-author')).toHaveCSS('color', muted);
+      // Approve is the card's one primary (the shared accent fill); Decline is the neutral
+      // secondary beside it.
       await expect(card.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
         'background-color',
-        ink,
+        rgb(tokens.browser.color.accent[scheme]),
       );
       await expect(card.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
         'color',
-        scheme === 'dark' ? 'rgb(8, 8, 8)' : 'rgb(250, 250, 250)',
+        rgb(tokens.browser.color['on-accent'][scheme]),
+      );
+      await expect(card.getByRole('button', { name: 'Decline', exact: true })).toHaveAttribute(
+        'data-variant',
+        'secondary',
       );
       await expect(card.getByRole('button', { name: 'Decline', exact: true })).toHaveCSS(
         'background-color',
-        sheet,
+        rgb(tokens.browser.surface.command[scheme]),
       );
       await expect(card.getByRole('button', { name: 'Decline', exact: true })).toHaveCSS(
         'color',
@@ -98,7 +105,7 @@ for (const width of [1440, 390])
       await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toBeFocused();
       await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toHaveCSS(
         'outline-color',
-        scheme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(98, 98, 98)',
+        rgb(tokens.browser.color.focus[scheme]),
       );
       await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toHaveCSS(
         'outline-width',
@@ -270,11 +277,11 @@ for (const width of [1440, 390])
       // The same card in Comments continues to follow the app chrome theme.
       await expect(card).toHaveCSS(
         'background-color',
-        theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
+        rgb(tokens.browser.surface.sheet[theme as 'light' | 'dark']),
       );
       await expect(card).toHaveCSS(
         'color',
-        theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
+        rgb(tokens.browser.color.text[theme as 'light' | 'dark']),
       );
       await card.getByRole('button', { name: 'Follow up', exact: true }).click();
       await expect(card.getByRole('combobox')).toHaveText('', { useInnerText: true });

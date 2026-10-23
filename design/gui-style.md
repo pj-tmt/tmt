@@ -17,21 +17,23 @@ named below; explicitly labelled design targets remain unshipped.
 1. **Rounded and layered.** Controls and surfaces take the radius scale of the
    tokens: `radius-s` for chips and keycaps, `radius` for controls and rows'
    fills, `radius-l` for cards and overlays, `radius-pill` for pills and counts.
-   Surfaces are opaque steps with thin rules. Only an overlay (menu, dialog,
-   drawer, tooltip) takes the one overlay shadow; cards and rows stay shadow-free.
+   Surfaces are opaque charcoal (or light) steps with thin rules. Only an overlay
+   (menu, dialog, drawer, tooltip) takes the one overlay shadow; cards and rows
+   stay shadow-free.
    **No one-sided border on a rounded box.** A rounded element (radius above 0)
    never takes `border-top`, `-right`, `-bottom` or `-left` alone: the lone edge
    curls at the corner into a hook. Use a border on all four sides, a fill or
    tint, or a separate straight indicator (an underline bar, a rail marker) with
    radius 0 that sits outside the rounded box instead of being its border. A row
-   that needs a divider rule stays square.
+   that needs a divider rule stays square. The leaf's CSS test fails a rule that
+   sets a radius and a single-side border together.
 2. **Edge to edge.** The page fills the window. There is exactly one window
    scrollbar; no region under the header scrolls on its own, except an overlay's
    body.
 3. **One sticky row.** Only the one-row header is sticky. Everything else that
    appears on demand is an overlay that never reflows the page.
 4. **Light actions.** Actions are light text buttons. A disabled action keeps its
-   place and shows why. One primary filled button per card at most.
+   place and shows why. One primary (accent-filled) action per action group at most.
 5. **Mark plus word.** A state is a mark and a word (`◆ waiting`, `✗ failed`).
    Color is never the only signal.
 6. **Our controls only.** Use custom choices, toggles and icon help,
@@ -71,6 +73,13 @@ name and a visible tooltip.
   containers space their children with a token gap, never by margins alone.
 - **Focus** is one 1px edge in the focus color (`focus-width`) on every control;
   fields and framed boxes recolour their own 1px rule instead of adding a ring.
+- **Fields** (text fields, text areas and select triggers) keep the soft `rule`
+  edge, an exception to the 3:1 non-text contrast the check-style controls meet
+  (WCAG 1.4.11; the `edge` color on an unchecked checkbox or radio, a toggle's
+  indicator). It holds on three conditions: every field has a visible label (a
+  select shows its value and a chevron instead), its fill (`surface.field`)
+  differs from the surface behind it, and its focus and invalid states keep the
+  strong edge.
 - **Responsive:** every component works from 320 px up and sizes from its own
   container (CSS container queries), not only the viewport, because the same
   component appears full width and inside a 400 px overlay. Nothing overflows
@@ -119,25 +128,32 @@ page renders in it.
   installed); it is never removed. Every page paints the answer this browser read
   last (session storage), then refreshes it once.
   Each item is a Lucide icon plus its label; the current item has the selected
-  surface and a 3 px leading bar. Needs-you counts show `◆ n` in the waiting colour,
-  `99+` above 99; Home sums them only when every module reports one.
+  fill, the accent icon and a straight marker (`indicator-width`) in the rail's gutter,
+  outside the rounded row and never its border. The current module's pages nest under
+  it as sub-items; the page you are on has the same fill and marker. A count is a
+  small box after the label: a plain total in the hover fill, a needs-you count a
+  pill in the waiting colour on its soft fill; `99+` above 99. The number alone is
+  drawn, and the item's accessible name says what it counts. Home sums needs-you
+  counts only when every module reports one.
 - **Collapse:** the toggle collapses the rail to 56 px of icons and expands it again,
   in one short slide (the `base` motion, none under reduced motion); icons keep
   their place. The choice is remembered on the device. Collapsed counts become
-  corner badges; hovering or focusing an item shows its label as a tooltip beside
+  a compact badge at the icon's top-right corner (a needs-you count in the waiting
+  colour); hovering or focusing an item shows its label as a tooltip beside
   the rail, and labels stay accessible names.
 - **Module menu:** the active module's own menu (Colab: All pages, then each project
-  with its page count and `◆` count, then New project and Manage projects; Remote:
-  each saved remote, Add remote, Remote settings). It replaces header dropdowns.
-- **Header:** one continuous sticky row: the TMT mark and word above the rail, then
-  the host's header (moved into the shell's bar) as `<module> / <page>`, with one
-  bottom rule and no divider between them: `TMT · <module> / <page>`, every segment
-  in the header title's face and size, separators lighter. Under 480 px the module
-  crumb steps aside (its link stays for assistive technology) so the page title
-  keeps the row. The bar paints the
-  module's name at once and keeps its height and rule while a route loads. The
-  module menu has no title of its own and shares the rail's surface, rows and
-  selection bar.
+  with its page count and needs-you count, then New project and Manage projects; Remote:
+  each saved remote, Add remote, Remote settings). It replaces header dropdowns. On a
+  wide screen its pages nest under the current rail item and share the rail's surface,
+  rows and selection marker; on a phone they are a tab strip under the title bar. It has
+  no title of its own.
+- **Header:** one continuous sticky row: the host's header (moved into the shell's
+  bar) as `<module> / <page>` with one bottom rule, every segment in the header
+  title's face and size, separators lighter. The TMT mark and word are the rail's
+  head, the one place the brand sits; the bar does not repeat them. Under 480 px the
+  module crumb steps aside (its link stays for assistive technology) so the page
+  title keeps the row. The bar paints the module's name at once and keeps its height
+  and rule while a route loads.
 - **Module content:** the shell adds no padding or width to a module's main area;
   each module keeps its own layout. Shell page styles stay scoped to their own
   pages (Remote: `.tmt-page`), since every module shares the one document. While a
@@ -242,8 +258,8 @@ existing mark-plus-word Waiting state. The current page is excluded.
   Enter opens that result. Escape closes suggestions, then the dialog and returns
   focus. Successful navigation focuses the destination title. Editors retain
   their own shortcuts; repeated and composing keys never activate a result.
-- The content-fitting surface is opaque, square, thin-edged and shadow-free,
-  using existing focus/selection/scrim tokens. It is modal at every width, with
+- The content-fitting surface is opaque, thin-edged and rounded (`radius-l`), with the
+  overlay shadow, using existing focus/selection/scrim tokens. It is modal at every width, with
   safe-area margins, no body scroll lock and contained result scrolling. Close
   and the input remain reachable at compact or short viewport sizes.
 - Show **Loading pages…** only without usable rows, **No pages yet.** for an empty
@@ -263,9 +279,12 @@ Not shipped. Basis: own.
 
 ### Button
 
-- Variants: **primary** (flat sheet; one emphasized decision per card), **text**
-  (light, default for actions), **destructive** (text in the `blocked` role,
-  always last in its group).
+- Variants: **primary** (the accent fill: the one main action of a group, at most one
+  enabled per action group, which Colab's `e2e/primary-groups.spec.ts` checks; a panel
+  that holds several forms and rows marks itself `data-action-group` and is one group),
+  **secondary** (the neutral bordered button, for the other actions beside it),
+  **text** (light, default for actions), **destructive** (text in the `blocked`
+  role, always last in its group).
 - States follow the leaf
   [Action contract](browser-ui/README.md#controlled-input-contracts): neutral
   hover/focus (same text colour on `surface.hover`, lighter than selection), visible focus, opaque muted disabled controls
@@ -292,14 +311,15 @@ slot belongs to the host and wraps below the strip below 480px of component widt
 The strip scrolls horizontally without wrapping or animation; selection and resize
 keep the selected tab visible without moving the page. A label wider than the strip
 truncates while retaining its full accessible name. Use the existing state roles,
-a 1px flat square panel rule and a 2px neutral text-color rule above the selected tab,
-which uses strong neutral text and joins the panel. State marks retain their own roles.
+a 1px strip rule with the control radius and the selection fill on the selected tab,
+which uses strong neutral text (flush: a straight 2px accent underline). State marks retain
+their own roles.
 The leaf's [Tabs contract](browser-ui/README.md#controlled-input-contracts)
 owns React/static inputs and panel lifetimes. Basis: own.
 
 ### Card
 
-A square, opaque, shadow-free sheet with the shared thin edge.
+An opaque, shadow-free sheet with the shared thin edge and the control radius.
 
 - **Notice card:** the body of every state screen (opening, failed, ended,
   deleted, choose). Mark, eyebrow, title, one or two lines of text, actions
@@ -313,13 +333,15 @@ A square, opaque, shadow-free sheet with the shared thin edge.
 
 A one-line label whose content is always vertically centered (fixed height,
 inline flex). Kinds: **status** (mark plus word), **filter** (a toggle button, accent when on) and
-**count** (`◆ 2 open`, a button that opens its list). Static chips are square
-outlines; interactive ones are buttons with a focus ring. Height 20 px, filter
+**count** (a label and a boxed number such as `Needs you 5`: `BrowserCountChip`, or a
+`BrowserMenu` count trigger with a chevron that opens its list; the attention tone is
+for work that waits on the reader). Static chips are rounded outlines; interactive
+ones are buttons with a focus edge. Height 20 px, filter
 24 px. Basis: own.
 
 ### BrowserChips
 
-A removable list uses shared BrowserChips/BrowserChip: square 1px chips with a
+A removable list uses shared BrowserChips/BrowserChip: rounded 1px chips with a
 centered one-line label and an explicit remove control. Wrap the list at narrow
 widths; keep the full accessible name when a long label ellipsizes. A trailing
 `＋` opens a search combobox/listbox. Arrow keys move, Enter adds, Escape returns
@@ -375,7 +397,7 @@ Comments, Chat, Source, Share and settings panels.
 - Opens over the page without moving it, closes with its own `×`, Esc or a backdrop press. Focus moves into it and returns to the opener.
 - One overlay at a time; opening another replaces it.
 - Basis: Radix (Dialog). Shared owner: [BrowserDrawer](browser-ui/README.md#drawer-and-menu), with native modal containment at every width.
-- Colab shared page drawers (Chat, Source, Agents, Files, Comments, Export and About) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, a square opaque surface and one 1 px rule on every edge. Source may be wider; other drawers are at most 440 px. Compact drawers fill the available width between gutters. The scrim covers the visible header and author iframe; the first press only dismisses, with no click-through, and the second press acts. The drawer body contains overscroll; there is no body scroll lock. Neither changes the author frame width.
+- Colab shared page drawers (Chat, Source, Agents, Files, Comments, Export and About) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, an opaque rounded surface and one 1 px rule on every edge. Source may be wider; other drawers are at most 440 px. Compact drawers fill the available width between gutters. The scrim covers the visible header and author iframe; the first press only dismisses, with no click-through, and the second press acts. The drawer body contains overscroll; there is no body scroll lock. Neither changes the author frame width.
 
 ### BrowserNotifications
 
@@ -383,7 +405,8 @@ Transient reply cards below the header at the right, separate from persistent
 discussion state. Shipped Colab destinations are **Chat**, **Thread**, **Answer** and **Proposal**; the
 visible text tag names the destination, with the quoted passage for Thread.
 
-- Opaque square cards, one thin edge, no shadow or motion. Use an 8 px header/right
+- Opaque cards with one thin edge, the control radius and the overlay shadow, entering
+  and leaving with the base motion. Use an 8 px header/right
   gutter (4 px through 480 px), safe-area insets and at most 360 px width.
 - Three cards visible; additional replies wait in FIFO order with a waiting count.
   Each gets 6,000 ms when first displayed; waiting does not consume that time.
@@ -611,12 +634,18 @@ your machine`) and a way to recheck.
 days`); exact time on hover.
 - **Counts:** the header carries one pending count per surface; it disappears at
   zero.
-- **Motion:** two durations (`fast` 120 ms, `base` 180 ms), two easings
-  (`ease-out` for entering, `ease-in` for leaving) and the pop `scale` 0.96, all
-  tokens (`browser.motion`); no component sets its own duration or curve. Under
-  `prefers-reduced-motion` every duration is 0 ms, so a change is instant. The
-  LoaderCircle spin (see [Transient states](#transient-states)) stops under the
-  same preference.
+- **Motion:** two durations, two easings and two distances, all tokens
+  (`browser.motion`: `fast` 120 ms, `base` 180 ms, `ease-out` for entering,
+  `ease-in` for leaving, `scale` 0.96, `rise` 6 px). Every overlay enters and
+  leaves with the same motion and stays mounted (`data-state="closed"`) until the
+  exit has played: a dialog fades and scales in the base duration, a drawer slides
+  from its edge in the base duration, the scrim fades, a menu, popover, tooltip or
+  autocomplete list fades and scales from its anchor in the fast duration. Hover
+  and press on actions and tabs, the menu row tint and the rail collapse use the
+  fast or base duration. Under `prefers-reduced-motion` every duration is 0 ms, so
+  a change is instant. A leaving layer is inert: it takes no pointer input and
+  hands its Escape to the layer under it. The LoaderCircle spin (see
+  [Transient states](#transient-states)) stops under the same preference.
 
 ## Transient states
 

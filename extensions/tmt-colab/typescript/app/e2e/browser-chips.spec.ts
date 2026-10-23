@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { tokens } from './tokens.js';
 
 declare global {
   interface Window {
@@ -62,7 +63,9 @@ for (const [width, theme] of [
     await add(page).click();
     await field(page).press('Tab');
     await expect(page.getByRole('textbox', { name: 'After recipients' })).toBeFocused();
+    // The surface leaves with its exit; the close that follows must not take focus back.
     await expect(field(page)).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: 'After recipients' })).toBeFocused();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
@@ -103,7 +106,7 @@ for (const [width, theme] of [
             const style = getComputedStyle(node);
             return [style.borderTopWidth, style.borderRadius, style.boxShadow];
           });
-        expect(geometry).toEqual(['1px', '0px', 'none']);
+        expect(geometry).toEqual(['1px', tokens.browser.metric.radius, 'none']);
       }
     });
   }

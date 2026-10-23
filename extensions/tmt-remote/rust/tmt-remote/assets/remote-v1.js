@@ -1651,7 +1651,7 @@ function remoteMenu(actions, shell = remoteShell()) {
 		actions.refresh();
 	};
 	const entered = (event) => {
-		const menu = event.target?.closest?.(".tmt-ui-module-menu");
+		const menu = event.target?.closest?.(".tmt-ui-module-menu, .tmt-ui-rail-sub");
 		if (menu && !menu.contains(event.relatedTarget)) refresh();
 	};
 	document.addEventListener("pointerover", entered, { signal: shell.signal });
@@ -1675,6 +1675,22 @@ var browserUiClasses = Object.freeze({
 	chipsSurface: "tmt-ui-chips-surface",
 	chipsSearch: "tmt-ui-chips-search",
 	chipsOption: "tmt-ui-chips-option",
+	countChip: "tmt-ui-count-chip",
+	count: "tmt-ui-count",
+	avatar: "tmt-ui-avatar",
+	radio: "tmt-ui-radio",
+	choices: "tmt-ui-choices",
+	choicesLegend: "tmt-ui-choices-legend",
+	choice: "tmt-ui-choice",
+	choiceText: "tmt-ui-choice-text",
+	choiceDescription: "tmt-ui-choice-description",
+	pager: "tmt-ui-pager",
+	pagerPosition: "tmt-ui-pager-position",
+	statusTiles: "tmt-ui-status-tiles",
+	statusTile: "tmt-ui-status-tile",
+	statusTileLabel: "tmt-ui-status-tile-label",
+	statusTileValue: "tmt-ui-status-tile-value",
+	statusTileDot: "tmt-ui-status-tile-dot",
 	notifications: "tmt-ui-notifications",
 	notification: "tmt-ui-notification",
 	notificationStatus: "tmt-ui-notification-status",
@@ -1758,6 +1774,10 @@ var browserUiClasses = Object.freeze({
 	disclosure: "tmt-ui-disclosure",
 	visuallyHidden: "tmt-ui-visually-hidden"
 });
+/** A count as drawn in a chip or the rail: counts above 99 read `99+`. */
+function countText(value) {
+	return value > 99 ? "99+" : String(value);
+}
 /**
 * The browser busy mark's six dots on a 16x16 viewBox, in ring order (clockwise from the top
 * left of the 2x3 cell). Each dot's eased lap is offset by its place in the ring in CSS.
@@ -2594,7 +2614,7 @@ var moduleIcon = (name) => moduleIcons.includes(name) ? name : "box";
 /** Counts above 99 read `99+`; needs-you counts carry the ◆ mark and colour. */
 function shellCount(value, kind = "needs-you") {
 	return {
-		text: value > 99 ? "99+" : String(value),
+		text: countText(value),
 		needsYou: kind === "needs-you"
 	};
 }
@@ -2792,7 +2812,8 @@ function count(document, value) {
 	const badge = document.createElement("span");
 	badge.className = "tmt-ui-shell-count";
 	if (value.needsYou) badge.dataset.kind = "needs-you";
-	badge.textContent = value.needsYou ? `◆ ${value.text}` : value.text;
+	badge.textContent = value.text;
+	badge.setAttribute("aria-hidden", "true");
 	return badge;
 }
 /**
@@ -2812,30 +2833,28 @@ function mountShell(root, view, select) {
 	open.setAttribute("aria-label", "Open navigation");
 	open.setAttribute("aria-expanded", "false");
 	open.append(icon(document, "menu"));
-	const brand = document.createElement("span");
+	const brand = document.createElement("div");
 	brand.className = "tmt-ui-shell-brand";
 	brand.innerHTML = brandMarkSvg({
-		size: 24,
+		size: 32,
 		id: "tmt-rail"
 	});
+	const text = document.createElement("span");
+	text.className = "tmt-ui-shell-brand-text";
 	const word = document.createElement("span");
 	word.className = "tmt-ui-shell-brand-word";
-	word.textContent = "TMT";
-	const dot = document.createElement("span");
-	dot.className = "tmt-ui-shell-brand-separator";
-	dot.setAttribute("aria-hidden", "true");
-	dot.textContent = "·";
-	brand.append(word, dot);
-	const sheet = typeof ResizeObserver === "function" && "adoptedStyleSheets" in document ? new CSSStyleSheet() : void 0;
-	if (sheet) document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
-	const measure = sheet ? new ResizeObserver(() => sheet.replaceSync(`.tmt-ui-shell { --tmt-ui-shell-brand-width: ${brand.offsetWidth}px; }`)) : void 0;
-	measure?.observe(brand);
+	word.textContent = "tmt";
+	const sub = document.createElement("span");
+	sub.className = "tmt-ui-shell-brand-sub";
+	sub.textContent = "terminal team";
+	text.append(word, sub);
+	brand.append(text);
 	const rail = document.createElement("nav");
 	rail.className = "tmt-ui-rail";
 	rail.setAttribute("aria-label", "TMT");
 	const menu = document.createElement("nav");
 	menu.className = "tmt-ui-module-menu";
-	root.prepend(open, brand, rail);
+	root.prepend(open, rail);
 	root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar").after(menu);
 	let collapsed = railCollapsed();
 	const setDrawer = (shown) => {
@@ -2921,12 +2940,51 @@ function mountShell(root, view, select) {
 		};
 		return anchor;
 	};
-	const railList = (items, extra) => {
+	const menuEntry = (className, item) => {
+		const anchor = link(className, item);
+		if (item.note) anchor.title = item.note;
+		const label = document.createElement("span");
+		label.className = "tmt-ui-module-menu-label";
+		label.textContent = item.label;
+		if (!item.note) label.title = item.label;
+		anchor.append(label);
+		if (item.total !== void 0 || item.count) {
+			const counts = document.createElement("span");
+			counts.className = "tmt-ui-shell-counts";
+			if (item.total !== void 0) counts.append(count(document, shellCount(item.total, "plain")));
+			if (item.count) counts.append(count(document, item.count));
+			anchor.append(counts);
+		}
+		return anchor;
+	};
+	const nested = (menuView) => {
+		const list = document.createElement("ul");
+		list.className = "tmt-ui-rail-sub";
+		list.setAttribute("aria-label", menuView.title);
+		for (const group of menuView.groups) {
+			if (group.label) {
+				const heading = document.createElement("li");
+				heading.className = "tmt-ui-rail-sub-group";
+				heading.setAttribute("role", "presentation");
+				heading.textContent = group.label;
+				list.append(heading);
+			}
+			for (const item of group.items) {
+				const row = document.createElement("li");
+				row.append(menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item));
+				list.append(row);
+			}
+		}
+		return list;
+	};
+	const railList = (items, extra, pages) => {
 		const list = document.createElement("ul");
 		list.className = extra ? `tmt-ui-rail-items ${extra}` : "tmt-ui-rail-items";
 		for (const item of items) {
 			const anchor = link("tmt-ui-rail-item", item);
-			tipFor(anchor, item.note ? `${item.label}: ${item.note}` : item.label, item.note);
+			const named = item.count ? `${item.label}, ${item.count.text}${item.count.needsYou ? item.count.text === "1" ? " needs you" : " need you" : ""}` : item.label;
+			if (item.count) anchor.setAttribute("aria-label", named);
+			tipFor(anchor, item.note ? `${item.label}: ${item.note}` : named, item.note);
 			const label = document.createElement("span");
 			label.className = "tmt-ui-rail-label";
 			label.textContent = item.label;
@@ -2934,52 +2992,38 @@ function mountShell(root, view, select) {
 			if (item.count) anchor.append(count(document, item.count));
 			const row = document.createElement("li");
 			row.append(anchor);
+			if (item.current && pages) row.append(nested(pages));
 			list.append(row);
 		}
 		return list;
 	};
 	let shown = "";
+	let latest = view;
+	const phone = typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 900px)") : void 0;
 	const render = (next) => {
-		const key = JSON.stringify(next);
+		latest = next;
+		const onPhone = phone?.matches === true;
+		const key = JSON.stringify([onPhone, next]);
 		if (key === shown) return;
 		shown = key;
 		hideTip();
-		rail.replaceChildren(top, railList(next.rail.main), railList(next.rail.bottom, "tmt-ui-rail-bottom"));
+		rail.replaceChildren(brand, railList(next.rail.main, void 0, onPhone ? void 0 : next.menu), top, railList(next.rail.bottom, "tmt-ui-rail-bottom", onPhone ? void 0 : next.menu));
 		root.dataset.menu = next.menu ? "shown" : "none";
-		if (!next.menu) {
+		if (!next.menu || !onPhone) {
 			menu.replaceChildren();
-			menu.removeAttribute("aria-label");
+			if (next.menu && !onPhone) menu.setAttribute("aria-label", next.menu.title);
+			else menu.removeAttribute("aria-label");
 			return;
 		}
 		menu.setAttribute("aria-label", next.menu.title);
 		const left = menu.scrollLeft;
 		menu.replaceChildren();
 		for (const group of next.menu.groups) {
-			if (group.label !== void 0 || menu.childElementCount > 0) {
-				const heading = document.createElement("div");
-				heading.className = "tmt-ui-module-menu-group";
-				heading.textContent = group.label ?? "";
-				menu.append(heading);
-			}
 			const list = document.createElement("ul");
 			list.className = "tmt-ui-module-menu-items";
 			for (const item of group.items) {
-				const anchor = link("tmt-ui-module-menu-item", item);
-				if (item.note) anchor.title = item.note;
-				const label = document.createElement("span");
-				label.className = "tmt-ui-module-menu-label";
-				label.textContent = item.label;
-				if (!item.note) label.title = item.label;
-				anchor.append(label);
-				if (item.total !== void 0 || item.count) {
-					const counts = document.createElement("span");
-					counts.className = "tmt-ui-shell-counts";
-					if (item.total !== void 0) counts.append(count(document, shellCount(item.total, "plain")));
-					if (item.count) counts.append(count(document, item.count));
-					anchor.append(counts);
-				}
 				const row = document.createElement("li");
-				row.append(anchor);
+				row.append(menuEntry("tmt-ui-module-menu-item", item));
 				list.append(row);
 			}
 			menu.append(list);
@@ -2993,19 +3037,19 @@ function mountShell(root, view, select) {
 			else if (box.right > strip.right) menu.scrollLeft += box.right - strip.right;
 		}
 	};
+	const rewidth = () => render(latest);
+	phone?.addEventListener("change", rewidth);
 	paint();
 	setDrawer(false);
 	render(view);
 	return {
 		update: render,
 		dispose() {
+			phone?.removeEventListener("change", rewidth);
 			document.removeEventListener("keydown", close);
 			document.removeEventListener("pointerdown", outside);
 			hideTip();
-			measure?.disconnect();
-			if (sheet) document.adoptedStyleSheets = document.adoptedStyleSheets.filter((item) => item !== sheet);
 			open.remove();
-			brand.remove();
 			tip.remove();
 			rail.remove();
 			menu.remove();
@@ -3539,6 +3583,11 @@ var MARGIN = {
 	top: 12,
 	bottom: 22
 };
+/** A mono tick label of 11px is about 7px a character; it sits 6px left of its line and keeps an
+* 8px inset from the plot's edge. */
+var TICK_CHARACTER = 7;
+var TICK_GAP = 6;
+var TICK_INSET = 8;
 /** Everything a series chart paints, as plain data: the painter only maps it to elements. */
 function seriesModel(options, width) {
 	const columns = options.x.length;
@@ -3548,9 +3597,11 @@ function seriesModel(options, width) {
 	const dataMax = stack ? stack.max : Math.max(0, ...options.series.flatMap((layer) => layer.values.map((v) => v ?? 0)), ...options.reference?.values.map((v) => v ?? 0) ?? []);
 	const max = options.max ?? (share ? 100 : niceMax(dataMax));
 	const height = options.height ?? 200;
+	const tickLabels = ticks(max, 4).map(format);
+	const left = Math.max(MARGIN.left, Math.max(...tickLabels.map((label) => label.length)) * TICK_CHARACTER + TICK_GAP + TICK_INSET);
 	const inner = {
-		left: MARGIN.left,
-		right: Math.max(MARGIN.left + 1, width - MARGIN.right),
+		left,
+		right: Math.max(left + 1, width - MARGIN.right),
 		top: MARGIN.top,
 		bottom: height - MARGIN.bottom
 	};
@@ -3610,11 +3661,11 @@ function seriesModel(options, width) {
 	return {
 		width,
 		height,
-		grid: ticks(max, 4).map((tick) => ({
+		grid: ticks(max, 4).map((tick, at) => ({
 			y: yAt(tick),
 			x1: inner.left,
 			x2: inner.right,
-			label: format(tick)
+			label: tickLabels[at]
 		})),
 		xLabels: [.../* @__PURE__ */ new Set([
 			0,

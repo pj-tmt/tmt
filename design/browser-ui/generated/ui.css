@@ -3,7 +3,7 @@
   --tmt-foundation-spacing-unit: 4px;
   --tmt-foundation-z-layer: 50;
   --tmt-foundation-z-tooltip: 60;
-  --tmt-foundation-radius: 0;
+  --tmt-foundation-radius: 8px;
   --tmt-foundation-radius-s: 6px;
   --tmt-foundation-radius-l: 12px;
   --tmt-foundation-radius-pill: 999px;
@@ -17,106 +17,115 @@
   --tmt-foundation-motion-ease-out: cubic-bezier(0.2, 0, 0, 1);
   --tmt-foundation-motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
   --tmt-foundation-motion-scale: 0.96;
+  --tmt-foundation-motion-rise: 6px;
   --tmt-foundation-font-display: 'Bricolage Grotesque', system-ui, sans-serif;
   --tmt-foundation-font-body: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --tmt-foundation-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --tmt-foundation-background: #fafafa;
-  --tmt-foundation-foreground: #343434;
+  --tmt-foundation-background: #f3f6f5;
+  --tmt-foundation-foreground: #26393f;
   --tmt-foundation-card: #ffffff;
-  --tmt-foundation-card-foreground: #343434;
+  --tmt-foundation-card-foreground: #26393f;
   --tmt-foundation-popover: #ffffff;
-  --tmt-foundation-popover-foreground: #343434;
-  --tmt-foundation-primary: #e2e2e2;
-  --tmt-foundation-primary-foreground: #202020;
-  --tmt-foundation-secondary: #eaeaea;
-  --tmt-foundation-secondary-foreground: #343434;
-  --tmt-foundation-muted: #eaeaea;
-  --tmt-foundation-muted-foreground: #626262;
-  --tmt-foundation-accent: #e2e2e2;
-  --tmt-foundation-accent-foreground: #202020;
-  --tmt-foundation-destructive: #9c4242;
-  --tmt-foundation-layer-boundary: #d0d0d0;
-  --tmt-foundation-border: #d0d0d0;
-  --tmt-foundation-input: #d0d0d0;
-  --tmt-foundation-indicator: #626262;
-  --tmt-foundation-ring: #626262;
+  --tmt-foundation-popover-foreground: #26393f;
+  --tmt-foundation-primary: #147f67;
+  --tmt-foundation-primary-foreground: #ffffff;
+  --tmt-foundation-secondary: #f3f7f5;
+  --tmt-foundation-secondary-foreground: #26393f;
+  --tmt-foundation-muted: #eaf0ee;
+  --tmt-foundation-muted-foreground: #596f77;
+  --tmt-foundation-accent: #d3ebdd;
+  --tmt-foundation-accent-foreground: #172a30;
+  --tmt-foundation-destructive: #b94952;
+  --tmt-foundation-destructive-ring: #b94952;
+  --tmt-foundation-destructive-soft: #fbe9ea;
+  --tmt-foundation-layer-boundary: #d4dfdb;
+  --tmt-foundation-border: #d4dfdb;
+  --tmt-foundation-input: #d4dfdb;
+  --tmt-foundation-indicator: #798d92;
+  --tmt-foundation-ring: #147f67;
   --tmt-foundation-scrim: #0000001f;
   --tmt-foundation-shadow-overlay: 0 18px 60px #1b3d2c1c;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   [data-tmt-ui]:not([data-tmt-theme='light']) {
-    --tmt-foundation-background: #080808;
-    --tmt-foundation-foreground: #b0b0b0;
-    --tmt-foundation-card: #101010;
-    --tmt-foundation-card-foreground: #b0b0b0;
-    --tmt-foundation-popover: #101010;
-    --tmt-foundation-popover-foreground: #b0b0b0;
-    --tmt-foundation-primary: #2b2b2b;
-    --tmt-foundation-primary-foreground: #d8d8d8;
-    --tmt-foundation-secondary: #202020;
-    --tmt-foundation-secondary-foreground: #b0b0b0;
-    --tmt-foundation-muted: #171717;
-    --tmt-foundation-muted-foreground: #909090;
-    --tmt-foundation-accent: #2b2b2b;
-    --tmt-foundation-accent-foreground: #d8d8d8;
-    --tmt-foundation-destructive: #f7768e;
-    --tmt-foundation-layer-boundary: #303030;
-    --tmt-foundation-border: #303030;
-    --tmt-foundation-input: #303030;
-    --tmt-foundation-indicator: #7d7d7d;
-    --tmt-foundation-ring: #b0b0b0;
+    --tmt-foundation-background: #0e171d;
+    --tmt-foundation-foreground: #c9d6dd;
+    --tmt-foundation-card: #17232c;
+    --tmt-foundation-card-foreground: #c9d6dd;
+    --tmt-foundation-popover: #17232c;
+    --tmt-foundation-popover-foreground: #c9d6dd;
+    --tmt-foundation-primary: #78edc8;
+    --tmt-foundation-primary-foreground: #072a21;
+    --tmt-foundation-secondary: #1c2a34;
+    --tmt-foundation-secondary-foreground: #c9d6dd;
+    --tmt-foundation-muted: #131e26;
+    --tmt-foundation-muted-foreground: #a2b3bf;
+    --tmt-foundation-accent: #1d3a38;
+    --tmt-foundation-accent-foreground: #edf3f6;
+    --tmt-foundation-destructive: #ff7f87;
+    --tmt-foundation-destructive-ring: #ff7f87;
+    --tmt-foundation-destructive-soft: #3a2428;
+    --tmt-foundation-layer-boundary: #283a46;
+    --tmt-foundation-border: #283a46;
+    --tmt-foundation-input: #283a46;
+    --tmt-foundation-indicator: #728b9a;
+    --tmt-foundation-ring: #78edc8;
     --tmt-foundation-scrim: #00000052;
     --tmt-foundation-shadow-overlay: 0 18px 60px #02080e50;
     color-scheme: dark;
   }
 }
 [data-tmt-ui][data-tmt-theme='light'] {
-  --tmt-foundation-background: #fafafa;
-  --tmt-foundation-foreground: #343434;
+  --tmt-foundation-background: #f3f6f5;
+  --tmt-foundation-foreground: #26393f;
   --tmt-foundation-card: #ffffff;
-  --tmt-foundation-card-foreground: #343434;
+  --tmt-foundation-card-foreground: #26393f;
   --tmt-foundation-popover: #ffffff;
-  --tmt-foundation-popover-foreground: #343434;
-  --tmt-foundation-primary: #e2e2e2;
-  --tmt-foundation-primary-foreground: #202020;
-  --tmt-foundation-secondary: #eaeaea;
-  --tmt-foundation-secondary-foreground: #343434;
-  --tmt-foundation-muted: #eaeaea;
-  --tmt-foundation-muted-foreground: #626262;
-  --tmt-foundation-accent: #e2e2e2;
-  --tmt-foundation-accent-foreground: #202020;
-  --tmt-foundation-destructive: #9c4242;
-  --tmt-foundation-layer-boundary: #d0d0d0;
-  --tmt-foundation-border: #d0d0d0;
-  --tmt-foundation-input: #d0d0d0;
-  --tmt-foundation-indicator: #626262;
-  --tmt-foundation-ring: #626262;
+  --tmt-foundation-popover-foreground: #26393f;
+  --tmt-foundation-primary: #147f67;
+  --tmt-foundation-primary-foreground: #ffffff;
+  --tmt-foundation-secondary: #f3f7f5;
+  --tmt-foundation-secondary-foreground: #26393f;
+  --tmt-foundation-muted: #eaf0ee;
+  --tmt-foundation-muted-foreground: #596f77;
+  --tmt-foundation-accent: #d3ebdd;
+  --tmt-foundation-accent-foreground: #172a30;
+  --tmt-foundation-destructive: #b94952;
+  --tmt-foundation-destructive-ring: #b94952;
+  --tmt-foundation-destructive-soft: #fbe9ea;
+  --tmt-foundation-layer-boundary: #d4dfdb;
+  --tmt-foundation-border: #d4dfdb;
+  --tmt-foundation-input: #d4dfdb;
+  --tmt-foundation-indicator: #798d92;
+  --tmt-foundation-ring: #147f67;
   --tmt-foundation-scrim: #0000001f;
   --tmt-foundation-shadow-overlay: 0 18px 60px #1b3d2c1c;
   color-scheme: light;
 }
 [data-tmt-ui][data-tmt-theme='dark'] {
-  --tmt-foundation-background: #080808;
-  --tmt-foundation-foreground: #b0b0b0;
-  --tmt-foundation-card: #101010;
-  --tmt-foundation-card-foreground: #b0b0b0;
-  --tmt-foundation-popover: #101010;
-  --tmt-foundation-popover-foreground: #b0b0b0;
-  --tmt-foundation-primary: #2b2b2b;
-  --tmt-foundation-primary-foreground: #d8d8d8;
-  --tmt-foundation-secondary: #202020;
-  --tmt-foundation-secondary-foreground: #b0b0b0;
-  --tmt-foundation-muted: #171717;
-  --tmt-foundation-muted-foreground: #909090;
-  --tmt-foundation-accent: #2b2b2b;
-  --tmt-foundation-accent-foreground: #d8d8d8;
-  --tmt-foundation-destructive: #f7768e;
-  --tmt-foundation-layer-boundary: #303030;
-  --tmt-foundation-border: #303030;
-  --tmt-foundation-input: #303030;
-  --tmt-foundation-indicator: #7d7d7d;
-  --tmt-foundation-ring: #b0b0b0;
+  --tmt-foundation-background: #0e171d;
+  --tmt-foundation-foreground: #c9d6dd;
+  --tmt-foundation-card: #17232c;
+  --tmt-foundation-card-foreground: #c9d6dd;
+  --tmt-foundation-popover: #17232c;
+  --tmt-foundation-popover-foreground: #c9d6dd;
+  --tmt-foundation-primary: #78edc8;
+  --tmt-foundation-primary-foreground: #072a21;
+  --tmt-foundation-secondary: #1c2a34;
+  --tmt-foundation-secondary-foreground: #c9d6dd;
+  --tmt-foundation-muted: #131e26;
+  --tmt-foundation-muted-foreground: #a2b3bf;
+  --tmt-foundation-accent: #1d3a38;
+  --tmt-foundation-accent-foreground: #edf3f6;
+  --tmt-foundation-destructive: #ff7f87;
+  --tmt-foundation-destructive-ring: #ff7f87;
+  --tmt-foundation-destructive-soft: #3a2428;
+  --tmt-foundation-layer-boundary: #283a46;
+  --tmt-foundation-border: #283a46;
+  --tmt-foundation-input: #283a46;
+  --tmt-foundation-indicator: #728b9a;
+  --tmt-foundation-ring: #78edc8;
   --tmt-foundation-scrim: #00000052;
   --tmt-foundation-shadow-overlay: 0 18px 60px #02080e50;
   color-scheme: dark;
@@ -202,6 +211,20 @@
     --tmt-foundation-tw-translate-z: 0;
     --tmt-foundation-tw-border-style: solid;
     --tmt-foundation-tw-font-weight: initial;
+    --tmt-foundation-tw-shadow: 0 0 #0000;
+    --tmt-foundation-tw-shadow-color: initial;
+    --tmt-foundation-tw-shadow-alpha: 100%;
+    --tmt-foundation-tw-inset-shadow: 0 0 #0000;
+    --tmt-foundation-tw-inset-shadow-color: initial;
+    --tmt-foundation-tw-inset-shadow-alpha: 100%;
+    --tmt-foundation-tw-ring-color: initial;
+    --tmt-foundation-tw-ring-shadow: 0 0 #0000;
+    --tmt-foundation-tw-inset-ring-color: initial;
+    --tmt-foundation-tw-inset-ring-shadow: 0 0 #0000;
+    --tmt-foundation-tw-ring-inset: initial;
+    --tmt-foundation-tw-ring-offset-width: 0px;
+    --tmt-foundation-tw-ring-offset-color: #fff;
+    --tmt-foundation-tw-ring-offset-shadow: 0 0 #0000;
     --tmt-foundation-tw-content: '';
     --tmt-foundation-tw-outline-style: solid;
   }
@@ -310,9 +333,6 @@
   }
   .tmt\:block {
     display: block;
-  }
-  .tmt\:contents {
-    display: contents;
   }
   .tmt\:flex {
     display: flex;
@@ -440,6 +460,9 @@
   .tmt\:shrink-0 {
     flex-shrink: 0;
   }
+  .tmt\:origin-\(--radix-popper-transform-origin\) {
+    transform-origin: var(--radix-popper-transform-origin);
+  }
   .tmt\:-translate-x-1\/2 {
     --tmt-foundation-tw-translate-x: calc(calc(1 / 2 * 100%) * -1);
     translate: var(--tmt-foundation-tw-translate-x) var(--tmt-foundation-tw-translate-y);
@@ -530,6 +553,15 @@
   }
   .tmt\:\[border-radius\:var\(--tmt-foundation-radius\)\] {
     border-radius: var(--tmt-foundation-radius);
+  }
+  .tmt\:rounded-control {
+    border-radius: var(--tmt-foundation-radius);
+  }
+  .tmt\:rounded-small {
+    border-radius: var(--tmt-foundation-radius-s);
+  }
+  .tmt\:rounded-surface {
+    border-radius: var(--tmt-foundation-radius-l);
   }
   .tmt\:border-\(length\:--tmt-foundation-rule-width\) {
     border-style: var(--tmt-foundation-tw-border-style);
@@ -713,6 +745,13 @@
   .tmt\:underline-offset-4 {
     text-underline-offset: 4px;
   }
+  .tmt\:shadow-overlay {
+    --tmt-foundation-tw-shadow: var(--tmt-foundation-shadow-overlay);
+    box-shadow:
+      var(--tmt-foundation-tw-inset-shadow), var(--tmt-foundation-tw-inset-ring-shadow),
+      var(--tmt-foundation-tw-ring-offset-shadow), var(--tmt-foundation-tw-ring-shadow),
+      var(--tmt-foundation-tw-shadow);
+  }
   .tmt\:outline-ring {
     outline-color: var(--tmt-foundation-ring);
   }
@@ -854,8 +893,8 @@
     .tmt\:hover\:bg-accent:hover {
       background-color: var(--tmt-foundation-accent);
     }
-    .tmt\:hover\:bg-destructive:hover {
-      background-color: var(--tmt-foundation-destructive);
+    .tmt\:hover\:bg-destructive-soft:hover {
+      background-color: var(--tmt-foundation-destructive-soft);
     }
     .tmt\:hover\:bg-primary:hover {
       background-color: var(--tmt-foundation-primary);
@@ -886,6 +925,12 @@
   .tmt\:focus\:outline-solid:focus {
     --tmt-foundation-tw-outline-style: solid;
     outline-style: solid;
+  }
+  .tmt\:focus-visible\:border-destructive-ring:focus-visible {
+    border-color: var(--tmt-foundation-destructive-ring);
+  }
+  .tmt\:focus-visible\:border-foreground:focus-visible {
+    border-color: var(--tmt-foundation-foreground);
   }
   .tmt\:focus-visible\:border-ring:focus-visible {
     border-color: var(--tmt-foundation-ring);
@@ -1010,6 +1055,65 @@
   }
   .tmt\:data-\[state\=checked\]\:bg-primary[data-state='checked'] {
     background-color: var(--tmt-foundation-primary);
+  }
+  .tmt\:data-\[state\=closed\]\:pointer-events-none\![data-state='closed'] {
+    pointer-events: none !important;
+  }
+  .tmt\:data-\[state\=closed\]\:animate-fade-out[data-state='closed'] {
+    animation: tmt-foundation-fade-out var(--tmt-foundation-motion-base)
+      var(--tmt-foundation-motion-ease-in) both;
+  }
+  .tmt\:data-\[state\=closed\]\:animate-pop-fast-out[data-state='closed'] {
+    animation: tmt-foundation-pop-out var(--tmt-foundation-motion-fast)
+      var(--tmt-foundation-motion-ease-in) both;
+  }
+  .tmt\:data-\[state\=closed\]\:animate-pop-out[data-state='closed'] {
+    animation: tmt-foundation-pop-out var(--tmt-foundation-motion-base)
+      var(--tmt-foundation-motion-ease-in) both;
+  }
+  .tmt\:data-\[state\=closed\]\:animate-slide-out-bottom[data-state='closed'] {
+    animation: tmt-foundation-slide-out-bottom var(--tmt-foundation-motion-base)
+      var(--tmt-foundation-motion-ease-in) both;
+  }
+  .tmt\:data-\[state\=closed\]\:animate-slide-out-left[data-state='closed'] {
+    animation: tmt-foundation-slide-out-left var(--tmt-foundation-motion-base)
+      var(--tmt-foundation-motion-ease-in) both;
+  }
+  .tmt\:data-\[state\=closed\]\:animate-slide-out-right[data-state='closed'] {
+    animation: tmt-foundation-slide-out-right var(--tmt-foundation-motion-base)
+      var(--tmt-foundation-motion-ease-in) both;
+  }
+  .tmt\:data-\[state\=closed\]\:animate-slide-out-top[data-state='closed'] {
+    animation: tmt-foundation-slide-out-top var(--tmt-foundation-motion-base)
+      var(--tmt-foundation-motion-ease-in) both;
+  }
+  .tmt\:data-\[state\=open\]\:animate-fade-in[data-state='open'] {
+    animation: tmt-foundation-fade-in var(--tmt-foundation-motion-base)
+      var(--tmt-foundation-motion-ease-out) both;
+  }
+  .tmt\:data-\[state\=open\]\:animate-pop-fast-in[data-state='open'] {
+    animation: tmt-foundation-pop-in var(--tmt-foundation-motion-fast)
+      var(--tmt-foundation-motion-ease-out) both;
+  }
+  .tmt\:data-\[state\=open\]\:animate-pop-in[data-state='open'] {
+    animation: tmt-foundation-pop-in var(--tmt-foundation-motion-base)
+      var(--tmt-foundation-motion-ease-out) both;
+  }
+  .tmt\:data-\[state\=open\]\:animate-slide-in-bottom[data-state='open'] {
+    animation: tmt-foundation-slide-in-bottom var(--tmt-foundation-motion-base)
+      var(--tmt-foundation-motion-ease-out) both;
+  }
+  .tmt\:data-\[state\=open\]\:animate-slide-in-left[data-state='open'] {
+    animation: tmt-foundation-slide-in-left var(--tmt-foundation-motion-base)
+      var(--tmt-foundation-motion-ease-out) both;
+  }
+  .tmt\:data-\[state\=open\]\:animate-slide-in-right[data-state='open'] {
+    animation: tmt-foundation-slide-in-right var(--tmt-foundation-motion-base)
+      var(--tmt-foundation-motion-ease-out) both;
+  }
+  .tmt\:data-\[state\=open\]\:animate-slide-in-top[data-state='open'] {
+    animation: tmt-foundation-slide-in-top var(--tmt-foundation-motion-base)
+      var(--tmt-foundation-motion-ease-out) both;
   }
   .tmt\:data-\[state\=open\]\:bg-accent[data-state='open'] {
     background-color: var(--tmt-foundation-accent);

@@ -25,8 +25,6 @@
   --tmt-ui-host-field-label-weight: 400;
   --tmt-ui-host-field-label-line-height: 1.5;
   --tmt-ui-host-field-label-font: var(--tmt-ui-font-body);
-  --tmt-ui-notice-padding: 12px 0;
-  --tmt-ui-notice-border-width: 0px;
   --tmt-ui-notice-heading-line-height: 1.25;
 }
 * {
@@ -92,7 +90,10 @@ body:not(:has(.tmt-ui-shell)) {
 }
 [data-tmt-page='pair'] .tmt-ui-notice,
 .settings-page .tmt-ui-notice {
-  /* A ruled band flush with the page column, not a card: its text has no inset from the sheet. */
+  /* A band flush with the page column, not a card: no fill and no border, so its text has no
+     inset to keep. Every other notice is the shared card, on the shared card padding. */
+  --tmt-ui-notice-padding: 12px 0;
+  --tmt-ui-notice-border-width: 0px;
   background: transparent;
 }
 #comparison {

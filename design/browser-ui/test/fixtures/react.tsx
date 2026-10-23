@@ -307,7 +307,7 @@ async function run() {
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
   );
   check(parentEscapes === 3, 'Tooltip listener survived component removal');
-  for (const variant of ['text', 'primary', 'destructive'] as const) {
+  for (const variant of ['text', 'primary', 'secondary', 'destructive'] as const) {
     for (const busyMark of [
       undefined,
       '◌',
@@ -410,7 +410,7 @@ async function run() {
   check(markShown(), 'Busy mark dropped before its 400 ms minimum');
   await wait(500);
   check(!markShown(), 'Busy mark stayed after its minimum');
-  for (const variant of ['primary', 'text', 'destructive'] as const) {
+  for (const variant of ['primary', 'secondary', 'text', 'destructive'] as const) {
     const iconAction = (busy: boolean) => (
       <BrowserIconAction
         type="button"

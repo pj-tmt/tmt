@@ -1,0 +1,67 @@
+/* A count chip: a label, a count box and, for a menu trigger, a chevron. `attention` is for work
+   that waits on the reader. It follows menu.css so the menu trigger's own look yields to it. */
+.tmt-ui-count-chip {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  min-height: 28px;
+  padding: 0 var(--tmt-ui-space-s) 0 10px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-command);
+  color: var(--tmt-ui-color-text);
+  font: 500 var(--tmt-ui-header-action-size) / 1 var(--tmt-ui-font-body);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out),
+    border-color var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out),
+    scale var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out);
+}
+.tmt-ui-count-chip:active:not(:disabled) {
+  scale: var(--tmt-ui-motion-scale);
+}
+.tmt-ui-count-chip:hover:not(:disabled) {
+  background: var(--tmt-ui-surface-hover);
+}
+.tmt-ui-count-chip:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
+}
+.tmt-ui-count-chip:disabled {
+  color: var(--tmt-ui-color-disabled-text);
+  cursor: default;
+}
+.tmt-ui-count-chip[aria-expanded='true'] {
+  border-color: var(--tmt-ui-color-edge);
+}
+.tmt-ui-count-chip .tmt-ui-icon {
+  flex: none;
+}
+.tmt-ui-count-chip[data-tone='attention'] {
+  border-color: color-mix(in srgb, var(--tmt-ui-color-waiting) 45%, var(--tmt-ui-surface-rule));
+  background: var(--tmt-ui-surface-waiting-soft);
+  color: var(--tmt-ui-color-waiting);
+}
+.tmt-ui-count-chip[data-tone='attention']:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--tmt-ui-color-waiting) 16%, var(--tmt-ui-surface-sheet));
+}
+.tmt-ui-count-chip[data-tone='attention']:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+}
+/* The count: a small box in the chip, the rail and the collapsed rail's corner. */
+.tmt-ui-count {
+  box-sizing: border-box;
+  display: inline-block;
+  min-width: 20px;
+  padding: 3px 5px;
+  border-radius: var(--tmt-ui-radius-s);
+  background: var(--tmt-ui-surface-hover);
+  color: inherit;
+  font: 500 var(--tmt-ui-caption-size) / 1 var(--tmt-ui-font-mono);
+  text-align: center;
+}
+.tmt-ui-count-chip[data-tone='attention'] .tmt-ui-count {
+  background: color-mix(in srgb, var(--tmt-ui-color-waiting) 18%, transparent);
+}

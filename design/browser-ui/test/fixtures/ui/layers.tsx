@@ -141,6 +141,16 @@ function LayerGallery() {
         </select>
       </label>
       {states}
+      <div style={{ minHeight: 36 }}>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button style={{ position: 'absolute', left: 0, width: 32 }}>Edge menu trigger</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem>Edge menu item with a label wider than its trigger</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       <Button onClick={() => setOutsideActions((n) => n + 1)}>Underlying host action</Button>
       <Button
         onClick={() => {

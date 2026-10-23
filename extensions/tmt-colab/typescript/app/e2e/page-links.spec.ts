@@ -271,7 +271,7 @@ for (const scheme of [
     await expect(bar(page)).not.toContainText(scheme);
     await expect(bar(page).getByRole('button', { name: 'Close', exact: true })).toHaveAttribute(
       'data-variant',
-      'primary',
+      'secondary',
     );
     expect(context.pages()).toHaveLength(1);
     await expect(page.locator('#page-link-fixture .status')).toContainText('Live');
