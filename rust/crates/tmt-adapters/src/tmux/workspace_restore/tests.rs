@@ -279,6 +279,8 @@ fn successful_link_is_required_before_bootstrap_removal_and_failed_link_retains_
     tmux.runner
         .scripted
         .push_output(created_output(2, 4, 5, 1).into_bytes(), vec![]);
+    // The session is marked unfinished before anything is linked into it.
+    tmux.runner.scripted.push_output(Vec::new(), vec![]);
     tmux.runner
         .scripted
         .results
@@ -308,8 +310,18 @@ fn successful_link_is_required_before_bootstrap_removal_and_failed_link_retains_
     assert_eq!(record.native.as_deref(), Some("$2"));
     assert_eq!(record.retained_bootstrap.as_deref(), Some("%5"));
     let calls = tmux.runner.scripted.calls.borrow();
-    assert_eq!(calls.len(), 2);
-    let branch = &calls[1].args[calls[1].args.len() - 2];
+    assert_eq!(calls.len(), 3);
+    assert_eq!(
+        &calls[1].args[calls[1].args.len() - 2],
+        &command(&[
+            "set-option".into(),
+            "-t".into(),
+            "$2".into(),
+            "@tmt.restored".into(),
+            "unfinished".into()
+        ])
+    );
+    let branch = &calls[2].args[calls[2].args.len() - 2];
     assert_eq!(
         branch,
         &command(&[

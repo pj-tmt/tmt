@@ -82,6 +82,8 @@ struct Live {
 
 /// The session option a restore sets on a session it made, so a repeat recognises it.
 const RESTORED_OPTION: &str = "@tmt.restored";
+/// Its value on a session that is not yet whole; no snapshot's marker equals it.
+const UNFINISHED: &str = "unfinished";
 
 fn live_format() -> String {
     [
@@ -452,7 +454,7 @@ impl<R: CommandRunner> Restore<'_, R> {
         record: &mut RestoredSession,
     ) -> Result<(), TmuxError> {
         let first = &plan.windows[seed.unwrap_or(links[0].window)];
-        let cwd = format_literal(self.cwd_of(&first.panes[0]));
+        let cwd = format_literal(self.cwd_of(first.panes[0]));
         let mut args = vec![
             "new-session".into(),
             "-d".into(),
@@ -491,6 +493,9 @@ impl<R: CommandRunner> Restore<'_, R> {
         if seed.is_none() {
             record.retained_bootstrap = Some(created.pane.clone());
         }
+        // Until the session is whole, a repeat must neither skip it as finished nor take its
+        // bootstrap shell for the server's fresh default session.
+        self.mark_restored(&created.pane, &created.session, UNFINISHED)?;
         if starting {
             // A new server gets a fresh UUID; historical snapshot identity is never used.
             // Refuse initialization if another session appeared in the meantime.
@@ -551,7 +556,7 @@ impl<R: CommandRunner> Restore<'_, R> {
                     "-n".into(),
                     format_literal(&saved_window.window.name),
                     "-c".into(),
-                    format_literal(self.cwd_of(&saved_window.panes[0])),
+                    format_literal(self.cwd_of(saved_window.panes[0])),
                 ];
                 if self.revival_panes.contains(&saved_window.panes[0].id) {
                     args.extend(BOOTSTRAP_COMMAND.map(str::to_owned));
@@ -627,7 +632,7 @@ impl<R: CommandRunner> Restore<'_, R> {
                     "-n".into(),
                     format_literal(&saved_window.window.name),
                     "-c".into(),
-                    format_literal(self.cwd_of(&saved_window.panes[0])),
+                    format_literal(self.cwd_of(saved_window.panes[0])),
                 ];
                 if self.revival_panes.contains(&saved_window.panes[0].id) {
                     args.extend(BOOTSTRAP_COMMAND.map(str::to_owned));
@@ -786,7 +791,7 @@ impl<R: CommandRunner> Restore<'_, R> {
             native: created.window.clone(),
         });
         self.remember_pane(&saved.panes[0].id, created);
-        self.verify_cwd(&created.pane, self.cwd_of(&saved.panes[0]))?;
+        self.verify_cwd(&created.pane, self.cwd_of(saved.panes[0]))?;
         self.guard(
             Some(&created.pane),
             &[],
