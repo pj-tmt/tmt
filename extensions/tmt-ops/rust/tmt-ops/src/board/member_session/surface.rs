@@ -121,7 +121,7 @@ impl Controller {
             }),
         }
         if let Some(command) = self.recovery_command() {
-            lines.push(format!("Command: {}", command.line()));
+            lines.push(format!("Command: {command}"));
         }
         lines
     }

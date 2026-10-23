@@ -59,6 +59,7 @@ fn load(app: &mut App) -> Task {
         task: task.clone(),
         result: Ok(Observed {
             executable: PathBuf::from("/opt/tmt bin/tmt"),
+            launcher: "/opt/tmt bin/tmt".into(),
             preset: None,
         }),
     });
@@ -142,7 +143,7 @@ fn unbound_copy_uses_the_exact_uuid_command_and_never_opens_a_handoff() {
         let text = paint(&app, 160, 36);
         assert!(text.contains("Copy command"), "{text}");
         assert!(text.contains("Run it in the agent's pane"), "{text}");
-        let preview = format!("Command: '/opt/tmt bin/tmt' 'resume' '--' '{MEMBER}'");
+        let preview = format!("Command: '/opt/tmt bin/tmt' resume -- {MEMBER}");
         assert!(text.contains(&preview), "{text}");
         assert!(text.find(&preview) < text.find("Run it in the agent's pane"));
         assert!(
@@ -152,7 +153,7 @@ fn unbound_copy_uses_the_exact_uuid_command_and_never_opens_a_handoff() {
         let Effect::Act(Request::Copy { text, .. }) = key(&mut app, KeyCode::Enter) else {
             panic!("unbound session offers copy, never foreground handoff");
         };
-        assert_eq!(text, format!("'/opt/tmt bin/tmt' 'resume' '--' '{MEMBER}'"));
+        assert_eq!(text, format!("'/opt/tmt bin/tmt' resume -- {MEMBER}"));
         assert!(app.foreground.is_none());
         assert!(app.member_session.as_ref().unwrap().confirmation.is_none());
         key(&mut app, KeyCode::Esc);
@@ -353,7 +354,7 @@ fn copy_and_cancel_keep_the_board_and_never_launch() {
     let Effect::Act(Request::Copy { text, .. }) = key(&mut app, KeyCode::Char('c')) else {
         panic!("copy only");
     };
-    assert_eq!(text, format!("'/opt/tmt bin/tmt' 'resume' '--' '{MEMBER}'"));
+    assert_eq!(text, format!("'/opt/tmt bin/tmt' resume -- {MEMBER}"));
     assert!(app.foreground.is_none());
     assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
     assert!(app.member_session.as_ref().unwrap().confirmation.is_none());
@@ -479,6 +480,7 @@ fn reopen_selection_or_memory_change_fences_old_reads_and_confirmations() {
         task: old,
         result: Ok(Observed {
             executable: "/wrong".into(),
+            launcher: "/wrong".into(),
             preset: None,
         }),
     });
@@ -487,6 +489,7 @@ fn reopen_selection_or_memory_change_fences_old_reads_and_confirmations() {
         task: new,
         result: Ok(Observed {
             executable: "/tmt".into(),
+            launcher: "/tmt".into(),
             preset: None,
         }),
     });
@@ -792,10 +795,15 @@ fn a_review_starts_on_cancel_and_tiny_frames_never_enable_the_handoff() {
 }
 #[test]
 fn copied_shell_metacharacters_remain_one_literal_word_per_argument() {
-    let command = Foreground::new(PathBuf::from("/opt/tmt's bin/$()tmt"), MEMBER, true);
+    let command = Foreground::new(
+        PathBuf::from("/opt/tmt's bin/$()tmt"),
+        "/opt/tmt's bin/$()tmt",
+        MEMBER,
+        true,
+    );
     assert_eq!(
         command.line(),
-        format!("'/opt/tmt'\\''s bin/$()tmt' 'resume' '--move' '--' '{MEMBER}'")
+        format!("'/opt/tmt'\\''s bin/$()tmt' resume --move -- {MEMBER}")
     );
     assert_eq!(command.args, ["resume", "--move", "--", MEMBER]);
 }

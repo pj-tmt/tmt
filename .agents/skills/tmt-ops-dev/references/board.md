@@ -96,7 +96,7 @@ Only the unbound dialog uses intrinsic height; the surface retains its position 
 Existing memory/read guards still apply. Host / Session drops whole before other Agents tracks.
 Resume/Move review freezes the UUID and observed session. A changed selection or
 observation invalidates it; confirmation requires fully painted review text and choices.
-Copy uses the exact shell-quoted foreground argv without leaving the board. A confirmed
+The shared `board/command_line.rs` helper quotes only shell-sensitive words for display and copy. Session resolves a matching first `tmt` on PATH on its read worker; otherwise it retains the selected executable path. Copy uses that exact displayed foreground argv without leaving the board. A confirmed
 handoff refuses named drafts or pending effects; the board restores its terminal and
 stops workers before execing the public CLI with inherited stdio in this pane. Core
 alone revalidates and owns launch/move/refusal; no detached Run or new pane is used.

@@ -28,6 +28,7 @@ pub(in crate::board) struct Completed {
 }
 struct Observed {
     executable: PathBuf,
+    launcher: String,
     preset: Option<String>,
 }
 pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
@@ -62,6 +63,10 @@ pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
         let preset = value["launch"]["executable"].as_str().map(str::to_owned);
         Ok(Observed {
             executable: core.executable().to_owned(),
+            launcher: super::command_line::executable_word(
+                core.executable(),
+                std::env::var_os("PATH").as_deref(),
+            ),
             preset,
         })
     })();
@@ -72,25 +77,29 @@ pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::board) struct Foreground {
     executable: PathBuf,
+    launcher: String,
     args: Vec<String>,
 }
 impl Foreground {
-    fn new(executable: PathBuf, id: &str, move_here: bool) -> Self {
+    fn new(executable: PathBuf, launcher: &str, id: &str, move_here: bool) -> Self {
         let mut args = vec!["resume".into()];
         if move_here {
             args.push("--move".into());
         }
         args.extend(["--".into(), id.into()]);
-        Self { executable, args }
+        Self {
+            executable,
+            launcher: launcher.into(),
+            args,
+        }
     }
     fn line(&self) -> String {
-        // Always single-quote every word, including shell metacharacters. This
-        // is display/copy only: execution never invokes or parses a shell.
-        std::iter::once(self.executable.as_os_str().to_string_lossy().into_owned())
-            .chain(self.args.iter().cloned())
-            .map(|word| format!("'{}'", word.replace('\'', "'\\''")))
-            .collect::<Vec<_>>()
-            .join(" ")
+        // Display and copy share literal argv formatting; execution never parses it.
+        super::command_line::command_line(
+            &std::iter::once(self.launcher.as_str())
+                .chain(self.args.iter().map(String::as_str))
+                .collect::<Vec<_>>(),
+        )
     }
     pub fn exec(self) -> std::io::Error {
         use std::os::unix::process::CommandExt;
@@ -109,7 +118,7 @@ pub(in crate::board) struct Controller {
     ui: RefCell<picker_surface::State>,
 }
 impl Controller {
-    fn recovery_command(&self) -> Option<Foreground> {
+    fn recovery_command(&self) -> Option<String> {
         if !self.task.evidence.is_unbound() || !self.task.evidence.remembered() {
             return None;
         }
@@ -120,11 +129,15 @@ impl Controller {
             unreachable!()
         };
         // TODO(#4663): Reuse the UUID handoff after Core supports UUID launch.
-        Some(Foreground::new(
-            observed.executable.clone(),
-            identity_id,
-            false,
-        ))
+        Some(
+            Foreground::new(
+                observed.executable.clone(),
+                &observed.launcher,
+                identity_id,
+                false,
+            )
+            .line(),
+        )
     }
     pub fn invalidate(&self) {
         self.readable.set(false);
@@ -233,7 +246,7 @@ impl App {
             Some("copy") => {
                 if let Some(command) = self.member_session.as_ref()?.recovery_command() {
                     return Some(Effect::Act(Request::Copy {
-                        text: command.line(),
+                        text: command,
                         program: self.view.as_ref().and_then(|view| view.clipboard.clone()),
                         feedback: CopyFeedback::Destination,
                     }));
@@ -250,6 +263,7 @@ impl App {
                     };
                     c.confirmation = Some(Foreground::new(
                         observed.executable.clone(),
+                        &observed.launcher,
                         identity_id,
                         choice.as_deref() == Some("move"),
                     ));
