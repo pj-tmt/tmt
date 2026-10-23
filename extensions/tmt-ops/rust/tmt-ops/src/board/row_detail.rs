@@ -140,6 +140,8 @@ pub(super) enum Capture {
         truncated: bool,
         provider: String,
         ended_ms: u64,
+        bound_ms: Option<u64>,
+        settled_ms: Option<u64>,
     },
     NoAnswer,
 }
@@ -160,6 +162,8 @@ impl Capture {
                 truncated: capture["answer"]["truncated"].as_bool()?,
                 provider: capture["answer"]["provider"].as_str()?.to_owned(),
                 ended_ms: capture["answer"]["endedMs"].as_u64()?,
+                bound_ms: capture["boundAtMs"].as_u64(),
+                settled_ms: capture["settledAtMs"].as_u64(),
             }),
             "no_answer" => Some(Self::NoAnswer),
             _ => None,
