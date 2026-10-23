@@ -265,6 +265,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return init_command::execute(parsed.mode);
         }
         Invocation::Run {
+            host,
             name,
             command,
             resume,
@@ -272,7 +273,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             channel,
         } => {
             let resume = resume.then(run_command::Resume::default);
-            return run_command::execute(&name, &command, resume, save, channel);
+            return run_command::execute(&name, &command, resume, save, channel, host.as_deref());
         }
         Invocation::ChannelServer {
             harness,
@@ -295,6 +296,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return channel_command::execute(request, parsed.mode);
         }
         Invocation::Resume {
+            host,
             name,
             driver,
             move_running,
@@ -306,19 +308,20 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             retry,
             channel,
         } => {
-            return resume_command::execute(
-                name.as_deref(),
+            return resume_command::execute(resume_command::Request {
+                host: host.as_deref(),
+                name: name.as_deref(),
                 show,
                 forget_launch,
                 forget,
-                run_command::Resume {
+                resume: run_command::Resume {
                     driver: driver.as_deref(),
                     retry,
                     move_running,
                 },
-                tmt_adapters::runtime::launch_preset::LaunchSettings { model, effort },
+                options: tmt_adapters::runtime::launch_preset::LaunchSettings { model, effort },
                 channel,
-            );
+            });
         }
         Invocation::Learn { skill } => {
             return guidance_command::execute(skill.as_deref());

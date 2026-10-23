@@ -21,6 +21,7 @@ fn run_identity_starts_an_opaque_command_tail() {
         Parsed {
             legacy_hook: false,
             invocation: Invocation::Run {
+                host: None,
                 name: "Alice".into(),
                 command,
                 resume: false,
@@ -38,6 +39,7 @@ fn run_identity_starts_an_opaque_command_tail() {
     assert_eq!(
         parsed(&["run", "opus", "claude", "--resume", "x", "--help"]).invocation,
         Invocation::Run {
+            host: None,
             name: "opus".into(),
             command: ["claude", "--resume", "x", "--help"]
                 .map(OsString::from)
@@ -50,6 +52,7 @@ fn run_identity_starts_an_opaque_command_tail() {
     assert_eq!(
         parsed(&["run", "--resume", "Alice"]).invocation,
         Invocation::Run {
+            host: None,
             name: "Alice".into(),
             command: vec![],
             resume: true,
@@ -71,6 +74,7 @@ fn run_save_belongs_only_before_the_identity() {
         assert_eq!(
             parsed(&["run", option, "Alice", "claude", "-s"]).invocation,
             Invocation::Run {
+                host: None,
                 name: "Alice".into(),
                 command: vec!["claude".into(), "-s".into()],
                 resume: false,
@@ -81,6 +85,7 @@ fn run_save_belongs_only_before_the_identity() {
         assert_eq!(
             parsed(&["run", option, "--resume", "Alice"]).invocation,
             Invocation::Run {
+                host: None,
                 name: "Alice".into(),
                 command: vec![],
                 resume: true,
@@ -96,6 +101,7 @@ fn run_channel_is_an_option_before_the_identity_and_combines_with_exact_resume()
     assert_eq!(
         parsed(&["run", "--channel", "Alice", "claude", "--channel"]).invocation,
         Invocation::Run {
+            host: None,
             name: "Alice".into(),
             command: vec!["claude".into(), "--channel".into()],
             resume: false,
@@ -128,6 +134,7 @@ fn a_known_agent_tail_preserves_provider_flags_without_a_name() {
     assert_eq!(
         parsed(&["run", "--save", "claude", "--model", "opus", "--help"]).invocation,
         Invocation::Run {
+            host: None,
             name: "claude".into(),
             command: ["--model", "opus", "--help"].map(OsString::from).to_vec(),
             resume: false,
@@ -153,6 +160,7 @@ fn both_foreground_commands_choose_one_channel_mode_and_reject_conflicts() {
             words.push("Alice");
             match parsed(&words).invocation {
                 Invocation::Run {
+                    host: None,
                     channel,
                     resume: true,
                     ..
@@ -284,4 +292,23 @@ fn resume_driver_implies_the_stop_move_path_and_rejects_inspection() {
         assert!(parse(&args(&["resume", "worker", "--driver", "codex", flag])).is_err());
     }
     assert!(parse(&args(&["resume", "--driver", "claude"])).is_err());
+}
+
+#[test]
+fn launch_host_choices_are_typed_and_keep_provider_arguments_opaque() {
+    for host in tmt_core::host::LAUNCH_HOSTS {
+        assert!(
+            matches!(parse(&args(&["run","--host",host,"worker","fake"])).unwrap().invocation,
+            Invocation::Run {host:Some(selected),..} if selected==host)
+        );
+        assert!(
+            matches!(parse(&args(&["resume","--host",host,"worker"])).unwrap().invocation,
+            Invocation::Resume {host:Some(selected),..} if selected==host)
+        );
+    }
+    assert!(parse(&args(&["run", "--host", "unknown-host", "worker", "fake"])).is_err());
+    let parsed = parse(&args(&["run", "worker", "fake", "--host", "provider-host"])).unwrap();
+    assert!(
+        matches!(parsed.invocation,Invocation::Run {host:None,command,..} if command==args(&["fake","--host","provider-host"]))
+    );
 }

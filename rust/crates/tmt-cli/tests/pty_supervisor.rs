@@ -225,12 +225,14 @@ fn a_start_that_cannot_proceed_fails_without_a_readiness_line_or_leftovers() {
     };
 
     // A terminal size outside the protocol's range.
-    let output = fixture
-        .serve("pty_d", "0", "24", &["sh"])
-        .wait_with_output()
-        .unwrap();
-    assert!(String::from_utf8_lossy(&output.stderr).contains("1 to 10000"));
-    assert_eq!(code(output), Some(2));
+    for cols in ["0", "1001"] {
+        let output = fixture
+            .serve("pty_d", cols, "24", &["sh"])
+            .wait_with_output()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&output.stderr).contains("1 to 1000"));
+        assert_eq!(code(output), Some(2));
+    }
 
     // A program that does not exist.
     let output = fixture

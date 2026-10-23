@@ -89,6 +89,7 @@ fn launch(directory: &Path, id: &str, program: &[&str]) -> Launch {
         id: id.to_owned(),
         size: size(80, 24),
         program: program.iter().map(OsString::from).collect(),
+        environment: Vec::new(),
     }
 }
 
@@ -445,4 +446,230 @@ fn a_start_that_cannot_proceed_leaves_nothing_behind() {
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{id:?}");
     }
     assert_eq!(fs::read_dir(&private).unwrap().count(), 0);
+}
+
+#[test]
+fn host_controls_pin_the_pane_marker_and_keep_only_the_visible_screen() {
+    use tmt_pty_protocol::{Control, ControlReply};
+    let member = Member::start(&[
+        "sh",
+        "-c",
+        r"printf '\033[2J\033[Hscreen-ready'; read line; printf '\033[2J\033[Hfresh-screen'; read line",
+    ]);
+    let mut client = member.connect();
+    let deadline = Instant::now() + WAIT;
+    loop {
+        if let ControlReply::Screen(screen) = client.control(Control::Capture, WAIT).unwrap()
+            && screen.contains("screen-ready")
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "program never painted its screen"
+        );
+        std::thread::yield_now();
+    }
+    assert_eq!(
+        client
+            .control(
+                Control::Publish {
+                    pane_pid: member.pid + 1,
+                    key: "first".into(),
+                    marker: "bad".into()
+                },
+                WAIT
+            )
+            .unwrap(),
+        ControlReply::Applied(false)
+    );
+    assert_eq!(
+        client
+            .control(
+                Control::Publish {
+                    pane_pid: member.pid,
+                    key: "first".into(),
+                    marker: "correct".into()
+                },
+                WAIT
+            )
+            .unwrap(),
+        ControlReply::Applied(true)
+    );
+    assert_eq!(
+        client
+            .control(
+                Control::Clear {
+                    key: "other".into()
+                },
+                WAIT
+            )
+            .unwrap(),
+        ControlReply::Applied(false)
+    );
+    let ControlReply::State {
+        pane_pid,
+        marker,
+        key_idle_ms,
+        ..
+    } = client.control(Control::Inspect, WAIT).unwrap()
+    else {
+        panic!("missing state")
+    };
+    assert_eq!(pane_pid, member.pid);
+    assert_eq!(marker.as_deref(), Some("correct"));
+    assert_eq!(key_idle_ms, None);
+    client.control(Control::Enter, WAIT).unwrap();
+    loop {
+        if let ControlReply::Screen(screen) = client.control(Control::Capture, WAIT).unwrap()
+            && screen.contains("fresh-screen")
+        {
+            assert!(!screen.contains("screen-ready"));
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    assert_eq!(client.size(), size(80, 24));
+    client
+        .control(
+            Control::Clear {
+                key: "first".into(),
+            },
+            WAIT,
+        )
+        .unwrap();
+    client.input(b"\r").unwrap();
+    drop(client);
+    member.finish().unwrap();
+}
+
+#[test]
+fn delivery_wraps_paste_only_in_the_program_mode_and_never_counts_as_typing() {
+    use tmt_pty_protocol::{Control, ControlReply};
+    for (mode, expected) in [
+        ("", "61 62"),
+        (r"\033[?2004h", "1b 5b 32 30 30 7e 61 62 1b 5b 32 30 31 7e"),
+    ] {
+        let script = format!(
+            "stty -echo; printf '{mode}ready'; IFS= read -r line; printf '%s' \"$line\" | od -An -tx1; IFS= read -r line"
+        );
+        let member = Member::start(&["sh", "-c", &script]);
+        let mut client = member.connect();
+        let deadline = Instant::now() + WAIT;
+        loop {
+            if let ControlReply::Screen(text) = client.control(Control::Capture, WAIT).unwrap()
+                && text.contains("ready")
+            {
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            client
+                .control(Control::Paste(b"ab".to_vec()), WAIT)
+                .unwrap(),
+            ControlReply::Applied(true)
+        );
+        client.control(Control::Enter, WAIT).unwrap();
+        loop {
+            let ControlReply::Screen(text) = client.control(Control::Capture, WAIT).unwrap() else {
+                panic!("capture refused")
+            };
+            if text
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .contains(expected)
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "expected {expected}; screen={text:?}"
+            );
+            std::thread::yield_now();
+        }
+        assert!(matches!(
+            client.control(Control::Inspect, WAIT).unwrap(),
+            ControlReply::State {
+                key_idle_ms: None,
+                ..
+            }
+        ));
+        client.input(b"key").unwrap();
+        assert!(matches!(
+            client.control(Control::Inspect, WAIT).unwrap(),
+            ControlReply::State {
+                key_idle_ms: Some(_),
+                ..
+            }
+        ));
+        client.input(b"\r").unwrap();
+        drop(client);
+        member.finish().unwrap();
+    }
+}
+
+#[test]
+fn launch_preparation_waits_for_a_listener_and_readiness_carries_the_committed_marker() {
+    use tmt_pty_protocol::{Control, ControlReply};
+    let member = Member::start(&["sh", "-c", "read line"]);
+    let mut wrapper = member.connect();
+    wrapper
+        .send(&ClientMessage::Control(Control::WaitLauncher))
+        .unwrap();
+    assert_eq!(wrapper.receive(Duration::from_millis(10)).unwrap(), None);
+    let mut launcher = member.connect();
+    launcher
+        .send(&ClientMessage::Control(Control::AwaitLaunch))
+        .unwrap();
+    assert_eq!(
+        wrapper.receive(WAIT).unwrap(),
+        Some(ServerMessage::Control(ControlReply::Applied(true)))
+    );
+    assert_eq!(
+        wrapper
+            .control(
+                Control::LaunchReady {
+                    pane_pid: member.pid + 1
+                },
+                WAIT
+            )
+            .unwrap(),
+        ControlReply::Applied(false)
+    );
+    assert_eq!(launcher.receive(Duration::from_millis(10)).unwrap(), None);
+    wrapper
+        .control(
+            Control::Publish {
+                pane_pid: member.pid,
+                key: "binding".into(),
+                marker: "committed-marker".into(),
+            },
+            WAIT,
+        )
+        .unwrap();
+    assert_eq!(
+        wrapper
+            .control(
+                Control::LaunchReady {
+                    pane_pid: member.pid
+                },
+                WAIT
+            )
+            .unwrap(),
+        ControlReply::Applied(true)
+    );
+    assert_eq!(
+        launcher.receive(WAIT).unwrap(),
+        Some(ServerMessage::Control(ControlReply::Launched(
+            "committed-marker".into()
+        )))
+    );
+    wrapper.input(b"\r").unwrap();
+    drop(wrapper);
+    drop(launcher);
+    member.finish().unwrap();
 }

@@ -5,6 +5,9 @@
 //! out-of-range value are errors, and a connection that sends one is closed.
 //! The crate has no dependencies and no effects.
 
+mod control;
+pub use control::{Control, ControlReply};
+
 use std::fmt;
 
 /// The only version this crate speaks; `Hello` and `Welcome` carry it.
@@ -16,7 +19,7 @@ pub const MAX_INPUT: usize = 16 * 1024;
 /// The largest chunk of program output one `Output` frame carries.
 pub const MAX_OUTPUT: usize = 16 * 1024;
 /// The largest window, in columns and in rows.
-pub const MAX_DIMENSION: u16 = 10_000;
+pub const MAX_DIMENSION: u16 = 1_000;
 const HEADER: usize = 5;
 
 /// A pseudo-terminal window size.
@@ -72,6 +75,8 @@ pub enum Refusal {
 /// A frame from a client to the supervisor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClientMessage {
+    /// Core-internal host operations, separate from the attach stream.
+    Control(Control),
     /// The first frame: the protocol version the client speaks.
     Hello { version: u16 },
     /// Keystrokes or pasted bytes for the program, at most [`MAX_INPUT`].
@@ -89,6 +94,8 @@ pub enum ClientMessage {
 /// A frame from the supervisor to a client.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServerMessage {
+    /// The reply to a Core-internal host operation.
+    Control(ControlReply),
     /// The reply to an accepted `Hello`: the version and the window size now in force.
     Welcome { version: u16, size: Size },
     /// Raw program output, at most [`MAX_OUTPUT`], passed through untouched.
@@ -192,6 +199,7 @@ fn empty(payload: &[u8]) -> Result<(), ProtocolError> {
 impl Frame for ClientMessage {
     fn kind(&self) -> u8 {
         match self {
+            Self::Control(value) => value.kind(),
             Self::Hello { .. } => HELLO,
             Self::Input(_) => INPUT,
             Self::Resize(_) => RESIZE,
@@ -202,6 +210,7 @@ impl Frame for ClientMessage {
 
     fn write_payload(&self, out: &mut Vec<u8>) {
         match self {
+            Self::Control(value) => value.write_payload(out),
             Self::Hello { version } => out.extend_from_slice(&version.to_be_bytes()),
             Self::Input(data) => out.extend_from_slice(data),
             Self::Resize(size) => put_size(out, *size),
@@ -211,6 +220,7 @@ impl Frame for ClientMessage {
 
     fn read(kind: u8, payload: &[u8]) -> Result<Self, ProtocolError> {
         match kind {
+            0x20..=0x2f => Control::read(kind, payload).map(Self::Control),
             HELLO => {
                 let [v0, v1] = payload else {
                     return Err(ProtocolError::Malformed("a hello is two bytes"));
@@ -231,6 +241,7 @@ impl Frame for ClientMessage {
 impl Frame for ServerMessage {
     fn kind(&self) -> u8 {
         match self {
+            Self::Control(value) => value.kind(),
             Self::Welcome { .. } => WELCOME,
             Self::Output(_) => OUTPUT,
             Self::Resized(_) => RESIZED,
@@ -242,6 +253,7 @@ impl Frame for ServerMessage {
 
     fn write_payload(&self, out: &mut Vec<u8>) {
         match self {
+            Self::Control(value) => value.write_payload(out),
             Self::Welcome { version, size } => {
                 out.extend_from_slice(&version.to_be_bytes());
                 put_size(out, *size);
@@ -271,6 +283,7 @@ impl Frame for ServerMessage {
 
     fn read(kind: u8, payload: &[u8]) -> Result<Self, ProtocolError> {
         match kind {
+            0xa0..=0xaf => ControlReply::read(kind, payload).map(Self::Control),
             WELCOME => {
                 let [v0, v1, rest @ ..] = payload else {
                     return Err(ProtocolError::Malformed("a welcome is six bytes"));
@@ -482,3 +495,6 @@ mod tests {
         assert!(decode(&[REFUSED, 0, 0, 0, 1, 4]).is_err());
     }
 }
+
+#[cfg(test)]
+mod control_tests;

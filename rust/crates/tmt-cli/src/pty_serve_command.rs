@@ -20,7 +20,7 @@ pub fn execute(
     let Ok(size) = Size::new(cols, rows) else {
         return Failure::new(
             "PTY_SIZE_INVALID",
-            "A terminal is 1 to 10000 columns and rows.",
+            "A terminal is 1 to 1000 columns and rows.",
             2,
         )
         .publish(OutputMode::default());
@@ -30,6 +30,7 @@ pub fn execute(
         id: id.to_owned(),
         size,
         program,
+        environment: tmt_adapters::host::Host::pty_environment(directory, id),
     };
     let served = serve_process(launch, |program_pid| {
         let mut stdout = tmt_cli_style::stream::stdout(true);

@@ -6,11 +6,13 @@
 //! `tmt-pty-protocol` defines the frames; `Connection` is the blocking client.
 
 mod client;
+mod launch;
 mod supervisor;
 #[cfg(test)]
 mod tests;
 
 pub use client::Connection;
+pub use launch::{LaunchError, StartedMember, start_member};
 pub use supervisor::{Launch, Supervisor};
 pub use tmt_pty_protocol as protocol;
 

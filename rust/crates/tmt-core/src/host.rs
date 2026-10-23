@@ -32,6 +32,9 @@ pub enum HostKind {
 /// At most this many external hosts are registered for a process.
 pub const MAX_EXTERNAL_HOSTS: usize = 16;
 
+/// Explicit managed-launch choices; selecting an unavailable host never falls back.
+pub const LAUNCH_HOSTS: [&str; 3] = ["tmux", "herdr", "pty"];
+
 /// The approved drivers' syntax, written once at start and only read after.
 /// Core stays free of other global state; this one is set before the first
 /// name is validated, so every reader sees the same hosts.
@@ -73,6 +76,12 @@ fn external_grammars() -> &'static [HostGrammar] {
 }
 
 fn external_grammar(name: HostName) -> Option<&'static HostGrammar> {
+    if HostKind::External(name) == HostKind::pty() {
+        static GRAMMAR: OnceLock<HostGrammar> = OnceLock::new();
+        return Some(GRAMMAR.get_or_init(|| {
+            HostGrammar::new("pty", "pty_", None).expect("built-in host grammar")
+        }));
+    }
     external_grammars()
         .iter()
         .find(|grammar| grammar.name() == name.as_str())
@@ -83,33 +92,43 @@ fn external_grammar(name: HostName) -> Option<&'static HostGrammar> {
 /// own.
 pub fn builtin_conflict(grammar: &HostGrammar) -> Option<String> {
     let sample_id = format!("{}1", grammar.pane_id_prefix());
-    HostKind::ALL.into_iter().find_map(|host| {
-        if grammar.name() == host.as_str() {
-            Some(format!("{} is a built-in host", host.as_str()))
-        } else if host.is_pane_id(&sample_id) {
-            Some(format!("its pane IDs look like {}'s", host.as_str()))
-        } else if grammar
-            .sample_target()
-            .is_some_and(|target| host.is_target(&target))
-        {
-            Some(format!("its targets look like {}'s", host.as_str()))
-        } else {
-            None
-        }
-    })
+    [HostKind::Tmux, HostKind::pty()]
+        .into_iter()
+        .find_map(|host| {
+            if grammar.name() == host.as_str() {
+                Some(format!("{} is a built-in host", host.as_str()))
+            } else if host.is_pane_id(&sample_id) {
+                Some(format!("its pane IDs look like {}'s", host.as_str()))
+            } else if grammar
+                .sample_target()
+                .is_some_and(|target| host.is_target(&target))
+            {
+                Some(format!("its targets look like {}'s", host.as_str()))
+            } else {
+                None
+            }
+        })
 }
 
 impl HostKind {
+    /// The built-in PTY host uses the existing external-host data shape.
+    pub fn pty() -> Self {
+        Self::External(HostName::new("pty").expect("built-in host name"))
+    }
+
     /// The built-in hosts.
     pub const ALL: [Self; 1] = [Self::Tmux];
 
     /// The built-in hosts, then the registered external ones.
     pub fn all() -> impl Iterator<Item = Self> {
-        Self::ALL.into_iter().chain(
-            external_grammars()
-                .iter()
-                .filter_map(|grammar| HostName::new(grammar.name()).map(Self::External)),
-        )
+        Self::ALL
+            .into_iter()
+            .chain(std::iter::once(Self::pty()))
+            .chain(
+                external_grammars()
+                    .iter()
+                    .filter_map(|grammar| HostName::new(grammar.name()).map(Self::External)),
+            )
     }
 
     /// The stored and JSON token.
@@ -166,9 +185,9 @@ impl HostKind {
                         && window_pane(pane)
                 })
             }
-            Self::External(name) => {
-                external_grammar(name).is_some_and(|grammar| grammar.is_target(text))
-            }
+            Self::External(name) => external_grammar(name).is_some_and(|grammar| {
+                grammar.is_target(text) || (self == Self::pty() && grammar.is_pane_id(text))
+            }),
         }
     }
 
@@ -252,7 +271,10 @@ mod tests {
         assert_eq!(host.as_str(), "screen");
         assert!(!host.is_pane_id("screen-1") && !host.is_target("s1"));
         assert!(!host.targets_never_named_identities());
-        assert_eq!(HostKind::all().collect::<Vec<_>>(), HostKind::ALL);
+        assert_eq!(
+            HostKind::all().collect::<Vec<_>>(),
+            [HostKind::Tmux, HostKind::pty()]
+        );
     }
 
     #[test]
@@ -285,6 +307,10 @@ mod tests {
             builtin_conflict(&HostGrammar::new(name, prefix, target).unwrap())
         };
         assert!(conflict("tmux", "tm-", None).is_some());
+        assert!(conflict("pty", "other_", None).is_some());
+        assert!(conflict("other", "pty_", None).is_some());
+        assert_eq!(HostKind::of_pane_id("pty_abc123"), Some(HostKind::pty()));
+        assert!(!HostKind::pty().is_pane_id("pty_../outside"));
         assert!(conflict("other", "ot-", Some("s{n}")).is_none());
         // Herdr's driver declares what was the built-in Herdr syntax.
         assert!(conflict("herdr", "term_", Some("w{n}:p{n}")).is_none());
