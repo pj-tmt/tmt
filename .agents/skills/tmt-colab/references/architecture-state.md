@@ -266,6 +266,13 @@ owner router and the owner's Ask and export modules are not part of this bundle.
 
 ## Restart recovery
 
+The owner-socket module description separates static navigation from the registration's
+catalog projection. A busy registration mutex still describes Colab's rail, Pages link and
+script entry, without Pages count, `needsYou` or Home cards. The shell treats these omitted
+fields as unknown and draws no count. Missing or poisoned registration and actual catalog
+read/integrity or capacity failures still refuse. This keeps reconnect contention from
+advertising a running Colab as absent, without changing owner-session or page admission.
+
 Remote keeps sessions and door cookies in memory, so after a restart a paired browser's
 reload receives Colab's private guidance page. That page loads the public `assets/recovery.js`
 (`src/guidance.ts`), which lets Remote's SDK check its paired key and call

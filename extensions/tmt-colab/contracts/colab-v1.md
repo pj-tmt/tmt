@@ -710,13 +710,17 @@ The reserved owner-socket `GET /.tmt/remote/describe` implements Remote's
 It reads only the existing bounded owner catalog/fingerprint projection, the fresh page-summary
 cache and the local title projection (`page_titles`, schema 16); it starts no refresh, fold,
 subscription or write, and only selects from that projection.
-Both counts exclude archived
+Static module availability (rail, Pages link and script entry) does not depend on the
+registration mutex. While that mutex is busy, the reply keeps this navigation and omits
+all catalog-derived fields: the Pages count, `needsYou` and `home`. Omitted counts are
+unknown, never zero; the shell draws no count or badge for them. A missing or poisoned
+registration still refuses. When the mutex is available, both counts exclude archived
 pages: Pages counts the remaining pages, and `needsYou` counts waiting pages, matching the
 in-app Needs you tab (two waiting items on one page count once). An empty catalog has known
 zero counts. The Pages count comes from the catalog alone and stays known when summaries
 are unavailable. If any non-archived summary is missing or stale, the answer keeps its rail
-and menu but omits `needsYou`, never inventing zero. An unavailable catalog
-projection or a count above the descriptor bound returns a typed refusal. Optional `home`
+and menu but omits `needsYou`, never inventing zero. A failed catalog read (including an
+integrity failure) or a count above the descriptor bound still returns a typed refusal. Optional `home`
 lists up to five recent pages, newest activity first (the later of last activity and last
 update), each a non-archived page with a projected title: `id` is the page ID without
 hyphens, `title` the projected title as opaque display text cut to 40 Unicode scalars (an
