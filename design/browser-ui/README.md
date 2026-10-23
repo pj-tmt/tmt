@@ -41,8 +41,10 @@ node design/browser-ui/scripts/generate-static-css.mjs --check
 ```
 
 The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
-size (level 9) of `generated/static.css` plus `generated/ui.css` to +10% of what main shipped
-before the v2 style; each pull request that changes them also reports the raw sizes. Consumers embed checked CSS;
+size (level 9) of `generated/static.css` plus `generated/ui.css` to +15% of the 18,824-byte pre-v2 baseline (21,647 bytes). The GUI lead approved this
+budget for the scoped v2 panel, dialog/confirm, ghost/icon action, tinted Notice and shell
+metrics work; the original 10% predates that scope. Class encapsulation is retained, and any
+further increase returns to the lead; each pull request that changes them also reports the raw sizes. Consumers embed checked CSS;
 Cargo and installed products never run the generator. Select light/system-dark
 on the document or scope `data-theme="light"`/`data-theme="dark"` on an island.
 A dark island on a light page needs dark foregrounds as well as dark surfaces.

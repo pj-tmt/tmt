@@ -7,6 +7,20 @@ for (const theme of ['light', 'dark'] as const)
       await page.setViewportSize({ width, height: 992 });
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
       await page.goto('/?frame=notice&theme=' + theme);
+      // Shared data attributes on a product element must not opt it into Notice styling.
+      const foreignFills = await page.evaluate(() =>
+        ['waiting', 'working', 'review', 'blocked'].map((tone) => {
+          const foreign = document.createElement('div');
+          foreign.dataset.tinted = '';
+          foreign.dataset.tone = tone;
+          document.body.append(foreign);
+          const fill = getComputedStyle(foreign).backgroundColor;
+          foreign.remove();
+          return fill;
+        }),
+      );
+      expect(foreignFills).toEqual(Array(4).fill('rgba(0, 0, 0, 0)'));
+
       const pair = (title: string) =>
         page
           .locator('.gallery-pair')
