@@ -546,6 +546,16 @@ fn quote_button(app: &App) -> Option<Rect> {
         .selection
         .as_ref()
         .and_then(Selection::control)
+        .map(|menu| menu.quote)
+}
+
+fn copy_button(app: &App) -> Option<Rect> {
+    app.conversation
+        .borrow()
+        .selection
+        .as_ref()
+        .and_then(Selection::control)
+        .map(|menu| menu.copy)
 }
 
 /// Press on `words` and drag to their end; the button is not released.
@@ -765,6 +775,119 @@ fn a_keyboard_selection_quotes_whole_lines_without_the_mouse() {
     // Source lines keep their Markdown, here a hard break's two trailing spaces; the header
     // row above them has no source and keeps its displayed text.
     assert!(text.contains("\npassage 000  \npassage 001  "), "{text}");
+}
+
+fn row_text(buffer: &ratatui::buffer::Buffer, y: u16) -> String {
+    (0..buffer.area.width)
+        .map(|x| buffer[(x, y)].symbol())
+        .collect()
+}
+
+#[test]
+fn the_selection_menu_opens_directly_below_the_selection_end_and_not_after_it() {
+    for look in selection_looks() {
+        let mut app = fixture_with_look(&long(80), look);
+        pick(&mut app, "passage 070");
+        let buffer = draw(&mut app, 100, TALL);
+        let (x, y) = locate(&buffer, "passage 070").unwrap();
+        let end = x + "passage 070".len() as u16;
+        let quote = quote_button(&app).expect("the menu is open");
+        let copy = copy_button(&app).expect("the menu is open");
+        assert_eq!((quote.x, quote.y), (end, y + 1), "{look:?}");
+        assert_eq!(copy.y, quote.y, "one row");
+        assert!(copy.x > quote.right(), "Copy follows Quote");
+        let row = row_text(&buffer, y + 1);
+        assert!(row.contains("q Quote") && row.contains("y Copy"), "{row}");
+        assert!(
+            !row_text(&buffer, y).contains("Quote"),
+            "the selected row stays clear: {}",
+            row_text(&buffer, y)
+        );
+        assert!(!row.contains("+ Quote"));
+    }
+}
+
+#[test]
+fn the_selection_menu_stays_in_view_and_off_the_selected_row_wherever_the_selection_ends() {
+    for words in ["passage 079", "passage 070", "passage 050"] {
+        for look in selection_looks() {
+            let mut app = fixture_with_look(&long(80), look);
+            pick(&mut app, words);
+            let buffer = draw(&mut app, 100, TALL);
+            let Some((_, y)) = locate(&buffer, words) else {
+                continue;
+            };
+            let menu = app
+                .conversation
+                .borrow()
+                .selection
+                .as_ref()
+                .and_then(Selection::control)
+                .unwrap_or_else(|| panic!("{words}: the menu is open"));
+            let bounds = menu.bounds();
+            assert!(buffer.area.contains(bounds.as_position()), "{words}");
+            assert!(bounds.right() <= buffer.area.right(), "{words}: {bounds:?}");
+            assert_ne!(bounds.y, y, "{words}: the selected row stays clear");
+            assert!(row_text(&buffer, bounds.y).contains("q Quote"), "{words}");
+        }
+    }
+}
+
+#[test]
+fn the_q_key_quotes_and_the_menu_entries_quote_and_copy_by_mouse() {
+    let mut app = fixture(&long(80));
+    pick(&mut app, "passage 070");
+    draw(&mut app, 100, TALL);
+    let copy = copy_button(&app).unwrap();
+    let effect = mouse(
+        &mut app,
+        MouseEventKind::Down(MouseButton::Left),
+        copy.x + 1,
+        copy.y,
+    );
+    assert!(
+        matches!(&effect, Effect::Act(Request::Copy { text, feedback: CopyFeedback::Selection, .. }) if text == "passage 070  "
+            || text == "passage 070"),
+        "{effect:?}"
+    );
+    assert!(selected(&app).is_some(), "Copy keeps the selection");
+
+    draw(&mut app, 100, TALL);
+    app.key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+    let quotes = &app
+        .input
+        .as_ref()
+        .expect("q opens the draft")
+        .literal_quotes();
+    assert_eq!(quotes[0].text, "passage 070");
+    assert!(selected(&app).is_none(), "Quote ends the selection");
+
+    let mut app = fixture(&long(80));
+    pick(&mut app, "passage 070");
+    draw(&mut app, 100, TALL);
+    let quote = quote_button(&app).unwrap();
+    mouse(
+        &mut app,
+        MouseEventKind::Down(MouseButton::Left),
+        quote.x + 1,
+        quote.y,
+    );
+    assert_eq!(
+        app.input.as_ref().unwrap().literal_quotes()[0].text,
+        "passage 070"
+    );
+}
+
+#[test]
+fn escape_clears_the_selection_and_with_it_the_menu() {
+    let mut app = fixture(&long(80));
+    pick(&mut app, "passage 070");
+    draw(&mut app, 100, TALL);
+    assert!(quote_button(&app).is_some());
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    let buffer = draw(&mut app, 100, TALL);
+    assert!(quote_button(&app).is_none());
+    assert!((0..buffer.area.height).all(|y| !row_text(&buffer, y).contains("q Quote")));
 }
 
 #[test]
