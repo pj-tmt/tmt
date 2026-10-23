@@ -11,6 +11,7 @@ pub enum OpsUiAction {
     CycleTokRange,
     Inspect,
     MonitorDetails,
+    MemberSession,
     Previous,
     Next,
     Fold,
@@ -67,6 +68,13 @@ macro_rules! spec {
     };
 }
 const SPECS: &[OpsUiSpec] = &[
+    spec!(
+        MemberSession,
+        "member-session",
+        "Session…",
+        "read the selected agent's host and remembered session, then review resume or move",
+        12
+    ),
     spec!(
         ResizePane,
         "resize-pane",
@@ -318,6 +326,7 @@ impl OpsUiAction {
                 | Self::MoveMembership
                 | Self::RenameMember
                 | Self::MonitorDetails
+                | Self::MemberSession
         )
     }
 }

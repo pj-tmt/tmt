@@ -1673,6 +1673,10 @@ fn the_stopped_tick_notice_is_the_only_waiting_part_of_the_summary_and_outlives_
         Some(serde_json::json!(1_000_000_000u64 - 600_000)),
         Some(true),
     );
+    // This assertion distinguishes role colours, independent of ambient NO_COLOR.
+    let view = app.view.as_mut().unwrap();
+    view.look = crate::look::Look::default();
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
     press(&mut app, '2');
     let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
     terminal

@@ -347,3 +347,59 @@ fn opening_factory_table_never_bakes_authored_commands_into_reset_inheritance() 
             .is_none()
     );
 }
+
+#[test]
+fn member_session_has_one_factory_binding_in_rows_and_reader() {
+    for scope in [
+        crate::config::OpsKeyScope::Member,
+        crate::config::OpsKeyScope::Reader,
+    ] {
+        let keys = crate::config::workspace_defaults(scope);
+        assert_eq!(
+            keys.get("R").map(|action| action.text.as_str()),
+            Some("member-session")
+        );
+    }
+}
+
+#[test]
+fn member_session_opens_a_placeholder_without_running_a_command() {
+    let mut app = configured_member("", json!({"id":MEMBER,"name":"worker"}));
+    let _no_commands = crate::runner::forbid_commands();
+    let _effect = key(&mut app, KeyCode::Char('R'));
+    assert!(
+        app.modal_open(),
+        "Session opens immediately before a worker read can finish"
+    );
+    assert!(paint(&app, 160, 36).join("\n").contains("Loading session"));
+}
+
+#[test]
+fn an_authored_session_key_keeps_its_binding_and_typing_keeps_its_text() {
+    let mut app = configured_member(
+        "[bind]\nR='run echo {name}'\n",
+        json!({"id":MEMBER,"name":"worker"}),
+    );
+    assert_eq!(
+        key(&mut app, KeyCode::Char('R')),
+        Effect::Act(Request::Run(vec!["echo".into(), "worker".into()]))
+    );
+    assert!(app.member_session.is_none());
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Char('R'));
+    assert!(app.member_session.is_none());
+    assert!(app.input.as_ref().unwrap().text.as_str().contains('R'));
+}
+
+#[test]
+fn session_opens_in_conversation_focus_without_starting_a_command() {
+    let mut app = board();
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(app.workspace_scope(), OpsKeyScope::Reader);
+    let _ui = crate::runner::forbid_commands();
+    assert!(matches!(
+        key(&mut app, KeyCode::Char('R')),
+        Effect::MemberSession(_)
+    ));
+    assert!(paint(&app, 160, 36).join("\n").contains("Loading session"));
+}

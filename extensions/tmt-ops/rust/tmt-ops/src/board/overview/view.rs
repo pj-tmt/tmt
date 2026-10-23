@@ -100,6 +100,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let paint = |frame: &mut Frame, slot: Rect, index: usize, widest: usize| match index {
         0 => crate::board::workspace::render::controls_rule(frame, app, slot),
         1 => {
+            let state = state_width(slot.width, widest);
             let marks = crate::board::header_sort::Marks::new(
                 app.workspace_order(),
                 app.header_hover,
@@ -117,6 +118,10 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 "STATE",
                 state_width(slot.width, widest),
             );
+            if session_width(slot.width, state) > 0 {
+                header.plain(" ");
+                header.plain(&format!("{:<20}", "HOST / SESSION"));
+            }
             header.plain(" ");
             header.tokens(
                 Header::Overview(OverviewColumn::TokensPerHour),
@@ -199,8 +204,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             // The figure answers a click with the other unit, so it never selects the row.
             app.workspace_strip_hits.borrow_mut().push((
                 Rect::new(
-                    slot.x
-                        .saturating_add(AGENT_STATE_X as u16 + state_width(slot.width, widest) + 1),
+                    slot.x.saturating_add(
+                        AGENT_STATE_X as u16
+                            + state_width(slot.width, widest)
+                            + session_width(slot.width, state_width(slot.width, widest))
+                            + 1,
+                    ),
                     slot.y,
                     7,
                     1,
@@ -292,8 +301,15 @@ fn state_width(row: u16, widest: usize) -> u16 {
 
 /// The complete model track yields before the token track at narrow widths.
 fn model_width(row: u16, state: u16) -> Option<u16> {
-    let width = row.saturating_sub(AGENT_STATE_X as u16 + state + 1 + 7 + 3);
+    let width =
+        row.saturating_sub(AGENT_STATE_X as u16 + state + session_width(row, state) + 1 + 7 + 3);
     (width >= 8).then_some(width)
+}
+
+/// Host / Session yields whole before any existing track, retaining eight model cells.
+fn session_width(row: u16, state: u16) -> u16 {
+    let remaining = row.saturating_sub(AGENT_STATE_X as u16 + state + 1 + 7 + 3);
+    if remaining >= 20 + 1 + 8 { 21 } else { 0 }
 }
 
 /// An agent's STATE cell within `width`: the same activity words and task
@@ -391,6 +407,25 @@ fn agent_line(
         ]
         .into_iter()
         .chain(state)
+        .chain((session_width(row_width, width) > 0).then(|| {
+            let OpsTarget::Member { identity_id, .. } = &row.target else {
+                unreachable!("flat member");
+            };
+            Span::styled(
+                format!(
+                    " {}",
+                    tmt_cli_style::grid::fit(
+                        &crate::board::workspace::render::safe(
+                            &app.member_session_evidence(identity_id).compact()
+                        ),
+                        20,
+                        tmt_cli_style::grid::Align::Left,
+                        tmt_cli_style::grid::Truncate::End,
+                    )
+                ),
+                look.role(Role::Muted),
+            )
+        }))
         .chain([
             Span::raw(" "),
             Span::styled(

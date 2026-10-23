@@ -36,6 +36,7 @@ mod key_value;
 mod keycap;
 mod lane;
 mod limits;
+mod member_session;
 pub(crate) use limits::history::document as limits_history;
 mod markdown;
 mod member_links;
@@ -138,6 +139,7 @@ pub(in crate::board) enum BoardEvent {
     Recovery(recovery::load::Completed),
     Checklist(checklist::load::Completed),
     Discovery(discovery::load::Completed),
+    MemberSession(member_session::Completed),
     Input(Event),
     InputClosed,
     Snapshot {
@@ -738,6 +740,11 @@ fn session(
                 dirty = true;
                 app.finished_recovery(completed)
             }
+            Ok(BoardEvent::MemberSession(completed)) => {
+                app.in_flight = app.in_flight.saturating_sub(1);
+                dirty = true;
+                app.finished_member_session(completed)
+            }
             Ok(BoardEvent::Discovery(completed)) => {
                 app.in_flight = app.in_flight.saturating_sub(1);
                 dirty = true;
@@ -1112,6 +1119,10 @@ fn session(
             Ok(_) | Err(RecvTimeoutError::Timeout) => Effect::None,
         };
         match effect {
+            Effect::Foreground(command) => {
+                app.foreground = Some(command);
+                return Ok(None);
+            }
             Effect::Quit => return Ok(None),
             Effect::Load(squad) => {
                 revision += 1;
@@ -1133,6 +1144,10 @@ fn session(
             }
             Effect::Checklist(task) => checklist(task),
             Effect::Recovery(task) => submit(app, lane::Job::Recovery(task)),
+            Effect::MemberSession(task) => {
+                app.in_flight += 1;
+                io(lane::Job::MemberSession(task));
+            }
             Effect::Discovery(task) => {
                 app.in_flight += 1;
                 io(lane::Job::Discovery(task));
@@ -1564,6 +1579,18 @@ pub fn run(
         // then become the new board: this returns only when that failed.
         drop(worker);
         return Err(app.reload.restart(&resume, crate::status::now_ms()));
+    }
+    if signal.is_none()
+        && let Some(command) = app.foreground.take()
+    {
+        // Same pane and inherited stdio: every board worker is stopped and
+        // terminal modes are restored before Core takes the foreground.
+        drop(worker);
+        // A signal arriving during cleanup cancels the handoff too.
+        if let Some(signal) = terminal::stop_signal(&stop) {
+            return Ok(Some(signal));
+        }
+        return Err(failed(command.exec()));
     }
     Ok(signal)
 }
