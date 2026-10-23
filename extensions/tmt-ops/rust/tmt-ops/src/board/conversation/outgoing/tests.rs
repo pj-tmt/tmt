@@ -1569,6 +1569,7 @@ fn the_item_cap_folds_only_the_oldest_send_and_keeps_order() {
                 squad: "product".into(),
             },
             started_ms: sequence,
+            talk: true,
             outcome: None,
             lead_in: None,
             reply: None,

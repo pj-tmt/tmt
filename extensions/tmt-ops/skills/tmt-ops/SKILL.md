@@ -796,8 +796,10 @@ reuses the existing preview, permission and conflict checks.
 
 Captured answers appear under their message as `turn output`, never a reply. When you
 send more messages while the agent is still working on the first, one turn answers them
-all and Core binds it to the first only: the board then paints that answer under the last
-of those messages, and the earlier ones read `✓ delivered · answered below`.
+all and Core binds it to the first only: the board paints those messages as one block under
+one `you → <agent>` header, with one status line and the turn's answer after the last
+message. A failed send stays in place with its own error and ends the block; a send typed
+after the turn settled starts a new block.
 Delivery lines use Core's `messageState.reason.text` verbatim, beside a mark from
 Core's state and its supplied countdown; activity and capture
 state never replace that wording. Older Core or an unavailable observation keeps
