@@ -164,6 +164,8 @@ test('a row opens the Discussion view: status line, title, passage, turns, reply
   const note = (await thread.locator('.annotation-note-line').boundingBox())!;
   const send = thread.getByRole('button', { name: /^Send(?: · to .+)?$/ });
   await expect(send).toHaveText('Reply');
+  // The paper plane is decorative: the name stays "Send" and the icon is hidden from it.
+  await expect(send.locator('[aria-hidden="true"] svg.lucide-send')).toHaveCount(1);
   const sendBox = (await send.boundingBox())!;
   expect(sendBox.y).toBeGreaterThanOrEqual(field.y + field.height);
   expect(Math.abs(sendBox.y + sendBox.height / 2 - (note.y + note.height / 2))).toBeLessThanOrEqual(

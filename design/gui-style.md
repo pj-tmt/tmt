@@ -509,7 +509,7 @@ Basis: own.
   messages; day rules use admitted timestamps.
 - Center the empty title and teach `@` only where admitted. Keep the composer pinned at the
   bottom as one bordered box: the editor, then Attach/recipient at the start of its row and a
-  primary `Send` (the word, no icon until the shared action takes one) at the end. Show
+  primary `Send` (the paper plane, then the word) at the end. Show
   `Posts as a comment.` only without a recipient. Failed delivery
   uses `✗ Not delivered · Retry` with the existing recovery action.
 
@@ -729,7 +729,7 @@ proposals. Selecting a row opens that thread's Discussion view in the drawer: a 
 passage with its number and a `Show in the page` arrow, the turns, the reply composer and a footer
 rule with `Resolve` or `Reopen`. The reply composer is a four-line field flush with the content
 column, with one row under it: the note (`Attached to this sentence · Posts as a comment.`) at the
-start and the primary `Reply` at the end.
+start and the primary `Reply` (the paper plane, then the word) at the end.
 
 The [Colab proposal contract](../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
 owns decision states, placement, admission and failure behavior. Page HTML
