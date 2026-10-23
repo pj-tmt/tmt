@@ -503,7 +503,7 @@ export function AnnotationInput({
   // A send in flight fences the composer without greying it; any other reason keeps the disabled look.
   const inFlight = busy && !echoing,
     inert = !!unsent || (blocked && !recoveryRequired) || !!recorded || !discussion;
-  const sendActionProps: BrowserActionProps = {
+  const sendActionProps = {
     type: 'button',
     label:
       chat || !decision.agents.length
@@ -521,7 +521,7 @@ export function AnnotationInput({
     onActivate: (event) => {
       if (event.isTrusted) void send();
     },
-  };
+  } satisfies BrowserActionProps;
   return (
     <section
       className="annotation-compose"
