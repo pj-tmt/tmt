@@ -24,7 +24,8 @@ it('exports frozen static names and an exact non-writing generated stylesheet', 
   expect(readFileSync(file, 'utf8')).toBe(before);
   for (const name of Object.values(browserUiClasses)) expect(before).toContain(`.${name}`);
   // Flat, opaque surfaces. Opacity below 1 appears only in the busy mark (its dots fade in turn)
-  // and in the enter and exit states of floating overlays; colours carry their alpha in hex.
+  // and in the enter and exit states of floating overlays. Seat-chart area fills use 75%,
+  // without fading labels or interaction; colours otherwise carry their alpha in hex.
   const busy =
     /\.tmt-ui-busy-dot[^{]*\{[^}]*\}|@keyframes tmt-ui-busy\s*\{(?:[^{}]*\{[^}]*\})*\s*\}/g;
   expect(before.match(busy)?.length).toBeGreaterThan(1);

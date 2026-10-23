@@ -40,7 +40,7 @@ const REFRESH_MS = 60_000;
 export { compactCount as formatTokens };
 
 /** Distinct series a chart draws; the rest fold into one neutral `Other`. */
-const SERIES_KEPT = 7;
+const SERIES_KEPT = 6;
 /** The neutral palette step of the folded `Other` layer (`tmt-ui-chart-s7`). */
 const OTHER_STEP = 7;
 
@@ -255,7 +255,7 @@ function allowanceRow(doc: UsageDocument): HTMLElement {
 
 function tokensCard(doc: UsageDocument, state: DigestViewState): HTMLElement {
   const data = tokenSeries(doc);
-  const body = el('div', 'digest-token-grid');
+  const body = el('div', 'digest-token-grid tmt-ui-chart-seats');
   const chart = el('div', 'digest-token-chart');
   const rows = rankRows(doc);
   const total = rows.reduce((sum, row) => sum + row.tokens, 0);
@@ -277,6 +277,7 @@ function tokensCard(doc: UsageDocument, state: DigestViewState): HTMLElement {
       createSeriesChart({
         title: state.share ? 'Share of tokens by seat' : 'Tokens by seat',
         kind: state.share ? 'share' : 'stack',
+        curve: 'monotone',
         x: data.x,
         series: topLayers(data.layers, SERIES_KEPT),
         empty: 'No token observations in this range.',
@@ -394,28 +395,33 @@ function activityCard(doc: UsageDocument): HTMLElement | undefined {
     new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   const day = (at: number) =>
     new Date(at).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-  const hourly = view.slot === 'hour';
+  const hourly = doc.since === '24h';
   const range = (at: number) => {
     const start = view.starts[at]!;
-    return hourly ? `${clock(start)}–${clock(start + 3_600_000)}` : day(start);
+    return hourly
+      ? `${clock(start)}–${clock(view.ends[at]!)}`
+      : `${day(start)}–${day(view.ends[at]! - 1)}`;
   };
   return card('digest-activity', 'Activity by seat', [
     createStrips({
       layout: 'heatmap',
-      labels: view.starts.map((at, i) =>
-        view.starts.length <= 7 || i % (hourly ? 4 : 6) === 0
-          ? hourly
-            ? clock(at)
-            : new Date(at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })
-          : '',
+      labels: view.starts.map((at) =>
+        hourly
+          ? clock(at)
+          : new Date(at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }),
       ),
-      title: `Relative token activity · ${hourly ? 'hourly' : 'daily'}`,
+      title: `Relative token activity · ${hourly ? '4-hour blocks' : doc.since === '7d' ? 'daily' : '5-day blocks'}`,
       rows: view.rows,
       slotCount: view.starts.length,
       slotRange: range,
-      ends: hourly ? ['24 h ago', 'now'] : [`${view.starts.length} days ago`, 'today'],
+      ends: [doc.since + ' ago', 'now'],
       legend: false,
     }),
+    el(
+      'p',
+      'usage-note',
+      'Edge blocks cover only the reported window. A block with any missing bucket stays hollow; incomplete buckets are lower bounds.',
+    ),
   ]);
 }
 

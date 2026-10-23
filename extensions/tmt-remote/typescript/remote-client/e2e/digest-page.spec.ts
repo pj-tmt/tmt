@@ -159,7 +159,7 @@ for (const [name, size] of [
           .locator('#digest-activity .tmt-ui-chart-strip:has(>.tmt-ui-chart-slot)')
           .first()
           .locator('.tmt-ui-chart-slot'),
-      ).toHaveCount(30);
+      ).toHaveCount(7);
       const fits = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
       );
@@ -174,7 +174,7 @@ for (const [name, size] of [
           .locator('#digest-activity .tmt-ui-chart-strip:has(>.tmt-ui-chart-slot)')
           .first()
           .locator('.tmt-ui-chart-slot'),
-      ).toHaveCount(24);
+      ).toHaveCount(7);
       await page.getByRole('tab', { name: '24h' }).click();
     }
     const dir = process.env.DIGEST_CAPTURE_DIR;
@@ -189,7 +189,7 @@ for (const [name, size] of [
   });
 }
 
-test('hovering a large-fleet plot names the seven leading seats and neutral Other', async ({
+test('hovering a large-fleet plot names the six leading seats and neutral Other', async ({
   page,
 }) => {
   await open(page, '?seats=24');
@@ -199,12 +199,12 @@ test('hovering a large-fleet plot names the seven leading seats and neutral Othe
   const box = (await plot.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await expect(tip).toBeVisible();
-  await expect(tip.locator('.tmt-ui-chart-tip-row')).toHaveCount(8);
+  await expect(tip.locator('.tmt-ui-chart-tip-row')).toHaveCount(7);
   await expect(tip).toContainText('Other');
   const fills = await tip
     .locator('.tmt-ui-chart-swatch')
     .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).backgroundColor));
-  expect(new Set(fills).size).toBe(8);
+  expect(new Set(fills).size).toBe(7);
   await page.mouse.move(box.x - 40, box.y - 40);
   await expect(tip).toBeHidden();
 });
@@ -308,7 +308,7 @@ test('the matrix marks self with a dash and a known none as zero and counts only
   expect(text).not.toContain('99');
 });
 
-test('the activity heatmap has short bar cells: 24 hourly, 7 daily, 30 daily, with dates and keyboard tips', async ({
+test('the activity heatmap has short bar cells: 4-hour, daily and 5-day groups, with dates and keyboard tips', async ({
   page,
 }) => {
   await open(page);
@@ -318,20 +318,23 @@ test('the activity heatmap has short bar cells: 24 hourly, 7 daily, 30 daily, wi
     .locator('#digest-activity .tmt-ui-chart-strip:has(>.tmt-ui-chart-slot)')
     .first()
     .locator('.tmt-ui-chart-slot');
-  await expect(cells).toHaveCount(24);
+  expect(await cells.count()).toBeGreaterThanOrEqual(6);
+  expect(await cells.count()).toBeLessThanOrEqual(7);
   const box = (await cells.first().boundingBox())!;
   expect(box.width / box.height).toBeGreaterThanOrEqual(1.9);
-  // Squares grow to fill the card (12 to 40 px); never past 40.
+  // Fixed-height bars fill the available strip column.
   expect(box.width).toBeGreaterThan(12);
-  expect(box.width).toBeLessThanOrEqual(40.5);
+  expect(box.height).toBe(14);
   const strip = (await page
     .locator('#digest-activity .tmt-ui-chart-strip:has(>.tmt-ui-chart-slot)')
     .first()
     .boundingBox())!;
   const column = (await page.locator('#digest-activity .tmt-ui-chart-strips').boundingBox())!;
   // The row spans the card's strip column unless 40 px squares already fill 24 slots.
-  expect(strip.width).toBeGreaterThan(Math.min(column.width * 0.9, 24 * 40 - 1) - 100);
-  await cells.nth(5).hover();
+  const label = (await rows.first().locator('.tmt-ui-chart-strip-label').boundingBox())!;
+  expect(Math.abs(strip.x + strip.width - column.x - column.width)).toBeLessThan(1);
+  expect(strip.x).toBeGreaterThan(label.x + label.width);
+  await cells.nth(3).hover();
   const tip = page.locator('#digest-activity .tmt-ui-chart-tip');
   await expect(tip).toBeVisible();
   // The first row is the seat with the most tokens, as in the ranking.
@@ -341,9 +344,9 @@ test('the activity heatmap has short bar cells: 24 hourly, 7 daily, 30 daily, wi
   await expect(tip).toContainText('–');
   await expect(tip).toContainText('tokens');
   // One tab stop; arrows move between slots and rows.
-  await cells.nth(5).focus();
+  await cells.nth(3).focus();
   await page.keyboard.press('ArrowRight');
-  await expect(cells.nth(6)).toBeFocused();
+  await expect(cells.nth(4)).toBeFocused();
   await expect(
     page.locator('#digest-activity .tmt-ui-chart-strip-legend .tmt-ui-chart-slot'),
   ).toHaveCount(0);
@@ -360,7 +363,7 @@ test('the activity heatmap has short bar cells: 24 hourly, 7 daily, 30 daily, wi
       .locator('#digest-activity .tmt-ui-chart-strip:has(>.tmt-ui-chart-slot)')
       .first()
       .locator('.tmt-ui-chart-slot'),
-  ).toHaveCount(30);
+  ).toHaveCount(7);
   await expect(page.locator('#digest-tokens .digest-total-label')).toContainText('30d');
 });
 
@@ -390,14 +393,14 @@ test('one allowance card holds meter rows and collapsed provider history and pac
   expect(new Set(hues).size).toBe(1);
 });
 
-test('a team of 24 lists the top 7, one Other row, a single partial note and Show all', async ({
+test('a team of 24 lists the top 6, one Other row, a single partial note and Show all', async ({
   page,
 }) => {
   const errors = await open(page, '?seats=24', { width: 1440, height: 900 });
   const ranking = page.locator('#digest-ranking');
   const names = ranking.locator('tbody th');
-  await expect(names).toHaveCount(8);
-  await expect(names.last()).toHaveText('Other (17 seats)');
+  await expect(names).toHaveCount(7);
+  await expect(names.last()).toHaveText('Other (18 seats)');
   await expect(ranking.locator('.usage-note')).toHaveText([
     '* Partial: some of this range has no data for the seat.',
   ]);
@@ -412,8 +415,8 @@ test('a team of 24 lists the top 7, one Other row, a single partial note and Sho
   await toggle.click();
   await expect(names).toHaveCount(24);
   await expect(ranking.getByText(/^Other \(/)).toHaveCount(0);
-  await ranking.getByRole('button', { name: 'Show top 7' }).click();
-  await expect(names).toHaveCount(8);
+  await ranking.getByRole('button', { name: 'Show top 6' }).click();
+  await expect(names).toHaveCount(7);
   // Cards keep their own height: the ranking does not stretch to the token chart's.
   const tokens = (await page.locator('#digest-tokens').boundingBox())!;
   const listed = (await ranking.boundingBox())!;
@@ -596,7 +599,6 @@ for (const scheme of ['light', 'dark'] as const)
       await expect(card.locator('tbody tr')).toHaveCount(24);
       await card.scrollIntoViewIfNeeded();
       const sender = card.locator('tbody th').first();
-      const start = (await sender.boundingBox())!;
       const viewport = (await region.boundingBox())!;
       expect(await region.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
       await expect(card.locator('.tmt-ui-chart-matrix-edge')).toBeVisible();
@@ -612,13 +614,13 @@ for (const scheme of ['light', 'dark'] as const)
       });
       const last = (await card.locator('tbody tr').first().locator('td').last().boundingBox())!;
       const pinned = (await sender.boundingBox())!;
-      expect(Math.abs(pinned.x - start.x)).toBeLessThan(2);
+      expect(Math.abs(pinned.x - viewport.x)).toBeLessThan(1);
       expect(
         await sender.evaluate((node) => getComputedStyle(node.closest('table')!).borderCollapse),
       ).toBe('separate');
       expect(
         await sender.evaluate((node) => Number.parseFloat(getComputedStyle(node).borderRightWidth)),
-      ).toBeGreaterThan(0);
+      ).toBe(0);
       const firstVisibleCell = await sender.evaluate((node) => {
         const edge = node.getBoundingClientRect().right;
         const cell = Array.from(node.parentElement!.querySelectorAll('td')).find(
@@ -735,3 +737,27 @@ test('range keyboard focus follows the selection immediately and late reports ca
   await expect(page.locator('.digest-total-label')).toContainText('30d');
   await expect(page.getByRole('tab', { name: '30d' })).toBeFocused();
 });
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Digest panels fit desktop and preserve phone scrolling (${theme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await openShell(page, { width: 1440, height: 992 });
+    const scroll = page.locator('#digest-exchange .tmt-ui-chart-scroll');
+    expect(await scroll.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    const cell = page.locator('#digest-exchange td').first();
+    expect(await cell.evaluate((node) => getComputedStyle(node).borderWidth)).toBe('0px');
+    expect(await cell.evaluate((node) => getComputedStyle(node).fontFamily)).not.toMatch(/mono/i);
+    const areas = page.locator('#digest-token-plot .tmt-ui-chart-area');
+    expect(await areas.first().getAttribute('d')).toContain('C');
+    expect(Number(await areas.first().evaluate((node) => getComputedStyle(node).fillOpacity))).toBe(
+      0.75,
+    );
+    await expect(page.locator('#digest-token-plot .tmt-ui-chart-cursor')).toHaveAttribute(
+      'visibility',
+      'hidden',
+    );
+    await page.setViewportSize({ width: 390, height: 992 });
+    await expect(page.locator('html')).toHaveJSProperty('scrollWidth', 390);
+    expect(await scroll.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
+  });
+}

@@ -677,12 +677,15 @@ intensity step; the painter only maps it to elements, so the model is what is un
   carrier: every series is named in a legend (a line chart also shows its value at the selected
   column; a stacked chart leaves values to the hover tip, since a last bucket reads like a total)
   and the data table is always there.
+- The opt-in `tmt-ui-chart-seats` palette uses the website's six pastel `browser.color.seat-*` roles,
+  with 75% area opacity. It scopes chart and legend together, leaving default provider hues intact.
+  `curve: 'monotone'` smooths area edges through the sampled positions without overshoot.
 - Hovering the plot (or focusing it and using the arrows) shows a tip beside the column with the
   time and every series' value; a visually hidden live line says the same to assistive technology.
 - A missing observation is never a zero. A line breaks, a cell reads `—`, a slot stays blank;
   a known none is `·` and the faintest step. Self is a blank cell in the default matrix.
   `numeric: true` draws known zero as `0` and self as `—`; unavailable stays `—` with an explicit
-  spoken label. Numeric matrices use a quiet mint fill and retain their explicit counts.
+  spoken label. Numeric matrices use borderless, sans-serif counts on quiet mint cells.
 - Keyboard: the plot is one tab stop; Left, Right, Home and End move the readout. Every chart
   also carries a visually hidden data table for assistive technology. A matrix wider than its
   container scrolls inside its own named, keyboard-focusable region; the page never scrolls sideways.
@@ -695,7 +698,7 @@ intensity step; the painter only maps it to elements, so the model is what is un
 - Square strips use the first series hue. `layout: 'heatmap'` uses mint, short rectangular bars
   in the token radius; optional column `labels` identify their buckets. Missing slots remain
   hollow, and value tips and keyboard traversal keep the square strips' model.
-- More series than a chart keeps (seven on Digest) fold into one `Other` with `topLayers`.
+- More series than a chart keeps (six on Digest) fold into one `Other` with `topLayers`.
 
 ### Status mark
 

@@ -159,22 +159,23 @@ function ranked(seats: readonly UsageSeat[]): UsageSeat[] {
 
 export interface Activity {
   rows: { id: string; label: string; slots: (number | null)[] }[];
-  /** The start of each slot, oldest first. */
+  /** Observed window clipped to clock-aligned presentation buckets. */
   starts: number[];
-  /** What one slot covers: an hour in the 24 h report, a day in the 7d and 30d ones. */
-  slot: 'hour' | 'day';
+  ends: number[];
 }
 
-const SLOTS: Record<string, { count: number; stepMs: number; slot: 'hour' | 'day' }> = {
-  '24h': { count: 24, stepMs: 3_600_000, slot: 'hour' },
-  '7d': { count: 7, stepMs: 86_400_000, slot: 'day' },
-  '30d': { count: 30, stepMs: 86_400_000, slot: 'day' },
+const SLOTS: Record<string, { count: number; stepMs: number; group: number }> = {
+  '24h': { count: 24, stepMs: HOUR, group: 4 },
+  '7d': { count: 7, stepMs: DAY, group: 1 },
+  '30d': { count: 30, stepMs: DAY, group: 5 },
 };
 
 /**
- * One slot per seat across the range, at the resolution the report carries: hourly for 24 h,
- * daily for 7d and 30d. The slots end at the newest bucket; one with no bucket is not observed
- * (null), never zero. Seats come in the ranking's order: most tokens first.
+ * Group real hourly/daily reads into four-hour, daily or five-day activity bars. Bins align to
+ * the displayed local four-hour clock (daily groups retain report boundaries). A rolling 24h
+ * normally has seven clipped bars, with
+ * partial first/last bins. No extra observations are invented. If any constituent is missing,
+ * the whole bar is hollow; an observed zero remains zero. Incomplete reads remain lower bounds.
  */
 export function activity(doc: UsageDocument): Activity | null {
   const shape = SLOTS[doc.since];
@@ -183,22 +184,33 @@ export function activity(doc: UsageDocument): Activity | null {
     ...doc.usage.seats.flatMap((seat) => seat.series.map((point) => point.fromMs)),
   );
   if (!Number.isFinite(latest)) return null;
-  const starts = Array.from(
-    { length: shape.count },
-    (_, at) => latest - (shape.count - 1 - at) * shape.stepMs,
-  );
+  const first = latest - (shape.count - 1) * shape.stepMs;
+  const end = latest + shape.stepMs;
+  const stepMs = shape.stepMs * shape.group;
+  const groupAt = (at: number) =>
+    Math.floor(
+      (at - (doc.since === '24h' ? new Date(at).getTimezoneOffset() * 60_000 : 0)) / stepMs,
+    );
+  const bins: number[][] = [];
+  for (let at = first; at < end; at += shape.stepMs) {
+    const bucket = groupAt(at);
+    const previous = bins[bins.length - 1];
+    if (previous && groupAt(previous[0]!) === bucket) previous.push(at);
+    else bins.push([at]);
+  }
   return {
-    starts,
-    slot: shape.slot,
-    rows: ranked(doc.usage.seats).map((seat: UsageSeat) => {
+    starts: bins.map((bin) => bin[0]!),
+    ends: bins.map((bin) => bin[bin.length - 1]! + shape.stepMs),
+    rows: ranked(doc.usage.seats).map((seat) => {
       const byStart = new Map(seat.series.map((point) => [point.fromMs, point]));
       return {
         id: seat.id,
         label: seatName(seat),
-        slots: starts.map((at) => {
-          const point = byStart.get(at);
-          return point ? tokensOf(point) : null;
-        }),
+        slots: bins.map((bin) =>
+          bin.every((at) => byStart.has(at))
+            ? bin.reduce((sum, at) => sum + tokensOf(byStart.get(at)!), 0)
+            : null,
+        ),
       };
     }),
   };

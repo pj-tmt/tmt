@@ -1,3 +1,4 @@
+import { monotonePath } from '../src/chart-math';
 import { expect, it } from 'vite-plus/test';
 import { readFileSync } from 'node:fs';
 import { matrixModel } from '../src/chart-matrix-model';
@@ -218,4 +219,26 @@ it('numeric matrices distinguish self, observed zero, nonzero and unavailable', 
   expect(rows[1]!.cells[2]!.text).toBe('—');
   expect(rows[0]!.cells[1]!.label).toBe('a to b: 0');
   expect(rows[1]!.cells[2]!.label).toBe('b to c: unavailable');
+});
+
+it('monotone areas retain raw values and curve through observed positions', () => {
+  const options = { title: 't', kind: 'stack' as const, curve: 'monotone' as const, x, series };
+  const smooth = seriesModel(options, 640);
+  expect(smooth.marks.every((mark) => mark.d!.includes('C'))).toBe(true);
+  expect(smooth.table).toEqual(seriesModel({ ...options, curve: undefined }, 640).table);
+  const path = monotonePath([
+    [0, 0],
+    [3, 6],
+    [6, 0],
+    [9, 0],
+  ]);
+  expect(path).toContain(' 3 6');
+  expect(path).toContain('C7 0 8 0 9 0');
+  expect(monotonePath([])).toBe('');
+  expect(
+    monotonePath([
+      [0, 1],
+      [1, 2],
+    ]),
+  ).toBe('M0 1L1 2');
 });

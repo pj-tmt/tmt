@@ -3512,12 +3512,31 @@ function linePath(points) {
 	return points.map(([x, y], at) => `${at ? "L" : "M"}${round(x)} ${round(y)}`).join("");
 }
 /** SVG path data for the band between an upper and a lower edge over the same x positions. */
-function areaPath(xs, upper, lower) {
+function areaPath(xs, upper, lower, curve) {
 	if (!xs.length) return "";
+	if (curve === "monotone") return `${monotonePath(xs.map((x, i) => [x, upper[i]]))}${monotonePath(xs.map((x, i) => [x, lower[i]]).reverse()).replace(/^M/, "L")}Z`;
 	return `${xs.map((x, at) => `${at ? "L" : "M"}${round(x)} ${round(upper[at])}`).join("")}${xs.map((x, at) => `L${round(x)} ${round(lower[at])}`).reverse().join("")}Z`;
 }
 function round(value) {
 	return Math.round(value * 100) / 100;
+}
+/** Cubic Hermite interpolation with sign-preserving, bounded tangents. Reversing x also works
+* for an area's return edge. Flat or turning points get zero slope, so no segment overshoots. */
+function monotonePath(points) {
+	if (points.length < 3) return linePath(points);
+	const slopes = points.slice(1).map(([x, y], i) => (y - points[i][1]) / (x - points[i][0]));
+	const tangents = points.map((_, i) => {
+		if (!i) return slopes[0];
+		if (i === points.length - 1) return slopes[i - 1];
+		const a = slopes[i - 1], b = slopes[i];
+		return a * b <= 0 ? 0 : 2 * a * b / (a + b);
+	});
+	return points.map(([x, y], i) => {
+		if (!i) return `M${round(x)} ${round(y)}`;
+		const [px, py] = points[i - 1];
+		const dx = (x - px) / 3;
+		return `C${round(px + dx)} ${round(py + dx * tangents[i - 1])} ${round(x - dx)} ${round(y - dx * tangents[i])} ${round(x)} ${round(y)}`;
+	}).join("");
 }
 //#endregion
 //#region ../../../../design/browser-ui/src/chart-dom.ts
@@ -3726,7 +3745,7 @@ function seriesModel(options, width) {
 	if (stack) stack.layers.forEach((layer, i) => marks.push({
 		kind: "area",
 		style: styleOf(layer, i, options.style),
-		d: areaPath(xs, layer.upper.map(yAt), layer.lower.map(yAt))
+		d: areaPath(xs, layer.upper.map(yAt), layer.lower.map(yAt), options.curve)
 	}));
 	else if (options.kind === "bars") {
 		const bar = Math.max(1, Math.min(24, (inner.right - inner.left) / columns - 2));
@@ -3750,7 +3769,7 @@ function seriesModel(options, width) {
 			if (run.length) marks.push({
 				kind: "line",
 				style: styleOf(layer, i, options.style),
-				d: linePath(run)
+				d: options.curve ? monotonePath(run) : linePath(run)
 			});
 			run = [];
 		};
@@ -3878,6 +3897,7 @@ function createSeriesChart(options) {
 		});
 		tip.replaceChildren(title, ...rows);
 		tip.hidden = false;
+		plot.querySelector(".tmt-ui-chart-cursor")?.removeAttribute("visibility");
 		const x = model.xs[at] ?? 0;
 		const flip = x > model.width / 2;
 		tip.classList.toggle("tmt-ui-chart-tip-left", flip);
@@ -3937,7 +3957,8 @@ function createSeriesChart(options) {
 			x1: 0,
 			x2: 0,
 			y1: model.top,
-			y2: model.bottom
+			y2: model.bottom,
+			visibility: tip.hidden ? "hidden" : "visible"
 		}, "tmt-ui-chart-cursor"));
 		select(active);
 	}
@@ -3957,9 +3978,15 @@ function createSeriesChart(options) {
 	};
 	plot.addEventListener("pointermove", point);
 	plot.addEventListener("pointerdown", point);
-	plot.addEventListener("pointerleave", () => tip.hidden = true);
+	function hideTip() {
+		tip.hidden = true;
+		plot.querySelector(".tmt-ui-chart-cursor")?.setAttribute("visibility", "hidden");
+	}
+	plot.addEventListener("pointerleave", () => {
+		if (document.activeElement !== plot) hideTip();
+	});
 	plot.addEventListener("focus", () => showTip(active));
-	plot.addEventListener("blur", () => tip.hidden = true);
+	plot.addEventListener("blur", hideTip);
 	frame.append(plot, tip);
 	figure.append(frame, readout, legend, dataTable(options.title, first.table.columns, first.table.rows));
 	paintAtWidth(figure, 640, paint);
@@ -4500,43 +4527,52 @@ function ranked(seats) {
 var SLOTS = {
 	"24h": {
 		count: 24,
-		stepMs: 36e5,
-		slot: "hour"
+		stepMs: HOUR,
+		group: 4
 	},
 	"7d": {
 		count: 7,
-		stepMs: 864e5,
-		slot: "day"
+		stepMs: DAY,
+		group: 1
 	},
 	"30d": {
 		count: 30,
-		stepMs: 864e5,
-		slot: "day"
+		stepMs: DAY,
+		group: 5
 	}
 };
 /**
-* One slot per seat across the range, at the resolution the report carries: hourly for 24 h,
-* daily for 7d and 30d. The slots end at the newest bucket; one with no bucket is not observed
-* (null), never zero. Seats come in the ranking's order: most tokens first.
+* Group real hourly/daily reads into four-hour, daily or five-day activity bars. Bins align to
+* the displayed local four-hour clock (daily groups retain report boundaries). A rolling 24h
+* normally has seven clipped bars, with
+* partial first/last bins. No extra observations are invented. If any constituent is missing,
+* the whole bar is hollow; an observed zero remains zero. Incomplete reads remain lower bounds.
 */
 function activity(doc) {
 	const shape = SLOTS[doc.since];
 	if (!shape) return null;
 	const latest = Math.max(...doc.usage.seats.flatMap((seat) => seat.series.map((point) => point.fromMs)));
 	if (!Number.isFinite(latest)) return null;
-	const starts = Array.from({ length: shape.count }, (_, at) => latest - (shape.count - 1 - at) * shape.stepMs);
+	const first = latest - (shape.count - 1) * shape.stepMs;
+	const end = latest + shape.stepMs;
+	const stepMs = shape.stepMs * shape.group;
+	const groupAt = (at) => Math.floor((at - (doc.since === "24h" ? new Date(at).getTimezoneOffset() * 6e4 : 0)) / stepMs);
+	const bins = [];
+	for (let at = first; at < end; at += shape.stepMs) {
+		const bucket = groupAt(at);
+		const previous = bins[bins.length - 1];
+		if (previous && groupAt(previous[0]) === bucket) previous.push(at);
+		else bins.push([at]);
+	}
 	return {
-		starts,
-		slot: shape.slot,
+		starts: bins.map((bin) => bin[0]),
+		ends: bins.map((bin) => bin[bin.length - 1] + shape.stepMs),
 		rows: ranked(doc.usage.seats).map((seat) => {
 			const byStart = new Map(seat.series.map((point) => [point.fromMs, point]));
 			return {
 				id: seat.id,
 				label: seatName(seat),
-				slots: starts.map((at) => {
-					const point = byStart.get(at);
-					return point ? tokensOf(point) : null;
-				})
+				slots: bins.map((bin) => bin.every((at) => byStart.has(at)) ? bin.reduce((sum, at) => sum + tokensOf(byStart.get(at)), 0) : null)
 			};
 		})
 	};
@@ -4640,7 +4676,7 @@ function notAvailable(note, text) {
 /** The terminal Digest's own cadence: the usage read refreshes once a minute. */
 var REFRESH_MS$1 = 6e4;
 /** Distinct series a chart draws; the rest fold into one neutral `Other`. */
-var SERIES_KEPT = 7;
+var SERIES_KEPT = 6;
 /** The neutral palette step of the folded `Other` layer (`tmt-ui-chart-s7`). */
 var OTHER_STEP = 7;
 function el$1(name, className, text) {
@@ -4792,7 +4828,7 @@ function allowanceRow(doc) {
 }
 function tokensCard(doc, state) {
 	const data = tokenSeries(doc);
-	const body = el$1("div", "digest-token-grid");
+	const body = el$1("div", "digest-token-grid tmt-ui-chart-seats");
 	const chart = el$1("div", "digest-token-chart");
 	const rows = rankRows(doc);
 	const total = rows.reduce((sum, row) => sum + row.tokens, 0);
@@ -4803,6 +4839,7 @@ function tokensCard(doc, state) {
 		host.replaceChildren(createSeriesChart({
 			title: state.share ? "Share of tokens by seat" : "Tokens by seat",
 			kind: state.share ? "share" : "stack",
+			curve: "monotone",
 			x: data.x,
 			series: topLayers(data.layers, SERIES_KEPT),
 			empty: "No token observations in this range."
@@ -4909,24 +4946,24 @@ function activityCard(doc) {
 		day: "numeric",
 		month: "short"
 	});
-	const hourly = view.slot === "hour";
+	const hourly = doc.since === "24h";
 	const range = (at) => {
 		const start = view.starts[at];
-		return hourly ? `${clock(start)}–${clock(start + 36e5)}` : day(start);
+		return hourly ? `${clock(start)}–${clock(view.ends[at])}` : `${day(start)}–${day(view.ends[at] - 1)}`;
 	};
 	return card("digest-activity", "Activity by seat", [createStrips({
 		layout: "heatmap",
-		labels: view.starts.map((at, i) => view.starts.length <= 7 || i % (hourly ? 4 : 6) === 0 ? hourly ? clock(at) : new Date(at).toLocaleDateString("en-GB", {
+		labels: view.starts.map((at) => hourly ? clock(at) : new Date(at).toLocaleDateString("en-GB", {
 			month: "short",
 			day: "numeric"
-		}) : ""),
-		title: `Relative token activity · ${hourly ? "hourly" : "daily"}`,
+		})),
+		title: `Relative token activity · ${hourly ? "4-hour blocks" : doc.since === "7d" ? "daily" : "5-day blocks"}`,
 		rows: view.rows,
 		slotCount: view.starts.length,
 		slotRange: range,
-		ends: hourly ? ["24 h ago", "now"] : [`${view.starts.length} days ago`, "today"],
+		ends: [doc.since + " ago", "now"],
 		legend: false
-	})]);
+	}), el$1("p", "usage-note", "Edge blocks cover only the reported window. A block with any missing bucket stays hollow; incomplete buckets are lower bounds.")]);
 }
 function exchangeCard(doc) {
 	const flow = exchange(doc);

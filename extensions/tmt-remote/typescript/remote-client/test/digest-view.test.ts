@@ -151,26 +151,34 @@ it('exchange retains every seat instead of silently keeping only the busiest eig
   );
 });
 
-it('activity is hourly for 24 hours and daily for 7d and 30d, ending at the newest bucket', () => {
-  const view = activity(day)!;
-  expect(view.starts).toHaveLength(24);
-  expect(view.rows.every((row) => row.slots.length === 24)).toBe(true);
-  expect(
-    view.rows
-      .find((row) => row.label === 'night-1')!
-      .slots.slice(0, 12)
-      .every((value) => value === null),
-  ).toBe(true);
-  expect(view.slot).toBe('hour');
-  for (const [range, count] of [
-    ['7d', 7],
-    ['30d', 30],
-  ] as const) {
-    const longer = activity(mockDocument(range))!;
-    expect(longer.slot).toBe('day');
-    expect(longer.starts).toHaveLength(count);
-    expect(longer.starts[1]! - longer.starts[0]!).toBe(86_400_000);
-    expect(longer.rows.every((row) => row.slots.length === count)).toBe(true);
+it('activity aggregates observed buckets without turning missing reads into quiet blocks', () => {
+  for (const range of ['24h', '7d', '30d'] as const) {
+    const doc = mockDocument(range);
+    const view = activity(doc)!;
+    expect(view.starts.length).toBeGreaterThanOrEqual(6);
+    expect(view.starts.length).toBeLessThanOrEqual(7);
+    expect(view.rows.every((row) => row.slots.length === view.starts.length)).toBe(true);
+    if (range === '24h')
+      expect(view.starts.slice(1).every((at) => new Date(at).getHours() % 4 === 0)).toBe(true);
+    for (const row of view.rows) {
+      const seat = doc.usage.seats.find((seat) => seat.id === row.id)!;
+      row.slots.forEach((value, i) => {
+        const points = seat.series.filter(
+          (point) => point.fromMs >= view.starts[i]! && point.fromMs < view.ends[i]!,
+        );
+        const expectedCount =
+          (view.ends[i]! - view.starts[i]!) / (range === '24h' ? 3_600_000 : 86_400_000);
+        expect(value).toBe(
+          points.length === expectedCount
+            ? points.reduce((sum, point) => sum + point.input + point.output, 0)
+            : null,
+        );
+      });
+    }
+    expect(view.ends[view.ends.length - 1]! - view.starts[0]!).toBe(
+      (range === '24h' ? 1 : range === '7d' ? 7 : 30) * 86_400_000,
+    );
+    expect(view.rows.find((row) => row.label === 'night-1')!.slots).toContain(null);
   }
 });
 

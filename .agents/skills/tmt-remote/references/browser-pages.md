@@ -188,7 +188,10 @@ those live regions. Presentation equality never suppresses signed reads or autho
 
 ## Digest presentation
 
-`digest-page` derives the allowance rows, combined token chart and seat legend, activity and
+`digest-page` groups activity into clock-aligned four-hour (24h), daily (7d) and five-day (30d)
+bars clipped to the reported window; any missing constituent keeps the entire bar hollow.
+Token areas use the leaf's pastel seat palette and monotone interpolation; sampled values and
+incomplete-bucket notes remain unchanged. `digest-page` derives the allowance rows, combined token chart and seat legend, activity and
 message views, and coverage/method footer from `DigestSource`. Provider history and method
 stay disclosures. The page owns range, scale, expanded legend and disclosure state; changed
 reports restore open disclosures and summary focus, while unchanged reads retain the existing
