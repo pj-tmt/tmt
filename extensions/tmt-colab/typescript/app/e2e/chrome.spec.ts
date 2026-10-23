@@ -105,8 +105,10 @@ async function metrics(page: Page) {
       height: header.getBoundingClientRect().height,
       padding: [style.paddingLeft],
       // The shell bar's header leaves the cluster's room on its end (it differs by screen); it can
-      // only add to the token padding.
-      endClears: parseFloat(style.paddingRight) >= parseFloat(style.paddingLeft),
+      // only add to the token's side padding, clamp(12px, 1.4vw, 20px).
+      endClears:
+        parseFloat(style.paddingRight) >=
+        Math.min(20, Math.max(12, window.innerWidth * 0.014)) - 0.5,
       gap: style.gap,
       background: style.backgroundColor,
       foreground: style.color,
