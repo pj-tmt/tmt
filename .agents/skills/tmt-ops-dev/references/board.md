@@ -392,8 +392,12 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   invoking existing public send effects. Several open requests use an explicit
   picker; empty submission and cancellation send nothing. `conversation` holds
   bounded session-only outgoing turns, truthful typed delivery labels and replies
-  correlated by exact sender/recipient/request identity. Acquired agent state and
-  freshness remain independent of delivery; delivered means written to the pane.
+  correlated by exact sender/recipient/request identity. While a local send awaits
+  its receipt ID, only that conversation's new sent-history admission waits; its
+  previously admitted history and incoming replies stay visible. Every send
+  outcome releases the deferral through the existing snapshot refresh. No body
+  text is used to merge requests. Acquired agent state and freshness remain
+  independent of delivery; delivered means written to the pane.
 - Editable fields, search and picker queries use `tmt_tui::components::Editor`.
   Home/End, Ctrl-A/E and reported Cmd-Left/Right move within the visual line;
   Alt/Ctrl-Left/Right and Alt-B/F move by Unicode word (CJK characters individually).

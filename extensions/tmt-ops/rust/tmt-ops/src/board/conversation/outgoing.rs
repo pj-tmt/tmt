@@ -748,6 +748,19 @@ fn push_question(
 }
 
 impl App {
+    /// Receipt IDs arrive with the ordered send outcome. Until then, only the
+    /// matching conversation's new sent history must wait; replies stay live.
+    pub(in crate::board) fn awaits_send_receipt(
+        &self,
+        key: &crate::board::home_leads::SentKey,
+    ) -> bool {
+        self.conversation
+            .borrow()
+            .sessions
+            .get(&(Some(key.sender.clone()), key.agent.clone()))
+            .is_some_and(|session| session.outgoing.iter().any(Entry::pending))
+    }
+
     /// Consume only retained response bytes already in the originator projection.
     /// The current detail path separately supplies its exact acquired body.
     fn loaded_reply_body(&self, key: &crate::board::home_leads::MessageKey) -> Option<&str> {

@@ -717,6 +717,13 @@ impl App {
         if self.conversation_finals().as_ref().map(sent_key).as_ref() != Some(&key) {
             return;
         }
+        // A concurrent history read can see a stored request before its send
+        // receipt reaches the UI. Keep the admitted history until its outcome
+        // supplies the ID or ends the attempt. Every outcome requests a fresh
+        // snapshot; the rest of the projection (including replies) still applies.
+        if self.awaits_send_receipt(&key) {
+            return;
+        }
         self.row_details.sent_stale = false;
         if result.is_err()
             && self
