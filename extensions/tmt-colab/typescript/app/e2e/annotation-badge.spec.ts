@@ -67,15 +67,12 @@ for (const width of [1440, 390])
       const inPanel = await colors(badge);
       expect(contrast(inPanel.color, inPanel.background)).toBeGreaterThanOrEqual(4.5);
 
-      // An 8px gap separates the badge from the title, as in the thread header row.
-      const gap = await row.locator('strong').evaluate((strong) => {
-        const badge = strong.querySelector('.annotation-number')!.getBoundingClientRect();
-        const title = [...strong.childNodes].find(
-          (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
-        )!;
-        const range = document.createRange();
-        range.selectNodeContents(title);
-        return range.getClientRects()[0].left - badge.right;
+      // An 8px gap at least separates the badge from the row's text column.
+      const gap = await row.locator('.annotation-row-text').evaluate((text) => {
+        const badge = text
+          .parentElement!.querySelector('.annotation-number')!
+          .getBoundingClientRect();
+        return text.getBoundingClientRect().left - badge.right;
       });
       expect(gap).toBeGreaterThanOrEqual(8);
       expect(gap).toBeLessThanOrEqual(9);
@@ -83,3 +80,49 @@ for (const width of [1440, 390])
         path: await capturePath(`3898-comments-badge-${width}-${theme}.png`),
       });
     });
+
+test('the Comments list is the website list: views, rows and an empty state per view', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await run(page, 'mount');
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
+  await run(page, 'seedThread');
+  await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
+  const panel = page.locator('.tmt-ui-drawer[data-panel="comments"][open]');
+  // Three views in one strip (no Proposals view without a proposal), and the add action under it.
+  const views = panel.getByRole('tablist', { name: 'Comment views' });
+  await expect(views.getByRole('tab')).toHaveText(['Open', 'Needs you', 'Resolved']);
+  await expect(views.getByRole('tab', { name: 'Open', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  const add = panel.getByRole('button', { name: '+ Comment on page', exact: true });
+  const [strip, action, frame] = [
+    await views.boundingBox(),
+    await add.boundingBox(),
+    await panel.locator('.tmt-ui-tabs').boundingBox(),
+  ];
+  // Under the strip, ending at the panel's right edge, with the list right below it.
+  expect(action!.y).toBeGreaterThanOrEqual(strip!.y + strip!.height - 1);
+  expect(Math.abs(action!.x + action!.width - (frame!.x + frame!.width))).toBeLessThanOrEqual(2);
+  const firstRow = await panel.getByTestId('annotation-row').first().boundingBox();
+  expect(firstRow!.y - (action!.y + action!.height)).toBeLessThanOrEqual(16);
+  // A row is the number, the title, the quoted passage and one small line; no byline or time.
+  const row = panel.getByTestId('annotation-row');
+  await expect(row).toHaveCount(1);
+  await expect(row.locator('.annotation-number')).toHaveText('1');
+  await expect(row.locator('strong')).not.toBeEmpty();
+  await expect(row.locator('.annotation-row-quote')).toHaveText('Exact selected text');
+  await expect(row.getByTestId('thread-row-status')).toHaveText('1 comment');
+  await expect(row.locator('time')).toHaveCount(0);
+  // The other views are empty here, and say so.
+  await views.getByRole('tab', { name: 'Needs you', exact: true }).click();
+  await expect(panel.getByTestId('annotation-row')).toHaveCount(0);
+  const empty = panel.getByTestId('comments-empty');
+  await expect(empty.getByRole('heading')).toHaveText('Nothing waiting here.');
+  await expect(empty).toContainText('You are caught up in this view.');
+  await views.getByRole('tab', { name: 'Resolved', exact: true }).click();
+  await expect(empty).toContainText('Resolved threads will appear here.');
+});

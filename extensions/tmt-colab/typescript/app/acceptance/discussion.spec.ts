@@ -30,6 +30,12 @@ async function edit(found: Locator, body: string) {
   await comment.getByRole('button', { name: 'Save comment', exact: true }).click();
   await expect(comment.locator('.comment-body')).toHaveText(body);
 }
+/** The Comments drawer's view tab. */
+const view = (page: Page, name: 'Open' | 'Resolved') =>
+  page
+    .locator('.tmt-ui-drawer[data-panel=comments][open]')
+    .getByRole('tab', { name: new RegExp(`^(● )?${name}`) })
+    .click();
 async function comments(page: Page) {
   if (!(await page.locator('.tmt-ui-drawer[data-panel=comments][open]').isVisible()))
     await (await pageAction(page, 'Comments')).click();
@@ -389,6 +395,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await comments(first);
     await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
     await t1.getByRole('button', { name: text.threadResolve, exact: true }).click();
+    await view(second, 'Resolved');
     await expect(row2).toContainText(text.threadResolved);
     // A person's resolve notifies the mentioned agent exactly once, through the Ask path.
     await until(() => agent.received().length === 3, 'resolve notification delivered');
@@ -396,7 +403,9 @@ test('paired writers retain anchored annotation conversations, direct exact send
     expect(notice).toContain('Thread resolved by discussion-author.');
     expect(notice).toContain(quote!);
     await t1.getByRole('button', { name: text.threadReopen, exact: true }).click();
-    await expect(row2).toContainText(text.threadOpen);
+    await view(second, 'Open');
+    await expect(row2).toBeVisible();
+    await expect(row2).not.toContainText(text.threadResolved);
     const marker = first.frameLocator('iframe').locator('[data-colab-thread]');
     await expect(marker).toHaveCount(1);
     const traffic = await first
