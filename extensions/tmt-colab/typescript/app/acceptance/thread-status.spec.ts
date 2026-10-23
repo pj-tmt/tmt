@@ -1,3 +1,4 @@
+import { commentsClose, commentsRegion } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
@@ -7,13 +8,11 @@ import { createPage, freePort, openPage, run, selectInRenderer } from './harness
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 async function comments(page: Page) {
-  if (!(await page.locator('.tmt-ui-drawer[data-panel=comments][open]').isVisible()))
-    await (await pageAction(page, 'Comments')).click();
+  if (!(await commentsRegion(page).isVisible())) await (await pageAction(page, 'Comments')).click();
 }
 /** The Comments drawer's view tab; the tab carries a mark and `New` while a resolved thread has news. */
 const view = (page: Page, name: 'Open' | 'Needs you' | 'Resolved') =>
-  page
-    .locator('.tmt-ui-drawer[data-panel=comments][open]')
+  commentsRegion(page)
     .getByRole('tab', { name: new RegExp(`^(● )?${name}`) })
     .click();
 const markers = (page: Page) => page.frameLocator('iframe').locator('[data-colab-thread]');
@@ -166,7 +165,7 @@ test('status states captured for the UX look', async () => {
         await page.mouse.move(width - 1, 899);
         if (options.header && width < 600) {
           // The 390px sheet covers the header: shoot the menu with the toggle copy with it closed.
-          await page.getByRole('button', { name: 'Close Comments', exact: true }).click();
+          await commentsClose(page, 'list').click();
           await page.getByRole('button', { name: /^Discussion \(/ }).click();
           await page.mouse.move(width - 1, 899);
           await page.screenshot({ path: `${captureDir}/${state}-menu-${width}-${theme}.png` });

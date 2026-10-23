@@ -1,3 +1,4 @@
+import { openPanel } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -138,7 +139,7 @@ async function shell(window: Locator) {
   const drawer = await window.evaluate((node) => !!node.closest('.tmt-ui-drawer'));
   await expect(
     drawer
-      ? window.page().locator('.tmt-ui-drawer[open] > .tmt-ui-drawer-header')
+      ? openPanel(window.page()).locator(':scope > .tmt-ui-drawer-header')
       : window.locator(':scope > .conversation-window-bar'),
   ).toHaveCount(1);
   if (drawer) await expect(window.locator(':scope > .conversation-window-bar')).toHaveCount(0);

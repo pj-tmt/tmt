@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { commentsRegion } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 
 /**
@@ -63,7 +64,7 @@ test('a reply on a large page updates its thread and leaves the document alone',
   await run(page, 'largePage', { paragraphs: 400, threads: 120 });
   await expect(frame(page).locator('[data-colab-thread]')).toHaveCount(120);
   await (await pageAction(page, 'Comments')).click();
-  const drawer = page.locator('.tmt-ui-drawer[open]');
+  const drawer = commentsRegion(page);
   await drawer.getByRole('button', { name: /^8 Comment on paragraph 7\./ }).click();
   await expect(
     drawer.getByTestId('comment-entry').getByText('Comment on paragraph 7.'),

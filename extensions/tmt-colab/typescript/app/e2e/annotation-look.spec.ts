@@ -3,6 +3,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { captureDirectory } from './captures.js';
 import { readFrameStyle } from './frame-style.js';
 import { destination } from '../test/ask-fixtures.js';
+import { commentsClose, commentsRegion } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 import { text } from '../src/strings.js';
 import { rgb, tokens } from './tokens.js';
@@ -136,7 +137,7 @@ for (const width of [1440, 390])
         rgb(tokens.browser.color['annotation-rule-selected'][theme]),
       );
       // A marker opens the thread's Discussion view in the drawer, which draws the shared edge.
-      await expectRuleEdge(page.locator('.tmt-ui-drawer[open]'), theme);
+      await expectRuleEdge(commentsRegion(page), theme);
       await expect(thread.locator('.annotation-number')).toHaveText('1');
       const human = thread.locator('.conversation-turn[data-turn-role="user"]');
       const agent = thread.locator('.conversation-turn[data-turn-role="agent"]');
@@ -156,7 +157,7 @@ for (const width of [1440, 390])
       await expect(human).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
       await expect(human.locator('.conversation-body .agent-chip')).toHaveCount(2);
       await page.screenshot({ path: `${captures}/annotation-thread-${width}-${theme}.png` });
-      await page.getByRole('button', { name: 'Close Discussion', exact: true }).click();
+      await commentsClose(page, 'discussion').click();
       await expect.poll(selectedPassages).toBeNull();
       await expect(frame.locator('.annotation-number[data-colab-selected]')).toHaveCount(0);
       const comments = await pageAction(app, 'Comments');
@@ -165,7 +166,7 @@ for (const width of [1440, 390])
       // Comments reopens on the thread that was open; All comments is the list.
       await panel.getByRole('button', { name: 'All comments', exact: true }).click();
       // The Comments drawer floats too; the shared drawer already draws the same edge.
-      await expectRuleEdge(page.locator('.tmt-ui-drawer[open]'), theme);
+      await expectRuleEdge(commentsRegion(page), theme);
       // The numbers are split between the Open and Resolved views (the open thread shows in both).
       const allNumbers = async () => {
         const seen = new Set<string>();

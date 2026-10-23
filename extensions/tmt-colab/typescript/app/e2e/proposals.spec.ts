@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { commentsRegion } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 import { text } from '../src/strings.js';
 import { rgb, tokens } from './tokens.js';
@@ -174,7 +175,7 @@ for (const placement of ['missing', 'duplicate'])
     await expect(page.locator('[data-inline-proposal]')).toHaveAttribute('data-detached', 'true');
     await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
     await page.locator('[data-testid="annotation-row"]').click();
-    const card = page.locator('.tmt-ui-drawer[data-panel="comments"][open] .proposal-card');
+    const card = commentsRegion(page).locator('.proposal-card');
     await expect(card).toBeVisible();
     await expect(card.locator('.proposal-author')).toContainText('Detached');
     expect((await run(page, 'proof')).sends).toHaveLength(0);
@@ -274,7 +275,7 @@ for (const width of [1440, 390])
         await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
       await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
       await page.getByTestId('annotation-row').click();
-      const card = page.locator('.tmt-ui-drawer[data-panel="comments"][open] .proposal-card');
+      const card = commentsRegion(page).locator('.proposal-card');
       await expect(card).toBeVisible();
       // The same card in Comments continues to follow the app chrome theme.
       await expect(card).toHaveCSS(
@@ -348,7 +349,7 @@ for (const [width, theme] of [
       await page.screenshot({ path: `${captureDir}/header-count-${width}-${theme}.png` });
     }
     await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
-    const panel = page.locator('.tmt-ui-drawer[data-panel="comments"][open]');
+    const panel = commentsRegion(page);
     // The Open view lists the three unresolved threads; the folded proposal is in Resolved.
     await expect(panel.getByTestId('annotation-row')).toHaveCount(3);
     await expect(panel).toContainText('Review the supporting notes.');
@@ -421,7 +422,7 @@ test('folded proposal keeps agent resolution unseen until its history is opened'
   await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
   await run(page, 'agentResolves');
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
-  const panel = page.locator('.tmt-ui-drawer[data-panel="comments"][open]');
+  const panel = commentsRegion(page);
   const folded = panel.locator('.annotation-list-item[data-resolved]');
   // The resolved proposal is not in the Open view; its tab carries the news.
   await panel.getByRole('tab', { name: '● Resolved · New', exact: true }).click();

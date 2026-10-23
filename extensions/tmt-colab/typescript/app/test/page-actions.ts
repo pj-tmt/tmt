@@ -1,4 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
+import { openPanel } from './comments-region.js';
 
 /** Resolve page actions through their header menu; readers keep their direct Files control. Search,
  * Chat and Agents are the page header's own entries; every other action is in the More menu (#4116). */
@@ -6,7 +7,7 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
   const directName = name === 'Files' ? /^Files(?: \(\d+\)| \d+)?$/ : name;
   const page = 'page' in host ? host.page() : host;
   const header = host.locator('.page-header-actions:visible');
-  const drawer = page.locator('.tmt-ui-drawer[open]');
+  const drawer = openPanel(page);
   // The first covered-header press dismisses only; the action needs a second press.
   const dismissDrawer = async () => {
     const button = await page

@@ -1,3 +1,4 @@
+import { commentsRegion, openPanel } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -368,7 +369,7 @@ for (const width of [1440, 390]) {
           (node) => (window as unknown as { anchoredInput: Element }).anchoredInput === node,
         ),
       ).toBe(true);
-      await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
+      await expect(openPanel(page)).toHaveCount(0);
       expect((await run(page, 'proof')).sends).toHaveLength(0);
       expect(Math.abs((await dialog.boundingBox())!.x - before.x)).toBeLessThan(2);
       const sent = (await dialog.boundingBox())!;
@@ -462,7 +463,7 @@ for (const width of [1440, 390]) {
         .frameLocator('#ask-page-fixture iframe')
         .locator(`[data-colab-thread$="${threadId}"]`);
       await marker.click();
-      const drawer = page.locator('.tmt-ui-drawer[open]');
+      const drawer = commentsRegion(page);
       const discussion = drawer.getByTestId('comment-thread');
       await expect(discussion).toHaveAttribute('data-thread-id', threadId!);
       await expect(discussion).toHaveAttribute('data-layout', 'discussion');

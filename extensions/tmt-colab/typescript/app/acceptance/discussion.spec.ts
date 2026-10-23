@@ -1,3 +1,4 @@
+import { commentsClose, commentsRegion, openPanel } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { text } from '../src/strings.js';
@@ -32,13 +33,11 @@ async function edit(found: Locator, body: string) {
 }
 /** The Comments drawer's view tab. */
 const view = (page: Page, name: 'Open' | 'Resolved') =>
-  page
-    .locator('.tmt-ui-drawer[data-panel=comments][open]')
+  commentsRegion(page)
     .getByRole('tab', { name: new RegExp(`^(● )?${name}`) })
     .click();
 async function comments(page: Page) {
-  if (!(await page.locator('.tmt-ui-drawer[data-panel=comments][open]').isVisible()))
-    await (await pageAction(page, 'Comments')).click();
+  if (!(await commentsRegion(page).isVisible())) await (await pageAction(page, 'Comments')).click();
 }
 
 test.afterEach(disposeActiveWorlds);
@@ -105,7 +104,7 @@ test('a same-request annotation reply recovers from a visible transient read fai
       window.getByText(text.askObservationUnavailable, { exact: true }),
     ).toBeInViewport();
     expect(failedReads).toBeGreaterThan(0);
-    await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
+    await expect(openPanel(page)).toHaveCount(0);
     const failureCaptures = process.env.COLAB_DISCUSSION_CAPTURE_DIR;
     if (failureCaptures) {
       mkdirSync(failureCaptures, { recursive: true });
@@ -239,7 +238,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
             );
           }),
         ).toBe(true);
-        await expect(first.locator('.tmt-ui-drawer[data-panel=comments][open]')).toHaveCount(0);
+        await expect(commentsRegion(first)).toHaveCount(0);
         await first.screenshot({ path: `${captureDir}/1587-native-${width}-${theme}-popover.png` });
         await prefilled.fill('@');
         await expect(first.getByRole('listbox')).toBeVisible();
@@ -319,7 +318,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     expect(agent.received()[0].message).toContain(opening);
     expect(agent.received()[0].message).toContain(quote!);
     const t1 = first.getByTestId('comment-thread').first();
-    await expect(first.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
+    await expect(openPanel(first)).toHaveCount(0);
     expect(
       await input.evaluate(
         (node) =>
@@ -441,10 +440,10 @@ test('paired writers retain anchored annotation conversations, direct exact send
       'title',
       `Thread ${await marker.textContent()}: An & 🌍 exact quote for review.`,
     );
-    await first.getByRole('button', { name: 'Close Comments', exact: true }).click();
+    await commentsClose(first, 'list').click();
     await marker.click();
     await expect(t1).toBeVisible();
-    await expect(first.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
+    await expect(openPanel(first)).toHaveCount(0);
     const frameWidth = (await first.locator('iframe').boundingBox())!.width;
     expect(frameWidth).toBe(beforeCommentsWidth);
     await first
@@ -458,7 +457,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
       await t1.getByRole('button', { name: text.threadCollapse, exact: true }).click();
       await first.screenshot({ path: `${captureDir}/1587-native-${width}-light-markers.png` });
       await marker.click();
-      await expect(first.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
+      await expect(openPanel(first)).toHaveCount(0);
       await comments(first);
       await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
       for (const theme of ['light', 'dark']) {
@@ -466,16 +465,20 @@ test('paired writers retain anchored annotation conversations, direct exact send
           document.documentElement.dataset.theme = theme;
         }, theme);
         await t1.getByRole('combobox', { name: 'Message', exact: true }).press('Escape');
-        await first.locator('.tmt-ui-drawer[open] .tmt-ui-drawer-body').evaluate((node) => {
-          node.scrollTop = 0;
-        });
+        await commentsRegion(first)
+          .locator('.tmt-ui-drawer-body')
+          .evaluate((node) => {
+            node.scrollTop = 0;
+          });
         await first.getByRole('button', { name: text.allComments, exact: true }).click();
         await first.screenshot({ path: `${captureDir}/1587-native-${width}-${theme}-threads.png` });
         await first.locator(`[data-testid="annotation-row"][data-thread-id="${threadId}"]`).click();
         await expect(t1).toHaveAttribute('data-anchor', 'attached');
-        await first.locator('.tmt-ui-drawer[open] .tmt-ui-drawer-body').evaluate((node) => {
-          node.scrollTop = 0;
-        });
+        await commentsRegion(first)
+          .locator('.tmt-ui-drawer-body')
+          .evaluate((node) => {
+            node.scrollTop = 0;
+          });
         await first.screenshot({ path: `${captureDir}/1587-native-${width}-${theme}-thread.png` });
         // Comment order within a thread is not fixed; take the one this browser wrote.
         const own = t1.getByTestId('comment-entry').filter({ hasText: 'You ·' }).first();
@@ -616,7 +619,7 @@ test('composer records plain annotations and replies without a recipient, then s
     // A plain turn becomes the same anchored window, without opening Comments or requesting an agent.
     const thread = compose.getByTestId('comment-thread');
     await expect(thread).toBeVisible();
-    await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
+    await expect(openPanel(page)).toHaveCount(0);
     const original = thread
       .getByTestId('comment-entry')
       .filter({ hasText: 'Plain annotation without a recipient.' });

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openPanel } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 import { capturePath } from './captures.js';
 
@@ -94,7 +95,7 @@ for (const drawer of ['Comments', 'Chat'] as const)
   }) => {
     await open(page);
     await (await pageAction(page, drawer)).click();
-    const panel = page.locator('.tmt-ui-drawer[open]');
+    const panel = openPanel(page);
     await expect(panel.getByRole('status')).toHaveText('Loading comments…');
     await expect(panel.getByRole('textbox').or(panel.getByRole('combobox'))).toHaveCount(0);
     await expect(panel.getByTestId('comment-thread')).toHaveCount(0);

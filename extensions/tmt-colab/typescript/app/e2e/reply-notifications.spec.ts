@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { commentsClose, commentsRegion } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 import { capturePath } from './captures.js';
 import { PNG, attach, send } from '../test/attachment-page.js';
@@ -140,7 +141,7 @@ for (const destination of ['Chat', 'Thread'] as const) {
         else {
           await open(page, 'Comments');
           // Comments reopens on the thread it had selected; otherwise the news is in Resolved.
-          await expect(page.locator('.tmt-ui-drawer[data-panel="comments"][open]')).toBeVisible();
+          await expect(commentsRegion(page)).toBeVisible();
           if (await page.getByRole('button', { name: 'All comments', exact: true }).isVisible())
             return;
           await page.getByRole('tab', { name: /Resolved/ }).click();
@@ -380,7 +381,7 @@ test('typing focus and caret survive arrivals; hidden-document resume announces 
   await expect(field).toHaveText('Retained unsent draft');
   expect(await field.getAttribute('id')).toBe(identity);
   expect(await caret()).toEqual(selection);
-  await page.getByRole('button', { name: 'Close Discussion', exact: true }).click();
+  await commentsClose(page, 'discussion').click();
   await expect(live(page)).toContainText('New reply during hidden document');
   await run(page, 'repeat');
   const events = await page.evaluate(
@@ -522,7 +523,7 @@ for (const [width, theme] of [
     await run(page, 'arrive', { destination: 'Chat', body: 'Held while reading the thread' });
     await expect(page.locator('.tmt-ui-notifications')).not.toBeVisible();
     await expect(live(page)).toHaveText('');
-    await page.getByRole('button', { name: 'Close Discussion', exact: true }).click();
+    await commentsClose(page, 'discussion').click();
     await expect(cards(page)).toHaveCount(3);
     // Reply 203 belongs to the thread the Discussion view displayed, so reading it settled that
     // entry; the Chat replies keep their original order and the held one waits behind them.
