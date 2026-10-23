@@ -117,8 +117,10 @@ for (const layout of ['column', 'freeform'])
     );
     const lead = await edges(frame(page).locator('#lead'));
     const first = await edges(rows.nth(0));
-    // The paragraph's own 16 px margin and nothing the frame reserves on top of it.
-    expect(first.top - lead.bottom).toBeLessThanOrEqual(16.5);
+    // The paragraph's own 16 px margin and nothing the frame reserves on top of it: the card
+    // follows the passage at that gap, and its line sits the card's 4 px padding inside.
+    const card = await edges(page.locator('.question-compact-block').first());
+    expect(card.top - lead.bottom).toBeLessThanOrEqual(16.5);
     const side = await edges(frame(page).locator('#side'));
     const second = await edges(rows.nth(1));
     expect(second.top).toBeGreaterThan(first.bottom - 1);

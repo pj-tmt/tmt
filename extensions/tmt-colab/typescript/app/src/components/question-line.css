@@ -1,32 +1,41 @@
-/* A card over the author's page is the page sheet with a 1px light rule, closed or open, so the
-   page behind never decides its text colours (needs-you.css; #4068). The rule is drawn inside the
-   box, so it moves nothing. */
+/* A question is one band over the author's page, as on the concept website (#/colab/page/ops-ui): the
+   page sheet between two 1px light rules, closed or open, with no side rules and no radius, so the
+   page behind never decides its text colours (needs-you.css; #4068). The rules are the block's own
+   borders. A group of several questions separates its rows with the same rule. */
 .question-compact-block {
+  --question-icon: 22px;
+  --question-text-inset: calc(var(--question-icon) + 12px);
   box-sizing: border-box;
   max-height: 1900px;
   overflow: auto;
-  padding: 0 12px;
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-sheet);
-  outline: 1px solid var(--tmt-ui-surface-rule);
-  outline-offset: -1px;
+  border-block: 1px solid var(--tmt-ui-surface-rule);
   pointer-events: auto;
+}
+.question-compact-block > div + div {
+  border-top: 1px solid var(--tmt-ui-surface-rule);
 }
 .question-compact-heading {
   margin: 0;
-  padding: 8px 0;
+  padding: 12px 16px 0;
   color: var(--tmt-ui-color-secondary);
   font-size: 13px;
 }
+/* The ? glyph, the eyebrow over the title, the state and the chevron; an answered line adds the
+   answer under the title. */
 .question-line {
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: auto minmax(0, auto) minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: 8px;
+  grid-template-columns: var(--question-icon) minmax(0, 1fr) auto 14px;
+  grid-template-areas:
+    'icon heading state chevron'
+    '. answer answer .';
+  align-items: start;
+  column-gap: 12px;
   width: 100%;
   margin: 0;
-  padding: 10px 0;
+  padding: 16px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -35,14 +44,6 @@
   text-align: start;
   cursor: pointer;
 }
-/* A closed line has no rule. An open one, the head of its controls, has one across the whole block,
-   past the block's own side padding. */
-.question-line[aria-expanded='true'] {
-  width: calc(100% + 24px);
-  margin-inline: -12px;
-  padding-inline: 12px;
-  border-bottom: 1px solid var(--tmt-ui-surface-rule);
-}
 .question-line:hover {
   background: var(--tmt-ui-surface-selection);
 }
@@ -50,57 +51,92 @@
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: -1px;
 }
-.question-line[data-state='waiting'] .question-line-mark,
-.question-line-mark[data-state='waiting'] {
-  color: var(--tmt-ui-color-waiting);
+.question-line-icon {
+  grid-area: icon;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--question-icon);
+  height: var(--question-icon);
+  border-radius: var(--tmt-ui-radius-pill);
+  background: var(--tmt-ui-surface-hover);
+  color: var(--tmt-ui-color-text);
+  font: 500 12px var(--tmt-ui-font-mono);
 }
-.question-line[data-state='answered'] .question-line-mark {
-  color: var(--tmt-ui-color-working);
+.question-line-heading {
+  grid-area: heading;
+  display: grid;
+  min-width: 0;
+}
+.question-line-eyebrow {
+  color: var(--tmt-ui-color-secondary);
+  font-size: 13px;
+  line-height: 1.3;
+}
+.question-line-title {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.question-line-state {
+  grid-area: state;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--tmt-ui-color-waiting);
+  font-size: 13px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+/* An answered line is quiet: the check and the word in the secondary role. */
+.question-line[data-state='answered'] .question-line-state {
+  color: var(--tmt-ui-color-secondary);
 }
 /* The mark and the spinner that stands in for it while an answer is sent share one cell, so the
    swap moves nothing. */
 .question-line-mark {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-inline-size: 1em;
-  text-align: center;
 }
 .question-line-mark .comment-echo-mark svg {
   vertical-align: -1px;
 }
-.question-line-title {
-  overflow-wrap: anywhere;
-}
-.question-line-state,
 .question-line-chevron {
+  grid-area: chevron;
+  display: flex;
   color: var(--tmt-ui-color-secondary);
 }
-/* On the hover fill the secondary grey is 4.4:1 in the dark theme, so a hovered line shows its state
-   and chevron in the ink. */
-.question-line:hover .question-line-state,
+.question-line-chevron svg {
+  width: 14px;
+  height: 14px;
+}
+.question-line-mark svg {
+  width: 13px;
+  height: 13px;
+}
+/* On the hover fill the secondary grey is 4.4:1 in the dark theme, so a hovered line shows its
+   glyph and chevron in the ink. */
+.question-line:hover .question-line-icon,
 .question-line:hover .question-line-chevron {
   color: var(--tmt-ui-color-text);
 }
-.question-line-state {
+.question-line-answer {
+  grid-area: answer;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   min-width: 0;
+  margin-top: 6px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  color: var(--tmt-ui-color-secondary);
 }
-.question-line-state::before {
-  content: '· ';
-}
-.question-line-chevron {
-  align-self: center;
-  display: flex;
-}
-.question-line-chevron svg {
-  width: 16px;
-  height: 16px;
-}
+/* The open line's fields start in the heading's column, under it. */
 .question-compact-controls {
-  margin: 8px 0 12px 8px;
-  padding-left: 12px;
-  border-left: 1px solid var(--tmt-ui-surface-rule);
+  margin: 0;
+  padding: 0 16px 16px calc(16px + var(--question-text-inset));
 }
 .question-compact-controls .question-controls {
   background: transparent;
@@ -108,10 +144,12 @@
   overflow: visible;
   padding: 0;
 }
+/* The rule between the fields and the send row. */
 .question-compact-controls .question-group-footer {
   background: transparent;
-  padding: 12px 0 0;
+  padding: 16px 0 0;
   border: 0;
+  border-top: 1px solid var(--tmt-ui-surface-rule);
 }
 .question-compact-inline {
   pointer-events: auto;
@@ -121,21 +159,18 @@
 }
 @media (max-width: 600px) {
   .question-line {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: var(--question-icon) minmax(0, 1fr) 14px;
+    grid-template-areas:
+      'icon heading chevron'
+      '. state .'
+      '. answer answer';
+    row-gap: 6px;
   }
-  .question-line-title {
-    grid-column: 2;
+  .question-line-answer {
+    margin-top: 0;
   }
-  .question-line-state {
-    grid-column: 2;
-    grid-row: 2;
-  }
-  .question-line-state::before {
-    content: none;
-  }
-  .question-line-chevron {
-    grid-column: 3;
-    grid-row: 1;
+  .question-compact-controls {
+    padding-inline-start: 16px;
   }
 }
 

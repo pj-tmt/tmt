@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { rgb, tokens } from './tokens.js';
+import { expectAnswered } from './question-line.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -40,8 +41,8 @@ test('compact wrapper rows start closed, preserve drafts and keep one explicit b
   expect(await run(page, 'discussionProof')).toHaveLength(0);
   const send = page.getByRole('button', { name: 'Send 2 answers · to @Agent 1', exact: true });
   await send.click();
-  await expect(rows.first()).toContainText('Answered: Change it');
-  await expect(rows.nth(1)).toContainText('Answered: Keep this introduction draft.');
+  await expectAnswered(rows.first(), 'Change it');
+  await expectAnswered(rows.nth(1), 'Keep this introduction draft.');
   await expect(rows.nth(1)).toHaveAttribute('aria-expanded', 'false');
   const threads = await run(page, 'discussionProof');
   expect(threads).toHaveLength(2);
@@ -64,8 +65,8 @@ test('split Send publishes only its own question and keeps another passage draft
   await rows.nth(1).click();
   await page.getByLabel('Your answer', { exact: true }).fill('Only this passage is sent.');
   await page.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true }).click();
-  await expect(rows.nth(1)).toContainText('Answered: Only this passage is sent.');
-  await expect(rows.first()).toContainText('Needs you');
+  await expectAnswered(rows.nth(1), 'Only this passage is sent.');
+  await expect(rows.first()).toContainText('Needs your answer');
   const threads = await run(page, 'discussionProof');
   expect(threads).toHaveLength(1);
   expect(threads[0].anchor.exact).toBe('What should the introduction say?');
@@ -108,7 +109,7 @@ test('split question recipients stay local to their own block', async ({ page })
   await expect(page.getByRole('button', { name: 'Remove @Agent 1', exact: true })).toHaveCount(0);
   await page.getByLabel('Your answer', { exact: true }).fill('Ask only Agent 2.');
   await page.getByRole('button', { name: 'Send answer · to @Agent 2', exact: true }).click();
-  await expect(rows.nth(1)).toContainText('Answered: Ask only Agent 2.');
+  await expectAnswered(rows.nth(1), 'Ask only Agent 2.');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
   const attempts = await run(page, 'answerBatchProof');
   expect(attempts[0].selection.comment).toContain('@Agent 2');
@@ -117,7 +118,7 @@ test('split question recipients stay local to their own block', async ({ page })
   await expect(page.getByLabel('Keep it', { exact: true })).toBeChecked();
   await expect(page.getByRole('button', { name: 'Remove @Agent 1', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Send answer · to thread only', exact: true }).click();
-  await expect(rows.first()).toContainText('Answered: Keep it');
+  await expectAnswered(rows.first(), 'Keep it');
   expect(await run(page, 'discussionProof')).toHaveLength(2);
   expect((await run(page, 'proof')).sends).toHaveLength(1);
 });
@@ -136,8 +137,8 @@ test('a split question cannot bypass the recipient read by pressing Enter', asyn
     page.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true }),
   ).toBeEnabled();
   await answer.press('Enter');
-  await expect(rows.nth(1)).toContainText('Answered: Keep the directory admission fence.');
-  await expect(rows.first()).toContainText('Needs you');
+  await expectAnswered(rows.nth(1), 'Keep the directory admission fence.');
+  await expect(rows.first()).toContainText('Needs your answer');
   expect(await run(page, 'discussionProof')).toHaveLength(1);
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
 });
@@ -156,16 +157,11 @@ for (const width of [1440, 390]) {
       rgb(tokens.browser.surface.sheet.dark),
     );
     await expect(page.locator('.question-compact-block')).toHaveCSS(
-      'outline-color',
+      'border-top-color',
       rgb(tokens.browser.surface.rule.dark),
     );
-    await expect(row.locator('.question-line-chevron svg')).toHaveCSS('width', '16px');
-    await expect(row.locator('.question-line-chevron svg')).toHaveCSS('height', '16px');
-    expect(
-      await row
-        .locator('.question-line-state')
-        .evaluate((node) => getComputedStyle(node, '::before').content),
-    ).toBe(width === 390 ? 'none' : '"· "');
+    await expect(row.locator('.question-line-chevron svg')).toHaveCSS('width', '14px');
+    await expect(row.locator('.question-line-chevron svg')).toHaveCSS('height', '14px');
     await row.focus();
     await row.press('Enter');
     await page.mouse.move(0, 0);

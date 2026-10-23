@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { pageAction } from '../test/page-actions.js';
 import { rgb, tokens } from './tokens.js';
+import { expectAnswered } from './question-line.js';
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
   return page.evaluate(
@@ -25,7 +26,7 @@ async function send(page: Page) {
   const card = page.locator('.question-group-card');
   await card.getByRole('button', { name: /^Send answer/ }).press('Enter');
   const line = card.locator('.question-line');
-  await expect(line).toContainText('Answered:');
+  await expect(line).toContainText('Answered');
   await expect(line).toHaveAttribute('aria-expanded', 'false');
   await line.click();
   await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
@@ -33,7 +34,7 @@ async function send(page: Page) {
 for (const kind of ['single', 'multiple', 'short', 'long']) {
   test(`${kind} creates a normal quote thread and changing answers appends`, async ({ page }) => {
     const card = await mount(page, { kind, other: kind === 'single' || kind === 'multiple' });
-    await expect(card.locator('.question-line')).toContainText('Needs you');
+    await expect(card.locator('.question-line')).toContainText('Needs your answer');
     if (kind === 'single' || kind === 'multiple') {
       await card.getByLabel('Change it', { exact: true }).check();
       if (kind === 'multiple') await card.getByLabel('Keep it', { exact: true }).check();
@@ -58,7 +59,7 @@ for (const kind of ['single', 'multiple', 'short', 'long']) {
     await card.getByRole('button', { name: 'Change answer', exact: true }).press('Enter');
     if (kind === 'single' || kind === 'multiple') {
       await card.getByLabel('Other', { exact: true }).check();
-      await card.getByLabel('Other answer', { exact: true }).fill('Try another heading.');
+      await card.getByLabel('Your other answer', { exact: true }).fill('Try another heading.');
     } else await card.getByLabel('Your answer', { exact: true }).fill('My changed answer.');
     await send(page);
     await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(2);
@@ -134,7 +135,7 @@ test('answered canonical threads resist empty siblings and agent provenance pres
     index: 0,
   });
   await expect(card.locator('.question-answer')).toContainText('Keep it');
-  await expect(card.locator('.question-line')).toContainText('Answered:');
+  await expect(card.locator('.question-line')).toContainText('Answered');
   await run(page, 'questionSibling', {
     body: `${prefix}Other reader answer\nPage: Live shared page`,
     sequence: '10',
@@ -150,12 +151,12 @@ test('answered canonical threads resist empty siblings and agent provenance pres
     index: 2,
   });
   await expect(card.locator('.question-answer')).toContainText('Keep it');
-  await expect(card.locator('.question-line')).toContainText('Answered:');
+  await expect(card.locator('.question-line')).toContainText('Answered');
   await card.getByRole('button', { name: 'Change answer', exact: true }).click();
   await card.getByLabel('Change it', { exact: true }).check();
   await send(page);
   await expect(card.locator('.question-answer')).toContainText('Change it');
-  await expect(card.locator('.question-line')).toContainText('Answered:');
+  await expect(card.locator('.question-line')).toContainText('Answered');
   const threads = await run(page, 'discussionProof');
   expect(
     threads.find((thread: { ref: { writer: string } }) => thread.ref.writer.endsWith('000002'))
@@ -174,7 +175,7 @@ test('an answered question closes to its focused line and Change answer restores
   await card.getByLabel('Keep it', { exact: true }).check();
   await card.getByRole('button', { name: /^Send answer/ }).press('Enter');
   const line = card.locator('.question-line');
-  await expect(line).toContainText('Answered: Keep it');
+  await expectAnswered(line, 'Keep it');
   await expect(line).toHaveAttribute('aria-expanded', 'false');
   await expect(line).toBeFocused();
   // Nothing of the answer being written stays next to the folded line.
@@ -225,7 +226,7 @@ test('answering a card moves the page once, however late the record and the Ask 
   await watchSlotHeight(page);
   await slotStep(page, 'send');
   await card.getByRole('button', { name: /^Send answer/ }).click();
-  await expect(card.locator('.question-line')).toContainText('Answered: Keep it');
+  await expectAnswered(card.locator('.question-line'), 'Keep it');
   await page.waitForTimeout(600);
   await slotStep(page, 'record');
   await run(page, 'releaseQuestionView');
@@ -258,12 +259,12 @@ test('a failed answer re-opens its folded card on the error row, Retry focused, 
     'Could not confirm this answer. Your draft is kept for the next Send.',
   );
   await expect(line).toHaveAttribute('aria-expanded', 'true');
-  await expect(line).toContainText('Needs you');
+  await expect(line).toContainText('Needs your answer');
   await expect(retry).toBeFocused();
   await expect(card.getByLabel('Keep it', { exact: true })).toBeChecked();
   expect(await run(page, 'discussionProof')).toHaveLength(0);
   await retry.click();
-  await expect(line).toContainText('Answered: Keep it');
+  await expectAnswered(line, 'Keep it');
   await expect(line).toHaveAttribute('aria-expanded', 'false');
   await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(1);
 });
@@ -283,7 +284,7 @@ for (const change of [false, true]) {
     await card.getByRole('button', { name: /^Send answer/ }).click();
     // The answer stands on its folded line at once; no step is spelled out.
     const line = card.locator('.question-line');
-    await expect(line).toContainText(`Answered: ${change ? 'Change it' : 'Keep it'}`);
+    await expectAnswered(line, `${change ? 'Change it' : 'Keep it'}`);
     await expect(line).toHaveAttribute('aria-expanded', 'false');
     await expect(page.getByText('Sending…', { exact: true })).toHaveCount(0);
     await expect(page.getByText(/waiting for the verified view/)).toHaveCount(0);
@@ -498,7 +499,8 @@ for (const width of [1440, 390])
           'color',
           rgb(tokens.browser.color.text[scheme]),
         );
-        await expect(card.locator('.question-group-footer')).toHaveCSS('border-top-width', '0px');
+        // The one rule inside the band sits between the fields and the send row.
+        await expect(card.locator('.question-group-footer')).toHaveCSS('border-top-width', '1px');
         // Sibling agent cards follow the same painted scheme.
         await expect(proposal.locator('.proposal-card')).toHaveCSS(
           'background-color',
@@ -564,21 +566,25 @@ for (const width of [1440, 390])
           });
         }
         await card.getByLabel('Other', { exact: true }).check();
-        await card.getByLabel('Other answer', { exact: true }).fill('Try a clearer heading.');
+        await card.getByLabel('Your other answer', { exact: true }).fill('Try a clearer heading.');
         const sendButton = card.getByRole('button', { name: /^Send answer/ });
         await expect(sendButton).toBeEnabled();
-        // Send is an inline text action, like the other needs-you actions.
-        await expect(sendButton).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-        await expect(sendButton).toHaveCSS('text-decoration-line', 'underline');
-        await expect(sendButton).toHaveCSS('color', rgb(tokens.browser.color.text[scheme]));
+        // Send is the card's one primary action: the accent fill, not an underlined link.
+        await expect(sendButton).toHaveAttribute('data-variant', 'primary');
+        await expect(sendButton).toHaveCSS(
+          'background-color',
+          rgb(tokens.browser.color.accent[scheme]),
+        );
+        await expect(sendButton).toHaveCSS('text-decoration-line', 'none');
         await sendButton.press('Tab');
         await page.keyboard.press('Shift+Tab');
         await expect(sendButton).toBeFocused();
+        // One focus frame (#3998): the filled button's own border takes the focus edge, no outline.
         await expect(sendButton).toHaveCSS(
-          'outline-color',
-          rgb(tokens.browser.color.focus[scheme]),
+          'border-top-color',
+          rgb(tokens.browser.color['selected-text'][scheme]),
         );
-        await expect(sendButton).toHaveCSS('outline-width', '1px');
+        await expect(sendButton).toHaveCSS('outline-style', 'none');
         await send(page);
         await expect(card.locator('.question-controls')).toHaveCSS(
           'background-color',
@@ -639,7 +645,7 @@ test('cosmetic frame claims cannot supply an answer or send authority', async ({
         ),
     )
     .toBeGreaterThan(0);
-  await expect(card.locator('.question-line')).toContainText('Needs you');
+  await expect(card.locator('.question-line')).toContainText('Needs your answer');
   await expect(card.locator('.question-answer')).toHaveCount(0);
   await card.getByLabel('Keep it', { exact: true }).check();
   await expect(

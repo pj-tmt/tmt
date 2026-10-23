@@ -108,16 +108,13 @@ const measure = (page: Page, backdrop: string) =>
         // A card's own surface and boundary: the question block and the proposal card.
         if (element.matches('.question-compact-block, .proposal-card')) {
           const style = getComputedStyle(element);
-          // The block draws its rule as an outline inside its box (nothing moves), the proposal
-          // card as a border; the other of the two must be absent.
-          const block = element.matches('.question-compact-block');
-          const outline = `${style.outlineWidth} ${style.outlineStyle} ${style.outlineColor}`;
+          // Both draw their rule as a border (the block's top and bottom); neither carries an outline.
           const border = `${style.borderTopWidth} ${style.borderTopStyle} ${style.borderTopColor}`;
           cards.push({
             selector: element.className.split(' ')[0],
             fill: style.backgroundColor,
-            rule: block ? outline : border,
-            other: block ? style.borderTopStyle : style.outlineStyle,
+            rule: border,
+            other: style.outlineStyle,
           });
         }
       }

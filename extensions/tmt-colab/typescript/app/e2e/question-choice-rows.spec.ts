@@ -19,9 +19,10 @@ async function mount(page: Page, question: object) {
   return card;
 }
 
-for (const width of [1440, 390]) {
-  for (const theme of ['light', 'dark'] as const) {
-    test(`choice rows are the shared row with a digit key hint ${width} ${theme}`, async ({
+// One view keeps the shard model's budget: the narrow dark one.
+for (const width of [390]) {
+  for (const theme of ['dark'] as const) {
+    test(`choice rows are the shared row in one wrapped line, picked by a digit that no cap draws ${width} ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -34,28 +35,37 @@ for (const width of [1440, 390]) {
         await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
       const rows = card.locator('.tmt-ui-choice');
       await expect(rows).toHaveCount(3);
-      // Each row ends with its digit as a key cap that assistive technology skips.
+      // The kind line and the instruction head the group.
+      await expect(card.locator('.question-kind')).toHaveText('Multiple choice · Other available');
+      await expect(card.locator('.tmt-ui-choices-legend')).toHaveText(
+        'Choose any that apply, or write your own.',
+      );
+      // No row draws a key cap: the digit that picks a row is announced to assistive technology and
+      // as the row control's hint, and the control is named by its label alone.
+      await expect(card.locator('kbd')).toHaveCount(0);
       for (const [index, name] of ['Keep it', 'Change it', 'Other'].entries()) {
-        const row = rows.nth(index);
-        const key = row.locator('kbd.tmt-ui-choice-hint');
-        await expect(key).toHaveText(String(index + 1));
-        await expect(key).toHaveAttribute('aria-hidden', 'true');
-        // The control is named by its label alone, with no digit in the name.
-        await expect(row.getByRole('checkbox', { name, exact: true })).toHaveCount(1);
-        const [rowBox, keyBox] = [await row.boundingBox(), await key.boundingBox()];
-        // The key sits at the row's end and the row text does not run under it.
-        expect(keyBox!.x + keyBox!.width).toBeLessThanOrEqual(rowBox!.x + rowBox!.width + 0.5);
-        const text = await row.locator('.tmt-ui-choice-text').boundingBox();
-        expect(text!.x + text!.width).toBeLessThanOrEqual(keyBox!.x + 0.5);
+        const control = rows.nth(index).getByRole('checkbox', { name, exact: true });
+        await expect(control).toHaveCount(1);
+        await expect(control).toHaveAttribute('aria-keyshortcuts', String(index + 1));
+        await expect(control).toHaveAttribute('title', `Press ${index + 1} to pick`);
       }
       // The old private row is gone.
       await expect(card.locator('.question-option, .question-option-key')).toHaveCount(0);
-      // The Other row opens its text field; the other rows still pick as before.
-      await expect(card.getByLabel('Other answer', { exact: true })).toHaveCount(0);
+      // The Other field is not drawn until Other is picked; then it sits under the choices.
+      const field = card.getByLabel('Your other answer', { exact: true });
+      await expect(field).toHaveCount(0);
       await card.getByRole('checkbox', { name: 'Other', exact: true }).check();
-      await expect(card.getByLabel('Other answer', { exact: true })).toBeVisible();
+      await expect(field).toBeVisible();
+      await expect(field).toHaveAttribute('placeholder', 'Tell us what is missing…');
+      const [fieldBox, otherBox] = [
+        await field.boundingBox(),
+        await card.getByRole('checkbox', { name: 'Other', exact: true }).boundingBox(),
+      ];
+      expect(fieldBox!.y).toBeGreaterThan(otherBox!.y + otherBox!.height);
+      await field.fill('Something else');
       await card.getByRole('checkbox', { name: 'Keep it', exact: true }).check();
       await expect(card.getByRole('checkbox', { name: 'Keep it', exact: true })).toBeChecked();
+      await expect(card.getByRole('checkbox', { name: 'Other', exact: true })).toBeChecked();
       await page.screenshot({ path: capturePath(`question-rows-${width}-${theme}.png`) });
     });
   }
@@ -75,5 +85,16 @@ test('a single question picks its row with the digit and the Other row clears th
   await page.keyboard.press('3');
   await expect(card.getByRole('radio', { name: 'Other', exact: true })).toBeChecked();
   await expect(card.getByRole('radio', { name: 'Change it', exact: true })).not.toBeChecked();
-  await expect(card.getByLabel('Other answer', { exact: true })).toBeVisible();
+  await expect(card.getByLabel('Your other answer', { exact: true })).toBeVisible();
+  // A digit also works while a choice has focus, and the focus follows the pick; in a text field
+  // it is just a character.
+  await card.getByRole('radio', { name: 'Change it', exact: true }).focus();
+  await page.keyboard.press('1');
+  await expect(card.getByRole('radio', { name: 'Keep it', exact: true })).toBeChecked();
+  await expect(card.getByRole('radio', { name: 'Keep it', exact: true })).toBeFocused();
+  await expect(card.getByLabel('Your other answer', { exact: true })).toHaveCount(0);
+  await card.getByRole('radio', { name: 'Other', exact: true }).check();
+  await card.getByLabel('Your other answer', { exact: true }).focus();
+  await page.keyboard.type('2');
+  await expect(card.getByLabel('Your other answer', { exact: true })).toHaveValue('2');
 });

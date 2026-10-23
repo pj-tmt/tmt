@@ -1,5 +1,6 @@
 import type { ComposerConnectionPresentation } from '../router.js';
 import { BrowserAction, BrowserChoice, BrowserChoiceGroup } from '@tmt/browser-ui/react';
+import { browserUiClasses as c } from '@tmt/browser-ui/static';
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import {
   canonicalQuestionThread,
@@ -156,9 +157,11 @@ export function QuestionCard({
         {readOnly && compose && body && <ArchivedDraft value={body} />}
         {!readOnly && compose && (
           <>
+            <p className="question-kind">{text.questionKind(question.kind, question.other)}</p>
             {(question.kind === 'single' || question.kind === 'multiple') && (
               <BrowserChoiceGroup
-                legend={question.kind === 'single' ? 'Choose one' : 'Choose any that apply'}
+                layout="inline"
+                legend={text.questionInstruction(question.kind, question.other)}
               >
                 {question.choices.map((choice, index) => (
                   <BrowserChoice
@@ -166,8 +169,9 @@ export function QuestionCard({
                     type={question.kind === 'single' ? 'radio' : 'checkbox'}
                     name={heading}
                     label={choice}
-                    hint={String(index + 1)}
                     data-choice-index={index + 1}
+                    aria-keyshortcuts={String(index + 1)}
+                    title={text.questionKey(index + 1)}
                     disabled={disabled}
                     checked={choices.includes(choice)}
                     onChange={(event) => {
@@ -187,8 +191,9 @@ export function QuestionCard({
                     type={question.kind === 'single' ? 'radio' : 'checkbox'}
                     name={heading}
                     label="Other"
-                    hint={String(question.choices.length + 1)}
                     data-choice-index={question.choices.length + 1}
+                    aria-keyshortcuts={String(question.choices.length + 1)}
+                    title={text.questionKey(question.choices.length + 1)}
                     disabled={disabled}
                     checked={other}
                     onChange={(event) => {
@@ -201,17 +206,24 @@ export function QuestionCard({
                 )}
               </BrowserChoiceGroup>
             )}
-            {(question.kind === 'short' || question.kind === 'long' || other) && (
+            {(question.kind === 'short' ||
+              question.kind === 'long' ||
+              (question.other && other)) && (
+              // The answer field: the whole answer for a short or long question, and under the
+              // choices once Other is picked.
               <div
                 className="question-text"
                 {...(files ? attachmentInputHandlers(files, attachable, false) : {})}
               >
                 <label htmlFor={`${heading}-answer`}>
-                  {other ? 'Other answer' : 'Your answer'}
+                  {question.kind === 'short' || question.kind === 'long'
+                    ? 'Your answer'
+                    : text.questionOtherLabel}
                 </label>
                 {question.kind === 'short' ? (
                   <input
                     id={`${heading}-answer`}
+                    className={c.fieldControl}
                     value={value}
                     disabled={disabled}
                     onChange={(event) => onDraft({ value: event.target.value })}
@@ -220,11 +232,15 @@ export function QuestionCard({
                 ) : (
                   <textarea
                     id={`${heading}-answer`}
+                    className={c.fieldControl}
+                    placeholder={
+                      question.kind === 'long' ? undefined : text.questionOtherPlaceholder
+                    }
                     value={value}
                     disabled={disabled}
                     onChange={(event) => onDraft({ value: event.target.value })}
                     maxLength={QUESTION_LONG_BYTES}
-                    rows={question.kind === 'long' ? 4 : 2}
+                    rows={question.kind === 'long' ? 4 : 1}
                   />
                 )}
                 {files && (

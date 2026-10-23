@@ -952,11 +952,24 @@ export const text = {
   managePage: 'Manage page',
   aboutPage: 'About this page',
   /** The About panel's Layout row (#3926): how Colab frames the page, never a prompt or a badge. */
-  /** A question line's state word: Needs you until answered. */
+  /** A question line: its eyebrow, and the state word, Needs your answer until answered. */
   questionLine: {
-    waiting: 'Needs you',
-    answered: (answer: string) => `Answered: ${answer}`,
+    eyebrow: (agent: string) => (agent ? `Q&A · ${agent}` : 'Q&A'),
+    waiting: 'Needs your answer',
+    answered: 'Answered',
   },
+  /** The line under a question's choices that says who the answer goes to. */
+  questionGoesTo: 'Goes to',
+  questionOtherLabel: 'Your other answer',
+  questionOtherPlaceholder: 'Tell us what is missing…',
+  /** The kind line over an open question's fields. */
+  questionKind: (kind: 'single' | 'multiple' | 'short' | 'long', other: boolean) =>
+    `${{ single: 'Single choice', multiple: 'Multiple choice', short: 'Short answer', long: 'Long answer' }[kind]}${other ? ' · Other available' : ''}`,
+  /** The instruction that names a choice group. */
+  questionInstruction: (kind: 'single' | 'multiple', other: boolean) =>
+    `${kind === 'single' ? 'Choose one answer' : 'Choose any that apply'}${other ? ', or write your own.' : '.'}`,
+  /** The hint on a choice that a digit key picks it. */
+  questionKey: (digit: number) => `Press ${digit} to pick`,
   colabSettings: {
     title: 'Colab settings',
     shells: 'Dashboards',
