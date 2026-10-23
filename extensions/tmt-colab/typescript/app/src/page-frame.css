@@ -1,20 +1,31 @@
-/* The render frame of a `column` or `full` page (#3913). This file is inlined into renderer.html by
-   scripts/generate-renderer-style.mjs and applies only inside the opaque frame, where the page's HTML
-   is written; the parent's `.canvas[data-layout]` rules in style.css draw the same column.
+/* The render frame of every page and, for a `column` or `full` page, its column (#3913). This file is
+   inlined into renderer.html by scripts/generate-renderer-style.mjs and applies only inside the opaque
+   frame, where the page's HTML is written; the parent's `.canvas[data-layout]` rules in style.css draw
+   the same column.
+
+   Every page reserves a marker lane at the right edge of the frame from its first paint, so a
+   comment's number never stands on text and the text never reflows when the first thread appears.
+   The renderer reads the lane's width from `--colab-lane`.
 
    Colab owns the column width, the side gutters and the vertical rhythm between top-level blocks.
    The `!important` declarations sit in a layer declared before any author style, so an author's
    `!important` cannot win. Colours, type and the layout inside a block stay the author's.
    A block is an element child of <body> that the frame did not add itself.
-   Numbers: column 1280 px, gutter 16 px, gap 16 px (tight 8, loose 40). The column and the gutter are
-   the two custom properties below: the rules here and the renderer's chip placement (renderer.html
-   reads them from the frame's root) take them from this one place. */
+   Numbers: lane 28 px, column 1280 px, gutter 16 px, gap 16 px (tight 8, loose 40). The lane, the
+   column and the gutter are the custom properties below: the rules here and the renderer's marker and
+   chip placement (renderer.html reads them from the frame's root) take them from this one place. */
 @layer colab-frame {
+  html {
+    --colab-lane: 28px !important;
+    box-sizing: border-box !important;
+    padding-inline-end: var(--colab-lane) !important;
+  }
+
   html:is([data-colab-layout='column'], [data-colab-layout='full']) {
     --colab-column: 1280px !important;
     --colab-gutter: 16px !important;
     margin-inline: 0 !important;
-    padding-inline: 0 !important;
+    padding-inline-start: 0 !important;
     border-inline: 0 !important;
 
     /* A flex column keeps a block's margin from collapsing into its children's, so a gap is exactly
@@ -55,11 +66,14 @@
         max-width: none !important;
         margin: 0 !important;
 
-        /* Edge to edge; the text inside still starts on the column. */
+        /* Edge to edge, over the marker lane too; the text inside still starts on the column. */
         &[data-width='full'] {
+          --colab-side: max(var(--colab-gutter), (100% - var(--colab-column)) / 2) !important;
+
           align-self: stretch !important;
           width: auto !important;
-          padding-inline: max(var(--colab-gutter), (100% - var(--colab-column)) / 2) !important;
+          margin-inline-end: calc(-1 * var(--colab-lane)) !important;
+          padding-inline: var(--colab-side) calc(var(--colab-side) + var(--colab-lane)) !important;
           border-inline: 0 !important;
         }
 

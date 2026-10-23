@@ -2538,13 +2538,17 @@ from the app's `src/page-frame.css` in a CSS layer declared ahead of every autho
 The top-level blocks, the element children of `<body>` that the frame did not add itself,
 share one centred column of `min(1280px, 100% - 32px)`; `<body>` is a flex column with a
 16 px gap, 8 px above a block marked `data-gap="tight"` and 40 px above `"loose"`, and a
-block marked `data-width="full"` runs edge to edge with its text padded onto the column.
+block marked `data-width="full"` runs edge to edge, over the marker lane below, with its text
+padded onto the column.
 An author's width, `max-width`, margin and the block gap, also with `!important` in a
 stylesheet, do not apply to those blocks or to `<body>`'s own inline margin and padding;
 colours, type and the layout inside a block stay free. An inline `style` attribute
 with `!important` still wins: the frame is a cosmetic projection like the theme and author
-code may tamper with it. `canvas`, `freeform` and an absent layout set nothing and add no
-stylesheet. The frame's own spacers are not blocks, and the parent draws its bands
+code may tamper with it. Every page, whatever its layout, also reserves the marker lane in
+that stylesheet: `<html>` gets a 28 px `padding-inline-end` (`--colab-lane`) from the first
+paint, so a comment's marker never stands on text and the first thread moves none; the
+column above is the width left of the lane. `canvas`, `freeform` and an absent layout set
+nothing else: no `data-colab-layout` and no column. The frame's own spacers are not blocks, and the parent draws its bands
 and question lines on the same column. The layout is the page's verified `meta.layout`; the
 browser binds the frame from the live view, so a change that arrives without a new source
 (a `page layout` from the CLI or another device) reframes the open page.
@@ -2625,11 +2629,19 @@ There is no fuzzy automatic attachment. DOM mutations trigger bounded debounced
 resolution; replacement/navigation/disposal closes ports, observers and highlights.
 
 CSS Highlights, or pointer-inert range overlays when unavailable, leave author text
-nodes intact. Resolved ranges keep a light highlight and a small square right-margin
-marker in the frame's document flow, with a count for anchors on the same line. Hover
+nodes intact. Resolved ranges keep a mint tint and a 1 px underline (a 2 px underline and a
+stronger tint under the pointer) and a number marker, a 16 px circle in a 24 px target, in
+the frame's right marker lane, centred on the line the passage ends on, so it covers no text
+and moves none. On a `column` or `full` page the marker stands 4 px after the end of the
+column, beside the text it belongs to; on any other page, whose content spans the frame, at the
+frame's edge. Markers whose lines are closer than one target share one `+n` marker, a pill 16 px
+tall and at least 16 px wide with 4 px inside each end, in the same 24 px target. Hover
 shows the bounded quoted text. Comment first-line tooltips stay in parent chrome. A marker posts exactly `type:"colab.render.open-thread"`,
 `renderId`, `requestId`, `id` on the bound port; the parent accepts only a known ID in
-its current highlight request and opens that thread's anchored parent window. Forging this view-only
+its current highlight request and opens that thread's anchored parent window. A `+n` marker
+posts exactly `type:"colab.render.open-list"`, `renderId`, `requestId`; the parent accepts the
+current render and request only and opens the Comments list (closing an open annotation
+window), with no thread ID and no thread opened. Forging either view-only
 action cannot publish, sign or send. Resize and DOM changes re-resolve positions;
 thread-list navigation scrolls the window to the reported anchor offset (the bounded
 viewport-coupled fallback scrolls inside its frame). Author scripts can tamper with these APIs, DOM or cosmetic results;
