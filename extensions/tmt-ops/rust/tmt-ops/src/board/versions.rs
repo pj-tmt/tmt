@@ -58,7 +58,7 @@ pub(in crate::board) mod tests {
         "help-versions",
     ];
 
-    pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {
+    pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look, width: u16) -> App {
         let mut app = board();
         let view = app.view.as_mut().unwrap();
         view.look = look;
@@ -70,6 +70,9 @@ pub(in crate::board) mod tests {
         if scene == "help-versions" {
             app.key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
             assert!(app.modal_open(), "Help is open");
+            // The versions close Help: one frame at the captured size sets the scroll limit.
+            first_row(&app, width);
+            app.key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
         }
         app
     }
@@ -114,13 +117,19 @@ pub(in crate::board) mod tests {
             "{row:?}"
         );
         let help = crate::board::help::model(&app).value();
+        let sections = help["sections"].as_array().unwrap();
         assert_eq!(
-            help["sections"][0]["entries"],
+            sections.last().unwrap()["id"],
+            "versions",
+            "the key list stays first"
+        );
+        assert_eq!(
+            sections.last().unwrap()["entries"],
             serde_json::json!([
                 {"id": "row-0", "keys": "tmt", "description": "5.0.0-alpha.378"},
                 {"id": "row-1", "keys": "ops", "description": "0.1.0-alpha.4"},
             ]),
-            "Help opens with both versions in full"
+            "Help closes with both versions in full"
         );
     }
 

@@ -752,7 +752,7 @@ fn captures() -> Value {
         for (look_name, look) in looks() {
             for scene in crate::board::versions::tests::SCENES {
                 for width in [150, 80] {
-                    let app = crate::board::versions::tests::capture_case(scene, look);
+                    let app = crate::board::versions::tests::capture_case(scene, look, width);
                     frames.push(capture_frame(
                         &app,
                         scene,
