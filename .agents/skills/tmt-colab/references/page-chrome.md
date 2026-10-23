@@ -47,11 +47,12 @@ asks the person to update Colab to open the page, preserving space/sign-in detai
 
 `router.tsx` retains one active Source, Comments, Chat, Agents, Files, Export, Manage or
 About overlay. `page-header-actions.tsx` owns the page header's base entry points at every
-width (#4116): Search, Discussion (combined pending count; opens Chat or Comments), Agents and More.
+width: Search, Discussion (combined pending count; opens Chat or Comments), and More.
 More lists, top to bottom: Share… (the page's sharing and connection words as secondary text; it
 opens the Manage dialog), Remote (the submenu above), Projects… (when the viewer writes
 projects; opens the picker below), Pin to top / Unpin (below 640px, once the owner list confirms a
-non-archived page the viewer can write), Files (count; while the page holds a file or the viewer can add
+non-archived page the viewer can write), Agent status (writers only; the read-only presence
+observations return focus to More on close), Files (count; while the page holds a file or the viewer can add
 one), Source, Export page, a rule, then Manage page, Theme: Light/Dark/System and About this page.
 The page's own projects (`page-projects.tsx`) follow the title: the first three as small chips
 and a count of the rest (hidden under 640px), then the list row's picker (`PageProjectsMenu`: up to

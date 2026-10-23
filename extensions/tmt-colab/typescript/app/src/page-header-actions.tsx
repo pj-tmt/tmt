@@ -1,5 +1,4 @@
 import { RemoteMoreMenu, useRemoteHeaderSource } from './remote-header.js';
-import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { useSyncExternalStore } from 'react';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import { getThemeChoice, setThemeChoice, subscribeTheme, type ThemeChoice } from './theme.js';
@@ -16,7 +15,7 @@ export type PageHeaderAction =
   | 'export'
   | 'manage'
   | 'about';
-type HeaderIcon = 'discussion' | 'agents' | 'more';
+type HeaderIcon = 'discussion' | 'more';
 
 /** One set of decorative page-header icons; hosts retain each action's authority. */
 function PageHeaderIcon({
@@ -42,12 +41,6 @@ function PageHeaderIcon({
       >
         {name === 'discussion' ? (
           <path d="M4 4h16v12H9l-5 4V4Z" />
-        ) : name === 'agents' ? (
-          <>
-            <path d="M7 20v-4l5-3 5 3v4M4 16v-3l3-2M20 16v-3l-3-2" />
-            <circle cx="12" cy="7" r="3" />
-            <path d="M5 5a3 3 0 0 0 0 6M19 5a3 3 0 0 1 0 6" />
-          </>
         ) : (
           <>
             <circle cx="5" cy="12" r="1" />
@@ -76,9 +69,8 @@ export function moreButtonRect(): DOMRect | undefined {
   return rects[rects.length - 1];
 }
 
-/** Search, Chat and Agents stay in the header; everything else lives in the More menu (#4116). */
+/** Discussion stays in the header; page tools live in the More menu. */
 export function PageHeaderActions({
-  active,
   comments,
   files,
   unseen,
@@ -92,7 +84,6 @@ export function PageHeaderActions({
   access,
   onSelect,
 }: {
-  active: PageHeaderAction | null;
   /** Absent while the page's threads are still being verified: no count is better than a false 0. */
   comments?: number;
   files: number;
@@ -128,6 +119,7 @@ export function PageHeaderActions({
       },
       ...(canProjects ? [{ key: 'projects', label: text.projectsItem }] : []),
       ...(pinItem ? [pinItem] : []),
+      ...(!readOnly ? [{ key: 'agents', label: text.agentStatus }] : []),
       // A page that cannot hold a file and holds none has nothing to open; a writer keeps the entry,
       // which is where files are added.
       ...(files > 0 || canFiles
@@ -148,6 +140,7 @@ export function PageHeaderActions({
       else if (key === 'projects') onSelect('projects');
       else if (key === 'pin') onSelect('pin');
       else if (
+        key === 'agents' ||
         key === 'manage' ||
         key === 'about' ||
         key === 'files' ||
@@ -172,19 +165,6 @@ export function PageHeaderActions({
         ]}
         onSelect={(key) => onSelect(key as 'chat' | 'comments')}
       />
-      {!readOnly && (
-        <BrowserIconAction
-          type="button"
-          variant="text"
-          label={text.agentStatus}
-          icon={<PageHeaderIcon name="agents" />}
-          hasPopup="dialog"
-          expanded={active === 'agents'}
-          onActivate={(event) => {
-            if (event.isTrusted) onSelect('agents');
-          }}
-        />
-      )}
       {remoteAvailable ? (
         <RemoteMoreMenu remoteAfter="share" {...more} />
       ) : (

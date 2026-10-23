@@ -1,3 +1,4 @@
+import { PageHeaderActions } from '../src/page-header-actions.js';
 /** Controlled admitted-parent fixture; no real Remote credentials or dispatch. */
 import 'virtual:tokens.css';
 import '@tmt/browser-ui/static.css';
@@ -220,4 +221,24 @@ export function refuseNewest() {
     failure: 'refused',
     code: 'REMOTE_REFUSED',
   });
+}
+
+/** Isolate the existing reader authority boundary without opening a session. */
+export function mountReaderHeader() {
+  root.render(
+    <PageHeaderActions
+      comments={0}
+      files={0}
+      unseen={false}
+      canExport={false}
+      canManage={false}
+      canFiles={false}
+      canProjects={false}
+      readOnly
+      access="Read only"
+      onSelect={() => {
+        throw new Error('Reader status must not activate');
+      }}
+    />,
+  );
 }

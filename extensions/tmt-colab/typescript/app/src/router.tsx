@@ -1838,7 +1838,6 @@ function OpenPage({
         }
         actions={
           <PageHeaderActions
-            active={panel}
             comments={openThreads}
             files={fileCount}
             unseen={unseenThreads}

@@ -2235,7 +2235,9 @@ page-policy fence, offline automatic dispatch or native reply publication.
 
 ### Admitted agent status (#1844)
 
-The trusted parent Agents view observes presence through the existing current
+The writer-only Agent status entry in the page More menu opens the trusted parent
+view; closing it returns focus to More. Its Page, Session and Directory health
+cells show Available, Read and Read only for successful observations. The view observes presence through the existing current
 Remote context and signed `agents.list` normalization owner. Active, offline and
 unknown are directory values, never inferred from a transport failure. Duplicate
 names retain machine and stable agent-ID presentation; labels confer no authority.

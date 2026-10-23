@@ -13,7 +13,8 @@ async function command(
     | 'mountAdmissionProbe'
     | 'setAdmission'
     | 'resolveOldest'
-    | 'refuseNewest',
+    | 'refuseNewest'
+    | 'mountReaderHeader',
   value?: string | boolean,
 ) {
   await page.evaluate(
@@ -35,7 +36,39 @@ async function proof(page: Page) {
     return (await import(path)).proof();
   });
 }
-for (const width of [1440, 390])
+test('Agent status belongs to More and returns focus there', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(fixture);
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Storage discussion' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Agents', exact: true })).toHaveCount(0);
+  const more = page
+    .locator('.page-header-actions')
+    .getByRole('button', { name: 'More', exact: true });
+  await more.click();
+  await page.getByRole('menuitem', { name: 'Agent status', exact: true }).click();
+  const panel = page.locator('.tmt-ui-drawer[data-panel=agents]');
+  await expect(panel.locator('.agent-status-health dd')).toHaveText(['Available', 'Read', 'Read']);
+  const recheck = panel.getByRole('button', { name: 'Recheck status' });
+  await expect(recheck).toHaveAttribute('data-variant', 'secondary');
+  expect(
+    await recheck.evaluate((node) => parseFloat(getComputedStyle(node).borderTopWidth)),
+  ).toBeGreaterThan(0);
+  await expect(panel.locator('.agent-status-list code')).toHaveText([
+    '00000000-0000-4000-8000-000000000006',
+    '00000000-0000-4000-8000-000000000007',
+    '00000000-0000-4000-8000-000000000008',
+  ]);
+
+  await expect(panel.getByRole('button', { name: 'Recheck status' })).toHaveText('Recheck');
+  await expect(panel.locator('.agent-status-note')).toHaveText(
+    'Read-only observations. This panel does not send messages, control an agent, reopen a session or prove delivery.',
+  );
+  await panel.getByRole('button', { name: 'Close Agent status', exact: true }).click();
+  await expect(more).toBeFocused();
+});
+for (const width of [1586, 390])
   for (const theme of ['light', 'dark'] as const) {
     test(`actual agent drawer shows admitted presence and read health: ${width}px ${theme}`, async ({
       page,
@@ -63,7 +96,7 @@ for (const width of [1440, 390])
       await expect(panel.locator('.agent-status-list li')).toHaveCount(3);
       for (const presence of ['Active', 'Offline', 'Unknown'])
         await expect(panel.getByText(presence, { exact: true })).toBeVisible();
-      await expect(panel.getByText('Read succeeded', { exact: true })).toHaveCount(2);
+      await expect(panel.getByText('Read', { exact: true })).toHaveCount(2);
       await expect(panel.getByText('Same name', { exact: true })).toHaveCount(2);
       await expect(panel.getByText('Studio Mac', { exact: true })).toHaveCount(3);
       expect((await page.locator('iframe').boundingBox())?.width).toBe(before?.width);
@@ -79,7 +112,7 @@ for (const width of [1440, 390])
         panel.getByText('Previous snapshot · current presence is unavailable'),
       ).toBeVisible();
       await expect(panel.locator('.agent-status-list li')).toHaveCount(3);
-      await expect(panel.getByText('Read succeeded', { exact: true })).toHaveCount(1);
+      await expect(panel.getByText('Read', { exact: true })).toHaveCount(1);
       if (captures) await page.screenshot({ path: `${captures}/${width}-${theme}-stale.png` });
       expect(await proof(page)).toEqual({
         checks: 3,
@@ -88,7 +121,7 @@ for (const width of [1440, 390])
         ledgerActions: 0,
         destinationReads: 0,
       });
-      await panel.getByRole('button', { name: 'Close Agents', exact: true }).click();
+      await panel.getByRole('button', { name: 'Close Agent status', exact: true }).click();
       await expect(panel).not.toBeVisible();
     });
   }
@@ -96,7 +129,7 @@ for (const [mode, session, directory] of [
   ['session-ended', 'Session ended', 'Session ended'],
   ['session-evicted', 'Session limit reached', 'Read unavailable'],
   ['channel-unavailable', 'Session channel unavailable', 'Session channel unavailable'],
-  ['scope-refused', 'Read succeeded', 'Read refused'],
+  ['scope-refused', 'Read', 'Read refused'],
 ] as const) {
   test(`${mode} is separate from presence and clears current rows`, async ({ page }) => {
     await page.goto(fixture);
@@ -132,7 +165,7 @@ for (const kind of ['fast', 'slow'] as const)
     await page.clock.install({ time: start });
     await page.goto(fixture);
     await command(page, 'mountAdmissionProbe');
-    const panel = page.getByRole('region', { name: 'Agents', exact: true });
+    const panel = page.getByRole('region', { name: 'Agent status', exact: true });
     await expect(panel.locator('.agent-status-list li')).toHaveCount(3);
     await command(page, 'setMode', 'pending');
     await page.clock.pauseAt(new Date(start.getTime() + 60_000));
@@ -144,27 +177,27 @@ for (const kind of ['fast', 'slow'] as const)
     expect(await recheck.evaluate((node) => (node as HTMLButtonElement).disabled)).toBe(false);
     await page.clock.runFor(399);
     await expect(panel.getByText('Checking…')).toHaveCount(0);
-    await expect(panel.getByText('Read succeeded', { exact: true })).toHaveCount(2);
+    await expect(panel.getByText('Read', { exact: true })).toHaveCount(2);
     await expect(marks).toHaveCount(0);
     if (kind === 'slow') {
       await page.clock.runFor(1);
       // The mark is the only busy signal: the rows keep their words.
       await expect(panel.getByText('Checking…')).toHaveCount(0);
-      await expect(panel.getByText('Read succeeded', { exact: true })).toHaveCount(2);
+      await expect(panel.getByText('Read', { exact: true })).toHaveCount(2);
       await expect(marks).toHaveCount(1);
     }
     await command(page, 'resolvePrevious');
     await page.clock.runFor(1000);
     await expect(panel.getByText('Checking…')).toHaveCount(0);
     await expect(recheck).not.toHaveAttribute('aria-busy', 'true');
-    await expect(panel.getByText('Read succeeded', { exact: true })).toHaveCount(2);
+    await expect(panel.getByText('Read', { exact: true })).toHaveCount(2);
   });
 test('same-client admission restoration cannot resurrect cached rows or late results', async ({
   page,
 }) => {
   await page.goto(fixture);
   await command(page, 'mountAdmissionProbe');
-  const panel = page.getByRole('region', { name: 'Agents', exact: true });
+  const panel = page.getByRole('region', { name: 'Agent status', exact: true });
   await expect(panel.locator('.agent-status-list li')).toHaveCount(3);
   const input = page.getByRole('combobox', { name: 'Message', exact: true });
   await input.fill('Keep the draft through admission loss');
@@ -207,7 +240,7 @@ test('replaced binding drops the old pending directory and retains a Chat draft'
   await expect(panel.getByText('New Unobserved agent', { exact: true })).toBeVisible();
   await command(page, 'resolvePrevious');
   await expect(panel.getByText('Unobserved agent', { exact: true })).toHaveCount(0);
-  await panel.getByRole('button', { name: 'Close Agents', exact: true }).click();
+  await panel.getByRole('button', { name: 'Close Agent status', exact: true }).click();
   await (await pageAction(page, 'Chat')).click();
   await expect(chat.getByRole('combobox', { name: 'Message', exact: true })).toHaveText(
     'Retain this draft',
@@ -240,4 +273,16 @@ test('disabling the Ask client leaves the page usable and performs no further st
     ledgerActions: 0,
     destinationReads: 0,
   });
+});
+
+test('readers have no Agent status menu item', async ({ page }) => {
+  await page.goto(fixture);
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Storage discussion' }),
+  ).toBeVisible();
+  await command(page, 'mountReaderHeader');
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Agent status', exact: true })).toHaveCount(0);
+  expect((await proof(page)).checks).toBe(1);
 });

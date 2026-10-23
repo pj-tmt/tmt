@@ -1,10 +1,11 @@
 import type { Locator, Page } from '@playwright/test';
 import { openPanel } from './comments-region.js';
 
-/** Resolve page actions through their header menu; readers keep their direct Files control. Search,
- * Chat and Agents are the page header's own entries; every other action is in the More menu (#4116). */
+/** Resolve page actions through their header menu; readers keep their direct Files control.
+ * Chat is in Discussion; page tools, including Agent status, are in More. */
 export async function pageAction(host: Page | Locator, name: string): Promise<Locator> {
-  const directName = name === 'Files' ? /^Files(?: \(\d+\)| \d+)?$/ : name;
+  const directName =
+    name === 'Files' ? /^Files(?: \(\d+\)| \d+)?$/ : name === 'Agents' ? 'Agent status' : name;
   const page = 'page' in host ? host.page() : host;
   const header = host.locator('.page-header-actions:visible');
   const drawer = openPanel(page);
@@ -19,7 +20,7 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
     await drawer.waitFor({ state: 'hidden' });
   };
   if (await drawer.isVisible()) await dismissDrawer();
-  if (name === 'Files' || name === 'Agents') {
+  if (name === 'Files') {
     const direct = host.getByRole('button', { name: directName, exact: true });
     await header.or(direct).first().waitFor();
     if (await direct.isVisible()) return direct;
