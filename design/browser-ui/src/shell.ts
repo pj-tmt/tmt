@@ -1,4 +1,4 @@
-import { brandMarkSvg } from './brand-mark-svg.js';
+import { brandMarkSvg, freshMarkId } from './brand-mark-svg.js';
 import { claimIconActionTooltip } from './icon-action-tooltip.js';
 import { moduleIcon, shellIconNodes, type ShellIcon } from './shell-icons.js';
 import { countText } from './static.js';
@@ -365,7 +365,13 @@ export function mountShell(
   // no breadcrumb.
   const brand = document.createElement('div');
   brand.className = 'tmt-ui-shell-brand';
-  brand.innerHTML = brandMarkSvg({ size: 32, id: 'tmt-rail' });
+  // One rail per document draws its own paint servers: a second shell (a fixture, the gallery, a
+  // hidden earlier mount) must not make the visible mark resolve to a hidden copy.
+  const markId = freshMarkId(
+    'tmt-rail',
+    (prefix) => document.getElementById(`${prefix}-aurora`) !== null,
+  );
+  brand.innerHTML = brandMarkSvg({ size: 32, id: markId });
   const text = document.createElement('span');
   text.className = 'tmt-ui-shell-brand-text';
   const word = document.createElement('span');

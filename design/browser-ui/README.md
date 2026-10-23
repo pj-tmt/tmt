@@ -56,6 +56,10 @@ text fields and select triggers keep the soft rule by decision (see
 [browser style](../gui-style.md), Fields). Selected indicators and keyboard focus
 retain their stronger roles.
 
+A mark's paint servers are prefixed by an id unique per document: `BrandMark` takes it from
+`useId`, and `mountShell` asks the live document (`freshMarkId`) so a second shell, such as a
+fixture or a hidden earlier mount, never makes the visible rail mark resolve to a hidden copy.
+
 `scripts/generate-brand.mjs` writes the static brand assets from the mark's one definition
 (`src/brand-mark-svg.ts`), `src/brand-mark.css` and the mark-only `brand.mark` roles in
 `tokens.json`; `pnpm check:generated` fails when they are stale. `generated/favicon.svg` is the

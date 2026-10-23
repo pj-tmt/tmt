@@ -254,6 +254,31 @@ test.describe('the shell bar', () => {
     expect(reach).toBeLessThanOrEqual(clusterLeft);
   });
 
+  test('the rail mark paints from its own paint servers while a hidden shell shares the document', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    // The home fixture leaves the real app mounted (hidden) beside the visible shell: two rails.
+    await mountHome(page);
+    const result = await page.evaluate(() => {
+      const marks = [...document.querySelectorAll<SVGElement>('.tmt-ui-shell-brand svg')];
+      const visible = marks.find((mark) => mark.getBoundingClientRect().width > 0)!;
+      const references = [...visible.innerHTML.matchAll(/url\(#([^)]+)\)/g)].map((m) => m[1]);
+      return {
+        marks: marks.length,
+        references: references.length,
+        outside: references.filter((id) => document.getElementById(id)?.closest('svg') !== visible),
+        shared: marks
+          .map((mark) => mark.querySelector('[id]')?.id)
+          .filter((id, index, ids) => ids.indexOf(id) !== index),
+      };
+    });
+    expect(result.marks).toBeGreaterThan(1);
+    expect(result.references).toBeGreaterThan(0);
+    expect(result.outside).toEqual([]);
+    expect(result.shared).toEqual([]);
+  });
+
   test('at 390 the presence chip is not drawn and the search stays in the bar', async ({
     page,
   }) => {
