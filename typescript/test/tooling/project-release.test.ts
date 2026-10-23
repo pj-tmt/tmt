@@ -1141,8 +1141,17 @@ describe('published tag validation with an injected git', () => {
     ]);
     evidence.validateTags(['v1', 'v2', 'v3']);
     expect(fetches(calls).map(({ args }) => args)).toEqual([
-      ['fetch', '--no-tags', '--quiet', 'origin', '+refs/tags/v2:refs/tags/v2'],
+      [
+        'fetch',
+        '--no-tags',
+        '--no-recurse-submodules',
+        '--no-write-fetch-head',
+        '--quiet',
+        '--stdin',
+        'origin',
+      ],
     ]);
+    expect(fetches(calls)[0].input).toBe('refs/tags/v2:refs/tags/v2\n');
     expect(calls.filter(({ args }) => args[0] === 'cat-file')).toHaveLength(2);
   });
   it('fails closed naming the tag that still does not resolve, without a second fetch', () => {
