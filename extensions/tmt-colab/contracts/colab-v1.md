@@ -3723,13 +3723,14 @@ threads share one turn component and attribution: each reply has one agent-name,
 agent-role and time byline followed by plain reply text. Pending, held and failed
 outcomes appear as a quiet mark-plus-word line in the requester turn; delivery state
 and recheck/abandon controls disappear when a reply exists, including an empty reply.
-Chat and annotation threads share flat, unboxed turns and the existing 3px agent
-rail. Chat uses the shared Drawer header with `Chat`, a `○ Everyone with access` caption and
-a `Close Chat` action; its identity row places the muted time at the right.
+A turn in Chat or in a thread leads with the shared avatar, then the name and the muted time.
+Chat uses the shared Drawer header with `Chat`, a `○ Everyone with access` caption and
+a `Close Chat` action; a Chat turn's identity row places the time at the right, and its text is a
+filled bubble under the name, indented past the avatar, the same whoever wrote it.
 Spacing separates turns, while local-day headings derive only from admitted
 timestamps. An empty Chat shows `No messages yet` and teaches `@` only where
-that action is admitted. The pinned composer has one top rule, the existing
-Attach and recipient controls at the left and Send at the right;
+that action is admitted. The pinned composer is one bordered box: the field, then the existing
+Attach and recipient controls at the start of its row and a primary `Send` (the word) at the end;
 `Posts as a comment.` appears only without a recipient. In Chat, a manually edited
 draft without the creator mention hides the creator-default toggle; a fresh default-only
 draft shows it again. The stored preference and send decision are unchanged. Failed delivery shows

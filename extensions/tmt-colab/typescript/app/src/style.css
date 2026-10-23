@@ -2074,7 +2074,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   }
 }
 
-/* Chat reuses conversation ownership and the shared agent rail; only its rhythm differs. */
+/* Chat reuses conversation ownership. A turn is the website's: the avatar, the name and the time at
+   the end, then the text in a bubble under the name, the same look for every author. */
 .chat-panel .conversation-heading {
   flex-wrap: nowrap;
   gap: 8px;
@@ -2089,8 +2090,43 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .chat-panel .conversation-turn {
   border-bottom: 0;
 }
+.chat-panel .conversation-time-separator {
+  display: none;
+}
+.chat-panel .conversation-main .comment-byline time {
+  margin-inline-start: auto;
+}
+/* The bubble sits under the name, past the avatar (24px) and the header's gap (8px); the status and
+   the delivery line under it start where its text starts, so a text action aligns with the text. */
+.chat-panel {
+  --chat-turn-indent: 32px;
+  --chat-bubble-inline: 12px;
+}
 .chat-panel .conversation-body {
-  margin-top: 6px;
+  margin: 6px 0 0 var(--chat-turn-indent);
+  padding: 10px var(--chat-bubble-inline);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: 0 var(--tmt-ui-radius) var(--tmt-ui-radius) var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-command);
+}
+.chat-panel .conversation-turn-status,
+.chat-panel .conversation-delivery {
+  margin-inline-start: calc(
+    var(--chat-turn-indent) + var(--tmt-ui-rule-width) + var(--chat-bubble-inline)
+  );
+}
+/* The composer is one bordered box, as on the website: the field, then the note and Send inside it. */
+.chat-panel .conversation-composer {
+  border-top: 0;
+}
+.annotation-compose[data-chat] {
+  padding: 12px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-field);
+}
+.annotation-compose[data-chat]:has(.rich-input-field:focus-visible) {
+  border-color: var(--tmt-ui-color-focus);
 }
 .chat-day {
   display: flex;

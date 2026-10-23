@@ -286,17 +286,24 @@ test('number metrics wait for a replacement marker to be styled and laid out', a
   await expect(frame.locator('body')).toHaveAttribute('data-replacements', '1');
 });
 
-async function sharedComposer(window: Locator) {
+/** The annotation window sends with the shared arrow under a ruled field; Chat, like the
+    Discussion reply, with the word, in one bordered box. */
+async function sharedComposer(window: Locator, surface: 'annotation' | 'chat') {
   const compose = window.locator('.annotation-compose');
   await expect(compose).toHaveCount(1);
   await expect(compose.locator('.rich-input-field')).toHaveCount(1);
   const send = compose.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true });
-  await expect(send.locator('.lucide-arrow-right')).toHaveCount(1);
+  await expect(send.locator('.lucide-arrow-right')).toHaveCount(surface === 'annotation' ? 1 : 0);
+  if (surface === 'chat') {
+    await expect(send).toHaveText('Send');
+    await expect(compose).toHaveCSS('border-top-width', '1px');
+    await expect(compose).toHaveCSS('padding', '12px');
+  }
   const geometry = await compose.evaluate((node) => {
     const field = node.querySelector('.rich-input-field')!;
     const attach = node.querySelector('.attach-labeled')!;
     const send = node.querySelector(
-      '.annotation-status-row > .tmt-ui-icon-action:last-child button',
+      '.annotation-status-row > .tmt-ui-icon-action:last-child button, .annotation-status-row > .tmt-ui-action:last-child',
     )!;
     const a = field.getBoundingClientRect(),
       b = attach.getBoundingClientRect(),
@@ -315,28 +322,25 @@ async function sharedComposer(window: Locator) {
   });
   expect(Math.abs(geometry.left)).toBeLessThanOrEqual(1);
   expect(Math.abs(geometry.right)).toBeLessThanOrEqual(1);
-  expect(Math.abs(geometry.square)).toBeLessThanOrEqual(1);
+  if (surface === 'annotation') expect(Math.abs(geometry.square)).toBeLessThanOrEqual(1);
   expect(geometry).toMatchObject({
     border: '0px',
     background: 'rgba(0, 0, 0, 0)',
     padding: '12px 16px 16px',
-    rule: '1px',
+    rule: surface === 'annotation' ? '1px' : '0px',
   });
-  return geometry;
 }
 /**
- * The agent byline is the shared chip's name with no boxed role badge. A discussion turn leads
- * with the shared avatar, so the chip drops its icon; Chat has no avatar, so the chip keeps it.
+ * The agent byline is the shared chip's name with no boxed role badge. A turn leads with the shared
+ * avatar, in a thread and in Chat alike, so the chip drops its icon.
  */
-async function sharedAgentByline(window: Locator, lead: 'avatar' | 'icon') {
+async function sharedAgentByline(window: Locator) {
   const byline = window.locator('[data-turn-role="agent"] .comment-byline');
   await expect(byline.locator('.conversation-agent-label')).toHaveCount(0);
   const chip = byline.locator('.conversation-author .agent-chip');
   await expect(chip).toHaveCount(1);
-  await expect(chip.locator('.lucide-bot')).toHaveCount(lead === 'icon' ? 1 : 0);
-  await expect(window.locator('[data-turn-role="agent"] .tmt-ui-avatar')).toHaveCount(
-    lead === 'avatar' ? 1 : 0,
-  );
+  await expect(chip.locator('.lucide-bot')).toHaveCount(0);
+  await expect(window.locator('[data-turn-role="agent"] .tmt-ui-avatar')).toHaveCount(1);
   await expect(chip).toHaveCSS('border-top-width', '0px');
   const geometry = await byline.evaluate((node) => {
     const chip = node.querySelector('.conversation-author')!.getBoundingClientRect();
@@ -382,7 +386,7 @@ for (const width of [1440, 1024, 390])
       expect(await popover.evaluate((node) => getComputedStyle(node, '::before').content)).toBe(
         'none',
       );
-      const annotationComposer = await sharedComposer(annotationWindow);
+      await sharedComposer(annotationWindow, 'annotation');
       await page.keyboard.press('Escape');
       await expect(annotationWindow).toHaveCount(0);
       // A marker opens the thread's Discussion view; its number circle and agent byline are shared.
@@ -434,7 +438,7 @@ for (const width of [1440, 1024, 390])
           };
         }),
       ).toEqual({ children: 0, before: 'none', after: 'none' });
-      const annotationByline = await sharedAgentByline(thread, 'avatar');
+      const annotationByline = await sharedAgentByline(thread);
       await page.screenshot({ path: `${captures}/unified-annotation-${width}-${theme}.png` });
       await page.keyboard.press('Escape');
       await run(page, 'mount', { ...options, creator: false });
@@ -443,7 +447,7 @@ for (const width of [1440, 1024, 390])
       const chat = page.getByTestId('chat-panel');
       await expect(chat.getByText(text.chatEmpty, { exact: true })).toBeVisible();
       await expect(chat.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
-      expect(await sharedComposer(chat)).toEqual(annotationComposer);
+      await sharedComposer(chat, 'chat');
       await page.screenshot({ path: `${captures}/unified-chat-empty-${width}-${theme}.png` });
       await run(page, 'mount', options);
       await (await pageAction(app, 'Chat')).click();
@@ -454,7 +458,7 @@ for (const width of [1440, 1024, 390])
       );
       await page.screenshot({ path: `${captures}/unified-chat-recipient-${width}-${theme}.png` });
       await run(page, 'conversation', { surface: 'chat', state: 'replied' });
-      expect(await sharedAgentByline(chat, 'icon')).toEqual(annotationByline);
+      expect(await sharedAgentByline(chat)).toEqual(annotationByline);
       await page.screenshot({ path: `${captures}/unified-chat-agent-${width}-${theme}.png` });
       expect(await run(page, 'proof')).toMatchObject({ sends: [], actions: [] });
     });

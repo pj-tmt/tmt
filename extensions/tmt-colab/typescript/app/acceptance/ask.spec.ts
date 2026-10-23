@@ -135,7 +135,8 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
         // The verified driver is observed but never shown: one reply look (#4111).
         await expect(turn).not.toHaveAttribute('data-running-driver');
         await expect(turn.locator('.agent-chip-driver')).toHaveCount(0);
-        await expect(turn.locator('.agent-chip .lucide-bot')).toHaveCount(1);
+        // The turn's avatar names the agent, so the chip carries no icon.
+        await expect(turn.locator('.agent-chip .lucide-bot')).toHaveCount(0);
         await captureResponsive(page, `real-driver-${driver ?? 'absent'}`);
         await page.reload();
         await openChat(page);

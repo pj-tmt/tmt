@@ -178,8 +178,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   composer stays in flow, since it can exceed the viewport), opening a thread reveals
   its end, and arrivals neither scroll nor show the jump action.
   `components/conversation-turn.tsx` owns their
-  shared flat message markup: neutral 1px row rules, muted author/time and an agent
-  3px ink rail. Delivery status follows the message body, left-aligned; the byline
+  shared message markup: the avatar, the author and muted time byline, and the text (a bubble in
+  Chat, directly on the surface in a thread). Delivery status follows the message body, left-aligned; the byline
   does not contain delivery state. Check again reuses the shared refresh icon action,
   with its accessible name, hover/focus tooltip and 44px mobile touch target;
   Ask again uses a distinct paper-plane Send icon through the same shared action,
