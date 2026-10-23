@@ -405,10 +405,12 @@ renameSync(output+'.tmp',output);
         member
       );
       expect(fs.readFileSync(log, 'utf8')).toBe('causal-new-member-4582\n');
-      const squad = expectJsonResult(await squadCli(fixture, ['ls', '--squad', 'product'])) as {
-        members: Array<{ id: string }>;
-      };
-      expect(squad.members.some((entry) => entry.id === created.id)).toBe(true);
+      const squad = expectJsonResult<{
+        sections: Array<{ rows: Array<{ id: string }> }>;
+      }>(await squadCli(fixture, ['ls', '--squad', 'product']));
+      expect(
+        squad.sections.flatMap((section) => section.rows).some((entry) => entry.id === created.id)
+      ).toBe(true);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape', 'q']);
       await fixture.waitForCapture(
         (screen) => screen.includes('NEW_MEMBER_BOARD_EXIT=0'),

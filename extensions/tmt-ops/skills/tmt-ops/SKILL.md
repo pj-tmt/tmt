@@ -561,7 +561,7 @@ state. A created member whose squad add fails remains visible in Common pool wit
 its repair command.
 
 `e` on Host or review opens its launch template, also available from Comma Settings
-→ **Launch templates…**. Edit JSON argv; Ctrl-R resets only the host override.
+→ **Launch templates…**. Edit JSON argv; `ctrl-r` resets only the host override.
 `{session}` and `{command}` occupy whole argv words; other host-script braces stay
 literal. The command slot is one shell-quoted command string consumed once by the
 host. Overrides live in `[launch.<host>].argv` and save with Config's normal conflict
