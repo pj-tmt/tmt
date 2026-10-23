@@ -175,6 +175,17 @@ impl Store {
         let changed=self.connection.execute("UPDATE cloud_transport SET attempted=1 WHERE peer_id=?1 AND kind='inbox' AND id=?2 AND response IS NOT NULL AND attempted=0",[peer,id]).map_err(database)?;
         Ok(changed == 1)
     }
+    /// A claimed publication may remain unconfirmed; it never permits another POST.
+    pub(crate) fn cloud_publication_attempted(
+        &self,
+        peer: &str,
+        id: &str,
+    ) -> Result<bool, RemoteError> {
+        self.connection.query_row(
+            "SELECT attempted FROM cloud_transport WHERE peer_id=?1 AND kind='inbox' AND id=?2 AND response IS NOT NULL",
+            [peer, id], |row| row.get(0),
+        ).map_err(database)
+    }
     pub(crate) fn cloud_checkpoint(&self, peer: &str) -> Result<Checkpoint, RemoteError> {
         canonical::uuid(peer).map_err(|_| invalid())?;
         let time:Option<i64>=self.connection.query_row("SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint' AND id=''",[peer],|r|r.get(0)).optional().map_err(database)?;

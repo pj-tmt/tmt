@@ -94,17 +94,25 @@ impl InboxDriver {
                                     crate::sealed_sync::SyncError::Unavailable
                                 }
                             })), io,
-                        ).await?;
+                        ).await;
                         match observed {
-                            Some(response) if response.bytes() == frozen.bytes => {},
-                            Some(_) => return Err(RemoteError::new(
+                            Ok(Some(response)) if response.bytes() == frozen.bytes => {},
+                            Ok(Some(_)) => return Err(RemoteError::new(
                                 "REMOTE_CLOUD_CONFLICT",
                                 "The response ID belongs to different ciphertext.",
                             )),
-                            None => return Err(RemoteError::new(
-                                "REMOTE_CLOUD_UNCONFIRMED",
-                                "The cloud response could not be confirmed; it will not be sent again.",
-                            )),
+                            Err(error) if error.code != "REMOTE_CLOUD_UNCONFIRMED" => return Err(error),
+                            _ => {
+                                // The frozen reply and durable attempt remain unconfirmed. Do
+                                // not let that one carrier block a fresh signed recovery behind
+                                // it. Before the claim, failures still hold the checkpoint.
+                                if !frozen.publication_attempted()? {
+                                    return Err(RemoteError::new(
+                                        "REMOTE_CLOUD_UNCONFIRMED",
+                                        "The cloud response could not be confirmed; it will not be sent again.",
+                                    ));
+                                }
+                            }
                         }
                     }
                     Ok(())

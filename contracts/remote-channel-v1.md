@@ -2255,8 +2255,12 @@ sender restart, observe the original request ID, then use a fresh signed `operat
 new HPKE context to read the original journal outcome. The old encrypted response remains unread until
 owner retention. Recovery never repeats the dispatch effect or reuses the lost context's key/nonce.
 
-Transient network, Auth refresh, budget or Store failures leave the checkpoint unchanged and retry
-on the next bounded poll with native backoff. Permanent malformed, undecryptable, foreign, retired-key,
+Transient network, Auth refresh, budget or Store failures before the response-publication claim
+leave the checkpoint unchanged and retry on the next bounded poll with native backoff. Once that
+attempt is durably claimed, an ambiguous or missing observation keeps its frozen reply unconfirmed
+but lets the cursor and checkpoint advance, so a later fresh signed ID lookup can reach the journal.
+The existing attempt flag survives restart; neither the mutation nor its response is retried or resealed.
+Permanent malformed, undecryptable, foreign, retired-key,
 revoked or expired carriers receive one immutable refusal code in the same transport row and existing
 audit transaction. They grant no operation authority and are de-duplicated across restart; a durable
 refusal lets the checkpoint advance without stopping other peers. Where decryption provided a safe

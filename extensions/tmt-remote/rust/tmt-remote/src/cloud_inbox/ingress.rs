@@ -27,6 +27,10 @@ pub(crate) struct Reply {
     sessions: Arc<DoorSessions>,
 }
 impl Reply {
+    pub(crate) fn publication_attempted(&self) -> Result<bool, RemoteError> {
+        self.sessions
+            .with_operation_store(|store| store.cloud_publication_attempted(&self.peer, &self.id))
+    }
     pub(crate) fn claim_publication(&self) -> Result<bool, RemoteError> {
         if let Some(grant) = &self.grant {
             self.sessions
