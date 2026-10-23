@@ -78,6 +78,8 @@ pub(super) fn paint(
     first: u16,
 ) -> Option<Menu> {
     let at = place(area, end, first)?;
+    // The cell between the chips would otherwise show the text beneath it.
+    frame.render_widget(ratatui::widgets::Clear, at);
     let painted = crate::board::buttons::paint(
         app,
         frame.buffer_mut(),

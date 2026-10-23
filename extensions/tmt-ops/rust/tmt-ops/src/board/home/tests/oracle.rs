@@ -732,6 +732,13 @@ fn captures() -> Value {
                 }
             }
         }
+        // A drag selection and the Selection menu opened below its end.
+        for (look_name, look) in looks() {
+            for scene in crate::board::conversation::source::scenes::SCENES {
+                let app = crate::board::conversation::source::scenes::capture_case(scene, look);
+                frames.push(capture_frame(&app, scene, look_name, 100, 36, &mut styles));
+            }
+        }
         for (look_name, look) in looks() {
             for scene in crate::board::member_session::tests::SCENES {
                 for width in [160, 100, 80, 60] {

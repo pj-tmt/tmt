@@ -880,4 +880,6 @@ impl App {
 mod anchored;
 mod menu;
 #[cfg(test)]
+pub(in crate::board) mod scenes;
+#[cfg(test)]
 mod tests;
