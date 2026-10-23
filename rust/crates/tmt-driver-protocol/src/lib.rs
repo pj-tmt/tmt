@@ -27,7 +27,7 @@ pub mod conformance;
 pub use decode::{
     Answer, DecodeError, decode, decode_capabilities, decode_done, decode_runtime_capabilities,
 };
-pub use grammar::{Grammar, GrammarError, HostGrammar};
+pub use grammar::{Grammar, GrammarError, HostGrammar, LaunchTemplate};
 pub use runtime::{HookObservation, RuntimeDeclaration};
 pub use serve::{Handler, RuntimeHandler, serve, serve_runtime};
 pub use wire::*;

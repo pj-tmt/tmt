@@ -31,14 +31,14 @@ impl CommandRunner for FirstReadBarrier {
     }
 }
 
-struct PrivateServer {
+pub(super) struct PrivateServer {
     directory: Option<TestDirectory>,
-    socket: String,
+    pub(super) socket: String,
 }
 
 impl PrivateServer {
     /// A server socket named `name` inside the test's own directory, proven private first.
-    fn new(directory: TestDirectory, name: &str) -> Self {
+    pub(super) fn new(directory: TestDirectory, name: &str) -> Self {
         let socket = directory.path.join(name);
         crate::test_support::assert_private_socket(&socket, &directory.path);
         Self {
@@ -47,7 +47,7 @@ impl PrivateServer {
         }
     }
 
-    fn command(&self, args: &[&str]) -> Result<String, TmuxError> {
+    pub(super) fn command(&self, args: &[&str]) -> Result<String, TmuxError> {
         // Every command, kill-server included, re-proves the socket before tmux runs.
         let root = &self.directory.as_ref().expect("fixture directory").path;
         crate::test_support::assert_private_socket(Path::new(&self.socket), root);

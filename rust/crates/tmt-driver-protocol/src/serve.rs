@@ -296,6 +296,7 @@ mod tests {
                 pane_pid: 1,
                 suggested_name: None,
                 agent_name: None,
+                opened_by_tmt: false,
                 marker: None,
             };
             Ok(SnapshotResponse {

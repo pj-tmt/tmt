@@ -43,6 +43,13 @@ fn record_json(record: &DriverRecord) -> serde_json::Value {
         "callerEnv": record.capabilities.host().map(|value| &value.caller_env),
         "approvedAtMs": record.approved_at_ms,
     });
+    if let Some(launch) = record
+        .capabilities
+        .host()
+        .and_then(|host| host.launch.as_ref())
+    {
+        value["launch"] = json!(launch);
+    }
     if let Declaration::Runtime(capabilities) = &record.capabilities {
         value.as_object_mut().unwrap().remove("callerEnv");
         value["kind"] = json!("runtime");
@@ -134,18 +141,23 @@ fn write_details(
     } else {
         capabilities.caller_env.join(", ")
     };
+    let mut rows = vec![
+        ("version", capabilities.version.clone()),
+        ("protocol", record.protocol.to_string()),
+        ("executable", record.path.display().to_string()),
+        ("sha256", record.digest.clone()),
+        ("operations", capabilities.ops.join(", ")),
+        ("reads", reads),
+    ];
+    // Ops runs this command line to open a pane, so the user sees it before approving.
+    if let Some(launch) = &capabilities.launch {
+        rows.push(("opens panes with", launch.join(" ")));
+    }
     detail::write(
         output,
         terminal,
         &format!("Host driver {}", record.name),
-        &[
-            ("version", capabilities.version.clone()),
-            ("protocol", record.protocol.to_string()),
-            ("executable", record.path.display().to_string()),
-            ("sha256", record.digest.clone()),
-            ("operations", capabilities.ops.join(", ")),
-            ("reads", reads),
-        ],
+        &rows,
     )?;
     writeln!(
         output,
@@ -168,7 +180,7 @@ enum Human {
 type Answer = (serde_json::Value, Human);
 
 /// The running `tmt`, whose release ships the first-party drivers.
-fn running_tmt() -> Result<std::path::PathBuf, Failure> {
+pub(crate) fn running_tmt() -> Result<std::path::PathBuf, Failure> {
     std::env::current_exe().map_err(|error| {
         Failure::new("DRIVER_IO_ERROR", "Could not locate tmt.", 1).caused_by(error)
     })
