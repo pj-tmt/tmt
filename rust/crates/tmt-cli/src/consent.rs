@@ -11,7 +11,7 @@ pub struct Consent<'a> {
     pub code: &'static str,
     /// The whole refusal message, in the caller's wording.
     pub refusal: &'a str,
-    /// The yes/no question, without the "[y/N]" suffix.
+    /// The yes/no question, without the "[y/N]" (or "[Y/n]") suffix.
     pub question: &'a str,
     /// What a decline prints.
     pub declined: &'a str,
@@ -34,20 +34,48 @@ pub fn ask(
     consent: Consent<'_>,
     io_failure: impl Fn(io::Error) -> Failure,
 ) -> Result<bool, Failure> {
+    ask_answering(output, yes, mode, consent, io_failure, false)
+}
+
+/// [`ask`] for a question whose expected answer is yes: `[Y/n]`, and pressing Enter agrees.
+/// Only an Enter agrees by default; end of input and anything but `y`/`yes` still decline.
+pub fn ask_defaulting_yes(
+    output: &mut Stream<impl Write>,
+    yes: bool,
+    mode: OutputMode,
+    consent: Consent<'_>,
+    io_failure: impl Fn(io::Error) -> Failure,
+) -> Result<bool, Failure> {
+    ask_answering(output, yes, mode, consent, io_failure, true)
+}
+
+fn ask_answering(
+    output: &mut Stream<impl Write>,
+    yes: bool,
+    mode: OutputMode,
+    consent: Consent<'_>,
+    io_failure: impl Fn(io::Error) -> Failure,
+    default_yes: bool,
+) -> Result<bool, Failure> {
     if yes {
         return Ok(true);
     }
     if !interactive(mode, output) {
         return Err(Failure::new(consent.code, consent.refusal, 1));
     }
-    write!(output, "{}? [y/N] ", consent.question)
+    write!(output, "{}? {} ", consent.question, choices(default_yes))
         .and_then(|()| output.flush())
         .map_err(&io_failure)?;
-    let accepted = read_affirmative(io::stdin().lock()).map_err(&io_failure)?;
+    let accepted = read_answer(io::stdin().lock(), default_yes).map_err(&io_failure)?;
     if !accepted {
         writeln!(output, "{}", consent.declined).map_err(&io_failure)?;
     }
     Ok(accepted)
+}
+
+/// The capital letter is what Enter answers.
+fn choices(default_yes: bool) -> &'static str {
+    if default_yes { "[Y/n]" } else { "[y/N]" }
 }
 
 /// The most bytes of an answer read, counting its newline.
@@ -56,14 +84,15 @@ const ANSWER_LIMIT: u64 = 256;
 /// The most bytes read past `ANSWER_LIMIT` to finish consuming a declined over-long line.
 const DRAIN_LIMIT: u64 = 4096;
 
-/// Reads one answer line and says whether it is `y` or `yes`. The answer counts only when its
+/// Reads one answer line and says whether it is `y` or `yes`, or, with `default_yes`, an empty
+/// line ended by Enter (end of input is never an Enter). The answer counts only when its
 /// newline or the end of input arrives within `ANSWER_LIMIT`: a read that used the whole limit
 /// without either may be the prefix of a longer line, so it is declined. Only then is the rest
 /// of that line consumed, up to its newline and at most `DRAIN_LIMIT` bytes, so it is not left
 /// in the terminal for the shell to run after `tmt` exits. A terminal in canonical mode has
 /// already delivered the whole line, so the drain waits for no new typing. Input after the
 /// newline, and everything after a short answer, stays unread.
-fn read_affirmative(mut input: impl BufRead) -> io::Result<bool> {
+fn read_answer(mut input: impl BufRead, default_yes: bool) -> io::Result<bool> {
     let mut answer = Vec::new();
     io::Read::take(&mut input, ANSWER_LIMIT).read_until(b'\n', &mut answer)?;
     let complete = answer.last() == Some(&b'\n') || (answer.len() as u64) < ANSWER_LIMIT;
@@ -71,14 +100,19 @@ fn read_affirmative(mut input: impl BufRead) -> io::Result<bool> {
         input.take(DRAIN_LIMIT).read_until(b'\n', &mut Vec::new())?;
         return Ok(false);
     }
-    Ok(matches!(
-        std::str::from_utf8(&answer)
+    let enter = answer.last() == Some(&b'\n');
+    Ok(
+        match std::str::from_utf8(&answer)
             .unwrap_or("")
             .trim()
             .to_ascii_lowercase()
-            .as_str(),
-        "y" | "yes"
-    ))
+            .as_str()
+        {
+            "y" | "yes" => true,
+            "" => default_yes && enter,
+            _ => false,
+        },
+    )
 }
 
 #[cfg(test)]
@@ -87,7 +121,7 @@ mod tests {
     use std::io::{Cursor, Read};
 
     fn affirmed(input: &[u8]) -> bool {
-        read_affirmative(Cursor::new(input)).unwrap()
+        read_answer(Cursor::new(input), false).unwrap()
     }
 
     #[test]
@@ -120,6 +154,27 @@ mod tests {
     }
 
     #[test]
+    fn only_an_enter_agrees_by_default_and_the_prompt_says_so() {
+        let by_default = |input: &[u8]| read_answer(Cursor::new(input), true).unwrap();
+        for enter in ["\n", "\r\n", "  \n"] {
+            assert!(by_default(enter.as_bytes()), "{enter:?}");
+        }
+        for answer in ["y\n", "YES\n", "yes", "y"] {
+            assert!(by_default(answer.as_bytes()), "{answer:?}");
+        }
+        for answer in ["", "  ", "n\n", "no\n", "nope\n", "yess\n", "\u{ff}\n"] {
+            assert!(!by_default(answer.as_bytes()), "{answer:?}");
+        }
+        let long = format!("{}\n", " ".repeat(400));
+        assert!(
+            !by_default(long.as_bytes()),
+            "an over-limit line is declined"
+        );
+        assert!(!affirmed(b"\n"), "the default stays no unless asked");
+        assert_eq!((choices(true), choices(false)), ("[Y/n]", "[y/N]"));
+    }
+
+    #[test]
     fn invalid_utf8_is_never_an_affirmative_answer() {
         assert!(!affirmed(b"y\xff\n"));
         assert!(!affirmed(b"\xffyes\n"));
@@ -146,10 +201,10 @@ mod tests {
         );
     }
 
-    /// What `read_affirmative` leaves unread, and its verdict.
+    /// What `read_answer` leaves unread, and its verdict.
     fn leftover(input: &[u8]) -> (bool, Vec<u8>) {
         let mut cursor = Cursor::new(input);
-        let accepted = read_affirmative(&mut cursor).unwrap();
+        let accepted = read_answer(&mut cursor, false).unwrap();
         let mut rest = Vec::new();
         cursor.read_to_end(&mut rest).unwrap();
         (accepted, rest)
@@ -197,7 +252,7 @@ mod tests {
             }
         }
         let reader = io::BufReader::new(Failing);
-        assert!(read_affirmative(reader).is_err());
+        assert!(read_answer(reader, false).is_err());
     }
 
     #[test]

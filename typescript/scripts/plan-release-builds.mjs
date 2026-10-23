@@ -4,6 +4,7 @@
 //   gh api --paginate --slurp repos/OWNER/REPO/releases \
 //     | node plan-release-builds.mjs --product cli [--tag TAG | --retry TAG | --hold TAG | --rerun TAG] [--components FILE]
 import { appendFileSync, readFileSync } from 'node:fs';
+import { readStdinUtf8 } from './read-stdin.mjs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { parseComponentMap } from './ci-scope.mjs';
@@ -252,7 +253,7 @@ function main(argv, stdin) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
-    main(process.argv.slice(2), readFileSync(0, 'utf8'));
+    main(process.argv.slice(2), readStdinUtf8());
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
     process.exitCode = 1;

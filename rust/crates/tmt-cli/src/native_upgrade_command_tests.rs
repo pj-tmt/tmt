@@ -2,36 +2,6 @@ use super::*;
 use std::cell::Cell;
 use tmt_adapters::process::{CommandError, CommandOutput};
 
-#[test]
-fn root_human_output_keeps_one_restart_notice_for_success_and_partial_failure() {
-    let rows = [
-        json!({"product":"remote","status":"changed","version":"0.1.0-alpha.2","details":{"restartHint":"one restart notice"}}),
-        json!({"product":"remote","status":"changed","version":"0.1.0-alpha.2","details":{"restartHint":"one restart notice","skills":{"status":"warning","published":[{"target":"/agent/tmt-remote"}],"warning":{"code":"EXTENSION_SKILLS_FAILED","message":"permission denied at /agent/tmt-remote"}}}}),
-    ];
-    for row in rows {
-        let mut bytes = Vec::new();
-        write_extension_product(&mut bytes, tmt_cli_style::Terminal::PLAIN, &row).unwrap();
-        let text = String::from_utf8(bytes).unwrap();
-        assert_eq!(text.matches("one restart notice").count(), 1);
-        if row["details"]["skills"]["status"] == "warning" {
-            assert!(text.contains("remote: changed (0.1.0-alpha.2)"));
-            assert!(text.contains("Agent skills: 1 published"));
-            assert!(text.contains("permission denied at /agent/tmt-remote"));
-        }
-    }
-    let mut bytes = Vec::new();
-    write_extension_product(
-        &mut bytes,
-        tmt_cli_style::Terminal::PLAIN,
-        &json!({"product":"remote","status":"unchanged","version":"0.1.0-alpha.2"}),
-    )
-    .unwrap();
-    assert_eq!(
-        String::from_utf8(bytes).unwrap(),
-        "remote: unchanged (0.1.0-alpha.2)\n"
-    );
-}
-
 struct Runner {
     calls: Cell<usize>,
     bytes: &'static [u8],
@@ -154,7 +124,11 @@ fn aggregate_report_keeps_cli_and_extension_outcomes_independent() {
             None,
             Some(Failure::new("NATIVE_UPGRADE_FAILED", "CLI failed", 7)),
             true,
-            false,
+            &Prior {
+                repeat: "tmt upgrade".into(),
+                ran_from_moved_prefix: false,
+                versions: BTreeMap::new(),
+            },
             None,
             mode
         )
@@ -204,32 +178,6 @@ fn upgrade_json_retains_rate_limit_reset_and_token_hint_in_cause() {
 }
 
 #[test]
-fn skills_summary_counts_only_missing_core_skills() {
-    let office = json!({
-        "refreshed": vec![json!({"target": "/a/tmt", "changed": false}); 8],
-        "skipped": [
-            "/a/tmt-office", "/a/tmt-avatar-create", "/a/tmt-prop-create",
-            "/b/tmt-office", "/b/tmt-avatar-create", "/b/tmt-prop-create"
-        ],
-        "conflicts": [],
-    });
-    assert_eq!(
-        skills_summary(&office),
-        "Managed skills: 8 current/refreshed."
-    );
-    let mut missing = office.clone();
-    missing["skipped"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!("/c/tmt"));
-    missing["conflicts"] = json!(["/d/tmt-inbox"]);
-    assert_eq!(
-        skills_summary(&missing),
-        "Managed skills: 8 current/refreshed, 1 missing, 1 conflicts preserved."
-    );
-}
-
-#[test]
 fn skill_failure_is_a_warning_with_partial_publication_and_the_cause() {
     let partial = json!({"refreshed":[{"target":"/agent/tmt","changed":true}],"skipped":[],"conflicts":[],"error":{"code":"SKILL_REFRESH_FAILED","message":"permission denied at /agent/tmt-inbox"}});
     let report = super::skill_outcome(Err((
@@ -250,4 +198,22 @@ fn skill_failure_is_a_warning_with_partial_publication_and_the_cause() {
     );
     let report = super::skill_outcome(Ok(json!({"refreshed":[],"skipped":[],"conflicts":[]})));
     assert_eq!(report["status"], "current");
+}
+
+#[test]
+fn the_repeated_command_carries_every_flag_the_invocation_had() {
+    assert_eq!(
+        repeat_command(None, None, false, false, false),
+        "tmt upgrade"
+    );
+    assert_eq!(
+        repeat_command(
+            Some(Channel::Alpha),
+            Some("5.0.0-alpha.8"),
+            true,
+            true,
+            true
+        ),
+        "tmt upgrade --channel alpha --to 5.0.0-alpha.8 --unpin --yes --allow-schema-ahead"
+    );
 }

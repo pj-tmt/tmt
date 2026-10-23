@@ -286,13 +286,10 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 || "Exchanges with you".to_owned(),
                 |target| conversation::screen::title(app, target, usize::from(area.width)),
             ),
-            if recipient.as_ref().is_some_and(|target| {
-                app.conversation_refresh(target) == conversation::Refresh::Retained
-            }) {
-                neutral("refreshing", app.look())
-            } else {
-                Line::default()
-            },
+            recipient
+                .as_ref()
+                .and_then(|target| app.conversation_spinner(target))
+                .map_or_else(Line::default, |glyph| neutral(glyph, app.look())),
         );
     }
     let Some(target) = recipient else {

@@ -126,6 +126,8 @@ pub struct Snapshot {
     pub attention: BTreeMap<String, Attention>,
     pub squad: Option<String>,
     pub view: Result<View, String>,
+    /// Core's change cursor taken just before this load; `None` when it could not be read.
+    pub(super) cursor: Option<u64>,
 }
 
 /// Clipboard feedback follows the gesture; the worker keeps one copy implementation.
@@ -1560,7 +1562,7 @@ impl App {
         self.digest_rows.get_mut().clear();
         self.overview_rows.borrow_mut().clear();
         self.conversation.borrow_mut().refresh_pane_output();
-        self.refresh_sent();
+        self.observe_cursor(snapshot.cursor);
         if let Some(timing) = &mut self.timing {
             let accepted =
                 snapshot.view.is_ok() && (self.current.is_none() || self.current == snapshot.squad);
@@ -4806,6 +4808,7 @@ pub(crate) mod tests {
             attention: Default::default(),
             squad: Some(squad.into()),
             view: Ok(view(sections)),
+            cursor: None,
         }
     }
 
@@ -5525,6 +5528,7 @@ pub(crate) mod tests {
             attention: Default::default(),
             squad: Some("product".into()),
             view: Err("tmt did not finish in time".into()),
+            cursor: None,
         });
         assert_eq!(
             names(&app),

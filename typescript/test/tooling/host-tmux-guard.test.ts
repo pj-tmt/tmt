@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
+import { runWithNonblockingStdin } from '../support/nonblocking-stdin.js';
 import {
   decide,
   hostTmuxViolations,
@@ -19,6 +20,27 @@ const script = fileURLToPath(new URL('../../scripts/host-tmux-guard.mjs', import
 const uid = 501;
 const refused = (command: string, env: Record<string, string> = {}) =>
   hostTmuxViolations(command, env, uid).map((violation) => violation.command);
+
+describe('hook stdin transport', () => {
+  it('retains refusal decisions after delayed, large input without executing commands', () => {
+    const input = JSON.stringify({
+      tool_name: 'Bash',
+      tool_input: { command: 'tmux kill-server' },
+      context: '雪🧪'.repeat(200_000),
+    });
+    const result = runWithNonblockingStdin([script], input);
+    expect(result.ready).toBe(true);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('Host tmux safety');
+  });
+
+  it('retains malformed payload error behavior after delayed input', () => {
+    const result = runWithNonblockingStdin([script], '{');
+    expect(result.ready).toBe(true);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('host-tmux-guard could not check this command:');
+  });
+});
 
 describe('commands that reach the host server', () => {
   it.each([

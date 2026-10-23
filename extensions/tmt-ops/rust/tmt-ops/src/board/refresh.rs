@@ -807,7 +807,7 @@ fn serve(
             continue;
         }
         let Loaded {
-            snapshot,
+            mut snapshot,
             enrich,
             attention: job,
             cron,
@@ -828,6 +828,7 @@ fn serve(
             job.cursor = seen.history_cursor();
             job.demand = wanted.demand;
         }
+        let cursor = seen.history_cursor();
         // A squad that failed to load keeps the default interval.
         let automatic = snapshot
             .view
@@ -874,6 +875,7 @@ fn serve(
                 .map_or_else(|| Instant::now() + every, |(_, _, due)| *due);
             (read, every, due)
         });
+        snapshot.cursor = cursor;
         if !publish(snapshot, wanted.generation) {
             break;
         }
@@ -954,6 +956,7 @@ fn load(
                 attention: BTreeMap::new(),
                 squad: wanted,
                 view: Err(error.to_string()),
+                cursor: None,
             });
         }
     };
@@ -1009,6 +1012,7 @@ fn load(
                 }
                 None => "No squad exists yet; run: tmt ops squad init <name>".into(),
             }),
+            cursor: None,
             squad: wanted,
         });
     };
@@ -1098,6 +1102,7 @@ fn load(
             attention,
             squad: Some(key),
             view,
+            cursor: None,
         },
         enrich,
         attention: job,

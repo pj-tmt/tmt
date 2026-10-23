@@ -970,6 +970,59 @@ fn a_restored_send_offers_send_now_only_when_core_says_it_can_go() {
     }
 }
 
+/// A batched message's countdown is time-derived (`remainingMs` at read time), so an unchanged
+/// Core cursor does not make the shown sends durable: they are read again on every refresh.
+#[test]
+fn a_batched_send_is_read_again_on_an_unchanged_cursor_and_a_delivered_one_is_not() {
+    use crate::board::app::workspace::tests::board;
+    for (state, again) in [("batched", true), ("delivered", false)] {
+        let mut app = board();
+        draw(&app, 148, 51);
+        if let Some(finals) = app.finals_read() {
+            app.apply_finals(finals, Ok(vec![]));
+            draw(&app, 148, 51);
+        }
+        let key = app.sent_read().expect("sends are read");
+        let mut send = own_send(
+            "req_held",
+            crate::status::now_ms() - 5_000,
+            "wait for me",
+            false,
+        );
+        send["messageState"] = json!({"state":state,"remainingMs":120_000,
+            "reason":{"text":"held for now"}});
+        app.apply_sent(key, Ok(vec![send]));
+        app.observe_cursor(Some(4));
+        let key = app.sent_read().expect("a moved cursor reads the sends");
+        let mut send = own_send(
+            "req_held",
+            crate::status::now_ms() - 5_000,
+            "wait for me",
+            false,
+        );
+        send["messageState"] = json!({"state":state,"remainingMs":60_000,
+            "reason":{"text":"held for now"}});
+        app.apply_sent(key, Ok(vec![send]));
+        assert!(app.sent_read().is_none());
+        // Refreshes that leave Core's cursor where it was.
+        for _ in 0..2 {
+            app.observe_cursor(Some(4));
+            assert_eq!(app.sent_read().is_some(), again, "{state}");
+            if let Some(key) = app.sent_read() {
+                let mut send = own_send(
+                    "req_held",
+                    crate::status::now_ms() - 5_000,
+                    "wait for me",
+                    false,
+                );
+                send["messageState"] = json!({"state":state,"remainingMs":30_000,
+                    "reason":{"text":"held for now"}});
+                app.apply_sent(key, Ok(vec![send]));
+            }
+        }
+    }
+}
+
 #[test]
 fn a_failed_or_stale_sent_read_is_not_retried_and_hides_nothing() {
     use crate::board::app::workspace::tests::board;

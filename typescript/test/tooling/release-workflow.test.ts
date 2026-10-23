@@ -509,26 +509,6 @@ describe('release version gate workflow boundaries', () => {
       'architecture: ${{ inputs.architecture }}'
     );
   });
-  it('limits the #4443 Node 22 stopgap to native-release.yml:plan', () => {
-    // https://github.com/pj-tmt/tmt/issues/4443: remove this exception with the permanent fix.
-    const exceptions: string[] = [];
-    for (const file of readdirSync(path.join(repository, '.github/workflows')).filter((file) =>
-      file.endsWith('.yml')
-    )) {
-      for (const [name, block] of jobs(read(`.github/workflows/${file}`))) {
-        for (const [, version] of block.matchAll(/^\s+node-version: ([0-9.]+)$/gm)) {
-          const owner = `${file}:${name}`;
-          if (owner === 'native-release.yml:plan') {
-            expect(version, owner).toBe('22.23.4');
-            exceptions.push(owner);
-          } else expect(version, owner).toBe('26.12.1');
-        }
-      }
-    }
-    expect(exceptions).toEqual(['native-release.yml:plan']);
-    expect(read('.github/actions/setup-tooling/action.yml')).toContain('default: 26.12.1');
-  });
-
   it('makes every injection caller supply pinned Node before either phase', () => {
     const callers: string[] = [];
     for (const file of readdirSync(path.join(repository, '.github/workflows')).filter((file) =>

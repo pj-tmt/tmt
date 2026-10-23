@@ -271,8 +271,8 @@ the move is a bootstrap reinstall.
 - Root upgrade updates the CLI first and lets that CLI judge extension inventories; core registers
   each product's files before that product publishes them, so the supporting CLI release must reach
   users first. `native_upgrade_command` refreshes managed skills in the new executable, then asks
-  it for hidden `__native-upgrade-extensions --json --plan`, asks one consent question and passes
-  that exact plan on stdin with `--yes`. An unsupported older target fails with a rerun hint; there
+  it for hidden `__native-upgrade-extensions --json --plan`, asks one consent question (`[Y/n]`:
+  Enter agrees, end of input declines) and passes that exact plan on stdin with `--yes`. An unsupported older target fails with a rerun hint; there
   is no old-process fallback or rollback. `upgrade_all` keeps each channel and pin; non-terminal
   runs without `--yes` report `consentRequired`; product failures stay independent, a CLI failure
   stops the extension phase and a pinned CLI permits it.
@@ -280,3 +280,7 @@ the move is a bootstrap reinstall.
   credentials. After binary activation, skill failures become `skills.status: "warning"` with
   path/cause and partial publication; they never turn that product into a failed upgrade or stop
   later products. Human and JSON output retain each product's activation and skill summary.
+  Human output (`native_upgrade_command/summary.rs`) is a table of the components that changed,
+  are pinned, wait for approval or failed (`from → to`, installed versions read before the
+  upgrade), one muted `Up to date` line, one summary and one `Next:` list, required lines first and
+  optional ones muted and each said once; the JSON document is built apart from it.
