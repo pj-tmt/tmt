@@ -1,6 +1,7 @@
 //! Queue a frozen room audience through the same composition owner as HTTP.
 
 use crate::{
+    caller_context::SelectCaller,
     identity_context,
     invocation::{OutputMode, RoomOperation},
     output::{Failure, after_cleanup},
@@ -43,6 +44,20 @@ fn failure(error: DispatchError, operation_id: &str) -> Failure {
 }
 
 fn run(operation: RoomOperation) -> Result<DispatchReceipt, Failure> {
+    dispatched(
+        operation,
+        || ConfigPaths::discover().map_err(Failure::from),
+        &Host::for_caller,
+    )
+}
+
+/// `config` and `select` are the command's paths and caller selection; a
+/// test passes private ones.
+fn dispatched(
+    operation: RoomOperation,
+    config: impl FnOnce() -> Result<ConfigPaths, Failure>,
+    select: SelectCaller<'_>,
+) -> Result<DispatchReceipt, Failure> {
     let RoomOperation::Dispatch {
         room,
         message,
@@ -61,7 +76,7 @@ fn run(operation: RoomOperation) -> Result<DispatchReceipt, Failure> {
             1,
         ));
     }
-    let paths = ConfigPaths::discover().map_err(Failure::from)?;
+    let paths = config()?;
     let settings = ConfigFiles {
         paths: paths.clone(),
     }
@@ -69,7 +84,7 @@ fn run(operation: RoomOperation) -> Result<DispatchReceipt, Failure> {
     .map_err(Failure::from)?
     .settings;
     // Only an implicit sender selects the caller's host, before storage opens.
-    let sender = identity_context::sender(identity.as_deref(), &Host::for_caller)?;
+    let sender = identity_context::sender(identity.as_deref(), select)?;
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
             error,
@@ -188,6 +203,9 @@ pub(super) fn execute(operation: RoomOperation, mode: OutputMode) -> io::Result<
     }
     Ok(0)
 }
+
+#[cfg(test)]
+mod tests;
 
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
