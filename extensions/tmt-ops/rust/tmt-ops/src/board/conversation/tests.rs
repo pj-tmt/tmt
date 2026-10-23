@@ -1858,6 +1858,104 @@ fn first_open_paints_one_centred_loading_mark_then_one_complete_projection() {
     );
 }
 
+const SPINNER_GLYPHS: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+/// A workspace whose conversation is shown, read once, and not due for any read.
+fn settled_workspace() -> App {
+    let mut app = loading_workspace();
+    workspace_frame(&app);
+    let plan = app.conversation_read().unwrap();
+    app.apply_conversation(
+        plan.clone(),
+        plan.test_projection("Held response\nsecond source line", Some("held provider")),
+    );
+    workspace_frame(&app);
+    app.observe_cursor(Some(4));
+    for _ in 0..3 {
+        workspace_frame(&app);
+        let Some(plan) = app.conversation_read() else {
+            break;
+        };
+        app.apply_conversation(
+            plan.clone(),
+            plan.test_projection("Held response", Some("held")),
+        );
+    }
+    assert!(app.conversation_read().is_none(), "settled: nothing is due");
+    app
+}
+
+fn frame_at(app: &App, now_ms: u64) -> String {
+    frame_words(&crate::status::with_now_ms(now_ms, || workspace_frame(app)))
+}
+
+fn has_spinner(words: &str) -> bool {
+    words.chars().any(|c| SPINNER_GLYPHS.contains(&c))
+}
+
+#[test]
+fn an_unchanged_cursor_with_a_slow_pane_read_reads_no_sources_and_never_paints_a_spinner() {
+    let mut app = settled_workspace();
+    let target = app.conversation_target().unwrap();
+    // A board refresh arrives: pane output goes stale on every snapshot, the cursor does not move.
+    app.conversation.borrow_mut().refresh_pane_output();
+    app.observe_cursor(Some(4));
+    let now = 1_791_600_000_000;
+    assert!(!has_spinner(&frame_at(&app, now)));
+    let plan = app
+        .conversation_read()
+        .expect("pane output is read each refresh");
+    assert!(
+        !plan.test_reads_sent(),
+        "no requests.show round for an unchanged source"
+    );
+    assert_eq!(app.conversation_refresh(&target), Refresh::Current);
+    // The pane read never completes in this test: however long it takes, nothing paints.
+    for later in [100, 1_000, 60_000] {
+        let words = frame_at(&app, now + later);
+        assert!(!has_spinner(&words), "{later} ms: {words}");
+        assert!(!words.contains("refreshing"), "{later} ms");
+        assert!(words.contains("Held response"), "held content stays");
+    }
+}
+
+#[test]
+fn a_moved_cursor_reads_once_and_shows_the_spinner_only_after_the_delay() {
+    let mut app = settled_workspace();
+    app.conversation.borrow_mut().refresh_pane_output();
+    app.observe_cursor(Some(5));
+    let target = app.conversation_target().unwrap();
+    assert_eq!(app.conversation_refresh(&target), Refresh::Retained);
+    let now = 1_791_600_000_000;
+    let delay = crate::board::view::SPINNER_DELAY.as_millis() as u64;
+    assert!(!has_spinner(&frame_at(&app, now)), "first paint is silent");
+    assert!(
+        !has_spinner(&frame_at(&app, now + delay - 1)),
+        "still inside the delay"
+    );
+    let shown = frame_at(&app, now + delay);
+    assert!(has_spinner(&shown), "{shown}");
+    assert!(!shown.contains("refreshing"));
+    assert!(shown.contains("Held response"), "held content never moves");
+    assert!(app.conversation_read().unwrap().test_reads_sent());
+}
+
+#[test]
+fn a_fast_read_paints_no_spinner_at_all() {
+    let mut app = settled_workspace();
+    app.observe_cursor(Some(6));
+    let now = 1_791_600_000_000;
+    assert!(!has_spinner(&frame_at(&app, now)));
+    let plan = app.conversation_read().unwrap();
+    app.apply_conversation(
+        plan.clone(),
+        plan.test_projection("Held response", Some("held")),
+    );
+    for later in [0, 50, 5_000] {
+        assert!(!has_spinner(&frame_at(&app, now + later)), "{later} ms");
+    }
+}
+
 #[test]
 fn retained_open_keeps_content_and_source_mapping_until_the_single_refresh_publication() {
     let mut app = loading_workspace();
@@ -1897,7 +1995,15 @@ fn retained_open_keeps_content_and_source_mapping_until_the_single_refresh_publi
     ));
     let held = frame_words(&workspace_frame(&app));
     assert!(held.contains("Held response"), "{held}");
-    assert!(held.contains("refreshing"));
+    assert!(
+        !held.contains("refreshing"),
+        "a word no longer marks a refresh"
+    );
+    let late = frame_at(&app, crate::status::now_ms() + 1_000);
+    assert!(
+        has_spinner(&late),
+        "the spinner follows once the delay has passed"
+    );
     assert!(!held.contains("Loading conversation"));
     assert!(!held.contains("reading reply"));
     assert_eq!(

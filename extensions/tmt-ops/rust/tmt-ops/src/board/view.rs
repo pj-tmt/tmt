@@ -17,9 +17,7 @@ use tmt_cli_style::grid::Align;
 use tmt_tui::components::strip;
 
 pub(in crate::board) use header::ClockSurface;
-#[cfg(test)]
-pub(super) use header::SPINNER_DELAY;
-pub(in crate::board) use header::{feedback_glyph, feedback_wait};
+pub(in crate::board) use header::{SPINNER_DELAY, feedback_glyph, feedback_wait};
 pub(super) use header::{spinner_frame, spinner_wait, time_marks};
 
 /// Exactly `width` display cells: truncated with an ellipsis, or padded.

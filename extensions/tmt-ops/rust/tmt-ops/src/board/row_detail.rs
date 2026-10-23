@@ -41,6 +41,8 @@ pub(super) struct State {
     /// The same agent's durable sends from this user, read after its finals.
     agent_sent: Vec<(SentKey, Vec<Value>)>,
     sent_stale: bool,
+    /// Core's change cursor at the last applied snapshot.
+    source_cursor: Option<u64>,
     pub reader: Option<Reader>,
 }
 
@@ -685,6 +687,16 @@ impl App {
     }
     pub(super) fn refresh_sent(&mut self) {
         self.row_details.sent_stale = true;
+    }
+
+    /// A snapshot arrived at `cursor`. The requests behind the shown conversation
+    /// are read again only when Core's cursor moved; an unreadable cursor moves.
+    pub(super) fn observe_cursor(&mut self, cursor: Option<u64>) {
+        let unchanged = cursor.is_some() && cursor == self.row_details.source_cursor;
+        self.row_details.source_cursor = cursor;
+        if !unchanged {
+            self.refresh_sent();
+        }
     }
 
     pub(super) fn apply_sent(&mut self, key: SentKey, result: Result<Vec<Value>, String>) {

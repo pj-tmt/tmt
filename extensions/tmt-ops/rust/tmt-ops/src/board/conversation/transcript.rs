@@ -206,6 +206,28 @@ impl Session {
         }
     }
 
+    /// The retained-content spinner: nothing for the spinner delay, then the shell's
+    /// glyph; the gate wakes the board to repaint at that instant.
+    pub(super) fn refresh_spinner(&mut self, app: &App, retained: bool) -> Option<&'static str> {
+        if !retained {
+            self.refreshing_since_ms = None;
+            return None;
+        }
+        let now = crate::status::now_ms();
+        let since = *self.refreshing_since_ms.get_or_insert(now);
+        let until_ms = since + crate::board::view::SPINNER_DELAY.as_millis() as u64;
+        if now < until_ms {
+            crate::board::view::ClockSurface::admit_delay_gate(app, until_ms);
+            return None;
+        }
+        Some(crate::board::view::feedback_glyph(now, false))
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_refreshing_since(&mut self, ms: u64) {
+        self.refreshing_since_ms = Some(ms);
+    }
+
     /// Whether anything is held that the placeholder would stand in for.
     fn holds_content(&self) -> bool {
         self.reply.is_some()
