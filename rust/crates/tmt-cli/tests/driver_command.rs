@@ -26,6 +26,13 @@ fn capabilities(name: &str, prefix: &str, target: &str) -> String {
     )
 }
 
+/// `capabilities` plus the `launch` template the driver publishes (#4580).
+fn capabilities_with_launch(name: &str, prefix: &str, target: &str, launch: &[&str]) -> String {
+    let mut value: Value = serde_json::from_str(&capabilities(name, prefix, target)).unwrap();
+    value["ok"]["launch"] = serde_json::json!(launch);
+    value.to_string()
+}
+
 struct Fixture {
     root: PathBuf,
 }
@@ -731,4 +738,157 @@ esac
     assert_eq!(value["snapshots"], serde_json::json!([]));
     assert!(!fixture.root.join("state/workspace").exists());
     assert_eq!(fs::read(fixture.registry()).unwrap(), registry);
+}
+
+#[test]
+fn a_driver_publishes_its_launch_template_and_host_templates_reads_it() {
+    let fixture = Fixture::new("launch");
+    let screen = fixture.driver(
+        "screen",
+        &capabilities_with_launch(
+            "screen",
+            "sc-",
+            "s{n}",
+            &["screen-open", "--in", "{session}", "--", "{command}"],
+        ),
+    );
+    let output = fixture.tmt(&["driver", "install", path(&screen), "--yes"]);
+    assert!(output.status.success(), "{output:?}");
+    // The user sees the command line before approving it.
+    assert!(
+        text(&output.stdout)
+            .contains("  opens panes with  screen-open --in {session} -- {command}"),
+        "{output:?}"
+    );
+    // A driver from before launch templates publishes none.
+    let old = fixture.driver("old", &capabilities("old", "ol-", "o{n}"));
+    assert!(
+        fixture
+            .tmt(&["driver", "install", path(&old), "--yes"])
+            .status
+            .success()
+    );
+
+    let (code, listed) = fixture.json(&["driver", "ls", "--json"]);
+    assert_eq!(code, 0);
+    let driver = |name: &str| {
+        listed["drivers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|driver| driver["name"] == name)
+            .unwrap()
+    };
+    assert_eq!(
+        driver("screen")["launch"],
+        serde_json::json!(["screen-open", "--in", "{session}", "--", "{command}"])
+    );
+    assert!(driver("old").get("launch").is_none());
+
+    let (code, templates) = fixture.json(&["host", "templates", "--json"]);
+    assert_eq!(code, 0, "{templates}");
+    assert_eq!(templates["version"], 1);
+    let hosts = templates["hosts"].as_array().unwrap();
+    // tmux first, then the approved drivers in the registry's order.
+    assert_eq!(hosts[0]["host"], "tmux");
+    assert_eq!(hosts[0]["state"], "builtin");
+    assert_eq!(
+        hosts[0]["launch"]["placeholders"],
+        serde_json::json!(["session", "command"])
+    );
+    assert_eq!(hosts[0]["launch"]["argv"][0], "sh", "{templates}");
+    assert_eq!(hosts[0]["launch"]["argv"][1], "-c");
+    let host = |name: &str| hosts.iter().find(|host| host["host"] == name).unwrap();
+    assert_eq!(hosts.len(), 3);
+    assert_eq!(host("screen")["state"], "ok");
+    assert_eq!(
+        host("screen")["launch"]["argv"],
+        serde_json::json!(["screen-open", "--in", "{session}", "--", "{command}"])
+    );
+    assert_eq!(host("old")["launch"], Value::Null);
+
+    // Read-only: no session, no pane, no registry change.
+    let human = fixture.tmt(&["host", "templates"]);
+    assert!(human.status.success(), "{human:?}");
+    let shown = text(&human.stdout);
+    assert!(shown.contains("Host screen"), "{shown}");
+    assert!(
+        shown.contains("screen-open --in {session} -- {command}"),
+        "{shown}"
+    );
+    assert!(shown.contains("opens a pane with  none"), "{shown}");
+}
+
+#[test]
+fn an_unsafe_launch_template_is_refused_before_any_question() {
+    let fixture = Fixture::new("launch-refused");
+    for (label, launch) in [
+        ("one word", vec!["screen-open"]),
+        ("no command", vec!["screen-open", "{session}"]),
+        (
+            "embedded placeholder",
+            vec!["screen-open", "--in={session}", "{command}"],
+        ),
+        (
+            "unknown placeholder",
+            vec!["screen-open", "{session}", "{name}", "{command}"],
+        ),
+        ("placeholder program", vec!["{command}", "{session}"]),
+        (
+            "two commands",
+            vec!["screen-open", "{session}", "{command}", "{command}"],
+        ),
+    ] {
+        let driver = fixture.driver(
+            "screen",
+            &capabilities_with_launch("screen", "sc-", "s{n}", &launch),
+        );
+        let (code, refused) =
+            fixture.json(&["driver", "install", path(&driver), "--yes", "--json"]);
+        assert_eq!(code, 1, "{label}");
+        assert_eq!(
+            refused["error"]["code"], "DRIVER_REFUSED",
+            "{label}: {refused}"
+        );
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("launch"),
+            "{label}: {refused}"
+        );
+    }
+    assert!(!fixture.registry().exists());
+}
+
+#[test]
+fn a_driver_changed_after_approval_offers_no_launch_template() {
+    let fixture = Fixture::new("launch-changed");
+    let screen = fixture.driver(
+        "screen",
+        &capabilities_with_launch(
+            "screen",
+            "sc-",
+            "s{n}",
+            &["screen-open", "{session}", "{command}"],
+        ),
+    );
+    assert!(
+        fixture
+            .tmt(&["driver", "install", path(&screen), "--yes"])
+            .status
+            .success()
+    );
+    // The approval covered these bytes; a different executable's command line was not shown.
+    fs::write(&screen, format!("{DRIVER}# changed\n")).unwrap();
+    let (code, templates) = fixture.json(&["host", "templates", "--json"]);
+    assert_eq!(code, 0, "{templates}");
+    let screen = templates["hosts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|host| host["host"] == "screen")
+        .unwrap();
+    assert_eq!(screen["state"], "changed");
+    assert_eq!(screen["launch"], Value::Null);
 }

@@ -71,6 +71,23 @@ it('runs the measured whole-file split without changing coverage or execution li
     'PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/colab-app-results/results.json'
   );
   expect(app).toContain('timeout-minutes: 20');
+  expect(app).toContain(
+    '      - uses: ./.github/actions/install-chromium-deps\n      - name: Install Chromium\n'
+  );
+  expect(app).not.toContain('--with-deps');
+  expect(app).not.toContain('packages: >-');
+  expect(app).toContain('uses: actions/cache/restore@v4');
+  expect(app).not.toContain('actions/cache/save');
+  expect(app).toContain('PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/colab-chrome-browsers');
+  expect(app.indexOf('actions/cache/restore')).toBeLessThan(
+    app.indexOf('actions/install-chromium-deps')
+  );
+  expect(app.indexOf('actions/install-chromium-deps')).toBeLessThan(
+    app.indexOf('playwright install chromium')
+  );
+  expect(app).toContain(
+    'key: colab-chrome-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}'
+  );
   const config = readFileSync(
     new URL('../../../extensions/tmt-colab/typescript/app/playwright.config.ts', import.meta.url),
     'utf8'

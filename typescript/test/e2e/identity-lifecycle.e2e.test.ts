@@ -46,7 +46,7 @@ function boundProjection(fixture: E2EFixture, name: string, pane: string, lifeti
   const row = durableIdentity(fixture, name);
   expect(row.id).toMatch(/^[0-9a-f-]{36}$/);
   expect(row.lifetime).toBe(lifetime);
-  return { bound: true, id: row.id, name, pane, lifetime };
+  return { bound: true, id: row.id, name, pane, lifetime, session: { unbound: null } };
 }
 
 function metadata(fixture: E2EFixture, pane: MockPane): Record<string, unknown> {
@@ -413,7 +413,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
           target: fixture.paneTarget(peer.pane),
           cwd: peer.workspace,
           command: 'node',
-          session: { activity: unknownActivity },
+          session: { activity: unknownActivity, unbound: null },
         },
       ]);
       expect(fixture.paneMetadata(peer.pane)).toBe(peerMetadata);
@@ -501,7 +501,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
           target: fixture.paneTarget(restarted.pane),
           cwd: restarted.workspace,
           command: 'node',
-          session: { activity: unknownActivity },
+          session: { activity: unknownActivity, unbound: null },
         },
       ]);
     });
@@ -543,7 +543,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
             presence: 'offline',
             pane: null,
             command: '',
-            session: { activity: unknownActivity },
+            session: { activity: unknownActivity, unbound: null },
           },
         ],
       });
@@ -635,7 +635,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
           target: fixture.paneTarget(fixture.pane),
           cwd: fixture.workspace,
           command: 'node',
-          session: { activity: unknownActivity },
+          session: { activity: unknownActivity, unbound: null },
         });
         expect(fixture.paneMetadata(oldPane.pane)).toBe(oldMarkerBytes);
         expect(fixture.paneMetadata(collidingOldPane.pane)).toBe(collidingOldMarkerBytes);
@@ -772,7 +772,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
           presence: 'offline',
           pane: null,
           command: '',
-          session: { activity: unknownActivity },
+          session: { activity: unknownActivity, unbound: null },
         });
         expect(fixture.paneMetadata(fixture.pane)).toBe(healthyMetadata);
         expect(fixture.paneMetadata(affectedPane.pane)).toBe(affectedMetadata);

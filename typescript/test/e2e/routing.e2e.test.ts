@@ -48,6 +48,7 @@ describe('global identity and runtime routing', { concurrent: false }, () => {
       expect(alphaBinding.code).toBe(0);
       expect(alphaBinding.json).toEqual({
         bound: true,
+        session: { unbound: null },
         id: expect.any(String),
         name: 'Alpha',
         pane: alpha.pane,
@@ -64,6 +65,7 @@ describe('global identity and runtime routing', { concurrent: false }, () => {
       expect(allBinding.code).toBe(0);
       expect(allBinding.json).toEqual({
         bound: true,
+        session: { unbound: null },
         id: expect.any(String),
         name: 'all',
         pane: all.pane,
@@ -92,7 +94,7 @@ describe('global identity and runtime routing', { concurrent: false }, () => {
             target: fixture.paneTarget(all.pane),
             cwd: allWorkspace,
             command: 'node',
-            session: { activity: unknownActivity },
+            session: { activity: unknownActivity, unbound: null },
           },
           {
             id: alphaId,
@@ -104,7 +106,7 @@ describe('global identity and runtime routing', { concurrent: false }, () => {
             target: fixture.paneTarget(alpha.pane),
             cwd: alphaWorkspace,
             command: 'node',
-            session: { activity: unknownActivity },
+            session: { activity: unknownActivity, unbound: null },
           },
         ],
       });

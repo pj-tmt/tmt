@@ -67,6 +67,9 @@ pub fn capabilities() -> Capabilities {
         },
         target: Some("w{n}:p{n}".into()),
         caller_env: vec!["HERDR_PANE_ID".into(), "HERDR_SOCKET_PATH".into()],
+        // Herdr publishes no launch template yet: its tab/pane commands take no program to run,
+        // so the template waits for a verified Herdr command rather than a guessed one.
+        launch: None,
     }
 }
 
@@ -249,6 +252,7 @@ impl<R: Runner> Handler for HerdrDriver<R> {
                 panes.push(Pane {
                     marker: marker::decode(pane.tokens.as_ref()),
                     agent_name: None,
+                    opened_by_tmt: false,
                     id: pane.id,
                     target: Some(pane.target),
                     cwd: pane.cwd,

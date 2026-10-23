@@ -117,7 +117,10 @@ for (const width of [1440, 390])
         });
       expect(blocks.length, 'the sample has at least one top-level block').toBeGreaterThan(0);
       const size = await page.locator('#ask-page-fixture iframe').evaluate((n) => n.clientWidth);
-      const column = Math.min(1280, size - 32);
+      // The frame keeps a 28 px marker lane at the right edge; the column is centred in the rest and a
+      // full block runs over the lane.
+      const usable = size - 28;
+      const column = Math.min(1280, usable - 32);
       for (const block of blocks) {
         const label = `<${block.tag}>`;
         // Question lines are drawn by the parent on the same column (column-bands.spec.ts): the
@@ -126,10 +129,10 @@ for (const width of [1440, 390])
         expect.soft(block.height, `${label} is drawn`).toBeGreaterThan(0);
         expect
           .soft(block.left, `${label} left`)
-          .toBeCloseTo(block.full ? 0 : (size - column) / 2, 0);
+          .toBeCloseTo(block.full ? 0 : (usable - column) / 2, 0);
         expect
           .soft(block.right, `${label} right`)
-          .toBeCloseTo(block.full ? size : (size + column) / 2, 0);
+          .toBeCloseTo(block.full ? size : (usable + column) / 2, 0);
         expect.soft(block.overflow, `${label} does not scroll sideways`).toBeLessThanOrEqual(0);
       }
       const overflow = await frame(page)

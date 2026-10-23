@@ -51,11 +51,15 @@ for (const width of [1440, 390])
       await run(page, 'annotationLook');
       const app = page.locator('#ask-page-fixture');
       const frame = page.frameLocator('#ask-page-fixture iframe');
-      const markers = frame.locator('[data-colab-thread]');
-      await expect(markers).toHaveCount(4);
-      await expect(markers).toHaveText(['1', '2', '3', '4']);
+      // The two notes on one line share the right lane as one `+2` marker (#4489).
+      const markers = frame.locator('.annotation-number');
+      await expect(markers).toHaveCount(3);
+      await expect(markers).toHaveText(['1', '2', '+2']);
       for (const marker of await markers.all()) {
-        await expect(marker).toHaveCSS('border-top-width', '0px');
+        // A number has no border; the `+2` pill's target is a transparent one.
+        const pill = (await marker.getAttribute('data-colab-group')) !== null;
+        await expect(marker).toHaveCSS('border-top-width', pill ? '4px' : '0px');
+        await expect(marker).toHaveCSS('border-top-color', pill ? 'rgba(0, 0, 0, 0)' : /.*/);
         await expect(marker).toHaveCSS('box-shadow', 'none');
         await expect(marker).toHaveCSS(
           'color',
@@ -166,7 +170,7 @@ for (const width of [1440, 390])
         '3',
         '4',
       ]);
-      await expect(markers).toHaveText(['1', '2', '3']);
+      await expect(markers).toHaveText(['1', '+2']);
       expect(
         await frame.locator('body').evaluate((body) => {
           const clone = body.cloneNode(true) as HTMLElement;
@@ -324,11 +328,31 @@ for (const width of [1440, 1024, 390])
       await expect(thread).toBeVisible();
       const circle = thread.locator('.annotation-number');
       const metrics = await numberMetrics(marker);
-      expect(await numberMetrics(circle)).toEqual(metrics);
-      expect(metrics).toMatchObject({
+      const panelMetrics = await numberMetrics(circle);
+      // One number circle in two sizes (#4489): the page's marker is a 16 px circle in a 24 px
+      // target, the thread's number the 22 px circle. They share typeface, weight and alignment.
+      for (const key of [
+        'font-family',
+        'font-weight',
+        'align-items',
+        'justify-items',
+        'letter-spacing',
+        'border-radius',
+      ])
+        expect(panelMetrics[key], key).toBe(metrics[key]);
+      expect(panelMetrics).toMatchObject({
         width: '22px',
         height: '22px',
         'font-size': '12px',
+        'font-weight': '600',
+        'align-items': 'center',
+        'justify-items': 'center',
+      });
+      expect(metrics).toMatchObject({
+        width: '24px',
+        height: '24px',
+        padding: '4px',
+        'font-size': '10px',
         'font-weight': '600',
         'align-items': 'center',
         'justify-items': 'center',

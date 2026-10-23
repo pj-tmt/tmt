@@ -203,6 +203,12 @@ channels and the driver protocol. The owner map is in
   template once. `tmt-driver-protocol` adds wire types and limits in one `Op` set (a driver
   answers `unsupported` to the other kind's operations), strict `decode`,
   `serve`/`serve_runtime` and conformance checks, over `serde` and `serde_json` only.
+- A host's launch template (`LaunchTemplate` in `tmt-host-grammar`, the optional `launch`
+  capability) is data core publishes and never runs: Ops expands and runs it. The tmux
+  template is the constant in `tmt-adapters::tmux::launch`; `host::launch::launch_templates`
+  composes it with each approved driver's (an `ok` driver only) for `tmt host templates`.
+  The mark a template leaves is `openedByTmt` evidence; `tmt stop --close` (#4579) is its
+  reader, and it still runs the verified stop first.
 - A runtime driver's hook path is declarative (`RuntimeDeclaration` plus `decode_hook`, no
   process); only `locations`, `resume` and `usage` run the driver. The client validates the
   `locations` answer and calls `within(home)` before admitting write targets; approval alone

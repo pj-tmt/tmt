@@ -28,6 +28,11 @@ pub struct Capabilities {
     /// The environment variables `caller` reads; core passes only these.
     #[serde(default)]
     pub caller_env: Vec<String>,
+    /// The argv that opens a new pane in a session and runs a command there, with the whole
+    /// words `{session}` and `{command}`; `None`, left out of the JSON, when the host
+    /// publishes none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch: Option<Vec<String>>,
 }
 
 /// A pane ID is `prefix` followed by 1–64 of `[0-9a-z]`.
@@ -133,6 +138,10 @@ pub struct Pane {
     /// agent there, the agent has no name, or the driver could not read it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_name: Option<String>,
+    /// True when the pane carries the mark a launch template leaves on a pane it opened.
+    /// Left out of the JSON when false. It is evidence of intent, never authority.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub opened_by_tmt: bool,
     /// The marker `publish` stored, returned as stored.
     pub marker: Option<Marker>,
 }

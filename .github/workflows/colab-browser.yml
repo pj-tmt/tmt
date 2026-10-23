@@ -224,14 +224,26 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-tooling
-      - name: Prepare evidence directory
-        run: mkdir -p "$RUNNER_TEMP/colab-app-results"
+      - name: Prepare evidence and browser directories
+        run: |
+          mkdir -p "$RUNNER_TEMP/colab-app-results"
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/colab-chrome-browsers" >> "$GITHUB_ENV"
       - name: Install frozen app tooling
         working-directory: typescript
         run: pnpm --filter @tmt/colab-app... --fail-if-no-match install --frozen-lockfile --ignore-scripts
-      - name: Install Chromium and Linux dependencies
+      - name: Read pinned Playwright version
+        id: playwright
+        working-directory: extensions/tmt-colab/typescript/app
+        run: node -p '"version=" + require("@playwright/test/package.json").version' >> "$GITHUB_OUTPUT"
+      - name: Restore Chromium from the main-owned cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: colab-chrome-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+      - uses: ./.github/actions/install-chromium-deps
+      - name: Install Chromium
         working-directory: typescript
-        run: pnpm --filter @tmt/colab-app exec playwright install --with-deps chromium
+        run: pnpm --filter @tmt/colab-app exec playwright install chromium
       # One worker and no retries, as configured. The native-fixture specs (cli, chrome) skip
       # with a named reason here; the real-binary job below owns native behavior, and ci.yml's
       # gating `colab-chrome` job runs the chrome spec with its fixture.

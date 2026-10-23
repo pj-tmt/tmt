@@ -93,8 +93,11 @@ for (const width of [1280, 1440, 1800, 390]) {
       width < 900 ? width : width - Number.parseFloat(tokens.browser.metric['rail-width']!),
     );
     expect(geometry.viewport).toBe(column);
-    expect(geometry.width).toBe(Math.min(column, 1280));
-    expect(geometry.x).toBe((column - geometry.width) / 2);
+    // The frame keeps a 28 px marker lane at the right edge; the starter's container is centred in
+    // the rest.
+    const usable = column - 28;
+    expect(geometry.width).toBe(Math.min(usable, 1280));
+    expect(geometry.x).toBe((usable - geometry.width) / 2);
     expect(geometry.gutter).toBe(16);
     expect(geometry.scrollWidth).toBe(column);
     for (const block of geometry.content) {

@@ -5,6 +5,10 @@
 //! the one definition: core matches stored IDs with it, and the driver
 //! protocol validates declarations with it. It depends on nothing.
 
+mod launch;
+
+pub use launch::{COMMAND, LaunchTemplate, SESSION};
+
 use std::fmt;
 
 const NAME_MAX: usize = 32;

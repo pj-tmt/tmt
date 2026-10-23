@@ -159,6 +159,8 @@ export async function mountRenderer(
     /** Closed-set cosmetic key request; only trusted chrome decides its admitted action. */
     onKey?(key: 'Escape' | '@' | SwitcherKeyRequest): void;
     onOpenThread?(id: string): void;
+    /** A `+n` marker for threads too close for one marker each: trusted chrome opens the thread list. */
+    onOpenList?(): void;
     /** Checked is true only for an admitted resolution response, false while pending. */
     onAnchors?(resolved: string[], checked?: boolean): void;
     /** Trusted chrome's fixed header inset; absent for standalone renderer probes. */
@@ -760,6 +762,18 @@ export async function mountRenderer(
       anchors.some((anchor) => anchor.id === value.id)
     ) {
       options.onOpenThread?.(value.id);
+      return;
+    }
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      Object.keys(value).length === 3 &&
+      value.type === 'colab.render.open-list' &&
+      value.renderId === snapshot.renderId &&
+      value.requestId === requestId
+    ) {
+      options.onOpenList?.();
       return;
     }
     if (

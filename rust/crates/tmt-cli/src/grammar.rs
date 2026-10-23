@@ -129,6 +129,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(presence::unbind())
     .subcommand(installation::extension())
     .subcommand(installation::driver())
+    .subcommand(installation::host())
     .subcommand(settings::config())
     .subcommand(identity::preamble())
     .subcommand(requests::exchanges())

@@ -152,6 +152,7 @@ pub enum Invocation {
     Config(ConfigRequest),
     ExtensionHooks(ExtensionHooksRequest),
     Driver(DriverRequest),
+    Host(HostRequest),
     ExtensionInstall(ExtensionInstallRequest),
     Identity(IdentityRequest),
     Room(RoomOperation),
@@ -342,6 +343,12 @@ pub enum DriverRequest {
     Install { path: String, yes: bool },
     List,
     Remove(String),
+}
+
+/// `tmt host`: what each terminal host offers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostRequest {
+    Templates,
 }
 
 #[derive(Debug, Clone, PartialEq)]

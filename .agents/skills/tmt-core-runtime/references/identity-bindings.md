@@ -264,6 +264,21 @@ delivery. They install and launch nothing.
   Running after provider end (including legacy Ended) only for an exact live process
   under the verified pane and an exact live launch owner when recorded, without
   rewriting storage; shared servers outside that ancestry remain unverified.
+- Adopting a new provider session through SessionStart completes only the existing binding, using host-neutral
+  pane/process evidence, the recorded driver (or none), and a conclusively ended old
+  session or process. Nested, shared, pane-process and unknown evidence refuse.
+  Existing exact-session shared-host hooks keep their attribution rule above.
+  A bounded `BindingSessionState::start_refusal` records that refusal without changing
+  admission or preferences; the binding/session/preferences CAS fences it. An admitted
+  start clears it atomically; a replacement binding or retirement removes it. The
+  nullable `session.unbound` and message-state reason are stored projections, never
+  read-time process probes; missing activity alone is not a refusal.
+- Explicit `this`/`name`/`add` attempts exact caller-session completion after its bind
+  commits, using the synchronous hook admission allowance; optional post-output
+  discovery keeps its separate 500 ms allowance. Its target binding is fenced before discovery can write, so a command
+  issued elsewhere cannot lend the target its invoker's session. Without verifiable
+  target coordinates the binding remains committed and a warning supplies the next
+  step. It never guesses a session from cwd, titles, recency or a transcript scan.
 - The channel choice (nullable) is recorded after an admitted fresh launch or explicit resume
   flag; null keeps the driver default; flagless resume does not rewrite it.
 - Activity comes from TMT's own UserPromptSubmit/Stop hooks (Claude runs them synchronously;

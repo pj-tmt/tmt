@@ -1412,11 +1412,18 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   z-index: 1;
   padding: 0 24px;
 }
+/* A band keeps out of the 28 px marker lane the render frame reserves at the right edge of every page
+   (page-frame.css); a question block does the same by taking its bounds from its passage's slot. */
+.proposal-inline:not(.question-inline) {
+  padding-inline-end: calc(24px + 28px);
+}
 /* On a framed page (#3913) a band sits on the column the render frame draws: the numbers are those
-   of page-frame.css, which the frame applies to its top-level blocks. A question block takes its
-   bounds from the frame's measurement of its passage instead. */
+   of page-frame.css, which the frame applies to its top-level blocks inside the 28 px marker lane it
+   reserves at the right edge. A question block takes its bounds from the frame's measurement of its
+   passage instead. */
 .canvas[data-layout] .proposal-inline:not(.question-inline) {
-  padding-inline: max(16px, (100% - 1280px) / 2);
+  --band-side: max(16px, (100% - 28px - 1280px) / 2);
+  padding-inline: var(--band-side) calc(var(--band-side) + 28px);
 }
 .proposal-inline .proposal-card {
   border: 1px solid var(--tmt-ui-surface-rule);

@@ -2,7 +2,7 @@
 //! paints the same state, reason and countdown and keeps no copy of the rules.
 
 use super::{AttemptStatus, WakeState};
-use crate::binding::session::activity::ActivityPhase;
+use crate::binding::session::{StartRefusalReason, activity::ActivityPhase};
 
 /// What a person sees about one sent message, in the order it normally advances.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +35,7 @@ pub enum DeliveryReason {
     AwaitingApproval,
     HeldToSaveUsage,
     ReachedTheAgent,
+    SessionNotBound,
     AgentWorking,
     HandedOver,
     Unreachable,
@@ -48,6 +49,7 @@ impl DeliveryReason {
             Self::AwaitingApproval => "awaiting_approval",
             Self::HeldToSaveUsage => "held_to_save_usage",
             Self::ReachedTheAgent => "reached_the_agent",
+            Self::SessionNotBound => "session_not_bound",
             Self::AgentWorking => "agent_working",
             Self::HandedOver => "handed_over",
             Self::Unreachable => "unreachable",
@@ -63,6 +65,7 @@ impl DeliveryReason {
                 "batched to save usage, sends when the agent finishes this turn"
             }
             Self::ReachedTheAgent => "delivered",
+            Self::SessionNotBound => "session not bound",
             Self::AgentWorking => "the agent has started on it",
             Self::HandedOver => "handed to the agent, delivery unconfirmed, do not resend",
             Self::Unreachable => "not sent, the agent could not be reached",
@@ -90,7 +93,7 @@ pub struct RecipientActivity {
 }
 
 /// Stored facts only; a message's state never comes from pane text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeliveryFacts {
     pub status: AttemptStatus,
     /// An identified recipient's request stays `Queued`; its paste into the pane is
@@ -107,12 +110,16 @@ pub struct DeliveryFacts {
     pub oldest_held_at_ms: Option<u64>,
     /// The driver's activity for the exact live session, when there is one.
     pub recipient: Option<RecipientActivity>,
+    /// A refused start is an observation, not authority or missing telemetry.
+    pub recipient_start_refusal: Option<StartRefusalReason>,
+    pub recipient_name: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeliveryView {
     pub state: DeliveryState,
     pub reason: DeliveryReason,
+    pub reason_text: String,
     /// The latest moment a batched message goes out, when the rule's owner recorded one.
     pub latest_ms: Option<u64>,
     /// `latest_ms` less the read time, so a client counts down without its own clock.
@@ -126,6 +133,7 @@ impl DeliveryView {
         Self {
             state,
             reason,
+            reason_text: reason.text().into(),
             latest_ms: None,
             remaining_ms: None,
             can_send_now: false,
@@ -266,10 +274,11 @@ pub fn delivery_view(facts: &DeliveryFacts, now_ms: u64) -> DeliveryView {
     // its sender (or was handed over, for a pane): a turn already running then is
     // still the one the message waits behind.
     let since = facts.settled_at_ms.unwrap_or(facts.prepared_at_ms);
-    let started = facts.recipient.is_some_and(|activity| {
-        activity.phase != ActivityPhase::Idle && activity.since_ms >= since
-    });
-    match (handover(facts), facts.hold) {
+    let started = facts.recipient_start_refusal.is_none()
+        && facts.recipient.is_some_and(|activity| {
+            activity.phase != ActivityPhase::Idle && activity.since_ms >= since
+        });
+    let mut view = match (handover(facts), facts.hold) {
         (Handover::Uncertain, _) | (_, Some(DigestHold::Uncertain)) => {
             DeliveryView::of(State::Unconfirmed, Why::HandedOver)
         }
@@ -306,7 +315,37 @@ pub fn delivery_view(facts: &DeliveryFacts, now_ms: u64) -> DeliveryView {
             can_send_now: true,
             ..DeliveryView::of(State::Sent, Why::WaitingForDelivery)
         },
+    };
+    if view.state == State::Delivered
+        && let Some(refusal) = facts.recipient_start_refusal
+    {
+        view.reason = Why::SessionNotBound;
+        let (step, command) = if refusal == StartRefusalReason::PreviousSessionLive {
+            (
+                "the old session is still running; move it with:",
+                "tmt resume --move",
+            )
+        } else {
+            ("exit the agent in its pane, then run:", "tmt resume")
+        };
+        let command = facts.recipient_name.as_deref().map_or_else(
+            || command.to_owned(),
+            |name| format!("{command} -- {}", crate::names::command_word(name)),
+        );
+        view.reason_text = format!("session not bound · {step} {command}");
+        if view.reason_text.len() >= 256
+            || view
+                .reason_text
+                .contains(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}'])
+        {
+            view.reason_text = if refusal == StartRefusalReason::PreviousSessionLive {
+                "session not bound · the old session is still running; run tmt resume --move in its bound pane"
+            } else {
+                "session not bound · exit the agent in its pane, then run tmt resume there"
+            }.into();
+        }
     }
+    view
 }
 
 #[cfg(test)]

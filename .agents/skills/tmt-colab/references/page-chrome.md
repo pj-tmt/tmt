@@ -194,10 +194,15 @@ canvas, sandbox attributes, source limits and CSP remain unchanged.
 apply, in a layer declared before author styles. The column (`min(1280px, 100% - 32px)`), the
 16/8/40 px gaps and `data-width="full"` are defined there and nowhere else in the frame; the
 parent's `.canvas[data-layout] .proposal-inline` rule in `style.css` repeats the column's gutter
-so reading and review bands sit on it. Question
+so reading and review bands sit on it; every band also keeps out of the marker lane below. Question
 blocks keep the frame's own measurement of their passage. The frame's chip marker is out of flow,
 so it adds no blank line between blocks. `PageSnapshot.layout` and `PageView.layout` carry the verified
-`meta.layout` (and `layoutReason` for a canvas); `freeform`, `canvas` and absent bind nothing.
+`meta.layout` (and `layoutReason` for a canvas); `freeform`, `canvas` and absent bind no column. Every
+page, framed or not, gets the frame's 28 px right marker lane (`--colab-lane`) from its first paint:
+the renderer stands a comment's number there, centred on its line, so it never covers text and the
+first thread moves none (on a framed page 4 px after the column's end, beside its text; otherwise at
+the frame's edge); threads on lines closer than one marker share a `+n` pill that posts
+`colab.render.open-list`, and the parent opens the Comments list.
 `router.tsx` binds the renderer from the live view, so a metadata-only change remounts the
 frame, and the About drawer's `PageLayoutSection` names the layout and a canvas's reason. An inline `style`
 with `!important` is the one author declaration the frame cannot override.

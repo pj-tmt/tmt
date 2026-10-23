@@ -68,12 +68,14 @@ fn provider_end_then_start_turns_over_the_same_claude_process() {
                 .propose(&ended, &process, RuntimeLiveness::Alive)
                 .is_none()
         );
-        let replacement = ProcessIncarnation::new(42, "start-B").unwrap();
+        let replacement = ProcessIncarnation::new(43, "start-B").unwrap();
         for evidence in [RuntimeLiveness::Alive, RuntimeLiveness::Unknown] {
-            assert!(
+            assert_eq!(
                 event(true, SessionTransition::Started, "new-session")
                     .propose(&ended, &replacement, evidence)
-                    .is_none()
+                    .is_some(),
+                evidence == RuntimeLiveness::Alive,
+                "an ended session permits a verified live replacement, never unknown evidence"
             );
         }
     }
@@ -501,6 +503,7 @@ fn a_compact_start_names_a_running_launch_owned_unnamed_key() {
     assert_eq!(
         named,
         BindingSessionState {
+            start_refusal: None,
             last_transition: Some(SessionTransition::Compacted),
             state: RuntimeState::Running,
             key: Some(ObservedSessionKey {

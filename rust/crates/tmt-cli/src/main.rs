@@ -30,6 +30,7 @@ mod extension_install_command;
 mod grammar;
 mod guidance_command;
 mod help_output;
+mod host_command;
 mod identity_command;
 mod identity_context;
 mod init_command;
@@ -255,6 +256,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::Driver(request) => {
             return driver_command::execute(request, parsed.mode);
+        }
+        Invocation::Host(request) => {
+            return host_command::execute(request, parsed.mode);
         }
         Invocation::Init => {
             return init_command::execute(parsed.mode);
