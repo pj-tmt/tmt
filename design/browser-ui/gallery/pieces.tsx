@@ -619,7 +619,9 @@ export function OverviewSection() {
                     <th scope="col">Agent</th>
                     <th scope="col">Status</th>
                     <th scope="col">Current work</th>
-                    <th scope="col">Model</th>
+                    <th scope="col" data-compact-hide="">
+                      Model
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -658,8 +660,11 @@ export function OverviewSection() {
                           <span className="tmt-ui-chip-label">{word}</span>
                         </span>
                       </td>
-                      <td>{work || '—'}</td>
-                      <td>{model}</td>
+                      <td>
+                        {work || '—'}
+                        <span className="tmt-ui-table-compact-meta">{model}</span>
+                      </td>
+                      <td data-compact-hide="">{model}</td>
                     </tr>
                   ))}
                 </tbody>

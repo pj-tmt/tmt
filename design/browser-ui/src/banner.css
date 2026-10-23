@@ -1,6 +1,5 @@
 /* What needs the reader, above the work: a tinted band with a title and one row per item. */
 .tmt-ui-banner {
-  overflow: hidden;
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   background: var(--tmt-ui-surface-sheet);
@@ -52,6 +51,10 @@
   font-size: var(--tmt-ui-header-action-size);
   text-align: left;
   cursor: pointer;
+}
+.tmt-ui-banner-row:last-child {
+  border-end-start-radius: var(--tmt-ui-radius);
+  border-end-end-radius: var(--tmt-ui-radius);
 }
 .tmt-ui-banner-row:hover {
   background: var(--tmt-ui-surface-hover);

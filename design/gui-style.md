@@ -77,7 +77,8 @@ name and a visible tooltip.
   edge, an exception to the 3:1 non-text contrast the check-style controls meet
   (WCAG 1.4.11; the `edge` color on an unchecked checkbox or radio, a toggle's
   indicator). It holds on three conditions: every field has a visible label (a
-  select shows its value and a chevron instead), its fill (`surface.field`)
+  select shows its value and a chevron instead, a search field its placeholder
+  beside a magnifier), its fill (`surface.field`)
   differs from the surface behind it, and its focus and invalid states keep the
   strong edge. The leaf's design audit (`controlBoundaries`) skips fields by name
   for the border check and fails a field that fills like its surface or has no

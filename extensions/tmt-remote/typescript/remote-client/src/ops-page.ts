@@ -385,6 +385,7 @@ function agentsView(state: AgentsState): { node: HTMLElement; update(board: OpsB
     for (const text of ['Agent', 'Status', 'Current work', 'Model', 'Waiting on you']) {
       const cell = el('th');
       cell.scope = 'col';
+      if (text === 'Model' || text === 'Waiting on you') cell.dataset.compactHide = '';
       if (text === 'Waiting on you') cell.append(el('span', browserUiClasses.visuallyHidden, text));
       else cell.textContent = text;
       headRow.append(cell);
@@ -438,8 +439,20 @@ function agentsView(state: AgentsState): { node: HTMLElement; update(board: OpsB
           const status = el('td');
           status.append(stateChip(agent.state));
           const work = el('td', undefined, agent.task || '—');
+          // Under the compact width the model and the waiting count move under the work.
+          work.append(
+            el(
+              'span',
+              browserUiClasses.tableCompactMeta,
+              [agent.model, agent.waitingOnYou > 0 ? `${agent.waitingOnYou} waiting on you` : '']
+                .filter(Boolean)
+                .join(' · '),
+            ),
+          );
           const model = el('td', undefined, agent.model || '—');
+          model.dataset.compactHide = '';
           const waiting = el('td');
+          waiting.dataset.compactHide = '';
           if (agent.waitingOnYou > 0) {
             const count = el('span', browserUiClasses.chip);
             count.dataset.tone = 'waiting';

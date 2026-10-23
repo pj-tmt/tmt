@@ -50,6 +50,7 @@ export const browserUiClasses = Object.freeze({
   tableGroupToggle: 'tmt-ui-table-group-toggle',
   tableGroupCount: 'tmt-ui-table-group-count',
   tableSelect: 'tmt-ui-table-select',
+  tableCompactMeta: 'tmt-ui-table-compact-meta',
 
   notifications: 'tmt-ui-notifications',
   notification: 'tmt-ui-notification',

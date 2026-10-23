@@ -1822,6 +1822,7 @@ var browserUiClasses = Object.freeze({
 	tableGroupToggle: "tmt-ui-table-group-toggle",
 	tableGroupCount: "tmt-ui-table-group-count",
 	tableSelect: "tmt-ui-table-select",
+	tableCompactMeta: "tmt-ui-table-compact-meta",
 	notifications: "tmt-ui-notifications",
 	notification: "tmt-ui-notification",
 	notificationStatus: "tmt-ui-notification-status",
@@ -5519,6 +5520,7 @@ function agentsView(state) {
 		]) {
 			const cell = el("th");
 			cell.scope = "col";
+			if (text === "Model" || text === "Waiting on you") cell.dataset.compactHide = "";
 			if (text === "Waiting on you") cell.append(el("span", browserUiClasses.visuallyHidden, text));
 			else cell.textContent = text;
 			headRow.append(cell);
@@ -5563,8 +5565,11 @@ function agentsView(state) {
 				const status = el("td");
 				status.append(stateChip(agent.state));
 				const work = el("td", void 0, agent.task || "—");
+				work.append(el("span", browserUiClasses.tableCompactMeta, [agent.model, agent.waitingOnYou > 0 ? `${agent.waitingOnYou} waiting on you` : ""].filter(Boolean).join(" · ")));
 				const model = el("td", void 0, agent.model || "—");
+				model.dataset.compactHide = "";
 				const waiting = el("td");
+				waiting.dataset.compactHide = "";
 				if (agent.waitingOnYou > 0) {
 					const count = el("span", browserUiClasses.chip);
 					count.dataset.tone = "waiting";

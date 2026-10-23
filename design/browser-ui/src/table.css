@@ -56,6 +56,29 @@
   font-size: var(--tmt-ui-caption-size);
   font-weight: normal;
 }
+/* Under the compact width a roomy table keeps no minimum: a column marked `data-compact-hide` is
+   dropped and its facts move to a `tmt-ui-table-compact-meta` line under the row's main cell, so the
+   table never scrolls sideways. */
+.tmt-ui-table-compact-meta {
+  display: none;
+}
+@media (max-width: __compact-max-width__) {
+  .tmt-ui-table[data-roomy] {
+    min-width: 0;
+  }
+  .tmt-ui-table[data-roomy] th,
+  .tmt-ui-table[data-roomy] td {
+    padding: var(--tmt-ui-space-m) var(--tmt-ui-space-s);
+  }
+  .tmt-ui-table [data-compact-hide] {
+    display: none;
+  }
+  .tmt-ui-table-compact-meta {
+    display: block;
+    color: var(--tmt-ui-color-secondary);
+    font-size: var(--tmt-ui-caption-size);
+  }
+}
 .tmt-ui-table-group th {
   background: var(--tmt-ui-surface-paper);
   font-weight: 600;
@@ -83,32 +106,13 @@
   font-size: var(--tmt-ui-caption-size);
   font-weight: normal;
 }
-/* The selected row is a full rounded frame in the selection tone over its tint: each cell draws its
-   own sides and the first and last round their outer corners, which a collapsed table cannot do,
-   so a roomy table keeps separate borders. */
-.tmt-ui-table[data-roomy] {
-  border-collapse: separate;
-  border-spacing: 0;
-}
-.tmt-ui-table tr[data-selected] > td {
-  border-block: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-selection-edge);
+/* The selected row is a tint inside a full rounded frame in the selection tone. The frame is the
+   row's outline, which follows its radius, not borders on its cells. */
+.tmt-ui-table tr[data-selected] {
+  border-radius: var(--tmt-ui-radius);
+  outline: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-selection-edge);
+  outline-offset: calc(var(--tmt-ui-rule-width) * -1);
   background: var(--tmt-ui-surface-selection);
-}
-.tmt-ui-table[data-roomy] tr[data-selected] > td {
-  padding-top: calc(var(--tmt-ui-space-m) - var(--tmt-ui-rule-width));
-}
-.tmt-ui-table[data-roomy] tr[data-selected] > td:first-child {
-  padding-inline-start: calc(var(--tmt-ui-space-l) - var(--tmt-ui-rule-width));
-}
-.tmt-ui-table tr[data-selected] > td:first-child {
-  border-inline-start: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-selection-edge);
-  border-start-start-radius: var(--tmt-ui-radius);
-  border-end-start-radius: var(--tmt-ui-radius);
-}
-.tmt-ui-table tr[data-selected] > td:last-child {
-  border-inline-end: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-selection-edge);
-  border-start-end-radius: var(--tmt-ui-radius);
-  border-end-end-radius: var(--tmt-ui-radius);
 }
 .tmt-ui-table-select {
   display: inline-flex;

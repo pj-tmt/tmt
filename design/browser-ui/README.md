@@ -589,7 +589,9 @@ state, a React component.
   `tmt-ui-table-group-count`; `data-selected` on a row draws a tint and a full rounded frame in the selection tone (a roomy table
   keeps separate borders so its cells can round the frame's corners); `tmt-ui-table-select` is the button
   in a row's first cell that selects it (`aria-pressed`). A card with `data-flush` runs the table
-  edge to edge. A state chip is a `tmt-ui-chip` with `data-tone` (`working`, `waiting`, `blocked`,
+  edge to edge. Under the compact width a roomy table has no minimum width: a `data-compact-hide`
+  header or cell is dropped and a `tmt-ui-table-compact-meta` line under the row's main cell
+  carries its facts, so the table never scrolls sideways. A state chip is a `tmt-ui-chip` with `data-tone` (`working`, `waiting`, `blocked`,
   `review`, or none for neutral): a mark and its word on the state's soft surface.
 - **Passive chip.** A `tmt-ui-chip` whose label is its only child carries no remove control and is
   padded the same on both sides: a label for a state that is not an action.

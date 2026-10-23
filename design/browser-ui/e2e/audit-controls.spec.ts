@@ -94,6 +94,15 @@ test('audit control: soft field needs distinct fill and visible label', async ({
   expect(repaired.unlabelled).toEqual([]);
 });
 
+test('audit control: a search field is named by its placeholder', async ({ page }) => {
+  await page.setContent(
+    '<main style="background:white"><input type="search" class="tmt-ui-field-control" style="background:#ddd"></main>',
+  );
+  expect((await controlBoundaries(page, 'main')).fields.unlabelled).toHaveLength(1);
+  await page.locator('input').evaluate((el) => el.setAttribute('placeholder', 'Filter agents'));
+  expect((await controlBoundaries(page, 'main')).fields.unlabelled).toEqual([]);
+});
+
 test('audit control: clipped glyphs are not painted on an outer surface edge', async ({ page }) => {
   await page.setContent(
     '<main style="box-sizing:border-box;width:120px;padding:10px;background:black;color:white"><div style="overflow:hidden"><span style="position:relative;white-space:nowrap">Clipped text</span></div></main>',
