@@ -64,15 +64,27 @@ export function textAtSurfaceEdge(page: Page, scope: string) {
       const text = range.getBoundingClientRect();
       const parent = node.parentElement!;
       if (!text.width || hidden(parent)) continue;
+      let visibleLeft = text.left;
+      let visibleRight = text.right;
       for (let element: HTMLElement | null = parent; element; element = element.parentElement) {
         const style = getComputedStyle(element);
         const up = element.parentElement ? getComputedStyle(element.parentElement) : undefined;
         const filled = fills(style) && style.backgroundColor !== up?.backgroundColor;
         const bordered = drawn(style, 'Left') && drawn(style, 'Right');
-        if (!filled && !bordered) continue;
         const box = element.getBoundingClientRect();
-        const left = text.left - box.left - (parseFloat(style.borderLeftWidth) || 0);
-        const right = box.right - text.right - (parseFloat(style.borderRightWidth) || 0);
+        if (!filled && !bordered) {
+          // A transparent scroll/clip container can hide glyphs before they reach a more
+          // distant filled surface. Range bounds include those unpainted glyphs.
+          if (style.overflowX !== 'visible' && element.clientWidth > 0) {
+            const clipLeft = box.left + element.clientLeft;
+            visibleLeft = Math.max(visibleLeft, clipLeft);
+            visibleRight = Math.min(visibleRight, clipLeft + element.clientWidth);
+            if (visibleRight <= visibleLeft) break;
+          }
+          continue;
+        }
+        const left = visibleLeft - box.left - (parseFloat(style.borderLeftWidth) || 0);
+        const right = box.right - visibleRight - (parseFloat(style.borderRightWidth) || 0);
         // Text outside its surface (scrolled away) is not on it.
         if (box.width > 4 && left > -1 && right > -1 && (left < 3 || right < 3))
           out.add(

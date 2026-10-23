@@ -93,3 +93,28 @@ test('audit control: soft field needs distinct fill and visible label', async ({
   expect(repaired.sameFill).toEqual([]);
   expect(repaired.unlabelled).toEqual([]);
 });
+
+test('audit control: clipped glyphs are not painted on an outer surface edge', async ({ page }) => {
+  await page.setContent(
+    '<main style="box-sizing:border-box;width:120px;padding:10px;background:black;color:white"><div style="overflow:hidden"><span style="position:relative;white-space:nowrap">Clipped text</span></div></main>',
+  );
+  await page.locator('span').evaluate((el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    // Put the raw range 1px inside the filled surface, beyond its transparent clip container.
+    el.style.left = `${el.closest('main')!.getBoundingClientRect().right - 1 - range.getBoundingClientRect().right}px`;
+  });
+  const geometry = await page.locator('span').evaluate((el) => ({
+    textRight: el.getBoundingClientRect().right,
+    clipRight: el.parentElement!.getBoundingClientRect().right,
+    surfaceRight: el.closest('main')!.getBoundingClientRect().right,
+  }));
+  expect(geometry.textRight).toBeGreaterThan(geometry.clipRight);
+  expect(geometry.surfaceRight - geometry.textRight).toBeCloseTo(1);
+  expect(await textAtSurfaceEdge(page, 'main')).toEqual([]);
+  // The same range really does violate the rule when those glyphs become visible.
+  await page.locator('div').evaluate((el) => {
+    el.style.overflow = 'visible';
+  });
+  expect(await textAtSurfaceEdge(page, 'main')).toHaveLength(1);
+});

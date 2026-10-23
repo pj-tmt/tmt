@@ -4184,18 +4184,34 @@ describe('browser UI gallery gate', () => {
       for (const edge of edges) {
         if (edge.startsWith('node:') || /^(?:https?:|data:|#)/.test(edge)) continue;
         const clean = edge.split('?')[0];
+        if (!clean.startsWith('.') && !clean.startsWith('/')) {
+          // Code quality runs the tooling tests before installing the leaf. Registry packages
+          // are covered by the selected manifest/lockfile, not by ambient node_modules links.
+          let home = path.dirname(file);
+          while (!ts.sys.fileExists(path.join(home, 'package.json')) && home !== root)
+            home = path.dirname(home);
+          const manifest = JSON.parse(readFileSync(path.join(home, 'package.json'), 'utf8'));
+          const name = clean.startsWith('@')
+            ? clean.split('/').slice(0, 2).join('/')
+            : clean.split('/')[0];
+          const pin = {
+            ...manifest.dependencies,
+            ...manifest.devDependencies,
+            ...manifest.peerDependencies,
+          }[name];
+          expect(typeof pin, `undeclared package ${edge} in ${relative}`).toBe('string');
+          // A new local/workspace package needs an explicit graph edge, never a registry escape.
+          expect(pin, `local package ${edge} needs selector coverage`).not.toMatch(
+            /^(?:workspace:|file:|link:)/
+          );
+          continue;
+        }
         const resolved = ts.resolveModuleName(
           clean,
           file,
           { moduleResolution: ts.ModuleResolutionKind.Bundler },
           ts.sys
         ).resolvedModule;
-        if (resolved?.resolvedFileName.includes('/node_modules/')) continue;
-        if (!clean.startsWith('.') && !clean.startsWith('/')) {
-          expect(resolved, `unresolved package ${edge} in ${relative}`).toBeDefined();
-          if (resolved) visit(resolved.resolvedFileName);
-          continue;
-        }
         const target =
           resolved?.resolvedFileName ??
           (clean.startsWith('/')
