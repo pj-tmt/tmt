@@ -42,17 +42,15 @@ export function ConversationTurn({
     <article {...attributes} className={`conversation-turn ${className}`} data-turn-role={role}>
       <div className="comment-main conversation-main">
         <header>
-          {!chat && (
-            <BrowserAvatar
-              name={author}
-              kind={role === 'agent' ? 'agent' : 'person'}
-              size="s"
-              decorative
-            />
-          )}
+          <BrowserAvatar
+            name={author}
+            kind={role === 'agent' ? 'agent' : 'person'}
+            size="s"
+            decorative
+          />
           <p className="comment-byline" title={authorTitle} data-testid={bylineTestId}>
             <span className="conversation-author">
-              {role === 'agent' ? <AgentChip name={author} mark={chat} /> : author}
+              {role === 'agent' ? <AgentChip name={author} mark={false} /> : author}
             </span>{' '}
             <span className="conversation-time-separator">· </span>
             <time dateTime={new Date(at).toISOString()} title={new Date(at).toISOString()}>

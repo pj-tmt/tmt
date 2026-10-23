@@ -111,6 +111,18 @@ async function styles(message: Locator) {
     };
   });
 }
+/** Chat's text is the website's bubble under the name, indented past the avatar; a thread's text
+    sits directly on its surface. */
+async function bubble(turn: Locator, filled: boolean) {
+  const body = turn.locator('.conversation-body');
+  await expect(body).toHaveCSS('border-top-width', filled ? '1px' : '0px');
+  // The computed shorthand collapses equal corners: 0 8 8 8 reads as three values.
+  await expect(body).toHaveCSS('border-radius', filled ? '0px 8px 8px' : '0px');
+  await expect(body).toHaveCSS('margin-left', filled ? '32px' : '0px');
+  const fill = await body.evaluate((node) => getComputedStyle(node).backgroundColor);
+  if (filled) expect(fill).not.toBe('rgba(0, 0, 0, 0)');
+  else expect(fill).toBe('rgba(0, 0, 0, 0)');
+}
 async function flat(message: Locator) {
   const chat = await message.evaluate((node) => !!node.closest('.chat-panel'));
   // The Discussion view is the sheet itself: its turns run full width with a rule between them.
@@ -151,7 +163,14 @@ async function shell(window: Locator) {
     'padding',
     flush ? '12px 0px 16px' : '12px 16px 16px',
   );
-  await expect(window.locator('.conversation-composer')).toHaveCSS('border-top-width', '1px');
+  // Chat's composer is one bordered box instead of a field under a rule.
+  const chat = await window.evaluate((node) => node.classList.contains('chat-panel'));
+  await expect(window.locator('.conversation-composer')).toHaveCSS(
+    'border-top-width',
+    chat ? '0px' : '1px',
+  );
+  if (chat)
+    await expect(window.locator('.annotation-compose')).toHaveCSS('border-top-width', '1px');
   for (const button of await window.locator('.conversation-composer button').all())
     await expect(button).toBeInViewport();
   const bounds = await window.evaluate((node) => {
@@ -170,7 +189,7 @@ async function shell(window: Locator) {
 }
 for (const width of [1440, 390]) {
   for (const theme of ['light', 'dark'] as const) {
-    test(`one flat style for Chat, anchored thread and annotate at ${width} ${theme}`, async ({
+    test(`turn looks for Chat, anchored thread and annotate at ${width} ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -204,6 +223,7 @@ for (const width of [1440, 390]) {
         await expect(user.locator('.conversation-author')).toHaveText('You');
         await expect(user.locator('.conversation-body')).toHaveText(request);
         await flat(user);
+        await bubble(user, surface === 'chat');
         await expect(user).toHaveCSS('padding-left', surface === 'chat' ? '16px' : '0px');
         computed[`${surface}-user`] = await styles(user);
         for (const [state, label] of [
@@ -217,6 +237,7 @@ for (const width of [1440, 390]) {
           if (state === 'replied') {
             await expect(agent).toHaveCount(1);
             await flat(agent);
+            await bubble(agent, surface === 'chat');
             await expect(agent.getByTestId('ask-reply')).toHaveText(reply);
             await expect(agent.getByTestId('ask-reply-attribution')).toHaveText('Atlas · 5m ago');
             computed[`${surface}-agent`] = await styles(agent);
@@ -250,7 +271,12 @@ for (const width of [1440, 390]) {
             expect(placement.order[0]).toBeLessThan(placement.order[1]);
             expect(placement.order[1]).toBeLessThan(placement.order[2]);
             expect(placement.status.top).toBeGreaterThanOrEqual(placement.body.bottom);
-            expect(placement.status.left).toBe(placement.body.left);
+            // The status starts where the text above it starts: in Chat that is inside the bubble's
+            // 1px edge and 12px padding.
+            expect(placement.status.left).toBeCloseTo(
+              placement.body.left + (surface === 'chat' ? 13 : 0),
+              0,
+            );
             if (state === 'waiting' || state === 'held' || state === 'uncertain') {
               const group = user.locator('.conversation-status');
               const check = group.getByRole('button', { name: text.askRecheck });
@@ -271,27 +297,25 @@ for (const width of [1440, 390]) {
               await expect(user.locator('.ask-supporting')).toHaveText(text.askUncertain);
           }
           await expect(window.locator('script,img')).toHaveCount(0);
-          // A discussion turn leads with the shared round mark, the person's and the agent's alike;
-          // Chat has none. The agent's name stays as the chip's text, with its icon only in Chat.
-          await expect(window.locator('.tmt-ui-avatar')).toHaveCount(
-            surface === 'chat' ? 0 : state === 'replied' ? 2 : 1,
-          );
+          // A turn leads with the shared round mark, the person's and the agent's alike, in Chat and
+          // in a thread. The agent's name stays as the chip's text, without its icon.
+          await expect(window.locator('.tmt-ui-avatar')).toHaveCount(state === 'replied' ? 2 : 1);
           await expect(
             window.locator('.conversation-turn .tmt-ui-avatar[aria-hidden="true"]'),
-          ).toHaveCount(surface === 'chat' ? 0 : state === 'replied' ? 2 : 1);
+          ).toHaveCount(state === 'replied' ? 2 : 1);
           // The mark's kind follows the turn's role.
           await expect(
             window.locator('[data-turn-role="user"] .tmt-ui-avatar[data-kind="person"]'),
-          ).toHaveCount(surface === 'chat' ? 0 : 1);
+          ).toHaveCount(1);
           await expect(
             window.locator('[data-turn-role="agent"] .tmt-ui-avatar[data-kind="agent"]'),
-          ).toHaveCount(surface === 'chat' || state !== 'replied' ? 0 : 1);
+          ).toHaveCount(state !== 'replied' ? 0 : 1);
           await expect(
             window.locator('[data-turn-role="agent"] .conversation-author .agent-chip'),
           ).toHaveCount(state === 'replied' ? 1 : 0);
           await expect(
             window.locator('[data-turn-role="agent"] .conversation-author .agent-chip-mark'),
-          ).toHaveCount(surface === 'chat' && state === 'replied' ? 1 : 0);
+          ).toHaveCount(0);
           expect(await run(page, 'proof')).toEqual({ sends: [], actions: [] });
           await capture(page, window, `${surface}-${width}-${theme}-${state}`);
         }
@@ -822,10 +846,8 @@ for (const width of [1440, 390]) {
         const retained = await agent.elementHandle();
         await expect(agent).not.toHaveAttribute('data-running-driver');
         await expect(agent.locator('.agent-chip-driver')).toHaveCount(0);
-        // The chip's icon names the agent in Chat; a thread turn's avatar does, so the icon is gone.
-        await expect(agent.locator('.agent-chip .lucide-bot')).toHaveCount(
-          surface === 'chat' ? 1 : 0,
-        );
+        // The turn's avatar names the agent in Chat and in a thread, so the chip's icon is gone.
+        await expect(agent.locator('.agent-chip .lucide-bot')).toHaveCount(0);
         await expect(agent.getByTestId('ask-reply')).toHaveText(reply);
         await editor.focus();
         await capture(page, window, `reply-${surface}-finished-${width}-${theme}`);
@@ -843,7 +865,7 @@ for (const width of [1440, 390]) {
           await expect(agent).not.toHaveAttribute('data-running-driver');
           await expect(agent.locator('.agent-chip-driver')).toHaveCount(0);
           expect(await edge()).toBe(finishedEdge);
-          await expect(agent.locator('.agent-chip svg')).toHaveCount(surface === 'chat' ? 1 : 0);
+          await expect(agent.locator('.agent-chip svg')).toHaveCount(0);
           await expect(agent.locator('.agent-chip-name')).toHaveCSS('font-weight', '500');
           await flat(agent);
           expect(await agent.evaluate((node, retained) => node === retained, retained)).toBe(true);
@@ -871,9 +893,7 @@ for (const width of [1440, 390]) {
           await run(page, 'driverObservation', options);
           await expect(agent).not.toHaveAttribute('data-running-driver');
           await expect(agent.locator('.agent-chip-driver')).toHaveCount(0);
-          await expect(agent.locator('.agent-chip .lucide-bot')).toHaveCount(
-            surface === 'chat' ? 1 : 0,
-          );
+          await expect(agent.locator('.agent-chip .lucide-bot')).toHaveCount(0);
           expect(await agent.evaluate((node, retained) => node === retained, retained)).toBe(true);
           await expect(editor).toBeFocused();
         }
@@ -950,14 +970,17 @@ for (const [width, theme] of [
       await expect(row).toHaveCSS('border-bottom-width', '0px');
       const body = await row.locator('.conversation-body').boundingBox();
       const byline = await row.locator('.comment-byline').boundingBox();
-      // Ben's shared byline keeps the time beside its separator, not on a
-      // separate right edge; the own-message menu keeps its existing owner.
+      // The time ends the identity row, as on the website, so its separator is gone; the
+      // own-message menu keeps its existing owner after it.
       expect(byline!.width).toBeGreaterThan(body!.width - 50);
-      const gap = await row.locator('time').evaluate((time) => {
-        const separator = time.previousElementSibling!.getBoundingClientRect();
-        return time.getBoundingClientRect().left - separator.right;
-      });
-      expect(gap).toBeCloseTo(6, 0);
+      const time = await row.locator('time').evaluate((node) => ({
+        gap:
+          node.closest('.comment-byline')!.getBoundingClientRect().right -
+          node.getBoundingClientRect().right,
+        separator: getComputedStyle(node.previousElementSibling!).display,
+      }));
+      expect(time.separator).toBe('none');
+      expect(time.gap).toBeLessThanOrEqual(1);
     }
     await expect(panel.getByTestId('ask-state')).toHaveCount(0);
     await capture(page, panel, `chat-polish-messages-${width}-${theme}`);

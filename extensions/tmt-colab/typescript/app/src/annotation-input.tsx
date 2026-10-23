@@ -679,6 +679,8 @@ export function AnnotationInput({
         )}
         {presentation === 'discussion' ? (
           <BrowserAction {...sendActionProps} visibleLabel={text.discussionReply} />
+        ) : chat ? (
+          <BrowserAction {...sendActionProps} visibleLabel={text.askSend} />
         ) : (
           <BrowserIconAction {...sendActionProps} icon={<ArrowRight />} />
         )}

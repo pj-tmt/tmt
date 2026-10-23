@@ -254,7 +254,9 @@ for (const width of [1440, 390]) {
           expect(field.labelWidth).toBe(1);
           expect(field.clearance).toBeGreaterThanOrEqual(8);
           expect(Math.abs(field.sendRight - field.fieldRight)).toBeLessThan(1);
-          expect(field.padding).toBe(0);
+          // The shared icon send has no padding; Chat's labelled Send (the word) keeps the action's own.
+          if (field.chat) expect(field.padding).toBeGreaterThan(0);
+          else expect(field.padding).toBe(0);
         }
         const state = await page.evaluate(() =>
           [...document.querySelectorAll<HTMLButtonElement>('.tmt-ui-action')].map((button) => {

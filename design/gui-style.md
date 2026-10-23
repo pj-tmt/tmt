@@ -503,12 +503,14 @@ Basis: own.
 
 ### Page Chat
 
-- Shared Drawer header: Chat, `○ Everyone with access` caption and Close. Reuse the shared
-  agent rail; identities come from verified metadata, with muted time at the right.
-  Space separates messages; day rules use admitted timestamps.
-- Center the empty title and teach `@` only where admitted. Keep the composer
-  pinned below one thin rule: editor, then Attach/recipient at left and Send at
-  right. Show `Posts as a comment.` only without a recipient. Failed delivery
+- Shared Drawer header: Chat, `○ Everyone with access` caption and Close. A turn is the
+  website's: the shared avatar, the name (identities come from verified metadata) and the muted
+  time at the end of that row, then the text in a filled bubble under the name. Space separates
+  messages; day rules use admitted timestamps.
+- Center the empty title and teach `@` only where admitted. Keep the composer pinned at the
+  bottom as one bordered box: the editor, then Attach/recipient at the start of its row and a
+  primary `Send` (the word, no icon until the shared action takes one) at the end. Show
+  `Posts as a comment.` only without a recipient. Failed delivery
   uses `✗ Not delivered · Retry` with the existing recovery action.
 
 ### Popover composer
@@ -596,14 +598,14 @@ An anchored window adds no decorative connector line beside the circle.
 One message in Chat or a thread: author line (`name AGENT · time` for agents, `name · time` for people), body,
 state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
 
-- Chat and threads share `ConversationTurn` structure and history ownership, and one
-  turn look: a message sits directly on its surface, with no card fill, border or rule,
-  whoever wrote it. The author line is the Chat meta style in both: the person or agent
-  name in semibold sans, then the muted time. A turn in a thread, a person's or an agent's,
-  leads with the shared `BrowserAvatar` (decorative, size `s`, the author's initials) before the
-  author line, so an agent's name there is the chip's text without its robot; a working agent
-  keeps the robot with its dot. Chat has no avatar and keeps the chip's robot. The thread's own
-  `THREAD` and `OPEN` header may stay mono.
+- Chat and threads share `ConversationTurn` structure and history ownership. A turn, a person's
+  or an agent's, leads with the shared `BrowserAvatar` (decorative, size `s`, the author's
+  initials) before the author line: the name in semibold sans, then the muted time, so an agent's
+  name is the chip's text without its robot; a working agent keeps the robot with its dot. The
+  text differs by surface. In Chat it is a bubble under the name, indented past the avatar: the
+  `command` surface fill, a 1px rule edge and the radius token, square at the top start, the same
+  whoever wrote it. In a thread it sits directly on its surface with no card fill (the Discussion
+  view separates turns with a 1px rule). The thread's own `THREAD` and `OPEN` header may stay mono.
 - An agent reply looks the same running or finished: no edge or colour per driver
   and no driver word. A running turn shows only the
   chip's own working state. The verified `runningDriver` never selects a
