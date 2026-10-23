@@ -1003,7 +1003,7 @@ var syncFieldName = (value) => /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(value);
 function valid$4(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
-function row$4(value, keys) {
+function row$3(value, keys) {
 	valid$4(typeof value === "object" && value !== null && !Array.isArray(value));
 	const r = value;
 	valid$4(Object.keys(r).sort().join(",") === keys.sort().join(","));
@@ -1011,7 +1011,7 @@ function row$4(value, keys) {
 }
 function parseSyncMapping(value) {
 	valid$4(typeof value === "object" && value !== null);
-	const r = row$4(value, [
+	const r = row$3(value, [
 		"fields",
 		"spaceField",
 		"uidField",
@@ -1031,7 +1031,7 @@ function parseSyncMapping(value) {
 	let query = null;
 	if (r.query !== null) {
 		valid$4(typeof r.query === "object" && r.query !== null);
-		const q = row$4(r.query, [
+		const q = row$3(r.query, [
 			"scopeFields",
 			"streamField",
 			"seqField",
@@ -1044,7 +1044,7 @@ function parseSyncMapping(value) {
 		valid$4(declared(q.streamField) && declared(q.seqField) && q.streamField !== q.seqField && q.streamField !== r.spaceField && q.streamField !== r.uidField && q.seqField !== r.uidField && q.order === "asc" && scope.has(r.spaceField) && scope.has(q.streamField) && !scope.has(q.seqField));
 		let discovery;
 		if (q.discovery !== void 0) {
-			const d = row$4(q.discovery, [
+			const d = row$3(q.discovery, [
 				"name",
 				"scopeFields",
 				"seqEquals"
@@ -1401,7 +1401,7 @@ function hostRemote(slot, signal) {
 	};
 }
 /** A shared list row (`tmt-ui-list*`): mark, linked title, then its detail as metadata. */
-function row$3(href, mark, title, detail) {
+function row$2(href, mark, title, detail) {
 	const item = document.createElement("li");
 	item.className = "tmt-ui-list-row";
 	item.dataset.leading = "";
@@ -1437,8 +1437,8 @@ function homePage(shell, open) {
 	const offer = fetch("/sdk/pair-offer", { cache: "no-store" }).then((response) => response.status === 200).catch(() => false);
 	shell.described(async (answer) => {
 		const rows = [];
-		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row$3(open(module.rail.path), "◆", `${module.needsYou} in ${module.rail.label}`, "Needs you"));
-		if (await offer) rows.push(row$3(new URL("/remote/pair", location.href).href, "◆", "A device is waiting to pair", "Remote · confirm the four words in the terminal"));
+		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row$2(open(module.rail.path), "◆", `${module.needsYou} in ${module.rail.label}`, "Needs you"));
+		if (await offer) rows.push(row$2(new URL("/remote/pair", location.href).href, "◆", "A device is waiting to pair", "Remote · confirm the four words in the terminal"));
 		needs.replaceChildren(...rows);
 		if (answer) note.textContent = rows.length ? "" : "Nothing needs you.";
 		else {
@@ -1449,7 +1449,7 @@ function homePage(shell, open) {
 			note.replaceChildren(pair, " in Remote to see what needs you.");
 		}
 		note.hidden = !note.textContent;
-		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row$3(open(card.path), "▤", card.title, module.rail.label)));
+		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row$2(open(card.path), "▤", card.title, module.rail.label)));
 		recent.replaceChildren(...cards);
 		recentBlock.hidden = cards.length === 0;
 	});
@@ -1718,6 +1718,10 @@ var browserUiClasses = Object.freeze({
 	tableGroupCount: "tmt-ui-table-group-count",
 	tableSelect: "tmt-ui-table-select",
 	tableCompactMeta: "tmt-ui-table-compact-meta",
+	tableMono: "tmt-ui-table-mono",
+	tableQuiet: "tmt-ui-table-quiet",
+	avatarStack: "tmt-ui-avatar-stack",
+	glyphTile: "tmt-ui-glyph-tile",
 	notifications: "tmt-ui-notifications",
 	notification: "tmt-ui-notification",
 	notificationStatus: "tmt-ui-notification-status",
@@ -1806,6 +1810,10 @@ var browserUiClasses = Object.freeze({
 /** A count as drawn in a chip or the rail: counts above 99 read `99+`. */
 function countText(value) {
 	return value > 99 ? "99+" : String(value);
+}
+/** The initials an avatar draws: the first letters of up to two words of a name or handle. */
+function avatarInitials(name) {
+	return name.split(/[\s\-_.@]+/u).filter(Boolean).slice(0, 2).map((word) => [...word][0]).join("").toLocaleUpperCase();
 }
 /**
 * The browser busy mark's six dots on a 16x16 viewBox, in ring order (clockwise from the top
@@ -2643,7 +2651,30 @@ var shellIconNodes = {
 		["path", { d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" }],
 		["path", { d: "M12 9v4" }],
 		["path", { d: "M12 17h.01" }]
-	]
+	],
+	lock: [["rect", {
+		width: "18",
+		height: "11",
+		x: "3",
+		y: "11",
+		rx: "2",
+		ry: "2"
+	}], ["path", { d: "M7 11V7a5 5 0 0 1 10 0v4" }]],
+	clock: [["circle", {
+		cx: "12",
+		cy: "12",
+		r: "10"
+	}], ["path", { d: "M12 6v6l4 2" }]],
+	terminal: [["path", { d: "M12 19h8" }], ["path", { d: "m4 17 6-6-6-6" }]],
+	copy: [["rect", {
+		width: "14",
+		height: "14",
+		x: "8",
+		y: "8",
+		rx: "2",
+		ry: "2"
+	}], ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }]],
+	x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]]
 };
 var moduleIcons = [
 	"house",
@@ -4619,7 +4650,7 @@ function card(id, title, body, options = {}) {
 	node.append(head, ...body);
 	return node;
 }
-function row$2(className, ...cards) {
+function row$1(className, ...cards) {
 	const node = el$1("div", `digest-row ${className}`);
 	node.append(...cards);
 	return node;
@@ -4735,7 +4766,7 @@ function providerCard(view, nowMs) {
 }
 function allowanceRow(doc) {
 	const views = providers(doc);
-	const node = views.length ? row$2("digest-row-providers", ...views.map((view) => providerCard(view, doc.observedAtMs))) : row$2("digest-row-providers", card("digest-provider-none", "Allowance", [el$1("p", "usage-note", "No weekly window has been observed yet.")]));
+	const node = views.length ? row$1("digest-row-providers", ...views.map((view) => providerCard(view, doc.observedAtMs))) : row$1("digest-row-providers", card("digest-provider-none", "Allowance", [el$1("p", "usage-note", "No weekly window has been observed yet.")]));
 	node.id = "digest-allowance";
 	return node;
 }
@@ -4944,7 +4975,7 @@ function digestPage(source = digestSource, signal) {
 		good = report;
 		const doc = report.document;
 		const activityBlock = activityCard(doc);
-		panel.replaceChildren(allowanceRow(doc), row$2("digest-row-burn", tokensCard(doc, scale), rankingCard(doc)), ...activityBlock ? [activityBlock] : [], row$2("digest-row-coverage", exchangeCard(doc), coverageCard()));
+		panel.replaceChildren(allowanceRow(doc), row$1("digest-row-burn", tokensCard(doc, scale), rankingCard(doc)), ...activityBlock ? [activityBlock] : [], row$1("digest-row-coverage", exchangeCard(doc), coverageCard()));
 		if (report.sample) badgeLabel.textContent = "Sample data";
 		badge.hidden = !report.sample;
 		ordinaryNote(report);
@@ -5180,72 +5211,13 @@ var opsSource = { async board(signal) {
 	return boardFromAnswer(await ownerRead("ops", signal));
 } };
 //#endregion
-//#region src/ops-page.ts
-/** The Ops web view, read-only: Agents by squad, Squads, Timers and Ops settings, one section at a
-* time from the module menu. Rows are the shared list rows; every state is a mark and a word. */
-/** The board's own reload cadence (`tmt ops ui`). */
-var REFRESH_MS = 5e3;
-var SECTIONS$1 = [
-	{
-		id: "agents",
-		label: "Agents"
-	},
-	{
-		id: "squads",
-		label: "Squads"
-	},
-	{
-		id: "schedules",
-		label: "Timers"
-	},
-	{
-		id: "settings",
-		label: "Ops settings"
-	}
-];
-/** One shared list row: the mark, the name over its description, then the note and a state word
-* (toned) in the two columns the shared row keeps for them. */
-function row$1(mark, tone, title, description, note = "", state = "") {
-	const item = document.createElement("li");
-	item.className = "tmt-ui-list-row";
-	item.dataset.leading = "";
-	const sign = document.createElement("div");
-	sign.className = "tmt-ui-list-leading";
-	sign.dataset.tone = tone;
-	sign.setAttribute("aria-hidden", "true");
-	const shape = document.createElement("span");
-	shape.className = browserUiClasses.stateMark;
-	shape.dataset.shape = mark;
-	sign.append(shape);
-	const name = document.createElement("div");
-	name.className = "tmt-ui-list-title";
-	const label = document.createElement("span");
-	label.className = "tmt-ui-list-label";
-	label.textContent = title;
-	name.append(label);
-	if (description) {
-		const detail = document.createElement("span");
-		detail.className = "tmt-ui-list-description";
-		detail.textContent = description;
-		name.append(detail);
-	}
-	const info = document.createElement("div");
-	info.className = "tmt-ui-list-meta";
-	const more = document.createElement("div");
-	more.className = "tmt-ui-list-updated";
-	more.textContent = note;
-	const word = document.createElement("div");
-	word.className = "tmt-ui-list-state";
-	word.dataset.tone = tone;
-	word.textContent = state;
-	info.append(more, word);
-	item.append(sign, name, info);
-	return item;
-}
-function list(rows) {
-	const node = document.createElement("ul");
-	node.className = "tmt-ui-list";
-	node.append(...rows);
+//#region src/ops-parts.ts
+/** The pieces the Ops sections share: element and mark helpers, the state chip, the count strip,
+* the page head and the board's squads in display order. */
+function el(tag, className, text) {
+	const node = document.createElement(tag);
+	if (className) node.className = className;
+	if (text !== void 0) node.textContent = text;
 	return node;
 }
 /** A sentence in place of a list: why there is nothing to show, with any command as code. */
@@ -5255,50 +5227,6 @@ function sentence(text) {
 	notAvailable(node, text);
 	return node;
 }
-function el(tag, className, text) {
-	const node = document.createElement(tag);
-	if (className) node.className = className;
-	if (text !== void 0) node.textContent = text;
-	return node;
-}
-var FILTERS = [
-	{
-		id: "all",
-		label: "All",
-		states: []
-	},
-	{
-		id: "needs-you",
-		label: "Needs you",
-		states: ["needs-you"]
-	},
-	{
-		id: "working",
-		label: "Working",
-		states: ["working"]
-	},
-	{
-		id: "idle",
-		label: "Idle",
-		states: ["idle", "idle-alert"]
-	},
-	{
-		id: "blocked",
-		label: "Blocked",
-		states: ["blocked"]
-	},
-	{
-		id: "offline",
-		label: "Offline",
-		states: ["offline"]
-	},
-	{
-		id: "unknown",
-		label: "Unknown",
-		states: ["unknown"]
-	}
-];
-var keyOf = (agent) => `${agent.squad}/${agent.name}`;
 /** A state's mark, in its own colour. */
 function mark(shape, tone) {
 	const node = el("span", browserUiClasses.stateMark);
@@ -5359,8 +5287,9 @@ var STATS = [
 		states: ["unknown"]
 	}
 ];
-/** One strip of counts: all agents, then each state (idle alert counts as idle). */
-function statsStrip(agents) {
+var plural = (count, one, many) => count === 1 ? one : many;
+/** One strip of counts: the totals, then each agent state (idle alert counts as idle). */
+function statsStrip(agents, totals) {
 	const strip = el("div", browserUiClasses.stats);
 	strip.setAttribute("role", "group");
 	strip.setAttribute("aria-label", "Agents by state");
@@ -5374,23 +5303,85 @@ function statsStrip(agents) {
 		node.append(lead, text);
 		return node;
 	};
-	strip.append(cell(createIcon("users"), agents.length, agents.length === 1 ? "agent" : "agents", "Total in workspace"), ...STATS.map((stat) => cell(mark(stat.shape), agents.filter((agent) => stat.states.includes(agent.state)).length, stat.label, stat.caption, stat.tone)));
+	strip.append(...totals.map((total) => cell(createIcon("users"), total.count, total.label, total.caption)), ...STATS.map((stat) => cell(mark(stat.shape), agents.filter((agent) => stat.states.includes(agent.state)).length, stat.label, stat.caption, stat.tone)));
 	return strip;
 }
-/** The agents by squad in the order the table draws them: squads as the board lists them (then any
-* squad only an agent names), each lead first. */
-function bySquad(board) {
+/** The page's headline over its one-line subtitle. */
+function pageHead(title, subtitle) {
+	const head = el("header", browserUiClasses.pageHead);
+	head.append(el("h2", browserUiClasses.pageTitle, title), el("p", browserUiClasses.pageSubtitle, subtitle));
+	return head;
+}
+/** The passive chip a read-only page puts where a control would be. */
+function readOnlyBadge() {
+	const chip = el("span", browserUiClasses.chip);
+	chip.append(createIcon("lock"), el("span", browserUiClasses.chipLabel, "Read only"));
+	return chip;
+}
+/** The line under every Ops page: what the page is and that it keeps itself current. */
+function pageFoot() {
+	const foot = el("p", "ops-foot");
+	foot.append(mark("dot", "working"), "Read-only · Refreshes while visible");
+	return foot;
+}
+var keyOf = (agent) => `${agent.squad}/${agent.name}`;
+/** The agents by squad in the order the pages draw them: squads as the board lists them (then any
+* squad only an agent names), each lead first; a squad with no agents only when asked for. */
+function bySquad(board, keepEmpty = false) {
 	return [...board.squads.map((squad) => squad.name), ...board.agents.map((agent) => agent.squad)].filter((name, at, all) => all.indexOf(name) === at).map((name) => ({
 		name,
 		agents: board.agents.filter((agent) => agent.squad === name).sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"))
-	})).filter((group) => group.agents.length);
+	})).filter((group) => keepEmpty || group.agents.length);
 }
+//#endregion
+//#region src/ops-agents.ts
 /** The agents page: the counts, what needs the person, the agents by squad and the chosen one. */
-function agentsView(state) {
+var FILTERS = [
+	{
+		id: "all",
+		label: "All",
+		states: []
+	},
+	{
+		id: "needs-you",
+		label: "Needs you",
+		states: ["needs-you"]
+	},
+	{
+		id: "working",
+		label: "Working",
+		states: ["working"]
+	},
+	{
+		id: "idle",
+		label: "Idle",
+		states: ["idle", "idle-alert"]
+	},
+	{
+		id: "blocked",
+		label: "Blocked",
+		states: ["blocked"]
+	},
+	{
+		id: "offline",
+		label: "Offline",
+		states: ["offline"]
+	},
+	{
+		id: "unknown",
+		label: "Unknown",
+		states: ["unknown"]
+	}
+];
+function agentsView() {
+	const state = {
+		filter: "all",
+		query: "",
+		collapsed: /* @__PURE__ */ new Set()
+	};
 	let board;
 	const page = el("div", "ops-agents-page");
-	const head = el("header", browserUiClasses.pageHead);
-	head.append(el("h2", browserUiClasses.pageTitle, "Your team, in sync."), el("p", browserUiClasses.pageSubtitle, "A clear view of every squad and agent."));
+	const head = pageHead("Your team, in sync.", "A clear view of every squad and agent.");
 	const stats = el("div");
 	const banner = el("div");
 	const grid = el("div", "ops-grid");
@@ -5625,26 +5616,269 @@ function agentsView(state) {
 				const first = rows.find((agent) => agent.state === "needs-you") ?? rows[0];
 				state.selected = first && keyOf(first);
 			}
-			stats.replaceChildren(statsStrip(next.agents));
+			stats.replaceChildren(statsStrip(next.agents, [{
+				count: next.agents.length,
+				label: plural(next.agents.length, "agent", "agents"),
+				caption: "Total in workspace"
+			}]));
 			renderBanner();
 			renderTable();
 			renderDetail();
 		}
 	};
 }
-/** The content of the sections other than agents. */
-function opsSection(board, section) {
-	if (section === "squads") return [list(board.squads.map((squad) => {
-		const count = board.agents.filter((agent) => agent.squad === squad.name).length;
-		return row$1("dot", "neutral", squad.name, `${squad.lead ? `lead ${squad.lead}` : ""}${squad.idleAlertMinutes ? `${squad.lead ? " · " : ""}idle alert ${squad.idleAlertMinutes}m` : ""}`, `${count} agent${count === 1 ? "" : "s"}`);
-	}))];
-	if (section === "schedules") {
-		if (board.schedules === null) return [sentence("Your machine could not read the timers. Run `tmt ops ui` to see them.")];
-		if (!board.schedules.length) return [sentence("No timers are set.")];
-		return [list(board.schedules.map((schedule) => row$1("clock", "neutral", schedule.what || schedule.id, [schedule.squad, schedule.owner].filter(Boolean).join(" · "), schedule.when, schedule.id)))];
+//#endregion
+//#region src/ops-drawer.ts
+/** The agent's details in a drawer: what the squads page opens for a member. Read-only. */
+function agentDrawer(focus) {
+	const dialog = el("dialog", browserUiClasses.drawer);
+	dialog.setAttribute("aria-labelledby", "ops-drawer-title");
+	const title = el("h2");
+	title.id = "ops-drawer-title";
+	const close = el("button", `${browserUiClasses.action} ${browserUiClasses.iconActionControl}`);
+	close.type = "button";
+	close.dataset.variant = "text";
+	const closeIcon = el("span", browserUiClasses.iconActionIcon);
+	closeIcon.append(createIcon("x"));
+	close.append(closeIcon);
+	const closeHost = el("span", browserUiClasses.iconAction);
+	closeHost.append(close);
+	const header = el("header", browserUiClasses.drawerHeader);
+	header.append(title, closeHost);
+	const body = el("div", browserUiClasses.drawerBody);
+	dialog.append(header, body);
+	let selected;
+	close.addEventListener("click", () => dialog.close());
+	dialog.addEventListener("click", (event) => {
+		if (event.target !== dialog) return;
+		const box = dialog.getBoundingClientRect();
+		if (!(event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom)) dialog.close();
+	});
+	dialog.addEventListener("close", () => {
+		const agent = selected;
+		selected = void 0;
+		if (!agent || !dialog.isConnected) return;
+		const target = focus.returnFocus(agent);
+		target?.focus({ preventScroll: true });
+		if (!target || document.activeElement !== target) focus.fallback().focus({ preventScroll: true });
+	});
+	function render(agent) {
+		if (!agent) {
+			body.replaceChildren(el("p", void 0, "This agent is no longer on the board."));
+			return;
+		}
+		selected = agent;
+		title.textContent = agent.name;
+		close.setAttribute("aria-label", `Close ${agent.name}`);
+		const top = el("div", "ops-drawer-top");
+		top.append(stateChip(agent.state, agent.stateText || void 0), readOnlyBadge());
+		const facts = el("dl", browserUiClasses.facts);
+		for (const [term, value] of [
+			["Squad", agent.squad],
+			["Role", agent.role === "lead" ? "Lead" : "Member"],
+			["Model", agent.model || "—"]
+		]) facts.append(el("dt", void 0, term), el("dd", void 0, value));
+		const block = (label, value, tone) => {
+			const part = el("div", "ops-drawer-block");
+			const name = el("p", "ops-detail-label", label);
+			if (tone) name.dataset.tone = tone;
+			part.append(name, el("p", void 0, value));
+			return part;
+		};
+		body.replaceChildren(top, facts, block("Task", agent.task || "No task recorded"), block("Next step", agent.next || "No next step recorded"), ...agent.pending ? [block("Waiting on you", agent.pending, "waiting")] : [], el("p", "ops-detail-note", "Read-only observation. This panel does not control an agent."));
 	}
-	return [sentence(notInBrowser("The Ops settings page", "tmt ops ui"))];
+	return {
+		node: dialog,
+		open(agent) {
+			render(agent);
+			if (!dialog.open) dialog.showModal();
+		},
+		update(agents) {
+			const key = selected && keyOf(selected);
+			if (dialog.open && key) render(agents.find((agent) => keyOf(agent) === key));
+		},
+		close() {
+			selected = void 0;
+			if (dialog.open) dialog.close();
+		}
+	};
 }
+//#endregion
+//#region src/ops-squads.ts
+/** The squads page: each squad as a card with its lead, its people and its idle alert. */
+var minutes = (count) => `${count} ${plural(count, "minute", "minutes")}`;
+var idleAlert = (squad) => squad?.idleAlertMinutes ? `after ${minutes(squad.idleAlertMinutes)}` : "not configured";
+function squadsView() {
+	const members = /* @__PURE__ */ new Map();
+	const heading = pageHead("Squads, clearly connected.", "Every team, its lead and the people moving work forward.");
+	const fallback = heading.querySelector("h2");
+	fallback.tabIndex = -1;
+	const drawer = agentDrawer({
+		returnFocus: (agent) => members.get(keyOf(agent)),
+		fallback: () => fallback
+	});
+	const page = el("div", "ops-squads-page");
+	const stats = el("div");
+	const cards = el("div", "ops-squad-cards");
+	page.append(heading, stats, cards, pageFoot(), drawer.node);
+	function member(agent) {
+		const button = el("button", "ops-squad-member");
+		button.type = "button";
+		button.setAttribute("aria-label", `${agent.name}, ${AGENT_STATES[agent.state].word}`);
+		button.append(mark(AGENT_STATES[agent.state].mark, AGENT_STATES[agent.state].tone), el("strong", void 0, agent.name), stateChip(agent.state));
+		button.addEventListener("click", () => drawer.open(agent));
+		members.set(keyOf(agent), button);
+		return button;
+	}
+	return {
+		node: page,
+		close: drawer.close,
+		update(board) {
+			members.clear();
+			const groups = bySquad(board, true);
+			stats.replaceChildren(statsStrip(board.agents, [{
+				count: board.agents.length,
+				label: plural(board.agents.length, "agent", "agents"),
+				caption: "Total in workspace"
+			}]));
+			cards.replaceChildren(...groups.map((group) => {
+				const squad = board.squads.find((item) => item.name === group.name);
+				const card = el("section", `${browserUiClasses.card} ops-squad-card`);
+				card.setAttribute("aria-label", group.name);
+				const top = el("div", "ops-squad-top");
+				const names = el("div");
+				names.append(el("h3", browserUiClasses.cardTitle, group.name), el("p", "ops-squad-meta", [squad?.lead ? `Lead ${squad.lead}` : "", `${group.agents.length} ${plural(group.agents.length, "agent", "agents")}`].filter(Boolean).join(" · ")));
+				const people = el("div", browserUiClasses.avatarStack);
+				people.setAttribute("aria-hidden", "true");
+				for (const agent of group.agents) {
+					const avatar = el("span", browserUiClasses.avatar, avatarInitials(agent.name));
+					avatar.dataset.size = "s";
+					people.append(avatar);
+				}
+				top.append(names, people);
+				const members = el("div", "ops-squad-members");
+				if (group.agents.length) members.append(...group.agents.map(member));
+				else members.append(el("p", "ops-empty", "No agents in this squad."));
+				const bottom = el("div", "ops-squad-bottom");
+				bottom.append(createIcon("clock"), el("span", void 0, `Idle alert ${idleAlert(squad)}`), readOnlyBadge());
+				card.append(top, members, bottom);
+				return card;
+			}));
+			if (!groups.length) cards.append(el("p", "ops-empty", "No squads yet."));
+			drawer.update(board.agents);
+		}
+	};
+}
+//#endregion
+//#region src/ops-timers.ts
+/** The timers page: the schedules as the board records them, and how to manage them. */
+/** The one command that shows the timers, with a Copy button that says what happened. */
+function managePanel() {
+	const card = el("section", browserUiClasses.card);
+	card.setAttribute("aria-labelledby", "ops-manage-title");
+	const tile = el("span", browserUiClasses.glyphTile);
+	tile.append(createIcon("terminal"));
+	const title = el("h3", browserUiClasses.cardTitle, "Manage in the terminal");
+	title.id = "ops-manage-title";
+	const text = el("p", void 0, "Use the Ops workspace to manage your timers. This web view does not change schedules.");
+	const command = el("span", browserUiClasses.command);
+	const copy = el("button", browserUiClasses.commandCopy);
+	copy.type = "button";
+	copy.setAttribute("aria-label", "Copy tmt ops ui");
+	copy.append(createIcon("copy"), "Copy");
+	const feedback = el("span", browserUiClasses.commandFeedback);
+	feedback.setAttribute("role", "status");
+	copy.addEventListener("click", async () => {
+		try {
+			await navigator.clipboard.writeText("tmt ops ui");
+			feedback.textContent = "Copied.";
+		} catch {
+			feedback.textContent = "Copy failed. Select the command and copy it manually.";
+		}
+	});
+	command.append(el("code", browserUiClasses.commandText, "tmt ops ui"), copy, feedback);
+	card.append(tile, title, text, command);
+	return card;
+}
+function timersView() {
+	const page = el("div", "ops-timers-page");
+	const grid = el("div", "ops-grid");
+	const card = el("section", browserUiClasses.card);
+	card.setAttribute("aria-labelledby", "ops-timers-title");
+	const head = el("div", browserUiClasses.cardHead);
+	const title = el("h3", browserUiClasses.cardTitle, "Timers");
+	title.id = "ops-timers-title";
+	head.append(title, readOnlyBadge());
+	const body = el("div");
+	card.append(head, body);
+	grid.append(card, managePanel());
+	page.append(pageHead("Keep the rhythm visible.", "A simple view of the schedules that keep your team moving."), grid, pageFoot());
+	return {
+		node: page,
+		update(board) {
+			if (board.schedules === null) return body.replaceChildren(sentence("Your machine could not read the timers. Run `tmt ops ui` to see them."));
+			if (!board.schedules.length) return body.replaceChildren(sentence("No timers are set."));
+			const scroll = el("div", browserUiClasses.tableScroll);
+			const table = el("table", browserUiClasses.table);
+			table.dataset.roomy = "";
+			const headRow = el("tr");
+			for (const text of [
+				"Timer name",
+				"Squad",
+				"Schedule",
+				"Owner",
+				"Timer ID"
+			]) {
+				const cell = el("th", void 0, text);
+				cell.scope = "col";
+				if (text === "Owner" || text === "Timer ID") cell.dataset.compactHide = "";
+				headRow.append(cell);
+			}
+			const thead = el("thead");
+			thead.append(headRow);
+			const rows = el("tbody");
+			for (const timer of board.schedules) {
+				const name = el("td", void 0, timer.what || timer.id);
+				name.append(el("span", browserUiClasses.tableCompactMeta, [timer.owner, timer.id].filter(Boolean).join(" · ")));
+				const when = el("td", browserUiClasses.tableMono, timer.when);
+				const owner = el("td", void 0, timer.owner || "—");
+				const id = el("td", `${browserUiClasses.tableMono} ${browserUiClasses.tableQuiet}`, timer.id);
+				for (const cell of [owner, id]) cell.dataset.compactHide = "";
+				const tr = el("tr");
+				tr.append(name, el("td", void 0, timer.squad), when, owner, id);
+				rows.append(tr);
+			}
+			table.append(thead, rows);
+			scroll.append(table);
+			body.replaceChildren(scroll, el("p", "ops-note", "Schedules are shown as recorded."));
+		}
+	};
+}
+//#endregion
+//#region src/ops-page.ts
+/** The Ops web view, read-only: Agents, Squads, Timers and Ops settings, one section at a time from
+* the module menu. Every state is a mark and a word; what the reader sets on a section stays across
+* the board's refreshes. */
+/** The board's own reload cadence (`tmt ops ui`). */
+var REFRESH_MS = 5e3;
+var SECTIONS$1 = [
+	{
+		id: "agents",
+		label: "Agents"
+	},
+	{
+		id: "squads",
+		label: "Squads"
+	},
+	{
+		id: "schedules",
+		label: "Timers"
+	},
+	{
+		id: "settings",
+		label: "Ops settings"
+	}
+];
 function opsPage(shell, source = opsSource) {
 	const main = document.getElementById("ops-section");
 	const title = document.querySelector(".tmt-ui-title");
@@ -5653,13 +5887,14 @@ function opsPage(shell, source = opsSource) {
 	const href = (id) => `${location.pathname}#${id}`;
 	const current = () => SECTIONS$1.find((section) => `#${section.id}` === location.hash)?.id ?? "agents";
 	let board;
-	const agents = agentsView({
-		filter: "all",
-		query: "",
-		collapsed: /* @__PURE__ */ new Set()
-	});
+	const views = {
+		agents: agentsView(),
+		squads: squadsView(),
+		schedules: timersView()
+	};
 	const paint = () => {
 		const section = current();
+		if (section !== "squads") views.squads.close();
 		shell.setMenu({
 			title: "Ops",
 			groups: [{ items: SECTIONS$1.filter((item) => item.id !== "settings").map((item) => ({
@@ -5676,12 +5911,15 @@ function opsPage(shell, source = opsSource) {
 		});
 		if (title) title.textContent = SECTIONS$1.find((item) => item.id === section).label;
 		if (!board) main.replaceChildren(pageLoading());
-		else if (section === "agents") {
-			if (agents.node.parentElement !== main) main.replaceChildren(agents.node);
-			agents.update(board);
-		} else main.replaceChildren(...opsSection(board, section));
+		else if (section === "settings") main.replaceChildren(sentence(notInBrowser("The Ops settings page", "tmt ops ui")));
+		else {
+			const view = views[section];
+			if (view.node.parentElement !== main) main.replaceChildren(view.node);
+			view.update(board);
+		}
 	};
 	window.addEventListener("hashchange", paint, { signal: shell.signal });
+	shell.signal.addEventListener("abort", () => views.squads.close(), { once: true });
 	paint();
 	let last = "";
 	whileVisible(REFRESH_MS, shell.signal, async () => {

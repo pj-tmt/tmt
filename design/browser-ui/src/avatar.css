@@ -23,3 +23,15 @@
   background: var(--tmt-ui-surface-selection);
   color: var(--tmt-ui-color-accent-strong);
 }
+/* Avatars overlapping in a row, each edged by the surface they sit on so the overlap reads. */
+.tmt-ui-avatar-stack {
+  display: inline-flex;
+  align-items: center;
+}
+.tmt-ui-avatar-stack > .tmt-ui-avatar {
+  /* Initials a step smaller, so two letters keep their inset from the 24px edge. */
+  font-size: calc(var(--tmt-ui-caption-size) * 0.85);
+}
+.tmt-ui-avatar-stack > .tmt-ui-avatar + .tmt-ui-avatar {
+  margin-inline-start: calc(var(--tmt-ui-space-xs) * -1);
+}

@@ -60,6 +60,15 @@
   font: 13px/1.5 var(--tmt-ui-font-body);
   cursor: pointer;
 }
+.tmt-ui-command-copy:has(> .tmt-ui-glyph) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+}
+.tmt-ui-command-copy > .tmt-ui-glyph {
+  width: 1rem;
+  height: 1rem;
+}
 .tmt-ui-command-copy:not(:disabled):hover,
 .tmt-ui-command-copy:not(:disabled):focus-visible {
   background: var(--tmt-ui-surface-hover);

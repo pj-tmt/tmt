@@ -580,6 +580,15 @@ state, a React component.
   `tmt-ui-banner-head` (glyph, title, one quiet action) over one `tmt-ui-banner-row` button per item
   (mark, name, state word, detail, note, chevron). Under the compact width a row keeps the mark, name
   and state, with the detail on a second line. Static only.
+- **Avatar stack.** `tmt-ui-avatar-stack` overlaps `tmt-ui-avatar`s in one row, for the people of a
+  group; decorative, so `aria-hidden` with the names written beside it.
+- **Glyph tile.** `tmt-ui-glyph-tile` holds one glyph in a small square tile, the mark of a card with
+  one idea.
+- **Read-only badge.** A `tmt-ui-chip` whose first child is a `tmt-ui-glyph` (a lock) draws the glyph
+  before its label, for a passive badge such as Read only.
+- **Recorded value.** `tmt-ui-table-mono` sets a table cell in the mono face, unwrapped, for a value
+  shown as typed, such as a cron schedule; `tmt-ui-table-quiet` mutes an identifier beside it.
+- **Copy with an icon.** A `tmt-ui-glyph` inside `tmt-ui-command-copy` sits before its label.
 - **Search field.** `tmt-ui-search-field` wraps a `tmt-ui-field-control` (`type=search`) with a
   magnifier glyph at its start. Static only.
 - **Facts.** `tmt-ui-facts` is a description list of short terms over values, for the properties of

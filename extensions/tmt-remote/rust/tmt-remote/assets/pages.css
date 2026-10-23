@@ -393,7 +393,9 @@ body:not(:has(.tmt-ui-shell)) {
     width: min(100% - 32px, 87.5rem);
   }
 }
-.ops-agents-page {
+.ops-agents-page,
+.ops-squads-page,
+.ops-timers-page {
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -450,11 +452,115 @@ body:not(:has(.tmt-ui-shell)) {
   padding: 16px;
   color: var(--tmt-ui-color-secondary);
 }
+.ops-foot > .tmt-ui-state-mark {
+  width: 8px;
+  height: 8px;
+}
 .ops-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  font-size: var(--tmt-ui-caption-size);
+}
+/* The squads page: a card per squad, side by side, each with its head, its people and its footer. */
+.ops-squad-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.ops-squad-card {
+  gap: 0;
   padding: 0;
 }
+.ops-squad-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule-soft);
+}
+.ops-squad-meta {
+  margin: 4px 0 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.ops-squad-members {
+  display: grid;
+}
+.ops-squad-member {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 24px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ops-squad-member:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.ops-squad-member:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
+.ops-squad-member > .tmt-ui-chip,
+.ops-squad-bottom > .tmt-ui-chip {
+  margin-inline-start: auto;
+}
+.ops-squad-bottom > .tmt-ui-glyph {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+.ops-squad-bottom {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 24px;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule-soft);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+/* The agent drawer: its state and badge, then each fact under a soft rule. */
+.ops-drawer-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ops-drawer-block {
+  padding-top: 16px;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule-soft);
+}
+.ops-drawer-block > p {
+  margin: 0;
+}
+.ops-detail-label[data-tone='waiting'] {
+  color: var(--tmt-ui-color-waiting);
+}
+/* The timers page: the schedules beside how to manage them. */
+.ops-timers-page .ops-grid {
+  grid-template-columns: minmax(0, 1fr) 24rem;
+}
+.ops-timers-page .tmt-ui-card > p {
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+}
+.ops-note {
+  margin: 0;
+  padding: 12px 20px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
 @media (max-width: 1050px) {
-  .ops-grid {
+  .ops-squad-cards,
+  .ops-grid,
+  .ops-timers-page .ops-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -462,6 +568,7 @@ body:not(:has(.tmt-ui-shell)) {
   .ops-detail {
     display: none;
   }
+
   .ops-agents-tools .tmt-ui-tabs,
   .ops-agents-tools .tmt-ui-search-field {
     flex: 1 1 100%;
