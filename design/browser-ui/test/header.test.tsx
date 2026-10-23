@@ -31,6 +31,38 @@ it('renders the shared 04D-1 mark, exactly as its static-host copy, inside a ret
   expect(html.match(/<h1/g)).toHaveLength(1);
 });
 
+it('draws no heading when the title is hidden, and keeps the landmark named', () => {
+  const render = (titleVisible?: boolean, inShell?: boolean) =>
+    renderToStaticMarkup(
+      <BrowserHeader
+        productLabel="Colab"
+        title="Pages"
+        caption="6 pages"
+        captionId="pages-caption"
+        titleVisible={titleVisible}
+        inShell={inShell}
+        status={<span>◆ 1 needs you</span>}
+        actions={<button type="button">Share</button>}
+      />,
+    );
+  for (const inShell of [true, false]) {
+    const html = render(false, inShell);
+    expect(html).not.toContain('<h1');
+    expect(html).not.toContain('tmt-ui-title');
+    expect(html).toContain('aria-label="Colab · Pages"');
+    expect(html).toContain('aria-describedby="pages-caption"');
+    expect(html).toContain('id="pages-caption"');
+    expect(html).toContain('◆ 1 needs you');
+    expect(html).toContain('>Share<');
+  }
+  // The default is unchanged: the title is the page's h1, and a plain header carries no label.
+  const shown = render();
+  expect(shown.match(/<h1/g)).toHaveLength(1);
+  expect(shown).toContain('>Pages</h1>');
+  expect(shown).not.toContain('aria-label="Colab · Pages"');
+  expect(render(true)).toBe(shown);
+});
+
 it('keeps linked and plain labels neutral and removes the section divider', () => {
   const css = readFileSync(new URL('../generated/static.css', import.meta.url), 'utf8');
   const block = (selector: string) => {
