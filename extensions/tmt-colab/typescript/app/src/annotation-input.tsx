@@ -3,7 +3,7 @@ import type { ComposerConnectionPresentation } from './router.js';
 import { ConversationPresentation } from './components/conversation-presentation.js';
 import { attachmentInputHandlers, useAttachmentDropTarget } from './attachment-drop.js';
 import { BrowserAction, BrowserIconAction, type BrowserActionProps } from '@tmt/browser-ui/react';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Send } from 'lucide-react';
 import {
   Fragment,
   useContext,
@@ -678,9 +678,13 @@ export function AnnotationInput({
           />
         )}
         {presentation === 'discussion' ? (
-          <BrowserAction {...sendActionProps} visibleLabel={text.discussionReply} />
+          <BrowserAction
+            {...sendActionProps}
+            visibleLabel={text.discussionReply}
+            leadingIcon={<Send />}
+          />
         ) : chat ? (
-          <BrowserAction {...sendActionProps} visibleLabel={text.askSend} />
+          <BrowserAction {...sendActionProps} visibleLabel={text.askSend} leadingIcon={<Send />} />
         ) : (
           <BrowserIconAction {...sendActionProps} icon={<ArrowRight />} />
         )}

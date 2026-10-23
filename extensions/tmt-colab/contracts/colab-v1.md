@@ -3730,7 +3730,7 @@ filled bubble under the name, indented past the avatar, the same whoever wrote i
 Spacing separates turns, while local-day headings derive only from admitted
 timestamps. An empty Chat shows `No messages yet` and teaches `@` only where
 that action is admitted. The pinned composer is one bordered box: the field, then the existing
-Attach and recipient controls at the start of its row and a primary `Send` (the word) at the end;
+Attach and recipient controls at the start of its row and a primary `Send` (the paper plane and the word) at the end;
 `Posts as a comment.` appears only without a recipient. In Chat, a manually edited
 draft without the creator mention hides the creator-default toggle; a fresh default-only
 draft shows it again. The stored preference and send decision are unchanged. Failed delivery shows

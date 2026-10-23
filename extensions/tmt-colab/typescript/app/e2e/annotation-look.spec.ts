@@ -296,6 +296,8 @@ async function sharedComposer(window: Locator, surface: 'annotation' | 'chat') {
   await expect(send.locator('.lucide-arrow-right')).toHaveCount(surface === 'annotation' ? 1 : 0);
   if (surface === 'chat') {
     await expect(send).toHaveText('Send');
+    // Chat's Send carries the decorative paper plane, as the Discussion reply does.
+    await expect(send.locator('[aria-hidden="true"] svg.lucide-send')).toHaveCount(1);
     await expect(compose).toHaveCSS('border-top-width', '1px');
     await expect(compose).toHaveCSS('padding', '12px');
   }
