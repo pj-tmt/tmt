@@ -5,7 +5,7 @@ use crate::board::{activity::Phase, app::workspace::tests::MEMBER};
 use crate::look::Look;
 use unicode_width::UnicodeWidthStr;
 
-pub(in crate::board) const SCENES: [&str; 14] = [
+pub(in crate::board) const SCENES: [&str; 15] = [
     "sent-sending",
     "sent-working",
     "sent-earlier",
@@ -20,10 +20,12 @@ pub(in crate::board) const SCENES: [&str; 14] = [
     "chat-fallback",
     "chat-reconciled",
     "chat-reconciled-restored",
+    "chat-unbound",
 ];
 const QUESTION: &str = "Can you rerun the picker tests on main?";
 const REPLY: &str = "Yes. All 14 picker tests pass on main 6899a9f2.";
 const REQUEST: &str = "req_55555555-5555-4555-8555-555555555555";
+const UNBOUND_REASON: &str = "session not bound · run: tmt resume -- night-2";
 
 pub(in crate::board) fn fixture(scene: &str, look: Look, now_ms: u64) -> App {
     assert!(SCENES.contains(&scene));
@@ -150,6 +152,8 @@ fn chat_fixture(scene: &str, look: Look, now_ms: u64) -> App {
                         "✗ not sent, the agent could not be reached"
                     } else if scene == "chat-bound" {
                         "⠹ the agent has started on it"
+                    } else if scene == "chat-unbound" {
+                        "✓ session not bound · run: tmt resume -- night-2"
                     } else {
                         "✓ delivered"
                     }
@@ -168,14 +172,14 @@ fn chat_fixture(scene: &str, look: Look, now_ms: u64) -> App {
     if !fallback {
         assert!(app.conversation_finals().is_some(), "visible capture owner");
         let state = match scene {
-            "chat-pending" => "pending",
+            "chat-pending" | "chat-unbound" => "pending",
             "chat-bound" => "bound",
             "chat-no-answer" => "no_answer",
             _ => "answered",
         };
         app.apply_sent(crate::board::home_leads::SentKey { sender, agent: MEMBER.into() }, Ok(vec![json!({
             "requestId":REQUEST,"preparedAtMs":at,"text":QUESTION,"truncated":false,"mode":"passthrough",
-            "messageState":{"state":if scene=="chat-bound" {"working"} else {"delivered"},"reason":{"text":if scene=="chat-bound" {"the agent has started on it"} else {"delivered"}}},
+            "messageState":{"state":if scene=="chat-bound" {"working"} else {"delivered"},"reason":{"text":if scene=="chat-bound" {"the agent has started on it"} else if scene=="chat-unbound" {UNBOUND_REASON} else {"delivered"}}},
             "passthrough":{"state":state,"boundAtMs":at+1,"answer":{"text":REPLY,"truncated":scene=="chat-truncated","provider":"codex","endedMs":now_ms-1000}}
         })]));
     }
@@ -195,6 +199,7 @@ pub(in crate::board) fn expected(scene: &str) -> &'static str {
         "sent-unknown" => "✓ sent · mkt-gemini's activity is not reported",
         "chat-pending" => "delivered",
         "chat-bound" => "the agent has started on it",
+        "chat-unbound" => "session not bound",
         "chat-answered" | "chat-reconciled" | "chat-reconciled-restored" => "turn output",
         "chat-truncated" => "turn output · truncated",
         "chat-no-answer" => "No turn output was captured for this message.",

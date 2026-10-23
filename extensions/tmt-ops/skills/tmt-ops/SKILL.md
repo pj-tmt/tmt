@@ -341,11 +341,15 @@ observed lead; an agent selection uses that exact member. Missing evidence refus
 rather than choosing another recipient. Search and refresh retain hidden UUID
 anchors. `e` opens full observed member values. `R` opens Session for the selected
 agent in either list or conversation focus. Host / Session shows the observed host
-and remembered/unavailable state and yields first at narrow widths. Session shows
+and remembered/unavailable state and yields first at narrow widths. Core's explicit
+`session.unbound: true` instead shows `! unbound`; a missing or null field does not imply it.
+Session explains the unbound provider session and offers **Copy command** for its exact
+UUID recovery command, with **Run it in the agent's pane**. Copy keeps the board open
+and never starts a foreground handoff for this observation. Session shows
 full host coordinates, remembered driver/session and last activity when observed.
 “Session remembered · checked on launch” is not a resumability promise; stale,
 basic-driver or missing evidence stays unavailable, including scanned members whose
-sessions Core has not remembered. Resume here and Move here require a separate
+sessions Core has not remembered. For other session observations, Resume here and Move here require a separate
 confirmation naming the UUID, exact command and this board pane; the board closes
 before running Core in the foreground. Move may stop the verified old agent (one
 TERM, up to three seconds, no force). Core revalidates and may refuse; nothing is

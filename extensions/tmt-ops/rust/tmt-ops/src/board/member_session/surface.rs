@@ -10,7 +10,7 @@ use serde_json::json;
 use std::sync::OnceLock;
 use tmt_tui::components::{ListRow, PickerEvent, PickerField, PickerInput};
 const FILE: &str = "ops.member-session.xml";
-const MARKUP: &str = r#"<tmt-view version="1"><tmt-modal id="member-session" title="Session" placement="center" class="w-110 h-32"><tmt-scroll id="body"><tmt-repeat each="$.notes" as="note"><tmt-text id-bind="note.id" bind="note.text" wrap="true"/></tmt-repeat><tmt-list id="choices" bind="$.rows" empty=""><tmt-row class="flex-row gap-1"><tmt-text bind="row.cursor" class="w-1 shrink-0"/><tmt-text bind="row.label" wrap="true"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="status" bind="$.status" token="waiting" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted" wrap="true"/></tmt-modal></tmt-view>"#;
+const MARKUP: &str = r#"<tmt-view version="1"><tmt-modal id="member-session" title="Session" placement="center" class="w-110 h-32"><tmt-scroll id="body"><tmt-repeat each="$.notes" as="note"><tmt-text id-bind="note.id" bind="note.text" wrap="true"/></tmt-repeat><tmt-repeat each="$.recovery" as="note"><tmt-text id-bind="note.id" bind="note.text" token="muted" wrap="true"/></tmt-repeat><tmt-list id="choices" bind="$.rows" empty=""><tmt-row class="flex-row gap-1"><tmt-text bind="row.cursor" class="w-1 shrink-0"/><tmt-text bind="row.label" wrap="true"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="status" bind="$.status" token="waiting" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted" wrap="true"/></tmt-modal></tmt-view>"#;
 fn safe(text: &str) -> String {
     super::super::notes::single_line(text)
 }
@@ -24,6 +24,12 @@ impl Controller {
         } else {
             let unavailable =
                 !self.task.evidence.remembered() || !matches!(self.loaded, Some(Ok(_)));
+            if self.task.evidence.is_unbound() {
+                return vec![
+                    ("copy", "Copy command", unavailable),
+                    ("close", "Close", false),
+                ];
+            }
             vec![
                 ("resume", "Resume here…", unavailable),
                 ("move", "Move here…", unavailable),
@@ -119,7 +125,13 @@ impl Controller {
     pub fn render(&self, frame: &mut Frame, app: &App, look: Look, body: Rect) {
         static TEMPLATE: OnceLock<tmt_tui::components::surface::Template<()>> = OnceLock::new();
         let template = TEMPLATE.get_or_init(|| {
-            picker_surface::compile(FILE, MARKUP, picker_surface::schema(&["cursor", "label"]))
+            let mut schema = picker_surface::schema(&["cursor", "label"]);
+            let tmt_tui::binding::Schema::Object(fields) = &mut schema else {
+                unreachable!("picker scene schema");
+            };
+            let notes = fields["notes"].clone();
+            fields.insert("recovery".into(), notes);
+            picker_surface::compile(FILE, MARKUP, schema)
         });
         let mut ui = self.ui.borrow_mut();
         ui.reconcile(self.list_rows());
@@ -129,12 +141,21 @@ impl Controller {
             .enumerate()
             .map(|(i, text)| json!({"id":format!("note:{i}"),"text":text}))
             .collect();
+        let recovery: Vec<_> = self
+            .task
+            .evidence
+            .is_unbound()
+            .then(|| json!({"id":"recovery:unbound", "text":"Run it in the agent's pane"}))
+            .into_iter()
+            .collect();
         let rows: Vec<_> = self.rows().iter().map(|(id, label, disabled)| json!({"id":id,"label":label,"disabled":disabled,"cursor":if ui.picker.list.selected()==Some(*id) {"›"}else{" "}})).collect();
         let short = frame.area().height < 16;
         let footer = if short && self.confirmation.is_some() {
             "Esc cancel · c copy command · enlarge to continue"
         } else if self.confirmation.is_some() {
             "Esc cancel · c copy command · ↑↓ select · Enter continue"
+        } else if self.task.evidence.is_unbound() {
+            "↑↓ select · Enter copy · Esc close"
         } else {
             "↑↓ select · Enter review · Esc close"
         };
@@ -152,7 +173,7 @@ impl Controller {
         } else {
             body
         };
-        ui.render(FILE, template, json!({"rows":rows,"notes":projected_notes,"query":"","status":safe(status),"footer":footer}), frame, look, body);
+        ui.render(FILE, template, json!({"rows":rows,"notes":projected_notes,"recovery":recovery,"query":"","status":safe(status),"footer":footer}), frame, look, body);
         self.readable.set(
             self.confirmation.is_some()
                 && ui.frame.as_ref().is_some_and(|map| {

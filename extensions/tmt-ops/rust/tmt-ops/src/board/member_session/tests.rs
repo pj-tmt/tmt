@@ -35,6 +35,18 @@ fn remembered() -> App {
         .last_ms = Some(crate::status::now_ms() - 3_600_000);
     app
 }
+fn binding_observation(app: &mut App, host: &str, unbound: Option<serde_json::Value>) {
+    let mut row = app.references.agents[MEMBER].parameters.clone();
+    row["id"] = json!(MEMBER);
+    row["name"] = json!("worker");
+    row["location"]["host"] = json!(host);
+    if let Some(unbound) = unbound {
+        row["session"] = json!({"unbound":unbound});
+    } else {
+        row.as_object_mut().unwrap().remove("session");
+    }
+    app.references = Inventory::from_listed(&[], &Ok(json!({"identities":[row]})));
+}
 fn key(app: &mut App, code: KeyCode) -> Effect {
     app.member_session_event(&Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
         .unwrap()
@@ -84,6 +96,222 @@ fn absent_basic_stale_and_failed_observations_never_claim_resume() {
     app = remembered();
     app.references.error = Some("read failed".into());
     assert!(!app.member_session_evidence(MEMBER).remembered());
+}
+
+#[test]
+fn unbound_field_is_explicit_and_host_neutral_in_rows_and_dialog() {
+    for host in ["tmux", "herdr"] {
+        for value in [
+            None,
+            Some(json!(null)),
+            Some(json!(false)),
+            Some(json!(true)),
+            Some(json!("true")),
+        ] {
+            let unbound = value == Some(json!(true));
+            let expected = if unbound {
+                format!("! unbound · {host}")
+            } else {
+                format!("{host} · remembered")
+            };
+            for scene in ["session-rows-flat", "session-rows-tree"] {
+                let mut app = capture_case(scene, crate::look::Look::default());
+                binding_observation(&mut app, host, value.clone());
+                assert_eq!(app.member_session_evidence(MEMBER).compact(), expected);
+                let text = paint(&app, 160, 36);
+                assert!(text.contains(&expected), "{scene}/{host}/{value:?}: {text}");
+            }
+            let mut app = remembered();
+            binding_observation(&mut app, host, value.clone());
+            load(&mut app);
+            let text = paint(&app, 160, 36);
+            assert_eq!(text.contains("Session unbound"), unbound, "{text}");
+            assert_eq!(text.contains("Copy command"), unbound, "{text}");
+            assert_eq!(text.contains("Resume here"), !unbound, "{text}");
+        }
+    }
+}
+
+#[test]
+fn unbound_copy_uses_the_exact_uuid_command_and_never_opens_a_handoff() {
+    for host in ["tmux", "herdr"] {
+        let mut app = remembered();
+        binding_observation(&mut app, host, Some(json!(true)));
+        let _no_commands = crate::runner::forbid_commands();
+        load(&mut app);
+        let text = paint(&app, 160, 36);
+        assert!(text.contains("Copy command"), "{text}");
+        assert!(text.contains("Run it in the agent's pane"), "{text}");
+        assert!(
+            !text.contains("Resume here") && !text.contains("Move here"),
+            "{text}"
+        );
+        let Effect::Act(Request::Copy { text, .. }) = key(&mut app, KeyCode::Enter) else {
+            panic!("unbound session offers copy, never foreground handoff");
+        };
+        assert_eq!(text, format!("'/opt/tmt bin/tmt' 'resume' '--' '{MEMBER}'"));
+        assert!(app.foreground.is_none());
+        assert!(app.member_session.as_ref().unwrap().confirmation.is_none());
+        key(&mut app, KeyCode::Esc);
+        assert!(app.member_session.is_none());
+    }
+}
+
+#[test]
+fn unbound_copy_keeps_existing_memory_and_read_failure_guards() {
+    for variant in ["basic", "stale", "missing", "read-failed"] {
+        let mut app = remembered();
+        binding_observation(&mut app, "herdr", Some(json!(true)));
+        match variant {
+            "basic" => {
+                app.references.agents.get_mut(MEMBER).unwrap().parameters["driverSupport"] =
+                    json!("basic")
+            }
+            "stale" => {
+                app.references.agents.get_mut(MEMBER).unwrap().parameters["resume"]["staleAtMs"] =
+                    json!(1)
+            }
+            "missing" => {
+                app.references
+                    .agents
+                    .get_mut(MEMBER)
+                    .unwrap()
+                    .parameters
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("resume");
+            }
+            _ => {}
+        }
+        load(&mut app);
+        if variant == "read-failed" {
+            app.member_session.as_mut().unwrap().loaded =
+                Some(Err(SquadError::new("READ_FAILED", "Public read failed")));
+        }
+        paint(&app, 160, 36);
+        assert_eq!(key(&mut app, KeyCode::Enter), Effect::None, "{variant}");
+        assert!(app.foreground.is_none());
+        assert!(
+            app.member_session
+                .as_ref()
+                .is_none_or(|controller| controller.confirmation.is_none())
+        );
+    }
+}
+
+#[test]
+fn unbound_flag_changes_fence_copy_and_legacy_confirmations() {
+    for unbound in [false, true] {
+        let mut app = remembered();
+        binding_observation(&mut app, "tmux", Some(json!(unbound)));
+        load(&mut app);
+        if !unbound {
+            key(&mut app, KeyCode::Enter);
+            assert!(app.member_session.as_ref().unwrap().confirmation.is_some());
+        }
+        paint(&app, 160, 36);
+        binding_observation(&mut app, "tmux", Some(json!(!unbound)));
+        assert_eq!(key(&mut app, KeyCode::Down), Effect::None);
+        let controller = app.member_session.as_ref().unwrap();
+        assert!(controller.confirmation.is_none());
+        assert!(matches!(controller.loaded, Some(Err(_))));
+        assert!(app.foreground.is_none());
+        assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+        assert!(app.foreground.is_none());
+    }
+}
+
+#[test]
+fn unbound_mark_and_word_survive_a_clipped_host_name() {
+    for scene in ["session-rows-flat", "session-rows-tree"] {
+        let mut app = capture_case(scene, crate::look::Look::default());
+        let host = "a-host-name-longer-than-the-session-track";
+        binding_observation(&mut app, host, Some(json!(true)));
+        let text = paint(&app, 160, 36);
+        assert!(text.contains("! unbound"), "{text}");
+        assert!(
+            !text.contains(host),
+            "the track clips the host, not the diagnostic: {text}"
+        );
+    }
+}
+
+#[test]
+fn unbound_row_projection_refreshes_from_the_public_inventory() {
+    for scene in ["session-rows-flat", "session-rows-tree"] {
+        let mut app = capture_case(scene, crate::look::Look::default());
+        for unbound in [false, true, false] {
+            let mut row = app.references.agents[MEMBER].parameters.clone();
+            row["id"] = json!(MEMBER);
+            row["name"] = json!("worker");
+            row["session"] = json!({"unbound":unbound});
+            let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
+            snapshot.references = Inventory::from_listed(&[], &Ok(json!({"identities":[row]})));
+            snapshot.tabs = app.tabs.clone();
+            snapshot.view = Ok(app.view.take().unwrap());
+            app.apply(snapshot);
+            let text = paint(&app, 160, 36);
+            assert_eq!(text.contains("! unbound"), unbound, "{scene}: {text}");
+            assert_eq!(
+                text.contains("tmux · remembered"),
+                !unbound,
+                "{scene}: {text}"
+            );
+        }
+    }
+}
+
+#[test]
+fn missing_activity_does_not_imply_an_unbound_session() {
+    let mut app = remembered();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .members
+        .get_mut(MEMBER)
+        .unwrap()
+        .activity = Default::default();
+    assert_eq!(
+        app.member_session_evidence(MEMBER).compact(),
+        "tmux · remembered"
+    );
+    load(&mut app);
+    let text = paint(&app, 160, 36);
+    assert!(
+        !text.contains("Session unbound") && text.contains("Resume here"),
+        "{text}"
+    );
+}
+
+#[test]
+fn unbound_recovery_hint_is_muted() {
+    let mut app = remembered();
+    binding_observation(&mut app, "tmux", Some(json!(true)));
+    load(&mut app);
+    let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let (x, y) = (0..36)
+        .find_map(|y| {
+            let line: String = (0..160).map(|x| buffer[(x, y)].symbol()).collect();
+            line.find("Run it in the agent's pane")
+                .map(|at| (unicode_width::UnicodeWidthStr::width(&line[..at]) as u16, y))
+        })
+        .expect("painted recovery hint");
+    assert_eq!(
+        buffer[(x, y)].fg,
+        app.look()
+            .role(tmt_cli_style::Role::Muted)
+            .fg
+            .unwrap_or(ratatui::style::Color::Reset)
+    );
 }
 #[test]
 fn copy_and_cancel_keep_the_board_and_never_launch() {
@@ -267,6 +495,12 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "session-move",
     "session-rows-flat",
     "session-rows-tree",
+    "session-unbound",
+    "session-unbound-external",
+    "session-rows-unbound-flat",
+    "session-rows-unbound-tree",
+    "session-rows-unbound-external-flat",
+    "session-rows-unbound-external-tree",
 ];
 pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {
     let mut app = remembered();
@@ -316,6 +550,17 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         app.references.agents.get_mut(MEMBER).unwrap().parameters["location"]["host"] =
             json!("herdr");
     }
+    if scene.contains("unbound") {
+        binding_observation(
+            &mut app,
+            if scene.contains("external") {
+                "herdr"
+            } else {
+                "tmux"
+            },
+            Some(json!(true)),
+        );
+    }
     if scene == "session-unknown-host" {
         app.view
             .as_mut()
@@ -343,7 +588,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             .workspace
             .preferences
             .overview_panels = Some(crate::config::PanelSetting::configured(policy));
-        if scene == "session-rows-flat" {
+        if scene.ends_with("-flat") {
             app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         }
         return app;

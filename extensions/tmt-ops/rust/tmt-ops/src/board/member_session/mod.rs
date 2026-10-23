@@ -213,9 +213,28 @@ impl App {
                 c.confirmation = None;
                 c.invalidate();
             }
+            Some("copy") => {
+                let c = self.member_session.as_ref()?;
+                if c.task.evidence.is_unbound()
+                    && c.task.evidence.remembered()
+                    && let Some(Ok(observed)) = &c.loaded
+                {
+                    let OpsTarget::Member { identity_id, .. } = &c.task.target else {
+                        unreachable!()
+                    };
+                    // TODO(#4663): Reuse the UUID handoff after Core supports UUID launch.
+                    let command = Foreground::new(observed.executable.clone(), identity_id, false);
+                    return Some(Effect::Act(Request::Copy {
+                        text: command.line(),
+                        program: self.view.as_ref().and_then(|view| view.clipboard.clone()),
+                        feedback: CopyFeedback::Destination,
+                    }));
+                }
+            }
             Some("resume" | "move") => {
                 let c = self.member_session.as_mut()?;
-                if c.task.evidence.remembered()
+                if !c.task.evidence.is_unbound()
+                    && c.task.evidence.remembered()
                     && let Some(Ok(observed)) = &c.loaded
                 {
                     let OpsTarget::Member { identity_id, .. } = &c.task.target else {
