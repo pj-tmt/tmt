@@ -1,3 +1,4 @@
+import { commentsClose, commentsRegion } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
@@ -129,7 +130,7 @@ for (const width of [1440, 390])
       const beforePanel = await frame.boundingBox(),
         scrollBeforePanel = await page.evaluate(() => window.scrollY);
       await (await pageAction(page, 'Comments')).click();
-      const comments = page.locator('.tmt-ui-drawer[data-panel=comments]');
+      const comments = commentsRegion(page);
       await expect(comments).toBeVisible();
       expect((await frame.boundingBox())?.width).toBe(beforePanel?.width);
       expect((await frame.boundingBox())?.height).toBe(beforePanel?.height);
@@ -139,7 +140,7 @@ for (const width of [1440, 390])
         expect((await comments.boundingBox())?.y).toBe(52);
       }
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-comments.png` });
-      await comments.getByRole('button', { name: 'Close Comments', exact: true }).click();
+      await commentsClose(page, 'list').click();
       await expect(comments).not.toBeVisible();
       await expect(page.getByRole('button', { name: /^Discussion \(/ })).toBeFocused();
       await (await pageAction(page, 'Chat')).click();
@@ -169,7 +170,7 @@ test('narrow desktop menus switch floating panels and keep About readable', asyn
   await (await pageAction(page, 'Source')).click();
   await expect(page.locator('.tmt-ui-drawer[data-panel=source]')).toBeVisible();
   await (await pageAction(page, 'Comments')).click();
-  await expect(page.locator('.tmt-ui-drawer[data-panel=comments]')).toBeVisible();
+  await expect(commentsRegion(page)).toBeVisible();
   await expect(page.locator('.tmt-ui-drawer[data-panel=source]')).not.toBeVisible();
   await (await pageAction(page, 'About this page')).click();
   const information = page.locator('.tmt-ui-drawer[data-panel=about]');
@@ -293,7 +294,7 @@ for (const width of [1440, 390])
       const before = await frame.boundingBox();
       const scroll = await page.evaluate(() => window.scrollY);
       await (await pageAction(page, 'Comments')).click();
-      const drawer = page.locator('.tmt-ui-drawer[data-panel=comments][open]');
+      const drawer = commentsRegion(page);
       await expect(drawer).toBeVisible();
       const edge = (await drawer.boundingBox())!;
       const gutter = width <= 480 ? 4 : 8;
@@ -316,7 +317,7 @@ for (const width of [1440, 390])
         page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.tagName === 'IFRAME', exposed);
       // The 8 px page edge is visible; the annotation marker sits farther in and remains covered.
       if (width > 640) await expect.poll(frameAt).toBe(false);
-      await drawer.getByRole('button', { name: 'Close Comments', exact: true }).click();
+      await commentsClose(page, 'list').click();
       await expect(drawer).not.toBeVisible();
       await expect.poll(frameAt).toBe(true);
       await marker.click();

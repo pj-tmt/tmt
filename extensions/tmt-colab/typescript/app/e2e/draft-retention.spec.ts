@@ -1,3 +1,4 @@
+import { commentsClose } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
@@ -73,7 +74,7 @@ for (const width of [1440, 390]) {
     await expect(saved.locator('blockquote')).toHaveText('Exact selected text');
     await expect(saved.locator('.saved-draft-text')).toHaveText(draft);
     await expect(saved.getByText(text.savedDraftQuote)).toBeVisible();
-    await page.getByRole('button', { name: 'Close Comments', exact: true }).click();
+    await commentsClose(page, 'list').click();
 
     await select(page);
     await expect(composer.getByText('Draft kept', { exact: true })).toBeVisible();

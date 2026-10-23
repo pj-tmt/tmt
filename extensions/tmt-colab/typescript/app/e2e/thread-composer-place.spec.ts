@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
+import { commentsClose } from '../test/comments-region.js';
 
 /**
  * A reply that arrives while the reader is in a thread never moves the composer under them
@@ -100,7 +101,7 @@ test('a Discussion view switched to another thread starts from that thread’s o
   await expect(first.getByTestId('comment-entry')).toHaveCount(1);
   await run(page, 'largePageReply', 0);
   await expect(first.getByTestId('comment-entry')).toHaveCount(2);
-  await page.getByRole('button', { name: 'Close Discussion', exact: true }).click();
+  await commentsClose(page, 'discussion').click();
   await marker(page, 1).click();
   await expect(page.getByTestId('comment-thread')).toHaveAttribute(
     'data-thread-id',

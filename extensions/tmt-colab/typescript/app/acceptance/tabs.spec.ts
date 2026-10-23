@@ -1,3 +1,4 @@
+import { commentsRegion } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 import { text } from '../src/strings.js';
 import { expect, test, type Page } from '@playwright/test';
@@ -153,8 +154,7 @@ test('three tabs on two pages sync edits and annotations, then all lose a revoke
     await (await pageAction(a, 'Comments')).click();
     await expect(a.getByTestId('annotation-row')).toContainText('Quote A.');
     await expect(a.getByTestId('annotation-row')).toHaveCount(1);
-    if (!(await c.locator('.tmt-ui-drawer[data-panel=comments][open]').isVisible()))
-      await (await pageAction(c, 'Comments')).click();
+    if (!(await commentsRegion(c).isVisible())) await (await pageAction(c, 'Comments')).click();
     await expect(c.getByTestId('annotation-row')).toHaveCount(1);
     await expect(c.getByTestId('annotation-row')).toContainText('Quote B.');
 

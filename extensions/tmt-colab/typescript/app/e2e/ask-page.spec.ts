@@ -1,3 +1,4 @@
+import { commentsClose, commentsRegion, openPanel } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
@@ -551,7 +552,7 @@ for (const width of [1440, 390])
       await page.keyboard.up('c');
       await expect(mode).toHaveAttribute('aria-pressed', 'true');
       await expect(page.getByText(text.selectionModeHint, { exact: true })).toBeVisible();
-      await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
+      await expect(openPanel(page)).toHaveCount(0);
       // C above is a keyboard guard case. Capture the ordinary pointer activation separately.
       await expect(mode).toBeFocused();
       expect(await mode.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
@@ -613,12 +614,12 @@ for (const width of [1440, 390])
       await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
       if (width === 1440) {
         await (await pageAction(page, 'Source')).click();
-        await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(1);
+        await expect(openPanel(page)).toHaveCount(1);
         await expect(mode).toHaveAttribute('aria-pressed', 'true');
         await expect
           .poll(async () => {
             const controlBox = (await mode.boundingBox())!;
-            const panelBox = (await page.locator('.tmt-ui-drawer[open]').boundingBox())!;
+            const panelBox = (await openPanel(page).boundingBox())!;
             return controlBox.x + controlBox.width <= panelBox.x - 24;
           })
           .toBe(true);
@@ -716,8 +717,8 @@ for (const width of [1440, 390])
       await page.screenshot({ path: capturePath(`2586-open-${width}-${theme}.png`) });
       const input = window.getByRole('combobox', { name: 'Message' });
       await input.fill('Keep this discussion draft');
-      await page.getByRole('button', { name: 'Close Discussion', exact: true }).click();
-      await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
+      await commentsClose(page, 'discussion').click();
+      await expect(openPanel(page)).toHaveCount(0);
       const mode = page
         .locator('.selection-mode')
         .getByRole('button', { name: 'Selection mode', exact: true });
@@ -862,7 +863,7 @@ for (const [width, height, theme] of [
     await expect(mode).toHaveAttribute('aria-keyshortcuts', 'c Escape');
     const frame = page.frameLocator('#ask-page-fixture iframe');
     await frame.locator('[data-colab-thread]').click();
-    const window = page.locator('.tmt-ui-drawer[open]');
+    const window = commentsRegion(page);
     await expect(page.getByTestId('comment-thread')).toHaveAttribute('data-layout', 'discussion');
     const input = window.getByRole('combobox', { name: 'Message' });
     await input.fill('Draft retained @');
@@ -905,7 +906,7 @@ for (const [width, height, theme] of [
     expect((await run(page, 'proof')).actions).toEqual([]);
     await input.press('Escape');
     await expect(page.getByRole('option')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Close Discussion', exact: true }).click();
+    await commentsClose(page, 'discussion').click();
     await expect(window).toHaveCount(0);
     await mode.click();
     await mode.evaluate((node) => node.blur());
@@ -943,7 +944,7 @@ for (const width of [1440, 390]) {
     await expect(chat).toBeVisible();
     await input.press('Escape');
     await expect(chat).toBeHidden();
-    await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
+    await expect(openPanel(page)).toHaveCount(0);
     await expect(page.locator('.page-header-actions button:focus')).toHaveCount(1);
     await (await pageAction(page, 'Chat')).click();
     await expect(input).toHaveText('Chat draft @');
@@ -972,7 +973,7 @@ test('Escape does not close the Discussion view during its explicit send', async
     message: 'Existing discussion',
   });
   await page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').click();
-  const window = page.locator('.tmt-ui-drawer[open]');
+  const window = commentsRegion(page);
   const input = window.getByRole('combobox', { name: 'Message' });
   await input.fill('@');
   await page.getByRole('option').first().click();
@@ -982,7 +983,7 @@ test('Escape does not close the Discussion view during its explicit send', async
   await expect(
     window.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
   ).toBeDisabled();
-  await page.getByRole('button', { name: 'Close Discussion', exact: true }).focus();
+  await commentsClose(page, 'discussion').focus();
   await page.keyboard.press('Escape');
   await expect(window).toBeVisible();
   expect((await run(page, 'proof')).sends).toEqual([]);
@@ -1098,7 +1099,10 @@ for (const [width, theme] of [
       ['Export page', 'export'],
     ]) {
       await (await pageAction(page, action!)).click();
-      const drawer = page.locator(`.tmt-ui-drawer[data-panel=${panel}][open]`);
+      const drawer =
+        panel === 'comments'
+          ? commentsRegion(page)
+          : page.locator(`.tmt-ui-drawer[data-panel=${panel}][open]`);
       await expect(drawer).toBeVisible();
       const box = (await drawer.boundingBox())!;
       const gap = width <= 480 ? 4 : 8;

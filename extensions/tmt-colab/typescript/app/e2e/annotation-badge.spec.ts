@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { destination } from '../test/ask-fixtures.js';
 import { capturePath } from './captures.js';
+import { commentsRegion, openPanel } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 
 const fixture = '/test/ask-page-browser.tsx';
@@ -90,7 +91,7 @@ test('the Comments list is the website list: views, rows and an empty state per 
   await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
   await run(page, 'seedThread');
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
-  const panel = page.locator('.tmt-ui-drawer[data-panel="comments"][open]');
+  const panel = commentsRegion(page);
   // Three views in one strip (no Proposals view without a proposal), and the add action under it.
   const views = panel.getByRole('tablist', { name: 'Comment views' });
   await expect(views.getByRole('tab')).toHaveText(['Open', 'Needs you', 'Resolved']);
@@ -136,7 +137,7 @@ test('a row opens the Discussion view: status line, title, passage, turns, reply
   await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
   await run(page, 'seedThread');
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
-  const drawer = page.locator('.tmt-ui-drawer[data-panel="comments"][open]');
+  const drawer = commentsRegion(page);
   await expect(drawer.getByRole('heading', { level: 2 })).toHaveText('Comments');
   await drawer.getByTestId('annotation-row').click();
   // The list is replaced; the drawer reads Discussion with the thread's position.
@@ -188,5 +189,5 @@ test('a row opens the Discussion view: status line, title, passage, turns, reply
   await drawer.getByRole('tab', { name: 'Resolved', exact: true }).click();
   await drawer.getByTestId('annotation-row').click();
   await drawer.getByRole('button', { name: 'Show in the page', exact: true }).click();
-  await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
+  await expect(openPanel(page)).toHaveCount(0);
 });

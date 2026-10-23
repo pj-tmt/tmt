@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort, openPage, selectInRenderer } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
+import { openPanel } from '../test/comments-region.js';
 
 /** A real touch: CDP dispatches touch events, which the browser turns into touch pointer events. */
 async function tap(page: Page, target: ReturnType<Page['locator']>) {
@@ -147,7 +148,7 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     await expect.poll(() => agent.rows().find((row) => row.event === 'replied')?.body).toBeTruthy();
     const reply = agent.rows().find((row) => row.event === 'replied')!.body as string;
     await expect(popover.getByTestId('ask-reply')).toHaveText(reply);
-    await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
+    await expect(openPanel(page)).toHaveCount(0);
     // Sending clears the old body; the enabled toggle seeds the next fresh message.
     await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
     await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
