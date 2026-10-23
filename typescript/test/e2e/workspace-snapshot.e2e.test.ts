@@ -398,7 +398,7 @@ stage=pathlib.Path(str(result)+'.tmp');stage.write_text(json.dumps(value));stage
         expect(result.code, result.stderr + result.stdout).toBe(0);
         expect(result.json!.snapshot).toEqual(synthetic);
         expect(result.json!.sessions).toEqual([
-          ...original.sessions.map((session) => ({ session: session.id, action: 'skip_existing' })),
+          ...original.sessions.map((session) => ({ session: session.id, action: 'name_in_use' })),
           { session: '$999999', action: 'create' },
         ]);
         expect(result.json!.panes.find((pane) => pane.pane === fixture.pane)).toMatchObject({
@@ -488,7 +488,7 @@ stage=pathlib.Path(str(result)+'.tmp');stage.write_text(json.dumps(value));stage
         });
         expect(preview.code, preview.stderr + preview.stdout).toBe(0);
         expect(preview.json!.sessions).toEqual(
-          snapshot.sessions.map((value) => ({ session: value.id, action: 'skip_existing' }))
+          snapshot.sessions.map((value) => ({ session: value.id, action: 'name_in_use' }))
         );
         expect(fs.readFileSync(snapshotPath(fixture))).toEqual(bytes);
         expect(durable()).toEqual(before);
@@ -989,6 +989,7 @@ type LayoutRestore = {
     name: string;
     action: string;
     native: string | null;
+    restoredAs: string | null;
     retainedBootstrap: string | null;
   }>;
   windows: Array<{ recorded: string; native: string }>;
@@ -1426,12 +1427,12 @@ const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 const decoded = args.map(arg => arg.replace(/\\\\([0-3][0-7]{2})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8))));
-const branch = decoded.find(arg => arg.startsWith('"link-window"') || (arg.startsWith('"display-message"') && arg.includes('pane_current_command')));
+const branch = decoded.find(arg => arg.startsWith('"link-window"') || (arg.startsWith('"display-message"') && arg.includes('pane_tty')));
 if (branch) fs.appendFileSync(${JSON.stringify(trace)}, branch + '\\n');
 if (${JSON.stringify(fault)} === 'link' && branch?.startsWith('"link-window"')) process.exit(97);
 const result = spawnSync(${JSON.stringify(inner)}, args, { encoding: 'utf8', timeout: 5000 });
 let output = result.stdout || '';
-if (${JSON.stringify(fault)} === 'pid' && branch?.includes('pane_current_command')) {
+if (${JSON.stringify(fault)} === 'pid' && branch?.includes('pane_tty')) {
   const fields = output.split('__TMT_FIELD_4f1c__'); fields[1] = '2147483647'; output = fields.join('__TMT_FIELD_4f1c__');
 }
 process.stdout.write(output);
@@ -1808,7 +1809,60 @@ describe('layout-only workspace restore', () => {
     });
   }
 
-  it('skips an existing session whole and restores two missing sessions sharing one single-pane window', async () => {
+  it('adds the saved windows to the fresh default session after its own window, then recognises the repeat', async () => {
+    await withRestoreFixture(async (fixture) => {
+      expect((await fixture.runJsonCli(['name', 'Fresh Default Control', '-s'])).code).toBe(0);
+      const saved = readSnapshot(fixture);
+      saved.panes.forEach((pane) => {
+        pane.identity = null;
+      });
+      recoveryInput(fixture, saved);
+      // A new server's default session holds one window of one pane with nothing bound to it.
+      fixture.tmux(['-u', 'set-option', '-p', '-u', '-t', fixture.pane, '@tmt.agent']);
+      const own = [
+        '-u',
+        'list-panes',
+        '-s',
+        '-t',
+        'e2e',
+        '-F',
+        '#{window_index}:#{window_id}:#{pane_id}:#{pane_pid}:#{window_layout}',
+      ];
+      const before = fixture.tmux(own);
+      expect(before.trim().split('\n')).toHaveLength(1);
+      const added = saved.sessions.find((session) => session.name === 'e2e')!.windows.length;
+      const restore = () =>
+        fixture.runJsonCli<LayoutRestore>(
+          ['workspace', 'restore', '--layout-only', '--socket', fixture.socketPath],
+          { outsideTmux: true, locale: 'C' }
+        );
+
+      const result = await restore();
+      expect(result.code, result.stdout).toBe(0);
+      const merged = result.json!.sessions.find((session) => session.name === 'e2e')!;
+      expect([merged.action, merged.restoredAs]).toEqual(['merged', 'e2e']);
+      expect(result.json!.failures).toEqual([]);
+      // The user's own window and pane come first and are exactly as they were.
+      const after = fixture.tmux(own).trim().split('\n');
+      expect(after).toHaveLength(1 + added);
+      expect(`${after[0]}\n`).toBe(before);
+      const windows = fixture
+        .tmux(['-u', 'list-windows', '-t', 'e2e', '-F', '#{window_index}'])
+        .trim()
+        .split('\n')
+        .map(Number);
+      expect(windows[1]).toBeGreaterThan(windows[0]);
+
+      const again = await restore();
+      expect(again.code, again.stdout).toBe(0);
+      expect(again.json!.sessions.find((session) => session.name === 'e2e')!.action).toBe(
+        'skip_existing'
+      );
+      expect(fixture.tmux(own).trim().split('\n')).toHaveLength(1 + added);
+    });
+  });
+
+  it('restores beside a session in use, leaves it untouched, and restores two missing sessions sharing one single-pane window', async () => {
     await withRestoreFixture(async (fixture) => {
       expect((await fixture.runJsonCli(['name', 'Preserved Restore Pane', '-s'])).code).toBe(0);
       const saved = twoMissingLinkedSessions(fixture);
@@ -1838,10 +1892,16 @@ describe('layout-only workspace restore', () => {
         { outsideTmux: true, locale: 'C' }
       );
       expect(result.code, result.stdout).toBe(0);
+      // The live session holds an agent, so it is in use: never skipped, never overwritten.
       expect(result.json!.sessions.map((session) => session.action)).toEqual([
-        'skip_existing',
         'created',
         'created',
+        'created',
+      ]);
+      expect(result.json!.sessions.map((session) => session.restoredAs)).toEqual([
+        'e2e-restored',
+        null,
+        null,
       ]);
       expect(result.json!.windows).toHaveLength(1);
       expect(result.json!.panes).toHaveLength(1);
@@ -1862,7 +1922,7 @@ describe('layout-only workspace restore', () => {
       ).toBe(path.basename(defaultShell));
       expect(fixture.tmux(['-u', 'show-options', '-g', '-v', 'default-command']).trim()).toBe('');
 
-      for (const name of ['restore-first', 'restore-shared']) {
+      for (const name of ['e2e-restored', 'restore-first', 'restore-shared']) {
         expect(fixture.tmux(['-u', 'list-windows', '-t', name, '-F', '#{window_id}']).trim()).toBe(
           result.json!.windows[0].native
         );
@@ -1905,18 +1965,19 @@ describe('layout-only workspace restore', () => {
         );
         expect(result.code).toBe(1);
         expect(result.json!.status).toBe('partial');
-        const partial = result.json!.sessions.find((session) => session.name === 'restore-shared')!;
+        // The live session is in use, so the saved one is created beside it and owns the window;
+        // the first session sharing it needs the bootstrap pane that the fault retains.
+        const partial = result.json!.sessions.find((session) => session.name === 'restore-first')!;
         expect(partial.action).toBe('partial');
         expect(partial.retainedBootstrap).toMatch(/^%\d+$/);
         const panes = fixture
-          .tmux(['-u', 'list-panes', '-s', '-t', 'restore-shared', '-F', '#{pane_id}'])
+          .tmux(['-u', 'list-panes', '-s', '-t', 'restore-first', '-F', '#{pane_id}'])
           .trim()
           .split('\n');
         expect(panes).toContain(partial.retainedBootstrap);
         expect(panes).toHaveLength(fault === 'link' ? 1 : 2);
         expect(fs.readFileSync(trace, 'utf8')).toContain('"link-window"');
-        if (fault === 'pid')
-          expect(fs.readFileSync(trace, 'utf8')).toContain('pane_current_command');
+        if (fault === 'pid') expect(fs.readFileSync(trace, 'utf8')).toContain('pane_tty');
         expect(
           fixture.tmux([
             '-u',
@@ -1931,13 +1992,15 @@ describe('layout-only workspace restore', () => {
           ['workspace', 'restore', '--layout-only', '--socket', fixture.socketPath],
           { outsideTmux: true, locale: 'C' }
         );
-        expect(again.code, again.stdout).toBe(0);
-        expect(again.json!.sessions.every((session) => session.action === 'skip_existing')).toBe(
-          true
-        );
+        // A finished session is skipped; one left part restored is never taken for finished, and
+        // is left as it is while the repeat restores beside it (the fault is still injected).
+        const sessionsByName = (name: string) =>
+          again.json!.sessions.find((session) => session.name === name)!;
+        expect(sessionsByName('e2e').action).toBe('skip_existing');
+        expect(sessionsByName('restore-first').action).not.toBe('skip_existing');
         expect(
           fixture
-            .tmux(['-u', 'list-panes', '-s', '-t', 'restore-shared', '-F', '#{pane_id}'])
+            .tmux(['-u', 'list-panes', '-s', '-t', 'restore-first', '-F', '#{pane_id}'])
             .trim()
             .split('\n')
         ).toEqual(panes);

@@ -79,14 +79,60 @@ pub struct WorkspaceLayoutSession<'a> {
 }
 
 pub enum WorkspaceLayoutSessionAction {
+    /// This snapshot's restore already made the session; a repeat changes nothing.
     SkipExisting,
     Create {
+        /// The new session's name: the saved one, or `<name>-restored` beside a session in use.
+        name: String,
         /// Use a real, not-yet-created window for new-session whenever possible.
         seed_window: Option<usize>,
         /// Only an all-shared session needs an invocation-owned bootstrap pane.
         bootstrap_index: Option<u64>,
         links: Vec<WorkspaceLayoutLink>,
     },
+    /// The saved windows are added to the server's fresh default session, after its own window.
+    /// The indexes are assigned here; that window is never moved, renumbered or killed.
+    Merge {
+        name: String,
+        links: Vec<WorkspaceLayoutLink>,
+    },
+}
+
+/// What a restore saw of a live session, so a name in use is never skipped silently.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LiveSession {
+    /// A restore made it earlier and recorded `marker` on it. Under any name: a session restored
+    /// beside one in use keeps its `-restored` name, and a repeat still recognises it.
+    Restored { name: String, marker: String },
+    /// The server's own fresh default: one window of one pane with no agent bound to it.
+    Fresh { name: String, window_index: u64 },
+    /// Any other session.
+    InUse(String),
+}
+
+impl LiveSession {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Restored { name, .. } | Self::InUse(name) | Self::Fresh { name, .. } => name,
+        }
+    }
+}
+
+/// The value a restore records on a session it made, so the same snapshot restored again
+/// recognises it. Another snapshot's session with the same name is not this one.
+pub fn restored_marker(snapshot: &WorkspaceSnapshot, session: &WorkspaceSession) -> String {
+    format!("{}/{}", snapshot.captured_at_ms, session.id)
+}
+
+/// The first of `<name>-restored`, `<name>-restored-2`, … that no session uses or will use.
+fn beside(name: &str, taken: &HashSet<String>) -> String {
+    let mut candidate = format!("{name}-restored");
+    let mut number = 2;
+    while taken.contains(&candidate) {
+        candidate = format!("{name}-restored-{number}");
+        number += 1;
+    }
+    candidate
 }
 
 pub struct WorkspaceLayoutLink {
@@ -96,19 +142,63 @@ pub struct WorkspaceLayoutLink {
     pub active: bool,
 }
 
-/// Existing names are skipped as whole sessions. Their saved windows are never
-/// reused: only windows planned for a newly created session enter this map.
+/// A session this snapshot's restore already made is kept whole. A fresh default session with
+/// a saved session's name takes that session's windows after its own; any other session in
+/// use leaves the saved one to be created beside it. Windows planned for an existing session
+/// are never reused: only windows planned for a created or merged session enter this map.
 pub fn layout_creation<'a>(
     snapshot: &'a WorkspaceSnapshot,
-    current_sessions: &[String],
+    live: &[LiveSession],
 ) -> Result<WorkspaceLayoutPlan<'a>, WorkspaceLayoutError> {
     let windows = prepare_layout(snapshot)?;
     let mut created = HashSet::new();
+    let mut taken: HashSet<String> = live
+        .iter()
+        .map(|session| session.name().to_owned())
+        .chain(snapshot.sessions.iter().map(|session| session.name.clone()))
+        .collect();
     let mut sessions = Vec::with_capacity(snapshot.sessions.len());
     for session in &snapshot.sessions {
-        let action = if current_sessions.contains(&session.name) {
+        let found = live.iter().find(|found| found.name() == session.name);
+        let marker = restored_marker(snapshot, session);
+        let action = if live.iter().any(
+            |found| matches!(found, LiveSession::Restored { marker: made, .. } if *made == marker),
+        ) {
             WorkspaceLayoutSessionAction::SkipExisting
+        } else if let Some(LiveSession::Fresh { name, window_index }) = found {
+            let links = session
+                .windows
+                .iter()
+                .enumerate()
+                .map(|(position, link)| {
+                    let window = windows
+                        .iter()
+                        .position(|window| window.window.id == link.window)
+                        .ok_or(WorkspaceLayoutError::Topology)?;
+                    Ok(WorkspaceLayoutLink {
+                        // After the live window, in the saved order; never its index.
+                        index: window_index
+                            .checked_add(1 + position as u64)
+                            .filter(|index| *index <= i32::MAX as u64)
+                            .ok_or(WorkspaceLayoutError::Limit)?,
+                        window,
+                        create: created.insert(&link.window),
+                        active: link.active,
+                    })
+                })
+                .collect::<Result<Vec<_>, WorkspaceLayoutError>>()?;
+            WorkspaceLayoutSessionAction::Merge {
+                name: name.clone(),
+                links,
+            }
         } else {
+            let name = if found.is_some() {
+                let name = beside(&session.name, &taken);
+                taken.insert(name.clone());
+                name
+            } else {
+                session.name.clone()
+            };
             let seed_window = session
                 .windows
                 .iter()
@@ -146,6 +236,7 @@ pub fn layout_creation<'a>(
                 })
                 .collect::<Result<Vec<_>, WorkspaceLayoutError>>()?;
             WorkspaceLayoutSessionAction::Create {
+                name,
                 seed_window,
                 bootstrap_index,
                 links,

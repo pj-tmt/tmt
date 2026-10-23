@@ -6,6 +6,8 @@ pub mod authority;
 pub mod budgets;
 mod calendar;
 pub mod canonical;
+pub mod cloud_hpke;
+pub mod cloud_keys;
 pub mod control;
 pub mod core;
 pub mod crypto;

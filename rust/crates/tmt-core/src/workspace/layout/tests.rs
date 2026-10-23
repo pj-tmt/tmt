@@ -8,7 +8,11 @@ fn skipped_session_confers_no_reuse_authority_for_its_shared_window() {
     missing.name = "missing".into();
     missing.windows[0].index = 9;
     saved.sessions.push(missing);
-    let plan = layout_creation(&saved, &["workspace".into()]).unwrap();
+    let made = LiveSession::Restored {
+        name: "workspace".into(),
+        marker: restored_marker(&saved, &saved.sessions[0]),
+    };
+    let plan = layout_creation(&saved, &[made]).unwrap();
     assert!(matches!(
         plan.sessions[0].action,
         WorkspaceLayoutSessionAction::SkipExisting
@@ -17,6 +21,7 @@ fn skipped_session_confers_no_reuse_authority_for_its_shared_window() {
         seed_window,
         bootstrap_index,
         links,
+        ..
     } = &plan.sessions[1].action
     else {
         panic!("missing session must create its own window")
@@ -40,6 +45,7 @@ fn all_shared_session_reserves_an_unused_bootstrap_index() {
         seed_window,
         bootstrap_index,
         links,
+        ..
     } = &plan.sessions[1].action
     else {
         panic!("new shared session")
@@ -80,6 +86,7 @@ fn session_with_a_new_window_uses_it_as_seed_without_disposable_panes() {
         seed_window,
         bootstrap_index,
         links,
+        ..
     } = &plan.sessions[1].action
     else {
         panic!("new shared session")
@@ -186,6 +193,139 @@ fn with_checksum(body: &str) -> String {
         checksum = checksum.wrapping_add(u16::from(byte));
     }
     format!("{checksum:04x},{body}")
+}
+
+#[test]
+fn a_fresh_default_session_takes_the_saved_windows_after_its_own() {
+    let mut saved = snapshot();
+    // The saved session has two windows at 3 and 5; the fresh default's lone window is 0.
+    saved.sessions[0].name = "0".into();
+    saved.sessions[0]
+        .windows
+        .push(crate::workspace::WindowLink {
+            index: 5,
+            window: "@2".into(),
+            active: false,
+        });
+    let body = "80x24,0,0{39x24,0,0,17,40x24,40,0,18}";
+    let mut second = saved.windows[0].clone();
+    second.id = "@2".into();
+    second.layout = with_checksum(body);
+    second.visible_layout = with_checksum(body);
+    second.active_pane = "%18".into();
+    saved.windows.push(second);
+    for pane in saved.panes.clone() {
+        let mut moved = pane.clone();
+        moved.id = format!("%{}", pane.id[1..].parse::<u32>().unwrap() + 10);
+        moved.window = "@2".into();
+        saved.panes.push(moved);
+    }
+    let live = [LiveSession::Fresh {
+        name: "0".into(),
+        window_index: 0,
+    }];
+    let Ok(plan) = layout_creation(&saved, &live) else {
+        panic!("the fixture is a consistent snapshot")
+    };
+    let WorkspaceLayoutSessionAction::Merge { name, links } = &plan.sessions[0].action else {
+        panic!("a fresh default session takes the windows")
+    };
+    assert_eq!(name, "0");
+    // After the live window, in saved order, whatever indexes the windows had before.
+    assert_eq!(
+        links.iter().map(|link| link.index).collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert!(links.iter().all(|link| link.create));
+    assert!(links[0].active && !links[1].active);
+    // A live window above the saved indexes still gets the saved windows after it.
+    let high = [LiveSession::Fresh {
+        name: "0".into(),
+        window_index: 7,
+    }];
+    let plan = layout_creation(&saved, &high).unwrap();
+    let WorkspaceLayoutSessionAction::Merge { links, .. } = &plan.sessions[0].action else {
+        panic!("merge")
+    };
+    assert_eq!(
+        links.iter().map(|link| link.index).collect::<Vec<_>>(),
+        [8, 9]
+    );
+}
+
+#[test]
+fn a_session_in_use_is_never_skipped_the_saved_one_is_created_beside_it() {
+    let mut saved = snapshot();
+    let mut other = saved.sessions[0].clone();
+    other.id = "$2".into();
+    other.name = "other".into();
+    other.windows[0].index = 9;
+    saved.sessions.push(other);
+    // `workspace-restored` is taken by a live session and `other-restored` by a saved name.
+    let mut third = saved.sessions[1].clone();
+    third.id = "$3".into();
+    third.name = "other-restored".into();
+    third.windows[0].index = 11;
+    saved.sessions.push(third);
+    let live = [
+        LiveSession::InUse("workspace".into()),
+        LiveSession::InUse("workspace-restored".into()),
+        LiveSession::InUse("other".into()),
+    ];
+    let plan = layout_creation(&saved, &live).unwrap();
+    let names: Vec<_> = plan
+        .sessions
+        .iter()
+        .map(|planned| match &planned.action {
+            WorkspaceLayoutSessionAction::Create { name, .. } => name.as_str(),
+            _ => panic!("every session in use is created beside, never skipped"),
+        })
+        .collect();
+    assert_eq!(
+        names,
+        ["workspace-restored-2", "other-restored-2", "other-restored"]
+    );
+}
+
+#[test]
+fn only_this_snapshots_own_marker_makes_a_session_a_repeat() {
+    let saved = snapshot();
+    let marker = restored_marker(&saved, &saved.sessions[0]);
+    let mut later = saved.clone();
+    later.captured_at_ms += 1;
+    assert_ne!(marker, restored_marker(&later, &later.sessions[0]));
+    let mut renamed = saved.clone();
+    renamed.sessions[0].id = "$9".into();
+    assert_ne!(marker, restored_marker(&renamed, &renamed.sessions[0]));
+}
+
+#[test]
+fn a_session_restored_beside_another_is_recognised_under_its_new_name() {
+    let saved = snapshot();
+    let made = LiveSession::Restored {
+        name: "workspace-restored".into(),
+        marker: restored_marker(&saved, &saved.sessions[0]),
+    };
+    let plan = layout_creation(&saved, &[LiveSession::InUse("workspace".into()), made]).unwrap();
+    assert!(matches!(
+        plan.sessions[0].action,
+        WorkspaceLayoutSessionAction::SkipExisting
+    ));
+    // Another snapshot's session of the same name is only a name in use.
+    let mut later = saved.clone();
+    later.captured_at_ms += 1;
+    let plan = layout_creation(
+        &later,
+        &[LiveSession::Restored {
+            name: "workspace".into(),
+            marker: restored_marker(&saved, &saved.sessions[0]),
+        }],
+    )
+    .unwrap();
+    let WorkspaceLayoutSessionAction::Create { name, .. } = &plan.sessions[0].action else {
+        panic!("a session of another restore is not this one");
+    };
+    assert_eq!(name, "workspace-restored");
 }
 
 fn snapshot() -> WorkspaceSnapshot {

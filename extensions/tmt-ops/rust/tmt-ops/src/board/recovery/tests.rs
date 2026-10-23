@@ -54,6 +54,24 @@ fn preview_value(name: Option<&str>) -> Value {
         "panes":[{"id":"%1","window":"@1","index":0,"left":0,"top":0,"width":80,"height":24,"cwd":"/tmp/project","identity":null,"command":{"argv":["tmt","ops","ui","argument with spaces","$(touch should-not-run)"]}}]},
         "sessions":[{"session":"$1","action":"create"}],"panes":[{"pane":"%1","action":"relaunch_command","identity":null}]})
 }
+#[test]
+fn a_preview_from_an_older_tmt_still_validates_and_counts_its_skipped_names() {
+    for (action, label) in [
+        ("name_in_use", "Name in use: restore adds to or beside it"),
+        ("skip_existing", "Skip existing session"),
+    ] {
+        let mut value = preview_value(Some("saved"));
+        value["sessions"][0]["action"] = json!(action);
+        let preview = Preview::decode(&value).unwrap();
+        assert!(preview.counts().contains("1 name in use"), "{action}");
+        assert!(
+            surface::topology(&preview)
+                .iter()
+                .any(|note| note.contains(label)),
+            "{action}"
+        );
+    }
+}
 fn inventory_value() -> Value {
     json!({"version":1,"socket":SOCKET,"snapshots":[{"name":null,"digest":DIGEST,"capturedAtMs":1000},{"name":"saved","digest":DIGEST,"capturedAtMs":1000}]})
 }
@@ -591,6 +609,8 @@ fn full_restore_retains_live_skip_needs_you_and_uncertain_startup_per_item() {
         .as_array_mut()
         .unwrap()
         .push(json!({"recorded":"$2","name":"existing","action":"skip_existing","native":"$8","retainedBootstrap":null}));
+    // A session added to the fresh default one carries the live name; an older tmt omits it.
+    value["sessions"].as_array_mut().unwrap().push(json!({"recorded":"$3","name":"fresh","action":"merged","native":"$0","restoredAs":"fresh","retainedBootstrap":null}));
     value["revival"] = json!([
         {"recorded":"%1","native":"%7","name":"moved","status":"skipped","message":"skipped (already live elsewhere)"},
         {"recorded":"%2","native":null,"name":"renamed","status":"needs_you","message":"needs you (identity name changed; resume it explicitly)"},
@@ -618,6 +638,11 @@ fn full_restore_retains_live_skip_needs_you_and_uncertain_startup_per_item() {
         lines
             .iter()
             .any(|s| s.contains("Not applied · session existing"))
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|s| s.contains("Applied · session fresh") && s.contains("restored as fresh"))
     );
     assert!(
         lines

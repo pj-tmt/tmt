@@ -220,6 +220,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "sha2",
         ],
         "tmt-remote" => &[
+            // Fixed native cloud-hpke-v1 suite and exported response AEAD (#4535).
+            "hpke",
+            "aes-gcm",
             // Bounded ordinary-user Firebase Auth/Firestore REST (#2694).
             "ureq",
             // Deterministic gzip of authorized Firebase Hosting bytes (#2486).

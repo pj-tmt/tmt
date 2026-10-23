@@ -14,6 +14,21 @@ pub struct Site {
     pub mounts: Arc<Mounts>,
     /// Present while serve can pair browsers; without it those paths are 404.
     pub pages: Option<Pages>,
+    cloud_keys: Option<Arc<crate::cloud_keys::CloudKeys>>,
+}
+impl Site {
+    pub fn new(routes: Routes, mounts: Arc<Mounts>, pages: Option<Pages>) -> Self {
+        Self {
+            routes,
+            mounts,
+            pages,
+            cloud_keys: None,
+        }
+    }
+    pub fn with_cloud_keys(mut self, keys: Arc<crate::cloud_keys::CloudKeys>) -> Self {
+        self.cloud_keys = Some(keys);
+        self
+    }
 }
 impl Handler for Site {
     fn admit(&self, head: &Head<'_>) -> Result<usize, Reply> {
@@ -44,7 +59,21 @@ impl Handler for Site {
         }
     }
     fn maintain(&self) -> Result<(), crate::error::RemoteError> {
-        self.routes.maintain()
+        self.routes.maintain()?;
+        if let Some(keys) = &self.cloud_keys {
+            // Renewal failure is a cloud-only refusal; it never stops the local door.
+            if let Err(error) = keys.maintain((crate::objects::system_clock())()) {
+                let mut output = tmt_cli_style::stream::stderr();
+                let terminal = output.terminal();
+                let _ = tmt_cli_style::message::warning(
+                    &mut output,
+                    terminal,
+                    &format!("Cloud encryption unavailable: {}", error.code),
+                    None,
+                );
+            }
+        }
+        Ok(())
     }
     fn shutdown(&self) {
         self.routes.shutdown();

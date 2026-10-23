@@ -6,16 +6,25 @@ use crate::{
         CommandRunner,
         runtime::{ProcessObservation, observe_runtime_process},
     },
-    workspace::restore::{LayoutRestore, RestoredPane, RestoredSession, RestoredWindow},
+    workspace::restore::{
+        CwdFallback, LayoutRestore, RestoredPane, RestoredSession, RestoredWindow,
+    },
 };
-use std::{collections::HashMap, fmt::Write, io, os::unix::fs::FileTypeExt, time::Instant};
+use std::{
+    collections::{BTreeSet, HashMap},
+    fmt::Write,
+    io,
+    os::unix::fs::FileTypeExt,
+    path::Path,
+    time::Instant,
+};
 use tmt_core::{
     endpoint::ProcessIncarnation,
     workspace::{
         WorkspaceSnapshot,
         layout::{
-            WorkspaceLayoutPlan, WorkspaceLayoutSessionAction, WorkspaceLayoutWindow,
-            WorkspaceSplitAxis, layout_creation,
+            LiveSession, WorkspaceLayoutLink, WorkspaceLayoutPlan, WorkspaceLayoutSessionAction,
+            WorkspaceLayoutWindow, WorkspaceSplitAxis, layout_creation, restored_marker,
         },
     },
 };
@@ -57,8 +66,37 @@ struct Restore<'a, R> {
     fence: Option<Fence>,
     windows: HashMap<usize, String>,
     panes: HashMap<String, String>,
+    /// The directory each saved pane opens in when its recorded one is gone.
+    cwd: HashMap<String, String>,
     outcome: LayoutRestore,
     revival_panes: &'a [String],
+}
+
+/// The server's sessions as a restore sees them.
+#[derive(Default)]
+struct Live {
+    sessions: Vec<LiveSession>,
+    /// A fresh default session by name: its native id and its one pane.
+    fresh: HashMap<String, (String, String)>,
+}
+
+/// The session option a restore sets on a session it made, so a repeat recognises it.
+const RESTORED_OPTION: &str = "@tmt.restored";
+/// Its value on a session that is not yet whole; no snapshot's marker equals it.
+const UNFINISHED: &str = "unfinished";
+
+fn live_format() -> String {
+    [
+        "#{m/r:[[:cntrl:]],#{session_name}}",
+        "#{session_name}",
+        "#{session_id}",
+        "#{window_index}",
+        "#{pane_id}",
+        "#{@tmt.agent}",
+        "#{@tmt.workspace-command}",
+        "#{@tmt.restored}",
+    ]
+    .join(SEP)
 }
 
 impl<R: CommandRunner> Tmux<R> {
@@ -77,12 +115,14 @@ impl<R: CommandRunner> Tmux<R> {
             .panes
             .iter()
             .find(|saved| saved.id == pane.recorded)
-            .ok_or_else(invalid)?
+            .ok_or_else(pane_changed)?
             .cwd;
-        let shell = pane.shell.as_ref().ok_or_else(invalid)?;
-        let (server, native_start) = layout.server.as_ref().ok_or_else(invalid)?;
+        let shell = pane.shell.as_ref().ok_or_else(pane_changed)?;
+        let (server, native_start) = layout.server.as_ref().ok_or_else(server_changed)?;
         if argv.len() < 2 || argv.iter().any(|arg| arg.contains('\0')) {
-            return Err(invalid());
+            return Err(TmuxError::evidence(
+                "The agent command to start is empty or holds a NUL byte, so no agent was started in the restored pane",
+            ));
         }
         let restore = Restore {
             tmux: self,
@@ -94,11 +134,12 @@ impl<R: CommandRunner> Tmux<R> {
             }),
             windows: HashMap::new(),
             panes: HashMap::new(),
+            cwd: HashMap::new(),
             outcome: LayoutRestore::default(),
             revival_panes: &[],
         };
         if restore.live(shell.pid())? != *shell {
-            return Err(invalid());
+            return Err(pane_changed());
         }
         let output = restore.run(vec![
             "display-message".into(),
@@ -108,7 +149,7 @@ impl<R: CommandRunner> Tmux<R> {
             "#{pane_tty}".into(),
         ])?;
         if !crate::process::terminal::foreground(output.trim_end_matches('\n'), shell.pid()) {
-            return Err(invalid());
+            return Err(pane_changed());
         }
         let user_shell = restore.run(vec![
             "display-message".into(),
@@ -119,7 +160,7 @@ impl<R: CommandRunner> Tmux<R> {
         ])?;
         let user_shell = user_shell.trim_end_matches('\n');
         if !user_shell.starts_with('/') || user_shell.contains('\0') {
-            return Err(invalid());
+            return Err(unexpected("the default shell"));
         }
         let checks = [
             format!("#{{==:#{{pane_id}},{}}}", pane.native),
@@ -144,11 +185,11 @@ impl<R: CommandRunner> Tmux<R> {
         revival_panes: &[String],
     ) -> Result<LayoutRestore, TmuxError> {
         // Validate all saved layouts, including skipped ones, before even host reads.
-        layout_creation(snapshot, &[]).map_err(|_| invalid())?;
+        layout_creation(snapshot, &[]).map_err(|_| layout_refused())?;
         let socket = snapshot.server.socket.as_str();
         let absent = match std::fs::symlink_metadata(socket) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => true,
-            Err(_) => return Err(invalid()),
+            Err(error) => return Err(socket_unreadable(socket, &error)),
             Ok(_) => false,
         };
         let mut restore = Restore {
@@ -158,21 +199,15 @@ impl<R: CommandRunner> Tmux<R> {
             fence: None,
             windows: HashMap::new(),
             panes: HashMap::new(),
+            cwd: HashMap::new(),
             outcome: LayoutRestore::default(),
             revival_panes,
         };
-        let (names, starting) = if absent {
-            (Vec::new(), true)
+        let (live, starting) = if absent {
+            (Live::default(), true)
         } else {
-            match restore
-                .run(vec![
-                    "list-sessions".into(),
-                    "-F".into(),
-                    super::workspace::session_name_format(),
-                ])
-                .and_then(|output| super::workspace::session_names(&output))
-            {
-                Ok(names) => (names, false),
+            match restore.inspect_live() {
+                Ok(live) => (live, false),
                 Err(error)
                     if error.exited()
                         && !error.socket_permission_denied()
@@ -180,25 +215,23 @@ impl<R: CommandRunner> Tmux<R> {
                             .is_ok_and(|entry| entry.file_type().is_socket())
                         && stale_socket(socket, deadline) =>
                 {
-                    (Vec::new(), true)
+                    (Live::default(), true)
                 }
                 Err(error) => return Err(error),
             }
         };
-        let plan = layout_creation(snapshot, &names).map_err(|_| invalid())?;
-        // A skipped session's old directories are irrelevant to new creation.
+        let plan = layout_creation(snapshot, &live.sessions).map_err(|_| layout_refused())?;
+        // A missing directory never stops a restore: a plain pane opens in the nearest existing
+        // parent and the report says so. Only windows this restore creates need one.
         for session in &plan.sessions {
-            if let WorkspaceLayoutSessionAction::Create { links, .. } = &session.action {
-                for link in links.iter().filter(|link| link.create) {
-                    if plan.windows[link.window]
-                        .panes
-                        .iter()
-                        .any(|pane| !std::fs::metadata(&pane.cwd).is_ok_and(|entry| entry.is_dir()))
-                    {
-                        return Err(TmuxError::evidence(
-                            "A recorded workspace directory is unavailable",
-                        ));
-                    }
+            let links = match &session.action {
+                WorkspaceLayoutSessionAction::Create { links, .. }
+                | WorkspaceLayoutSessionAction::Merge { links, .. } => links,
+                WorkspaceLayoutSessionAction::SkipExisting => continue,
+            };
+            for link in links.iter().filter(|link| link.create) {
+                for pane in &plan.windows[link.window].panes {
+                    restore.choose_cwd(&pane.id, &pane.cwd);
                 }
             }
         }
@@ -211,51 +244,70 @@ impl<R: CommandRunner> Tmux<R> {
                 name: planned.session.name.clone(),
                 action: "skip_existing".into(),
                 native: None,
+                restored_as: None,
                 retained_bootstrap: None,
             };
-            if let WorkspaceLayoutSessionAction::Create {
-                seed_window,
-                bootstrap_index,
-                links,
-            } = &planned.action
-            {
-                record.action = "partial".into();
-                let result = restore.session(
-                    &plan,
-                    planned.session,
-                    *seed_window,
-                    *bootstrap_index,
+            let marker = restored_marker(snapshot, planned.session);
+            let merged = matches!(planned.action, WorkspaceLayoutSessionAction::Merge { .. });
+            let result = match &planned.action {
+                WorkspaceLayoutSessionAction::SkipExisting => Ok(()),
+                WorkspaceLayoutSessionAction::Create {
+                    name,
+                    seed_window,
+                    bootstrap_index,
                     links,
-                    &mut record,
-                );
-                match result {
-                    Ok(()) => record.action = "created".into(),
-                    Err(error) => {
-                        restore
-                            .outcome
-                            .failures
-                            .push(format!("Session {:?}: {error}", record.name));
-                        restore.outcome.sessions.push(record);
-                        // An uncertain failure cannot grant authority for later effects.
-                        for remaining in plan.sessions.iter().skip(restore.outcome.sessions.len()) {
-                            restore.outcome.sessions.push(RestoredSession {
-                                recorded: remaining.session.id.clone(),
-                                name: remaining.session.name.clone(),
-                                action: if matches!(
-                                    remaining.action,
-                                    WorkspaceLayoutSessionAction::SkipExisting
-                                ) {
-                                    "skip_existing".into()
-                                } else {
-                                    "not_attempted".into()
-                                },
-                                native: None,
-                                retained_bootstrap: None,
-                            });
-                        }
-                        break;
+                } => {
+                    record.action = "partial".into();
+                    record.restored_as = (name != &planned.session.name).then(|| name.clone());
+                    restore
+                        .session(
+                            &plan,
+                            name,
+                            *seed_window,
+                            *bootstrap_index,
+                            links,
+                            &marker,
+                            &mut record,
+                        )
+                        .map(|()| record.action = "created".into())
+                }
+                WorkspaceLayoutSessionAction::Merge { name, links } => {
+                    record.action = "partial".into();
+                    record.restored_as = Some(name.clone());
+                    match live.fresh.get(name) {
+                        Some(fresh) => restore
+                            .merge(&plan, fresh, links, &marker, &mut record)
+                            .map(|()| record.action = "merged".into()),
+                        None => Err(server_changed()),
                     }
                 }
+            };
+            if let Err(error) = result {
+                restore.outcome.failures.push(format!(
+                    "Session {:?}: {error}{}",
+                    record.name,
+                    partial_note(&record, merged)
+                ));
+                restore.outcome.sessions.push(record);
+                // An uncertain failure cannot grant authority for later effects.
+                for remaining in plan.sessions.iter().skip(restore.outcome.sessions.len()) {
+                    restore.outcome.sessions.push(RestoredSession {
+                        recorded: remaining.session.id.clone(),
+                        name: remaining.session.name.clone(),
+                        action: if matches!(
+                            remaining.action,
+                            WorkspaceLayoutSessionAction::SkipExisting
+                        ) {
+                            "skip_existing".into()
+                        } else {
+                            "not_attempted".into()
+                        },
+                        native: None,
+                        restored_as: None,
+                        retained_bootstrap: None,
+                    });
+                }
+                break;
             }
             restore.outcome.sessions.push(record);
         }
@@ -287,7 +339,7 @@ impl<R: CommandRunner> Restore<'_, R> {
         ])?;
         let fields: Vec<_> = output.trim_end_matches('\n').split(SEP).collect();
         if fields.len() != 3 || fields[0] != self.socket {
-            return Err(invalid());
+            return Err(server_changed());
         }
         let pid = number(fields[1])?;
         let server = self.live(pid)?;
@@ -302,14 +354,23 @@ impl<R: CommandRunner> Restore<'_, R> {
         if let Some(observation) = self.tmux.runner.process_observation(pid, self.deadline) {
             return match observation {
                 ProcessObservation::Live(process) if Instant::now() < self.deadline => Ok(process),
-                _ => Err(invalid()),
+                _ => Err(self.gone_or_late()),
             };
         }
         match observe_runtime_process(&self.tmux.runner, pid, self.deadline)
-            .map_err(|_| invalid())?
+            .map_err(|_| self.gone_or_late())?
         {
             ProcessObservation::Live(process) => Ok(process),
-            _ => Err(invalid()),
+            _ => Err(self.gone_or_late()),
+        }
+    }
+
+    /// A process that cannot be observed live: out of time, or no longer there.
+    fn gone_or_late(&self) -> TmuxError {
+        if Instant::now() >= self.deadline {
+            timed_out()
+        } else {
+            server_changed()
         }
     }
 
@@ -319,9 +380,9 @@ impl<R: CommandRunner> Restore<'_, R> {
         extra: &[String],
         args: Vec<String>,
     ) -> Result<String, TmuxError> {
-        let fence = self.fence.as_ref().ok_or_else(invalid)?;
+        let fence = self.fence.as_ref().ok_or_else(server_changed)?;
         if self.live(fence.server.pid())? != fence.server {
-            return Err(invalid());
+            return Err(server_changed());
         }
         let mut conditions = vec![
             format!("#{{==:#{{pid}},{}}}", fence.server.pid()),
@@ -331,7 +392,7 @@ impl<R: CommandRunner> Restore<'_, R> {
         let test = conditions
             .into_iter()
             .reduce(|left, right| format!("#{{&&:{left},{right}}}"))
-            .ok_or_else(invalid)?;
+            .ok_or_else(server_changed)?;
         let mut guarded = vec!["if-shell".into(), "-F".into()];
         if let Some(target) = target {
             guarded.extend(["-t".into(), target.into()]);
@@ -343,7 +404,7 @@ impl<R: CommandRunner> Restore<'_, R> {
         ]);
         let output = self.run(guarded)?;
         if output.lines().any(|line| line == REFUSED) {
-            return Err(invalid());
+            return Err(state_changed(target));
         }
         Ok(output)
     }
@@ -356,13 +417,13 @@ impl<R: CommandRunner> Restore<'_, R> {
             || !native_id(fields[4], b'@')
             || !native_id(fields[5], b'%')
         {
-            return Err(invalid());
+            return Err(unexpected("the window it just created"));
         }
         let server = self.live(number(fields[1])?)?;
         let native_start = number(fields[2])?;
         match &self.fence {
             Some(fence) if fence.server != server || fence.native_start != native_start => {
-                return Err(invalid());
+                return Err(server_changed());
             }
             Some(_) => (),
             None => {
@@ -381,17 +442,19 @@ impl<R: CommandRunner> Restore<'_, R> {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn session(
         &mut self,
         plan: &WorkspaceLayoutPlan<'_>,
-        saved: &tmt_core::workspace::WorkspaceSession,
+        name: &str,
         seed: Option<usize>,
         bootstrap_index: Option<u64>,
-        links: &[tmt_core::workspace::layout::WorkspaceLayoutLink],
+        links: &[WorkspaceLayoutLink],
+        marker: &str,
         record: &mut RestoredSession,
     ) -> Result<(), TmuxError> {
         let first = &plan.windows[seed.unwrap_or(links[0].window)];
-        let cwd = format_literal(&first.panes[0].cwd);
+        let cwd = format_literal(self.cwd_of(first.panes[0]));
         let mut args = vec![
             "new-session".into(),
             "-d".into(),
@@ -399,7 +462,7 @@ impl<R: CommandRunner> Restore<'_, R> {
             "-F".into(),
             created_format(),
             "-s".into(),
-            saved.name.clone(),
+            name.to_owned(),
             "-n".into(),
             seed.map(|_| format_literal(&first.window.name))
                 .unwrap_or_else(|| "tmt-restore-bootstrap".into()),
@@ -430,6 +493,9 @@ impl<R: CommandRunner> Restore<'_, R> {
         if seed.is_none() {
             record.retained_bootstrap = Some(created.pane.clone());
         }
+        // Until the session is whole, a repeat must neither skip it as finished nor take its
+        // bootstrap shell for the server's fresh default session.
+        self.mark_restored(&created.session, UNFINISHED)?;
         if starting {
             // A new server gets a fresh UUID; historical snapshot identity is never used.
             // Refuse initialization if another session appeared in the meantime.
@@ -456,7 +522,7 @@ impl<R: CommandRunner> Restore<'_, R> {
                     .index
             })
             .or(bootstrap_index)
-            .ok_or_else(invalid)?;
+            .ok_or_else(layout_refused)?;
         if created.index != index {
             self.guard(
                 Some(&created.pane),
@@ -490,7 +556,7 @@ impl<R: CommandRunner> Restore<'_, R> {
                     "-n".into(),
                     format_literal(&saved_window.window.name),
                     "-c".into(),
-                    format_literal(&saved_window.panes[0].cwd),
+                    format_literal(self.cwd_of(saved_window.panes[0])),
                 ];
                 if self.revival_panes.contains(&saved_window.panes[0].id) {
                     args.extend(BOOTSTRAP_COMMAND.map(str::to_owned));
@@ -498,11 +564,15 @@ impl<R: CommandRunner> Restore<'_, R> {
                 let output = self.guard(Some(&created.pane), &[], args)?;
                 let new = self.created(&output)?;
                 if new.session != created.session {
-                    return Err(invalid());
+                    return Err(server_changed());
                 }
                 self.window(link.window, saved_window, &new)?;
             } else {
-                let window = self.windows.get(&link.window).ok_or_else(invalid)?.clone();
+                let window = self
+                    .windows
+                    .get(&link.window)
+                    .ok_or_else(layout_refused)?
+                    .clone();
                 self.guard(
                     Some(&created.pane),
                     &[],
@@ -522,14 +592,192 @@ impl<R: CommandRunner> Restore<'_, R> {
             self.remove_bootstrap(&created)?;
             record.retained_bootstrap = None;
         }
-        let active = links.iter().find(|link| link.active).ok_or_else(invalid)?;
+        let active = links
+            .iter()
+            .find(|link| link.active)
+            .ok_or_else(layout_refused)?;
         let target = format!("{}:{}", created.session, active.index);
         self.guard(
             Some(&target),
             &[format!("#{{==:#{{session_id}},{}}}", created.session)],
             vec!["select-window".into(), "-t".into(), target.clone()],
         )?;
+        self.mark_restored(&created.session, marker)
+    }
+
+    /// Adds the saved windows to the server's fresh default session, after its own window. That
+    /// window and its pane are never killed, moved or renumbered, and the client is not
+    /// switched away from them.
+    fn merge(
+        &mut self,
+        plan: &WorkspaceLayoutPlan<'_>,
+        (session, lone): &(String, String),
+        links: &[WorkspaceLayoutLink],
+        marker: &str,
+        record: &mut RestoredSession,
+    ) -> Result<(), TmuxError> {
+        record.native = Some(session.clone());
+        let same = vec![format!("#{{==:#{{session_id}},{session}}}")];
+        for link in links {
+            if link.create {
+                let saved_window = &plan.windows[link.window];
+                let mut args = vec![
+                    "new-window".into(),
+                    "-d".into(),
+                    "-P".into(),
+                    "-F".into(),
+                    created_format(),
+                    "-t".into(),
+                    format!("{session}:{}", link.index),
+                    "-n".into(),
+                    format_literal(&saved_window.window.name),
+                    "-c".into(),
+                    format_literal(self.cwd_of(saved_window.panes[0])),
+                ];
+                if self.revival_panes.contains(&saved_window.panes[0].id) {
+                    args.extend(BOOTSTRAP_COMMAND.map(str::to_owned));
+                }
+                let output = self.guard(Some(lone), &same, args)?;
+                let new = self.created(&output)?;
+                if &new.session != session {
+                    return Err(server_changed());
+                }
+                self.window(link.window, saved_window, &new)?;
+            } else {
+                let window = self
+                    .windows
+                    .get(&link.window)
+                    .ok_or_else(layout_refused)?
+                    .clone();
+                self.guard(
+                    Some(lone),
+                    &same,
+                    vec![
+                        "link-window".into(),
+                        "-d".into(),
+                        "-s".into(),
+                        window,
+                        "-t".into(),
+                        format!("{session}:{}", link.index),
+                    ],
+                )?;
+            }
+        }
+        self.mark_restored(session, marker)
+    }
+
+    /// Targets the session itself: a bootstrap pane may be gone by the time the session is whole.
+    fn mark_restored(&self, session: &str, marker: &str) -> Result<(), TmuxError> {
+        self.guard(
+            Some(session),
+            &[format!("#{{==:#{{session_id}},{session}}}")],
+            vec![
+                "set-option".into(),
+                "-t".into(),
+                session.to_owned(),
+                RESTORED_OPTION.into(),
+                marker.to_owned(),
+            ],
+        )?;
         Ok(())
+    }
+
+    /// Every live session, with a fresh default one told apart: exactly one window of one pane
+    /// with no agent or command bound to it and no restore marker.
+    fn inspect_live(&self) -> Result<Live, TmuxError> {
+        #[derive(Default)]
+        struct Seen {
+            id: String,
+            windows: BTreeSet<u64>,
+            panes: Vec<String>,
+            bound: bool,
+            marker: String,
+        }
+        let output = self.run(vec![
+            "list-panes".into(),
+            "-a".into(),
+            "-F".into(),
+            live_format(),
+        ])?;
+        let mut order: Vec<String> = Vec::new();
+        let mut seen: HashMap<String, Seen> = HashMap::new();
+        let mut rows = 0;
+        let mut ignored = 0;
+        for row in output.split_terminator('\n') {
+            rows += 1;
+            let fields: Vec<_> = row.split(SEP).collect();
+            // A name holding a line break spreads over several rows. No saved session has such
+            // a name, so its fragments only have to stay out of the way.
+            if fields.len() != 8 {
+                ignored += 1;
+                continue;
+            }
+            // A name no saved session can share: it only has to stay out of the way.
+            if fields[0] != "0"
+                || fields[1].is_empty()
+                || fields[1].contains('\u{fffd}')
+                || fields[1].chars().any(char::is_control)
+            {
+                continue;
+            }
+            let entry = seen.entry(fields[1].to_owned()).or_insert_with(|| {
+                order.push(fields[1].to_owned());
+                Seen::default()
+            });
+            entry.id = fields[2].to_owned();
+            entry.windows.insert(number(fields[3])?);
+            entry.panes.push(fields[4].to_owned());
+            entry.bound |= !fields[5].is_empty() || !fields[6].is_empty();
+            entry.marker = fields[7].to_owned();
+        }
+        if order.len() > tmt_core::workspace::MAX_PANES || (rows > 0 && ignored == rows) {
+            return Err(unexpected("the session list"));
+        }
+        let mut live = Live::default();
+        for name in order {
+            let found = &seen[&name];
+            live.sessions.push(if !found.marker.is_empty() {
+                LiveSession::Restored {
+                    name,
+                    marker: found.marker.clone(),
+                }
+            } else if found.windows.len() == 1
+                && found.panes.len() == 1
+                && !found.bound
+                && found.marker.is_empty()
+                && native_id(&found.id, b'$')
+            {
+                live.fresh
+                    .insert(name.clone(), (found.id.clone(), found.panes[0].clone()));
+                LiveSession::Fresh {
+                    window_index: *found.windows.first().expect("one window"),
+                    name,
+                }
+            } else {
+                LiveSession::InUse(name)
+            });
+        }
+        Ok(live)
+    }
+
+    /// Records where a pane opens: its recorded directory, or the nearest existing parent.
+    fn choose_cwd(&mut self, pane: &str, recorded: &str) {
+        if Path::new(recorded).is_dir() {
+            return;
+        }
+        let used = nearest_directory(recorded);
+        self.outcome.fallbacks.push(CwdFallback {
+            pane: pane.to_owned(),
+            wanted: recorded.to_owned(),
+            used: used.clone(),
+        });
+        self.cwd.insert(pane.to_owned(), used);
+    }
+
+    fn cwd_of<'a>(&'a self, pane: &'a tmt_core::workspace::WorkspacePane) -> &'a str {
+        self.cwd
+            .get(&pane.id)
+            .map_or(pane.cwd.as_str(), String::as_str)
     }
 
     fn window(
@@ -544,7 +792,7 @@ impl<R: CommandRunner> Restore<'_, R> {
             native: created.window.clone(),
         });
         self.remember_pane(&saved.panes[0].id, created);
-        self.verify_cwd(&created.pane, &saved.panes[0].cwd)?;
+        self.verify_cwd(&created.pane, self.cwd_of(saved.panes[0]))?;
         self.guard(
             Some(&created.pane),
             &[],
@@ -586,14 +834,14 @@ impl<R: CommandRunner> Restore<'_, R> {
             let target = self
                 .panes
                 .get(&format!("%{}", split.target_leaf))
-                .ok_or_else(invalid)?
+                .ok_or_else(layout_refused)?
                 .clone();
             let old = format!("%{}", split.new_leaf);
             let pane = saved
                 .panes
                 .iter()
                 .find(|pane| pane.id == old)
-                .ok_or_else(invalid)?;
+                .ok_or_else(layout_refused)?;
             let mut args = vec![
                 "split-window".into(),
                 "-d".into(),
@@ -610,7 +858,7 @@ impl<R: CommandRunner> Restore<'_, R> {
                 "-t".into(),
                 target.clone(),
                 "-c".into(),
-                format_literal(&pane.cwd),
+                format_literal(self.cwd_of(pane)),
             ];
             if self.revival_panes.contains(&pane.id) {
                 args.extend(BOOTSTRAP_COMMAND.map(str::to_owned));
@@ -622,10 +870,10 @@ impl<R: CommandRunner> Restore<'_, R> {
             )?;
             let new = self.created(&output)?;
             if new.window != created.window {
-                return Err(invalid());
+                return Err(server_changed());
             }
             self.remember_pane(&old, &new);
-            self.verify_cwd(&new.pane, &pane.cwd)?;
+            self.verify_cwd(&new.pane, self.cwd_of(pane))?;
         }
         // Observe the live server, not the client version. Only this invocation's
         // created window is queried, behind the same native-incarnation fence.
@@ -642,7 +890,7 @@ impl<R: CommandRunner> Restore<'_, R> {
         )?;
         let layout = saved
             .layout_for_server(live_layout.strip_suffix('\n').unwrap_or(&live_layout))
-            .map_err(|_| invalid())?;
+            .map_err(|_| unexpected("the restored window's layout"))?;
         self.guard(
             Some(&created.pane),
             &[],
@@ -656,7 +904,7 @@ impl<R: CommandRunner> Restore<'_, R> {
         let active = self
             .panes
             .get(&saved.window.active_pane)
-            .ok_or_else(invalid)?
+            .ok_or_else(layout_refused)?
             .clone();
         self.guard(
             Some(&active),
@@ -690,10 +938,11 @@ impl<R: CommandRunner> Restore<'_, R> {
                 "#{pane_current_path}".into(),
             ],
         )?;
-        if output.strip_suffix('\n') != Some(expected) {
-            return Err(TmuxError::evidence(
-                "A restored pane did not enter its recorded directory",
-            ));
+        let actual = output.strip_suffix('\n').unwrap_or(&output);
+        if actual != expected && !same_directory(actual, expected) {
+            return Err(TmuxError::refusal(format!(
+                "A restored pane opened in {actual} instead of {expected}, so the restore stopped. Check that the directory is reachable and is not a link that moved, then restore again"
+            )));
         }
         Ok(())
     }
@@ -713,7 +962,7 @@ impl<R: CommandRunner> Restore<'_, R> {
 
     fn remove_bootstrap(&self, created: &Created) -> Result<(), TmuxError> {
         if self.live(created.process.pid())? != created.process {
-            return Err(invalid());
+            return Err(bootstrap_changed());
         }
         let output = self.guard(
             Some(&created.pane),
@@ -726,7 +975,6 @@ impl<R: CommandRunner> Restore<'_, R> {
                 [
                     "#{pane_id}",
                     "#{pane_pid}",
-                    "#{pane_current_command}",
                     "#{pane_tty}",
                     "#{pane_start_command}",
                 ]
@@ -734,33 +982,18 @@ impl<R: CommandRunner> Restore<'_, R> {
             ],
         )?;
         let fields: Vec<_> = output.trim_end_matches('\n').split(SEP).collect();
-        if fields.len() != 5
+        // The shell's own name is no evidence: /bin/sh is dash on one system and bash on
+        // another. Its pid and start, the start command, the terminal and the ids are.
+        if fields.len() != 4
             || fields[0] != created.pane
             || number(fields[1])? != created.process.pid()
-            || fields[2] != "sh"
-            || fields[4] != BOOTSTRAP_COMMAND.join(" ")
-            || !crate::process::terminal::foreground(fields[3], created.process.pid())
+            || fields[3] != BOOTSTRAP_COMMAND.join(" ")
+            || !crate::process::terminal::foreground(fields[2], created.process.pid())
             || self.live(created.process.pid())? != created.process
         {
-            return Err(invalid());
+            return Err(bootstrap_changed());
         }
-        let checks = [
-            format!("#{{==:#{{pane_id}},{}}}", created.pane),
-            format!("#{{==:#{{pane_pid}},{}}}", created.process.pid()),
-            format!("#{{==:#{{session_id}},{}}}", created.session),
-            format!("#{{==:#{{window_id}},{}}}", created.window),
-            "#{==:#{pane_current_command},sh}".into(),
-            format!(
-                "#{{==:#{{pane_start_command}},{}}}",
-                BOOTSTRAP_COMMAND.join(" ")
-            ),
-            "#{==:#{window_panes},1}".into(),
-            "#{==:#{window_linked_sessions},1}".into(),
-            "#{>=:#{session_windows},2}".into(),
-            "#{==:#{session_attached},0}".into(),
-            "#{==:#{@tmt.agent},}".into(),
-            "#{==:#{@tmt.workspace-command},}".into(),
-        ];
+        let checks = bootstrap_checks(created);
         self.guard(
             Some(&created.pane),
             &checks,
@@ -768,6 +1001,26 @@ impl<R: CommandRunner> Restore<'_, R> {
         )?;
         Ok(())
     }
+}
+
+/// What must still hold of the placeholder shell before its pane is killed.
+fn bootstrap_checks(created: &Created) -> Vec<String> {
+    vec![
+        format!("#{{==:#{{pane_id}},{}}}", created.pane),
+        format!("#{{==:#{{pane_pid}},{}}}", created.process.pid()),
+        format!("#{{==:#{{session_id}},{}}}", created.session),
+        format!("#{{==:#{{window_id}},{}}}", created.window),
+        format!(
+            "#{{==:#{{pane_start_command}},{}}}",
+            BOOTSTRAP_COMMAND.join(" ")
+        ),
+        "#{==:#{window_panes},1}".into(),
+        "#{==:#{window_linked_sessions},1}".into(),
+        "#{>=:#{session_windows},2}".into(),
+        "#{==:#{session_attached},0}".into(),
+        "#{==:#{@tmt.agent},}".into(),
+        "#{==:#{@tmt.workspace-command},}".into(),
+    ]
 }
 
 /// Only a kernel refusal proves that a remaining socket has no listener.
@@ -778,14 +1031,89 @@ fn stale_socket(path: &str, deadline: Instant) -> bool {
         && Instant::now() < deadline
 }
 
-fn invalid() -> TmuxError {
-    TmuxError::evidence("Workspace layout or live creation evidence was refused")
+/// Each refusal says what happened and what to do next; none is a bare "evidence" error.
+fn layout_refused() -> TmuxError {
+    TmuxError::evidence(
+        "The saved workspace layout is not one tmt can recreate, so nothing was restored. Restore a different saved workspace, or save the current one again",
+    )
+}
+fn socket_unreadable(socket: &str, error: &io::Error) -> TmuxError {
+    TmuxError::refusal(format!(
+        "The saved tmux socket {socket} cannot be read ({error}), so nothing was restored. Fix its permissions, or restore with --socket pointing at a tmux socket you can use"
+    ))
+}
+fn server_changed() -> TmuxError {
+    TmuxError::evidence(
+        "The tmux server restarted or exited while the workspace was being restored, so the restore stopped. Run the restore again once the server is up",
+    )
+}
+fn timed_out() -> TmuxError {
+    TmuxError::evidence(
+        "The restore ran past its time limit and stopped part way. Run the restore again; it finishes only what is missing",
+    )
+}
+fn state_changed(target: Option<&str>) -> TmuxError {
+    TmuxError::refusal(format!(
+        "tmux no longer matched {} while restoring, so the restore stopped before touching it. Something else changed that session, window or pane; leave it alone and restore again",
+        target.unwrap_or("the server"),
+    ))
+}
+fn unexpected(what: &str) -> TmuxError {
+    TmuxError::refusal(format!(
+        "tmux answered with something unexpected about {what}, so the restore stopped. A different tmux version may be running; restore again, and report it if it repeats"
+    ))
+}
+fn pane_changed() -> TmuxError {
+    TmuxError::evidence(
+        "The restored pane changed or its shell is no longer idle, so no agent was started in it. Start the agent there yourself, or restore again",
+    )
+}
+fn bootstrap_changed() -> TmuxError {
+    TmuxError::evidence(
+        "The placeholder shell tmt opened to hold a restored session changed before it was removed, so it was left in place. Close that pane yourself",
+    )
+}
+/// What a failed session leaves behind, and how to clear it before restoring again.
+fn partial_note(record: &RestoredSession, merged: bool) -> String {
+    let Some(native) = record.native.as_deref() else {
+        return String::new();
+    };
+    let name = record.restored_as.as_deref().unwrap_or(&record.name);
+    if merged {
+        format!(
+            " Windows already added to your session {name} ({native}) stay; close them yourself before restoring again"
+        )
+    } else {
+        format!(
+            " Session {name} ({native}) was left part restored; close that session yourself before restoring again"
+        )
+    }
+}
+/// The deepest existing directory at or above `recorded`; home, then `/`, at worst.
+fn nearest_directory(recorded: &str) -> String {
+    let mut path = Path::new(recorded);
+    while let Some(parent) = path.parent() {
+        if parent.is_dir() && parent != Path::new("") {
+            return parent.to_string_lossy().into_owned();
+        }
+        path = parent;
+    }
+    std::env::var("HOME")
+        .ok()
+        .filter(|home| Path::new(home).is_dir())
+        .unwrap_or_else(|| "/".into())
+}
+fn same_directory(left: &str, right: &str) -> bool {
+    matches!(
+        (std::fs::canonicalize(left), std::fs::canonicalize(right)),
+        (Ok(left), Ok(right)) if left == right
+    )
 }
 fn number(value: &str) -> Result<u64, TmuxError> {
     if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err(invalid());
+        return Err(unexpected("a number"));
     }
-    value.parse().map_err(|_| invalid())
+    value.parse().map_err(|_| unexpected("a number"))
 }
 fn native_id(value: &str, prefix: u8) -> bool {
     value.as_bytes().first() == Some(&prefix) && number(&value[1..]).is_ok()

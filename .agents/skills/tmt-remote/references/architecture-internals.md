@@ -1,13 +1,14 @@
 # Remote architecture internals
 
 Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`,
-`transport`, `sealed_sync` (including `sealed_sync::codec`), `declaration`, `deploy_plan`, `hosting`, `rules`, `firestore_budget`, `firestore_limits`, `readiness` and `deploy_run` have no I/O, clock, storage or `CoreClient` access):
+`cloud_hpke`, `transport`, `sealed_sync` (including `sealed_sync::codec`), `declaration`, `deploy_plan`, `hosting`, `rules`, `firestore_budget`, `firestore_limits`, `readiness` and `deploy_run` have no I/O, clock, storage or `CoreClient` access):
 
 | Module                                           | Owns                                                                                                                                                                                                                                                |
 | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `main`, binary-private `serve`, `core`           | CLI dispatch, one foreground/background composition and the two startup calls; `CoreClient` runs only fixed public `api`, `list --json`, `identity list --json`, `check <name> --json` via `TMT_EXECUTABLE`                                         |
 | `http`, `routes`, `site`, `limits`               | Loopback door framing and bounds, `/r/` binding routes, route dispatch; every bound is named in `limits`                                                                                                                                            |
 | `wire`, `canonical`, `crypto`                    | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                                                                                         |
+| `cloud_hpke`, `cloud_keys`                       | Fixed native HPKE descriptors/carriers and consuming response contexts; private Document keyring renewed at serve startup and existing Site maintenance; no transport, peer authority or replay ledger                                              |
 | `session`, `admission`                           | `session.open`, one normal message in flight per session, durable sequence consumption and admitted permits                                                                                                                                         |
 | `message`                                        | Local signed-message receive service: session admission, operation/journal hand-off and signed refusal/audit responses; foreground composition owns the service, not a backend                                                                      |
 | `transport`                                      | Pure envelope/result driver port (`append`, finite `subscribe`, explicit `ack`); loopback `routes` forwards to the injected common service, never owns admission/effects                                                                            |
@@ -260,3 +261,18 @@ revalidates the current browser grant before disclosure. Only the explicit opt-i
 layer/budget members; ordinary settings and status shapes remain unchanged. Browser display
 uses strict typed projections, not another provider or readiness engine. Optional failure
 clears old evidence independently of management access and original-effect outcome ownership.
+
+## Native cloud crypto
+
+The [fixed profile](../../../../contracts/remote-channel-v1.md#end-to-end-operation-encryption)
+owns bytes and lifecycle. `cloud_hpke` reuses `canonical::envelope_header`, strict `wire` parsing
+and `crypto` verification; only its carrier uses `hpke` and `aes-gcm`. Request and response contexts
+are single-use values. `cloud_keys` publishes admitted state only after Document succeeds, preserving
+its prior admitted keyring on uncertainty. Its named bounds live in `limits`; the existing Site
+maintenance callback renews without adding a worker and a failure never stops local pairing.
+No Firestore agent driver, cloud admission service or cross-person pairing ships with this library.
+
+`tests/cloud_hpke.rs` pins RFC 9180 A.3.1; `tests/fixtures/cloud-hpke-reference.mjs` independently
+checks application framing/signatures/AAD/response bytes only, without implementing HPKE.
+Run it with Node and the focused Rust `cloud_` tests. `cloud-hpke-v1.json` contains public test keys
+and frozen pre-change v1 descriptor/keyring bytes, not a historical release fixture.
