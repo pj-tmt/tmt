@@ -176,7 +176,10 @@ The [inline slot contract](../../../../extensions/tmt-colab/contracts/colab-v1.m
 owns the exact shapes and admission limits. The parent floating-action placement
 effect reuses its resize/scroll observer to clear attached visible question cards
 containing footers, including answer controls, recipients and Send, and attached inline
-Proposal cards, including Approve, Decline, Follow up, Resolve and the follow-up composer;
+Proposal cards, including Approve, Decline, Follow up, Resolve and the follow-up composer, and
+the open work band's controls and add-task row (the band is above the page, so the placement
+searches the whole workspace and observes its size, as the band opens without resizing the host;
+it settles over a few passes, because moving above one control can land on the next);
 with no available space above them, the floating actions temporarily hide while header
 entry points remain available. Card/FAB observers and scroll listeners clean up with that effect. This does not
 change drafts, active-tab geometry retirement, selection coordinates or send policy.

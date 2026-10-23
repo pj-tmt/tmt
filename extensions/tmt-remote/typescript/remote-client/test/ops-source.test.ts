@@ -49,6 +49,11 @@ it('turns the contract board into rows: lead first, a mark for each state, the b
   for (const agent of board.agents) expect(AGENT_STATES[agent.state].word).toBeTruthy();
 });
 
+it('gives every agent state its own mark, so no two states look alike', () => {
+  const marks = Object.values(AGENT_STATES).map((state) => state.mark);
+  expect(new Set(marks).size).toBe(marks.length);
+});
+
 it('keeps a failed schedule read apart from no timers, and an empty board ok', () => {
   const failed = ops.find((vector) => vector.name.includes('timers null'))!;
   expect(answer(failed.expect)).toEqual({

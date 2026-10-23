@@ -5156,7 +5156,7 @@ describe('large board responsiveness', () => {
           pointer(32, location.x + 12);
           await vi.waitFor(
             () => {
-              expect(screen()).toContain('+ Quote');
+              expect(screen()).toContain('q› Quote');
               expect(screen()).not.toContain('Exact response source');
             },
             { timeout: 10_000, interval: 50 }

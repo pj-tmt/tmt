@@ -351,6 +351,29 @@ export function StatusTileSection() {
                 </BrowserStatusTiles>
               </div>
             </Cell>
+            <Cell label="counts">
+              <div style={{ width: 'min(100%, 28rem)' }}>
+                <BrowserStatusTiles>
+                  <BrowserStatusTile numeric label="Needs you" value="2" tone="waiting" />
+                  <BrowserStatusTile numeric label="Blocked" value="1" tone="blocked" />
+                  <BrowserStatusTile numeric label="Offline" value="0" />
+                  <BrowserStatusTile numeric label="Working" value="3" tone="working" />
+                </BrowserStatusTiles>
+              </div>
+            </Cell>
+            <Cell label="state marks (one 12px box each)">
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
+                {['dot', 'ring', 'dashed', 'clock', 'diamond', 'cross', 'unknown'].map((shape) => (
+                  <span
+                    key={shape}
+                    style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center' }}
+                  >
+                    <span className="tmt-ui-state-mark" data-shape={shape} aria-hidden="true" />
+                    {shape}
+                  </span>
+                ))}
+              </div>
+            </Cell>
             <Cell label="other tones">
               <div style={{ width: 'min(100%, 28rem)' }}>
                 <BrowserStatusTiles>
