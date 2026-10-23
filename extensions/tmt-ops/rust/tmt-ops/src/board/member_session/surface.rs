@@ -69,7 +69,7 @@ impl Controller {
             None
         };
         let input = ui.input(event, PickerField::List);
-        clicked.or_else(|| match input {
+        clicked.or(match input {
             Some(PickerInput::Event(PickerEvent::Confirm(id))) => Some(id),
             _ => None,
         })
