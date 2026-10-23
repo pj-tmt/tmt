@@ -145,6 +145,9 @@ struct Prior {
     versions: BTreeMap<String, String>,
 }
 
+/// The bare retry the extension rows suggest; a repeated invocation replaces it.
+const GENERIC_RETRY: &str = "tmt upgrade";
+
 /// The command line that repeats this invocation, for the retry after a component failed.
 fn repeat_command(
     channel: Option<Channel>,
@@ -153,7 +156,7 @@ fn repeat_command(
     yes: bool,
     allow_schema_ahead: bool,
 ) -> String {
-    let mut command = String::from("tmt upgrade");
+    let mut command = String::from(GENERIC_RETRY);
     if let Some(channel) = channel {
         command.push_str(&format!(" --channel {}", channel.as_str()));
     }

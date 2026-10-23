@@ -256,7 +256,7 @@ fn extension_details(
     next: &mut Next,
 ) -> io::Result<()> {
     // The generic `tmt upgrade` retry is the repeated invocation's job once that is known.
-    let generic = |hint: &str| retrying && hint == "tmt upgrade";
+    let generic = |hint: &str| retrying && hint == super::GENERIC_RETRY;
     if row["status"] == "failed" {
         message::error(
             output,
