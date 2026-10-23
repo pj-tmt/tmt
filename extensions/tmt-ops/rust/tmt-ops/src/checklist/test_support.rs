@@ -137,6 +137,37 @@ save();print(json.dumps(out))
     pub fn service(&self) -> Service {
         Service::new(&self.core, &self.config, id(ROOM)).unwrap()
     }
+    /// One member's conversation list in the fixture room.
+    pub fn conversation(&self, member: &str) -> Service {
+        Service::for_conversation(&self.core, &self.config, id(ROOM), id(member)).unwrap()
+    }
+    /// The stored checklist keys, sorted: a room's own, and `<room>/<member>` for a conversation.
+    pub fn keys(&self) -> Vec<String> {
+        if !self.root.join("ops/ops.db").exists() {
+            return Vec::new();
+        }
+        let database = self.database();
+        let mut statement = database
+            .prepare("SELECT key FROM documents WHERE kind = 'checklist' ORDER BY key")
+            .unwrap();
+        statement
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    }
+    /// A conversation list's stored document, read behind the store's back.
+    pub fn conversation_literal(&self, member: &str) -> serde_json::Value {
+        let bytes: Vec<u8> = self
+            .database()
+            .query_row(
+                "SELECT body FROM documents WHERE kind = 'checklist' AND key = ?1",
+                [format!("{ROOM}/{member}")],
+                |row| row.get(0),
+            )
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
     pub fn model(&self) -> serde_json::Value {
         serde_json::from_slice(&fs::read(self.root.join("model.json")).unwrap()).unwrap()
     }
@@ -191,5 +222,19 @@ save();print(json.dumps(out))
 impl Drop for Fixture {
     fn drop(&mut self) {
         fs::remove_dir_all(&self.root).unwrap();
+    }
+}
+
+/// A create against a conversation list, which can only carry its derived checklist id.
+pub(super) fn conversation_create(
+    service: &Service,
+    item: &str,
+    inventory: model::InventoryExpectation,
+) -> Request {
+    Request {
+        checklist_id: service
+            .conversation_checklist_id()
+            .expect("a conversation list"),
+        ..create(item, inventory, None)
     }
 }

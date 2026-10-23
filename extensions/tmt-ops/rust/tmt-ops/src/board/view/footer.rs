@@ -598,7 +598,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
     if !app.modal_open()
         && app.input.is_none()
         && !app.searching
-        && app.notice.is_none()
+        && app.shown_notice().is_none()
         && app.error.is_none()
         && app.migration_notice.is_none()
         && let Some(hint) = app.pane_resize.hint()
@@ -626,8 +626,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
     // Persistent migration/acquisition failures retain their existing priority.
     // Fit whole key hints into the remaining width before any text is painted.
     let hint_area = app
-        .notice
-        .as_deref()
+        .shown_notice()
         .filter(|_| app.migration_notice.is_none() && app.error.is_none())
         .map_or(last_row, |text| {
             crate::board::notice::paint_links(frame, app, last_row, text, app.notice_clock.failed)

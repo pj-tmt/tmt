@@ -51,7 +51,11 @@ impl FeedbackClock {
 
     pub(in crate::board) fn animates(&self, now_ms: u64) -> bool {
         self.motion
-            && matches!(self.progress, progress::Progress::Working { since_ms } if since_ms <= now_ms)
+            && matches!(
+                self.progress,
+                progress::Progress::Working { since_ms } | progress::Progress::Stated { since_ms }
+                    if since_ms <= now_ms
+            )
     }
 }
 
@@ -309,7 +313,19 @@ impl Session {
             changed |= entry.observe_sending(now_ms);
             if matches!(&entry.outcome, Some(Ok(accepted)) if accepted.passthrough || accepted.message_state_label.is_some())
             {
-                entry.feedback_clock = None;
+                // Core's words are the status; a `working` mark alone moves.
+                entry.feedback_clock = matches!(
+                    &entry.outcome,
+                    Some(Ok(accepted)) if accepted.message_state_label.as_deref()
+                        .is_some_and(|label| label.starts_with("⠹ "))
+                )
+                .then(|| FeedbackClock {
+                    progress: progress::Progress::Stated {
+                        since_ms: entry.started_ms,
+                    },
+                    name: crate::board::notes::single_line(name),
+                    motion,
+                });
                 continue;
             }
             // The reply exists and is being read: keep the line as painted.
@@ -575,13 +591,59 @@ impl Session {
         }
     }
     /// The same admitted provider final may also appear in responses.recent.
-    /// Suppress only the exact observation already paired with a request; this
+    /// Pair observations once within this sender/recipient session. Core's pane
+    /// observation and answer settlement use different clocks; only the public
+    /// capture window may bridge them. Ambiguous pairs remain visible, and this
     /// comparison grants no request/source authority to recent output.
-    pub(super) fn captures_output(&self, item: &crate::board::recent_responses::Item) -> bool {
-        self.sent.iter().filter_map(|send| send.capture.as_ref())
-            .chain(self.outgoing.iter().filter_map(|entry| entry.capture.as_ref()))
-            .any(|capture| matches!(capture, crate::board::row_detail::Capture::Answered { text, provider, ended_ms, truncated }
-                if text == &item.text && provider == &item.provider && ended_ms == &item.ended_ms && truncated == &item.truncated))
+    pub(super) fn captured_outputs(
+        &self,
+        items: &[crate::board::recent_responses::Item],
+    ) -> Vec<usize> {
+        if items.is_empty() {
+            return Vec::new();
+        }
+        let captures = self
+            .restored_sends()
+            .filter_map(|send| send.capture.as_ref())
+            .chain(
+                self.outgoing
+                    .iter()
+                    .filter_map(|entry| entry.capture.as_ref()),
+            );
+        let mut owners = vec![0; items.len()];
+        let mut paired = Vec::new();
+        for capture in captures {
+            let crate::board::row_detail::Capture::Answered {
+                text,
+                provider,
+                ended_ms,
+                truncated,
+                bound_ms,
+                settled_ms,
+            } = capture
+            else {
+                continue;
+            };
+            let mut matches = Vec::new();
+            for (index, item) in items.iter().enumerate() {
+                let in_window = bound_ms.zip(*settled_ms).is_some_and(|(bound, settled)| {
+                    bound <= settled && (bound..=settled).contains(&item.ended_ms)
+                });
+                if text == &item.text
+                    && provider == &item.provider
+                    && truncated == &item.truncated
+                    && (*ended_ms == item.ended_ms || in_window)
+                {
+                    owners[index] += 1;
+                    matches.push(index);
+                }
+            }
+            if let [index] = matches.as_slice() {
+                paired.push(*index);
+            }
+        }
+        paired.retain(|index| owners[*index] == 1);
+        paired
     }
 
     pub(super) fn observe_captures(&mut self) {

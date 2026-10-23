@@ -274,9 +274,18 @@ pub(in crate::board) fn feedback_glyph(now_ms: u64, motion: bool) -> &'static st
 }
 
 pub(in crate::board) fn feedback_wait(app: &App, now_ms: u64) -> Option<std::time::Duration> {
-    app.frame_clocks.borrow().iter().any(|surface| {
-        matches!(surface, ClockSurface::OutgoingFeedback(clock) if clock.animates(now_ms))
-    }).then(|| SPINNER_TICK - std::time::Duration::from_millis(now_ms % SPINNER_TICK.as_millis() as u64))
+    app.frame_clocks
+        .borrow()
+        .iter()
+        .any(|surface| match surface {
+            ClockSurface::OutgoingFeedback(clock) => clock.animates(now_ms),
+            ClockSurface::RefreshSpinner => true,
+            _ => false,
+        })
+        .then(|| {
+            SPINNER_TICK
+                - std::time::Duration::from_millis(now_ms % SPINNER_TICK.as_millis() as u64)
+        })
 }
 
 pub(in crate::board) fn spinner_frame(app: &App, now: std::time::Instant) -> Option<usize> {
@@ -330,6 +339,8 @@ pub(in crate::board) enum ClockSurface {
     /// A painted activity age counts from this core time.
     ActivityAge(u64),
     OutgoingFeedback(crate::board::conversation::FeedbackClock),
+    /// The retained conversation's refresh glyph turns on the shared tick.
+    RefreshSpinner,
     /// A delayed state (R1) changes at this core time: the sending row, or the
     /// conversation's loading line.
     DelayGate {
@@ -346,6 +357,17 @@ impl ClockSurface {
             .any(|held| matches!(held, Self::DelayGate { until_ms: known } if *known == until_ms))
         {
             clocks.push(Self::DelayGate { until_ms });
+        }
+    }
+
+    /// Register the tick wake for the refresh glyph, once per frame.
+    pub(in crate::board) fn admit_refresh_spinner(app: &App) {
+        let mut clocks = app.frame_clocks.borrow_mut();
+        if !clocks
+            .iter()
+            .any(|held| matches!(held, Self::RefreshSpinner))
+        {
+            clocks.push(Self::RefreshSpinner);
         }
     }
 
@@ -382,6 +404,7 @@ impl ClockSurface {
                 app, target, *width, *height, now,
             ),
             Self::OutgoingFeedback(clock) => clock.mark(now),
+            Self::RefreshSpinner => feedback_glyph(now, true).to_owned(),
             Self::DelayGate { until_ms } => (now >= *until_ms).to_string(),
             Self::QuotaDetails => app
                 .quota_details

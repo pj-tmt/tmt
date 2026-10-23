@@ -268,6 +268,12 @@ A failed draft never holds later allocations or another tag's pipeline.
 
 ## Publication gates and recovery
 
+Before dry or live preflight, `release-tag-refs.mjs` reconciles the captured published
+metadata with local tags: batch-check, one exact-ref fetch of validated missing tags
+from `origin` (30 s), then revalidate. It never forces or discovers unrelated tags.
+Unresolved/non-commit refs or changed existing commits fail closed; the catalogue is
+not reread and no publication, ancestry or migration gate is skipped.
+
 Once a draft's bundle is attached, the run evaluates the publication gates in order:
 `channel` (the version is an alpha, `X.Y.Z-alpha.N`; a stable version or any other pre-release
 label such as `beta` or `rc` is held, and releasing that hold is refused: the owner publishes it

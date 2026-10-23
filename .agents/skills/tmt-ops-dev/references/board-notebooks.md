@@ -120,9 +120,12 @@ editor): one `tmt send-now` per press as the person, the chip disabled until Cor
 the notice is Core's sentence or the re-read state label, never local wording. Answered captures show bounded safe Markdown as `turn output` (with
 Core's truncation flag), and `no_answer` names the missing output. A bound turn has
 no local ten-minute expiry. Captures never become ordinary replies or exact response attachments;
-no pane observation decides capture or settlement. The exact provider/time/body
-observation already captured under its message is not repeated as recent pane
-output. A failed refresh preserves acquired sends until the next normal refresh.
+no pane observation decides capture or settlement. A pane observation is paired once with an answered capture in that exact
+sender/recipient conversation, using identical provider, raw text and truncation
+plus its public bound-to-settled window (or identical end time for older data).
+Only unambiguous one-to-one pairs are omitted from recent pane output; equal
+text from other turns and ambiguous observations stay visible. This is display
+reconciliation, never request/source authority. A failed refresh preserves acquired sends until the next normal refresh.
 Request bodies load off the UI thread on the selected-read lane, newest first, one selected read at a time.
 Until Core has answered for a conversation's exchanges (the agent's own finals read, or the shared
 originator page where there is none) it shows nothing for the first 400 ms, then `Loading

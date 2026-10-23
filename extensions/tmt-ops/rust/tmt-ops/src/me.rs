@@ -24,7 +24,7 @@ const UNRESOLVED: [&str; 3] = [
 ];
 
 /// `tmt identity show` by name or UUID; `None` when core has no such identity.
-fn lookup(core: &Core, selector: &str) -> Result<Option<Me>, SquadError> {
+pub(crate) fn lookup(core: &Core, selector: &str) -> Result<Option<Me>, SquadError> {
     match core.json(&["identity", "show", selector]) {
         Ok(shown) => match (
             shown["identity"]["id"].as_str(),
