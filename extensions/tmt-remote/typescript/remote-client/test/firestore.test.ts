@@ -65,8 +65,11 @@ test('index prerequisite has the native four-fact meaning and strict fixed reaso
       .find('li')
       .find((node) => node.dataset.item === 'indexes')!;
     const status =
-      state === 'enabled' ? '✓ Enabled' : reason === 'building' ? '◌ Building' : '○ Not checked';
+      state === 'enabled' ? 'Enabled' : reason === 'building' ? 'Building' : 'Not checked';
     assert.ok(indexes.text().includes(status), indexes.text());
+    const shape = indexes.find('span').find((node) => node.className === 'tmt-ui-state-mark')!
+      .dataset.shape;
+    assert.equal(shape, state === 'enabled' ? 'dot' : reason === 'building' ? 'dashed' : 'unknown');
     assert.equal(indexes.text().includes('Not enabled'), false);
     if (reason) {
       assert.ok(render(value).text().includes(indexCopy[reason]));

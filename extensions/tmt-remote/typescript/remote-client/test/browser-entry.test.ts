@@ -38,7 +38,7 @@ for (const failure of ['consumed', 'transport', 'storage-colab'] as const) {
       comparison,
       'entry-link': entry,
       status,
-      mark: { textContent: '' },
+      mark: { hidden: false, dataset: {} as Record<string, string> },
       notice: { dataset: {} },
       'state-label': { textContent: '' },
     };
@@ -114,7 +114,7 @@ for (const failure of ['consumed', 'transport', 'storage-colab'] as const) {
       assert.equal(labels['pairing-eyebrow'].hidden, false);
       assert.equal((nodes['state-label'] as { textContent: string }).textContent, 'Ready to pair');
       assert.equal((nodes.notice as { dataset: { tone: string } }).dataset.tone, 'waiting');
-      assert.equal((nodes.mark as { textContent: string }).textContent, '◆');
+      assert.equal((nodes.mark as { dataset: { shape: string } }).dataset.shape, 'diamond');
     } finally {
       vi.unstubAllGlobals();
     }
@@ -452,6 +452,7 @@ test('missing and unreadable pairing send nothing', async () => {
         state === 'missing' ? 'Not paired' : 'Pairing unreadable',
       );
       assert.equal(f.nodes.get('notice')!.dataset.tone, 'neutral');
+      assert.equal(f.nodes.get('mark')!.dataset.shape, state === 'missing' ? 'ring' : 'unknown');
       assert.deepEqual(f.counts(), { mounts: 0, admissions: 0 });
       assert.deepEqual(f.door.calls, []);
     } finally {
@@ -522,7 +523,9 @@ test('entry separates signed refusal from opaque, mismatched and unverifiable re
             ? 'Not accepted'
             : "Can't reach Remote",
       );
-      assert.equal(f.nodes.get('notice')!.dataset.tone, 'neutral', mode);
+      const tone =
+        mode === 'other-machine' ? 'waiting' : mode === 'signed-refusal' ? 'blocked' : 'neutral';
+      assert.equal(f.nodes.get('notice')!.dataset.tone, tone, mode);
       assert.deepEqual(f.counts(), {
         mounts: ['refused', 'stale'].includes(mode) ? 2 : 1,
         admissions: ['transport', 'other-machine'].includes(mode) ? 0 : 1,
@@ -597,7 +600,7 @@ for (const outcome of ['valid', 'refused', 'malformed', 'transport']) {
       },
     };
     const status = { dataset: {} as Record<string, string>, textContent: '' };
-    const mark = { textContent: '' };
+    const mark = { hidden: false, dataset: {} as Record<string, string> };
     const notice = { dataset: {} as Record<string, string> };
     const stateLabel = { textContent: 'Initializing' };
     vi.stubGlobal('document', {
@@ -721,7 +724,7 @@ for (const ownsFocus of [true, false]) {
       pair: form,
       status,
       name: { value: 'Fixture' },
-      mark: { textContent: '' },
+      mark: { hidden: false, dataset: {} as Record<string, string> },
       notice: { dataset: {} },
       'state-label': { textContent: '' },
       comparison: {},
