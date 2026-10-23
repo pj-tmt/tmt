@@ -43,6 +43,8 @@ pub(super) enum Job {
     TokenWindow(String),
     ViewState(super::view_state::Writer),
     ReadMarkers(super::unread::publish::Writer),
+    /// Read the Notes summary of the conversation on screen.
+    Notes(super::conversation_notes::Task),
     /// Read the running versions once, at start.
     Versions,
 }
@@ -57,6 +59,7 @@ impl Job {
                 | Self::TokenWindow(_)
                 | Self::ViewState(_)
                 | Self::ReadMarkers(_)
+                | Self::Notes(_)
                 | Self::Versions
         )
     }
@@ -67,6 +70,7 @@ impl Job {
             Self::Act(request) | Self::Send { request, .. } => request.progress(),
             Self::Jump { .. } => "Jumping…",
             Self::ReadMarkers(_) => "Saving read markers…",
+            Self::Notes(_) => "Reading the Notes…",
             Self::Versions => "Reading the versions…",
             Self::Recovery(_) => "Reading or applying the selected workspace snapshot…",
             Self::MemberSession(_) => "Loading session…",
@@ -86,6 +90,7 @@ impl Job {
 pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent {
     match job {
         Job::ReadMarkers(writer) => BoardEvent::ReadMarkersPublished(writer.publish(core)),
+        Job::Notes(task) => BoardEvent::NotesRead(super::conversation_notes::complete(core, task)),
         Job::Versions => BoardEvent::VersionsRead(super::versions::Versions::read(core)),
         Job::Jump {
             member,

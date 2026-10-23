@@ -763,6 +763,22 @@ fn captures() -> Value {
                 }
             }
         }
+        // The Notes chip once its read has answered: additive scenes.
+        for (look_name, look) in looks() {
+            for scene in crate::board::conversation_notes::tests::SCENES {
+                for width in [100, 80] {
+                    let app = crate::board::conversation_notes::tests::capture_case(scene, look);
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        width,
+                        36,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
         // One turn that answered three sends, painted under the last of them: additive scenes.
         for (look_name, look) in looks() {
             for scene in crate::board::conversation::outgoing::tests::captures::ONE_TURN_SCENES {

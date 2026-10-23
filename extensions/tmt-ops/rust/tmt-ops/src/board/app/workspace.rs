@@ -523,6 +523,13 @@ impl App {
             matches!(target, OpsTarget::Member { .. }) && self.workspace_selection_visible()
         })
     }
+    /// The conversation on screen: the selected member in its squad's room. A member of the
+    /// Common pool has no room, so no list.
+    pub(in crate::board) fn conversation_notes_key(
+        &self,
+    ) -> Option<crate::board::conversation_notes::Key> {
+        crate::board::conversation_notes::Key::of(self.workspace_selected_member()?)
+    }
     pub(in crate::board) fn workspace_scope(&self) -> OpsKeyScope {
         if self.workspace_snapshot().is_none() {
             // The generic row surface has no Overview request context.

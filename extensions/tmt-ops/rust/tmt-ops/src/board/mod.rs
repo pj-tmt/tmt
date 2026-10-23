@@ -23,7 +23,7 @@ mod exchange_matrix;
 mod exchange_view;
 mod filter_bar;
 #[cfg(test)]
-mod glyph_guard;
+pub(crate) mod glyph_guard;
 mod header_sort;
 mod help;
 mod home;
@@ -40,6 +40,7 @@ mod limits;
 mod member_session;
 mod new_member;
 pub(crate) use limits::history::document as limits_history;
+mod conversation_notes;
 mod markdown;
 mod member_links;
 mod mentions;
@@ -236,6 +237,8 @@ pub(in crate::board) enum BoardEvent {
     /// A quiet cache publication; it owns no user action or progress notice.
     ViewStatePublished,
     ReadMarkersPublished(Result<crate::config::ReadMarkers, String>),
+    /// A conversation's Notes summary was read; it owns no user action or progress notice.
+    NotesRead(conversation_notes::Completed),
     /// The running versions, read once at start; they own no user action or progress notice.
     VersionsRead(Option<versions::Versions>),
 }
@@ -632,6 +635,10 @@ fn session(
         }
         if let Some(writer) = app.unread.writer.offer() {
             io(lane::Job::ReadMarkers(writer));
+        }
+        let shown = app.conversation_notes_key();
+        if let Some(task) = app.notes.offer(shown.as_ref(), now) {
+            io(lane::Job::Notes(task));
         }
         // The footer names a waiting reload, so a new one repaints.
         dirty |= app.expire_notice(now);
@@ -1082,6 +1089,11 @@ fn session(
                 Effect::None
             }
             Ok(BoardEvent::ViewStatePublished) => Effect::None,
+            Ok(BoardEvent::NotesRead(completed)) => {
+                app.notes.finished(completed, Instant::now());
+                dirty = true;
+                Effect::None
+            }
             Ok(BoardEvent::VersionsRead(versions)) => {
                 app.versions = versions;
                 dirty = true;
@@ -1523,6 +1535,7 @@ pub fn run(
     app.popup = popup;
     app.view_layer = layer;
     app.reload = reload::Watch::start(now_ms);
+    app.notes = conversation_notes::State::reading();
     if let Some(resume) = resume {
         app.carry(resume);
         if app.notice.is_none() {
