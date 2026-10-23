@@ -711,11 +711,24 @@ const TURN_TEXTS: [&str; 3] = [
 ];
 const TURN_ANSWER: &str = "One answer to all three questions.";
 
-/// Oracle scenes: three direct sends answered by one turn, live and restored.
-pub(in crate::board) const ONE_TURN_SCENES: [&str; 2] = ["chat-one-turn", "chat-one-turn-restored"];
+/// Oracle scenes: several sends answered by one turn, painted as one message block (live and
+/// restored), a block still working, a long body between two short ones, and a failed send in
+/// place.
+pub(in crate::board) const ONE_TURN_SCENES: [&str; 5] = [
+    "chat-one-turn",
+    "chat-one-turn-restored",
+    "chat-block-working",
+    "chat-block-paragraphs",
+    "chat-block-failed",
+];
 
 pub(in crate::board) fn one_turn_scene(scene: &str, look: Look, now: u64) -> App {
-    let mut app = one_turn_for_three_sends(scene.ends_with("-restored"), now);
+    let mut app = match scene {
+        "chat-block-working" => sends_scene(false, &working_specs(now)),
+        "chat-block-paragraphs" => sends_scene(false, &paragraph_specs(now)),
+        "chat-block-failed" => sends_scene(false, &failed_specs(now)),
+        _ => one_turn_for_three_sends(scene.ends_with("-restored"), now),
+    };
     app.view.as_mut().unwrap().look = look;
     board_frame(&app, 160, 60);
     app
@@ -813,9 +826,22 @@ fn assert_one_turn_answer_is_under_the_last_send(restored: bool) {
             "restored={restored}: the answer follows the last send\n{frame}"
         );
         assert_eq!(
-            frame.matches("delivered · answered below").count(),
-            2,
-            "restored={restored}: the first two sends point at the answer, the last carries it\n{frame}"
+            frame.matches("you → worker").count(),
+            1,
+            "restored={restored}: one header for the block\n{frame}"
+        );
+        assert_eq!(
+            frame.matches("✓ delivered").count(),
+            1,
+            "restored={restored}: one status line for the block\n{frame}"
+        );
+        assert!(
+            at("✓ delivered") > at(TURN_TEXTS[2]) && at("✓ delivered") < at(TURN_ANSWER),
+            "restored={restored}: the status sits between the last body and the answer\n{frame}"
+        );
+        assert!(
+            !frame.contains("answered below"),
+            "restored={restored}: a block needs no pointer to its answer\n{frame}"
         );
     });
 }
@@ -828,4 +854,383 @@ fn several_sends_typed_during_one_turn_paint_its_answer_under_the_last_in_live_c
 #[test]
 fn several_sends_typed_during_one_turn_paint_its_answer_under_the_last_in_restored_chat() {
     assert_one_turn_answer_is_under_the_last_send(true);
+}
+
+/// One direct send for `sends_scene`.
+struct Spec {
+    text: &'static str,
+    at_ms: u64,
+    failed: bool,
+    /// Core's `passthrough` object and `messageState` text for the send.
+    passthrough: serde_json::Value,
+    state: (&'static str, &'static str),
+}
+
+fn spec(text: &'static str, at_ms: u64, passthrough: serde_json::Value) -> Spec {
+    Spec {
+        text,
+        at_ms,
+        failed: false,
+        passthrough,
+        state: ("delivered", "delivered"),
+    }
+}
+
+fn sends_scene(restored: bool, specs: &[Spec]) -> App {
+    let mut app = crate::board::app::workspace::tests::board();
+    let view = app.view.as_mut().unwrap();
+    view.me = Some("you".into());
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
+    let request = |index: usize| format!("req_7{index:07}-1111-4111-8111-111111111111");
+    for (index, spec) in specs.iter().enumerate() {
+        let (ticket, _) = crate::status::with_now_ms(spec.at_ms, || begin(&mut app, spec.text));
+        let outcome = if spec.failed {
+            Err(crate::core::SquadError::new("SEND_FAILED", "not delivered"))
+        } else {
+            Ok(Accepted {
+                request: request(index),
+                disposition: Disposition::Sent,
+                passthrough: true,
+                message_state_label: Some("✓ delivered".into()),
+                can_send_now: false,
+                fallback: None,
+                warning: None,
+            })
+        };
+        finish(
+            &mut app,
+            Completed {
+                ticket: Some(ticket),
+                outcome,
+                what: "Message".into(),
+                to: "worker".into(),
+            },
+        );
+        if spec.failed {
+            // The kept draft is cleared, as a person would, so the next message starts empty.
+            app.input.as_mut().unwrap().text.clear();
+        }
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        app.notice = None;
+    }
+    board_frame(&app, 160, 60);
+    let owner = app.conversation_finals().unwrap();
+    let sent: Vec<_> = specs
+        .iter()
+        .enumerate()
+        .filter(|(_, spec)| !spec.failed)
+        .map(|(index, spec)| {
+            json!({
+                "requestId": request(index), "preparedAtMs": spec.at_ms,
+                "text": spec.text, "truncated": false, "mode": "passthrough",
+                "messageState": {"state": spec.state.0, "reason": {"text": spec.state.1}},
+                "passthrough": spec.passthrough
+            })
+        })
+        .collect();
+    app.apply_sent(
+        crate::board::home_leads::SentKey {
+            sender: owner.sender,
+            agent: owner.agent,
+        },
+        Ok(sent),
+    );
+    if restored {
+        let mut state = app.conversation.borrow_mut();
+        let session = state.sessions.values_mut().next().unwrap();
+        session.outgoing.clear();
+        session.refresh_outgoing();
+    }
+    app
+}
+
+fn rows(app: &App, width: u16, height: u16) -> Vec<String> {
+    // The first frame prepares new text; the second paints it.
+    board_frame(app, width, height);
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, app))
+        .unwrap();
+    terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(usize::from(width))
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect()
+}
+
+fn row_of(rows: &[String], needle: &str) -> usize {
+    rows.iter()
+        .position(|row| row.contains(needle))
+        .unwrap_or_else(|| panic!("{needle:?} missing\n{}", rows.join("\n")))
+}
+
+fn count_rows(rows: &[String], needle: &str) -> usize {
+    rows.iter().filter(|row| row.contains(needle)).count()
+}
+
+const WORKING: &str = r#"{"state":"bound"}"#;
+
+fn working_specs(now: u64) -> Vec<Spec> {
+    let mut first = spec(
+        "first message",
+        now - 30_000,
+        serde_json::from_str(WORKING).unwrap(),
+    );
+    first.state = ("working", "working…");
+    vec![
+        first,
+        spec("second message", now - 20_000, json!({"state":"pending"})),
+        spec("third message", now - 10_000, json!({"state":"pending"})),
+    ]
+}
+
+fn paragraph_specs(now: u64) -> Vec<Spec> {
+    vec![
+        spec(
+            "short opener",
+            now - 120_000,
+            json!({"state":"answered","boundAtMs":now - 119_000,"settledAtMs":now - 1_000,
+                "answer":{"text":TURN_ANSWER,"truncated":false,"provider":"claude","endedMs":now - 1_000}}),
+        ),
+        spec(
+            "paragraph one of the long message\n\nparagraph two of the long message\n\nparagraph three of the long message",
+            now - 90_000,
+            json!({"state":"no_answer"}),
+        ),
+        spec("short closer", now - 70_000, json!({"state":"no_answer"})),
+    ]
+}
+
+fn failed_specs(now: u64) -> Vec<Spec> {
+    let mut failed = spec("broken message", now - 20_000, json!(null));
+    failed.failed = true;
+    vec![
+        spec(
+            "first message",
+            now - 30_000,
+            serde_json::from_str(WORKING).unwrap(),
+        ),
+        failed,
+        spec("third message", now - 10_000, json!({"state":"pending"})),
+    ]
+}
+
+#[test]
+fn sends_typed_while_the_turn_works_read_as_one_block_with_one_working_status() {
+    const NOW: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(NOW, || {
+        for restored in [false, true] {
+            let mut first = spec(
+                "first message",
+                NOW - 30_000,
+                serde_json::from_str(WORKING).unwrap(),
+            );
+            first.state = ("working", "working…");
+            let specs = [
+                first,
+                spec("second message", NOW - 20_000, json!({"state":"pending"})),
+                spec("third message", NOW - 10_000, json!({"state":"pending"})),
+            ];
+            let app = sends_scene(restored, &specs);
+            let rows = rows(&app, 160, 60);
+            let shown = rows.join("\n");
+            assert_eq!(
+                count_rows(&rows, "you → worker"),
+                1,
+                "restored={restored}: {shown}"
+            );
+            assert_eq!(
+                count_rows(&rows, "⠹ working…"),
+                1,
+                "restored={restored}: {shown}"
+            );
+            assert_eq!(
+                count_rows(&rows, "✓ delivered"),
+                0,
+                "restored={restored}: {shown}"
+            );
+            let (a, b, c) = (
+                row_of(&rows, "first message"),
+                row_of(&rows, "second message"),
+                row_of(&rows, "third message"),
+            );
+            assert_eq!(
+                (b - a, c - b),
+                (1, 1),
+                "restored={restored}: each body starts on the next line, no separator\n{shown}"
+            );
+            assert!(
+                row_of(&rows, "⠹ working…") > c,
+                "restored={restored}: the status closes the block\n{shown}"
+            );
+            assert_eq!(count_rows(&rows, "turn output"), 0, "no answer yet");
+        }
+    });
+}
+
+#[test]
+fn a_send_after_the_answer_settled_starts_a_new_block() {
+    const NOW: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(NOW, || {
+        for restored in [false, true] {
+            let specs = [
+                spec(
+                    "first message",
+                    NOW - 120_000,
+                    json!({"state":"answered","boundAtMs":NOW - 119_000,"settledAtMs":NOW - 60_000,
+                        "answer":{"text":TURN_ANSWER,"truncated":false,"provider":"claude","endedMs":NOW - 60_000}}),
+                ),
+                spec("second message", NOW - 90_000, json!({"state":"no_answer"})),
+                spec("after the answer", NOW - 30_000, json!({"state":"pending"})),
+            ];
+            let app = sends_scene(restored, &specs);
+            let rows = rows(&app, 160, 60);
+            let shown = rows.join("\n");
+            assert_eq!(
+                count_rows(&rows, "you → worker"),
+                2,
+                "restored={restored}: {shown}"
+            );
+            let (a, b, answer, later) = (
+                row_of(&rows, "first message"),
+                row_of(&rows, "second message"),
+                row_of(&rows, TURN_ANSWER),
+                row_of(&rows, "after the answer"),
+            );
+            assert!(
+                a < b && b < answer && answer < later,
+                "restored={restored}: {shown}"
+            );
+            assert_eq!(count_rows(&rows, TURN_ANSWER), 1);
+        }
+    });
+}
+
+#[test]
+fn a_failed_send_stays_visible_in_place_with_its_own_error_and_ends_the_block() {
+    const NOW: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(NOW, || {
+        let mut failed = spec("broken message", NOW - 20_000, json!(null));
+        failed.failed = true;
+        let specs = [
+            spec(
+                "first message",
+                NOW - 30_000,
+                serde_json::from_str(WORKING).unwrap(),
+            ),
+            failed,
+            spec("third message", NOW - 10_000, json!({"state":"pending"})),
+        ];
+        let app = sends_scene(false, &specs);
+        let rows = rows(&app, 160, 60);
+        let shown = rows.join("\n");
+        assert_eq!(count_rows(&rows, "you → worker"), 3, "{shown}");
+        let (broken, error, third) = (
+            row_of(&rows, "broken message"),
+            row_of(&rows, "✗ not delivered"),
+            row_of(&rows, "third message"),
+        );
+        assert!(
+            broken < error && error < third,
+            "the error line sits under the failed message: {shown}"
+        );
+    });
+}
+
+#[test]
+fn a_multi_paragraph_body_is_set_off_by_a_blank_line_from_its_short_neighbours() {
+    const NOW: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(NOW, || {
+        for restored in [false, true] {
+            let specs = [
+                spec(
+                    "short opener",
+                    NOW - 120_000,
+                    json!({"state":"answered","boundAtMs":NOW - 119_000,"settledAtMs":NOW - 1_000,
+                        "answer":{"text":TURN_ANSWER,"truncated":false,"provider":"claude","endedMs":NOW - 1_000}}),
+                ),
+                spec(
+                    "paragraph one of the long message\n\nparagraph two of the long message\n\nparagraph three of the long message",
+                    NOW - 90_000,
+                    json!({"state":"no_answer"}),
+                ),
+                spec("short closer", NOW - 70_000, json!({"state":"no_answer"})),
+            ];
+            let app = sends_scene(restored, &specs);
+            let rows = rows(&app, 160, 60);
+            let shown = rows.join("\n");
+            let (opener, one, two, three, closer) = (
+                row_of(&rows, "short opener"),
+                row_of(&rows, "paragraph one"),
+                row_of(&rows, "paragraph two"),
+                row_of(&rows, "paragraph three"),
+                row_of(&rows, "short closer"),
+            );
+            assert_eq!(
+                one - opener,
+                2,
+                "restored={restored}: a blank line before the long body\n{shown}"
+            );
+            assert_eq!(
+                two - one,
+                2,
+                "restored={restored}: its own paragraph gap stays\n{shown}"
+            );
+            assert_eq!(three - two, 2, "restored={restored}: {shown}");
+            assert_eq!(
+                closer - three,
+                2,
+                "restored={restored}: and after it\n{shown}"
+            );
+            assert!(row_of(&rows, TURN_ANSWER) > closer, "{shown}");
+        }
+    });
+}
+
+#[test]
+fn every_message_of_a_block_keeps_its_own_source_lines_for_copy_and_quote() {
+    const NOW: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(NOW, || {
+        for restored in [false, true] {
+            let specs = [
+                spec(
+                    "short opener",
+                    NOW - 120_000,
+                    json!({"state":"answered","boundAtMs":NOW - 119_000,"settledAtMs":NOW - 1_000,
+                        "answer":{"text":TURN_ANSWER,"truncated":false,"provider":"claude","endedMs":NOW - 1_000}}),
+                ),
+                spec(
+                    "paragraph one of the long message\n\nparagraph two of the long message",
+                    NOW - 90_000,
+                    json!({"state":"no_answer"}),
+                ),
+                spec("short closer", NOW - 70_000, json!({"state":"no_answer"})),
+            ];
+            let app = sends_scene(restored, &specs);
+            rows(&app, 160, 60);
+            let state = app.conversation.borrow();
+            let session = state.sessions.get(state.active.as_ref().unwrap()).unwrap();
+            let rendered = session.rendered.as_ref().unwrap();
+            for needle in ["short opener", "paragraph two", "short closer"] {
+                let row = rendered
+                    .mapped
+                    .lines
+                    .iter()
+                    .position(|line| line.to_string().contains(needle))
+                    .unwrap_or_else(|| panic!("{needle:?} not painted"));
+                let at = rendered.copy.lines[row].unwrap_or_else(|| {
+                    panic!("restored={restored}: {needle:?} has no copy source")
+                });
+                assert!(
+                    rendered.copy.messages[at.message]
+                        .lines()
+                        .nth(at.line)
+                        .is_some_and(|line| line.contains(needle)),
+                    "restored={restored}: {needle:?} copies from its own message line"
+                );
+            }
+        }
+    });
 }
