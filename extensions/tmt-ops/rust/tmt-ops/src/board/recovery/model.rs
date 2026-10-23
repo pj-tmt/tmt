@@ -217,10 +217,13 @@ impl Preview {
                 .map(|p| p.pane.as_str())
                 .collect::<BTreeSet<_>>()
                 != panes
-            || self
-                .sessions
-                .iter()
-                .any(|p| !matches!(p.action.as_str(), "create" | "name_in_use" | "unknown"))
+            || self.sessions.iter().any(|p| {
+                // An older tmt reports a live name as `skip_existing`.
+                !matches!(
+                    p.action.as_str(),
+                    "create" | "name_in_use" | "skip_existing" | "unknown"
+                )
+            })
             || self.panes.iter().any(|p| {
                 !matches!(
                     p.action.as_str(),
@@ -253,7 +256,7 @@ impl Preview {
             "{} sessions · {} create · {} name in use · {} unknown · {} windows · {} panes",
             self.snapshot.sessions.len(),
             count("create"),
-            count("name_in_use"),
+            count("name_in_use") + count("skip_existing"),
             count("unknown"),
             self.snapshot.windows.len(),
             self.snapshot.panes.len()

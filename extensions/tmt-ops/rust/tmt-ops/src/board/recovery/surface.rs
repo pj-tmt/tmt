@@ -642,6 +642,8 @@ fn session_action(action: &str) -> &'static str {
     match action {
         "create" => "Create session",
         "name_in_use" => "Name in use: restore adds to or beside it",
+        // An older tmt's word for a live name.
+        "skip_existing" => "Skip existing session",
         _ => "Unknown live state",
     }
 }
