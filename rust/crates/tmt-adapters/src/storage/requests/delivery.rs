@@ -16,21 +16,17 @@ pub(super) fn facts(
         .map(|id| {
             let rows = crate::storage::bindings::BindingRows(db);
             let entry = rows.entry_by_id(id)?;
-            let unbound = entry
+            let refusal = entry
                 .as_ref()
                 .and_then(|entry| entry.binding.as_ref())
-                .map(|binding| {
-                    rows.session_preferences(id)
-                        .map(|preferences| binding.session.unbound(&preferences))
-                })
-                .transpose()?
-                .flatten();
-            Ok::<_, StorageError>((unbound, entry.map(|entry| entry.identity.name)))
+                .and_then(|binding| binding.session.start_refusal.as_ref())
+                .map(|refusal| refusal.reason);
+            Ok::<_, StorageError>((refusal, entry.map(|entry| entry.identity.name)))
         })
         .transpose()?
         .unwrap_or_default();
     Ok(DeliveryFacts {
-        recipient_unbound: context.0,
+        recipient_start_refusal: context.0,
         recipient_name: context.1,
         status: attempt.status,
         inbox: matches!(attempt.route, RequestRoute::Inbox { .. }),

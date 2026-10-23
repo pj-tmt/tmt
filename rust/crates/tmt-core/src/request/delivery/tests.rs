@@ -12,7 +12,7 @@ fn facts(status: AttemptStatus) -> DeliveryFacts {
         max_hold_ms: None,
         oldest_held_at_ms: None,
         recipient: None,
-        recipient_unbound: None,
+        recipient_start_refusal: None,
         recipient_name: None,
     }
 }
@@ -243,20 +243,87 @@ fn every_send_now_refusal_has_one_pinned_sentence() {
 #[test]
 fn a_refused_start_explains_delivery_without_reusing_the_old_sessions_activity() {
     let mut sent = facts(AttemptStatus::Sent);
-    sent.recipient_unbound = Some(true);
+    sent.recipient_start_refusal = Some(StartRefusalReason::DriverMismatch);
     sent.recipient_name = Some("worker's name".into());
     sent.recipient = activity(ActivityPhase::Working, 100);
     let view = delivery_view(&sent, 0);
     assert_eq!(shown(&sent), ("delivered", "session_not_bound", false));
     assert_eq!(
         view.reason_text,
-        "session not bound · run: tmt resume -- 'worker'\\''s name'"
+        "session not bound · exit the agent in its pane, then run: tmt resume -- 'worker'\\''s name'"
     );
     sent.status = AttemptStatus::Uncertain;
     assert_eq!(shown(&sent), ("unconfirmed", "handed_over", false));
     sent.status = AttemptStatus::DefinitelyFailed;
     assert_eq!(shown(&sent), ("not_sent", "refused", false));
     sent.status = AttemptStatus::Sent;
-    sent.recipient_unbound = None;
+    sent.recipient_start_refusal = None;
     assert_eq!(shown(&sent), ("working", "agent_working", false));
+}
+
+#[test]
+fn a_live_previous_session_offers_move_instead_of_a_plain_resume() {
+    let mut sent = facts(AttemptStatus::Sent);
+    sent.recipient_start_refusal = Some(StartRefusalReason::PreviousSessionLive);
+    sent.recipient_name = Some("worker's name".into());
+    let text = delivery_view(&sent, 0).reason_text;
+    assert_eq!(
+        text,
+        "session not bound · the old session is still running; move it with: tmt resume --move -- 'worker'\\''s name'"
+    );
+    assert!(text.len() < 256);
+    assert_eq!(text.lines().count(), 1);
+}
+
+#[test]
+fn other_refusals_require_exiting_before_resume() {
+    for refusal in [
+        StartRefusalReason::DriverMismatch,
+        StartRefusalReason::PreviousSessionUnknown,
+        StartRefusalReason::PrivateProcessUnverified,
+        StartRefusalReason::SharedRuntime,
+        StartRefusalReason::PaneProcess,
+        StartRefusalReason::AdmissionRefused,
+    ] {
+        let mut sent = facts(AttemptStatus::Sent);
+        sent.recipient_start_refusal = Some(refusal);
+        sent.recipient_name = Some("worker".into());
+        let text = delivery_view(&sent, 0).reason_text;
+        assert_eq!(
+            text,
+            "session not bound · exit the agent in its pane, then run: tmt resume -- worker"
+        );
+        assert!(text.len() < 256);
+        assert_eq!(text.lines().count(), 1);
+    }
+}
+
+#[test]
+fn resume_guidance_stays_one_line_below_256_bytes_for_long_names() {
+    // Four-byte scalars and quote expansion each exceed the byte budget despite
+    // the valid 64-scalar name limit. Never truncate a shell word into a command.
+    for name in [
+        "🙂".repeat(64),
+        "'".repeat(64),
+        "line\u{2028}separator".into(),
+    ] {
+        for (refusal, expected) in [
+            (
+                StartRefusalReason::DriverMismatch,
+                "session not bound · exit the agent in its pane, then run tmt resume there",
+            ),
+            (
+                StartRefusalReason::PreviousSessionLive,
+                "session not bound · the old session is still running; run tmt resume --move in its bound pane",
+            ),
+        ] {
+            let mut sent = facts(AttemptStatus::Sent);
+            sent.recipient_start_refusal = Some(refusal);
+            sent.recipient_name = Some(name.clone());
+            let text = delivery_view(&sent, 0).reason_text;
+            assert_eq!(text, expected);
+            assert!(text.len() < 256);
+            assert!(!text.contains(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}']));
+        }
+    }
 }

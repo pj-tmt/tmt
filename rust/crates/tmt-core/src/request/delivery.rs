@@ -2,7 +2,7 @@
 //! paints the same state, reason and countdown and keeps no copy of the rules.
 
 use super::{AttemptStatus, WakeState};
-use crate::binding::session::activity::ActivityPhase;
+use crate::binding::session::{StartRefusalReason, activity::ActivityPhase};
 
 /// What a person sees about one sent message, in the order it normally advances.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,7 +111,7 @@ pub struct DeliveryFacts {
     /// The driver's activity for the exact live session, when there is one.
     pub recipient: Option<RecipientActivity>,
     /// A refused start is an observation, not authority or missing telemetry.
-    pub recipient_unbound: Option<bool>,
+    pub recipient_start_refusal: Option<StartRefusalReason>,
     pub recipient_name: Option<String>,
 }
 
@@ -274,7 +274,7 @@ pub fn delivery_view(facts: &DeliveryFacts, now_ms: u64) -> DeliveryView {
     // its sender (or was handed over, for a pane): a turn already running then is
     // still the one the message waits behind.
     let since = facts.settled_at_ms.unwrap_or(facts.prepared_at_ms);
-    let started = facts.recipient_unbound != Some(true)
+    let started = facts.recipient_start_refusal.is_none()
         && facts.recipient.is_some_and(|activity| {
             activity.phase != ActivityPhase::Idle && activity.since_ms >= since
         });
@@ -316,13 +316,34 @@ pub fn delivery_view(facts: &DeliveryFacts, now_ms: u64) -> DeliveryView {
             ..DeliveryView::of(State::Sent, Why::WaitingForDelivery)
         },
     };
-    if view.state == State::Delivered && facts.recipient_unbound == Some(true) {
+    if view.state == State::Delivered
+        && let Some(refusal) = facts.recipient_start_refusal
+    {
         view.reason = Why::SessionNotBound;
+        let (step, command) = if refusal == StartRefusalReason::PreviousSessionLive {
+            (
+                "the old session is still running; move it with:",
+                "tmt resume --move",
+            )
+        } else {
+            ("exit the agent in its pane, then run:", "tmt resume")
+        };
         let command = facts.recipient_name.as_deref().map_or_else(
-            || "tmt resume".into(),
-            |name| format!("tmt resume -- {}", crate::names::command_word(name)),
+            || command.to_owned(),
+            |name| format!("{command} -- {}", crate::names::command_word(name)),
         );
-        view.reason_text = format!("session not bound · run: {command}");
+        view.reason_text = format!("session not bound · {step} {command}");
+        if view.reason_text.len() >= 256
+            || view
+                .reason_text
+                .contains(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}'])
+        {
+            view.reason_text = if refusal == StartRefusalReason::PreviousSessionLive {
+                "session not bound · the old session is still running; run tmt resume --move in its bound pane"
+            } else {
+                "session not bound · exit the agent in its pane, then run tmt resume there"
+            }.into();
+        }
     }
     view
 }

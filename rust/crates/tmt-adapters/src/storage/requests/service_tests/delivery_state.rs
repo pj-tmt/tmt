@@ -325,7 +325,16 @@ fn a_stored_refused_start_explains_delivery_without_reusing_the_old_working_turn
     assert_eq!(
         view(&mut f, "unbound").reason_text,
         format!(
-            "session not bound · run: tmt resume -- {}",
+            "session not bound · the old session is still running; move it with: tmt resume --move -- {}",
+            tmt_core::names::command_word(&name)
+        )
+    );
+    db.execute("UPDATE bindings SET runtime_start_refusal=?1 WHERE identity_id=?2",
+        rusqlite::params![serde_json::json!({"driver":"claude", "session":"unadmitted", "reason":"driver_mismatch", "atMs":NOW_MS + 3}).to_string(), target]).unwrap();
+    assert_eq!(
+        view(&mut f, "unbound").reason_text,
+        format!(
+            "session not bound · exit the agent in its pane, then run: tmt resume -- {}",
             tmt_core::names::command_word(&name)
         )
     );
