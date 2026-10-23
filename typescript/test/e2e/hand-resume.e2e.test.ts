@@ -74,6 +74,8 @@ for (const host of ['tmux', 'external'] as const) {
         const pane = fixture.createShellPane('hand-resume');
         if (host === 'external') await externalHost(fixture, pane.pid);
         const home = fixture.createWorkspace('provider-home');
+        const stableBin = fixture.createWorkspace('stable-bin');
+        fs.symlinkSync(fixture.executables.cli.executable, path.join(stableBin, 'tmt'));
         const transcript = path.join(home, '.claude/projects/hand', `${newSession}.jsonl`);
         fs.mkdirSync(path.dirname(transcript), { recursive: true });
         const final = JSON.parse(
@@ -125,8 +127,9 @@ for (const host of ['tmux', 'external'] as const) {
         fs.writeFileSync(scenario, JSON.stringify(steps));
         const command = [
           'env',
-          ...(host === 'external' ? ['-u', 'TMUX'] : []),
+          ...(host === 'external' ? ['-u', 'TMUX', '-u', 'TMUX_PANE'] : []),
           `HOME=${home}`,
+          `PATH=${stableBin}:${process.env.PATH}`,
           `TMT_HOME=${fixture.globalDir}`,
           `CLAUDE_CONFIG_DIR=${path.join(home, '.claude')}`,
           `CODEX_HOME=${path.join(home, '.codex')}`,
@@ -299,7 +302,7 @@ for (const host of ['tmux', 'external'] as const) {
           fs.writeFileSync(wrapper, 'unset TMT_TEST_CLAUDE_MOCK TMT_TEST_CLAUDE_NODE\nexec "$@"\n');
           const launch = [
             'env',
-            ...(host === 'external' ? ['-u', 'TMUX', 'FAKE_PANE_ID=f1'] : []),
+            ...(host === 'external' ? ['-u', 'TMUX', '-u', 'TMUX_PANE', 'FAKE_PANE_ID=f1'] : []),
             `TMT_HOME=${fixture.globalDir}`,
             ...(mode === 'nested'
               ? [`TMT_TEST_CLAUDE_NODE=/bin/sh`, `TMT_TEST_CLAUDE_MOCK=${wrapper}`, native]
@@ -370,7 +373,7 @@ for (const host of ['tmux', 'external'] as const) {
         const launch = (scenario: string, report: string) =>
           [
             'env',
-            ...(host === 'external' ? ['-u', 'TMUX', 'FAKE_PANE_ID=f1'] : []),
+            ...(host === 'external' ? ['-u', 'TMUX', '-u', 'TMUX_PANE', 'FAKE_PANE_ID=f1'] : []),
             `TMT_HOME=${fixture.globalDir}`,
             native,
             fixture.executables.cli.executable,
@@ -473,7 +476,7 @@ for (const host of ['tmux', 'external'] as const) {
         const command = (driver: string, scenario: string, report: string) =>
           [
             'env',
-            ...(host === 'external' ? ['-u', 'TMUX', 'FAKE_PANE_ID=f1'] : []),
+            ...(host === 'external' ? ['-u', 'TMUX', '-u', 'TMUX_PANE', 'FAKE_PANE_ID=f1'] : []),
             `TMT_HOME=${fixture.globalDir}`,
             driver === 'claude' ? '/opt/tmt-tests/claude' : '/opt/tmt-tests/hook-runtime/codex',
             fixture.executables.cli.executable,

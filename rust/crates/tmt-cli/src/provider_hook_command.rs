@@ -725,7 +725,17 @@ fn observe(
             observe_runtime_process(&SupervisedProbeRunner, owner.pid(), deadline)
                 .is_ok_and(|value| value.matches(owner) == RuntimeLiveness::Alive)
         });
+    let proposed = event.propose(&binding.session, &process, previous, host, owned_resume);
+    // A verified channel maps its server back to the already-admitted
+    // foreground. Its proposal proves the private record/owner fences; it is
+    // not adoption of the server process as a new pane attachment.
+    let keeps_foreground = event.verified_binding() == Some(binding.id.as_str())
+        && binding.session.key.is_some()
+        && proposed
+            .as_ref()
+            .is_some_and(|next| next.key == binding.session.key);
     if event.starting()
+        && !keeps_foreground
         && let Some(reason) = refused_start(
             StartCandidate {
                 stored: &stored,
@@ -748,8 +758,7 @@ fn observe(
         )?;
         return Err(());
     }
-    let Some(mut next) = event.propose(&binding.session, &process, previous, host, owned_resume)
-    else {
+    let Some(mut next) = proposed else {
         if event.starting() {
             record_start_refusal(
                 &paths,
@@ -944,10 +953,9 @@ pub(super) fn refused_start(
     if recorded.is_some_and(|recorded| recorded != harness) {
         return Some(Why::DriverMismatch);
     }
-    let replacement = key.is_none_or(|key| {
-        key.incarnation != *process || key.provider_session.as_ref() != Some(event.session())
-    });
-    if !replacement {
+    // Conversation turnover inside the same verified provider remains the
+    // driver's transition policy. Only a new process needs hand-adoption.
+    if key.is_some_and(|key| key.incarnation == *process) {
         return None;
     }
     if host.shared() {
@@ -961,12 +969,7 @@ pub(super) fn refused_start(
     }
     let ended = binding.session.state == RuntimeState::Ended
         || binding.session.last_transition == Some(SessionTransition::Ended);
-    let context_transition = matches!(
-        event.transition(),
-        Some(SessionTransition::Cleared | SessionTransition::Compacted)
-    ) || (key.is_some_and(|key| key.incarnation == *process)
-        && event.transition() == Some(SessionTransition::Resumed));
-    if key.is_some() && !ended && previous != RuntimeLiveness::Gone && !context_transition {
+    if key.is_some() && !ended && previous != RuntimeLiveness::Gone {
         return Some(if previous == RuntimeLiveness::Alive {
             Why::PreviousSessionLive
         } else {

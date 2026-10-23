@@ -369,7 +369,7 @@ fn json_rows_gain_address_driver_and_activity() {
         let driver = object.remove("driver").unwrap();
         assert_eq!(
             object.remove("session").unwrap(),
-            serde_json::json!({"activity":{"state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{}}})
+            serde_json::json!({"activity":{"state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{}}, "unbound":null})
         );
         assert_eq!(row, original.take());
         assert_eq!(

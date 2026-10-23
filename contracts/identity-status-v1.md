@@ -164,7 +164,8 @@ removes only the current cue, and reply attention wins without modifying status.
 
 ## Session binding observation
 
-Each `tmt ls --json` row includes `session.unbound`: `true` when the binding's
+Each `tmt ls --json` row and bound `tmt whoami --json` result includes
+`session.unbound`: `true` when the binding's
 latest refused SessionStart is newer than its admitted session, `false` when an
 exact current session has been admitted, and `null` when neither is known. The
 field is a stored observation, not liveness or delivery authority. It adds no

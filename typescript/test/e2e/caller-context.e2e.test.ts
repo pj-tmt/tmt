@@ -92,6 +92,7 @@ describe('strict caller context', { concurrent: false }, () => {
           code: 0,
           stdout: {
             bound: true,
+            session: { unbound: null },
             id: identity.id,
             name: 'RealCaller',
             pane: real.pane,
@@ -140,6 +141,7 @@ describe('strict caller context', { concurrent: false }, () => {
         code: 0,
         stdout: {
           bound: true,
+          session: { unbound: null },
           id: identity.id,
           name: 'AliasCaller',
           pane: real.pane,
@@ -192,6 +194,7 @@ describe('strict caller context', { concurrent: false }, () => {
         interfaceKind: 'container',
         sessionState: 'unknown',
         bound: true,
+        session: { unbound: null },
         id: current.id,
         name: 'Current',
         pane: fixture.pane,
@@ -237,6 +240,7 @@ describe('strict caller context', { concurrent: false }, () => {
         interfaceKind: 'container',
         sessionState: 'unknown',
         bound: true,
+        session: { unbound: null },
         id: peerIdentity.id,
         name: 'Peer',
         pane: peer.pane,
@@ -373,6 +377,7 @@ describe('strict caller context', { concurrent: false }, () => {
       const peerIdentity = durableIdentity(fixture, 'Peer');
       expect(added.json).toEqual({
         bound: true,
+        session: { unbound: null },
         id: peerIdentity.id,
         name: 'Peer',
         pane: peer.pane,

@@ -106,14 +106,18 @@ fn main() {
         drop(child.stdin.take());
         let output = child.wait_with_output().expect("reap fixture-owned CLI");
         let elapsed_ms = started.map(|start| start.elapsed().as_secs_f64() * 1000.0);
-        let badge = Command::new("tmux")
-            .args(["-u", "show-options", "-p", "-qv", "-t"])
-            .arg(std::env::var("TMUX_PANE").unwrap())
-            .arg("@tmt.badge")
-            .output()
-            .expect("read fixture pane badge");
+        // External-host fixtures have no tmux caller variables or badge.
+        let badge = std::env::var_os("TMUX_PANE").map_or_else(String::new, |pane| {
+            let output = Command::new("tmux")
+                .args(["-u", "show-options", "-p", "-qv", "-t"])
+                .arg(pane)
+                .arg("@tmt.badge")
+                .output()
+                .expect("read fixture pane badge");
+            String::from_utf8(output.stdout).unwrap().trim().to_owned()
+        });
         let mut result = json!({"code":output.status.code(),
-            "badge": String::from_utf8(badge.stdout).unwrap().trim(),
+            "badge": badge,
             "stdout": String::from_utf8(output.stdout).unwrap(),
             "stderr": String::from_utf8(output.stderr).unwrap()});
         if let Some(elapsed_ms) = elapsed_ms {

@@ -221,7 +221,8 @@ impl CodexObservation {
                 }
             } else if previous != RuntimeLiveness::Gone
                 && !owned_resume
-                && current.last_transition != Some(SessionTransition::Ended)
+                && !(previous == RuntimeLiveness::Alive
+                    && current.last_transition == Some(SessionTransition::Ended))
             {
                 return None;
             }
@@ -1404,12 +1405,14 @@ mod tests {
                 .propose(&ended, &process, RuntimeLiveness::Alive, false)
                 .is_none()
         );
-        let replacement = ProcessIncarnation::new(20, "different-start").unwrap();
+        let replacement = ProcessIncarnation::new(21, "different-start").unwrap();
         for evidence in [RuntimeLiveness::Alive, RuntimeLiveness::Unknown] {
-            assert!(
+            assert_eq!(
                 start("startup", "new-thread")
                     .propose(&ended, &replacement, evidence, false)
-                    .is_none()
+                    .is_some(),
+                evidence == RuntimeLiveness::Alive,
+                "an ended session permits a verified live replacement, never unknown evidence"
             );
         }
         assert!(

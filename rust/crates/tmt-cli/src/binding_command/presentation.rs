@@ -89,12 +89,16 @@ pub(super) fn document(report: &Report) -> Value {
             pane,
             identity,
             runtime,
+            unbound,
             ..
         } => {
             let mut value = identity.as_ref().map_or_else(
                 || json!({"bound": false, "pane": pane}),
                 |identity| bound_document(identity, pane),
             );
+            if identity.is_some() {
+                value["session"] = json!({"unbound":unbound});
+            }
             value["interfaceKind"] = "container".into();
             value["sessionState"] = runtime.as_str().into();
             value

@@ -65,6 +65,7 @@ enum Report {
         label: String,
         identity: Option<Identity>,
         runtime: RuntimeState,
+        unbound: Option<bool>,
     },
     Unbound {
         pane: String,
@@ -476,11 +477,26 @@ fn operation(
                 .as_ref()
                 .and_then(|binding| endpoint.observed_runtime(binding).ok())
                 .unwrap_or(RuntimeState::Unknown);
+            let unbound = match observed.identity.as_ref() {
+                Some(identity) => {
+                    let preferences =
+                        storage.session_preferences(&identity.id).map_err(|error| {
+                            Failure::new("IDENTITY_ERROR", "Could not read remembered sessions.", 1)
+                                .caused_by(error)
+                        })?;
+                    observed
+                        .binding
+                        .as_ref()
+                        .and_then(|binding| binding.session.unbound(&preferences))
+                }
+                None => None,
+            };
             Ok(Report::Caller {
                 pane,
                 label,
                 identity: observed.identity,
                 runtime,
+                unbound,
             })
         }
         Invocation::Unbind => {

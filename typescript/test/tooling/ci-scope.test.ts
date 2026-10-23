@@ -1198,6 +1198,8 @@ describe('component map', () => {
         'host-driver protocol ops operation names, no Ops executable or source',
       'typescript/test/e2e/driver-consent.e2e.test.ts':
         'host-driver protocol ops operation names, no Ops executable or source',
+      'typescript/test/e2e/hand-resume.e2e.test.ts':
+        'host-driver protocol ops operation names, no Ops executable or source',
       'typescript/test/e2e/nested-host-hooks.e2e.test.ts':
         'host-driver protocol ops operation names, no Ops executable or source',
       'typescript/test/native/api.test.ts':
