@@ -151,21 +151,8 @@ footer {
 .needs-you-header {
   display: inline-flex;
   flex-shrink: 0;
-  inline-size: 148px;
   align-items: center;
-  color: var(--tmt-ui-color-text);
   white-space: nowrap;
-}
-.needs-you-header .needs-you-header-trigger {
-  padding-inline: 0;
-  gap: 4px;
-  text-decoration: none;
-}
-.needs-you-header .needs-you-header-trigger:is(:hover, :focus-visible) {
-  text-decoration: underline;
-}
-.needs-you-header-mark {
-  color: var(--tmt-ui-color-waiting);
 }
 .needs-you-header-menu {
   inline-size: 320px;
@@ -198,10 +185,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   white-space: nowrap;
 }
 @media (max-width: 640px) {
-  .needs-you-header {
-    inline-size: 48px;
-    font-size: 11px;
-  }
   .needs-you-wide {
     display: none;
   }

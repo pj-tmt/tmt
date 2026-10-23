@@ -56,3 +56,11 @@
   background-clip: padding-box;
   font-size: 10px;
 }
+
+/* The marker of the thread whose window is open, or the `+n` pill that holds it, wears a 2 px ring in
+   the selected rule colour, 2 px outside the circle and inside the 24 px target, so it changes no size
+   (#4490). */
+.annotation-number[data-colab-selected] {
+  outline: 2px solid var(--tmt-ui-color-annotation-rule-selected);
+  outline-offset: -2px;
+}

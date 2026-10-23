@@ -1635,6 +1635,16 @@ function OpenPage({
       threadTotal,
     );
   }, [state, anchoredThreads, annotation, threadTotal]);
+  // The passage of the thread whose window is open takes the page's selected look; a window for a new
+  // quote or none leaves every passage at rest. The anchors are a dependency so that a thread opened
+  // as it is created is selected once the frame holds its passage.
+  const openThreadId = annotation?.thread
+    ? `${annotation.thread.writer}:${annotation.thread.id}`
+    : null;
+  useEffect(() => {
+    if (state !== 'ready') return;
+    renderer.current?.select(openThreadId);
+  }, [state, anchoredThreads, openThreadId]);
   // A modal drawer makes the page-level card inert, so an ended connection also speaks in the
   // drawer: the same sentence and action under its header. A reconnecting page shows nothing.
   const endedNotice = endedError && (

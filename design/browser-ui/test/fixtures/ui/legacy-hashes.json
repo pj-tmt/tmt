@@ -1,7 +1,7 @@
 {
   "baseline": "a5c85cb407003632dc9a5b3ac51ca2f6d92be355",
   "sha256": {
-    "generated/static.css": "eb267e571aa18d9a8f779647a44f077b4431beae27755108d7b395309d0e9007",
+    "generated/static.css": "f962b2eff344aea2c5cdf5728436ee62b3ef0849355fcffa96178c0dcb830030",
     "src/action.css": "d137b19b3bca7d1be21e7ccdb4f5e9dfbdaaebd48fb9815a05e02a6cc088f81a",
     "src/action.tsx": "bb28278e920aabe3afd1179681ac90549a4a9dfe351076e4c80514c139182682",
     "src/chips.css": "47fd95fe33f4ad6744ed648f5a75ff19aad1975a9836cc27a2e03a54dd367502",
@@ -149,6 +149,10 @@
           "light": "#6DAFA0",
           "dark": "#4E9784"
         },
+        "annotation-rule-selected": {
+          "light": "#147F67",
+          "dark": "#78EDC8"
+        },
         "mention-person": {
           "dark": "#B6D8EC",
           "light": "#2D5F7B"
@@ -254,6 +258,10 @@
         "annotation-highlight-hover": {
           "dark": "#284C48",
           "light": "#BBD8D2"
+        },
+        "annotation-highlight-selected": {
+          "dark": "#254643",
+          "light": "#AED0C8"
         },
         "annotation-panel": {
           "dark": "#1C2A34",

@@ -17,6 +17,8 @@ import {
   DropdownMenuLabel,
 } from '@tmt/browser-ui/ui';
 import '@tmt/browser-ui/ui.css';
+import { browserUiClasses as c, countText } from '@tmt/browser-ui/static';
+import { ChevronDown } from 'lucide-react';
 import { AgentList } from './components/agent-chip.js';
 import type { NeedsYouCandidate } from './needs-you.js';
 import { useNotificationModalPresence } from './reply-notification-context.js';
@@ -91,8 +93,8 @@ export function NeedsYouHeader({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="tmt-ui-action needs-you-header-trigger"
-              data-variant="text"
+              className={`${c.countChip} needs-you-header-trigger`}
+              data-tone="attention"
               aria-label={text.needsYouLabel(items.length)}
               onPointerDownCapture={(event) => {
                 if (!event.isTrusted) {
@@ -107,14 +109,13 @@ export function NeedsYouHeader({
                 }
               }}
             >
-              <span className="needs-you-header-mark" aria-hidden="true">
-                ◆
+              <span className="needs-you-wide" aria-hidden="true">
+                {text.needsYouWord}
               </span>
-              <span aria-hidden="true">
-                <span className="needs-you-wide">{text.needsYouWord} </span>
-                {items.length}
+              <span className={c.count} aria-hidden="true">
+                {countText(items.length)}
               </span>
-              <span aria-hidden="true">▾</span>
+              <ChevronDown className="tmt-ui-icon" aria-hidden="true" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
