@@ -404,7 +404,7 @@ renameSync(output+'.tmp',output);
           /^[ \t]+└ worker[ \t]+\?[ \t]/m.test(screen)
         );
       }, shell.pane);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'n']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'N']);
       await fixture.waitForCapture((screen) => screen.includes('Squad name'), shell.pane);
       fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'product1']);
       // Digits are authored field input, never navigation to the Agents or Digest tab.
@@ -421,7 +421,7 @@ renameSync(output+'.tmp',output);
       expect(cancelled.code).not.toBe(0);
       expect(errorCode(cancelled)).toBe('ROOM_NOT_FOUND');
       expect(requestAttempts(fixture)).toEqual(beforeRequests);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'n']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'N']);
       await fixture.waitForCapture((screen) => screen.includes('Squad name'), shell.pane);
       fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'product']);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
