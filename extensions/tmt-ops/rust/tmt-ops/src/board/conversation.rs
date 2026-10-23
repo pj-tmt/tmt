@@ -91,7 +91,8 @@ impl App {
         if !sources && !pane_pending {
             return Refresh::Current;
         }
-        if session.is_some_and(|session| session.rendered.is_some()) {
+        if session.is_some_and(|session| session.rendered.is_some() || !session.outgoing.is_empty())
+        {
             // The per-refresh pane read is silent: only a source read marks held content.
             if sources {
                 Refresh::Retained
@@ -1177,7 +1178,9 @@ fn render_target(
         state.header_hits = painted_controls;
         return;
     }
-    let rebuilt = refresh == Refresh::Current
+    // Acquisition stays held, but a local send/outcome must update that held session.
+    // `prepare` clears stale, so repeat Retained paints reuse the same mapped text.
+    let rebuilt = (refresh == Refresh::Current || session.needs_outgoing_prepare())
         && session.prepare(usize::from(body.width), look, &app.references);
     let mapped = &session.rendered.as_ref().unwrap().mapped;
     let previous = app.scrolls.offset(Pane::Replies);

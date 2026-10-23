@@ -1350,7 +1350,12 @@ renameSync(output+'.tmp',output);
       const where = (needle: string) => {
         const rows = screen().split('\n');
         const y = rows.findIndex((row) => row.includes(needle));
-        expect(y, `${needle} on screen`).toBeGreaterThanOrEqual(0);
+        let evidence = '';
+        if (y < 0) {
+          const attempts = requestAttempts(fixture);
+          evidence = `\nStored attempts: ${JSON.stringify(attempts)}\nAfter store read:\n${screen()}`;
+        }
+        expect(y, `${needle} on screen:\n${rows.join('\n')}${evidence}`).toBeGreaterThanOrEqual(0);
         return { x: [...rows[y]!.slice(0, rows[y]!.indexOf(needle))].length, y };
       };
       // Pointer reports as the terminal sends them: press, motion with the button held, release.
@@ -1383,7 +1388,13 @@ renameSync(output+'.tmp',output);
 
       // Leave the draft, then the search filter, before quitting.
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
-      await fixture.waitForCapture((current) => current.includes('Nothing sent.'), shell.pane);
+      await fixture.waitForCapture(
+        (current) => current.includes('Esc clear filter') && /hello there\s+×/.test(current),
+        shell.pane
+      );
+      expect(screen(), 'closing a draft must not deny the existing send').not.toContain(
+        'Nothing sent.'
+      );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
       await fixture.waitForCapture((current) => !current.includes('Esc clear filter'), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
@@ -1422,7 +1433,12 @@ renameSync(output+'.tmp',output);
       const where = (needle: string) => {
         const rows = screen().split('\n');
         const y = rows.findIndex((row) => row.includes(needle));
-        expect(y, `${needle} on screen:\n${screen()}`).toBeGreaterThanOrEqual(0);
+        let evidence = '';
+        if (y < 0) {
+          const attempts = requestAttempts(fixture);
+          evidence = `\nStored attempts: ${JSON.stringify(attempts)}\nAfter store read:\n${screen()}`;
+        }
+        expect(y, `${needle} on screen:\n${rows.join('\n')}${evidence}`).toBeGreaterThanOrEqual(0);
         return { x: [...rows[y]!.slice(0, rows[y]!.indexOf(needle))].length, y };
       };
       const pointer = (code: number, final: 'M' | 'm', x: number, y: number) =>
@@ -1503,7 +1519,13 @@ renameSync(output+'.tmp',output);
       await fixture.waitForCapture((current) => /first question\s+×/.test(current), shell.pane);
 
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
-      await fixture.waitForCapture((current) => current.includes('Nothing sent.'), shell.pane);
+      await fixture.waitForCapture(
+        (current) => current.includes('Esc clear filter') && /first question\s+×/.test(current),
+        shell.pane
+      );
+      expect(screen(), 'closing a draft must not deny the existing send').not.toContain(
+        'Nothing sent.'
+      );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
       await fixture.waitForCapture((current) => !current.includes('Esc clear filter'), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'q']);

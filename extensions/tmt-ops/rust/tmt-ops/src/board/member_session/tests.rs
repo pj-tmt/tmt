@@ -378,7 +378,9 @@ pub(in crate::board) fn capture_metadata(app: &App) -> serde_json::Value {
 #[test]
 fn public_show_runs_on_the_lane_while_loading_paints_and_cancel_fences_its_result() {
     use std::{os::unix::net::UnixDatagram, sync::mpsc::channel, time::Duration};
-    let root = std::env::temp_dir().join(format!("ops-session-{}", crate::id::new_v4().unwrap()));
+    // macOS Unix socket names must fit sun_path even with a long TMPDIR.
+    let root = PathBuf::from("/tmp").join(format!("ops-session-{}", crate::id::new_v4().unwrap()));
+    assert!(root.join("control").as_os_str().as_encoded_bytes().len() < 104);
     std::fs::create_dir(&root).unwrap();
     struct Root(PathBuf);
     impl Drop for Root {

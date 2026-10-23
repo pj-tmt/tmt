@@ -231,6 +231,10 @@ impl Entry {
 }
 
 impl Session {
+    pub(super) fn needs_outgoing_prepare(&self) -> bool {
+        self.stale && !self.outgoing.is_empty()
+    }
+
     /// Durable sends from storage that this session has no live entry for.
     pub(super) fn restored_sends(&self) -> impl Iterator<Item = &crate::board::row_detail::Sent> {
         self.sent.iter().filter(|send| {
@@ -794,6 +798,27 @@ fn push_question(
 }
 
 impl App {
+    pub(in crate::board) fn has_outgoing(&self, key: &(String, String)) -> bool {
+        self.conversation
+            .borrow()
+            .sessions
+            .get(&(Some(key.0.clone()), key.1.clone()))
+            .is_some_and(|session| !session.outgoing.is_empty())
+    }
+
+    /// Receipt IDs arrive with the ordered send outcome. Until then, only the
+    /// matching conversation's new sent history must wait; replies stay live.
+    pub(in crate::board) fn awaits_send_receipt(
+        &self,
+        key: &crate::board::home_leads::SentKey,
+    ) -> bool {
+        self.conversation
+            .borrow()
+            .sessions
+            .get(&(Some(key.sender.clone()), key.agent.clone()))
+            .is_some_and(|session| session.outgoing.iter().any(Entry::pending))
+    }
+
     /// Consume only retained response bytes already in the originator projection.
     /// The current detail path separately supplies its exact acquired body.
     fn loaded_reply_body(&self, key: &crate::board::home_leads::MessageKey) -> Option<&str> {

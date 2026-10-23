@@ -653,12 +653,11 @@ impl App {
             .agent_finals
             .iter()
             .any(|(key, _)| key == owner)
-            || self.row_details.sent_stale
-            || !self
-                .row_details
-                .agent_sent
-                .iter()
-                .any(|(key, _)| key == &sent_key(owner))
+            // A receipt hold defers only sent history, never acquired replies.
+            || (!self.awaits_send_receipt(&sent_key(owner))
+                && (self.row_details.sent_stale
+                    || !self.row_details.agent_sent.iter()
+                        .any(|(key, _)| key == &sent_key(owner))))
             || detail.messages().iter().any(|message| !message.acquired)
     }
 
@@ -719,6 +718,13 @@ impl App {
 
     pub(super) fn apply_sent(&mut self, key: SentKey, result: Result<Vec<Value>, String>) {
         if self.conversation_finals().as_ref().map(sent_key).as_ref() != Some(&key) {
+            return;
+        }
+        // A concurrent history read can see a stored request before its send
+        // receipt reaches the UI. Keep the admitted history until its outcome
+        // supplies the ID or ends the attempt. Every outcome requests a fresh
+        // snapshot; the rest of the projection (including replies) still applies.
+        if self.awaits_send_receipt(&key) {
             return;
         }
         self.row_details.sent_stale = false;
