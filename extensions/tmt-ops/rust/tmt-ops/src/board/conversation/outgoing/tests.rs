@@ -1825,6 +1825,7 @@ fn a_slow_send_keeps_old_history_and_incoming_replies_live() {
         assert!(draw(&app).contains("Retained history"));
         let fake = Fake::new(json!({"requestId":"req-slow","status":"sent"}), false);
         let completed = send(&mut app, &fake, "Local slow send");
+        app.selected_request = crate::board::refresh::SelectedRequest::Ready(None);
         let _no_acquisition = crate::runner::forbid_commands();
         let history = vec![old, history_send("req-slow", NOW, "Local slow send")];
         for _ in 0..3 {

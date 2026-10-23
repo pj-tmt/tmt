@@ -46,6 +46,8 @@ pub(in crate::board) fn desired_height(app: &App, width: u16, surface: &Surface)
     let session = state.sessions.entry(identity).or_default();
     if refresh == Refresh::Current {
         session.observe_context(app, &target, row);
+    }
+    if refresh == Refresh::Current || session.needs_outgoing_prepare() {
         session.prepare_grouped(usize::from(width), app.look(), &app.references);
     }
     let waiting = (session.outgoing.is_empty() || session.tail.is_some())
@@ -172,7 +174,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
             look,
         ),
     );
-    let rebuilt = refresh == Refresh::Current
+    let rebuilt = (refresh == Refresh::Current || session.needs_outgoing_prepare())
         && session.prepare_grouped(usize::from(area.width), look, &app.references);
     // The Send now chip owns the last row while Core says the newest own message can go now.
     let send_now = session.send_now_request().map(str::to_owned);

@@ -3208,10 +3208,10 @@ impl App {
                 }
                 let cron = matches!(input.compose, Compose::Cron);
                 let digest = matches!(input.compose, Compose::Digest(_));
-                let conversation = input.draft_key.is_some();
+                let conversation = input.draft_key.clone();
                 self.input = None;
                 self.status_draft = None;
-                if conversation {
+                if conversation.is_some() {
                     self.focus = 0;
                     self.invalidate_frame_geometry();
                 }
@@ -3221,6 +3221,13 @@ impl App {
                 }
                 if digest {
                     return self.say("Digest not changed.");
+                }
+                if conversation
+                    .as_ref()
+                    .is_some_and(|key| self.has_outgoing(key))
+                {
+                    self.set_notice(None, false);
+                    return Effect::None;
                 }
                 return self.say("Nothing sent.");
             }

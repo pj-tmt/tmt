@@ -649,12 +649,11 @@ impl App {
             .agent_finals
             .iter()
             .any(|(key, _)| key == owner)
-            || self.row_details.sent_stale
-            || !self
-                .row_details
-                .agent_sent
-                .iter()
-                .any(|(key, _)| key == &sent_key(owner))
+            // A receipt hold defers only sent history, never acquired replies.
+            || (!self.awaits_send_receipt(&sent_key(owner))
+                && (self.row_details.sent_stale
+                    || !self.row_details.agent_sent.iter()
+                        .any(|(key, _)| key == &sent_key(owner))))
             || detail.messages().iter().any(|message| !message.acquired)
     }
 
