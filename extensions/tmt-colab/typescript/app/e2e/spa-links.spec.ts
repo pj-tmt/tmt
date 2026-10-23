@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Frame, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { showAllPages } from '../test/home-list.js';
@@ -72,6 +72,15 @@ async function serveRendererLikeTheDoor(page: Page) {
   await page.route('**/colab/renderer.html', async (route) =>
     route.fulfill({ response: await route.fetch({ url: `${origin}/renderer.html` }) }),
   );
+}
+
+/** The renderer frame once it has navigated: the iframe element and its `src` exist before the frame's
+ * own URL does, and until then the frame is still `about:blank`. */
+async function rendererFrame(page: Page): Promise<Frame> {
+  const find = () =>
+    page.frames().find((candidate) => candidate.url().endsWith('/colab/renderer.html'));
+  await expect.poll(find).toBeDefined();
+  return find()!;
 }
 
 async function open(page: Page, url: string) {
@@ -195,9 +204,7 @@ test('the renderer is still a separate sandboxed frame with an opaque origin', a
   const src = new URL((await frame.getAttribute('src'))!, page.url());
   expect(src.pathname).toBe('/colab/renderer.html');
   // The frame is its own document, not the app's, and its origin is opaque.
-  const inside = page
-    .frames()
-    .find((candidate) => candidate.url().endsWith('/colab/renderer.html'))!;
+  const inside = await rendererFrame(page);
   expect(await inside.evaluate(() => window.origin)).toBe('null');
   expect(await frame.evaluate((node) => (node as HTMLIFrameElement).contentDocument)).toBe(null);
   expect(
@@ -234,9 +241,7 @@ test('a page that opts in to the runtime renders in the shell with the runtime f
   // The renderer and the runtime it loads share one base: beside /colab/, not the page's route.
   const frame = page.locator('iframe');
   await expect(frame).toHaveAttribute('src', /\/colab\/renderer\.html/);
-  const inside = page
-    .frames()
-    .find((candidate) => candidate.url().endsWith('/colab/renderer.html'))!;
+  const inside = await rendererFrame(page);
   await expect(inside.locator('#opted')).toHaveAttribute('data-tmt', 'true');
   expect(fetched.sort()).toEqual([
     '/colab/assets/colab-runtime.css',
