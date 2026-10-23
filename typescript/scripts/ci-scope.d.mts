@@ -109,6 +109,7 @@ export function selectColabHarness(paths: readonly string[], map?: ComponentMap)
 export function selectColabApp(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectColabHosted(paths: readonly string[]): boolean;
 export function selectColabChrome(paths: readonly string[], map?: ComponentMap): boolean;
+export function selectBrowserUi(paths: readonly string[]): boolean;
 export function selectRemoteFirestore(paths: readonly string[]): boolean;
 export function selectColabFirestore(paths: readonly string[]): boolean;
 export function selectNativeSyncEmulator(paths: readonly string[]): boolean;
