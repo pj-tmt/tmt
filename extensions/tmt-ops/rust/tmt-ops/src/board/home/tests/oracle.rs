@@ -763,6 +763,24 @@ fn captures() -> Value {
                 }
             }
         }
+        // One turn that answered three sends, painted under the last of them: additive scenes.
+        for (look_name, look) in looks() {
+            for scene in crate::board::conversation::outgoing::tests::captures::ONE_TURN_SCENES {
+                for width in [100, 80] {
+                    let app = crate::board::conversation::outgoing::tests::captures::one_turn_scene(
+                        scene, look, NOW,
+                    );
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        width,
+                        51,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
         // The running versions in the header and Help: additive scenes.
         for (look_name, look) in looks() {
             for scene in crate::board::versions::tests::SCENES {
