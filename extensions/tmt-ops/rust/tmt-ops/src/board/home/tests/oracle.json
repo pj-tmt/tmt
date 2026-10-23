@@ -329903,7 +329903,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
       ],
       "styles": [
@@ -329941,7 +329941,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:137=s7 159:1=s2",
         "0:1=s2 1:158=s7 159:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:107=s2 126:33=s1 159:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:14=s1 82:1=s6 83:7=s1 90:1=s6 91:7=s1 98:1=s6 99:4=s1 103:57=s2",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:9=s1 74:1=s6 75:14=s1 89:1=s6 90:7=s1 97:1=s6 98:7=s1 105:1=s6 106:4=s1 110:50=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:8=s1 80:1=s6 81:11=s1 92:1=s6 93:7=s1 100:1=s6 101:5=s1 106:54=s2"
       ],
       "state": "session-rows-unbound-flat",
@@ -329968,7 +329968,7 @@
         "   worker                product     ● working    ! unbound · tmux           —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  e details  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  ? help  q quit"
       ],
       "styles": [
         "0:9=s0 9:8=s1 17:89=s2 106:1=s1 107:3=s3 110:11=s1 121:2=s2 123:37=s1",
@@ -329978,7 +329978,7 @@
         "0:160=s10",
         "0:1=s2 1:2=s7 3:19=s11 22:137=s7 159:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:107=s2 126:33=s1 159:1=s2",
-        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:9=s1 54:1=s6 55:9=s1 64:1=s6 65:14=s1 79:1=s6 80:7=s1 87:1=s6 88:15=s1 103:1=s6 104:9=s1 113:1=s6 114:11=s1 125:1=s6 126:9=s1 135:1=s6 136:10=s1 146:1=s6 147:7=s1 154:1=s6 155:5=s1"
+        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:6=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:14=s1 86:1=s6 87:7=s1 94:1=s6 95:15=s1 110:1=s6 111:9=s1 120:1=s6 121:11=s1 132:1=s6 133:9=s1 142:1=s6 143:7=s1 150:1=s6 151:5=s1 156:4=s2"
       ],
       "state": "session-rows-unbound-flat",
       "look": "tmt",
@@ -330031,7 +330031,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -330069,7 +330069,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:77=s7 99:1=s2",
         "0:1=s2 1:98=s7 99:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:47=s2 66:33=s1 99:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:14=s1 82:1=s6 83:7=s1 90:1=s6 91:4=s1 95:5=s2",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:9=s1 74:1=s6 75:14=s1 89:1=s6 90:5=s1 95:5=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:8=s1 80:1=s6 81:7=s1 88:1=s6 89:5=s1 94:6=s2"
       ],
       "state": "session-rows-unbound-flat",
@@ -330096,7 +330096,7 @@
         "   worker                product     ● working    ! unbound · tmux           —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  ? help  q quit"
       ],
       "styles": [
         "0:9=s0 9:8=s1 17:29=s2 46:1=s1 47:3=s3 50:11=s1 61:2=s2 63:37=s1",
@@ -330106,7 +330106,7 @@
         "0:100=s10",
         "0:1=s2 1:2=s7 3:19=s11 22:77=s7 99:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:47=s2 66:33=s1 99:1=s2",
-        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:9=s1 54:1=s6 55:9=s1 64:1=s6 65:14=s1 79:1=s6 80:7=s1 87:1=s6 88:5=s1 93:7=s2"
+        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:6=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:14=s1 86:1=s6 87:7=s1 94:1=s6 95:5=s1"
       ],
       "state": "session-rows-unbound-flat",
       "look": "tmt",
@@ -330159,7 +330159,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -330197,7 +330197,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:57=s7 79:1=s2",
         "0:1=s2 1:78=s7 79:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:27=s2 46:33=s1 79:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:12=s1",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:7=s1 72:8=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:7=s1 69:1=s6 70:5=s1 75:5=s2"
       ],
       "state": "session-rows-unbound-flat",
@@ -330224,7 +330224,7 @@
         "   worker                product     ● working          —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  ? help  q quit"
       ],
       "styles": [
         "0:9=s0 9:8=s1 17:9=s2 26:1=s1 27:3=s3 30:11=s1 41:2=s2 43:37=s1",
@@ -330234,7 +330234,7 @@
         "0:80=s10",
         "0:1=s2 1:2=s7 3:19=s11 22:57=s7 79:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:27=s2 46:33=s1 79:1=s2",
-        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:9=s1 54:1=s6 55:9=s1 64:1=s6 65:7=s1 72:1=s6 73:5=s1 78:2=s2"
+        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:6=s1 51:1=s6 52:9=s1 61:1=s6 62:7=s1 69:1=s6 70:5=s1 75:5=s2"
       ],
       "state": "session-rows-unbound-flat",
       "look": "tmt",
@@ -330287,7 +330287,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move",
         " Tab panes  w snapshots  / search  ? help  q quit"
       ],
       "styles": [
@@ -330325,7 +330325,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:37=s7 59:1=s2",
         "0:1=s2 1:58=s7 59:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:7=s2 26:33=s1 59:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:7=s1 55:5=s2",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:5=s1 52:8=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:7=s1 43:1=s6 44:5=s1 49:11=s2"
       ],
       "state": "session-rows-unbound-flat",
@@ -330415,7 +330415,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
       ],
       "styles": [
@@ -330453,7 +330453,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:137=s7 159:1=s2",
         "0:1=s2 1:158=s7 159:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:107=s2 126:33=s1 159:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:14=s1 82:1=s6 83:7=s1 90:1=s6 91:7=s1 98:1=s6 99:4=s1 103:57=s2",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:9=s1 74:1=s6 75:14=s1 89:1=s6 90:7=s1 97:1=s6 98:7=s1 105:1=s6 106:4=s1 110:50=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:8=s1 80:1=s6 81:11=s1 92:1=s6 93:7=s1 100:1=s6 101:5=s1 106:54=s2"
       ],
       "state": "session-rows-unbound-tree",
@@ -330482,7 +330482,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                                                                                                    1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  e details  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  ? help  q quit"
       ],
       "styles": [
         "0:9=s0 9:8=s1 17:89=s2 106:1=s1 107:3=s3 110:11=s1 121:2=s2 123:37=s1",
@@ -330492,7 +330492,7 @@
         "0:1=s2 1:25=s9 26:116=s2 142:17=s1 159:1=s2",
         "0:1=s2 1:2=s7 3:19=s11 22:137=s7 159:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:107=s2 126:33=s1 159:1=s2",
-        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:9=s1 54:1=s6 55:9=s1 64:1=s6 65:14=s1 79:1=s6 80:7=s1 87:1=s6 88:15=s1 103:1=s6 104:9=s1 113:1=s6 114:11=s1 125:1=s6 126:9=s1 135:1=s6 136:10=s1 146:1=s6 147:7=s1 154:1=s6 155:5=s1"
+        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:6=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:14=s1 86:1=s6 87:7=s1 94:1=s6 95:15=s1 110:1=s6 111:9=s1 120:1=s6 121:11=s1 132:1=s6 133:9=s1 142:1=s6 143:7=s1 150:1=s6 151:5=s1 156:4=s2"
       ],
       "state": "session-rows-unbound-tree",
       "look": "tmt",
@@ -330547,7 +330547,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -330585,7 +330585,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:77=s7 99:1=s2",
         "0:1=s2 1:98=s7 99:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:47=s2 66:33=s1 99:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:14=s1 82:1=s6 83:7=s1 90:1=s6 91:4=s1 95:5=s2",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:9=s1 74:1=s6 75:14=s1 89:1=s6 90:5=s1 95:5=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:8=s1 80:1=s6 81:7=s1 88:1=s6 89:5=s1 94:6=s2"
       ],
       "state": "session-rows-unbound-tree",
@@ -330614,7 +330614,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  ? help  q quit"
       ],
       "styles": [
         "0:9=s0 9:8=s1 17:29=s2 46:1=s1 47:3=s3 50:11=s1 61:2=s2 63:37=s1",
@@ -330624,7 +330624,7 @@
         "0:1=s2 1:25=s9 26:56=s2 82:17=s1 99:1=s2",
         "0:1=s2 1:2=s7 3:19=s11 22:77=s7 99:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:47=s2 66:33=s1 99:1=s2",
-        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:9=s1 54:1=s6 55:9=s1 64:1=s6 65:14=s1 79:1=s6 80:7=s1 87:1=s6 88:5=s1 93:7=s2"
+        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:6=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:14=s1 86:1=s6 87:7=s1 94:1=s6 95:5=s1"
       ],
       "state": "session-rows-unbound-tree",
       "look": "tmt",
@@ -330679,7 +330679,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -330717,7 +330717,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:57=s7 79:1=s2",
         "0:1=s2 1:78=s7 79:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:27=s2 46:33=s1 79:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:12=s1",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:7=s1 72:8=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:7=s1 69:1=s6 70:5=s1 75:5=s2"
       ],
       "state": "session-rows-unbound-tree",
@@ -330746,7 +330746,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  ? help  q quit"
       ],
       "styles": [
         "0:9=s0 9:8=s1 17:9=s2 26:1=s1 27:3=s3 30:11=s1 41:2=s2 43:37=s1",
@@ -330756,7 +330756,7 @@
         "0:1=s2 1:25=s9 26:36=s2 62:17=s1 79:1=s2",
         "0:1=s2 1:2=s7 3:19=s11 22:57=s7 79:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:27=s2 46:33=s1 79:1=s2",
-        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:9=s1 54:1=s6 55:9=s1 64:1=s6 65:7=s1 72:1=s6 73:5=s1 78:2=s2"
+        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:6=s1 51:1=s6 52:9=s1 61:1=s6 62:7=s1 69:1=s6 70:5=s1 75:5=s2"
       ],
       "state": "session-rows-unbound-tree",
       "look": "tmt",
@@ -330811,7 +330811,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move",
         " Tab panes  w snapshots  / search  ? help  q quit"
       ],
       "styles": [
@@ -330849,7 +330849,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:37=s7 59:1=s2",
         "0:1=s2 1:58=s7 59:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:7=s2 26:33=s1 59:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:7=s1 55:5=s2",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:5=s1 52:8=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:7=s1 43:1=s6 44:5=s1 49:11=s2"
       ],
       "state": "session-rows-unbound-tree",
@@ -330943,7 +330943,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
       ],
       "styles": [
@@ -330981,7 +330981,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:137=s7 159:1=s2",
         "0:1=s2 1:158=s7 159:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:107=s2 126:33=s1 159:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:14=s1 82:1=s6 83:7=s1 90:1=s6 91:7=s1 98:1=s6 99:4=s1 103:57=s2",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:9=s1 74:1=s6 75:14=s1 89:1=s6 90:7=s1 97:1=s6 98:7=s1 105:1=s6 106:4=s1 110:50=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:8=s1 80:1=s6 81:11=s1 92:1=s6 93:7=s1 100:1=s6 101:5=s1 106:54=s2"
       ],
       "state": "session-rows-unbound-external-flat",
@@ -331008,7 +331008,7 @@
         "   worker                product     ● working    ! unbound · herdr          —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  e details  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  ? help  q quit"
       ],
       "styles": [
         "0:9=s0 9:8=s1 17:89=s2 106:1=s1 107:3=s3 110:11=s1 121:2=s2 123:37=s1",
@@ -331018,7 +331018,7 @@
         "0:160=s10",
         "0:1=s2 1:2=s7 3:19=s11 22:137=s7 159:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:107=s2 126:33=s1 159:1=s2",
-        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:9=s1 54:1=s6 55:9=s1 64:1=s6 65:14=s1 79:1=s6 80:7=s1 87:1=s6 88:15=s1 103:1=s6 104:9=s1 113:1=s6 114:11=s1 125:1=s6 126:9=s1 135:1=s6 136:10=s1 146:1=s6 147:7=s1 154:1=s6 155:5=s1"
+        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:6=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:14=s1 86:1=s6 87:7=s1 94:1=s6 95:15=s1 110:1=s6 111:9=s1 120:1=s6 121:11=s1 132:1=s6 133:9=s1 142:1=s6 143:7=s1 150:1=s6 151:5=s1 156:4=s2"
       ],
       "state": "session-rows-unbound-external-flat",
       "look": "tmt",
@@ -331071,7 +331071,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -331109,7 +331109,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:77=s7 99:1=s2",
         "0:1=s2 1:98=s7 99:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:47=s2 66:33=s1 99:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:14=s1 82:1=s6 83:7=s1 90:1=s6 91:4=s1 95:5=s2",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:9=s1 74:1=s6 75:14=s1 89:1=s6 90:5=s1 95:5=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:8=s1 80:1=s6 81:7=s1 88:1=s6 89:5=s1 94:6=s2"
       ],
       "state": "session-rows-unbound-external-flat",
@@ -331136,7 +331136,7 @@
         "   worker                product     ● working    ! unbound · herdr          —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  ? help  q quit"
       ],
       "styles": [
         "0:9=s0 9:8=s1 17:29=s2 46:1=s1 47:3=s3 50:11=s1 61:2=s2 63:37=s1",
@@ -331146,7 +331146,7 @@
         "0:100=s10",
         "0:1=s2 1:2=s7 3:19=s11 22:77=s7 99:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:47=s2 66:33=s1 99:1=s2",
-        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:9=s1 54:1=s6 55:9=s1 64:1=s6 65:14=s1 79:1=s6 80:7=s1 87:1=s6 88:5=s1 93:7=s2"
+        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:6=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:14=s1 86:1=s6 87:7=s1 94:1=s6 95:5=s1"
       ],
       "state": "session-rows-unbound-external-flat",
       "look": "tmt",
@@ -331199,7 +331199,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -331237,7 +331237,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:57=s7 79:1=s2",
         "0:1=s2 1:78=s7 79:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:27=s2 46:33=s1 79:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:12=s1",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:7=s1 72:8=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:7=s1 69:1=s6 70:5=s1 75:5=s2"
       ],
       "state": "session-rows-unbound-external-flat",
@@ -331264,7 +331264,7 @@
         "   worker                product     ● working          —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  ? help  q quit"
       ],
       "styles": [
         "0:9=s0 9:8=s1 17:9=s2 26:1=s1 27:3=s3 30:11=s1 41:2=s2 43:37=s1",
@@ -331274,7 +331274,7 @@
         "0:80=s10",
         "0:1=s2 1:2=s7 3:19=s11 22:57=s7 79:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:27=s2 46:33=s1 79:1=s2",
-        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:9=s1 54:1=s6 55:9=s1 64:1=s6 65:7=s1 72:1=s6 73:5=s1 78:2=s2"
+        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:6=s1 51:1=s6 52:9=s1 61:1=s6 62:7=s1 69:1=s6 70:5=s1 75:5=s2"
       ],
       "state": "session-rows-unbound-external-flat",
       "look": "tmt",
@@ -331327,7 +331327,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move",
         " Tab panes  w snapshots  / search  ? help  q quit"
       ],
       "styles": [
@@ -331365,7 +331365,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:37=s7 59:1=s2",
         "0:1=s2 1:58=s7 59:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:7=s2 26:33=s1 59:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:7=s1 55:5=s2",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:5=s1 52:8=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:7=s1 43:1=s6 44:5=s1 49:11=s2"
       ],
       "state": "session-rows-unbound-external-flat",
@@ -331455,7 +331455,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
       ],
       "styles": [
@@ -331493,7 +331493,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:137=s7 159:1=s2",
         "0:1=s2 1:158=s7 159:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:107=s2 126:33=s1 159:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:14=s1 82:1=s6 83:7=s1 90:1=s6 91:7=s1 98:1=s6 99:4=s1 103:57=s2",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:9=s1 74:1=s6 75:14=s1 89:1=s6 90:7=s1 97:1=s6 98:7=s1 105:1=s6 106:4=s1 110:50=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:8=s1 80:1=s6 81:11=s1 92:1=s6 93:7=s1 100:1=s6 101:5=s1 106:54=s2"
       ],
       "state": "session-rows-unbound-external-tree",
@@ -331522,7 +331522,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                                                                                                    1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  e details  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  ? help  q quit"
       ],
       "styles": [
         "0:9=s0 9:8=s1 17:89=s2 106:1=s1 107:3=s3 110:11=s1 121:2=s2 123:37=s1",
@@ -331532,7 +331532,7 @@
         "0:1=s2 1:25=s9 26:116=s2 142:17=s1 159:1=s2",
         "0:1=s2 1:2=s7 3:19=s11 22:137=s7 159:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:107=s2 126:33=s1 159:1=s2",
-        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:9=s1 54:1=s6 55:9=s1 64:1=s6 65:14=s1 79:1=s6 80:7=s1 87:1=s6 88:15=s1 103:1=s6 104:9=s1 113:1=s6 114:11=s1 125:1=s6 126:9=s1 135:1=s6 136:10=s1 146:1=s6 147:7=s1 154:1=s6 155:5=s1"
+        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:6=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:14=s1 86:1=s6 87:7=s1 94:1=s6 95:15=s1 110:1=s6 111:9=s1 120:1=s6 121:11=s1 132:1=s6 133:9=s1 142:1=s6 143:7=s1 150:1=s6 151:5=s1 156:4=s2"
       ],
       "state": "session-rows-unbound-external-tree",
       "look": "tmt",
@@ -331587,7 +331587,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -331625,7 +331625,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:77=s7 99:1=s2",
         "0:1=s2 1:98=s7 99:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:47=s2 66:33=s1 99:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:14=s1 82:1=s6 83:7=s1 90:1=s6 91:4=s1 95:5=s2",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:9=s1 74:1=s6 75:14=s1 89:1=s6 90:5=s1 95:5=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:8=s1 80:1=s6 81:7=s1 88:1=s6 89:5=s1 94:6=s2"
       ],
       "state": "session-rows-unbound-external-tree",
@@ -331654,7 +331654,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  ? help  q quit"
       ],
       "styles": [
         "0:9=s0 9:8=s1 17:29=s2 46:1=s1 47:3=s3 50:11=s1 61:2=s2 63:37=s1",
@@ -331664,7 +331664,7 @@
         "0:1=s2 1:25=s9 26:56=s2 82:17=s1 99:1=s2",
         "0:1=s2 1:2=s7 3:19=s11 22:77=s7 99:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:47=s2 66:33=s1 99:1=s2",
-        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:9=s1 54:1=s6 55:9=s1 64:1=s6 65:14=s1 79:1=s6 80:7=s1 87:1=s6 88:5=s1 93:7=s2"
+        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:6=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:14=s1 86:1=s6 87:7=s1 94:1=s6 95:5=s1"
       ],
       "state": "session-rows-unbound-external-tree",
       "look": "tmt",
@@ -331719,7 +331719,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -331757,7 +331757,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:57=s7 79:1=s2",
         "0:1=s2 1:78=s7 79:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:27=s2 46:33=s1 79:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:12=s1",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:7=s1 72:8=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:7=s1 69:1=s6 70:5=s1 75:5=s2"
       ],
       "state": "session-rows-unbound-external-tree",
@@ -331786,7 +331786,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  ? help  q quit"
       ],
       "styles": [
         "0:9=s0 9:8=s1 17:9=s2 26:1=s1 27:3=s3 30:11=s1 41:2=s2 43:37=s1",
@@ -331796,7 +331796,7 @@
         "0:1=s2 1:25=s9 26:36=s2 62:17=s1 79:1=s2",
         "0:1=s2 1:2=s7 3:19=s11 22:57=s7 79:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:27=s2 46:33=s1 79:1=s2",
-        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:9=s1 54:1=s6 55:9=s1 64:1=s6 65:7=s1 72:1=s6 73:5=s1 78:2=s2"
+        "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:6=s1 51:1=s6 52:9=s1 61:1=s6 62:7=s1 69:1=s6 70:5=s1 75:5=s2"
       ],
       "state": "session-rows-unbound-external-tree",
       "look": "tmt",
@@ -331851,7 +331851,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move",
         " Tab panes  w snapshots  / search  ? help  q quit"
       ],
       "styles": [
@@ -331889,7 +331889,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:37=s7 59:1=s2",
         "0:1=s2 1:58=s7 59:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:7=s2 26:33=s1 59:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:7=s1 55:5=s2",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:5=s1 52:8=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:7=s1 43:1=s6 44:5=s1 49:11=s2"
       ],
       "state": "session-rows-unbound-external-tree",
@@ -354063,7 +354063,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
       ],
       "styles": [
@@ -354101,7 +354101,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:137=s30 159:1=s2",
         "0:1=s2 1:158=s30 159:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:107=s2 126:33=s27 159:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:14=s27 82:1=s29 83:7=s27 90:1=s29 91:7=s27 98:1=s29 99:4=s27 103:57=s2",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:9=s27 74:1=s29 75:14=s27 89:1=s29 90:7=s27 97:1=s29 98:7=s27 105:1=s29 106:4=s27 110:50=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:8=s27 80:1=s29 81:11=s27 92:1=s29 93:7=s27 100:1=s29 101:5=s27 106:54=s2"
       ],
       "state": "session-rows-unbound-flat",
@@ -354128,7 +354128,7 @@
         "   worker                product     ● working    ! unbound · tmux           —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  e details  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  ? help  q quit"
       ],
       "styles": [
         "0:9=s26 9:8=s27 17:89=s2 106:1=s27 107:3=s3 110:11=s27 121:2=s2 123:37=s27",
@@ -354138,7 +354138,7 @@
         "0:160=s33",
         "0:1=s2 1:2=s30 3:19=s34 22:137=s30 159:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:107=s2 126:33=s27 159:1=s2",
-        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:9=s27 54:1=s29 55:9=s27 64:1=s29 65:14=s27 79:1=s29 80:7=s27 87:1=s29 88:15=s27 103:1=s29 104:9=s27 113:1=s29 114:11=s27 125:1=s29 126:9=s27 135:1=s29 136:10=s27 146:1=s29 147:7=s27 154:1=s29 155:5=s27"
+        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:6=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:14=s27 86:1=s29 87:7=s27 94:1=s29 95:15=s27 110:1=s29 111:9=s27 120:1=s29 121:11=s27 132:1=s29 133:9=s27 142:1=s29 143:7=s27 150:1=s29 151:5=s27 156:4=s2"
       ],
       "state": "session-rows-unbound-flat",
       "look": "tmt-light",
@@ -354191,7 +354191,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -354229,7 +354229,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:77=s30 99:1=s2",
         "0:1=s2 1:98=s30 99:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:47=s2 66:33=s27 99:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:14=s27 82:1=s29 83:7=s27 90:1=s29 91:4=s27 95:5=s2",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:9=s27 74:1=s29 75:14=s27 89:1=s29 90:5=s27 95:5=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:8=s27 80:1=s29 81:7=s27 88:1=s29 89:5=s27 94:6=s2"
       ],
       "state": "session-rows-unbound-flat",
@@ -354256,7 +354256,7 @@
         "   worker                product     ● working    ! unbound · tmux           —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  ? help  q quit"
       ],
       "styles": [
         "0:9=s26 9:8=s27 17:29=s2 46:1=s27 47:3=s3 50:11=s27 61:2=s2 63:37=s27",
@@ -354266,7 +354266,7 @@
         "0:100=s33",
         "0:1=s2 1:2=s30 3:19=s34 22:77=s30 99:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:47=s2 66:33=s27 99:1=s2",
-        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:9=s27 54:1=s29 55:9=s27 64:1=s29 65:14=s27 79:1=s29 80:7=s27 87:1=s29 88:5=s27 93:7=s2"
+        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:6=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:14=s27 86:1=s29 87:7=s27 94:1=s29 95:5=s27"
       ],
       "state": "session-rows-unbound-flat",
       "look": "tmt-light",
@@ -354319,7 +354319,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -354357,7 +354357,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:57=s30 79:1=s2",
         "0:1=s2 1:78=s30 79:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:27=s2 46:33=s27 79:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:12=s27",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:7=s27 72:8=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:7=s27 69:1=s29 70:5=s27 75:5=s2"
       ],
       "state": "session-rows-unbound-flat",
@@ -354384,7 +354384,7 @@
         "   worker                product     ● working          —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  ? help  q quit"
       ],
       "styles": [
         "0:9=s26 9:8=s27 17:9=s2 26:1=s27 27:3=s3 30:11=s27 41:2=s2 43:37=s27",
@@ -354394,7 +354394,7 @@
         "0:80=s33",
         "0:1=s2 1:2=s30 3:19=s34 22:57=s30 79:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:27=s2 46:33=s27 79:1=s2",
-        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:9=s27 54:1=s29 55:9=s27 64:1=s29 65:7=s27 72:1=s29 73:5=s27 78:2=s2"
+        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:6=s27 51:1=s29 52:9=s27 61:1=s29 62:7=s27 69:1=s29 70:5=s27 75:5=s2"
       ],
       "state": "session-rows-unbound-flat",
       "look": "tmt-light",
@@ -354447,7 +354447,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move",
         " Tab panes  w snapshots  / search  ? help  q quit"
       ],
       "styles": [
@@ -354485,7 +354485,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:37=s30 59:1=s2",
         "0:1=s2 1:58=s30 59:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:7=s2 26:33=s27 59:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:7=s27 55:5=s2",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:5=s27 52:8=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:7=s27 43:1=s29 44:5=s27 49:11=s2"
       ],
       "state": "session-rows-unbound-flat",
@@ -354575,7 +354575,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
       ],
       "styles": [
@@ -354613,7 +354613,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:137=s30 159:1=s2",
         "0:1=s2 1:158=s30 159:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:107=s2 126:33=s27 159:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:14=s27 82:1=s29 83:7=s27 90:1=s29 91:7=s27 98:1=s29 99:4=s27 103:57=s2",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:9=s27 74:1=s29 75:14=s27 89:1=s29 90:7=s27 97:1=s29 98:7=s27 105:1=s29 106:4=s27 110:50=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:8=s27 80:1=s29 81:11=s27 92:1=s29 93:7=s27 100:1=s29 101:5=s27 106:54=s2"
       ],
       "state": "session-rows-unbound-tree",
@@ -354642,7 +354642,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                                                                                                    1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  e details  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  ? help  q quit"
       ],
       "styles": [
         "0:9=s26 9:8=s27 17:89=s2 106:1=s27 107:3=s3 110:11=s27 121:2=s2 123:37=s27",
@@ -354652,7 +354652,7 @@
         "0:1=s2 1:25=s32 26:116=s2 142:17=s27 159:1=s2",
         "0:1=s2 1:2=s30 3:19=s34 22:137=s30 159:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:107=s2 126:33=s27 159:1=s2",
-        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:9=s27 54:1=s29 55:9=s27 64:1=s29 65:14=s27 79:1=s29 80:7=s27 87:1=s29 88:15=s27 103:1=s29 104:9=s27 113:1=s29 114:11=s27 125:1=s29 126:9=s27 135:1=s29 136:10=s27 146:1=s29 147:7=s27 154:1=s29 155:5=s27"
+        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:6=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:14=s27 86:1=s29 87:7=s27 94:1=s29 95:15=s27 110:1=s29 111:9=s27 120:1=s29 121:11=s27 132:1=s29 133:9=s27 142:1=s29 143:7=s27 150:1=s29 151:5=s27 156:4=s2"
       ],
       "state": "session-rows-unbound-tree",
       "look": "tmt-light",
@@ -354707,7 +354707,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -354745,7 +354745,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:77=s30 99:1=s2",
         "0:1=s2 1:98=s30 99:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:47=s2 66:33=s27 99:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:14=s27 82:1=s29 83:7=s27 90:1=s29 91:4=s27 95:5=s2",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:9=s27 74:1=s29 75:14=s27 89:1=s29 90:5=s27 95:5=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:8=s27 80:1=s29 81:7=s27 88:1=s29 89:5=s27 94:6=s2"
       ],
       "state": "session-rows-unbound-tree",
@@ -354774,7 +354774,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  ? help  q quit"
       ],
       "styles": [
         "0:9=s26 9:8=s27 17:29=s2 46:1=s27 47:3=s3 50:11=s27 61:2=s2 63:37=s27",
@@ -354784,7 +354784,7 @@
         "0:1=s2 1:25=s32 26:56=s2 82:17=s27 99:1=s2",
         "0:1=s2 1:2=s30 3:19=s34 22:77=s30 99:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:47=s2 66:33=s27 99:1=s2",
-        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:9=s27 54:1=s29 55:9=s27 64:1=s29 65:14=s27 79:1=s29 80:7=s27 87:1=s29 88:5=s27 93:7=s2"
+        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:6=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:14=s27 86:1=s29 87:7=s27 94:1=s29 95:5=s27"
       ],
       "state": "session-rows-unbound-tree",
       "look": "tmt-light",
@@ -354839,7 +354839,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -354877,7 +354877,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:57=s30 79:1=s2",
         "0:1=s2 1:78=s30 79:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:27=s2 46:33=s27 79:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:12=s27",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:7=s27 72:8=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:7=s27 69:1=s29 70:5=s27 75:5=s2"
       ],
       "state": "session-rows-unbound-tree",
@@ -354906,7 +354906,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  ? help  q quit"
       ],
       "styles": [
         "0:9=s26 9:8=s27 17:9=s2 26:1=s27 27:3=s3 30:11=s27 41:2=s2 43:37=s27",
@@ -354916,7 +354916,7 @@
         "0:1=s2 1:25=s32 26:36=s2 62:17=s27 79:1=s2",
         "0:1=s2 1:2=s30 3:19=s34 22:57=s30 79:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:27=s2 46:33=s27 79:1=s2",
-        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:9=s27 54:1=s29 55:9=s27 64:1=s29 65:7=s27 72:1=s29 73:5=s27 78:2=s2"
+        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:6=s27 51:1=s29 52:9=s27 61:1=s29 62:7=s27 69:1=s29 70:5=s27 75:5=s2"
       ],
       "state": "session-rows-unbound-tree",
       "look": "tmt-light",
@@ -354971,7 +354971,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move",
         " Tab panes  w snapshots  / search  ? help  q quit"
       ],
       "styles": [
@@ -355009,7 +355009,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:37=s30 59:1=s2",
         "0:1=s2 1:58=s30 59:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:7=s2 26:33=s27 59:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:7=s27 55:5=s2",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:5=s27 52:8=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:7=s27 43:1=s29 44:5=s27 49:11=s2"
       ],
       "state": "session-rows-unbound-tree",
@@ -355103,7 +355103,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
       ],
       "styles": [
@@ -355141,7 +355141,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:137=s30 159:1=s2",
         "0:1=s2 1:158=s30 159:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:107=s2 126:33=s27 159:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:14=s27 82:1=s29 83:7=s27 90:1=s29 91:7=s27 98:1=s29 99:4=s27 103:57=s2",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:9=s27 74:1=s29 75:14=s27 89:1=s29 90:7=s27 97:1=s29 98:7=s27 105:1=s29 106:4=s27 110:50=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:8=s27 80:1=s29 81:11=s27 92:1=s29 93:7=s27 100:1=s29 101:5=s27 106:54=s2"
       ],
       "state": "session-rows-unbound-external-flat",
@@ -355168,7 +355168,7 @@
         "   worker                product     ● working    ! unbound · herdr          —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  e details  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  ? help  q quit"
       ],
       "styles": [
         "0:9=s26 9:8=s27 17:89=s2 106:1=s27 107:3=s3 110:11=s27 121:2=s2 123:37=s27",
@@ -355178,7 +355178,7 @@
         "0:160=s33",
         "0:1=s2 1:2=s30 3:19=s34 22:137=s30 159:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:107=s2 126:33=s27 159:1=s2",
-        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:9=s27 54:1=s29 55:9=s27 64:1=s29 65:14=s27 79:1=s29 80:7=s27 87:1=s29 88:15=s27 103:1=s29 104:9=s27 113:1=s29 114:11=s27 125:1=s29 126:9=s27 135:1=s29 136:10=s27 146:1=s29 147:7=s27 154:1=s29 155:5=s27"
+        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:6=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:14=s27 86:1=s29 87:7=s27 94:1=s29 95:15=s27 110:1=s29 111:9=s27 120:1=s29 121:11=s27 132:1=s29 133:9=s27 142:1=s29 143:7=s27 150:1=s29 151:5=s27 156:4=s2"
       ],
       "state": "session-rows-unbound-external-flat",
       "look": "tmt-light",
@@ -355231,7 +355231,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -355269,7 +355269,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:77=s30 99:1=s2",
         "0:1=s2 1:98=s30 99:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:47=s2 66:33=s27 99:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:14=s27 82:1=s29 83:7=s27 90:1=s29 91:4=s27 95:5=s2",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:9=s27 74:1=s29 75:14=s27 89:1=s29 90:5=s27 95:5=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:8=s27 80:1=s29 81:7=s27 88:1=s29 89:5=s27 94:6=s2"
       ],
       "state": "session-rows-unbound-external-flat",
@@ -355296,7 +355296,7 @@
         "   worker                product     ● working    ! unbound · herdr          —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  ? help  q quit"
       ],
       "styles": [
         "0:9=s26 9:8=s27 17:29=s2 46:1=s27 47:3=s3 50:11=s27 61:2=s2 63:37=s27",
@@ -355306,7 +355306,7 @@
         "0:100=s33",
         "0:1=s2 1:2=s30 3:19=s34 22:77=s30 99:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:47=s2 66:33=s27 99:1=s2",
-        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:9=s27 54:1=s29 55:9=s27 64:1=s29 65:14=s27 79:1=s29 80:7=s27 87:1=s29 88:5=s27 93:7=s2"
+        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:6=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:14=s27 86:1=s29 87:7=s27 94:1=s29 95:5=s27"
       ],
       "state": "session-rows-unbound-external-flat",
       "look": "tmt-light",
@@ -355359,7 +355359,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -355397,7 +355397,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:57=s30 79:1=s2",
         "0:1=s2 1:78=s30 79:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:27=s2 46:33=s27 79:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:12=s27",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:7=s27 72:8=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:7=s27 69:1=s29 70:5=s27 75:5=s2"
       ],
       "state": "session-rows-unbound-external-flat",
@@ -355424,7 +355424,7 @@
         "   worker                product     ● working          —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  ? help  q quit"
       ],
       "styles": [
         "0:9=s26 9:8=s27 17:9=s2 26:1=s27 27:3=s3 30:11=s27 41:2=s2 43:37=s27",
@@ -355434,7 +355434,7 @@
         "0:80=s33",
         "0:1=s2 1:2=s30 3:19=s34 22:57=s30 79:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:27=s2 46:33=s27 79:1=s2",
-        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:9=s27 54:1=s29 55:9=s27 64:1=s29 65:7=s27 72:1=s29 73:5=s27 78:2=s2"
+        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:6=s27 51:1=s29 52:9=s27 61:1=s29 62:7=s27 69:1=s29 70:5=s27 75:5=s2"
       ],
       "state": "session-rows-unbound-external-flat",
       "look": "tmt-light",
@@ -355487,7 +355487,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move",
         " Tab panes  w snapshots  / search  ? help  q quit"
       ],
       "styles": [
@@ -355525,7 +355525,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:37=s30 59:1=s2",
         "0:1=s2 1:58=s30 59:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:7=s2 26:33=s27 59:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:7=s27 55:5=s2",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:5=s27 52:8=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:7=s27 43:1=s29 44:5=s27 49:11=s2"
       ],
       "state": "session-rows-unbound-external-flat",
@@ -355615,7 +355615,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
       ],
       "styles": [
@@ -355653,7 +355653,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:137=s30 159:1=s2",
         "0:1=s2 1:158=s30 159:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:107=s2 126:33=s27 159:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:14=s27 82:1=s29 83:7=s27 90:1=s29 91:7=s27 98:1=s29 99:4=s27 103:57=s2",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:9=s27 74:1=s29 75:14=s27 89:1=s29 90:7=s27 97:1=s29 98:7=s27 105:1=s29 106:4=s27 110:50=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:8=s27 80:1=s29 81:11=s27 92:1=s29 93:7=s27 100:1=s29 101:5=s27 106:54=s2"
       ],
       "state": "session-rows-unbound-external-tree",
@@ -355682,7 +355682,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                                                                                                    1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  e details  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  ? help  q quit"
       ],
       "styles": [
         "0:9=s26 9:8=s27 17:89=s2 106:1=s27 107:3=s3 110:11=s27 121:2=s2 123:37=s27",
@@ -355692,7 +355692,7 @@
         "0:1=s2 1:25=s32 26:116=s2 142:17=s27 159:1=s2",
         "0:1=s2 1:2=s30 3:19=s34 22:137=s30 159:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:107=s2 126:33=s27 159:1=s2",
-        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:9=s27 54:1=s29 55:9=s27 64:1=s29 65:14=s27 79:1=s29 80:7=s27 87:1=s29 88:15=s27 103:1=s29 104:9=s27 113:1=s29 114:11=s27 125:1=s29 126:9=s27 135:1=s29 136:10=s27 146:1=s29 147:7=s27 154:1=s29 155:5=s27"
+        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:6=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:14=s27 86:1=s29 87:7=s27 94:1=s29 95:15=s27 110:1=s29 111:9=s27 120:1=s29 121:11=s27 132:1=s29 133:9=s27 142:1=s29 143:7=s27 150:1=s29 151:5=s27 156:4=s2"
       ],
       "state": "session-rows-unbound-external-tree",
       "look": "tmt-light",
@@ -355747,7 +355747,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -355785,7 +355785,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:77=s30 99:1=s2",
         "0:1=s2 1:98=s30 99:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:47=s2 66:33=s27 99:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:14=s27 82:1=s29 83:7=s27 90:1=s29 91:4=s27 95:5=s2",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:9=s27 74:1=s29 75:14=s27 89:1=s29 90:5=s27 95:5=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:8=s27 80:1=s29 81:7=s27 88:1=s29 89:5=s27 94:6=s2"
       ],
       "state": "session-rows-unbound-external-tree",
@@ -355814,7 +355814,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  ? help  q quit"
       ],
       "styles": [
         "0:9=s26 9:8=s27 17:29=s2 46:1=s27 47:3=s3 50:11=s27 61:2=s2 63:37=s27",
@@ -355824,7 +355824,7 @@
         "0:1=s2 1:25=s32 26:56=s2 82:17=s27 99:1=s2",
         "0:1=s2 1:2=s30 3:19=s34 22:77=s30 99:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:47=s2 66:33=s27 99:1=s2",
-        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:9=s27 54:1=s29 55:9=s27 64:1=s29 65:14=s27 79:1=s29 80:7=s27 87:1=s29 88:5=s27 93:7=s2"
+        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:6=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:14=s27 86:1=s29 87:7=s27 94:1=s29 95:5=s27"
       ],
       "state": "session-rows-unbound-external-tree",
       "look": "tmt-light",
@@ -355879,7 +355879,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -355917,7 +355917,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:57=s30 79:1=s2",
         "0:1=s2 1:78=s30 79:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:27=s2 46:33=s27 79:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:12=s27",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:7=s27 72:8=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:7=s27 69:1=s29 70:5=s27 75:5=s2"
       ],
       "state": "session-rows-unbound-external-tree",
@@ -355946,7 +355946,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  ? help  q quit"
       ],
       "styles": [
         "0:9=s26 9:8=s27 17:9=s2 26:1=s27 27:3=s3 30:11=s27 41:2=s2 43:37=s27",
@@ -355956,7 +355956,7 @@
         "0:1=s2 1:25=s32 26:36=s2 62:17=s27 79:1=s2",
         "0:1=s2 1:2=s30 3:19=s34 22:57=s30 79:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:27=s2 46:33=s27 79:1=s2",
-        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:9=s27 54:1=s29 55:9=s27 64:1=s29 65:7=s27 72:1=s29 73:5=s27 78:2=s2"
+        "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:6=s27 51:1=s29 52:9=s27 61:1=s29 62:7=s27 69:1=s29 70:5=s27 75:5=s2"
       ],
       "state": "session-rows-unbound-external-tree",
       "look": "tmt-light",
@@ -356011,7 +356011,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move",
         " Tab panes  w snapshots  / search  ? help  q quit"
       ],
       "styles": [
@@ -356049,7 +356049,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:37=s30 59:1=s2",
         "0:1=s2 1:58=s30 59:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:7=s2 26:33=s27 59:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:7=s27 55:5=s2",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:5=s27 52:8=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:7=s27 43:1=s29 44:5=s27 49:11=s2"
       ],
       "state": "session-rows-unbound-external-tree",
@@ -378223,7 +378223,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
       ],
       "styles": [
@@ -378261,7 +378261,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:137=s54 159:1=s2",
         "0:1=s2 1:158=s54 159:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:107=s2 126:33=s49 159:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:14=s49 82:1=s53 83:7=s49 90:1=s53 91:7=s49 98:1=s53 99:4=s49 103:57=s2",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:9=s49 74:1=s53 75:14=s49 89:1=s53 90:7=s49 97:1=s53 98:7=s49 105:1=s53 106:4=s49 110:50=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:8=s49 80:1=s53 81:11=s49 92:1=s53 93:7=s49 100:1=s53 101:5=s49 106:54=s2"
       ],
       "state": "session-rows-unbound-flat",
@@ -378288,7 +378288,7 @@
         "   worker                product     ● working    ! unbound · tmux           —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  e details  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  ? help  q quit"
       ],
       "styles": [
         "0:9=s2 9:8=s49 17:89=s2 106:1=s49 107:3=s50 110:11=s49 121:2=s2 123:37=s49",
@@ -378298,7 +378298,7 @@
         "0:37=s54 37:12=s51 49:111=s54",
         "0:1=s2 1:2=s54 3:19=s57 22:137=s54 159:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:107=s2 126:33=s49 159:1=s2",
-        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:9=s49 54:1=s53 55:9=s49 64:1=s53 65:14=s49 79:1=s53 80:7=s49 87:1=s53 88:15=s49 103:1=s53 104:9=s49 113:1=s53 114:11=s49 125:1=s53 126:9=s49 135:1=s53 136:10=s49 146:1=s53 147:7=s49 154:1=s53 155:5=s49"
+        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:6=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:14=s49 86:1=s53 87:7=s49 94:1=s53 95:15=s49 110:1=s53 111:9=s49 120:1=s53 121:11=s49 132:1=s53 133:9=s49 142:1=s53 143:7=s49 150:1=s53 151:5=s49 156:4=s2"
       ],
       "state": "session-rows-unbound-flat",
       "look": "terminal",
@@ -378351,7 +378351,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -378389,7 +378389,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:47=s2 66:33=s49 99:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:14=s49 82:1=s53 83:7=s49 90:1=s53 91:4=s49 95:5=s2",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:9=s49 74:1=s53 75:14=s49 89:1=s53 90:5=s49 95:5=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:8=s49 80:1=s53 81:7=s49 88:1=s53 89:5=s49 94:6=s2"
       ],
       "state": "session-rows-unbound-flat",
@@ -378416,7 +378416,7 @@
         "   worker                product     ● working    ! unbound · tmux           —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  ? help  q quit"
       ],
       "styles": [
         "0:9=s2 9:8=s49 17:29=s2 46:1=s49 47:3=s50 50:11=s49 61:2=s2 63:37=s49",
@@ -378426,7 +378426,7 @@
         "0:37=s54 37:12=s51 49:51=s54",
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:47=s2 66:33=s49 99:1=s2",
-        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:9=s49 54:1=s53 55:9=s49 64:1=s53 65:14=s49 79:1=s53 80:7=s49 87:1=s53 88:5=s49 93:7=s2"
+        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:6=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:14=s49 86:1=s53 87:7=s49 94:1=s53 95:5=s49"
       ],
       "state": "session-rows-unbound-flat",
       "look": "terminal",
@@ -378479,7 +378479,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -378517,7 +378517,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:27=s2 46:33=s49 79:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:12=s49",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:7=s49 72:8=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:7=s49 69:1=s53 70:5=s49 75:5=s2"
       ],
       "state": "session-rows-unbound-flat",
@@ -378544,7 +378544,7 @@
         "   worker                product     ● working          —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  ? help  q quit"
       ],
       "styles": [
         "0:9=s2 9:8=s49 17:9=s2 26:1=s49 27:3=s50 30:11=s49 41:2=s2 43:37=s49",
@@ -378554,7 +378554,7 @@
         "0:37=s54 37:12=s51 49:31=s54",
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:27=s2 46:33=s49 79:1=s2",
-        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:9=s49 54:1=s53 55:9=s49 64:1=s53 65:7=s49 72:1=s53 73:5=s49 78:2=s2"
+        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:6=s49 51:1=s53 52:9=s49 61:1=s53 62:7=s49 69:1=s53 70:5=s49 75:5=s2"
       ],
       "state": "session-rows-unbound-flat",
       "look": "terminal",
@@ -378607,7 +378607,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move",
         " Tab panes  w snapshots  / search  ? help  q quit"
       ],
       "styles": [
@@ -378645,7 +378645,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:37=s54 59:1=s2",
         "0:1=s2 1:58=s54 59:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:7=s2 26:33=s49 59:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:7=s49 55:5=s2",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:5=s49 52:8=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:7=s49 43:1=s53 44:5=s49 49:11=s2"
       ],
       "state": "session-rows-unbound-flat",
@@ -378735,7 +378735,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
       ],
       "styles": [
@@ -378773,7 +378773,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:137=s54 159:1=s2",
         "0:1=s2 1:158=s54 159:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:107=s2 126:33=s49 159:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:14=s49 82:1=s53 83:7=s49 90:1=s53 91:7=s49 98:1=s53 99:4=s49 103:57=s2",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:9=s49 74:1=s53 75:14=s49 89:1=s53 90:7=s49 97:1=s53 98:7=s49 105:1=s53 106:4=s49 110:50=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:8=s49 80:1=s53 81:11=s49 92:1=s53 93:7=s49 100:1=s53 101:5=s49 106:54=s2"
       ],
       "state": "session-rows-unbound-tree",
@@ -378802,7 +378802,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                                                                                                    1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  e details  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  ? help  q quit"
       ],
       "styles": [
         "0:9=s2 9:8=s49 17:89=s2 106:1=s49 107:3=s50 110:11=s49 121:2=s2 123:37=s49",
@@ -378812,7 +378812,7 @@
         "0:1=s2 1:25=s56 26:116=s2 142:17=s49 159:1=s2",
         "0:1=s2 1:2=s54 3:19=s57 22:137=s54 159:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:107=s2 126:33=s49 159:1=s2",
-        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:9=s49 54:1=s53 55:9=s49 64:1=s53 65:14=s49 79:1=s53 80:7=s49 87:1=s53 88:15=s49 103:1=s53 104:9=s49 113:1=s53 114:11=s49 125:1=s53 126:9=s49 135:1=s53 136:10=s49 146:1=s53 147:7=s49 154:1=s53 155:5=s49"
+        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:6=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:14=s49 86:1=s53 87:7=s49 94:1=s53 95:15=s49 110:1=s53 111:9=s49 120:1=s53 121:11=s49 132:1=s53 133:9=s49 142:1=s53 143:7=s49 150:1=s53 151:5=s49 156:4=s2"
       ],
       "state": "session-rows-unbound-tree",
       "look": "terminal",
@@ -378867,7 +378867,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -378905,7 +378905,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:47=s2 66:33=s49 99:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:14=s49 82:1=s53 83:7=s49 90:1=s53 91:4=s49 95:5=s2",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:9=s49 74:1=s53 75:14=s49 89:1=s53 90:5=s49 95:5=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:8=s49 80:1=s53 81:7=s49 88:1=s53 89:5=s49 94:6=s2"
       ],
       "state": "session-rows-unbound-tree",
@@ -378934,7 +378934,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  ? help  q quit"
       ],
       "styles": [
         "0:9=s2 9:8=s49 17:29=s2 46:1=s49 47:3=s50 50:11=s49 61:2=s2 63:37=s49",
@@ -378944,7 +378944,7 @@
         "0:1=s2 1:25=s56 26:56=s2 82:17=s49 99:1=s2",
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:47=s2 66:33=s49 99:1=s2",
-        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:9=s49 54:1=s53 55:9=s49 64:1=s53 65:14=s49 79:1=s53 80:7=s49 87:1=s53 88:5=s49 93:7=s2"
+        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:6=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:14=s49 86:1=s53 87:7=s49 94:1=s53 95:5=s49"
       ],
       "state": "session-rows-unbound-tree",
       "look": "terminal",
@@ -378999,7 +378999,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -379037,7 +379037,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:27=s2 46:33=s49 79:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:12=s49",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:7=s49 72:8=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:7=s49 69:1=s53 70:5=s49 75:5=s2"
       ],
       "state": "session-rows-unbound-tree",
@@ -379066,7 +379066,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  ? help  q quit"
       ],
       "styles": [
         "0:9=s2 9:8=s49 17:9=s2 26:1=s49 27:3=s50 30:11=s49 41:2=s2 43:37=s49",
@@ -379076,7 +379076,7 @@
         "0:1=s2 1:25=s56 26:36=s2 62:17=s49 79:1=s2",
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:27=s2 46:33=s49 79:1=s2",
-        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:9=s49 54:1=s53 55:9=s49 64:1=s53 65:7=s49 72:1=s53 73:5=s49 78:2=s2"
+        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:6=s49 51:1=s53 52:9=s49 61:1=s53 62:7=s49 69:1=s53 70:5=s49 75:5=s2"
       ],
       "state": "session-rows-unbound-tree",
       "look": "terminal",
@@ -379131,7 +379131,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move",
         " Tab panes  w snapshots  / search  ? help  q quit"
       ],
       "styles": [
@@ -379169,7 +379169,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:37=s54 59:1=s2",
         "0:1=s2 1:58=s54 59:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:7=s2 26:33=s49 59:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:7=s49 55:5=s2",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:5=s49 52:8=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:7=s49 43:1=s53 44:5=s49 49:11=s2"
       ],
       "state": "session-rows-unbound-tree",
@@ -379263,7 +379263,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
       ],
       "styles": [
@@ -379301,7 +379301,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:137=s54 159:1=s2",
         "0:1=s2 1:158=s54 159:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:107=s2 126:33=s49 159:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:14=s49 82:1=s53 83:7=s49 90:1=s53 91:7=s49 98:1=s53 99:4=s49 103:57=s2",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:9=s49 74:1=s53 75:14=s49 89:1=s53 90:7=s49 97:1=s53 98:7=s49 105:1=s53 106:4=s49 110:50=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:8=s49 80:1=s53 81:11=s49 92:1=s53 93:7=s49 100:1=s53 101:5=s49 106:54=s2"
       ],
       "state": "session-rows-unbound-external-flat",
@@ -379328,7 +379328,7 @@
         "   worker                product     ● working    ! unbound · herdr          —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  e details  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  ? help  q quit"
       ],
       "styles": [
         "0:9=s2 9:8=s49 17:89=s2 106:1=s49 107:3=s50 110:11=s49 121:2=s2 123:37=s49",
@@ -379338,7 +379338,7 @@
         "0:37=s54 37:12=s51 49:111=s54",
         "0:1=s2 1:2=s54 3:19=s57 22:137=s54 159:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:107=s2 126:33=s49 159:1=s2",
-        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:9=s49 54:1=s53 55:9=s49 64:1=s53 65:14=s49 79:1=s53 80:7=s49 87:1=s53 88:15=s49 103:1=s53 104:9=s49 113:1=s53 114:11=s49 125:1=s53 126:9=s49 135:1=s53 136:10=s49 146:1=s53 147:7=s49 154:1=s53 155:5=s49"
+        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:6=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:14=s49 86:1=s53 87:7=s49 94:1=s53 95:15=s49 110:1=s53 111:9=s49 120:1=s53 121:11=s49 132:1=s53 133:9=s49 142:1=s53 143:7=s49 150:1=s53 151:5=s49 156:4=s2"
       ],
       "state": "session-rows-unbound-external-flat",
       "look": "terminal",
@@ -379391,7 +379391,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -379429,7 +379429,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:47=s2 66:33=s49 99:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:14=s49 82:1=s53 83:7=s49 90:1=s53 91:4=s49 95:5=s2",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:9=s49 74:1=s53 75:14=s49 89:1=s53 90:5=s49 95:5=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:8=s49 80:1=s53 81:7=s49 88:1=s53 89:5=s49 94:6=s2"
       ],
       "state": "session-rows-unbound-external-flat",
@@ -379456,7 +379456,7 @@
         "   worker                product     ● working    ! unbound · herdr          —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  ? help  q quit"
       ],
       "styles": [
         "0:9=s2 9:8=s49 17:29=s2 46:1=s49 47:3=s50 50:11=s49 61:2=s2 63:37=s49",
@@ -379466,7 +379466,7 @@
         "0:37=s54 37:12=s51 49:51=s54",
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:47=s2 66:33=s49 99:1=s2",
-        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:9=s49 54:1=s53 55:9=s49 64:1=s53 65:14=s49 79:1=s53 80:7=s49 87:1=s53 88:5=s49 93:7=s2"
+        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:6=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:14=s49 86:1=s53 87:7=s49 94:1=s53 95:5=s49"
       ],
       "state": "session-rows-unbound-external-flat",
       "look": "terminal",
@@ -379519,7 +379519,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -379557,7 +379557,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:27=s2 46:33=s49 79:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:12=s49",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:7=s49 72:8=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:7=s49 69:1=s53 70:5=s49 75:5=s2"
       ],
       "state": "session-rows-unbound-external-flat",
@@ -379584,7 +379584,7 @@
         "   worker                product     ● working          —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  ? help  q quit"
       ],
       "styles": [
         "0:9=s2 9:8=s49 17:9=s2 26:1=s49 27:3=s50 30:11=s49 41:2=s2 43:37=s49",
@@ -379594,7 +379594,7 @@
         "0:37=s54 37:12=s51 49:31=s54",
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:27=s2 46:33=s49 79:1=s2",
-        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:9=s49 54:1=s53 55:9=s49 64:1=s53 65:7=s49 72:1=s53 73:5=s49 78:2=s2"
+        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:6=s49 51:1=s53 52:9=s49 61:1=s53 62:7=s49 69:1=s53 70:5=s49 75:5=s2"
       ],
       "state": "session-rows-unbound-external-flat",
       "look": "terminal",
@@ -379647,7 +379647,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move",
         " Tab panes  w snapshots  / search  ? help  q quit"
       ],
       "styles": [
@@ -379685,7 +379685,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:37=s54 59:1=s2",
         "0:1=s2 1:58=s54 59:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:7=s2 26:33=s49 59:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:7=s49 55:5=s2",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:5=s49 52:8=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:7=s49 43:1=s53 44:5=s49 49:11=s2"
       ],
       "state": "session-rows-unbound-external-flat",
@@ -379775,7 +379775,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
       ],
       "styles": [
@@ -379813,7 +379813,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:137=s54 159:1=s2",
         "0:1=s2 1:158=s54 159:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:107=s2 126:33=s49 159:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:14=s49 82:1=s53 83:7=s49 90:1=s53 91:7=s49 98:1=s53 99:4=s49 103:57=s2",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:9=s49 74:1=s53 75:14=s49 89:1=s53 90:7=s49 97:1=s53 98:7=s49 105:1=s53 106:4=s49 110:50=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:8=s49 80:1=s53 81:11=s49 92:1=s53 93:7=s49 100:1=s53 101:5=s49 106:54=s2"
       ],
       "state": "session-rows-unbound-external-tree",
@@ -379842,7 +379842,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                                                                                                    1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  e details  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  ? help  q quit"
       ],
       "styles": [
         "0:9=s2 9:8=s49 17:89=s2 106:1=s49 107:3=s50 110:11=s49 121:2=s2 123:37=s49",
@@ -379852,7 +379852,7 @@
         "0:1=s2 1:25=s56 26:116=s2 142:17=s49 159:1=s2",
         "0:1=s2 1:2=s54 3:19=s57 22:137=s54 159:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:107=s2 126:33=s49 159:1=s2",
-        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:9=s49 54:1=s53 55:9=s49 64:1=s53 65:14=s49 79:1=s53 80:7=s49 87:1=s53 88:15=s49 103:1=s53 104:9=s49 113:1=s53 114:11=s49 125:1=s53 126:9=s49 135:1=s53 136:10=s49 146:1=s53 147:7=s49 154:1=s53 155:5=s49"
+        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:6=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:14=s49 86:1=s53 87:7=s49 94:1=s53 95:15=s49 110:1=s53 111:9=s49 120:1=s53 121:11=s49 132:1=s53 133:9=s49 142:1=s53 143:7=s49 150:1=s53 151:5=s49 156:4=s2"
       ],
       "state": "session-rows-unbound-external-tree",
       "look": "terminal",
@@ -379907,7 +379907,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -379945,7 +379945,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:47=s2 66:33=s49 99:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:14=s49 82:1=s53 83:7=s49 90:1=s53 91:4=s49 95:5=s2",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:9=s49 74:1=s53 75:14=s49 89:1=s53 90:5=s49 95:5=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:8=s49 80:1=s53 81:7=s49 88:1=s53 89:5=s49 94:6=s2"
       ],
       "state": "session-rows-unbound-external-tree",
@@ -379974,7 +379974,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  ? help  q quit"
       ],
       "styles": [
         "0:9=s2 9:8=s49 17:29=s2 46:1=s49 47:3=s50 50:11=s49 61:2=s2 63:37=s49",
@@ -379984,7 +379984,7 @@
         "0:1=s2 1:25=s56 26:56=s2 82:17=s49 99:1=s2",
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:47=s2 66:33=s49 99:1=s2",
-        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:9=s49 54:1=s53 55:9=s49 64:1=s53 65:14=s49 79:1=s53 80:7=s49 87:1=s53 88:5=s49 93:7=s2"
+        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:6=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:14=s49 86:1=s53 87:7=s49 94:1=s53 95:5=s49"
       ],
       "state": "session-rows-unbound-external-tree",
       "look": "terminal",
@@ -380039,7 +380039,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -380077,7 +380077,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:27=s2 46:33=s49 79:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:12=s49",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:7=s49 72:8=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:7=s49 69:1=s53 70:5=s49 75:5=s2"
       ],
       "state": "session-rows-unbound-external-tree",
@@ -380106,7 +380106,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  ? help  q quit"
       ],
       "styles": [
         "0:9=s2 9:8=s49 17:9=s2 26:1=s49 27:3=s50 30:11=s49 41:2=s2 43:37=s49",
@@ -380116,7 +380116,7 @@
         "0:1=s2 1:25=s56 26:36=s2 62:17=s49 79:1=s2",
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:27=s2 46:33=s49 79:1=s2",
-        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:9=s49 54:1=s53 55:9=s49 64:1=s53 65:7=s49 72:1=s53 73:5=s49 78:2=s2"
+        "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:6=s49 51:1=s53 52:9=s49 61:1=s53 62:7=s49 69:1=s53 70:5=s49 75:5=s2"
       ],
       "state": "session-rows-unbound-external-tree",
       "look": "terminal",
@@ -380171,7 +380171,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move",
         " Tab panes  w snapshots  / search  ? help  q quit"
       ],
       "styles": [
@@ -380209,7 +380209,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:37=s54 59:1=s2",
         "0:1=s2 1:58=s54 59:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:7=s2 26:33=s49 59:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:7=s49 55:5=s2",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:5=s49 52:8=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:7=s49 43:1=s53 44:5=s49 49:11=s2"
       ],
       "state": "session-rows-unbound-external-tree",
@@ -402383,7 +402383,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
       ],
       "styles": [
@@ -402421,7 +402421,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:137=s54 159:1=s2",
         "0:1=s2 1:158=s54 159:1=s2",
         "0:160=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:14=s2 82:1=s53 83:7=s2 90:1=s53 91:7=s2 98:1=s53 99:61=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:9=s2 74:1=s53 75:14=s2 89:1=s53 90:7=s2 97:1=s53 98:7=s2 105:1=s53 106:54=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:8=s2 80:1=s53 81:11=s2 92:1=s53 93:7=s2 100:1=s53 101:59=s2"
       ],
       "state": "session-rows-unbound-flat",
@@ -402448,7 +402448,7 @@
         "   worker                product     ● working    ! unbound · tmux           —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  e details  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  ? help  q quit"
       ],
       "styles": [
         "0:107=s2 107:3=s51 110:50=s2",
@@ -402458,7 +402458,7 @@
         "0:37=s54 37:12=s51 49:111=s54",
         "0:1=s2 1:2=s54 3:19=s57 22:137=s54 159:1=s2",
         "0:160=s2",
-        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:9=s2 54:1=s53 55:9=s2 64:1=s53 65:14=s2 79:1=s53 80:7=s2 87:1=s53 88:15=s2 103:1=s53 104:9=s2 113:1=s53 114:11=s2 125:1=s53 126:9=s2 135:1=s53 136:10=s2 146:1=s53 147:7=s2 154:1=s53 155:5=s2"
+        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:6=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:14=s2 86:1=s53 87:7=s2 94:1=s53 95:15=s2 110:1=s53 111:9=s2 120:1=s53 121:11=s2 132:1=s53 133:9=s2 142:1=s53 143:7=s2 150:1=s53 151:9=s2"
       ],
       "state": "session-rows-unbound-flat",
       "look": "NO_COLOR",
@@ -402511,7 +402511,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -402549,7 +402549,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:100=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:14=s2 82:1=s53 83:7=s2 90:1=s53 91:9=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:9=s2 74:1=s53 75:14=s2 89:1=s53 90:10=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:8=s2 80:1=s53 81:7=s2 88:1=s53 89:11=s2"
       ],
       "state": "session-rows-unbound-flat",
@@ -402576,7 +402576,7 @@
         "   worker                product     ● working    ! unbound · tmux           —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  ? help  q quit"
       ],
       "styles": [
         "0:47=s2 47:3=s51 50:50=s2",
@@ -402586,7 +402586,7 @@
         "0:37=s54 37:12=s51 49:51=s54",
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:100=s2",
-        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:9=s2 54:1=s53 55:9=s2 64:1=s53 65:14=s2 79:1=s53 80:7=s2 87:1=s53 88:12=s2"
+        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:6=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:14=s2 86:1=s53 87:7=s2 94:1=s53 95:5=s2"
       ],
       "state": "session-rows-unbound-flat",
       "look": "NO_COLOR",
@@ -402639,7 +402639,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -402677,7 +402677,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:80=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:12=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:15=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:7=s2 69:1=s53 70:10=s2"
       ],
       "state": "session-rows-unbound-flat",
@@ -402704,7 +402704,7 @@
         "   worker                product     ● working          —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  ? help  q quit"
       ],
       "styles": [
         "0:27=s2 27:3=s51 30:50=s2",
@@ -402714,7 +402714,7 @@
         "0:37=s54 37:12=s51 49:31=s54",
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:80=s2",
-        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:9=s2 54:1=s53 55:9=s2 64:1=s53 65:7=s2 72:1=s53 73:7=s2"
+        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:6=s2 51:1=s53 52:9=s2 61:1=s53 62:7=s2 69:1=s53 70:10=s2"
       ],
       "state": "session-rows-unbound-flat",
       "look": "NO_COLOR",
@@ -402767,7 +402767,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move",
         " Tab panes  w snapshots  / search  ? help  q quit"
       ],
       "styles": [
@@ -402805,7 +402805,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:37=s54 59:1=s2",
         "0:1=s2 1:58=s54 59:1=s2",
         "0:60=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:12=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:13=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:7=s2 43:1=s53 44:16=s2"
       ],
       "state": "session-rows-unbound-flat",
@@ -402895,7 +402895,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
       ],
       "styles": [
@@ -402933,7 +402933,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:137=s54 159:1=s2",
         "0:1=s2 1:158=s54 159:1=s2",
         "0:160=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:14=s2 82:1=s53 83:7=s2 90:1=s53 91:7=s2 98:1=s53 99:61=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:9=s2 74:1=s53 75:14=s2 89:1=s53 90:7=s2 97:1=s53 98:7=s2 105:1=s53 106:54=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:8=s2 80:1=s53 81:11=s2 92:1=s53 93:7=s2 100:1=s53 101:59=s2"
       ],
       "state": "session-rows-unbound-tree",
@@ -402962,7 +402962,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                                                                                                    1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  e details  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  ? help  q quit"
       ],
       "styles": [
         "0:107=s2 107:3=s51 110:50=s2",
@@ -402972,7 +402972,7 @@
         "0:160=s2",
         "0:1=s2 1:2=s54 3:19=s57 22:137=s54 159:1=s2",
         "0:160=s2",
-        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:9=s2 54:1=s53 55:9=s2 64:1=s53 65:14=s2 79:1=s53 80:7=s2 87:1=s53 88:15=s2 103:1=s53 104:9=s2 113:1=s53 114:11=s2 125:1=s53 126:9=s2 135:1=s53 136:10=s2 146:1=s53 147:7=s2 154:1=s53 155:5=s2"
+        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:6=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:14=s2 86:1=s53 87:7=s2 94:1=s53 95:15=s2 110:1=s53 111:9=s2 120:1=s53 121:11=s2 132:1=s53 133:9=s2 142:1=s53 143:7=s2 150:1=s53 151:9=s2"
       ],
       "state": "session-rows-unbound-tree",
       "look": "NO_COLOR",
@@ -403027,7 +403027,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -403065,7 +403065,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:100=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:14=s2 82:1=s53 83:7=s2 90:1=s53 91:9=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:9=s2 74:1=s53 75:14=s2 89:1=s53 90:10=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:8=s2 80:1=s53 81:7=s2 88:1=s53 89:11=s2"
       ],
       "state": "session-rows-unbound-tree",
@@ -403094,7 +403094,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  ? help  q quit"
       ],
       "styles": [
         "0:47=s2 47:3=s51 50:50=s2",
@@ -403104,7 +403104,7 @@
         "0:100=s2",
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:100=s2",
-        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:9=s2 54:1=s53 55:9=s2 64:1=s53 65:14=s2 79:1=s53 80:7=s2 87:1=s53 88:12=s2"
+        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:6=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:14=s2 86:1=s53 87:7=s2 94:1=s53 95:5=s2"
       ],
       "state": "session-rows-unbound-tree",
       "look": "NO_COLOR",
@@ -403159,7 +403159,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -403197,7 +403197,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:80=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:12=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:15=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:7=s2 69:1=s53 70:10=s2"
       ],
       "state": "session-rows-unbound-tree",
@@ -403226,7 +403226,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  ? help  q quit"
       ],
       "styles": [
         "0:27=s2 27:3=s51 30:50=s2",
@@ -403236,7 +403236,7 @@
         "0:80=s2",
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:80=s2",
-        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:9=s2 54:1=s53 55:9=s2 64:1=s53 65:7=s2 72:1=s53 73:7=s2"
+        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:6=s2 51:1=s53 52:9=s2 61:1=s53 62:7=s2 69:1=s53 70:10=s2"
       ],
       "state": "session-rows-unbound-tree",
       "look": "NO_COLOR",
@@ -403291,7 +403291,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move",
         " Tab panes  w snapshots  / search  ? help  q quit"
       ],
       "styles": [
@@ -403329,7 +403329,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:37=s54 59:1=s2",
         "0:1=s2 1:58=s54 59:1=s2",
         "0:60=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:12=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:13=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:7=s2 43:1=s53 44:16=s2"
       ],
       "state": "session-rows-unbound-tree",
@@ -403423,7 +403423,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
       ],
       "styles": [
@@ -403461,7 +403461,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:137=s54 159:1=s2",
         "0:1=s2 1:158=s54 159:1=s2",
         "0:160=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:14=s2 82:1=s53 83:7=s2 90:1=s53 91:7=s2 98:1=s53 99:61=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:9=s2 74:1=s53 75:14=s2 89:1=s53 90:7=s2 97:1=s53 98:7=s2 105:1=s53 106:54=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:8=s2 80:1=s53 81:11=s2 92:1=s53 93:7=s2 100:1=s53 101:59=s2"
       ],
       "state": "session-rows-unbound-external-flat",
@@ -403488,7 +403488,7 @@
         "   worker                product     ● working    ! unbound · herdr          —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  e details  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  ? help  q quit"
       ],
       "styles": [
         "0:107=s2 107:3=s51 110:50=s2",
@@ -403498,7 +403498,7 @@
         "0:37=s54 37:12=s51 49:111=s54",
         "0:1=s2 1:2=s54 3:19=s57 22:137=s54 159:1=s2",
         "0:160=s2",
-        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:9=s2 54:1=s53 55:9=s2 64:1=s53 65:14=s2 79:1=s53 80:7=s2 87:1=s53 88:15=s2 103:1=s53 104:9=s2 113:1=s53 114:11=s2 125:1=s53 126:9=s2 135:1=s53 136:10=s2 146:1=s53 147:7=s2 154:1=s53 155:5=s2"
+        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:6=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:14=s2 86:1=s53 87:7=s2 94:1=s53 95:15=s2 110:1=s53 111:9=s2 120:1=s53 121:11=s2 132:1=s53 133:9=s2 142:1=s53 143:7=s2 150:1=s53 151:9=s2"
       ],
       "state": "session-rows-unbound-external-flat",
       "look": "NO_COLOR",
@@ -403551,7 +403551,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -403589,7 +403589,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:100=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:14=s2 82:1=s53 83:7=s2 90:1=s53 91:9=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:9=s2 74:1=s53 75:14=s2 89:1=s53 90:10=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:8=s2 80:1=s53 81:7=s2 88:1=s53 89:11=s2"
       ],
       "state": "session-rows-unbound-external-flat",
@@ -403616,7 +403616,7 @@
         "   worker                product     ● working    ! unbound · herdr          —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  ? help  q quit"
       ],
       "styles": [
         "0:47=s2 47:3=s51 50:50=s2",
@@ -403626,7 +403626,7 @@
         "0:37=s54 37:12=s51 49:51=s54",
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:100=s2",
-        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:9=s2 54:1=s53 55:9=s2 64:1=s53 65:14=s2 79:1=s53 80:7=s2 87:1=s53 88:12=s2"
+        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:6=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:14=s2 86:1=s53 87:7=s2 94:1=s53 95:5=s2"
       ],
       "state": "session-rows-unbound-external-flat",
       "look": "NO_COLOR",
@@ -403679,7 +403679,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -403717,7 +403717,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:80=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:12=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:15=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:7=s2 69:1=s53 70:10=s2"
       ],
       "state": "session-rows-unbound-external-flat",
@@ -403744,7 +403744,7 @@
         "   worker                product     ● working          —   —",
         "   ⏎ to message worker",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  ? help  q quit"
       ],
       "styles": [
         "0:27=s2 27:3=s51 30:50=s2",
@@ -403754,7 +403754,7 @@
         "0:37=s54 37:12=s51 49:31=s54",
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:80=s2",
-        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:9=s2 54:1=s53 55:9=s2 64:1=s53 65:7=s2 72:1=s53 73:7=s2"
+        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:6=s2 51:1=s53 52:9=s2 61:1=s53 62:7=s2 69:1=s53 70:10=s2"
       ],
       "state": "session-rows-unbound-external-flat",
       "look": "NO_COLOR",
@@ -403807,7 +403807,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move",
         " Tab panes  w snapshots  / search  ? help  q quit"
       ],
       "styles": [
@@ -403845,7 +403845,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:37=s54 59:1=s2",
         "0:1=s2 1:58=s54 59:1=s2",
         "0:60=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:12=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:13=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:7=s2 43:1=s53 44:16=s2"
       ],
       "state": "session-rows-unbound-external-flat",
@@ -403935,7 +403935,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  j host  p pin",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
       ],
       "styles": [
@@ -403973,7 +403973,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:137=s54 159:1=s2",
         "0:1=s2 1:158=s54 159:1=s2",
         "0:160=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:14=s2 82:1=s53 83:7=s2 90:1=s53 91:7=s2 98:1=s53 99:61=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:9=s2 74:1=s53 75:14=s2 89:1=s53 90:7=s2 97:1=s53 98:7=s2 105:1=s53 106:54=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:8=s2 80:1=s53 81:11=s2 92:1=s53 93:7=s2 100:1=s53 101:59=s2"
       ],
       "state": "session-rows-unbound-external-tree",
@@ -404002,7 +404002,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                                                                                                    1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  e details  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  m move  M talk/measure  f filter  R Session…  c timers  ? help  q quit"
       ],
       "styles": [
         "0:107=s2 107:3=s51 110:50=s2",
@@ -404012,7 +404012,7 @@
         "0:160=s2",
         "0:1=s2 1:2=s54 3:19=s57 22:137=s54 159:1=s2",
         "0:160=s2",
-        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:9=s2 54:1=s53 55:9=s2 64:1=s53 65:14=s2 79:1=s53 80:7=s2 87:1=s53 88:15=s2 103:1=s53 104:9=s2 113:1=s53 114:11=s2 125:1=s53 126:9=s2 135:1=s53 136:10=s2 146:1=s53 147:7=s2 154:1=s53 155:5=s2"
+        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:6=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:14=s2 86:1=s53 87:7=s2 94:1=s53 95:15=s2 110:1=s53 111:9=s2 120:1=s53 121:11=s2 132:1=s53 133:9=s2 142:1=s53 143:7=s2 150:1=s53 151:9=s2"
       ],
       "state": "session-rows-unbound-external-tree",
       "look": "NO_COLOR",
@@ -404067,7 +404067,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -404105,7 +404105,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:100=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:14=s2 82:1=s53 83:7=s2 90:1=s53 91:9=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:9=s2 74:1=s53 75:14=s2 89:1=s53 90:10=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:8=s2 80:1=s53 81:7=s2 88:1=s53 89:11=s2"
       ],
       "state": "session-rows-unbound-external-tree",
@@ -404134,7 +404134,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  x leave squad  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  d remove  x leave squad  ? help  q quit"
       ],
       "styles": [
         "0:47=s2 47:3=s51 50:50=s2",
@@ -404144,7 +404144,7 @@
         "0:100=s2",
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:100=s2",
-        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:9=s2 54:1=s53 55:9=s2 64:1=s53 65:14=s2 79:1=s53 80:7=s2 87:1=s53 88:12=s2"
+        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:6=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:14=s2 86:1=s53 87:7=s2 94:1=s53 95:5=s2"
       ],
       "state": "session-rows-unbound-external-tree",
       "look": "NO_COLOR",
@@ -404199,7 +404199,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -404237,7 +404237,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:80=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:12=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:15=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:7=s2 69:1=s53 70:10=s2"
       ],
       "state": "session-rows-unbound-external-tree",
@@ -404266,7 +404266,7 @@
         " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
         "   ⏎ to message worker",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ⏎ chat  D digest  j host  p pin  N create  r rename  d remove  ? help  q quit"
+        " ⏎ chat  D digest  j host  p pin  N create  n new  r rename  ? help  q quit"
       ],
       "styles": [
         "0:27=s2 27:3=s51 30:50=s2",
@@ -404276,7 +404276,7 @@
         "0:80=s2",
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:80=s2",
-        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:9=s2 54:1=s53 55:9=s2 64:1=s53 65:7=s2 72:1=s53 73:7=s2"
+        "0:1=s2 1:1=s53 2:7=s2 9:1=s53 10:9=s2 19:1=s53 20:7=s2 27:1=s53 28:6=s2 34:1=s53 35:9=s2 44:1=s53 45:6=s2 51:1=s53 52:9=s2 61:1=s53 62:7=s2 69:1=s53 70:10=s2"
       ],
       "state": "session-rows-unbound-external-tree",
       "look": "NO_COLOR",
@@ -404331,7 +404331,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move",
         " Tab panes  w snapshots  / search  ? help  q quit"
       ],
       "styles": [
@@ -404369,7 +404369,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:37=s54 59:1=s2",
         "0:1=s2 1:58=s54 59:1=s2",
         "0:60=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:12=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:13=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:7=s2 43:1=s53 44:16=s2"
       ],
       "state": "session-rows-unbound-external-tree",
@@ -404974,7 +404974,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -405027,7 +405027,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:77=s7 99:1=s2",
         "0:1=s2 1:98=s7 99:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:47=s2 66:33=s1 99:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:14=s1 82:1=s6 83:7=s1 90:1=s6 91:4=s1 95:5=s2",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:9=s1 74:1=s6 75:14=s1 89:1=s6 90:5=s1 95:5=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:8=s1 80:1=s6 81:7=s1 88:1=s6 89:5=s1 94:6=s2"
       ],
       "state": "chat-block-working",
@@ -405098,7 +405098,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -405151,7 +405151,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:57=s7 79:1=s2",
         "0:1=s2 1:78=s7 79:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:27=s2 46:33=s1 79:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:12=s1",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:7=s1 72:8=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:7=s1 69:1=s6 70:5=s1 75:5=s2"
       ],
       "state": "chat-block-working",
@@ -405222,7 +405222,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -405275,7 +405275,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:77=s7 99:1=s2",
         "0:1=s2 1:98=s7 99:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:47=s2 66:33=s1 99:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:14=s1 82:1=s6 83:7=s1 90:1=s6 91:4=s1 95:5=s2",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:9=s1 74:1=s6 75:14=s1 89:1=s6 90:5=s1 95:5=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:8=s1 80:1=s6 81:7=s1 88:1=s6 89:5=s1 94:6=s2"
       ],
       "state": "chat-block-paragraphs",
@@ -405346,7 +405346,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -405399,7 +405399,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:57=s7 79:1=s2",
         "0:1=s2 1:78=s7 79:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:27=s2 46:33=s1 79:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:12=s1",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:7=s1 72:8=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:7=s1 69:1=s6 70:5=s1 75:5=s2"
       ],
       "state": "chat-block-paragraphs",
@@ -405470,7 +405470,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -405523,7 +405523,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:77=s7 99:1=s2",
         "0:1=s2 1:98=s7 99:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:47=s2 66:33=s1 99:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:14=s1 82:1=s6 83:7=s1 90:1=s6 91:4=s1 95:5=s2",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:9=s1 74:1=s6 75:14=s1 89:1=s6 90:5=s1 95:5=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:8=s1 80:1=s6 81:7=s1 88:1=s6 89:5=s1 94:6=s2"
       ],
       "state": "chat-block-failed",
@@ -405594,7 +405594,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -405647,7 +405647,7 @@
         "0:1=s2 1:2=s7 3:19=s11 22:57=s7 79:1=s2",
         "0:1=s2 1:78=s7 79:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s1 19:27=s2 46:33=s1 79:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:9=s1 39:1=s6 40:7=s1 47:1=s6 48:9=s1 57:1=s6 58:9=s1 67:1=s6 68:12=s1",
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:6=s1 36:1=s6 37:9=s1 46:1=s6 47:7=s1 54:1=s6 55:9=s1 64:1=s6 65:7=s1 72:8=s2",
         "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:7=s1 69:1=s6 70:5=s1 75:5=s2"
       ],
       "state": "chat-block-failed",
@@ -406214,7 +406214,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -406267,7 +406267,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:77=s30 99:1=s2",
         "0:1=s2 1:98=s30 99:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:47=s2 66:33=s27 99:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:14=s27 82:1=s29 83:7=s27 90:1=s29 91:4=s27 95:5=s2",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:9=s27 74:1=s29 75:14=s27 89:1=s29 90:5=s27 95:5=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:8=s27 80:1=s29 81:7=s27 88:1=s29 89:5=s27 94:6=s2"
       ],
       "state": "chat-block-working",
@@ -406338,7 +406338,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -406391,7 +406391,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:57=s30 79:1=s2",
         "0:1=s2 1:78=s30 79:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:27=s2 46:33=s27 79:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:12=s27",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:7=s27 72:8=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:7=s27 69:1=s29 70:5=s27 75:5=s2"
       ],
       "state": "chat-block-working",
@@ -406462,7 +406462,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -406515,7 +406515,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:77=s30 99:1=s2",
         "0:1=s2 1:98=s30 99:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:47=s2 66:33=s27 99:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:14=s27 82:1=s29 83:7=s27 90:1=s29 91:4=s27 95:5=s2",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:9=s27 74:1=s29 75:14=s27 89:1=s29 90:5=s27 95:5=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:8=s27 80:1=s29 81:7=s27 88:1=s29 89:5=s27 94:6=s2"
       ],
       "state": "chat-block-paragraphs",
@@ -406586,7 +406586,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -406639,7 +406639,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:57=s30 79:1=s2",
         "0:1=s2 1:78=s30 79:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:27=s2 46:33=s27 79:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:12=s27",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:7=s27 72:8=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:7=s27 69:1=s29 70:5=s27 75:5=s2"
       ],
       "state": "chat-block-paragraphs",
@@ -406710,7 +406710,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -406763,7 +406763,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:77=s30 99:1=s2",
         "0:1=s2 1:98=s30 99:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:47=s2 66:33=s27 99:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:14=s27 82:1=s29 83:7=s27 90:1=s29 91:4=s27 95:5=s2",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:9=s27 74:1=s29 75:14=s27 89:1=s29 90:5=s27 95:5=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:8=s27 80:1=s29 81:7=s27 88:1=s29 89:5=s27 94:6=s2"
       ],
       "state": "chat-block-failed",
@@ -406834,7 +406834,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -406887,7 +406887,7 @@
         "0:1=s2 1:2=s30 3:19=s34 22:57=s30 79:1=s2",
         "0:1=s2 1:78=s30 79:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s27 19:27=s2 46:33=s27 79:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:9=s27 39:1=s29 40:7=s27 47:1=s29 48:9=s27 57:1=s29 58:9=s27 67:1=s29 68:12=s27",
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:6=s27 36:1=s29 37:9=s27 46:1=s29 47:7=s27 54:1=s29 55:9=s27 64:1=s29 65:7=s27 72:8=s2",
         "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:7=s27 69:1=s29 70:5=s27 75:5=s2"
       ],
       "state": "chat-block-failed",
@@ -407454,7 +407454,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -407507,7 +407507,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:47=s2 66:33=s49 99:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:14=s49 82:1=s53 83:7=s49 90:1=s53 91:4=s49 95:5=s2",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:9=s49 74:1=s53 75:14=s49 89:1=s53 90:5=s49 95:5=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:8=s49 80:1=s53 81:7=s49 88:1=s53 89:5=s49 94:6=s2"
       ],
       "state": "chat-block-working",
@@ -407578,7 +407578,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -407631,7 +407631,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:27=s2 46:33=s49 79:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:12=s49",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:7=s49 72:8=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:7=s49 69:1=s53 70:5=s49 75:5=s2"
       ],
       "state": "chat-block-working",
@@ -407702,7 +407702,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -407755,7 +407755,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:47=s2 66:33=s49 99:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:14=s49 82:1=s53 83:7=s49 90:1=s53 91:4=s49 95:5=s2",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:9=s49 74:1=s53 75:14=s49 89:1=s53 90:5=s49 95:5=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:8=s49 80:1=s53 81:7=s49 88:1=s53 89:5=s49 94:6=s2"
       ],
       "state": "chat-block-paragraphs",
@@ -407826,7 +407826,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -407879,7 +407879,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:27=s2 46:33=s49 79:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:12=s49",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:7=s49 72:8=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:7=s49 69:1=s53 70:5=s49 75:5=s2"
       ],
       "state": "chat-block-paragraphs",
@@ -407950,7 +407950,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -408003,7 +408003,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:47=s2 66:33=s49 99:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:14=s49 82:1=s53 83:7=s49 90:1=s53 91:4=s49 95:5=s2",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:9=s49 74:1=s53 75:14=s49 89:1=s53 90:5=s49 95:5=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:8=s49 80:1=s53 81:7=s49 88:1=s53 89:5=s49 94:6=s2"
       ],
       "state": "chat-block-failed",
@@ -408074,7 +408074,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -408127,7 +408127,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:10=s49 19:27=s2 46:33=s49 79:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:9=s49 39:1=s53 40:7=s49 47:1=s53 48:9=s49 57:1=s53 58:9=s49 67:1=s53 68:12=s49",
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:6=s49 36:1=s53 37:9=s49 46:1=s53 47:7=s49 54:1=s53 55:9=s49 64:1=s53 65:7=s49 72:8=s2",
         "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:7=s49 69:1=s53 70:5=s49 75:5=s2"
       ],
       "state": "chat-block-failed",
@@ -408446,7 +408446,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -408499,7 +408499,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:100=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:14=s2 82:1=s53 83:7=s2 90:1=s53 91:9=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:9=s2 74:1=s53 75:14=s2 89:1=s53 90:10=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:8=s2 80:1=s53 81:7=s2 88:1=s53 89:11=s2"
       ],
       "state": "chat-one-turn-restored",
@@ -408570,7 +408570,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -408623,7 +408623,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:80=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:12=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:15=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:7=s2 69:1=s53 70:10=s2"
       ],
       "state": "chat-one-turn-restored",
@@ -408694,7 +408694,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -408747,7 +408747,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:100=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:14=s2 82:1=s53 83:7=s2 90:1=s53 91:9=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:9=s2 74:1=s53 75:14=s2 89:1=s53 90:10=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:8=s2 80:1=s53 81:7=s2 88:1=s53 89:11=s2"
       ],
       "state": "chat-block-working",
@@ -408818,7 +408818,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -408871,7 +408871,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:80=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:12=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:15=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:7=s2 69:1=s53 70:10=s2"
       ],
       "state": "chat-block-working",
@@ -408942,7 +408942,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  j host  p pin",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  j host",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
       ],
       "styles": [
@@ -408995,7 +408995,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:100=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:14=s2 82:1=s53 83:7=s2 90:1=s53 91:9=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:9=s2 74:1=s53 75:14=s2 89:1=s53 90:10=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:8=s2 80:1=s53 81:7=s2 88:1=s53 89:11=s2"
       ],
       "state": "chat-block-paragraphs",
@@ -409066,7 +409066,7 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+        " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
         " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
       ],
       "styles": [
@@ -409119,7 +409119,7 @@
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:80=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:9=s2 39:1=s53 40:7=s2 47:1=s53 48:9=s2 57:1=s53 58:9=s2 67:1=s53 68:12=s2",
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:6=s2 36:1=s53 37:9=s2 46:1=s53 47:7=s2 54:1=s53 55:9=s2 64:1=s53 65:15=s2",
         "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:7=s2 69:1=s53 70:10=s2"
       ],
       "state": "chat-block-paragraphs",
