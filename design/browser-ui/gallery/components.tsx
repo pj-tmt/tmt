@@ -582,8 +582,8 @@ function TabsDemo({
   const scoped = tabs.map((tab, index) => ({
     ...tab,
     ...(counts ? { count: [6, 1, 3][index] } : {}),
-    tabId: `${variant}-${theme}-${tab.tabId}-tab`,
-    panelId: `${variant}-${theme}-${tab.panelId}-panel`,
+    tabId: `${variant}-${wrap ? 'wrap' : 'scroll'}-${theme}-${tab.tabId}-tab`,
+    panelId: `${variant}-${wrap ? 'wrap' : 'scroll'}-${theme}-${tab.panelId}-panel`,
   }));
   return (
     <BrowserTabs

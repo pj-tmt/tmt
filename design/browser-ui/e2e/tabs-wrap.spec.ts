@@ -4,6 +4,9 @@ import { expect, test } from '@playwright/test';
 // clipped, and the DOM (so the arrow-key) order is the reading order.
 test('a wrapping flat tab strip shows every tab in rows without scrolling', async ({ page }) => {
   await page.goto('/#tabs');
+  // Both flat examples share a document; each tab must reference its own retained panel.
+  const ids = await page.locator('#tabs [id]').evaluateAll((nodes) => nodes.map((node) => node.id));
+  expect(new Set(ids).size).toBe(ids.length);
   for (const theme of ['light', 'dark']) {
     const list = page
       .locator('.gallery-pair', { has: page.locator('h3', { hasText: 'flat, wrapping' }) })
