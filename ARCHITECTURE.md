@@ -446,11 +446,11 @@ own module/drawing boundaries and verification.
 
 ## Testing and evidence boundaries
 
-Rust tests stay beside their owners. TypeScript native, E2E and tooling
-suites share `test/support`, which imports no suite; native and E2E import neither
-each other nor tooling. Scenarios retain assertions; helpers own fixture
-mechanics. Frozen inputs and independent SQL/schema oracles must not derive
-expected results from the implementation under test.
+Rust tests stay owner-local. TypeScript suites share `test/support`, which imports
+no suite. Native/E2E import neither each other nor tooling. Scenarios own assertions;
+support owns fixtures and scripted loopback models, never provider launch.
+Frozen inputs and independent SQL/schema oracles cannot derive expectations from
+the implementation under test.
 
 State, provider roots, prefixes, sockets and processes remain fixture-owned.
 Adapters' default-off `test-isolation` feature admits private discovery paths in consumer test builds.

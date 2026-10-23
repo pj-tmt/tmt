@@ -44,6 +44,29 @@ and late-final behavior. Docker adds private tmux, caller/lifecycle, transport
 and cross-process ordering. Tooling tests prove verifiers and policy, not runtime
 or release archives.
 
+## Scripted model transport
+
+`test/support/mock-model-server.mjs` owns dependency-free loopback Messages and
+Responses text streams, not provider launch or scenario assertions. It binds
+`127.0.0.1` on an allocated port. Model POSTs require the exported synthetic token;
+health and declared GET/HEAD probes return only fixed fixture data.
+Callers supply finite text-turn queues per protocol/model, with SSE and JSON replies,
+and close the handle in fixture cleanup;
+`closed` resolves after listener shutdown. The detached census contains no headers
+or prompt bodies. Declared side routes/models have fixed replies and per-route
+bounds, are counted separately, and never consume scenario turns; unknown requests
+still refuse. Counts prove replies served, not provider completion. A named refusal
+remains a fixture failure even if later requests arrive. The server never forwards traffic.
+
+Hard ceilings are 16 turns, 16 side declarations (at most 16 calls each), 64 total
+requests, 1 MiB per request, 8 KiB text per turn,
+64 KiB encoded response, 5 s per request body and 120 s server lifetime; callers
+may lower them. Four concurrent connections are admitted. Tooling wire tests use
+synthetic HTTP clients only; they do not qualify real harnesses, hooks, usage
+projection or readiness. Real-binary hosted qualification and its narrow skill
+exception belong to the separately reviewed advisory lane; this helper grants
+no exception to ordinary E2E's deterministic-peer rule.
+
 ## Executable fixtures
 
 `test/support/executable-fixture.mjs` publishes executable and interpreted fixture
