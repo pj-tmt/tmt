@@ -6,7 +6,7 @@ import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 import { assertPrivateSocket, locateTmux, privateTmux } from '../support/private-tmux.js';
 
 // #4580: every host publishes one launch template, the argv that opens a new pane in a session
-// and runs one command there. Ops fills `{session}` and `{command}` and runs it. The tmux template
+// and runs one command there. The caller fills `{session}` and `{command}` and runs it. The tmux template
 // is a constant of the CLI, so what it does to a real server is checked here by expanding the
 // words `tmt host templates` printed and running them.
 //
@@ -31,7 +31,7 @@ async function tmuxTemplate(sandbox: Sandbox): Promise<string[]> {
   return tmux!.launch!.argv;
 }
 
-/** Each placeholder fills exactly one word, as Ops does. */
+/** Each placeholder fills exactly one word, as a caller does. */
 function expand(argv: string[], session: string, command: string): string[] {
   return argv.map((word) =>
     word === '{session}' ? session : word === '{command}' ? command : word
