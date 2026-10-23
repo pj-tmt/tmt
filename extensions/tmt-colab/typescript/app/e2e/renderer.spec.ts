@@ -2287,7 +2287,7 @@ test('the ring marks the open thread on a +n pill that holds it, and changes no 
   });
   const markers = frame.locator('.annotation-number');
   await expect(markers).toHaveText(['+2', '3']);
-  const geometry = () =>
+  const measure = () =>
     markers.evaluateAll((nodes) =>
       nodes.map((node) => {
         const box = node.getBoundingClientRect();
@@ -2301,6 +2301,18 @@ test('the ring marks the open thread on a +n pill that holds it, and changes no 
         };
       }),
     );
+  // A frame that has not been laid out yet has no computed style (every property reads empty):
+  // read again until the markers have one.
+  const geometry = async () => {
+    let read: Awaited<ReturnType<typeof measure>> = [];
+    await expect
+      .poll(async () => {
+        read = await measure();
+        return read.length > 0 && read.every(({ color }) => color !== '');
+      })
+      .toBe(true);
+    return read;
+  };
   const rest = await geometry();
   expect(rest.map((marker) => marker.ring)).toEqual(['none', 'none']);
   const select = (id: string | null) =>
