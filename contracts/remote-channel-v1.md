@@ -2260,6 +2260,11 @@ leave the checkpoint unchanged and retry on the next bounded poll with native ba
 attempt is durably claimed, an ambiguous or missing observation keeps its frozen reply unconfirmed
 but lets the cursor and checkpoint advance, so a later fresh signed ID lookup can reach the journal.
 The existing attempt flag survives restart; neither the mutation nor its response is retried or resealed.
+The journal preserves an internal typed distinction between an absent/foreign/expired owned read
+and a real Store failure. Only the cloud classifier consumes that distinction: the former is a
+per-document permanent refusal, the latter remains retryable. Both keep the existing
+`REMOTE_STATE_UNAVAILABLE` wire answer; no existence distinction or marker is exposed. Existing
+`REMOTE_INTENT_CONFLICT` and `REMOTE_CURSOR_EXPIRED` are also per-document permanent refusals.
 Permanent malformed, undecryptable, foreign, retired-key,
 revoked or expired carriers receive one immutable refusal code in the same transport row and existing
 audit transaction. They grant no operation authority and are de-duplicated across restart; a durable

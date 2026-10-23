@@ -218,13 +218,15 @@ impl Receiver {
                 grant: grant.clone(),
             },
         )?;
-        let decoded = SignedMessage::decode_any(&answer, crate::limits::CLOUD_ENVELOPE_BYTES)
+        let unavailable = answer.owned_read == Some(crate::error::OwnedReadFailure::Unavailable);
+        let decoded = SignedMessage::decode_any(&answer.bytes, crate::limits::CLOUD_ENVELOPE_BYTES)
             .ok_or_else(|| {
                 RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Cloud response unavailable.")
             })?;
         let refusal = decoded.input["error"]["code"].as_str();
         if let Some(code) = refusal
             && !permanent(code)
+            && !unavailable
         {
             return Err(RemoteError::new(
                 code,
@@ -232,9 +234,11 @@ impl Receiver {
             ));
         }
         let encrypted = sealer
-            .seal(&answer, crate::limits::CLOUD_ENVELOPE_BYTES, |bytes| {
-                self.sessions.sign_cloud(bytes)
-            })
+            .seal(
+                &answer.bytes,
+                crate::limits::CLOUD_ENVELOPE_BYTES,
+                |bytes| self.sessions.sign_cloud(bytes),
+            )
             .map_err(|error| RemoteError::new(error.code(), &error.to_string()))?;
         if let Some(code) = refusal {
             return self.refuse(document, code, Some(encrypted), now);
@@ -273,6 +277,8 @@ pub(crate) fn permanent(code: &str) -> bool {
             | "REMOTE_GRANT_CHANGED"
             | "REMOTE_SCOPE_DENIED"
             | "REMOTE_INPUT_INVALID"
+            | "REMOTE_INTENT_CONFLICT"
+            | "REMOTE_CURSOR_EXPIRED"
             | "REMOTE_CLOUD_CONFLICT"
             | "REMOTE_CLOUD_CARRIER_INVALID"
             | "REMOTE_CLOUD_SIGNATURE_INVALID"

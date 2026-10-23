@@ -276,7 +276,8 @@ maintenance callback renews without adding a worker and a failure never stops lo
 HTTP and recovers a lost context with a fresh signed ID lookup. `store` uses the authoritative Store
 connection/lease and existing journal effect owner, never a second replay ledger. Permanent carrier
 refusals share that row and the existing audit transaction. Attempted response uncertainty cannot
-block later recovery; pre-claim transient polls back off without advancing.
+block later recovery; pre-claim transient polls back off without advancing. The journal owns typed
+owned-read provenance; the message layer preserves it internally without changing signed wire bytes.
 `cloud_command`
 owns the provisional public JSON schema; the production UUID query remains refused until Core's seam
 is agreed. Cross-person enrollment and production activation stay separate; `serve::native_factory::ProjectOwner::prepare`

@@ -1,5 +1,12 @@
 use std::{fmt, io};
 
+/// Internal provenance only. Both cases retain the same unavailable wire refusal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OwnedReadFailure {
+    Unavailable,
+    Store,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct RemoteError {
     pub code: String,
@@ -10,6 +17,7 @@ pub struct RemoteError {
     pub limit: Option<usize>,
     /// Fixed operation and numeric HTTP status for deployment preflight failures only.
     pub provider: Option<DeployProviderDiagnostic>,
+    pub(crate) owned_read: Option<OwnedReadFailure>,
 }
 impl RemoteError {
     pub fn new(code: &str, message: &str) -> Self {
@@ -19,7 +27,12 @@ impl RemoteError {
             hint: None,
             limit: None,
             provider: None,
+            owned_read: None,
         }
+    }
+    pub(crate) fn with_owned_read(mut self, failure: OwnedReadFailure) -> Self {
+        self.owned_read = Some(failure);
+        self
     }
     pub fn json_value(&self) -> serde_json::Value {
         let mut value =

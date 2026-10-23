@@ -337,3 +337,43 @@ fn eviction_moves_the_floor_so_older_cursors_expire_and_the_floor_cursor_stays_v
     let page = f.store.page(&f.grant, Some(&at_floor), 50, f.now).unwrap();
     assert_eq!(page["entries"].as_array().unwrap().len(), 50);
 }
+
+#[test]
+fn owned_read_provenance_separates_unavailable_from_store_failure_without_wire_changes() {
+    use crate::error::OwnedReadFailure;
+    let mut f = Fixture::new();
+    let absent = f
+        .store
+        .owned(&f.grant, &uuid_v4().unwrap(), f.now)
+        .unwrap_err();
+    assert_eq!(absent.owned_read, Some(OwnedReadFailure::Unavailable));
+    assert_eq!(
+        serde_json::to_vec(&absent.json_value()).unwrap(),
+        serde_json::to_vec(&database("owned state absent").json_value()).unwrap()
+    );
+    let message = f.message();
+    let owned = f.adopt(&message, f.now).unwrap();
+    let mut other = f.grant.clone();
+    other.client_id = uuid_v4().unwrap();
+    other.public_key = [8; 32];
+    f.store.insert_grant(&other).unwrap();
+    let foreign = f.store.owned(&other, &owned.id, f.now).unwrap_err();
+    let expired = f
+        .store
+        .owned(&f.grant, &owned.id, f.now + RECOVERY)
+        .unwrap_err();
+    for error in [foreign, expired] {
+        assert_eq!(error.owned_read, Some(OwnedReadFailure::Unavailable));
+        assert_eq!(
+            serde_json::to_vec(&error.json_value()).unwrap(),
+            serde_json::to_vec(&database("owned state unavailable").json_value()).unwrap()
+        );
+    }
+    f.store
+        .connection
+        .execute_batch("ALTER TABLE operations RENAME TO unavailable_operations")
+        .unwrap();
+    let failure = f.store.owned(&f.grant, &owned.id, f.now).unwrap_err();
+    assert_eq!(failure.owned_read, Some(OwnedReadFailure::Store));
+    assert_eq!(failure.code, "REMOTE_STATE_UNAVAILABLE");
+}

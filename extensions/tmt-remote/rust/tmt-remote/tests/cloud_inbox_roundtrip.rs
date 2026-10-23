@@ -263,9 +263,12 @@ fn provider_clock(
 }
 
 fn request(key: &MachineKey, id: &str) -> Vec<u8> {
+    let payload=json!({"version":1,"operation":"dispatch.create","originator":"anonymous","createdAtMs":NOW,"input":{"operationId":id,"recipientIds":[TARGET],"expectedName":"target","message":"one offline effect","kind":"request"}}).to_string();
+    signed_request(key, id, "dispatch.create", &payload)
+}
+fn signed_request(key: &MachineKey, id: &str, operation: &str, payload: &str) -> Vec<u8> {
     let window = "22222222-2222-4222-8222-222222222222";
     let session = "55555555-5555-4555-8555-555555555555";
-    let payload=json!({"version":1,"operation":"dispatch.create","originator":"anonymous","createdAtMs":NOW,"input":{"operationId":id,"recipientIds":[TARGET],"expectedName":"target","message":"one offline effect","kind":"request"}}).to_string();
     let envelope = Envelope {
         kind: "request",
         id,
@@ -277,10 +280,10 @@ fn request(key: &MachineKey, id: &str) -> Vec<u8> {
         sequence: "1",
         timestamp_ms: NOW,
         origin: "cli",
-        operation: "dispatch.create",
+        operation,
         payload: payload.as_bytes(),
     };
-    json!({"version":1,"profile":"local-v1","kind":"request","id":id,"correlationId":null,"machineId":MACHINE,"windowId":window,"clientId":PEER,"sessionId":session,"sequence":"1","timestampMs":NOW,"origin":"cli","operation":"dispatch.create","payload":canonical::base64url(payload.as_bytes()),"signature":canonical::base64url(&key.sign(&canonical::envelope(&envelope).unwrap()))}).to_string().into_bytes()
+    json!({"version":1,"profile":"local-v1","kind":"request","id":id,"correlationId":null,"machineId":MACHINE,"windowId":window,"clientId":PEER,"sessionId":session,"sequence":"1","timestampMs":NOW,"origin":"cli","operation":operation,"payload":canonical::base64url(payload.as_bytes()),"signature":canonical::base64url(&key.sign(&canonical::envelope(&envelope).unwrap()))}).to_string().into_bytes()
 }
 #[test]
 fn sender_restart_recovers_frozen_outcomes_after_lost_create_answer_or_response_post() {
@@ -1003,5 +1006,117 @@ fn response_budget_refusal_before_claim_holds_the_checkpoint_and_retries_without
             )
             .unwrap(),
         NOW as i64
+    );
+}
+
+#[test]
+fn unknown_owned_lookup_is_permanent_but_real_store_failure_holds_the_checkpoint() {
+    let world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+    std::fs::write(world.core.root.join("multi"), b"per-operation receipts").unwrap();
+    let middle = "55555555-5555-4555-8555-555555555555";
+    let last = "77777777-7777-4777-8777-777777777777";
+    let absent = "99999999-9999-4999-8999-999999999999";
+    let wire = Arc::new(Wire {
+        documents: Mutex::new(BTreeMap::new()),
+        owner: Mutex::new(Weak::new()),
+        cancel_after_create: Mutex::new(None),
+        requests: Mutex::new(vec![]),
+        deny_responses: AtomicBool::new(false),
+        fail_queries: AtomicBool::new(false),
+        lose_response_for: Mutex::new(None),
+    });
+    let seed = |id: &str, exact: Vec<u8>| {
+        let carrier = tmt_remote::cloud_inbox::seal_native(
+            &exact,
+            &world.descriptor,
+            NOW,
+            tmt_remote::cloud_hpke::Sender {
+                client_id: PEER,
+                authentication_key: &world.key.public(),
+            },
+            |bytes| world.key.sign(bytes),
+        )
+        .unwrap()
+        .0;
+        wire.seed_inbox(id, &carrier);
+    };
+    seed(
+        middle,
+        signed_request(
+            &world.key,
+            middle,
+            "operation.show",
+            &json!({"operationId":absent}).to_string(),
+        ),
+    );
+    let driver = world.driver(provider(wire.clone(), "owner"));
+    let stopped = AtomicBool::new(false);
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(10),
+        cancelled: &stopped,
+    };
+    let db = rusqlite::Connection::open(world.owner_layout.directory.join("remote.db")).unwrap();
+    db.execute_batch("ALTER TABLE operations RENAME TO unavailable_operations")
+        .unwrap();
+    assert_eq!(
+        ready(driver.reconcile(NOW, &io)).unwrap_err().code,
+        "REMOTE_STATE_UNAVAILABLE",
+        "a genuine SQL read failure stays retryable"
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM cloud_transport WHERE kind='checkpoint'",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
+    assert!(
+        db.query_row(
+            "SELECT refusal FROM cloud_transport WHERE peer_id=?1 AND kind='inbox' AND id=?2",
+            [PEER, middle],
+            |row| row.get::<_, Option<String>>(0)
+        )
+        .unwrap()
+        .is_none()
+    );
+    db.execute_batch("ALTER TABLE unavailable_operations RENAME TO operations")
+        .unwrap();
+    seed(ID, request(&world.key, ID));
+    seed(last, request(&world.key, last));
+    assert_eq!(
+        ready(driver.reconcile(NOW, &io)).unwrap(),
+        3,
+        "an unknown ID between good messages cannot stop the inbox"
+    );
+    assert_eq!(
+        world.core.sends(),
+        2,
+        "both good IDs execute once; the unknown read never has an effect"
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT refusal FROM cloud_transport WHERE peer_id=?1 AND kind='inbox' AND id=?2",
+            [PEER, middle],
+            |row| row.get::<_, String>(0)
+        )
+        .unwrap(),
+        "REMOTE_STATE_UNAVAILABLE"
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint'",
+            [PEER],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        NOW as i64
+    );
+    assert!(
+        wire.documents
+            .lock()
+            .unwrap()
+            .contains_key(&format!("{ROOT}/m/{MACHINE}/peers/{PEER}/responses/{last}"))
     );
 }

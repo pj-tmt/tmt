@@ -16,6 +16,11 @@ pub struct MessageService {
     input_limit: usize,
     operations: Option<Arc<Operations>>,
 }
+/// The signed bytes are unchanged; only cloud ingress consumes internal read provenance.
+pub(crate) struct MessageAnswer {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) owned_read: Option<crate::error::OwnedReadFailure>,
+}
 impl MessageService {
     pub fn new(sessions: Arc<DoorSessions>, input_limit: usize) -> Self {
         Self {
@@ -42,21 +47,27 @@ impl MessageService {
         &self,
         action: BindingAction,
         verified: crate::cloud_inbox::Verified,
-    ) -> Result<Vec<u8>, crate::error::RemoteError> {
+    ) -> Result<MessageAnswer, crate::error::RemoteError> {
         let message = verified.message().clone();
         match self.sessions.admit_cloud(action, verified) {
             Ok(permit) => self.execute(action, permit),
-            Err(error) => self.sessions.cloud_response(
-                &message,
-                &json!({"error":{"code":error.code,"message":"Remote request refused."}}),
-            ),
+            Err(error) => self
+                .sessions
+                .cloud_response(
+                    &message,
+                    &json!({"error":{"code":error.code,"message":"Remote request refused."}}),
+                )
+                .map(|bytes| MessageAnswer {
+                    bytes,
+                    owned_read: error.owned_read,
+                }),
         }
     }
     fn execute(
         &self,
         action: BindingAction,
         permit: crate::admission::MessagePermit,
-    ) -> Result<Vec<u8>, crate::error::RemoteError> {
+    ) -> Result<MessageAnswer, crate::error::RemoteError> {
         let result = match action {
             BindingAction::Subscribe => permit.subscribe(),
             BindingAction::Ack => permit.ack(),
@@ -79,21 +90,29 @@ impl MessageService {
                     })
             }
         };
-        result.or_else(|error| {
-            let now = crate::pairing::now_ms()?;
-            let audit = permit.with_store(|store| {
-                store.record_refusal(&permit.grant, &permit.message, &error.code, now)
-            });
-            let error = audit.err().unwrap_or(error);
-            let mut payload = json!({"error": {
-                "code": error.code,
-                "message": "Remote request refused."
-            }});
-            if let Some(limit) = error.limit {
-                payload["error"]["limit"] = json!(limit);
-            }
-            permit.response(&payload)
-        })
+        result
+            .map(|bytes| MessageAnswer {
+                bytes,
+                owned_read: None,
+            })
+            .or_else(|error| {
+                let now = crate::pairing::now_ms()?;
+                let audit = permit.with_store(|store| {
+                    store.record_refusal(&permit.grant, &permit.message, &error.code, now)
+                });
+                let error = audit.err().unwrap_or(error);
+                let mut payload = json!({"error": {
+                    "code": error.code,
+                    "message": "Remote request refused."
+                }});
+                if let Some(limit) = error.limit {
+                    payload["error"]["limit"] = json!(limit);
+                }
+                permit.response(&payload).map(|bytes| MessageAnswer {
+                    bytes,
+                    owned_read: error.owned_read,
+                })
+            })
     }
 
     fn handle(
@@ -106,7 +125,10 @@ impl MessageService {
             .sessions
             .admit(action, origin, envelope, self.input_limit)
         {
-            Ok(permit) => self.execute(action, permit).map_err(|_| Closed),
+            Ok(permit) => self
+                .execute(action, permit)
+                .map(|answer| answer.bytes)
+                .map_err(|_| Closed),
             Err(MessageRefusal::Signed(response)) => Ok(response),
             Err(MessageRefusal::Unauthenticated) => Err(Closed),
         }
