@@ -1168,7 +1168,8 @@ test('a project with no page is one request, is listed everywhere, and takes pag
   await page.keyboard.type('project:back');
   await expect(page.getByRole('option')).toHaveCount(0);
   await page.keyboard.press('Escape');
-  await expect(menuProject(page, 'backlog')).toHaveText(/^backlog\s*0$/);
+  // An empty project draws no zero beside its name.
+  await expect(menuProject(page, 'backlog')).toHaveText(/^backlog$/);
   const gamma = app(page).locator('[data-page-id="c0000003-1111-4111-8111-000000000001"]');
   await gamma.getByRole('button', { name: 'Projects for Gamma notes' }).click();
   await page.getByRole('menuitemcheckbox', { name: 'backlog' }).click();

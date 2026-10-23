@@ -86,8 +86,8 @@ async function metrics(page: Page) {
   await expect(page.locator('.tmt-ui-header:visible')).toHaveCount(1);
   return page.locator('.tmt-ui-header:visible').evaluate((header) => {
     const style = getComputedStyle(header);
-    const font = (selector: string) => {
-      const value = getComputedStyle(header.querySelector(selector)!);
+    const read = (node: Element) => {
+      const value = getComputedStyle(node);
       return {
         family: value.fontFamily,
         size: value.fontSize,
@@ -95,14 +95,25 @@ async function metrics(page: Page) {
         lineHeight: value.lineHeight,
       };
     };
+    const font = (selector: string) => read(header.querySelector(selector)!);
+    // The shell bar draws the page title alone, so the brand parts exist only in standalone headers.
+    const brandFont = (selector: string) => {
+      const node = header.querySelector(selector);
+      return node ? read(node) : null;
+    };
     return {
       height: header.getBoundingClientRect().height,
-      padding: [style.paddingLeft, style.paddingRight],
+      padding: [style.paddingLeft],
+      // The shell bar's header leaves the cluster's room on its end (it differs by screen); it can
+      // only add to the token's side padding, clamp(12px, 1.4vw, 20px).
+      endClears:
+        parseFloat(style.paddingRight) >=
+        Math.min(20, Math.max(12, window.innerWidth * 0.014)) - 0.5,
       gap: style.gap,
       background: style.backgroundColor,
       foreground: style.color,
-      mark: font('.tmt-ui-mark'),
-      wordmark: font('.tmt-ui-wordmark'),
+      mark: brandFont('.tmt-ui-mark'),
+      wordmark: brandFont('.tmt-ui-wordmark'),
       title: font('.tmt-ui-title'),
       actions: font('.tmt-ui-actions'),
     };
@@ -182,10 +193,9 @@ for (const width of [1440, 390, 320])
             parseFloat(width < 480 ? tokens.header['compact-height'] : tokens.header.height),
           );
           expect(current.title.size).toBe(tokens.header['title-size']);
-          // In the shell every breadcrumb segment takes the title's size.
-          expect(current.wordmark.size).toBe(
-            tokens.header[shelled ? 'title-size' : 'wordmark-size'],
-          );
+          // The shell bar carries the page title alone; standalone headers keep the brand.
+          if (shelled) expect(current.wordmark).toBeNull();
+          else expect(current.wordmark?.size).toBe(tokens.header['wordmark-size']);
           await expect(page.locator('.tmt-ui-header:visible')).toHaveCSS(
             'position',
             shelled ? 'static' : 'fixed',
@@ -365,20 +375,17 @@ for (const width of [1440, 390, 320])
         await (await import(path)).mount('page');
       });
       const header = page.locator('#chrome-fixture .tmt-ui-header');
-      // The connection names the brand; nothing but the mark and the wordmark shows beside it.
-      await expect(
-        header.getByRole('link', { name: 'Colab · local · Studio Mac' }),
-      ).toHaveAttribute('title', 'Colab · local · Studio Mac');
-      // In the shell the TMT mark leads the row (a phone's menu button stands in for it); the
-      // header names the module, and a narrow phone gives the whole row to the page title.
+      // The connection moved into the header's accessible name; the bar shows the page title alone.
+      await expect(header).toHaveAttribute(
+        'aria-label',
+        'Colab · local · Studio Mac · Release notes',
+      );
+      // In the shell the TMT mark leads the row (a phone's menu button stands in for it), and a
+      // narrow phone gives the whole row to the page title.
       await expect(
         page.locator(width > 900 ? '.tmt-ui-shell-brand .tmt-brand-mark' : '.tmt-ui-shell-open'),
       ).toBeVisible();
-      // (its link stays for assistive technology: it is visually clipped to one pixel).
-      const crumb = await header
-        .locator('.tmt-ui-brand')
-        .evaluate((node) => node.getBoundingClientRect().width);
-      expect(crumb > 1).toBe(width >= 480);
+      await expect(header.locator('.tmt-ui-brand, .tmt-ui-wordmark')).toHaveCount(0);
       await expect(header.locator('.colab-remote-attribution, .colab-remote-label')).toHaveCount(0);
       const heading = header.getByRole('heading', { name: 'Release notes', exact: true });
       expect(await header.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);

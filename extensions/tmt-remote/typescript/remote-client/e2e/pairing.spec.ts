@@ -1476,17 +1476,15 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
               header: (() => {
                 const header = document.querySelector('.header')!;
                 const box = header.getBoundingClientRect();
+                // The shell's bar draws the title alone; only the refusal page keeps the brand parts.
                 const part = (selector: string) => {
-                  const element = document.querySelector(selector)!;
+                  const element = document.querySelector(selector);
+                  if (!element) return null;
                   const font = getComputedStyle(element);
                   return {
                     size: font.fontSize,
                     weight: font.fontWeight,
                     left: element.getBoundingClientRect().left,
-                    // A visually hidden part keeps its node and name but clips its box away.
-                    clipped:
-                      getComputedStyle(element.closest('.tmt-ui-brand') ?? element).clipPath !==
-                      'none',
                   };
                 };
                 return {
@@ -1498,10 +1496,11 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
                   background: getComputedStyle(header).backgroundColor,
                   mark: part('.header-mark'),
                   wordmark: part('.header-wordmark'),
-                  title: part('.header-title'),
-                  markViewBox: document.querySelector('.header-mark')!.getAttribute('viewBox'),
+                  title: part('.header-title')!,
+                  markViewBox:
+                    document.querySelector('.header-mark')?.getAttribute('viewBox') ?? null,
                   markPaths: document.querySelectorAll('.header-mark path').length,
-                  wordmarkText: document.querySelector('.header-wordmark')!.textContent,
+                  wordmarkText: document.querySelector('.header-wordmark')?.textContent ?? null,
                   headings: document.querySelectorAll('h1').length,
                 };
               })(),
@@ -1553,9 +1552,9 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
           // The landing page states connection in words only, in the neutral tone.
           if (state !== 'landing')
             await expectStateColor(page, colorScheme, state === 'error' ? 'blocked' : 'waiting');
-          // Colab's header, from the same tokens: mark, product, then the page title. Inside the
-          // shell it sits in the top bar beside the rail (Remote / …); the refusal page keeps the
-          // fixed full-width header.
+          // The shared header, from the same tokens. Inside the shell it sits in the top bar beside
+          // the rail and draws the page title alone; the refusal page keeps the fixed full-width
+          // header with mark, product, then the title.
           const header = look.header;
           // The brand heads the rail now, so the shell's header runs from the rail's edge.
           const beside =
@@ -1571,35 +1570,40 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             rule: state === 'error' ? '1px' : '0px',
             background:
               state === 'error' ? tokenRgb('surface', 'sheet', colorScheme) : 'rgba(0, 0, 0, 0)',
-            markViewBox: '0 0 96 96',
-            // The static brand mark (design/browser-ui/generated/brand-mark-static.svg).
-            markPaths: 5,
-            wordmarkText: 'Remote',
             headings: 1,
-          });
-          expect(header.mark).toMatchObject({
-            size: headerTokens['mark-size'],
-            weight: headerTokens['mark-weight'],
-          });
-          // In the shell the breadcrumb's segments share the title's size (TMT · Remote / …).
-          expect(header.wordmark).toMatchObject({
-            size: headerTokens[state === 'error' ? 'wordmark-size' : 'title-size'],
-            weight: headerTokens['wordmark-weight'],
           });
           expect(header.title).toMatchObject({
             size: headerTokens['title-size'],
             weight: headerTokens['title-weight'],
           });
-          // The shell's bar hides the header's mark (the brand heads the rail); the refusal page's
-          // standalone header keeps it first, and drops its wordmark on a narrow container.
-          const wordmarkShown = state === 'error' ? width > 640 : width >= 480;
-          if (state === 'error' && wordmarkShown)
-            expect(header.mark.left).toBeLessThan(header.wordmark.left);
-          // A phone's shell gives the title the row: the module crumb keeps its link for assistive
-          // technology but no box (shell.css), so only wider rows order it before the title.
-          const phoneShell = width < 480 && state !== 'error';
-          expect(header.wordmark.clipped).toBe(phoneShell);
-          if (wordmarkShown) expect(header.wordmark.left).toBeLessThan(header.title.left);
+          if (state === 'error') {
+            // The refusal page's standalone header keeps the brand: the mark first, then the
+            // wordmark (dropped on a narrow container), then the title.
+            expect(header).toMatchObject({
+              markViewBox: '0 0 96 96',
+              // The static brand mark (design/browser-ui/generated/brand-mark-static.svg).
+              markPaths: 5,
+              wordmarkText: 'Remote',
+            });
+            expect(header.mark).toMatchObject({
+              size: headerTokens['mark-size'],
+              weight: headerTokens['mark-weight'],
+            });
+            expect(header.wordmark).toMatchObject({
+              size: headerTokens['wordmark-size'],
+              weight: headerTokens['wordmark-weight'],
+            });
+            if (width > 640) {
+              expect(header.mark!.left).toBeLessThan(header.wordmark!.left);
+              expect(header.wordmark!.left).toBeLessThan(header.title.left);
+            }
+          } else {
+            // The shell's rail carries the brand; its bar draws the page title alone (no mark,
+            // no module crumb).
+            expect(header).toMatchObject({ markViewBox: null, markPaths: 0, wordmarkText: null });
+            expect(header.mark).toBeNull();
+            expect(header.wordmark).toBeNull();
+          }
           await captureState(
             page,
             state,

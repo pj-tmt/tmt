@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
 import { capturePath } from './captures.js';
+import { backToPageList } from '../test/home-list.js';
 import { pageAction } from '../test/page-actions.js';
 
 /**
@@ -272,7 +273,7 @@ test('leaving a page while its list read waits cancels that read', async ({ page
   const header = await open(page, 1440, 'light', { deepLink: true, slowRead: true });
   await expect.poll(async () => (await proof(page)).spaceHomeRunning).toBe(1);
   await expect(chips(header)).toHaveCount(0);
-  await header.getByRole('link', { name: 'Colab' }).click();
+  await backToPageList(page);
   await expect.poll(async () => (await proof(page)).spaceHomeAborted).toBe(1);
   expect((await proof(page)).spaceHomeRunning).toBe(0);
 });

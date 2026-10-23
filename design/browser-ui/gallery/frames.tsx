@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Settings } from 'lucide-react';
+import { Search, Settings } from 'lucide-react';
 import {
   BrowserAction,
   BrowserDialog,
@@ -15,6 +15,7 @@ import {
   BrowserShell,
   HostedShell,
   useShellBar,
+  useShellTools,
   type BrowserNotification,
 } from '../src/react.js';
 import {
@@ -86,11 +87,14 @@ const answer: ShellAnswer = {
 
 function ShellHeader() {
   const bar = useShellBar();
-  return bar
-    ? createPortal(
+  const tools = useShellTools();
+  return bar && tools ? (
+    <>
+      {createPortal(
         <BrowserHeader
           productLabel="Colab"
           title="Pages"
+          inShell
           actions={
             <BrowserIconAction
               type="button"
@@ -102,8 +106,28 @@ function ShellHeader() {
           }
         />,
         bar,
-      )
-    : null;
+      )}
+      {createPortal(
+        <BrowserIconAction
+          type="button"
+          variant="text"
+          label="Search pages"
+          icon={
+            <>
+              <Search />
+              <kbd>⌘K</kbd>
+            </>
+          }
+          onActivate={noop}
+        />,
+        tools.search,
+      )}
+      {createPortal(
+        <BrowserAction type="button" variant="text" label="Remote · 2" onActivate={noop} />,
+        tools.chip,
+      )}
+    </>
+  ) : null;
 }
 
 function ShellFrame({ params }: { params: URLSearchParams }) {

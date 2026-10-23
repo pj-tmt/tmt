@@ -9,6 +9,7 @@ import {
   type ShellControls,
   type ShellMenu,
   type ShellModule,
+  type ShellTools,
 } from './shell.js';
 import { createBusyMark } from './static.js';
 
@@ -24,6 +25,8 @@ export interface ShellSlot {
   readonly main: HTMLElement;
   /** The header slot (`.tmt-ui-shell-bar`); the module renders its one header here. */
   readonly bar: HTMLElement;
+  /** The bar's right-hand cluster: a module with a search or a status chip renders it here. */
+  readonly tools: ShellTools;
   /** The route's path prefix, such as `/colab/`; `/` for Home. */
   readonly basePath: string;
   /** The composed shell this page read, if any (display data only). */
@@ -203,6 +206,7 @@ export function startShellHost(
   const slot = (route: ShellRoute, mine: number): ShellSlot => ({
     main,
     bar,
+    tools: controls.tools,
     basePath: route.paths.at(-1)!,
     answer: () => answer,
     setMenu(next, handler) {
@@ -259,22 +263,19 @@ export function startShellHost(
     current = { route, generation: mine };
     menu = undefined;
     select = undefined;
-    // The breadcrumb names the module at once (TMT · Colab); the module's own header replaces it
-    // when it arrives (shell.css), so the header row never waits for a module to load.
+    // The bar names the module at once, as a title; the module's own header replaces it when it
+    // arrives (shell.css), so the header row never waits for a module to load.
     const label = [...view().rail.main, ...view().rail.bottom].find((item) => item.current)?.label;
-    const crumb = document.createElement('header');
-    crumb.className = 'tmt-ui-header';
-    crumb.dataset.shellCrumb = '';
+    const placeholder = document.createElement('header');
+    placeholder.className = 'tmt-ui-header';
+    placeholder.dataset.shellPlaceholder = '';
     if (label && route.rail !== 'home') {
-      const word = document.createElement('span');
-      word.className = 'tmt-ui-wordmark';
-      word.textContent = label;
-      const brand = document.createElement('div');
-      brand.className = 'tmt-ui-brand';
-      brand.append(word);
-      crumb.append(brand);
+      const title = document.createElement('span');
+      title.className = 'tmt-ui-title';
+      title.textContent = label;
+      placeholder.append(title);
     }
-    bar.replaceChildren(crumb);
+    bar.replaceChildren(placeholder);
     main.replaceChildren();
     main.dataset.route = route.id;
     paint();

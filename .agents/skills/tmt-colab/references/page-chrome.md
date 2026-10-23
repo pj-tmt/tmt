@@ -84,14 +84,20 @@ shared drawers and dialogs from the leaf, and the annotation window and thread p
 (`.annotation-popover`) from `style.css`. It knowingly sits below the 3:1 boundary floor of #3959
 (about 1.5:1 on `#fafafa`): a deliberate exception for floating panels (Ben, 2026-10-20), not to be reopened.
 Explicit theme choices are radio menu items.
-Owner page and space-home headers use one shared-height row that starts as Remote's does: the TMT
-mark and the `Colab` wordmark, then `/`, the crumbs and title, then muted original author. The
-display-only `local · <backendName>` identity (`local` when absent) is not a visible element: it
-names the brand link (`Colab · local · <backendName>`) and is its tooltip; an unlinked brand is a
-named group with the same title. Below 480px every Colab header shows the mark only: the wordmark is
-visually hidden and stays in that name. Inside the TMT web shell ([Shell](../../../../design/gui-style.md#shell))
-`ColabHeader` renders into the shell's header slot from whichever route draws it; the rail carries
-the mark, so the header shows the wordmark at every width. The shell's module menu holds All pages,
+Owner page and space-home headers use one shared-height row. Inside the TMT web shell
+([Shell](../../../../design/gui-style.md#shell)) `ColabHeader` renders into the shell's header slot
+from whichever route draws it and draws the title alone, then muted original author: no brand, mark
+or module crumb, because the rail's head carries the brand and the rail names the module (a scoped
+page keeps its project crumb before the title). The display-only `local · <backendName>` identity
+(`local` when absent) is not a visible element: it is in the header's accessible name
+(`Colab · local · <backendName> · <title>`). The shell bar's cluster holds Search (an icon and a
+quiet `⌘K` hint, hidden on coarse pointers) and the Remote presence chip (`Remote · N`, hidden
+below 640px where the count stays in More); both are portaled into the shell's `tools` slot, and
+the header leaves the room the shell measures for them. A standalone header (reader, mounted and
+native screens) still starts with the TMT mark and the `Colab` wordmark, then `/`, and names the
+brand link `Colab · local · <backendName>` (an unlinked brand is a named group with the same title);
+below 480px it shows the mark only, the wordmark visually hidden and kept in that name. The shell's
+module menu holds All pages,
 each project with its counts, New project… and Manage projects…; the space home shows its scope as
 plain text after the title. Author hides below 900px; the title truncates without
 changing its DOM copy. The page header's status slot holds, in order, the needs-you entry

@@ -87,12 +87,10 @@ for (const width of [1440, 390])
       if (width >= 480)
         await expect(page.locator('.tmt-ui-shell-brand .tmt-brand-mark')).toBeVisible();
       else await expect(page.locator('.tmt-ui-shell-open:visible')).toBeVisible();
-      // The bar names the module (the shell keeps the TMT name in the rail), so the title keeps its row.
-      await expect(bar.locator('.tmt-ui-wordmark')).toHaveText('Colab');
-      await expect(bar.getByRole('link', { name: 'Colab · local · Studio Mac' })).toHaveAttribute(
-        'title',
-        'Colab · local · Studio Mac',
-      );
+      // The bar draws no module crumb (the rail names the module), so the title keeps its row; the
+      // module and the connection identity stay in the header's accessible name.
+      await expect(bar.locator('.tmt-ui-wordmark, .tmt-ui-brand')).toHaveCount(0);
+      await expect(bar).toHaveAttribute('aria-label', 'Colab · local · Studio Mac · Release notes');
       // The connection words stay in the document for assistive technology; nothing shows.
       await expect(bar.locator('.page-connection')).toHaveText('Private · Live');
       await expect(bar.locator('.page-attention')).toHaveCount(0);
@@ -383,8 +381,8 @@ test('one-row fitting retains full labels, stable content and compact action aut
   );
   const header = page.locator('.tmt-ui-header:visible');
   const heading = header.getByRole('heading', { name: title, exact: true });
-  const remote = header.getByRole('link', { name: `Colab · local · ${deviceName}`, exact: true });
   await expect(heading).toBeVisible();
+  await expect(header).toHaveAttribute('aria-label', `Colab · local · ${deviceName} · ${title}`);
   await expect(header.locator('.tmt-ui-caption')).toBeVisible();
   await expect(header.locator('.tmt-ui-mark')).toBeHidden();
   const iframe = page.locator('#layout-fixture iframe');
@@ -403,7 +401,6 @@ test('one-row fitting retains full labels, stable content and compact action aut
         width > 900 ? '.tmt-ui-shell-brand .tmt-brand-mark:visible' : '.tmt-ui-shell-open:visible',
       ),
     ).toBeVisible();
-    await expect(remote).toHaveAttribute('title', `Colab · local · ${deviceName}`);
     await expect(heading).toHaveAttribute('title', title);
     await expect(header).toHaveCSS('height', width < 480 ? '48px' : '56px');
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
@@ -429,6 +426,6 @@ test('one-row fitting retains full labels, stable content and compact action aut
     const path = '/test/page-layout-browser.tsx';
     (await import(path)).mount('<h1>Stable content</h1>', {}, {});
   });
-  await expect(header.getByRole('link', { name: 'Colab · local', exact: true })).toBeVisible();
+  await expect(header).toHaveAttribute('aria-label', /^Colab · local/);
   await expect(header.locator('.tmt-ui-caption')).toHaveCount(0);
 });

@@ -132,7 +132,8 @@ page renders in it.
   outside the rounded row and never its border. The current module's pages nest under
   it as sub-items; the page you are on has the same fill and marker. A count is a
   small box after the label: a plain total in the hover fill, a needs-you count a
-  pill in the waiting colour on its soft fill; `99+` above 99. The number alone is
+  pill in the waiting colour on its soft fill; `99+` above 99; a count of zero draws
+  nothing. The number alone is
   drawn, and the item's accessible name says what it counts. Home sums needs-you
   counts only when every module reports one.
 - **Collapse:** the toggle collapses the rail to 56 px of icons and expands it again,
@@ -147,13 +148,20 @@ page renders in it.
   wide screen its pages nest under the current rail item and share the rail's surface,
   rows and selection marker; on a phone they are a tab strip under the title bar. It has
   no title of its own.
-- **Header:** one continuous sticky row: the host's header (moved into the shell's
-  bar) as `<module> / <page>` with one bottom rule, every segment in the header
-  title's face and size, separators lighter. The TMT mark and word are the rail's
-  head, the one place the brand sits; the bar does not repeat them. Under 480 px the
-  module crumb steps aside (its link stays for assistive technology) so the page
-  title keeps the row. The bar paints the module's name at once and keeps its height
-  and rule while a route loads.
+- **Header:** one continuous sticky row: the host's header (moved into the shell's bar)
+  shows the page title and the page's own actions, with one bottom rule. There is no
+  module crumb and no brand in the bar: the rail's head carries the brand and the current
+  rail item names the module. The header keeps the module in its accessible name
+  (`Colab · <page>`), and the document title keeps it too. While a route loads the bar
+  shows the module's name as its title and keeps its height and rule.
+- **Bar cluster:** the shell owns the right end of the bar. A module fills the **search**
+  slot (Colab: Search pages, an icon with a quiet `⌘K` key hint that a touch screen and a
+  bar under 640 px do not draw; ⌘K opens it from anywhere in the module) and the **chip**
+  slot (Colab: the Remote presence chip, `Remote · N`, not drawn under 640 px, where its
+  count is in the page More menu). Search comes first. An empty slot takes no room, and the
+  header leaves the room the shell measures for the cluster. The four-state connection chip
+  of the [Remote switcher](#remote-switcher) is a design target and not shipped; the bar has
+  no avatar slot until who the avatar is has been decided.
 - **Module content:** the shell adds no padding or width to a module's main area;
   each module keeps its own layout. Shell page styles stay scoped to their own
   pages (Remote: `.tmt-page`), since every module shares the one document. While a

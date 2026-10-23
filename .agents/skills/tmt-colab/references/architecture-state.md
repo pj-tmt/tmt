@@ -714,7 +714,7 @@ chip row: projects scope from the module menu and filter by `project:` in the se
 suggestions count the pages the tab shows, while the manage dialog counts every page in the project
 and says how many of them are archived.
 
-The list is one screen with no hero (the space's name is the header crumb): a fixed top block
+The list is one screen with no hero (the header's title is `Pages`; the rail names the module): a fixed top block
 holds the search, Sort and `+ New page` (`new-page-dialog.tsx`: the browser creates no page, so it
 gives the `tmt colab page create` command with `CopyCommand`) and the view tabs; only `.page-list-scroll` scrolls, and `useShownRows` (`page-list-rows.ts`) draws 50 rows and 50 more
 each time the count line (`Showing N of M`) comes within a screen of the list's end. Under 480px the
@@ -783,9 +783,10 @@ a remembered project that was deleted) shows All pages and is neither redirected
 `AppHeader` provides the heading's element through `HeaderSlot` (`header-slot.ts`), where `Home`
 names the current scope as plain text after the title. A page
 opened from a scoped list carries the scope in history state only, and its own header shows
-`Colab / <project> / <title>` with the project linking back to `/?scope=<project>`; a copied or
-reloaded page link has no crumb. A heading narrower than 200px (a container query on it) leaves the crumb and
-its divider out so the title keeps its room; the brand link still returns to the remembered scope.
+`<project> / <title>` with the project linking back to `/?scope=<project>` (the shell bar draws no
+module crumb); a copied or reloaded page link has no crumb. A heading narrower than 200px (a
+container query on it) leaves the crumb and its divider out so the title keeps its room; the rail's
+All pages (or a standalone header's brand link) still returns to the remembered scope.
 `cli_management::selection` adapts public CLI inputs to strict existing DTOs;
 its shared page resolver reuses the short-link helpers to admit unique UUID prefixes
 from the verified complete catalog, including retained deleted IDs, before

@@ -290,11 +290,9 @@ fn mount_lookup_answers_from_the_door_mapping_for_same_origin_pages() {
 fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
     let h = Harness::new(FAST);
     let landing = app_page(&h, "/remote/", include_str!("../assets/landing.html"));
-    assert!(
-        landing
-            .body
-            .contains(r#"class="header-wordmark tmt-ui-wordmark">Remote</span>"#)
-    );
+    assert!(landing.body.contains(
+        r#"<header class="header tmt-ui-header" aria-label="Remote · Remote connection">"#
+    ));
     assert!(landing.body.contains("aria-hidden=\"true\">◌</span"));
     assert!(landing.body.contains("/sdk/landing.js"));
     for text in [
@@ -469,17 +467,22 @@ fn pages_consume_shared_presentation_without_a_second_projection() {
             .filter_map(|attribute| attribute.split_once('"').map(|(value, _)| value))
             .flat_map(str::split_whitespace)
             .collect::<Vec<_>>();
+        let standalone = page == include_str!("../assets/error.html");
         for class in [
             "tmt-ui-header",
-            "tmt-ui-brand",
-            "tmt-ui-mark",
-            "tmt-ui-wordmark",
             "tmt-ui-title",
             "tmt-ui-notice",
             "tmt-ui-notice-mark",
             "tmt-ui-notice-heading",
             "tmt-ui-notice-body",
-        ] {
+        ]
+        .into_iter()
+        .chain(
+            standalone
+                .then_some(["tmt-ui-brand", "tmt-ui-mark", "tmt-ui-wordmark"])
+                .into_iter()
+                .flatten(),
+        ) {
             assert!(classes.contains(&class), "missing shared consumer {class}");
             assert!(
                 shared.contains(&format!(".{class}")),
@@ -489,10 +492,16 @@ fn pages_consume_shared_presentation_without_a_second_projection() {
         if page != include_str!("../assets/landing.html") {
             assert!(classes.contains(&"tmt-ui-notice-eyebrow"));
         }
-        let mark = page.find("header-mark tmt-brand-mark tmt-ui-mark").unwrap();
-        let product = page.find("header-wordmark tmt-ui-wordmark").unwrap();
         let title = page.find("header-title tmt-ui-title").unwrap();
-        assert!(mark < product && product < title);
+        if standalone {
+            // Outside the web shell the header carries the brand: mark, product, then the title.
+            let mark = page.find("header-mark tmt-brand-mark tmt-ui-mark").unwrap();
+            let product = page.find("header-wordmark tmt-ui-wordmark").unwrap();
+            assert!(mark < product && product < title);
+        } else {
+            // In the web shell the rail names the module: the header carries the title alone.
+            assert!(!page.contains("header-mark") && !page.contains("header-wordmark"));
+        }
         assert_eq!(page.matches("<h1").count(), 1);
         assert!(page.contains("id=\"state-label\""));
         assert!(!page.contains("<style"));
@@ -746,9 +755,6 @@ fn settings_consume_shared_classes_and_static_listboxes_without_a_palette() {
     .body;
     for class in [
         "tmt-ui-header",
-        "tmt-ui-brand",
-        "tmt-ui-mark",
-        "tmt-ui-wordmark",
         "tmt-ui-title",
         "tmt-ui-notice",
         "tmt-ui-section-heading",
@@ -784,7 +790,7 @@ fn settings_consume_shared_classes_and_static_listboxes_without_a_palette() {
 }
 
 #[test]
-fn remote_static_headers_carry_the_shared_static_mark() {
+fn remote_headers_carry_the_static_mark_only_outside_the_web_shell() {
     // The browser leaf's static-host copy of its header mark, with the header-mark class.
     let shared = include_str!("../../../../../design/browser-ui/generated/brand-mark-static.svg");
     let mark = shared.trim().replacen(
@@ -801,32 +807,43 @@ fn remote_static_headers_carry_the_shared_static_mark() {
             .replace("> <", "><")
     };
     let expected = normalize(&mark);
-    for page in [
-        include_str!("../assets/landing.html"),
-        include_str!("../assets/pair.html"),
-        include_str!("../assets/error.html"),
-        include_str!("../assets/settings.html"),
-    ] {
-        let normalized = normalize(page);
-        assert!(normalized.contains(&expected));
-        assert_eq!(page.matches("class=\"header-mark ").count(), 1);
-        assert!(page.contains("class=\"header-wordmark tmt-ui-wordmark\">Remote</span>"));
-    }
-    // TMT's own pages render only inside the web shell, whose breadcrumb starts with the TMT mark
-    // ("TMT · Home"): their headers carry the title alone, never a second TMT.
-    for page in [
-        include_str!("../assets/home.html"),
-        include_str!("../assets/tmt-settings.html"),
-        include_str!("../assets/digest.html"),
+    // The refusal page is the one Remote page outside the web shell: it keeps the brand.
+    let error = include_str!("../assets/error.html");
+    assert!(normalize(error).contains(&expected));
+    assert_eq!(error.matches("class=\"header-mark ").count(), 1);
+    assert!(error.contains("class=\"header-wordmark tmt-ui-wordmark\">Remote</span>"));
+    // Every other page renders inside the web shell, where the rail's head carries the brand and
+    // the rail names the module: a header carries the page title alone. A Remote page whose title
+    // does not say Remote names the module in the header's accessible name.
+    for (page, name) in [
+        (
+            include_str!("../assets/landing.html"),
+            Some("Remote · Remote connection"),
+        ),
+        (
+            include_str!("../assets/pair.html"),
+            Some("Remote · Pair a browser"),
+        ),
+        (
+            include_str!("../assets/settings.html"),
+            Some("Remote · Remote settings"),
+        ),
+        (include_str!("../assets/ops.html"), None),
+        (include_str!("../assets/home.html"), None),
+        (include_str!("../assets/tmt-settings.html"), None),
+        (include_str!("../assets/digest.html"), None),
     ] {
         assert!(!page.contains("header-mark"));
         assert!(!page.contains("header-wordmark"));
+        assert!(!page.contains("header-divider"));
         assert!(page.contains("class=\"header-title tmt-ui-title\">"));
+        match name {
+            Some(name) => assert!(page.contains(&format!(
+                "<header class=\"header tmt-ui-header\" aria-label=\"{name}\">"
+            ))),
+            None => assert!(page.contains("<header class=\"header tmt-ui-header\">")),
+        }
     }
-    assert!(
-        include_str!("../assets/ops.html")
-            .contains("class=\"header-wordmark tmt-ui-wordmark\">Ops</span>")
-    );
 }
 
 #[test]

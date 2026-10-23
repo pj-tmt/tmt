@@ -144,7 +144,7 @@ for (const width of [1440, 390])
         };
       });
       // The list is one screen: only its rows scroll, so the window has nothing to scroll. Only
-      // the shell's own chrome is positioned: the TMT mark and the bar (one header row) with the
+      // the shell's own chrome is positioned: the TMT mark, the bar (one header row) and its tools cluster with the
       // rail and module menu (a phone's menu button instead of the mark and rail).
       expect(scroll).toEqual({
         window: false,
@@ -152,8 +152,8 @@ for (const width of [1440, 390])
         nested: ['page-list-scroll'],
         fixed:
           width < 480
-            ? ['tmt-ui-shell-open', 'tmt-ui-shell-bar']
-            : ['tmt-ui-rail', 'tmt-ui-shell-bar'],
+            ? ['tmt-ui-shell-open', 'tmt-ui-shell-bar', 'tmt-ui-shell-tools']
+            : ['tmt-ui-rail', 'tmt-ui-shell-bar', 'tmt-ui-shell-tools'],
       });
     });
   }

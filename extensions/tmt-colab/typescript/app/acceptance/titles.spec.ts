@@ -1,4 +1,4 @@
-import { homeList, showAllPages } from '../test/home-list.js';
+import { backToPageList, homeList, showAllPages } from '../test/home-list.js';
 import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { openColab, pairBrowser, startDoor } from './harness/browser.js';
@@ -7,9 +7,9 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 async function captureHeader(page: Page, testInfo: TestInfo, screen: 'page' | 'home') {
   const header = page.locator('.tmt-ui-header:visible');
-  const attribution = header.getByRole('link', { name: /^Colab · local/ });
-  await expect(attribution).toBeVisible();
-  const fullName = await attribution.getAttribute('aria-label');
+  // The bar has no module crumb: the header's accessible name carries the module and connection.
+  await expect(header).toHaveAttribute('aria-label', /^Colab · local/);
+  const fullName = await header.getAttribute('aria-label');
   for (const theme of ['light', 'dark']) {
     await page.evaluate((value) => {
       document.documentElement.dataset.theme = value;
@@ -17,7 +17,7 @@ async function captureHeader(page: Page, testInfo: TestInfo, screen: 'page' | 'h
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await expect(header).toHaveCSS('height', width === 390 ? '48px' : '56px');
-      await expect(attribution).toHaveAttribute('aria-label', fullName!);
+      await expect(header).toHaveAttribute('aria-label', fullName!);
       const mark = page.locator('.tmt-ui-shell-brand .tmt-brand-mark');
       if (width === 1440) await expect(mark).toBeVisible();
       else await expect(mark).toBeHidden();
@@ -31,7 +31,9 @@ async function captureHeader(page: Page, testInfo: TestInfo, screen: 'page' | 'h
         for (const name of [/^Discussion \(/, 'Agents', 'More'])
           await expect(actions.getByRole('button', { name, exact: true })).toBeInViewport();
         await expect(
-          header.getByRole('button', { name: 'Search pages', exact: true }),
+          page
+            .locator('.tmt-ui-shell-tools')
+            .getByRole('button', { name: 'Search pages', exact: true }),
         ).toBeInViewport();
         const more = actions.getByRole('button', { name: 'More', exact: true });
         await more.click();
@@ -105,7 +107,7 @@ test('native page titles fill missing visible home labels without opening the pa
     }
     await page.setViewportSize({ width: 1440, height: 900 });
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-    await page.getByRole('link', { name: /^Colab · local/ }).click();
+    await backToPageList(page);
     await showAllPages(page);
     await expect(row().getByRole('link')).toHaveText(title);
     await expect(page).toHaveTitle('Colab');

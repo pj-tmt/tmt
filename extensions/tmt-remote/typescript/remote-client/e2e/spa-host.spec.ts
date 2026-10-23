@@ -631,16 +631,16 @@ test.describe('the app in a browser', () => {
     await page.close();
   });
 
-  test('puts the TMT mark in the rail head and the module breadcrumb in the bar; the rail toggle has its own row', async () => {
+  test('puts the TMT mark in the rail head and the page title alone in the bar; the rail toggle has its own row', async () => {
     const { page } = await openApp('/ops');
     await page.setViewportSize({ width: 1440, height: 900 });
     const rail = page.locator('nav.tmt-ui-rail');
     const brand = rail.locator('> .tmt-ui-shell-brand');
     const header = page.locator('.tmt-ui-shell-bar > .tmt-ui-header');
-    // The brand sits once, at the head of the rail; the host's header (Ops / Agents) starts the
-    // content column beside it, in one type.
+    // The brand sits once, at the head of the rail; the host's header (the page title) starts the
+    // content column beside it.
     await expect(brand).toContainText('tmt');
-    await expect(header).toContainText('Ops');
+    await expect(header).toContainText('Agents');
     const [railBox, brandBox, headerBox] = await Promise.all(
       [rail, brand, header].map(async (node) => (await node.boundingBox())!),
     );
@@ -651,10 +651,10 @@ test.describe('the app in a browser', () => {
     expect(Math.round(headerBox!.x)).toBeGreaterThanOrEqual(
       Math.round(railBox!.x + railBox!.width),
     );
-    await expect(header.locator('.tmt-ui-wordmark')).toHaveCSS('font-size', '16px');
     await expect(header.locator('.tmt-ui-title')).toHaveCSS('font-size', '16px');
-    // Ops is the module: the header names no second TMT.
-    await expect(header.locator('.tmt-ui-wordmark')).toHaveText('Ops');
+    // The bar draws no module crumb and no second TMT: the title is the page's name.
+    await expect(header.locator('.tmt-ui-wordmark, .tmt-ui-brand')).toHaveCount(0);
+    await expect(header.locator('.tmt-ui-title')).toHaveText('Agents');
     await expect(page.locator('.tmt-ui-module-menu-title')).toHaveCount(0);
     // The toggle is the rail's foot row, ruled off above TMT settings.
     const toggle = page.locator('nav.tmt-ui-rail > .tmt-ui-rail-top > .tmt-ui-rail-toggle');
