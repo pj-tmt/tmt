@@ -1427,12 +1427,12 @@ const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 const decoded = args.map(arg => arg.replace(/\\\\([0-3][0-7]{2})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8))));
-const branch = decoded.find(arg => arg.startsWith('"link-window"') || (arg.startsWith('"display-message"') && arg.includes('pane_current_command')));
+const branch = decoded.find(arg => arg.startsWith('"link-window"') || (arg.startsWith('"display-message"') && arg.includes('pane_tty')));
 if (branch) fs.appendFileSync(${JSON.stringify(trace)}, branch + '\\n');
 if (${JSON.stringify(fault)} === 'link' && branch?.startsWith('"link-window"')) process.exit(97);
 const result = spawnSync(${JSON.stringify(inner)}, args, { encoding: 'utf8', timeout: 5000 });
 let output = result.stdout || '';
-if (${JSON.stringify(fault)} === 'pid' && branch?.includes('pane_current_command')) {
+if (${JSON.stringify(fault)} === 'pid' && branch?.includes('pane_tty')) {
   const fields = output.split('__TMT_FIELD_4f1c__'); fields[1] = '2147483647'; output = fields.join('__TMT_FIELD_4f1c__');
 }
 process.stdout.write(output);
@@ -1977,8 +1977,7 @@ describe('layout-only workspace restore', () => {
         expect(panes).toContain(partial.retainedBootstrap);
         expect(panes).toHaveLength(fault === 'link' ? 1 : 2);
         expect(fs.readFileSync(trace, 'utf8')).toContain('"link-window"');
-        if (fault === 'pid')
-          expect(fs.readFileSync(trace, 'utf8')).toContain('pane_current_command');
+        if (fault === 'pid') expect(fs.readFileSync(trace, 'utf8')).toContain('pane_tty');
         expect(
           fixture.tmux([
             '-u',
