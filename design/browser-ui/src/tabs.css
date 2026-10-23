@@ -143,8 +143,8 @@
   padding: var(--tmt-ui-header-gap) 0 0;
 }
 
-/* Flat: no strip frame. Each tab is its own pill; the selected one is filled and fully edged in the
-   neutral rule, the others plain. The edge is the tab's own 1px, so focus recolours it. */
+/* Flat: no strip frame. Each tab is its own pill; the selected one uses the selection fill and
+   strong accent ink; the others stay plain. A transparent 1px edge reserves space for the focus frame. */
 .tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab-list {
   gap: 2px;
   padding: 0;
@@ -158,9 +158,8 @@
   border-radius: var(--tmt-ui-radius);
 }
 .tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab[aria-selected='true'] {
-  color: var(--tmt-ui-color-text);
-  background: var(--tmt-ui-surface-hover);
-  border-color: var(--tmt-ui-surface-rule);
+  color: var(--tmt-ui-color-accent-strong);
+  background: var(--tmt-ui-surface-selection);
   font-weight: inherit;
 }
 .tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab:hover:not([aria-selected='true']) {
@@ -185,4 +184,9 @@
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
   font-weight: normal;
+}
+
+/* Selected flat counts keep their quiet size/weight with enough contrast on the selection fill. */
+.tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab[aria-selected='true'] .tmt-ui-tab-count {
+  color: var(--tmt-ui-color-text);
 }

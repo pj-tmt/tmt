@@ -364,9 +364,11 @@ slot belongs to the host and wraps below the strip below 480px of component widt
 The strip scrolls horizontally without wrapping or animation; selection and resize
 keep the selected tab visible without moving the page. A label wider than the strip
 truncates while retaining its full accessible name. Use the existing state roles,
-a 1px strip rule with the control radius and the selection fill on the selected tab,
-which uses strong neutral text (flush: a straight 2px accent underline; flat: no strip frame,
-the selected tab is a filled, edged pill, optionally wrapping into rows). A count is a small muted number after the label.
+a 1px strip rule with the control radius. The boxed selected tab uses the selection fill and
+strong neutral text. Flush uses a straight 2px accent underline. Flat has no strip frame:
+the selected pill uses selection fill, strong accent ink and a transparent edge reserving
+the focus frame, optionally wrapping into rows.
+A count is a small muted number after the label; selected flat counts use neutral text for contrast.
 State marks retain their own roles.
 The leaf's [Tabs contract](browser-ui/README.md#controlled-input-contracts)
 owns React/static inputs and panel lifetimes. Basis: own.

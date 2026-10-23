@@ -639,7 +639,10 @@ export function TabsSection() {
       <Pair title="BrowserTabs · flush">
         {(theme) => <TabsDemo theme={theme} variant="flush" />}
       </Pair>
-      <Pair title="BrowserTabs · flat, with counts">
+      <Pair
+        title="BrowserTabs · flat, with counts"
+        note="Selection uses the shared fill and strong accent ink; counts keep neutral contrast."
+      >
         {(theme) => <TabsDemo theme={theme} variant="flat" counts />}
       </Pair>
       <Pair title="BrowserTabs · flat, wrapping" stacked>
