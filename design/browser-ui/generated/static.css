@@ -1661,6 +1661,23 @@ svg.tmt-ui-mark {
   color: var(--tmt-ui-color-disabled-text);
 }
 
+.tmt-ui-choice-hint {
+  box-sizing: border-box;
+  flex: none;
+  min-width: 20px;
+  margin-inline-start: auto;
+  padding: 2px 5px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-s);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-secondary);
+  font: 500 var(--tmt-ui-caption-size) / 1 var(--tmt-ui-font-mono);
+  text-align: center;
+}
+.tmt-ui-choice:has(:disabled) .tmt-ui-choice-hint {
+  color: var(--tmt-ui-color-disabled-text);
+}
+
 .tmt-ui-radio {
   appearance: none;
   -webkit-appearance: none;

@@ -739,7 +739,7 @@ export function QuestionGroupCard({
                             return;
                           const option = [
                             ...event.currentTarget.querySelectorAll<HTMLInputElement>(
-                              `[data-choice-index="${event.key}"] input`,
+                              `input[data-choice-index="${event.key}"]`,
                             ),
                           ].find((input) => !input.disabled && !input.closest('[hidden]'));
                           if (option) {

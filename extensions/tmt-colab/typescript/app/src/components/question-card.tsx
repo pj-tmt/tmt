@@ -1,5 +1,5 @@
 import type { ComposerConnectionPresentation } from '../router.js';
-import { BrowserAction } from '@tmt/browser-ui/react';
+import { BrowserAction, BrowserChoice, BrowserChoiceGroup } from '@tmt/browser-ui/react';
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import {
   canonicalQuestionThread,
@@ -157,64 +157,49 @@ export function QuestionCard({
         {!readOnly && compose && (
           <>
             {(question.kind === 'single' || question.kind === 'multiple') && (
-              <fieldset disabled={disabled}>
-                <legend>
-                  {question.kind === 'single' ? 'Choose one' : 'Choose any that apply'}
-                </legend>
+              <BrowserChoiceGroup
+                legend={question.kind === 'single' ? 'Choose one' : 'Choose any that apply'}
+              >
                 {question.choices.map((choice, index) => (
-                  <label
+                  <BrowserChoice
                     key={choice}
-                    className="question-option"
-                    data-selected={choices.includes(choice)}
+                    type={question.kind === 'single' ? 'radio' : 'checkbox'}
+                    name={heading}
+                    label={choice}
+                    hint={String(index + 1)}
                     data-choice-index={index + 1}
-                  >
-                    <span className="question-option-key" aria-hidden="true">
-                      {index + 1}
-                    </span>
-                    <input
-                      type={question.kind === 'single' ? 'radio' : 'checkbox'}
-                      name={heading}
-                      aria-label={choice}
-                      checked={choices.includes(choice)}
-                      onChange={(event) => {
-                        if (question.kind === 'single') {
-                          onDraft({ choices: [choice], other: false });
-                        } else
-                          onDraft({
-                            choices: event.target.checked
-                              ? [...choices, choice]
-                              : choices.filter((item) => item !== choice),
-                          });
-                      }}
-                    />
-                    {choice}
-                  </label>
+                    disabled={disabled}
+                    checked={choices.includes(choice)}
+                    onChange={(event) => {
+                      if (question.kind === 'single') {
+                        onDraft({ choices: [choice], other: false });
+                      } else
+                        onDraft({
+                          choices: event.target.checked
+                            ? [...choices, choice]
+                            : choices.filter((item) => item !== choice),
+                        });
+                    }}
+                  />
                 ))}
                 {question.other && (
-                  <label
-                    className="question-option"
-                    data-selected={other}
+                  <BrowserChoice
+                    type={question.kind === 'single' ? 'radio' : 'checkbox'}
+                    name={heading}
+                    label="Other"
+                    hint={String(question.choices.length + 1)}
                     data-choice-index={question.choices.length + 1}
-                  >
-                    <span className="question-option-key" aria-hidden="true">
-                      {question.choices.length + 1}
-                    </span>
-                    <input
-                      type={question.kind === 'single' ? 'radio' : 'checkbox'}
-                      name={heading}
-                      aria-label="Other"
-                      checked={other}
-                      onChange={(event) => {
-                        onDraft({
-                          other: event.target.checked,
-                          ...(question.kind === 'single' ? { choices: [] } : {}),
-                        });
-                      }}
-                    />
-                    Other
-                  </label>
+                    disabled={disabled}
+                    checked={other}
+                    onChange={(event) => {
+                      onDraft({
+                        other: event.target.checked,
+                        ...(question.kind === 'single' ? { choices: [] } : {}),
+                      });
+                    }}
+                  />
                 )}
-              </fieldset>
+              </BrowserChoiceGroup>
             )}
             {(question.kind === 'short' || question.kind === 'long' || other) && (
               <div

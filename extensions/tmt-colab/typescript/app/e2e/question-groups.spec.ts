@@ -601,7 +601,7 @@ for (const width of [1440, 1024, 390])
           async () => {
             const fab = await floating.boundingBox();
             const controls = await group
-              .locator('.question-option, .question-group-footer button')
+              .locator('.tmt-ui-choice, .question-group-footer button')
               .all();
             const boxes = await Promise.all(controls.map((control) => control.boundingBox()));
             return (
@@ -625,7 +625,7 @@ for (const width of [1440, 1024, 390])
         await page.screenshot({ path: `${captures}/container-footer-${width}-${theme}.png` });
       }
       // Hit the far edge that the old FAB covered, not only the radio at the left.
-      const lastOption = group.locator('.question-option').last();
+      const lastOption = group.locator('.tmt-ui-choice').last();
       const option = await lastOption.boundingBox();
       expect(option).not.toBeNull();
       await lastOption.click({ position: { x: option!.width - 2, y: option!.height - 2 } });
