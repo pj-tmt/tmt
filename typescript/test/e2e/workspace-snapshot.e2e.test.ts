@@ -1822,6 +1822,7 @@ describe('layout-only workspace restore', () => {
       const own = [
         '-u',
         'list-panes',
+        '-s',
         '-t',
         'e2e',
         '-F',

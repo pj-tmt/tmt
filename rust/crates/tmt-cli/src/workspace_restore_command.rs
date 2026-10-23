@@ -372,6 +372,9 @@ pub fn execute(
 ) -> io::Result<u8> {
     let context = crate::workspace_snapshot_command::context(socket);
     let report_paths = context.as_ref().ok().map(|(paths, _, _)| paths.clone());
+    // A refusal before the host is touched already says what to do; only a restore that reached
+    // the server writes a failure report.
+    let reached_host = std::cell::Cell::new(false);
     let outcome: Result<_, Failure> = (|| {
         let (paths, socket, host) = context?;
         let document =
@@ -467,6 +470,7 @@ pub fn execute(
             .filter(|pane| pane.argv.is_some())
             .map(|pane| pane.recorded.clone())
             .collect::<Vec<_>>();
+        reached_host.set(true);
         let mut result = host
             .workspace_restore_layout(&snapshot, layout_deadline(snapshot.panes.len()), &targets)
             .map_err(|error| {
@@ -513,6 +517,7 @@ pub fn execute(
                 "error": {"code": error.code, "message": error.message}});
             let report = report_paths
                 .as_ref()
+                .filter(|_| reached_host.get())
                 .and_then(|paths| write_report(paths, &mut failed));
             error.message = with_report(&error.message, report.as_deref());
             return error.publish(mode);

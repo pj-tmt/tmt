@@ -655,11 +655,11 @@ fn a_failed_session_says_how_to_clear_what_it_left() {
     };
     assert_eq!(partial_note(&record, false), "");
     record.native = Some("$4".into());
-    assert!(partial_note(&record, false).contains("tmux kill-session -t work"));
+    assert!(partial_note(&record, false).contains("Session work ($4) was left part restored"));
     record.restored_as = Some("work-restored".into());
-    assert!(partial_note(&record, false).contains("tmux kill-session -t work-restored"));
-    // A merge never advises removing the user's own session.
+    assert!(partial_note(&record, false).contains("Session work-restored ($4)"));
+    // A merge never advises closing the user's own session, only the windows added to it.
     let merged = partial_note(&record, true);
-    assert!(!merged.contains("kill-session"), "{merged}");
+    assert!(!merged.contains("close that session"), "{merged}");
     assert!(merged.contains("work-restored"), "{merged}");
 }

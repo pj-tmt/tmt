@@ -495,7 +495,7 @@ impl<R: CommandRunner> Restore<'_, R> {
         }
         // Until the session is whole, a repeat must neither skip it as finished nor take its
         // bootstrap shell for the server's fresh default session.
-        self.mark_restored(&created.pane, &created.session, UNFINISHED)?;
+        self.mark_restored(&created.session, UNFINISHED)?;
         if starting {
             // A new server gets a fresh UUID; historical snapshot identity is never used.
             // Refuse initialization if another session appeared in the meantime.
@@ -602,7 +602,7 @@ impl<R: CommandRunner> Restore<'_, R> {
             &[format!("#{{==:#{{session_id}},{}}}", created.session)],
             vec!["select-window".into(), "-t".into(), target.clone()],
         )?;
-        self.mark_restored(&created.pane, &created.session, marker)
+        self.mark_restored(&created.session, marker)
     }
 
     /// Adds the saved windows to the server's fresh default session, after its own window. That
@@ -663,12 +663,13 @@ impl<R: CommandRunner> Restore<'_, R> {
                 )?;
             }
         }
-        self.mark_restored(lone, session, marker)
+        self.mark_restored(session, marker)
     }
 
-    fn mark_restored(&self, pane: &str, session: &str, marker: &str) -> Result<(), TmuxError> {
+    /// Targets the session itself: a bootstrap pane may be gone by the time the session is whole.
+    fn mark_restored(&self, session: &str, marker: &str) -> Result<(), TmuxError> {
         self.guard(
-            Some(pane),
+            Some(session),
             &[format!("#{{==:#{{session_id}},{session}}}")],
             vec![
                 "set-option".into(),
@@ -1080,7 +1081,7 @@ fn partial_note(record: &RestoredSession, merged: bool) -> String {
         )
     } else {
         format!(
-            " Session {name} ({native}) was left part restored; remove it with tmux kill-session -t {name} before restoring again"
+            " Session {name} ({native}) was left part restored; close that session yourself before restoring again"
         )
     }
 }
