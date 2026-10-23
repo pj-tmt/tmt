@@ -262,6 +262,7 @@ impl Draft {
         }
     }
     pub fn removal_command(&self) -> Option<String> {
+        // TODO(#4579): use the identity UUID once Core rm accepts it.
         (self.kind == Kind::RemoveMember)
             .then_some(self.member.as_ref())
             .flatten()
