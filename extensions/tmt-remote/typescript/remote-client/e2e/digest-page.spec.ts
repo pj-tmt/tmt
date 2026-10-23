@@ -154,12 +154,11 @@ for (const [name, size] of [
     expect(overflow).toBeLessThanOrEqual(0);
     if (name === '390') {
       await page.getByRole('tab', { name: '30d' }).click();
-      await expect(
-        page
-          .locator('#digest-activity .tmt-ui-chart-strip:has(>.tmt-ui-chart-slot)')
-          .first()
-          .locator('.tmt-ui-chart-slot'),
-      ).toHaveCount(7);
+      const cells = page
+        .locator('#digest-activity .tmt-ui-chart-strip:has(>.tmt-ui-chart-slot)')
+        .first()
+        .locator('.tmt-ui-chart-slot');
+      await expect(cells).toHaveCount(7);
       const fits = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
       );
@@ -169,13 +168,9 @@ for (const [name, size] of [
           path: path.join(process.env.DIGEST_CAPTURE_DIR, 'digest-shell-390-30d-strips.png'),
         });
       await page.getByRole('tab', { name: '24h' }).click();
-      await expect(
-        page
-          .locator('#digest-activity .tmt-ui-chart-strip:has(>.tmt-ui-chart-slot)')
-          .first()
-          .locator('.tmt-ui-chart-slot'),
-      ).toHaveCount(7);
-      await page.getByRole('tab', { name: '24h' }).click();
+      await expect(page.locator('#digest-tokens .digest-total-label')).toContainText('24h');
+      // A 24h window has six complete blocks, or seven when its edges are clipped.
+      expect([6, 7]).toContain(await cells.count());
     }
     const dir = process.env.DIGEST_CAPTURE_DIR;
     if (dir) {
@@ -759,5 +754,30 @@ for (const theme of ['light', 'dark'] as const) {
     await page.setViewportSize({ width: 390, height: 992 });
     await expect(page.locator('html')).toHaveJSProperty('scrollWidth', 390);
     expect(await scroll.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
+  });
+}
+
+for (const [timezoneId, count] of [
+  ['UTC', 6],
+  ['Asia/Tokyo', 7],
+] as const) {
+  test.describe(`local activity clock in ${timezoneId}`, () => {
+    test.use({ timezoneId });
+    test('groups the same observed window without inventing edge buckets', async ({ page }) => {
+      await open(page);
+      const cells = page
+        .locator('#digest-activity .tmt-ui-chart-strip:has(>.tmt-ui-chart-slot)')
+        .first()
+        .locator('.tmt-ui-chart-slot');
+      await expect(cells).toHaveCount(count);
+      await cells.first().focus();
+      await expect(page.locator('#digest-activity .tmt-ui-chart-tip')).toContainText(
+        timezoneId === 'UTC' ? '08:00–12:00' : '17:00–20:00',
+      );
+      await page.keyboard.press('End');
+      await expect(page.locator('#digest-activity .tmt-ui-chart-tip')).toContainText(
+        timezoneId === 'UTC' ? '04:00–08:00' : '16:00–17:00',
+      );
+    });
   });
 }
