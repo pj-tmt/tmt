@@ -769,6 +769,27 @@ it('preserves the real nextest 0.9.148 slice order across binary-id punctuation'
   expect(() => admitPartition(sorted, listing, 1, 2)).toThrow('slice assignment differs');
 });
 
+it('archives a test-enabled example standalone once and excludes its test-profile harness', () => {
+  const target = '/fixture/target';
+  const normal = {
+    reason: 'compiler-artifact',
+    profile: { test: false },
+    target: { name: 'provider-script-fixture', kind: ['example'], test: true },
+    executable: `${target}/debug/examples/provider-script-fixture`,
+  };
+  const harness = {
+    ...normal,
+    profile: { test: true },
+    executable: `${target}/debug/examples/provider_script_fixture-test-harness`,
+  };
+  // The normal record can occur in both cargo test --no-run and cargo build --examples.
+  const files = exampleExecutables([harness, normal, { ...normal }], target);
+  expect(files).toEqual(['debug/examples/provider-script-fixture']);
+  const config = runtimeArchiveConfig(files);
+  expect(config.match(/path = "debug\/examples\/provider-script-fixture"/g)).toHaveLength(1);
+  expect(config).not.toContain('test-harness');
+});
+
 // Cargo JSON from producer 117283454313: fixture_worker is an example, not a nextest bin-exe.
 it('carries Cargo-built example workers and refuses missing, foreign or non-executable runtime inputs', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'archive-runtime-'));

@@ -154,7 +154,7 @@ export function admitPartition(cases, inventory, index, total) {
 /** Cargo builds non-test examples that nextest does not automatically archive. */
 export function exampleExecutables(artifacts, targetDirectory) {
   assert.ok(path.isAbsolute(targetDirectory), 'target directory must be absolute');
-  const files = artifacts
+  const executables = artifacts
     .filter(
       (item) =>
         item.reason === 'compiler-artifact' &&
@@ -162,7 +162,8 @@ export function exampleExecutables(artifacts, targetDirectory) {
         item.target.kind.includes('example') &&
         item.executable
     )
-    .map((item) => path.relative(targetDirectory, item.executable));
+    .map((item) => item.executable);
+  const files = [...new Set(executables)].map((file) => path.relative(targetDirectory, file));
   runtimeArchiveConfig(files);
   return files;
 }
@@ -757,10 +758,21 @@ async function inventory(directory, total) {
     '--no-run',
     '--message-format=json',
   ]);
-  const artifacts = build
-    .trim()
-    .split('\n')
-    .map((line) => JSON.parse(line));
+  // A test-enabled example may only have a harness in the no-run output. Build
+  // all standalone examples before selecting the existing runtime archive inputs.
+  const examples = await run('compile-examples', 'cargo', [
+    'build',
+    '--locked',
+    '--workspace',
+    '--examples',
+    '--message-format=json',
+  ]);
+  const artifacts = [build, examples].flatMap((output) =>
+    output
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+  );
   const runtimeFiles = exampleExecutables(artifacts, path.resolve('target'));
   verifyRuntimeExecutables(runtimeFiles, path.resolve('target'));
   writeJSON(path.join(directory, 'runtime-files.json'), runtimeFiles);
