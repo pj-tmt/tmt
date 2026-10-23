@@ -405,6 +405,7 @@ var browserUiClasses = Object.freeze({
 	listUpdated: "tmt-ui-list-updated",
 	listState: "tmt-ui-list-state",
 	listActions: "tmt-ui-list-actions",
+	listDetail: "tmt-ui-list-detail",
 	tabs: "tmt-ui-tabs",
 	tabsHeader: "tmt-ui-tabs-header",
 	tabList: "tmt-ui-tab-list",
@@ -1253,22 +1254,22 @@ var firestoreReasons = {
 /** Read-only settings presentation; all evidence was validated on the signed SDK lane. */
 var states = {
 	enabled: [
-		"✓",
+		"dot",
 		"Enabled",
 		"working"
 	],
 	building: [
-		"◌",
+		"dashed",
 		"Building",
 		"waiting"
 	],
 	"not-enabled": [
-		"—",
+		"ring",
 		"Not enabled",
 		"review"
 	],
 	unknown: [
-		"○",
+		"unknown",
 		"Not checked",
 		"waiting"
 	]
@@ -1284,13 +1285,15 @@ function command(text) {
 	return code;
 }
 function mark(state) {
-	const [icon, text, tone] = states[state];
+	const [shape, text, tone] = states[state];
 	const label = node("span");
 	label.dataset.tone = tone;
 	label.className = browserUiClasses.listState;
-	const symbol = node("span", icon);
+	const symbol = node("span");
+	symbol.className = browserUiClasses.stateMark;
+	symbol.dataset.shape = shape;
 	symbol.setAttribute("aria-hidden", "true");
-	label.append(symbol, document.createTextNode(` ${text}`));
+	label.append(symbol, document.createTextNode(text));
 	return label;
 }
 function allowance(amount, bytes, period) {
@@ -1822,6 +1825,14 @@ async function settingsPage(shell, registry) {
 		const designation = element("designation-command");
 		designation.hidden = editable || page.access !== "live";
 		if (!designation.hidden) element("designation-code").textContent = `tmt remote devices designate ${page.clientId}`;
+		const accessMark = element("access-mark");
+		accessMark.hidden = page.access === "checking";
+		accessMark.dataset.shape = {
+			checking: "",
+			live: "dot",
+			lost: "cross",
+			unconfirmed: "unknown"
+		}[page.access];
 		element("access-notice").dataset.tone = page.access === "live" ? editable ? "working" : "review" : page.access === "checking" ? "waiting" : "blocked";
 		const reason = capacity ?? (!editable ? page.access === "live" ? "" : "Current browser access could not be confirmed." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check the saved value first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "");
 		element("controls-reason").textContent = reason;
@@ -1887,10 +1898,31 @@ async function settingsPage(shell, registry) {
 			for (const device of page.devices.devices) {
 				let row = rows.get(device.clientId);
 				if (!row) {
-					row = document.createElement("div");
-					row.className = "device";
-					const summary = document.createElement("p");
-					summary.className = "device-summary";
+					row = document.createElement("li");
+					row.className = `${browserUiClasses.listRow} device`;
+					row.dataset.leading = "";
+					const lead = document.createElement("div");
+					lead.className = browserUiClasses.listLeading;
+					lead.setAttribute("aria-hidden", "true");
+					const deviceMark = document.createElement("span");
+					deviceMark.className = browserUiClasses.stateMark;
+					lead.append(deviceMark);
+					const summary = document.createElement("div");
+					summary.className = `${browserUiClasses.listTitle} device-summary`;
+					const deviceName = document.createElement("span");
+					deviceName.className = browserUiClasses.listLabel;
+					const deviceKind = document.createElement("span");
+					deviceKind.className = browserUiClasses.listDescription;
+					summary.append(deviceName, deviceKind);
+					const deviceMeta = document.createElement("div");
+					deviceMeta.className = browserUiClasses.listMeta;
+					const here = document.createElement("div");
+					here.className = browserUiClasses.listUpdated;
+					const sending = document.createElement("div");
+					sending.className = browserUiClasses.listState;
+					deviceMeta.append(here, sending);
+					const detail = document.createElement("div");
+					detail.className = browserUiClasses.listDetail;
 					const form = document.createElement("form");
 					const label = document.createElement("label");
 					const name = document.createElement("input");
@@ -2007,11 +2039,42 @@ async function settingsPage(shell, registry) {
 					const disabledReason = document.createElement("p");
 					disabledReason.id = `device-reason-${device.clientId}`;
 					disabledReason.className = "tmt-ui-field-description";
-					row.append(summary, form, panel, deviceFeedback(device.clientId), disabledReason);
+					detail.append(form, panel, deviceFeedback(device.clientId), disabledReason);
+					row.append(lead, summary, deviceMeta, detail);
 					rows.set(device.clientId, row);
 					devices.append(row);
 				}
-				row.querySelector(".device-summary").textContent = `${device.name}${device.thisBrowser ? " · This device" : ""} · ${device.kind} · ${device.revoked ? "Revoked" : `Paired · Sending ${device.talkEnabled ? "on" : "off"}`} · ${device.liveSessionCount} live ${device.liveSessionCount === 1 ? "session" : "sessions"} · Last used ${device.lastUsedAtMs === null ? "Not recorded" : new Date(device.lastUsedAtMs).toLocaleString()}`;
+				const sendingState = device.revoked ? {
+					word: "Revoked",
+					shape: "cross",
+					tone: "blocked"
+				} : device.talkEnabled ? {
+					word: "Sending on",
+					shape: "dot",
+					tone: "working"
+				} : {
+					word: "Sending off",
+					shape: "ring",
+					tone: ""
+				};
+				row.querySelector(`.${browserUiClasses.listLabel}`).textContent = device.name;
+				row.querySelector(`.${browserUiClasses.listDescription}`).textContent = `${device.kind} · ${device.liveSessionCount} live ${device.liveSessionCount === 1 ? "session" : "sessions"} · Last used ${device.lastUsedAtMs === null ? "Not recorded" : new Date(device.lastUsedAtMs).toLocaleString()}`;
+				const here = row.querySelector(`.${browserUiClasses.listUpdated}`);
+				if (device.thisBrowser && !here.firstChild) {
+					const chip = document.createElement("span");
+					chip.className = browserUiClasses.chip;
+					const chipLabel = document.createElement("span");
+					chipLabel.className = browserUiClasses.chipLabel;
+					chipLabel.textContent = "This device";
+					chip.append(chipLabel);
+					here.append(chip);
+				} else if (!device.thisBrowser) here.replaceChildren();
+				const sending = row.querySelector(`.${browserUiClasses.listState}`);
+				sending.textContent = sendingState.word;
+				sending.dataset.tone = sendingState.tone;
+				const lead = row.querySelector(`.${browserUiClasses.listLeading}`);
+				lead.dataset.tone = sendingState.tone;
+				row.querySelector(`.${browserUiClasses.stateMark}`).dataset.shape = sendingState.shape;
 				row.querySelector("[data-action=\"talk\"] .tmt-ui-action-label").textContent = device.talkEnabled ? "Disable sending" : "Enable sending";
 				row.querySelector("form").setAttribute("aria-label", `Device ${device.name}`);
 				const name = row.querySelector("input");

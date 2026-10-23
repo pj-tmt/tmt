@@ -619,6 +619,19 @@ intensity step; the painter only maps it to elements, so the model is what is un
 The mark-plus-word unit used by every component above. Sizes match the
 surrounding text; the live dot is 8 px. Basis: own.
 
+On the web the mark is the leaf's `tmt-ui-state-mark`: one 12 px box, a `data-shape`, the
+colour of the text around it; the word beside it carries the meaning.
+
+- **Agent states** (one-to-one with the TUI marks): working = dot, idle = dashed ring,
+  needs you = diamond, blocked = cross, offline = ring, idle alert and timers = clock,
+  unknown = ring around `?`.
+- **Connection states** (Remote Status, Connect and Pair; the settings access line) reuse the
+  same shapes in their own set: connected, confirmed or paired = dot; waiting, or a different
+  machine = diamond; not accepted, refused or unavailable = cross; not paired = ring; cannot
+  reach or cannot read = ring around `?`. Checking draws no mark.
+- **Firestore layers:** enabled = dot, building = dashed ring, not enabled = ring,
+  not checked = ring around `?`.
+
 ### Band
 
 An inline panel that expands under a row to show more without leaving the list

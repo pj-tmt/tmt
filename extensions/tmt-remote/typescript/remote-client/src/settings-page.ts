@@ -282,6 +282,11 @@ export async function settingsPage(
     designation.hidden = editable || page.access !== 'live';
     if (!designation.hidden)
       element('designation-code').textContent = `tmt remote devices designate ${page.clientId}`;
+    const accessMark = element('access-mark');
+    accessMark.hidden = page.access === 'checking';
+    accessMark.dataset.shape = { checking: '', live: 'dot', lost: 'cross', unconfirmed: 'unknown' }[
+      page.access
+    ];
     element('access-notice').dataset.tone =
       page.access === 'live'
         ? editable
@@ -389,10 +394,33 @@ export async function settingsPage(
       for (const device of page.devices.devices) {
         let row = rows.get(device.clientId);
         if (!row) {
-          row = document.createElement('div');
-          row.className = 'device';
-          const summary = document.createElement('p');
-          summary.className = 'device-summary';
+          row = document.createElement('li');
+          row.className = `${browserUiClasses.listRow} device`;
+          row.dataset.leading = '';
+          const lead = document.createElement('div');
+          lead.className = browserUiClasses.listLeading;
+          lead.setAttribute('aria-hidden', 'true');
+          const deviceMark = document.createElement('span');
+          deviceMark.className = browserUiClasses.stateMark;
+          lead.append(deviceMark);
+          // The name over what it is, then who it is and whether it may send, in the shared row.
+          const summary = document.createElement('div');
+          summary.className = `${browserUiClasses.listTitle} device-summary`;
+          const deviceName = document.createElement('span');
+          deviceName.className = browserUiClasses.listLabel;
+          const deviceKind = document.createElement('span');
+          deviceKind.className = browserUiClasses.listDescription;
+          summary.append(deviceName, deviceKind);
+          const deviceMeta = document.createElement('div');
+          deviceMeta.className = browserUiClasses.listMeta;
+          const here = document.createElement('div');
+          here.className = browserUiClasses.listUpdated;
+          const sending = document.createElement('div');
+          sending.className = browserUiClasses.listState;
+          deviceMeta.append(here, sending);
+          // The device's own controls belong to its row, under the name.
+          const detail = document.createElement('div');
+          detail.className = browserUiClasses.listDetail;
           const form = document.createElement('form');
           const label = document.createElement('label');
           const name = document.createElement('input');
@@ -517,12 +545,36 @@ export async function settingsPage(
           const disabledReason = document.createElement('p');
           disabledReason.id = `device-reason-${device.clientId}`;
           disabledReason.className = 'tmt-ui-field-description';
-          row.append(summary, form, panel, deviceFeedback(device.clientId), disabledReason);
+          detail.append(form, panel, deviceFeedback(device.clientId), disabledReason);
+          row.append(lead, summary, deviceMeta, detail);
           rows.set(device.clientId, row);
           devices.append(row);
         }
-        row.querySelector('.device-summary')!.textContent =
-          `${device.name}${device.thisBrowser ? ' · This device' : ''} · ${device.kind} · ${device.revoked ? 'Revoked' : `Paired · Sending ${device.talkEnabled ? 'on' : 'off'}`} · ${device.liveSessionCount} live ${device.liveSessionCount === 1 ? 'session' : 'sessions'} · Last used ${device.lastUsedAtMs === null ? 'Not recorded' : new Date(device.lastUsedAtMs).toLocaleString()}`;
+        const sendingState = device.revoked
+          ? { word: 'Revoked', shape: 'cross', tone: 'blocked' }
+          : device.talkEnabled
+            ? { word: 'Sending on', shape: 'dot', tone: 'working' }
+            : { word: 'Sending off', shape: 'ring', tone: '' };
+        row.querySelector(`.${browserUiClasses.listLabel}`)!.textContent = device.name;
+        row.querySelector(`.${browserUiClasses.listDescription}`)!.textContent =
+          `${device.kind} · ${device.liveSessionCount} live ${device.liveSessionCount === 1 ? 'session' : 'sessions'} · Last used ${device.lastUsedAtMs === null ? 'Not recorded' : new Date(device.lastUsedAtMs).toLocaleString()}`;
+        const here = row.querySelector<HTMLElement>(`.${browserUiClasses.listUpdated}`)!;
+        if (device.thisBrowser && !here.firstChild) {
+          const chip = document.createElement('span');
+          chip.className = browserUiClasses.chip;
+          const chipLabel = document.createElement('span');
+          chipLabel.className = browserUiClasses.chipLabel;
+          chipLabel.textContent = 'This device';
+          chip.append(chipLabel);
+          here.append(chip);
+        } else if (!device.thisBrowser) here.replaceChildren();
+        const sending = row.querySelector<HTMLElement>(`.${browserUiClasses.listState}`)!;
+        sending.textContent = sendingState.word;
+        sending.dataset.tone = sendingState.tone;
+        const lead = row.querySelector<HTMLElement>(`.${browserUiClasses.listLeading}`)!;
+        lead.dataset.tone = sendingState.tone;
+        row.querySelector<HTMLElement>(`.${browserUiClasses.stateMark}`)!.dataset.shape =
+          sendingState.shape;
         row.querySelector('[data-action="talk"] .tmt-ui-action-label')!.textContent =
           device.talkEnabled ? 'Disable sending' : 'Enable sending';
         const form = row.querySelector('form')!;

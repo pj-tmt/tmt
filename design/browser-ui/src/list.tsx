@@ -27,6 +27,8 @@ export interface BrowserListRowProps extends Omit<
   /** Colours the leading mark and the state word. */
   tone?: 'working' | 'waiting' | 'blocked' | 'review';
   actions?: ReactNode;
+  /** Content that belongs to this row alone, such as the form that acts on it: under the name. */
+  detail?: ReactNode;
   /** A control that belongs to the row before its title, such as a selection checkbox. */
   leading?: ReactNode;
 }
@@ -37,6 +39,7 @@ export function BrowserListRow({
   state,
   tone,
   actions,
+  detail,
   leading,
   ...attributes
 }: BrowserListRowProps) {
@@ -64,6 +67,7 @@ export function BrowserListRow({
         </div>
       </div>
       {actions !== undefined && <div className={c.listActions}>{actions}</div>}
+      {detail !== undefined && <div className={c.listDetail}>{detail}</div>}
     </li>
   );
 }

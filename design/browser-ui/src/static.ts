@@ -94,6 +94,7 @@ export const browserUiClasses = Object.freeze({
   listUpdated: 'tmt-ui-list-updated',
   listState: 'tmt-ui-list-state',
   listActions: 'tmt-ui-list-actions',
+  listDetail: 'tmt-ui-list-detail',
   tabs: 'tmt-ui-tabs',
   tabsHeader: 'tmt-ui-tabs-header',
   tabList: 'tmt-ui-tab-list',

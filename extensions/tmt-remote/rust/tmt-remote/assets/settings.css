@@ -78,19 +78,12 @@
   gap: 8px 12px;
   min-width: 0;
 }
-.settings-page .device {
-  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  padding: 14px 0;
-}
-.settings-page .device p {
-  overflow-wrap: anywhere;
-}
+/* A device's controls sit in its row's detail: the name field grows, the actions wrap. */
 .settings-page .device form {
   display: flex;
   align-items: end;
   flex-wrap: wrap;
   gap: 8px 12px;
-  margin-top: 12px;
 }
 .settings-page .device form > .tmt-ui-field {
   flex: 1 1 220px;
@@ -118,6 +111,10 @@
   }
 }
 
+.settings-page .firestore-layer .tmt-ui-state-mark {
+  margin-inline-end: 6px;
+  vertical-align: -1px;
+}
 .settings-page .firestore-layer {
   margin: 20px 0;
 }

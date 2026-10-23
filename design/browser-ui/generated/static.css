@@ -1983,6 +1983,15 @@ svg.tmt-ui-mark {
   justify-content: flex-end;
   align-items: center;
 }
+
+.tmt-ui-list-detail {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding-top: var(--tmt-ui-space-m);
+}
+.tmt-ui-list-row[data-leading] > .tmt-ui-list-detail {
+  grid-column: 2 / -1;
+}
 @media (max-width: 479px) {
   .tmt-ui-list-row {
     grid-template-columns: minmax(0, 1fr) auto;

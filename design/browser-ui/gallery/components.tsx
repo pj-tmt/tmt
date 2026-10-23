@@ -625,6 +625,38 @@ export function ListSection() {
           </BrowserList>
         )}
       </Pair>
+      <Pair
+        title="Row with its own detail"
+        note="The detail belongs to this row alone: it sits under the name, on the row's surface."
+      >
+        {() => (
+          <BrowserList label="Devices">
+            <BrowserListRow
+              leading={<span className="tmt-ui-state-mark" data-shape="dot" aria-hidden="true" />}
+              title="Settings browser"
+              description="browser · 1 live session · Last used today"
+              metadata="This device"
+              tone="working"
+              state="Sending on"
+              detail={
+                <BrowserAction
+                  type="button"
+                  variant="secondary"
+                  label="Rename Settings browser"
+                  visibleLabel="Rename"
+                  onActivate={noop}
+                />
+              }
+            />
+            <BrowserListRow
+              leading={<span className="tmt-ui-state-mark" data-shape="ring" aria-hidden="true" />}
+              title="Maker laptop"
+              description="browser · no live session · Last used 2 days ago"
+              state="Sending off"
+            />
+          </BrowserList>
+        )}
+      </Pair>
       <Pair title="Row title link states">
         {() => (
           <Cells>

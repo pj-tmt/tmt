@@ -406,6 +406,29 @@ async function entryPairing(): Promise<EntryPairing> {
   }
 }
 
+/** The shared state marks drawn for a connection state: one shape each, in the notice's tone. A
+ * connection is checked, so `checking` draws none. */
+type MarkShape = 'dot' | 'ring' | 'diamond' | 'cross' | 'unknown';
+const connectionMarks: Record<
+  EntryState,
+  { shape: MarkShape | null; tone: 'working' | 'waiting' | 'blocked' | 'neutral' }
+> = {
+  missing: { shape: 'ring', tone: 'neutral' },
+  checking: { shape: null, tone: 'neutral' },
+  connected: { shape: 'dot', tone: 'working' },
+  different: { shape: 'diamond', tone: 'waiting' },
+  refused: { shape: 'cross', tone: 'blocked' },
+  unconfirmed: { shape: 'unknown', tone: 'neutral' },
+  unreadable: { shape: 'unknown', tone: 'neutral' },
+};
+/** Draw the page's one state mark (`#mark`, a leaf `tmt-ui-state-mark`), or hide it. */
+function drawMark(shape: MarkShape | null): void {
+  const mark = element('mark');
+  mark.hidden = shape === null;
+  if (shape) mark.dataset.shape = shape;
+  else delete mark.dataset.shape;
+}
+
 type EntryState =
   | 'missing'
   | 'checking'
@@ -455,27 +478,23 @@ export async function landingPage(
       refusalCode ?? '',
     );
     const copy = {
-      missing: ['', 'Not paired', 'Pair this browser with your machine', ''],
+      missing: ['Not paired', 'Pair this browser with your machine', ''],
       checking: [
-        '',
         'Checking',
         'Checking the connection…',
         'This browser is paired. Nothing is sent while checking.',
       ],
       connected: [
-        '',
         'Connected',
         'This browser can use Remote',
         'Open your app from its link in this browser.',
       ],
       different: [
-        '',
         'Different machine',
         'This browser is paired with another machine',
         "This Remote runs on a machine this browser isn't paired with. Your existing pairing is kept.",
       ],
       refused: [
-        '',
         'Not accepted',
         "Remote didn't accept this browser",
         refusalCode === 'REMOTE_SESSION_LIMIT'
@@ -485,37 +504,34 @@ export async function landingPage(
             : "This page's connection ended. Try again. Your pairing is unchanged.",
       ],
       unconfirmed: [
-        '',
         "Can't reach Remote",
         "Couldn't confirm the connection",
         "Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged.",
       ],
       unreadable: [
-        '',
         'Pairing unreadable',
         "This browser's pairing can't be read",
         'Your saved pairing could not be read. Check browser storage and try again.',
       ],
     }[state];
-    // A connection state is words only; the agent marks and their tones stay for agents.
-    element('notice').dataset.tone = 'neutral';
+    element('notice').dataset.tone = connectionMarks[state].tone;
     element('notice').dataset.state = state;
     registryState(
-      authorityEnded ? 'Access ended' : copy[1]!,
+      authorityEnded ? 'Access ended' : copy[0]!,
       element('protocol-address').textContent ?? undefined,
     );
     for (const [copyState, command] of commandActions)
       element(`copy-feedback-${copyState}-${command}`).textContent = '';
-    element('mark').textContent = copy[0]!;
-    element('state-label').textContent = copy[1]!;
-    element('heading').textContent = copy[2]!;
+    drawMark(connectionMarks[state].shape);
+    element('state-label').textContent = copy[0]!;
+    element('heading').textContent = copy[1]!;
     element('status').textContent =
-      state === 'checking' && !validated ? "Reading this browser's pairing." : copy[3]!;
+      state === 'checking' && !validated ? "Reading this browser's pairing." : copy[2]!;
     if (state === 'refused' && authorityEnded) {
       const command = document.createElement('code');
       command.className = 'tmt-ui-code';
       command.textContent = 'tmt remote pair';
-      const [before, after] = copy[3]!.split(command.textContent);
+      const [before, after] = copy[2]!.split(command.textContent);
       element('status').replaceChildren(
         document.createTextNode(before!),
         command,
@@ -735,7 +751,7 @@ function showState(
     blocked: 'Unavailable',
   }[state];
   status.textContent = text;
-  element('mark').textContent = { waiting: '◆', paired: '✓', blocked: '✗' }[state];
+  drawMark({ waiting: 'diamond', paired: 'dot', blocked: 'cross' }[state] as MarkShape);
 }
 /** Called by the fragment-erasing bootstrap after the page DOM is ready. */
 let pairingAttempt: AbortController | undefined;

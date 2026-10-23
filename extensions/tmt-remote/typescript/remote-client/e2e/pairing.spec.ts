@@ -43,12 +43,23 @@ function tokenRgb(group: 'color' | 'surface', name: string, theme: 'light' | 'da
   const hex = browserTokens[group][name]![theme]!;
   return `rgb(${[1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16)).join(', ')})`;
 }
+/** The first device row in the shared list: its name over what it is, who it is and its sending state. */
+async function expectDevice(
+  page: Page,
+  expected: { name: string; here: boolean; sending: string; description: RegExp | string },
+) {
+  const row = page.locator('.device').first();
+  await expect(row.locator('.tmt-ui-list-label')).toHaveText(expected.name);
+  await expect(row.locator('.tmt-ui-list-description')).toHaveText(expected.description);
+  await expect(row.locator('.tmt-ui-list-updated')).toHaveText(expected.here ? 'This device' : '');
+  await expect(row.locator('.tmt-ui-list-state')).toHaveText(expected.sending);
+}
 async function expectStateColor(
   page: Page,
   scheme: 'light' | 'dark',
   state: 'waiting' | 'blocked' | 'working',
 ) {
-  expect(await page.locator('.state-mark').evaluate((mark) => getComputedStyle(mark).color)).toBe(
+  expect(await page.locator('#mark').evaluate((mark) => getComputedStyle(mark).color)).toBe(
     tokenRgb('color', state, scheme),
   );
   expect(
@@ -939,7 +950,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   await expect(page.locator('#status')).toHaveText(
     'This browser is paired. You can close this page.',
   );
-  await expect(page.locator('#mark')).toHaveText('✓');
+  await expect(page.locator('#mark')).toHaveAttribute('data-shape', 'dot');
   await expectStateColor(page, 'light', 'working');
   expect(requested.some((url) => url.includes(code))).toBe(false);
 
@@ -1465,8 +1476,12 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             );
             await expect(page.locator('#notice')).not.toContainText('tmt remote pair');
           }
-          await expect(page.locator('.state-mark')).toHaveText(
-            { landing: '', pairing: '◆', confirmation: '◆', error: '✗' }[state]!,
+          // Each state draws its own mark; an unpaired landing is a ring.
+          await expect(page.locator('#mark')).toHaveAttribute(
+            'data-shape',
+            { landing: 'ring', pairing: 'diamond', confirmation: 'diamond', error: 'cross' }[
+              state
+            ]!,
           );
           await settled(page);
           const look = await page.evaluate(() => {
@@ -1504,6 +1519,9 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
                   headings: document.querySelectorAll('h1').length,
                 };
               })(),
+              markBelowHeading:
+                document.querySelector('.tmt-ui-notice-mark')!.getBoundingClientRect().top >=
+                document.querySelector('#heading')!.getBoundingClientRect().bottom,
               markAboveEyebrow:
                 document.querySelector('.tmt-ui-notice-mark')!.getBoundingClientRect().bottom <=
                 // Remote's views share one document: look only at the one that shows.
@@ -1535,7 +1553,11 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
                 ? 'rgba(0, 0, 0, 0)'
                 : tokenRgb('surface', 'sheet', colorScheme),
             text: tokenRgb('color', 'text', colorScheme),
-            markAboveEyebrow: true,
+            // The state mark leads the notice, except in the pairing views, where it sits under
+            // the heading with its sentence.
+            ...(state === 'pairing' || state === 'confirmation'
+              ? { markBelowHeading: true }
+              : { markAboveEyebrow: true }),
             // The pairing views are a flush band (no border); the others are the shared card.
             radius: browserTokens.metric.radius,
             border: state === 'pairing' || state === 'confirmation' ? '0px' : '1px',
@@ -1640,7 +1662,7 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
         expect(candidate.event).toBe('candidate');
         await expect(page.locator('#words')).toHaveText((candidate.words as string[]).join(' '));
         await expect(page.locator('#status')).toHaveAttribute('data-state', 'waiting');
-        await expect(page.locator('.words-label')).toHaveText('Four words to compare');
+        await expect(page.locator('#words-label')).toHaveText('Four words to compare');
         await expect(page.locator('#status')).toHaveText(
           'Waiting for confirmation in your terminal. Compare these words and confirm only if they match.',
         );
@@ -1649,28 +1671,27 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
           body: getComputedStyle(document.body).color,
           mark: getComputedStyle(document.getElementById('mark')!).color,
           wordsSize: parseFloat(getComputedStyle(document.getElementById('words')!).fontSize),
-          outerOutline: getComputedStyle(document.getElementById('comparison')!).outlineStyle,
-          wordsBorder: getComputedStyle(document.getElementById('words')!).borderTopWidth,
-          wordsOutline: getComputedStyle(document.getElementById('words')!).outlineStyle,
-          wordsEdge: getComputedStyle(document.getElementById('words')!).borderTopColor,
+          cardOutline: getComputedStyle(document.getElementById('comparison')!).outlineStyle,
+          cardBorder: getComputedStyle(document.getElementById('comparison')!).borderTopWidth,
+          cardEdge: getComputedStyle(document.getElementById('comparison')!).borderTopColor,
           labelInside: document
             .getElementById('words')!
-            .contains(document.querySelector('.words-label')),
+            .contains(document.getElementById('words-label')),
         }));
         expect(confirmation.instruction).toBe(confirmation.body);
         expect(confirmation.mark).toBe(tokenRgb('color', 'waiting', colorScheme));
         expect(confirmation.wordsSize).toBeGreaterThanOrEqual(24);
         expect(confirmation.labelInside).toBe(false);
-        expect(confirmation.outerOutline).toBe('none');
-        expect(confirmation.wordsBorder).toBe('1px');
-        // Keyboard focus recolours the words' 1px rule, as a field's focus does.
-        expect(confirmation.wordsOutline).toBe('none');
-        expect(confirmation.wordsEdge).toBe(tokenRgb('color', 'focus', colorScheme));
+        expect(confirmation.cardBorder).toBe('1px');
+        // Keyboard focus recolours the card's 1px rule, as a field's focus does: one frame.
+        expect(confirmation.cardOutline).toBe('none');
+        expect(confirmation.cardEdge).toBe(tokenRgb('color', 'focus', colorScheme));
         await inspect('confirmation');
         await page.locator('#heading').click();
-        const pointerComparison = await page.locator('#words').evaluate((words) => {
-          const style = getComputedStyle(words);
-          const label = document.querySelector('.words-label')!;
+        const pointerComparison = await page.locator('#comparison').evaluate((card) => {
+          const style = getComputedStyle(card);
+          const label = document.getElementById('words-label')!;
+          const words = document.getElementById('words')!;
           return {
             border: style.borderTopColor,
             outline: style.outlineStyle,
@@ -1697,7 +1718,7 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
         await expect(page.locator('#status')).toHaveText(
           'Pairing did not complete. Run tmt remote pair again for a new link.',
         );
-        await expect(page.locator('#mark')).toHaveText('✗');
+        await expect(page.locator('#mark')).toHaveAttribute('data-shape', 'cross');
         await expectStateColor(page, colorScheme, 'blocked');
         await captureState(page, 'pair-failed', 'Failure words, no retry action');
         expect((await page.goto(`${origin}/remote/pair/abc`))?.status()).toBe(404);
@@ -1749,9 +1770,19 @@ test('the native entry checks once and presents all seven evidenced states witho
       );
   };
   const captureEntry = async (state: string): Promise<void> => {
-    // Remote connection states are words only, in the neutral tone (the agent marks' tones mean
-    // agent states, not these).
-    await expect(page.locator('#notice')).toHaveAttribute('data-tone', 'neutral');
+    // Each connection state draws its own shape in its own tone; checking draws none.
+    const drawn = {
+      'not-paired': ['ring', 'neutral'],
+      checking: [undefined, 'neutral'],
+      connected: ['dot', 'working'],
+      'different-machine': ['diamond', 'waiting'],
+      'pairing-unreadable': ['unknown', 'neutral'],
+      unconfirmed: ['unknown', 'neutral'],
+      'not-accepted': ['cross', 'blocked'],
+    }[state]!;
+    await expect(page.locator('#notice')).toHaveAttribute('data-tone', drawn[1]!);
+    if (drawn[0]) await expect(page.locator('#mark')).toHaveAttribute('data-shape', drawn[0]);
+    else await expect(page.locator('#mark')).toBeHidden();
     await expect(page.locator('#command-pair, #command-devices, #command-status')).toHaveCount(0);
     const commands = page.locator('.entry-steps:visible code');
     const expected = ['not-accepted', 'pairing-unreadable', 'checking', 'connected'].includes(state)
@@ -2327,7 +2358,9 @@ test('bare pairing is read only and settings explicitly enables audited sending'
   await expect(
     page.getByRole('button', { name: 'Enable sending for Settings browser', exact: true }),
   ).toBeEnabled();
-  await expect(page.locator('.device-summary').first()).toContainText('Paired · Sending off ·');
+  await expect(page.locator('.device').first().locator('.tmt-ui-list-state')).toHaveText(
+    'Sending off',
+  );
   await captureState(
     page,
     'bare-pair-sending-off',
@@ -2405,7 +2438,9 @@ test('bare pairing is read only and settings explicitly enables audited sending'
   await expect(
     page.getByRole('button', { name: 'Disable sending for Settings browser', exact: true }),
   ).toBeEnabled();
-  await expect(page.locator('.device-summary').first()).toContainText('Paired · Sending on ·');
+  await expect(page.locator('.device').first().locator('.tmt-ui-list-state')).toHaveText(
+    'Sending on',
+  );
   await captureState(
     page,
     'bare-pair-sending-on',
@@ -2448,8 +2483,11 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   ) as { devices: { clientId: string }[] };
   const clientId = inventory.devices[0]!.clientId;
   async function descriptions(editable: boolean): Promise<void> {
-    await expect(page.locator('.device-summary').first()).toContainText(
-      ' · This device · browser · Paired · ',
+    await expect(page.locator('.device').first().locator('.tmt-ui-list-updated')).toHaveText(
+      'This device',
+    );
+    await expect(page.locator('.device').first().locator('.tmt-ui-list-description')).toContainText(
+      'browser · ',
     );
     const guidance = 'Read-only in this browser. To remove devices here, run this on the machine:';
     const help =
@@ -2500,9 +2538,12 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     'settings-read-only',
     'Non-designated browser, visible local CLI and disabled reasons',
   );
-  await expect(page.locator('.device-summary').first()).toHaveText(
-    /^Settings browser · This device · browser · Paired · Sending on · 2 live sessions · Last used .+$/,
-  );
+  await expectDevice(page, {
+    name: 'Settings browser',
+    here: true,
+    sending: 'Sending on',
+    description: /^browser · 2 live sessions · Last used .+$/,
+  });
   await expect(page.locator('#limit-value')).toHaveText('Off (unlimited) · default');
   execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
   await page.click('#refresh');
@@ -2610,9 +2651,12 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   await expect(
     page.getByRole('button', { name: 'Enable sending for Settings browser', exact: true }),
   ).toBeEnabled();
-  await expect(page.locator('.device-summary').first()).toHaveText(
-    /^Settings browser · This device · browser · Paired · Sending off · 1 live session · Last used .+$/,
-  );
+  await expectDevice(page, {
+    name: 'Settings browser',
+    here: true,
+    sending: 'Sending off',
+    description: /^browser · 1 live session · Last used .+$/,
+  });
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
     await captureState(
@@ -2632,9 +2676,12 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   await expect(
     page.getByRole('button', { name: 'Disable sending for Settings browser', exact: true }),
   ).toBeEnabled();
-  await expect(page.locator('.device-summary').first()).toHaveText(
-    /^Settings browser · This device · browser · Paired · Sending on · 1 live session · Last used .+$/,
-  );
+  await expectDevice(page, {
+    name: 'Settings browser',
+    here: true,
+    sending: 'Sending on',
+    description: /^browser · 1 live session · Last used .+$/,
+  });
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
     await captureState(
@@ -3668,8 +3715,9 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     await gotoSettings(page);
     await expect(indexItem).toContainText('Firestore indexes:');
     await expect(indexItem.locator('.tmt-ui-list-state')).toContainText(mark);
-    await expect(indexItem.locator('.tmt-ui-list-state [aria-hidden="true"]')).toHaveText(
-      state === 'done' ? '✓' : state === 'building' ? '◌' : '○',
+    await expect(indexItem.locator('.tmt-ui-list-state .tmt-ui-state-mark')).toHaveAttribute(
+      'data-shape',
+      state === 'done' ? 'dot' : state === 'building' ? 'dashed' : 'unknown',
     );
     await expect(indexItem.locator('.tmt-ui-list-state')).toHaveAttribute(
       'data-tone',

@@ -26,10 +26,6 @@
         aria-labelledby="heading"
       >
         <div class="sheet-body tmt-ui-notice-body">
-          <div class="tmt-ui-notice-mark">
-            <span id="mark" class="state-mark" aria-hidden="true">◆</span
-            ><span id="state-label">Initializing</span>
-          </div>
           <p id="pairing-eyebrow" class="eyebrow tmt-ui-notice-eyebrow">Browser pairing</p>
           <h2 id="heading" class="tmt-ui-notice-heading">Pair this browser with tmt remote</h2>
           <form id="pair">
@@ -48,11 +44,17 @@
               <span class="tmt-ui-action-label">Pair</span>
             </button>
           </form>
-          <div id="comparison" role="region" aria-labelledby="words-label" aria-describedby="status" tabindex="-1" hidden>
-            <p id="words-label" class="words-label">Four words to compare</p>
+          <section id="comparison" class="tmt-ui-card" role="region" aria-labelledby="words-label" aria-describedby="status" tabindex="-1" hidden>
+            <div class="tmt-ui-card-head"><span id="words-label" class="tmt-ui-card-meta">Four words to compare</span></div>
             <p id="words"></p>
+          </section>
+          <div class="pair-state">
+            <div class="tmt-ui-notice-mark">
+              <span id="mark" class="tmt-ui-state-mark" data-shape="diamond" aria-hidden="true"></span
+              ><span id="state-label">Initializing</span>
+            </div>
+            <p id="status" role="status" tabindex="-1">Pairing is unavailable until a pairing link is ready.</p>
           </div>
-          <p id="status" role="status" tabindex="-1">Pairing is unavailable until a pairing link is ready.</p>
           <p id="entry-link" hidden><a href="/remote/">Return to Remote and connect</a></p>
         </div>
       </section>

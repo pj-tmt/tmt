@@ -132,7 +132,10 @@ fn the_pairing_page_and_sdk_are_served_with_exact_types_and_policy() {
             .contains(r#"<link rel="stylesheet" href="/sdk/pages.css" />"#)
     );
     assert!(page.body.contains(r#"data-tmt-page="pair""#));
-    assert!(page.body.contains(r#"id="comparison" role="region""#));
+    assert!(
+        page.body
+            .contains(r#"id="comparison" class="tmt-ui-card" role="region""#)
+    );
     assert!(page.body.contains(r#"aria-labelledby="words-label""#));
     assert!(
         page.body
@@ -293,7 +296,11 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
     assert!(landing.body.contains(
         r#"<header class="header tmt-ui-header" aria-label="Remote · Remote connection">"#
     ));
-    assert!(landing.body.contains("aria-hidden=\"true\">◌</span"));
+    assert!(
+        landing
+            .body
+            .contains(r#"id="mark" class="tmt-ui-state-mark""#)
+    );
     assert!(landing.body.contains("/sdk/landing.js"));
     for text in [
         "checked-time",
@@ -426,7 +433,11 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
         );
         assert_eq!(reply.header("content-security-policy"), Some(policy));
         assert_eq!(reply.body, include_str!("../assets/error.html"));
-        assert!(reply.body.contains("aria-hidden=\"true\">✗</span"));
+        assert!(
+            reply
+                .body
+                .contains(r#"class="tmt-ui-state-mark" data-shape="cross""#)
+        );
         // No cause crosses the generic refusal boundary; never infer expiry or reuse.
         assert!(reply.body.contains(
             "This page is unavailable. Open it again from the machine. Your pairing is unchanged."

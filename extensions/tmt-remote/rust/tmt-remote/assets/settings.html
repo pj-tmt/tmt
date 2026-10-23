@@ -36,7 +36,7 @@
       >
         <p class="eyebrow tmt-ui-notice-eyebrow">Settings access</p>
         <div class="tmt-ui-notice-mark">
-          <span aria-hidden="true">◆</span>
+          <span id="access-mark" class="tmt-ui-state-mark" aria-hidden="true" hidden></span>
           <p id="access">Checking current access…</p>
           <p
             id="access-announcement"
@@ -316,7 +316,7 @@
               </button>
             </div>
           </div>
-          <div id="devices"></div>
+          <ul id="devices" class="tmt-ui-list"></ul>
           <button
             class="tmt-ui-action"
             aria-describedby="controls-reason"

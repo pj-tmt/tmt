@@ -62,9 +62,6 @@ body:not(:has(.tmt-ui-shell)) {
 .tmt-ui-notice-mark {
   margin-bottom: 12px;
 }
-.state-mark {
-  font: 400 18px/1.5 var(--tmt-ui-font-mono);
-}
 :where(.tmt-page) .eyebrow {
   margin-top: 0;
   text-transform: uppercase;
@@ -100,19 +97,26 @@ body:not(:has(.tmt-ui-shell)) {
   margin-top: 16px;
   outline: none;
 }
-.words-label {
-  margin-bottom: 8px;
-  color: var(--tmt-ui-color-secondary);
-  font: 600 12px/1.6 var(--tmt-ui-font-mono);
-}
 #words {
-  padding: 20px;
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  background: var(--tmt-ui-surface-paper);
+  margin: 0;
   color: var(--tmt-ui-color-text);
-  font: 600 clamp(24px, 3vw, 30px)/1.65 var(--tmt-ui-font-mono);
+  font: 600 clamp(24px, 3vw, 30px)/1.4 var(--tmt-ui-font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* The ceremony state and its sentence sit together under the words, one gap apart. */
+.pair-state {
+  display: grid;
+  gap: var(--tmt-ui-space-m);
+  margin-top: var(--tmt-ui-space-l);
+}
+.pair-state .tmt-ui-notice-mark {
+  margin: 0;
+}
+.pair-state #status:not(:empty) {
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 [data-tmt-page='pair'] #status code {
   white-space: nowrap;
@@ -166,8 +170,9 @@ body:not(:has(.tmt-ui-shell)) {
   font-size: 14px;
 }
 
-/* Programmatic ceremony focus recolours the words' 1px rule, as a field's focus does. */
-#comparison:focus-visible #words {
+/* Programmatic ceremony focus recolours the card's 1px rule, as a field's focus does. */
+#comparison:focus-visible {
+  outline: 0;
   border-color: var(--tmt-ui-color-focus);
 }
 #status:focus-visible {

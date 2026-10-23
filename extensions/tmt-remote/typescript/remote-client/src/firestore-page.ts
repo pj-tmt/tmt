@@ -4,10 +4,10 @@ import { browserUiClasses } from '@tmt/browser-ui/static';
 import { firestoreTitles, firestoreItems, firestoreReasons } from './firestore.js';
 import type { FirestoreSettingsView } from './management.js';
 const states = {
-  enabled: ['✓', 'Enabled', 'working'],
-  building: ['◌', 'Building', 'waiting'],
-  'not-enabled': ['—', 'Not enabled', 'review'],
-  unknown: ['○', 'Not checked', 'waiting'],
+  enabled: ['dot', 'Enabled', 'working'],
+  building: ['dashed', 'Building', 'waiting'],
+  'not-enabled': ['ring', 'Not enabled', 'review'],
+  unknown: ['unknown', 'Not checked', 'waiting'],
 } as const;
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, text = ''): HTMLElementTagNameMap[K] {
   const element = document.createElement(tag);
@@ -20,13 +20,15 @@ function command(text: string): HTMLElement {
   return code;
 }
 function mark(state: keyof typeof states): HTMLElement {
-  const [icon, text, tone] = states[state];
+  const [shape, text, tone] = states[state];
   const label = node('span');
   label.dataset.tone = tone;
   label.className = browserUiClasses.listState;
-  const symbol = node('span', icon);
+  const symbol = node('span');
+  symbol.className = browserUiClasses.stateMark;
+  symbol.dataset.shape = shape;
   symbol.setAttribute('aria-hidden', 'true');
-  label.append(symbol, document.createTextNode(` ${text}`));
+  label.append(symbol, document.createTextNode(text));
   return label;
 }
 function allowance(amount: number, bytes: boolean, period: string): string {

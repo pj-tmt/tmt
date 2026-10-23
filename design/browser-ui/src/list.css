@@ -111,6 +111,15 @@
   justify-content: flex-end;
   align-items: center;
 }
+/* A row's own detail, such as the form that acts on it: under the name, on the row's surface. */
+.tmt-ui-list-detail {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding-top: var(--tmt-ui-space-m);
+}
+.tmt-ui-list-row[data-leading] > .tmt-ui-list-detail {
+  grid-column: 2 / -1;
+}
 @media (max-width: __compact-max-width__) {
   .tmt-ui-list-row {
     grid-template-columns: minmax(0, 1fr) auto;

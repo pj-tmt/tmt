@@ -270,6 +270,10 @@ clipboard helper, command parser or page-wide code reset in the leaf. See the
 `BrowserListRow` takes an optional `leading` control (a selection checkbox) in its own column before
 the title; the compact layout keeps it beside both the title and the metadata.
 
+It also takes an optional `detail` (`tmt-ui-list-detail` for static hosts): content that belongs to
+this row alone, such as the form that acts on it. The detail sits under the name, on the row's own
+surface, so a reader can tell which row a control acts on.
+
 Tabs has a named horizontal tablist, native tab buttons and persistent panels.
 The host supplies ordered `tabs` (stable `id`, `tabId`, `panelId`, label and optional
 state), `selected`, `onSelect(id, reason, originalEvent)` and a panel renderer.
