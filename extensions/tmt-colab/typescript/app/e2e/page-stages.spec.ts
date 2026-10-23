@@ -28,16 +28,17 @@ test('the tabs are All, Needs you, Discussion, In progress, Done and Archived, c
   page,
 }) => {
   await mount(page);
-  await expect(app(page).getByRole('tab')).toHaveText([
-    'All 5',
-    'Needs you 0',
-    'Discussion 1',
-    'In progress 2',
-    'Done 1',
-    'Archived 1',
-  ]);
+  for (const [index, name] of [
+    'All, 5',
+    'Needs you, 0',
+    'Discussion, 1',
+    'In progress, 2',
+    'Done, 1',
+    'Archived, 1',
+  ].entries())
+    await expect(app(page).getByRole('tab').nth(index)).toHaveAccessibleName(name);
   // The bare link opens on All, and the address stays plain: that is the default.
-  await expect(tab(page, 'All 5')).toHaveAttribute('aria-selected', 'true');
+  await expect(tab(page, 'All, 5')).toHaveAttribute('aria-selected', 'true');
   await expect(titles(page)).toHaveText([
     'Alpha plan',
     'Beta review',
@@ -51,16 +52,16 @@ test('the tabs are All, Needs you, Discussion, In progress, Done and Archived, c
     await expect(tab(page, name)).toHaveAttribute('aria-selected', 'true');
     await expect(titles(page)).toHaveText(expected);
   };
-  await shown('In progress 2', ['Alpha plan', 'Beta review']);
+  await shown('In progress, 2', ['Alpha plan', 'Beta review']);
   expect(hash(page)).toContain('stage=in-progress');
-  await shown('Discussion 1', ['Gamma notes']);
+  await shown('Discussion, 1', ['Gamma notes']);
   expect(hash(page)).toContain('stage=discussion');
-  await shown('Done 1', ['Delta ops']);
-  await shown('Archived 1', ['Archived spec']);
+  await shown('Done, 1', ['Delta ops']);
+  await shown('Archived, 1', ['Archived spec']);
   expect(hash(page)).toContain('archived=true');
   expect(hash(page)).not.toContain('stage=');
   // An archived page counts only under Archived, and a page that has not reported under no stage.
-  await shown('All 5', ['Alpha plan', 'Beta review', 'Gamma notes', 'Delta ops', 'Epsilon draft']);
+  await shown('All, 5', ['Alpha plan', 'Beta review', 'Gamma notes', 'Delta ops', 'Epsilon draft']);
   expect(hash(page)).not.toContain('stage=');
   expect(hash(page)).not.toContain('archived');
 });
@@ -69,21 +70,21 @@ test('a copied link lands on its stage, and one it cannot read lands on the defa
   page,
 }) => {
   await mount(page, 'stages', '/?stage=done');
-  await expect(tab(page, 'Done 1')).toHaveAttribute('aria-selected', 'true');
+  await expect(tab(page, 'Done, 1')).toHaveAttribute('aria-selected', 'true');
   await expect(titles(page)).toHaveText(['Delta ops']);
   // A link to In progress keeps working, and so does an older one that names the default, All.
   await mount(page, 'stages', '/?stage=in-progress');
-  await expect(tab(page, 'In progress 2')).toHaveAttribute('aria-selected', 'true');
+  await expect(tab(page, 'In progress, 2')).toHaveAttribute('aria-selected', 'true');
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
   await mount(page, 'stages', '/?stage=all');
-  await expect(tab(page, 'All 5')).toHaveAttribute('aria-selected', 'true');
+  await expect(tab(page, 'All, 5')).toHaveAttribute('aria-selected', 'true');
   await expect(titles(page)).toHaveCount(5);
   await mount(page, 'stages', '/?stage=blocked');
-  await expect(tab(page, 'All 5')).toHaveAttribute('aria-selected', 'true');
+  await expect(tab(page, 'All, 5')).toHaveAttribute('aria-selected', 'true');
   await expect(titles(page)).toHaveCount(5);
   // Archived wins over a stage in the same link.
   await mount(page, 'stages', '/?stage=done&archived=true');
-  await expect(tab(page, 'Archived 1')).toHaveAttribute('aria-selected', 'true');
+  await expect(tab(page, 'Archived, 1')).toHaveAttribute('aria-selected', 'true');
 });
 
 test('a row shows its progress in words and who works on it', async ({ page }) => {
@@ -122,7 +123,7 @@ test('a typed stage: selects the tab and leaves the search, as a tab click does'
   await search(page).click();
   await page.keyboard.type('stage:done');
   await page.keyboard.press('Enter');
-  await expect(tab(page, 'Done 1')).toHaveAttribute('aria-selected', 'true');
+  await expect(tab(page, 'Done, 1')).toHaveAttribute('aria-selected', 'true');
   await expect(titles(page)).toHaveText(['Delta ops']);
   expect(hash(page)).toContain('stage=done');
   // One state: nothing of the stage stays in the search, and no separate chip.
@@ -132,7 +133,7 @@ test('a typed stage: selects the tab and leaves the search, as a tab click does'
   await search(page).click();
   await page.keyboard.type('stage:in-progress alpha');
   await page.keyboard.press('Enter');
-  await expect(tab(page, 'In progress 2')).toHaveAttribute('aria-selected', 'true');
+  await expect(tab(page, 'In progress, 2')).toHaveAttribute('aria-selected', 'true');
   await expect(titles(page)).toHaveText(['Alpha plan']);
   expect(hash(page)).toContain('q=alpha');
 });
@@ -152,7 +153,7 @@ test('stage: suggests the stage names with their counts; picking one selects the
   await page.keyboard.type('dis');
   await expect(page.getByRole('option')).toHaveText(['discussion (1)']);
   await page.keyboard.press('Enter');
-  await expect(tab(page, 'Discussion 1')).toHaveAttribute('aria-selected', 'true');
+  await expect(tab(page, 'Discussion, 1')).toHaveAttribute('aria-selected', 'true');
   await expect(titles(page)).toHaveText(['Gamma notes']);
   await expect(search(page)).not.toContainText('stage');
 });
@@ -167,8 +168,8 @@ test('a tab click removes a stage: still typed in the draft, so there is one sta
   // list's count line) closes them and keeps the draft.
   await app(page).locator('[data-page-list-count]').click();
   await expect(app(page).getByRole('listbox')).toBeHidden();
-  await tab(page, 'Discussion 1').click();
-  await expect(tab(page, 'Discussion 1')).toHaveAttribute('aria-selected', 'true');
+  await tab(page, 'Discussion, 1').click();
+  await expect(tab(page, 'Discussion, 1')).toHaveAttribute('aria-selected', 'true');
   await expect(search(page)).not.toContainText('stage');
   await expect(titles(page)).toHaveText(['Gamma notes']);
 });
@@ -183,9 +184,9 @@ test('the project suggestions count what the stage tab holds', async ({ page }) 
     await page.keyboard.press('Escape');
     await page.keyboard.press('Escape');
   };
-  await tab(page, 'In progress 2').click();
+  await tab(page, 'In progress, 2').click();
   await suggested(['design (2)']);
-  await tab(page, 'Done 1').click();
+  await tab(page, 'Done, 1').click();
   await suggested(['ops (1)']);
 });
 
@@ -193,7 +194,7 @@ test('an empty In progress says where pages without tasks are and links the way 
   page,
 }) => {
   await mount(page, 'quiet', '/?stage=in-progress');
-  await expect(tab(page, 'In progress 0')).toHaveAttribute('aria-selected', 'true');
+  await expect(tab(page, 'In progress, 0')).toHaveAttribute('aria-selected', 'true');
   const empty = app(page).locator('.page-list-empty');
   await expect(empty).toHaveText(
     'Nothing in progress. Pages without tasks are under Discussion; All lists every page.',
@@ -201,14 +202,14 @@ test('an empty In progress says where pages without tasks are and links the way 
   // No tab opens by itself; a link does.
   await expect(titles(page)).toHaveCount(0);
   await empty.getByRole('button', { name: 'Discussion' }).click();
-  await expect(tab(page, 'Discussion 2')).toHaveAttribute('aria-selected', 'true');
+  await expect(tab(page, 'Discussion, 2')).toHaveAttribute('aria-selected', 'true');
   await expect(titles(page)).toHaveText(['Gamma notes', 'Zeta notes']);
-  await tab(page, 'In progress 0').click();
+  await tab(page, 'In progress, 0').click();
   await empty.getByRole('button', { name: 'All' }).click();
-  await expect(tab(page, /^All \d+$/)).toHaveAttribute('aria-selected', 'true');
+  await expect(tab(page, /^All, \d+\+?$/)).toHaveAttribute('aria-selected', 'true');
   expect(hash(page)).not.toContain('stage=');
   await expect(titles(page)).toHaveCount(2);
-  await tab(page, 'Done 0').click();
+  await tab(page, 'Done, 0').click();
   await expect(empty).toHaveText('Nothing done yet.');
 });
 
@@ -222,9 +223,9 @@ test('before any page has reported its tasks a stage tab says it is reading, not
 }) => {
   await mount(page, 'cold', '/?stage=in-progress');
   await expect(app(page).locator('.page-list-empty')).toHaveText('Reading page details…');
-  await expect(tab(page, 'In progress 0')).toBeVisible();
+  await expect(tab(page, 'In progress, 0')).toBeVisible();
   // All still lists the pages, so the list is never blank.
-  await tab(page, /^All \d+$/).click();
+  await tab(page, /^All, \d+\+?$/).click();
   await expect(titles(page)).toHaveText(['Gamma notes', 'Zeta notes']);
 });
 
@@ -236,70 +237,47 @@ test('a cold start reads again and fills In progress as the pages report, with n
   await page.evaluate(() => window.__reportTasks!());
   // The list reads again every 2 s: the page that reports work appears, the other is a discussion.
   await expect(titles(page)).toHaveText(['Gamma notes'], { timeout: 10_000 });
-  await expect(app(page).getByRole('tab')).toHaveText([
-    'All 2',
-    'Needs you 0',
-    'Discussion 1',
-    'In progress 1',
-    'Done 0',
-    'Archived 0',
-  ]);
+  for (const [index, name] of [
+    'All, 2',
+    'Needs you, 0',
+    'Discussion, 1',
+    'In progress, 1',
+    'Done, 0',
+    'Archived, 0',
+  ].entries())
+    await expect(app(page).getByRole('tab').nth(index)).toHaveAccessibleName(name);
   await expect(app(page).locator('.page-list-empty')).toHaveCount(0);
 });
 
-// A phone cannot fit six tabs: the strip scrolls on its own, the edge that hides tabs fades, and
-// every tab stays reachable by keyboard, by selecting it and by scrolling the strip.
+// Wrapped tabs keep every stage visible without horizontal scrolling or hidden-edge cues.
 for (const width of [1440, 390, 320])
-  test(`every stage tab is reachable and a hidden one is cued by a fade: ${width}px`, async ({
+  test(`every stage tab is visible and keyboard reachable without scrolling: ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
     await mount(page);
     const strip = app(page).getByRole('tablist');
-    const host = app(page).locator('.page-stage-tabs');
     const names = [/^All/, /^Needs you/, /^Discussion/, /^In progress/, /^Done/, /^Archived/];
-    const overflows = await strip.evaluate((node) => node.scrollWidth > node.clientWidth + 1);
-    expect(overflows).toBe(width < 600);
-    const fade = () => strip.evaluate((node) => getComputedStyle(node).maskImage);
-    const inside = (name: string | RegExp) =>
-      tab(page, name).evaluate((node) => {
-        const bounds = node.closest('[role="tablist"]')!.getBoundingClientRect();
-        const box = node.getBoundingClientRect();
-        return box.left >= bounds.left - 1 && box.right <= bounds.right + 1;
-      });
-    if (!overflows) {
-      await expect(host).not.toHaveAttribute('data-edge-end');
-      await expect(host).not.toHaveAttribute('data-edge-start');
-      expect(await fade()).toBe('none');
-      for (const name of names) expect(await inside(name)).toBe(true);
-      return;
-    }
-    // All is selected and first: the fade is on the end, where the other tabs wait.
-    await expect(host).toHaveAttribute('data-edge-end', '');
-    await expect(host).not.toHaveAttribute('data-edge-start');
-    expect(await fade()).not.toBe('none');
+    expect(await strip.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    expect(await strip.evaluate((node) => getComputedStyle(node).maskImage)).toBe('none');
+    const tops = await app(page)
+      .getByRole('tab')
+      .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top));
+    if (width <= 390) expect(Math.max(...tops)).toBeGreaterThan(Math.min(...tops));
     await tab(page, names[0]).focus();
     for (const [index, name] of names.entries()) {
       if (index > 0) await page.keyboard.press('ArrowRight');
       await expect(tab(page, name)).toHaveAttribute('aria-selected', 'true');
-      await expect.poll(() => inside(name)).toBe(true);
+      await expect(tab(page, name)).toBeFocused();
+      await expect(tab(page, name)).toBeInViewport();
     }
-    // Archived is last: nothing more to the end, the earlier tabs are the cue.
-    await expect(host).toHaveAttribute('data-edge-start', '');
-    await expect(host).not.toHaveAttribute('data-edge-end');
     await page.keyboard.press('Home');
     await expect(tab(page, names[0])).toHaveAttribute('aria-selected', 'true');
-    await expect.poll(() => inside(names[0])).toBe(true);
-    await expect(host).not.toHaveAttribute('data-edge-start');
-    // Scrolling the strip by hand reaches the middle: both edges fade.
-    await strip.evaluate((node) => {
-      node.scrollLeft = (node.scrollWidth - node.clientWidth) / 2;
-    });
-    await expect(host).toHaveAttribute('data-edge-start', '');
-    await expect(host).toHaveAttribute('data-edge-end', '');
+    await expect(tab(page, names[0])).toBeFocused();
+    expect(await strip.evaluate((node) => node.scrollLeft)).toBe(0);
   });
 
-// A link opens on its own stage: that tab is scrolled into the strip on load, not left outside it.
+// A linked stage is visible in the wrapped strip on load, with no horizontal scroll.
 for (const width of [390, 320])
   for (const link of [
     '/?stage=discussion',
@@ -321,11 +299,7 @@ for (const width of [390, 320])
           }),
         )
         .toBe(true);
-      // Done and Archived sit past the first screen of tabs, so the strip really did scroll to them.
-      if (link === '/?stage=done' || link === '/?archived=true')
-        expect(await selected.evaluate((node) => node.parentElement!.scrollLeft)).toBeGreaterThan(
-          0,
-        );
+      expect(await selected.evaluate((node) => node.parentElement!.scrollLeft)).toBe(0);
     });
 
 for (const width of [1440, 390])

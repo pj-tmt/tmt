@@ -37,7 +37,7 @@ for (const width of [1440, 390])
       await expect(first.locator('time')).toHaveText('1 hour ago');
       await expect(first.locator('time')).toHaveAttribute('datetime', '2026-10-08T23:00:00.000Z');
       await expect(first.locator('time')).toHaveAttribute('title', /2026/);
-      await expect(first.locator('.tmt-ui-list-state')).toHaveText('Shared');
+      await expect(first.locator('.page-row-access')).toHaveText('Shared');
       await first.getByRole('link', { name: 'Alpha update' }).focus();
       // A phone has the archive item in the ⋯ menu and no new-tab action beside the row.
       const wide = width > 479;
@@ -78,13 +78,13 @@ for (const width of [1440, 390])
       await page.screenshot({ path: await capturePath(`2168-few-${width}-${theme}.png`) });
       await fixture.getByRole('tab', { name: /^Archived/ }).click();
       await expect(rows).toHaveCount(2);
-      await expect(rows.locator('.tmt-ui-list-state')).toHaveText(['Archived', 'Archived']);
+      await expect(rows.locator('.page-row-stage')).toHaveText(['Archived', 'Archived']);
       await expect(rows.getByRole('link')).toHaveCount(2);
       await expect(
         rows.first().getByRole('link', { name: 'Archived notes', exact: true }),
       ).toHaveAttribute('href', '/#/pages/c0000004-1111-4111-8111-000000000001');
       await expect(rows.last().locator('time')).toHaveCount(0);
-      await expect(rows.last()).toContainText('Update time unknown');
+      await expect(rows.last().locator('.page-updated')).toHaveCount(0);
       await page.screenshot({ path: await capturePath(`2168-archived-${width}-${theme}.png`) });
     });
 
@@ -110,7 +110,7 @@ for (const width of [1440, 390])
       await expect(count).toHaveText('Showing 50 of 200');
       await expect(rows.first().getByRole('link')).toHaveText('Page 001');
       await expect(rows.first()).toHaveCSS('box-shadow', 'none');
-      await expect(rows.first()).toHaveCSS('border-bottom-width', '1px');
+      await expect(rows.first()).toHaveCSS('border-top-width', '1px');
       await page.screenshot({ path: await capturePath(`2168-many-${width}-${theme}.png`) });
       const searchTop = (await search.boundingBox())!.y;
       // Each time the list's end comes near, it draws the next 50, until every row is drawn.
@@ -158,7 +158,7 @@ for (const width of [1440, 390])
     });
   }
 
-test('leaf row insets, height and controls stay equal while metadata stacks at 390', async ({
+test('website rows keep symmetric insets and control size while columns stack at 390', async ({
   page,
 }) => {
   await page.goto('/');
@@ -176,23 +176,34 @@ test('leaf row insets, height and controls stay equal while metadata stacks at 3
       await row.evaluate((node) => {
         const style = getComputedStyle(node);
         const title = node.querySelector('.tmt-ui-list-title')!.getBoundingClientRect();
-        const meta = node.querySelector('.tmt-ui-list-meta')!.getBoundingClientRect();
+        const meta = node.querySelector('time')!.getBoundingClientRect();
         const action = node.querySelector('.tmt-ui-menu button')!.getBoundingClientRect();
         return {
           height: node.getBoundingClientRect().height,
           padding: [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft],
-          rule: style.borderBottomWidth,
+          rule: style.borderTopWidth,
           action: [action.width, action.height],
           stacked: meta.top >= title.bottom,
+          separateColumn: meta.left >= title.right,
+          contained: node.scrollWidth <= node.clientWidth,
         };
       }),
     );
   }
   await writeFile(capturePath('2168-row-geometry.json'), JSON.stringify(measures, null, 2));
-  expect(measures[0].padding).toEqual(['10px', '14px', '10px', '14px']);
+  expect(measures[0].padding).toEqual(['12px', '16px', '12px', '16px']);
+  expect(measures[1].padding).toEqual(['12px', '8px', '12px', '8px']);
+  expect(measures[0].rule).toBe('1px');
+  expect(measures[1].rule).toBe(measures[0].rule);
+  expect(measures[0].action).toEqual(measures[1].action);
+  for (const measure of measures) {
+    expect(measure.height).toBeGreaterThanOrEqual(68);
+    expect(measure.contained).toBe(true);
+  }
+  expect(measures[0].separateColumn).toBe(true);
   expect(measures[0].stacked).toBe(false);
   expect(measures[1].stacked).toBe(true);
-  expect({ ...measures[0], stacked: true }).toEqual(measures[1]);
+  expect(measures[1].separateColumn).toBe(false);
 });
 
 test('static toggle markup keeps its symmetric inset when the obsolete host token is set', async ({
@@ -246,7 +257,7 @@ test('metadata order follows update timestamps before English title ties', async
   ]);
 });
 
-test('an out-of-range update has the same unknown copy and no fabricated time element', async ({
+test('an out-of-range update omits unknown metadata and never fabricates a time element', async ({
   page,
 }) => {
   await page.goto('/');
@@ -256,7 +267,7 @@ test('an out-of-range update has the same unknown copy and no fabricated time el
   });
   await page.getByRole('tab', { name: /^Archived/ }).click();
   const row = page.locator('#index-fixture [data-page-id="c0000005-1111-4111-8111-000000000001"]');
-  await expect(row.locator('.tmt-ui-list-updated')).toHaveText('Update time unknown');
+  await expect(row.locator('.page-updated')).toHaveCount(0);
   await expect(row.locator('time')).toHaveCount(0);
   await expect(row.getByRole('link', { name: 'Untitled page', exact: true })).toHaveAttribute(
     'href',

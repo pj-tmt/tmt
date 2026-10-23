@@ -74,7 +74,7 @@ const manageRequests = (page: Page) => page.evaluate(() => window.__projectManag
 /** A page's project crumb links to the scoped list, which opens on All like any bare link. */
 const showAll = (page: Page) =>
   app(page)
-    .getByRole('tab', { name: /^All \d+$/ })
+    .getByRole('tab', { name: /^All, \d+\+?$/ })
     .click();
 
 test("a page's project button filters the list, adds a token and removes it again", async ({
@@ -256,22 +256,14 @@ test('a row shows the creator, the comment count and a proposal waiting for you'
   await mount(page);
   const metadata = (title: string) =>
     rows(page).filter({ hasText: title }).locator('.page-metadata');
-  await expect(metadata('Alpha plan')).toContainText('by Studio agent');
+  await expect(metadata('Alpha plan')).toContainText('Studio agent');
   await expect(metadata('Alpha plan')).toContainText('3 comments');
   await expect(metadata('Beta review')).toContainText('1 comment');
   await expect(metadata('Beta review')).not.toContainText('1 comments');
   await expect(metadata('Delta ops')).toContainText('0 comments');
-  // A separator leads the part after it, so a wrap can start a line with a dot and never end one.
-  const separators = await metadata('Alpha plan')
-    .locator('> *')
-    .evaluateAll((parts) =>
-      parts.map((part) => [
-        getComputedStyle(part, '::before').content,
-        getComputedStyle(part, '::after').content,
-      ]),
-    );
-  expect(separators.map(([, after]) => after)).toEqual(['none', 'none', 'none']);
-  expect(separators.map(([before]) => before !== 'none')).toEqual([false, true, true]);
+  // Desktop metadata has distinct Updated and Author columns; compact rows keep the same values.
+  await expect(metadata('Alpha plan').locator('time')).toHaveAttribute('dateTime', /T/);
+  await expect(metadata('Alpha plan').locator('.page-author')).toHaveText('Studio agent');
   // The mark is the word with the diamond; only the page with a proposal awaiting the owner has it.
   await expect(app(page).locator('[data-waiting]')).toHaveCount(1);
   await expect(rows(page).filter({ hasText: 'Alpha plan' }).locator('[data-waiting]')).toHaveText(
@@ -370,12 +362,11 @@ test('the list keeps its filter in the address and restores it on reload', async
   await expect(app(page).locator('[data-project-filter="design"]')).toBeVisible();
 });
 
-test('the home is the list: no hero, no Today or view tabs, and an old /all link lands on it with its search', async ({
+test('the home is the concept17 list with no Today view, and an old /all link keeps its search', async ({
   page,
 }) => {
   await mount(page);
-  // The space's name is the header's; the list starts with its search.
-  await expect(app(page).locator('section.home').locator('h1, .eyebrow, .intro')).toHaveCount(0);
+  await expect(app(page).getByRole('heading', { name: 'A shared place for ideas.' })).toBeVisible();
   await expect(app(page).getByRole('navigation', { name: 'Home views' })).toHaveCount(0);
   await expect(
     app(page).getByRole('heading', { name: /^Good (morning|afternoon|evening)$/ }),
@@ -395,7 +386,7 @@ test('the Needs you tab keeps the pages waiting on the viewer, combines with a p
   page,
 }) => {
   await mount(page);
-  const needs = app(page).getByRole('tab', { name: /Needs you 1/ });
+  const needs = app(page).getByRole('tab', { name: /Needs you, 1/ });
   await expect(needs).toHaveAttribute('aria-selected', 'false');
   await needs.click();
   await expect(needs).toHaveAttribute('aria-selected', 'true');
@@ -422,7 +413,7 @@ test('the Needs you tab keeps the pages waiting on the viewer, combines with a p
   await expect(needs).toHaveAttribute('aria-selected', 'true');
   // Another tab leaves it.
   await app(page)
-    .getByRole('tab', { name: /^All \d+$/ })
+    .getByRole('tab', { name: /^All, \d+\+?$/ })
     .click();
   await expect(titles(page)).toHaveCount(4);
   expect(new URL(page.url()).hash).not.toContain('needs');
@@ -450,8 +441,8 @@ test('sort orders by title; the Archived tab shows archived pages and counts the
   await app(page).getByRole('button', { name: 'Sort: Title' }).click();
   await app(page).getByRole('menuitemradio', { name: 'Recently updated' }).click();
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review', 'Gamma notes', 'Delta ops']);
-  const all = app(page).getByRole('tab', { name: /^All \d+$/ });
-  const archived = app(page).getByRole('tab', { name: 'Archived 1' });
+  const all = app(page).getByRole('tab', { name: /^All, \d+\+?$/ });
+  const archived = app(page).getByRole('tab', { name: 'Archived, 1' });
   await expect(all).toHaveAttribute('aria-selected', 'true');
   await expect(archived).toHaveAttribute('aria-selected', 'false');
   await archived.click();
@@ -486,9 +477,9 @@ test('a page waiting on the viewer shows the ◆ in the waiting colour with the 
       tabMark: colour('.tmt-ui-tab-mark'),
     };
   });
-  // The row's mark is the Needs you tab's mark; the word beside it is plain text colour.
+  // The website badge uses the same semantic colour for its mark and readable word.
   expect(colours.rowMark).toBe(colours.tabMark);
-  expect(colours.word).not.toBe(colours.rowMark);
+  expect(colours.word).toBe(colours.rowMark);
   // A row that waits is not otherwise marked: no rule, nothing that reads as a selection.
   await expect(rows(page).filter({ hasText: 'Alpha plan' })).not.toHaveAttribute('data-needs-you');
   await expect(rows(page).filter({ hasText: 'Beta review' }).locator('[data-waiting]')).toHaveCount(
@@ -501,7 +492,7 @@ test('row actions show on hover and focus; a row opens in a new tab without leav
 }) => {
   await mount(page);
   const row = rows(page).filter({ hasText: 'Beta review' });
-  const actions = row.locator('.tmt-ui-list-actions');
+  const actions = row.locator('.page-row-shortcuts');
   await expect(actions).toHaveCSS('opacity', '0');
   await row.hover();
   await expect(actions).toHaveCSS('opacity', '1');
@@ -549,7 +540,7 @@ test('archiving from a row confirms, explains restoration, and sends one stateme
     { operation: 'page.archive', pageId: 'c0000003-1111-4111-8111-000000000001' },
   ]);
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review', 'Delta ops']);
-  await expect(app(page).getByRole('tab', { name: 'Archived 2' })).toBeVisible();
+  await expect(app(page).getByRole('tab', { name: 'Archived, 2' })).toBeVisible();
 });
 
 test('deleting from the menu names the page, says it cannot be undone, and removes it', async ({
@@ -591,7 +582,7 @@ test('an archived row offers Restore and Delete while keeping archive unavailabl
     .click();
   await expect(status(page)).toHaveText('Deleted “Archived spec”.');
   await expect(app(page).getByText('No archived pages.')).toBeVisible();
-  await expect(app(page).getByRole('tab', { name: 'Archived 0' })).toBeVisible();
+  await expect(app(page).getByRole('tab', { name: 'Archived, 0' })).toBeVisible();
 });
 
 for (const width of [1440, 390]) {
@@ -678,7 +669,7 @@ const selectRow = (page: Page, title: string) =>
   app(page).getByRole('checkbox', { name: `Select ${title}` });
 const bulkBar = (page: Page) => app(page).getByRole('region', { name: 'Bulk actions' });
 
-test('selecting pages swaps the search row for a bulk bar; Escape and Clear bring it back', async ({
+test('selecting pages adds the website bulk bar below the controls; Escape and Clear remove it', async ({
   page,
 }) => {
   await mount(page);
@@ -687,8 +678,8 @@ test('selecting pages swaps the search row for a bulk bar; Escape and Clear brin
   await expect(bulkBar(page).getByRole('status')).toHaveText('1 page selected');
   await selectRow(page, 'Beta review').check();
   await expect(bulkBar(page).getByRole('status')).toHaveText('2 pages selected');
-  // The bar stands where the search row stood, and the draft search survives it.
-  await expect(search(page)).toHaveCount(0);
+  // The website keeps search available above the selection actions.
+  await expect(search(page)).toBeVisible();
   await expect(rows(page).filter({ hasText: 'Alpha plan' })).toHaveAttribute('data-selected', '');
   await page.keyboard.press('Escape');
   await expect(bulkBar(page)).toHaveCount(0);
@@ -986,10 +977,10 @@ test('choosing a project scopes the list, the project suggestions and the Needs 
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await expect(search(page)).toHaveText('');
-  await expect(app(page).getByRole('tab', { name: 'Needs you 0' })).toBeVisible();
+  await expect(app(page).getByRole('tab', { name: 'Needs you, 0' })).toBeVisible();
   await scopeTo(page, 'design');
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
-  await expect(app(page).getByRole('tab', { name: /Needs you 1/ })).toBeVisible();
+  await expect(app(page).getByRole('tab', { name: /Needs you, 1/ })).toBeVisible();
   // A project: token filters inside the scope; a project outside it matches nothing.
   await filterProject(page, 'q4 plan');
   await expect(titles(page)).toHaveText(['Alpha plan']);
@@ -1323,7 +1314,7 @@ for (const width of [1440, 390])
       await scopeTo(page, 'All pages');
       await expect(titles(page)).toHaveCount(4);
       await app(page)
-        .getByRole('tab', { name: /Needs you 1/ })
+        .getByRole('tab', { name: /Needs you, 1/ })
         .click();
       await expect(titles(page)).toHaveCount(1);
       expect(await flat()).toBe(true);
@@ -1362,7 +1353,7 @@ for (const width of [1440, 390])
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3746-archived-tab-${width}-${theme}.png`) });
       await app(page)
-        .getByRole('tab', { name: /^All \d+$/ })
+        .getByRole('tab', { name: /^All, \d+\+?$/ })
         .click();
       await page.screenshot({ path: await capturePath(`3747-scope-menu-${width}-${theme}.png`) });
       await fromScopeMenu(page, 'Manage projects…');
@@ -1570,7 +1561,7 @@ test('restoring an Archived row confirms and returns it to the active list after
   page,
 }) => {
   await mount(page);
-  await app(page).getByRole('tab', { name: 'Archived 1' }).click();
+  await app(page).getByRole('tab', { name: 'Archived, 1' }).click();
   const row = rows(page).filter({ hasText: 'Archived spec' });
   await row.getByRole('button', { name: 'Restore “Archived spec”', exact: true }).click();
   const dialog = confirmDialog(page, 'Restore “Archived spec”?');
@@ -1589,7 +1580,7 @@ test('restoring an Archived row confirms and returns it to the active list after
   ]);
   await expect(titles(page)).toHaveCount(0);
   await app(page)
-    .getByRole('tab', { name: /^All \d+$/ })
+    .getByRole('tab', { name: /^All, \d+\+?$/ })
     .click();
   await expect(titles(page)).toHaveCount(5);
   await expect(titles(page).filter({ hasText: 'Archived spec' })).toBeVisible();
@@ -1603,7 +1594,7 @@ for (const width of [1440, 390])
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
-      await app(page).getByRole('tab', { name: 'Archived 1' }).click();
+      await app(page).getByRole('tab', { name: 'Archived, 1' }).click();
       const row = rows(page).filter({ hasText: 'Archived spec' });
       await row.getByRole('button', { name: 'Actions for Archived spec' }).click();
       await page.getByRole('menuitem', { name: 'Restore…', exact: true }).click();

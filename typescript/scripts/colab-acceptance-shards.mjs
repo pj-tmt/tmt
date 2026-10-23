@@ -26,7 +26,7 @@ const COMPONENT = {
 
 /** Shards of the real-binary acceptance run. The workflow declares one job per shard, so this is fixed. */
 export const ACCEPTANCE_SHARDS = 2;
-export const COMPONENT_SHARDS = 6;
+export const COMPONENT_SHARDS = 7;
 
 export function loadShardWeights(text = readFileSync(WEIGHTS, 'utf8')) {
   const weights = JSON.parse(text);

@@ -86,7 +86,6 @@ import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
 import type { QuoteSelector } from './thread-records.js';
-import { HeaderSlot } from './header-slot.js';
 import { Home, validateHomeSearch, type HomeSearch } from './home.js';
 import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
@@ -983,12 +982,14 @@ const blocked = createRoute({
 export function AppHeader({
   linked = true,
   title = text.pages,
+  titleVisible = true,
   remote,
   headerRef,
   headingSuffix,
 }: {
   linked?: boolean;
   title?: string;
+  titleVisible?: boolean;
   remote?: { deviceName?: string };
   headerRef?: Ref<HTMLElement>;
   headingSuffix?: ReactNode;
@@ -996,6 +997,7 @@ export function AppHeader({
   return (
     <ColabHeader
       title={title}
+      titleVisible={titleVisible}
       headerRef={headerRef}
       remote={remote}
       headingSuffix={headingSuffix}
@@ -1034,8 +1036,6 @@ function Shell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isPage = pathname.startsWith('/pages/');
   const isHome = pathname === '/';
-  // The home list portals its project control into the header, where it keeps the list's data.
-  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   return (
     <RemotePresenceProvider owner={transport.remotePresence}>
       <QuickSwitcherHost
@@ -1055,9 +1055,7 @@ function Shell() {
           {!isPage && (
             <AppHeader
               remote={isHome ? { deviceName: transport.backendName } : undefined}
-              headingSuffix={
-                isHome ? <span ref={setHeaderSlot} className="header-project-slot" /> : undefined
-              }
+              titleVisible={!isHome}
               title={
                 pathname.startsWith('/short/')
                   ? 'Open a page'
@@ -1070,9 +1068,7 @@ function Shell() {
             />
           )}
           <main className={isPage ? 'page-main' : undefined}>
-            <HeaderSlot.Provider value={isHome ? headerSlot : null}>
-              <Outlet />
-            </HeaderSlot.Provider>
+            <Outlet />
           </main>
           {!isPage && (
             <footer>{location.pathname.startsWith('/r/') ? text.mountedNote : text.adapter}</footer>

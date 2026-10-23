@@ -65,6 +65,12 @@ function atLeastAsStrict(actual: string, baseline: string): string[] {
   return problems;
 }
 
+// Renderer routing may still be fulfilling when a home-only assertion completes.
+// Finish those callbacks before Playwright closes this fixture's page.
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: 'wait' });
+});
+
 /** The door answers `/colab/renderer.html` with the renderer document and its policy; the dev
  * server serves the same file at `/renderer.html`. */
 async function serveRendererLikeTheDoor(page: Page) {
@@ -458,7 +464,7 @@ test.describe('the door serving the TMT app', () => {
       await door!.pair(page);
       await page.goto(`${door!.origin}/colab/`);
       // A fresh visit to the bare list opens the default tab, All.
-      await expect(page.getByRole('tab', { name: /^All \d+$/ })).toHaveAttribute(
+      await expect(page.getByRole('tab', { name: /^All, \d+\+?$/ })).toHaveAttribute(
         'aria-selected',
         'true',
       );

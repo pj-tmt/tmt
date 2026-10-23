@@ -16,6 +16,7 @@ function BrandParts({ children }: { children: ReactNode }) {
  * header renders into the shell's one header slot, wherever its route draws it. */
 export function ColabHeader({
   title,
+  titleVisible = true,
   caption,
   actions,
   home,
@@ -29,6 +30,7 @@ export function ColabHeader({
   embedded = false,
 }: {
   title: string;
+  titleVisible?: boolean;
   caption?: string;
   actions?: ReactNode;
   /** Wraps the brand in the page's home link; `name` is its accessible name and tooltip. */
@@ -87,6 +89,7 @@ export function ColabHeader({
       }
       headingSuffix={headingSuffix}
       title={title}
+      titleVisible={titleVisible}
       caption={caption}
       captionId={caption === undefined ? undefined : 'colab-header-caption'}
       brandLink={

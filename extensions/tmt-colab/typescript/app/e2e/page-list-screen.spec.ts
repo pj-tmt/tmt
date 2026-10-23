@@ -1,12 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 
-/**
- * The page list is one screen (#4273): no hero; one top block (search, Sort and New page; the view
- * tabs, Needs you among them) that stays put while only the rows scroll and draw 50 more as their
- * end comes near. Projects filter from the module menu and `project:`, so there is no chip row. A
- * phone keeps that block to two lines.
- */
+/** The website list keeps its hero and controls above independently scrolling page rows. */
 async function mount(page: Page, width: number, theme: 'light' | 'dark') {
   await page.setViewportSize({ width, height: width < 480 ? 844 : 900 });
   await page.emulateMedia({ colorScheme: theme });
@@ -27,20 +22,25 @@ for (const width of [1440, 390])
       page,
     }) => {
       await mount(page, width, theme);
-      await expect(app(page).locator('.home').locator('h1, .eyebrow, .intro')).toHaveCount(0);
-      await expect(app(page).getByRole('tab')).toHaveText([
-        'All 75',
-        '◆Needs you 1',
-        'Discussion 25',
-        'In progress 25',
-        'Done 25',
-        'Archived 1',
-      ]);
-      await expect(app(page).getByRole('tab', { name: 'All 75' })).toHaveAttribute(
+      await expect(
+        app(page).getByRole('heading', { name: 'A shared place for ideas.' }),
+      ).toBeVisible();
+      await expect(app(page).getByRole('tab')).toHaveCount(6);
+      for (const name of [
+        'All, 75',
+        '◆ Needs you, 1 · waiting',
+        'Discussion, 25',
+        'In progress, 25',
+        'Done, 25',
+        'Archived, 1',
+      ])
+        await expect(app(page).getByRole('tab', { name, exact: true })).toBeVisible();
+      await expect(app(page).getByRole('tab', { name: 'All, 75' })).toHaveAttribute(
         'aria-selected',
         'true',
       );
-      await expect(app(page).locator('[data-needs-filter], .project-filters')).toHaveCount(0);
+      await expect(app(page).locator('.tmt-ui-tabs')).toHaveAttribute('data-variant', 'flat');
+      await expect(app(page).locator('.tmt-ui-tabs')).toHaveAttribute('data-wrap', '');
       await expect(app(page).getByRole('button', { name: 'New page' })).toBeVisible();
       await expect(rows(page)).toHaveCount(50);
       const count = app(page).locator('[data-page-list-count]');
@@ -62,11 +62,15 @@ for (const width of [1440, 390])
       };
       const before = await top();
       if (width < 480) {
-        // Two lines: the controls row, then the tabs, one line tall (a third line would add ~32px).
-        expect(before.tabs.height).toBeLessThanOrEqual(48);
-        // The v2 controls (the field's fill, the segmented tab strip) are about 6px taller than the old
-        // flat ones; a third line would still add ~32px.
-        expect(before.list.y - before.search.y).toBeLessThanOrEqual(132);
+        const tops = await app(page)
+          .getByRole('tab')
+          .evaluateAll((tabs) => tabs.map((tab) => tab.getBoundingClientRect().top));
+        expect(Math.max(...tops)).toBeGreaterThan(Math.min(...tops));
+        expect(
+          await app(page)
+            .getByRole('tablist')
+            .evaluate((node) => node.scrollWidth <= node.clientWidth),
+        ).toBe(true);
       }
       await page.screenshot({ path: await capturePath(`4273-list-${width}-${theme}.png`) });
 
@@ -89,12 +93,12 @@ test('Needs you is a tab: it lists the pages waiting on you and leaves with anot
 }) => {
   await mount(page, 1440, 'light');
   await app(page)
-    .getByRole('tab', { name: /Needs you 1/ })
+    .getByRole('tab', { name: /Needs you, 1/ })
     .click();
   await expect(rows(page)).toHaveCount(1);
   await expect(rows(page).locator('.tmt-ui-list-title > a')).toHaveText('Review 2');
   expect(new URL(page.url()).hash).toContain('needs=true');
-  await app(page).getByRole('tab', { name: 'Discussion 25' }).click();
+  await app(page).getByRole('tab', { name: 'Discussion, 25' }).click();
   await expect(rows(page)).toHaveCount(25);
   expect(new URL(page.url()).hash).not.toContain('needs');
 });
