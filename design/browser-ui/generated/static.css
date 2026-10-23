@@ -1089,16 +1089,16 @@ svg.tmt-ui-mark {
   opacity: 1;
   font-family: var(--tmt-ui-font-body);
 }
-.tmt-ui-notice[data-tinted][data-tone='waiting'] {
+[data-tinted][data-tone='waiting'] {
   background: var(--tmt-ui-surface-waiting-soft);
 }
-.tmt-ui-notice[data-tinted][data-tone='working'] {
+[data-tinted][data-tone='working'] {
   background: var(--tmt-ui-surface-working-soft);
 }
-.tmt-ui-notice[data-tinted][data-tone='review'] {
+[data-tinted][data-tone='review'] {
   background: var(--tmt-ui-surface-review-soft);
 }
-.tmt-ui-notice[data-tinted][data-tone='blocked'] {
+[data-tinted][data-tone='blocked'] {
   background: var(--tmt-ui-surface-blocked-soft);
 }
 .tmt-ui-notice-mark {
