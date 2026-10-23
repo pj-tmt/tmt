@@ -45,7 +45,7 @@ describe('identity driver switching', { concurrent: false }, () => {
               { args: ['whoami', '--json'] },
             ])
           );
-          const record = `require('node:fs').appendFileSync(${JSON.stringify(calls)},JSON.stringify(process.argv.slice(1))+'\n')`;
+          const record = String.raw`require('node:fs').appendFileSync(${JSON.stringify(calls)},JSON.stringify(process.argv.slice(1))+'\n')`;
           writeExecutable(
             path.join(fixture.wrapperDir, provider),
             `#!/bin/sh
@@ -57,6 +57,8 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         }
         const run = async (pane: string, label: string, args: string[]) => {
           const status = path.join(fixture.root, `${label}.status`);
+          const stdout = path.join(fixture.root, `${label}.stdout`);
+          const stderr = path.join(fixture.root, `${label}.stderr`);
           const argv = [
             fixture.executables.cli.executable,
             ...fixture.executables.cli.args,
@@ -67,10 +69,14 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
             '-t',
             pane,
             '-l',
-            `${argv.map(quote).join(' ')}; printf '%s' "$?" > ${quote(status)}`,
+            `${argv.map(quote).join(' ')} > ${quote(stdout)} 2> ${quote(stderr)}; printf '%s' "$?" > ${quote(status)}`,
           ]);
           fixture.tmux(['send-keys', '-t', pane, 'Enter']);
-          expect(await waitForFileContent(status, { description: label })).toBe('0');
+          const code = await waitForFileContent(status, { description: label });
+          expect(
+            code,
+            `${label}: ${readFileSync(stdout, 'utf8')}\n${readFileSync(stderr, 'utf8')}`
+          ).toBe('0');
         };
         await run(source, 'initial', ['run', '--save', 'Switch', first]);
         const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });

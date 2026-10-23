@@ -243,9 +243,11 @@ fn deliver(
     let deadline = input
         .deadline
         .unwrap_or_else(|| Instant::now() + Duration::from_secs_f64(timeout));
-    let timeout = deadline
-        .saturating_duration_since(Instant::now())
-        .as_secs_f64();
+    let timeout = input.deadline.map_or(timeout, |deadline| {
+        deadline
+            .saturating_duration_since(Instant::now())
+            .as_secs_f64()
+    });
     if prepared.notify_originator {
         let waiter = if wait {
             match tmt_adapters::process::runtime::observe_runtime_process(

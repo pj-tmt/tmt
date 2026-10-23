@@ -209,7 +209,11 @@ impl SessionPreferences {
             .is_none_or(|session| &session.harness != harness)
         {
             self.retain_current();
-            self.channel = None;
+            // Foreground admission may have chosen this driver's channel before
+            // its first SessionStart supplies a remembered session.
+            if self.preferred_harness.as_ref() != Some(harness) {
+                self.channel = None;
+            }
             if let Some(index) = self
                 .retained
                 .iter()
@@ -536,6 +540,25 @@ impl Error for SessionValueError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_first_start_hook_preserves_the_same_drivers_admitted_channel_choice() {
+        for channel in [true, false] {
+            let (harness, mode, id) = session("claude", "first-turn");
+            let mut preferences = SessionPreferences::default();
+            preferences.launched(&harness);
+            preferences.channel = Some(channel);
+            // Foreground admission can commit its channel before SessionStart.
+            preferences.launched(&harness);
+            preferences.remember(harness.clone(), mode, id);
+            assert_eq!(preferences.channel, Some(channel));
+            assert!(preferences.retained.is_empty());
+            // A genuinely different driver must not inherit that choice.
+            preferences.launched(&HarnessId::new("codex").unwrap());
+            assert_eq!(preferences.channel, None);
+            assert_eq!(preferences.retained[0].channel, Some(channel));
+        }
+    }
 
     #[test]
     fn switching_drivers_retains_each_exact_session_and_its_channel() {
