@@ -78,6 +78,7 @@ mod timer_rows;
 mod top_bar;
 mod tree_row;
 mod unread;
+mod versions;
 pub(crate) use crate::tabs;
 mod shell;
 mod terminal;
@@ -232,6 +233,8 @@ pub(in crate::board) enum BoardEvent {
     /// A quiet cache publication; it owns no user action or progress notice.
     ViewStatePublished,
     ReadMarkersPublished(Result<crate::config::ReadMarkers, String>),
+    /// The running versions, read once at start; they own no user action or progress notice.
+    VersionsRead(Option<versions::Versions>),
 }
 
 fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::background::ReplyFilter>) {
@@ -1071,6 +1074,11 @@ fn session(
                 Effect::None
             }
             Ok(BoardEvent::ViewStatePublished) => Effect::None,
+            Ok(BoardEvent::VersionsRead(versions)) => {
+                app.versions = versions;
+                dirty = true;
+                Effect::None
+            }
             Ok(BoardEvent::ReadMarkersPublished(result)) => {
                 app.finished_unread(result);
                 dirty = true;
@@ -1516,6 +1524,7 @@ pub fn run(
         events.clone(),
     );
     spawn_input(events, filter);
+    lane.submit(lane::Job::Versions);
     let resumed = std::cell::Cell::new(false);
     let result = session(
         &mut app,

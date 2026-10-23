@@ -130,3 +130,57 @@ fn local_cancellation_is_distinct_from_an_identical_public_error() {
     assert!(!SquadError::new(&cancelled.code, &cancelled.message).was_cancelled());
     assert!(!SquadError::hinted("SQUAD_CORE_UNAVAILABLE", "failed", " ", "retry").was_cancelled());
 }
+
+#[test]
+fn the_version_is_the_bare_or_prefixed_line_and_anything_else_is_unknown() {
+    for (stdout, expected) in [
+        ("5.0.0-alpha.378\n", Some("5.0.0-alpha.378")),
+        ("tmt 5.0.0-alpha.378\n", Some("5.0.0-alpha.378")),
+        ("  5.0.0+build.7  ", Some("5.0.0+build.7")),
+        ("", None),
+        ("tmt \n", None),
+        ("5.0.0\n6.0.0\n", None),
+        ("tmt 5.0.0 (dev)\n", None),
+        ("error: unknown flag\n", None),
+    ] {
+        assert_eq!(
+            version_of(stdout.as_bytes()),
+            expected.map(str::to_owned),
+            "{stdout:?}"
+        );
+    }
+    assert_eq!(version_of(&[0xff, b'1']), None, "not text");
+    assert_eq!(
+        version_of("1".repeat(65).as_bytes()),
+        None,
+        "an unbounded line"
+    );
+}
+
+#[test]
+fn a_core_reads_the_cli_version_once_from_dash_dash_version_and_a_failure_is_unknown() {
+    let dir = Fixture::new();
+    let log = dir.0.join("argv");
+    let fake = dir.0.join("tmt");
+    crate::test_support::write_ready_executable(
+        &fake,
+        &format!(
+            "#!/bin/sh\necho \"$@\" >> '{log}'\nif [ \"$1\" = --version ] && [ -z \"$FAIL\" ]; then echo 'tmt 5.0.0-alpha.9'; else echo nope; exit 2; fi\n",
+            log = log.display()
+        ),
+    );
+    let core = Core::at(fake.clone());
+    assert_eq!(core.cli_version().as_deref(), Some("5.0.0-alpha.9"));
+    assert_eq!(
+        fs::read_to_string(&log).unwrap(),
+        "--version\n",
+        "one plain argv"
+    );
+    let failing = dir.0.join("tmt-fail");
+    crate::test_support::write_ready_executable(&failing, "#!/bin/sh\necho 5.0.0\nexit 3\n");
+    assert_eq!(
+        Core::at(failing).cli_version(),
+        None,
+        "a nonzero exit is unknown"
+    );
+}
