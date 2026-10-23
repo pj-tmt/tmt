@@ -1,7 +1,7 @@
 {
   "baseline": "a5c85cb407003632dc9a5b3ac51ca2f6d92be355",
   "sha256": {
-    "generated/static.css": "eb267e571aa18d9a8f779647a44f077b4431beae27755108d7b395309d0e9007",
+    "generated/static.css": "a42bc21db37c44b780b66ee921a4274c05568865159bc9720c2060f0c9a01dbe",
     "src/action.css": "d137b19b3bca7d1be21e7ccdb4f5e9dfbdaaebd48fb9815a05e02a6cc088f81a",
     "src/action.tsx": "bb28278e920aabe3afd1179681ac90549a4a9dfe351076e4c80514c139182682",
     "src/chips.css": "47fd95fe33f4ad6744ed648f5a75ff19aad1975a9836cc27a2e03a54dd367502",
@@ -33,7 +33,7 @@
     "src/overlay.ts": "37c0a2bbd673dc15c1ca1efe5b4fe09bce7087b6bf73c70a377b5f513d129325",
     "src/popup.ts": "d76753fe162d2945d9ae6aae0bbefca1233ded3d2b9783be2dad5262666bd4ba",
     "src/react.ts": "03ced166c4e85405b0112547ae157afef68dce8bccf4be7fbbd83bea5d64c9a7",
-    "src/static.ts": "a99835ae2d5bd977d89336156aeec2678f7be808a67deef5f2550815a0705f32",
+    "src/static.ts": "06f928a429d4c73c4de5f75bcb9f90c7c4437a2ee909d230d7caa634f17d7004",
     "src/tabs.css": "7776e68d9fdc9686679e42278946a494d237b0bddbf0e51fe6ba962abee2a7ff",
     "src/tabs.tsx": "7c8bf39073e629410ca607b2a94bf2c65a0d8a88fed936e3f62a636a11d8adcf",
     "src/toggle.css": "bcf941ec22f3d9cefa68acd6cca9f9f43adb50d65ea0e6e00cf422b03e64ff08",

@@ -1773,6 +1773,12 @@ svg.tmt-ui-mark {
   margin: 0;
   font-size: var(--tmt-ui-command-size);
 }
+.tmt-ui-status-tile-value[data-numeric] {
+  font: 600 1.5rem / 1.1 var(--tmt-ui-font-display);
+}
+.tmt-ui-status-tile-value[data-numeric='zero'] {
+  color: var(--tmt-ui-color-secondary);
+}
 .tmt-ui-status-tile-dot {
   flex: none;
   width: 0.55em;
@@ -1794,6 +1800,52 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-status-tile[data-tone='blocked'] .tmt-ui-status-tile-dot {
   background: var(--tmt-ui-color-blocked);
+}
+
+.tmt-ui-state-mark {
+  flex: none;
+  box-sizing: border-box;
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+}
+.tmt-ui-state-mark[data-shape='dot'] {
+  border-radius: var(--tmt-ui-radius-pill);
+  background: currentColor;
+}
+.tmt-ui-state-mark[data-shape='ring'] {
+  border: 1.5px solid currentColor;
+  border-radius: var(--tmt-ui-radius-pill);
+}
+.tmt-ui-state-mark[data-shape='dashed'] {
+  border: 1.5px dashed currentColor;
+  border-radius: var(--tmt-ui-radius-pill);
+}
+.tmt-ui-state-mark[data-shape='target'] {
+  border: 1.5px solid currentColor;
+  border-radius: var(--tmt-ui-radius-pill);
+  background: radial-gradient(circle, currentColor 0 24%, transparent 26%);
+}
+.tmt-ui-state-mark[data-shape='diamond'] {
+  background: currentColor;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.tmt-ui-state-mark[data-shape='cross'] {
+  background: currentColor;
+  clip-path: polygon(
+    14% 0,
+    50% 36%,
+    86% 0,
+    100% 14%,
+    64% 50%,
+    100% 86%,
+    86% 100%,
+    50% 64%,
+    14% 100%,
+    0 86%,
+    36% 50%,
+    0 14%
+  );
 }
 
 .tmt-ui-list {

@@ -60,6 +60,7 @@ const fragments = await Promise.all(
     'avatar',
     'pager',
     'status-tile',
+    'state-mark',
     'list',
     'command',
     'drawer',

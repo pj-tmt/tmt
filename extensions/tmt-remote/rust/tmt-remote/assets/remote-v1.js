@@ -1691,6 +1691,7 @@ var browserUiClasses = Object.freeze({
 	statusTileLabel: "tmt-ui-status-tile-label",
 	statusTileValue: "tmt-ui-status-tile-value",
 	statusTileDot: "tmt-ui-status-tile-dot",
+	stateMark: "tmt-ui-state-mark",
 	notifications: "tmt-ui-notifications",
 	notification: "tmt-ui-notification",
 	notificationStatus: "tmt-ui-notification-status",
@@ -4968,37 +4969,37 @@ function moduleLoad(rail, entry, here, fallback) {
 */
 var AGENT_STATES = {
 	working: {
-		mark: "●",
+		mark: "dot",
 		word: "Working",
 		tone: "working"
 	},
 	idle: {
-		mark: "◌",
+		mark: "dashed",
 		word: "Idle",
 		tone: "neutral"
 	},
 	"needs-you": {
-		mark: "◆",
+		mark: "diamond",
 		word: "Needs you",
 		tone: "waiting"
 	},
 	blocked: {
-		mark: "✗",
+		mark: "cross",
 		word: "Blocked",
 		tone: "blocked"
 	},
 	offline: {
-		mark: "○",
+		mark: "ring",
 		word: "Offline",
 		tone: "neutral"
 	},
 	"idle-alert": {
-		mark: "◷",
+		mark: "target",
 		word: "Idle alert",
 		tone: "neutral"
 	},
 	unknown: {
-		mark: "?",
+		mark: "ring",
 		word: "Unknown",
 		tone: "neutral"
 	}
@@ -5101,7 +5102,9 @@ var SECTIONS$1 = [
 		label: "Ops settings"
 	}
 ];
-function row$1(mark, tone, title, detail, meta = "") {
+/** One shared list row: the mark, the name over its description, then the note and a state word
+* (toned) in the two columns the shared row keeps for them. */
+function row$1(mark, tone, title, description, note = "", state = "") {
 	const item = document.createElement("li");
 	item.className = "tmt-ui-list-row";
 	item.dataset.leading = "";
@@ -5109,20 +5112,32 @@ function row$1(mark, tone, title, detail, meta = "") {
 	sign.className = "tmt-ui-list-leading";
 	sign.dataset.tone = tone;
 	sign.setAttribute("aria-hidden", "true");
-	sign.textContent = mark;
+	const shape = document.createElement("span");
+	shape.className = browserUiClasses.stateMark;
+	shape.dataset.shape = mark;
+	sign.append(shape);
 	const name = document.createElement("div");
 	name.className = "tmt-ui-list-title";
-	name.textContent = title;
+	const label = document.createElement("span");
+	label.className = "tmt-ui-list-label";
+	label.textContent = title;
+	name.append(label);
+	if (description) {
+		const detail = document.createElement("span");
+		detail.className = "tmt-ui-list-description";
+		detail.textContent = description;
+		name.append(detail);
+	}
 	const info = document.createElement("div");
 	info.className = "tmt-ui-list-meta";
 	const more = document.createElement("div");
 	more.className = "tmt-ui-list-updated";
-	more.textContent = detail;
-	more.title = detail;
-	const state = document.createElement("div");
-	state.className = "tmt-ui-list-state";
-	state.textContent = meta;
-	info.append(more, state);
+	more.textContent = note;
+	const word = document.createElement("div");
+	word.className = "tmt-ui-list-state";
+	word.dataset.tone = tone;
+	word.textContent = state;
+	info.append(more, word);
 	item.append(sign, name, info);
 	return item;
 }
@@ -5139,6 +5154,53 @@ function sentence(text) {
 	notAvailable(node, text);
 	return node;
 }
+/** The board by urgency, so what needs the person shows before any row. Idle is the normal
+* state and has no tile; a tile at 0 stays, muted, so the row keeps its shape. */
+function summary(board) {
+	const tiles = [
+		[
+			"Needs you",
+			"waiting",
+			["needs-you"]
+		],
+		[
+			"Blocked",
+			"blocked",
+			["blocked"]
+		],
+		[
+			"Offline",
+			"muted",
+			["offline"]
+		],
+		[
+			"Working",
+			"working",
+			["working"]
+		]
+	];
+	const node = document.createElement("dl");
+	node.className = browserUiClasses.statusTiles;
+	for (const [label, tone, states] of tiles) {
+		const count = board.agents.filter((agent) => states.includes(agent.state)).length;
+		const tile = document.createElement("div");
+		tile.className = browserUiClasses.statusTile;
+		tile.dataset.tone = count === 0 ? "muted" : tone;
+		const term = document.createElement("dt");
+		term.className = browserUiClasses.statusTileLabel;
+		term.textContent = label;
+		const value = document.createElement("dd");
+		value.className = browserUiClasses.statusTileValue;
+		value.dataset.numeric = count === 0 ? "zero" : "count";
+		const dot = document.createElement("span");
+		dot.className = browserUiClasses.statusTileDot;
+		dot.setAttribute("aria-hidden", "true");
+		value.append(dot, String(count));
+		tile.append(term, value);
+		node.append(tile);
+	}
+	return node;
+}
 function heading$1(text) {
 	const node = document.createElement("h2");
 	node.className = browserUiClasses.sectionHeading;
@@ -5147,33 +5209,29 @@ function heading$1(text) {
 }
 /** The section's content; agents group under their squad, the lead first. */
 function opsSection(board, section) {
-	if (section === "agents") return board.squads.flatMap((squad) => {
+	if (section === "agents") return [summary(board), ...board.squads.flatMap((squad) => {
 		const agents = board.agents.filter((agent) => agent.squad === squad.name).sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"));
 		if (!agents.length) return [];
 		return [heading$1(squad.lead ? `${squad.name} · lead ${squad.lead}` : squad.name), list(agents.map((agent) => {
 			const state = AGENT_STATES[agent.state];
 			const detail = [
-				agent.stateText ?? state.word,
+				agent.stateText && agent.stateText !== state.word ? agent.stateText : "",
 				agent.pending ? `Waiting on you: ${agent.pending}` : "",
 				agent.waitingOnYou > 0 ? `${agent.waitingOnYou} waiting` : "",
 				agent.task ?? "",
 				agent.next ? `next ${agent.next}` : ""
 			].filter(Boolean);
-			return row$1(state.mark, state.tone, agent.name, detail.join(" · "), agent.model ?? "");
+			return row$1(state.mark, state.tone, agent.name, detail.join(" · "), agent.model ?? "", state.word);
 		}))];
-	});
+	})];
 	if (section === "squads") return [list(board.squads.map((squad) => {
 		const count = board.agents.filter((agent) => agent.squad === squad.name).length;
-		return row$1("●", "neutral", squad.name, `${squad.lead ? `lead ${squad.lead} · ` : ""}${count} agent${count === 1 ? "" : "s"}` + (squad.idleAlertMinutes ? ` · idle alert ${squad.idleAlertMinutes}m` : ""));
+		return row$1("dot", "neutral", squad.name, `${squad.lead ? `lead ${squad.lead}` : ""}${squad.idleAlertMinutes ? `${squad.lead ? " · " : ""}idle alert ${squad.idleAlertMinutes}m` : ""}`, `${count} agent${count === 1 ? "" : "s"}`);
 	}))];
 	if (section === "schedules") {
 		if (board.schedules === null) return [sentence("Your machine could not read the timers. Run `tmt ops ui` to see them.")];
 		if (!board.schedules.length) return [sentence("No timers are set.")];
-		return [list(board.schedules.map((schedule) => row$1("◷", "neutral", schedule.what || schedule.id, [
-			schedule.squad,
-			schedule.when,
-			schedule.owner
-		].filter(Boolean).join(" · "), schedule.id)))];
+		return [list(board.schedules.map((schedule) => row$1("target", "neutral", schedule.what || schedule.id, [schedule.squad, schedule.owner].filter(Boolean).join(" · "), schedule.when, schedule.id)))];
 	}
 	return [sentence(notInBrowser("The Ops settings page", "tmt ops ui"))];
 }

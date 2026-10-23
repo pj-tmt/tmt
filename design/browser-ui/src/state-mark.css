@@ -1,0 +1,48 @@
+/* A state mark drawn in one 12px box, so every mark has the same footprint and visual weight
+   whatever font a glyph would fall back to. It takes its colour from the text around it; the state
+   word beside it carries the meaning. */
+.tmt-ui-state-mark {
+  flex: none;
+  box-sizing: border-box;
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+}
+.tmt-ui-state-mark[data-shape='dot'] {
+  border-radius: var(--tmt-ui-radius-pill);
+  background: currentColor;
+}
+.tmt-ui-state-mark[data-shape='ring'] {
+  border: 1.5px solid currentColor;
+  border-radius: var(--tmt-ui-radius-pill);
+}
+.tmt-ui-state-mark[data-shape='dashed'] {
+  border: 1.5px dashed currentColor;
+  border-radius: var(--tmt-ui-radius-pill);
+}
+.tmt-ui-state-mark[data-shape='target'] {
+  border: 1.5px solid currentColor;
+  border-radius: var(--tmt-ui-radius-pill);
+  background: radial-gradient(circle, currentColor 0 24%, transparent 26%);
+}
+.tmt-ui-state-mark[data-shape='diamond'] {
+  background: currentColor;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.tmt-ui-state-mark[data-shape='cross'] {
+  background: currentColor;
+  clip-path: polygon(
+    14% 0,
+    50% 36%,
+    86% 0,
+    100% 14%,
+    64% 50%,
+    100% 86%,
+    86% 100%,
+    50% 64%,
+    14% 100%,
+    0 86%,
+    36% 50%,
+    0 14%
+  );
+}

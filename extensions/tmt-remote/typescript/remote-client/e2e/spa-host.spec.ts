@@ -878,14 +878,55 @@ test.describe('the Ops route on the owner read', () => {
     });
     const rows = page.locator('#ops-section .tmt-ui-list-row');
     await expect(rows).toHaveCount(2);
-    // Lead first; the board's own text beside the mark; what the agent waits on the person for.
-    await expect(rows.nth(0)).toContainText('tmt-lead');
-    await expect(rows.nth(0)).toContainText('Working · review');
-    await expect(rows.nth(1).locator('.tmt-ui-list-leading')).toHaveText('○');
+    // Lead first: the name over what it works on, the model and the state word beside it.
+    await expect(rows.nth(0).locator('.tmt-ui-list-label')).toHaveText('tmt-lead');
+    await expect(rows.nth(0).locator('.tmt-ui-list-description')).toHaveText('review');
+    await expect(rows.nth(0).locator('.tmt-ui-list-state')).toHaveText('Working');
+    await expect(rows.nth(1).locator('.tmt-ui-state-mark')).toHaveAttribute('data-shape', 'ring');
+    await expect(rows.nth(1).locator('.tmt-ui-list-state')).toHaveText('Offline');
     await expect(rows.nth(1)).toContainText('Waiting on you: approve the plan');
+    // Every mark is drawn in one box, whatever the state.
+    const boxes = await rows
+      .locator('.tmt-ui-state-mark')
+      .evaluateAll((marks) =>
+        marks.map((mark) => [
+          mark.getBoundingClientRect().width,
+          mark.getBoundingClientRect().height,
+        ]),
+      );
+    expect(new Set(boxes.map((box) => box.join('x')))).toEqual(new Set(['12x12']));
+    // The board by urgency: Needs you, Blocked, Offline, Working; Idle has no tile; a tile at 0
+    // stays, muted.
+    const tiles = page.locator('#ops-section .tmt-ui-status-tile');
+    await expect(tiles.locator('.tmt-ui-status-tile-label')).toHaveText([
+      'Needs you',
+      'Blocked',
+      'Offline',
+      'Working',
+    ]);
+    // The vector's offline agent waits on the person, and offline wins (the row shows Offline).
+    await expect(tiles.locator('.tmt-ui-status-tile-value')).toHaveText(['0', '0', '1', '1']);
+    for (const index of [0, 1]) {
+      await expect(tiles.nth(index)).toHaveAttribute('data-tone', 'muted');
+      await expect(tiles.nth(index).locator('.tmt-ui-status-tile-value')).toHaveAttribute(
+        'data-numeric',
+        'zero',
+      );
+    }
+    await expect(tiles.nth(3)).toHaveAttribute('data-tone', 'working');
+    await expect(tiles.nth(3).locator('.tmt-ui-status-tile-value')).toHaveAttribute(
+      'data-numeric',
+      'count',
+    );
+    await expect(tiles.nth(3).locator('.tmt-ui-status-tile-value')).toHaveCSS(
+      'font-family',
+      /Bricolage Grotesque/,
+    );
     await expect(page.locator('#ops-section h2')).toHaveText('tmt-core · lead tmt-lead');
     // The next read, five seconds on, repaints only what changed.
-    await expect(rows.nth(0)).toContainText('Working · merge', { timeout: 8000 });
+    await expect(rows.nth(0).locator('.tmt-ui-list-description')).toHaveText('merge', {
+      timeout: 8000,
+    });
     await page.goto(`${origin}/ops#schedules`);
     await expect(page.locator('#ops-section .tmt-ui-list-row')).toContainText('Hourly pass');
     await page.goto(`${origin}/ops#settings`);
