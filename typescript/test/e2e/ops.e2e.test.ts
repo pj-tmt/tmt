@@ -1489,8 +1489,10 @@ renameSync(output+'.tmp',output);
             shell.pane
           );
           grow.run(`step ${round} is done and the agent keeps writing`, agent.id);
+          // The Selection box floats over the middle of the grown row, so wait for its tail.
           await fixture.waitForCapture(
-            (current) => current.includes(`step ${round} is done and the agent keeps writing`),
+            (current) =>
+              current.includes(`step ${round} is done`) && current.includes('keeps writing'),
             shell.pane
           );
           expect(screen(), `Quote stays after round ${round}:\n${screen()}`).toContain('q› Quote');
