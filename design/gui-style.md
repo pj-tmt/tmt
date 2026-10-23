@@ -617,6 +617,21 @@ state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
   outside URL shows as words followed by the URL, and any other target stays literal text.
   Basis: own.
 
+### Page files
+
+Files shows the real page-file count, a 64 px decorative type mark beside each
+filename and size, and a lower right action row: bordered Preview/Download and
+ghost Remove, with leading icons. The actions wrap on phones. Only admitted
+raster types have Preview. A visible multiple-file chooser stages local bytes;
+staged rows use a full dashed border, a soft filled surface and a named close
+button. Add to page is the one primary action, aligned left below the staged
+rows. Choosing or removing a staged file does not upload or save.
+
+Preview and removal confirmation replace the drawer rather than stacking over
+it. Closing returns to the same file action, with staged bytes retained. Remove
+confirms reference removal; it never claims to erase stored or local file data.
+The real read, upload, refusal and stale states remain readable.
+
 ### Message attachments
 
 Annotation/thread attachments use flat metadata chips with a type mark, filename,
@@ -626,7 +641,7 @@ area so Send stays reachable. Trusted Send starts staged uploads and stays busy 
 Chat pending attachments use one horizontally scrollable row of small raster
 thumbnails or filenames inside the input below its text, each with a named ×
 remove action. They share the text's left edge, with no cards or progress bar.
-The message composer has a visible `Attach` action; Files keeps `Attach files`.
+The message composer has a visible `Attach` action.
 Dragging files over Chat or an annotation/thread window shows that panel's
 inset 2 px dashed frame, naming `⤓ Drop to attach to Chat` or `to this thread`.
 A refused batch shows `✗` and its reason and adds nothing. Crossing child

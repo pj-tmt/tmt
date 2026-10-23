@@ -190,50 +190,157 @@
 .attachment-preview {
   flex: 1 0 100%;
 }
+/* Files uses public list/action slots. Its staging layout does not style message drafts. */
 .files-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
+  min-width: 0;
+}
+.files-panel h3 {
+  font-size: 13px;
+  margin: 0 0 19px;
 }
 .files-empty {
-  margin: 0;
+  margin: 0 0 16px;
   color: var(--c-muted);
 }
 .files-panel .files-list {
   --tmt-ui-list-padding-inline: 0;
   margin: 0;
+  border-top: 0;
 }
-/* The drawer is narrower than a page index: name over metadata, actions beside them. */
-.files-list .tmt-ui-list-row {
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: 'title actions' 'meta actions';
+.files-list .tmt-ui-list-row[data-leading] {
+  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-areas: 'mark title' 'mark meta' 'actions actions';
+  gap: 5px 14px;
+  padding: 0 0 20px;
+  margin-bottom: 20px;
+}
+.files-list .tmt-ui-list-leading {
+  grid-area: mark;
+}
+.files-type-mark {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--c-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--c-muted);
+}
+.files-type-mark svg {
+  width: 27px;
+  height: 27px;
 }
 .files-list .tmt-ui-list-title {
   grid-area: title;
+  align-self: end;
   overflow: visible;
   white-space: normal;
   overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.files-list .attachment-name {
+  font-weight: 600;
 }
 .files-list .tmt-ui-list-meta {
   grid-area: meta;
-  grid-template-columns: auto auto;
+  align-self: start;
+  grid-template-columns: 1fr;
   justify-content: start;
+  font-size: 10px;
+  gap: 4px;
 }
 .files-list .tmt-ui-list-actions {
   grid-area: actions;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 9px;
 }
-.files-list .tmt-ui-list-row[data-previewed] {
-  border-bottom: 0;
+.files-add h3 {
+  margin: 0 0 13px;
 }
-.files-list .file-preview {
-  padding: 0 0 10px;
-  border-bottom: 1px solid var(--c-rule);
-  list-style: none;
+.files-add > p,
+.files-upload-note {
+  font-size: 11px;
+  color: var(--c-muted);
+  line-height: 1.8;
+  margin: 0 0 15px;
 }
-.files-list .file-preview img {
+.files-add .annotation-status-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 15px;
+}
+.files-add input[type='file'] {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--c-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--c-text);
+}
+.files-add input[type='file']:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: none;
+}
+.files-add .attachment-tray {
+  width: 100%;
+}
+.files-add .attachment-chip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 15px;
+  margin: 0;
+  border: 1px dashed var(--tmt-ui-color-accent);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-working-soft);
+}
+.files-add .attachment-chips {
+  display: grid;
+  gap: 12px;
+}
+.files-add .attachment-name {
+  font-size: 12px;
+  font-weight: 600;
+}
+.files-add .attachment-size,
+.files-add .attachment-state {
+  grid-column: 1;
+  font-size: 10px;
+}
+.files-add .attachment-actions {
+  grid-column: 2;
+  grid-row: 1/4;
+}
+.files-add .annotation-status-row > button {
+  margin-inline-start: 0;
+}
+.files-add .annotation-hint:empty {
+  display: none;
+}
+.files-add p.files-upload-note {
+  font-size: 10px;
+  margin-top: 13px;
+}
+.files-preview-dialog img {
   display: block;
   max-width: 100%;
-  max-height: 320px;
+  max-height: 60vh;
+  object-fit: contain;
+  margin: auto;
 }
 .attach-labeled {
   display: inline-flex;

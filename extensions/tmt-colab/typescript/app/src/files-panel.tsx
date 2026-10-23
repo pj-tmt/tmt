@@ -1,10 +1,19 @@
-import { BrowserAction, BrowserList, BrowserListRow, BusyMark } from '@tmt/browser-ui/react';
-import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  BrowserAction,
+  BrowserDialog,
+  BrowserDrawer,
+  BrowserList,
+  BrowserListRow,
+  BusyMark,
+  type BrowserDrawerProps,
+} from '@tmt/browser-ui/react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Download, Eye, FileText, Image as ImageIcon, Trash2, Upload } from 'lucide-react';
 import type { attachment } from '@tmt/colab-client';
 import { AttachmentDraft } from './attachment-draft.js';
 import { isRaster, useAttachmentOpener } from './attachment-opener.js';
 import { AttachmentStaleError, type AttachmentBinding } from './attachment-service.js';
-import { AttachButton, AttachmentChips } from './attachment-tray.js';
+import { AttachmentChips } from './attachment-tray.js';
 import type { DocumentFiles } from './document-files.js';
 import { text } from './strings.js';
 import './attachment-tray.css';
@@ -12,33 +21,82 @@ import './attachment-tray.css';
 /** The most files one page document holds (mirrors the native bound). */
 const PAGE_FILES = 128;
 const DOCUMENT = { kind: 'document' } as const;
+const settled = () => Promise.resolve(true);
+type FileOverlay = {
+  kind: 'preview' | 'remove';
+  lifetime?: object;
+  id: string;
+  filename: string;
+  trigger: HTMLElement;
+};
 
-/** The page's files as list rows. Bytes open only on an explicit click, through the admitted
- * read of the document's current content; `remove` is given to writers only. */
-export function FilesList({
+/** The Files surface owns its one overlay and focus return. Drafts and admitted byte reads stay
+ * mounted when a preview or confirmation replaces the drawer; commands remain with their owners. */
+export function FilesSurface({
+  open,
+  onDismiss,
+  focusFallback,
+  notice,
   descriptors,
   binding,
-  remove,
+  files,
   disabled = false,
   readOnly = false,
-  epoch,
-}: {
+  afterSave = settled,
+}: Pick<BrowserDrawerProps, 'open' | 'onDismiss' | 'focusFallback' | 'notice'> & {
   descriptors: readonly attachment.AttachmentDescriptor[];
   binding?: AttachmentBinding;
-  /** The page's current epoch; a file sealed under an earlier one says it is being secured. */
-  epoch?: string;
-  remove?(attachmentId: string): Promise<void>;
+  files?: DocumentFiles;
   disabled?: boolean;
   readOnly?: boolean;
+  afterSave?(): Promise<boolean>;
 }) {
-  const opener = useAttachmentOpener(binding, DOCUMENT, descriptors),
-    { busy, failed, shown } = opener;
+  const opener = useAttachmentOpener(files?.attachments ?? binding, DOCUMENT, descriptors);
+  const [overlay, setOverlay] = useState<FileOverlay>();
+  const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string>();
+  const removingNow = useRef(false);
   const [removeFailed, setRemoveFailed] = useState<Set<string>>(new Set());
-  if (!descriptors.length)
-    return opener.unlistedFailure ? <p role="alert">{text.attachmentReason.changed}</p> : null;
-  const drop = async (id: string) => {
-    if (!remove || removing) return;
+  const returnTo = useRef<HTMLElement | null>(null);
+  const current = useRef({ files, disabled, readOnly, descriptors, afterSave });
+  current.current = { files, disabled, readOnly, descriptors, afterSave };
+  const selected = overlay && descriptors.find((d) => d.attachmentId === overlay.id);
+  const working = !!opener.busy || !!removing;
+  const closeOverlay = () => {
+    if (removingNow.current) return;
+    if (overlay?.kind === 'preview') opener.hide(overlay.id);
+    returnTo.current = overlay?.trigger ?? null;
+    setOverlay(undefined);
+  };
+  useEffect(() => {
+    if (!open && overlay && !removingNow.current) {
+      if (overlay.kind === 'preview') opener.hide(overlay.id);
+      returnTo.current = null;
+      setOverlay(undefined);
+    }
+  }, [open, overlay, opener]);
+  useLayoutEffect(() => {
+    if (!open || overlay || !returnTo.current) return;
+    const trigger = returnTo.current;
+    returnTo.current = null;
+    if (trigger.isConnected && trigger.getClientRects().length)
+      trigger.focus({ preventScroll: true });
+    else focusFallback?.()?.focus({ preventScroll: true });
+  }, [open, overlay, focusFallback]);
+  const remove = async () => {
+    if (!overlay || overlay.kind !== 'remove' || removingNow.current || working) return;
+    const id = overlay.id;
+    const admitted = () => {
+      const now = current.current;
+      return (
+        now.files &&
+        !now.disabled &&
+        !now.readOnly &&
+        now.descriptors.some((d) => d.attachmentId === id)
+      );
+    };
+    if (!admitted()) return;
+    removingNow.current = true;
     setRemoving(id);
     setRemoveFailed((previous) => {
       const next = new Set(previous);
@@ -46,116 +104,218 @@ export function FilesList({
       return next;
     });
     try {
-      await remove(id);
+      if (await current.current.afterSave()) {
+        if (!admitted()) throw new Error('File removal is no longer admitted');
+        await current.current.files!.remove([id]);
+      }
     } catch {
       setRemoveFailed((previous) => new Set(previous).add(id));
     } finally {
+      removingNow.current = false;
       setRemoving(undefined);
+      returnTo.current = overlay.trigger;
+      setOverlay(undefined);
     }
   };
   return (
-    <BrowserList label={text.filesListLabel} className="files-list">
-      {opener.unlistedFailure && <li role="alert">{text.attachmentReason.changed}</li>}
-      {descriptors.map((d) => {
-        const raster = isRaster(d),
-          image = shown[d.attachmentId],
-          opening = busy === d.attachmentId,
-          dropping = removing === d.attachmentId,
-          // Work in flight on any file fences every action, without a grey: only the one at work
-          // carries the mark, in a slot every action reserves.
-          working = !!busy || !!removing,
-          mark = (active: boolean) => (active ? <BusyMark /> : <span />);
-        return (
-          <Fragment key={d.attachmentId}>
-            <BrowserListRow
-              data-testid="file-row"
-              data-attachment-id={d.attachmentId}
-              data-previewed={image ? '' : undefined}
-              title={<span className="attachment-name">{d.filename}</span>}
-              metadata={text.attachmentSize(Number(d.plaintextBytes))}
-              state={
-                failed.has(d.attachmentId) ? (
-                  <span role="alert">{text.attachmentReason[failed.get(d.attachmentId)!]}</span>
-                ) : removeFailed.has(d.attachmentId) ? (
-                  <span role="alert">{text.filesRemoveFailed}</span>
-                ) : epoch !== undefined && d.epoch !== epoch ? (
-                  text.filesResealing
-                ) : null
-              }
-              actions={
-                <>
-                  {!readOnly &&
-                    raster &&
-                    (image ? (
-                      <BrowserAction
-                        type="button"
-                        variant="text"
-                        label={text.attachmentHidePreview}
-                        onActivate={(event) => {
-                          if (event.isTrusted) opener.hide(d.attachmentId);
-                        }}
-                      />
-                    ) : (
-                      <BrowserAction
-                        type="button"
-                        variant="text"
-                        label={text.attachmentPreview}
-                        busy={working}
-                        busyMark={mark(opening)}
-                        disabled={!binding}
-                        onActivate={(event) => {
-                          if (event.isTrusted) void opener.preview(d);
-                        }}
-                      />
-                    ))}
-                  <BrowserAction
-                    type="button"
-                    variant="text"
-                    label={text.attachmentDownload}
-                    busy={working}
-                    busyMark={mark(opening && !raster)}
-                    disabled={!binding}
-                    onActivate={(event) => {
-                      if (event.isTrusted) void opener.download(d);
-                    }}
+    <>
+      <BrowserDrawer
+        open={open && !overlay}
+        title={text.files}
+        panel="files"
+        onDismiss={onDismiss}
+        focusFallback={focusFallback}
+        notice={notice}
+      >
+        <div className="files-panel" data-testid="files-panel">
+          <h3>{text.filesCount(descriptors.length)}</h3>
+          {opener.unlistedFailure && <p role="alert">{text.attachmentReason.changed}</p>}
+          {descriptors.length > 0 && (
+            <BrowserList label={text.filesListLabel} className="files-list">
+              {descriptors.map((d) => {
+                const raster = isRaster(d),
+                  opening = opener.busy === d.attachmentId;
+                const Icon = raster ? ImageIcon : FileText;
+                const mark = (active: boolean) => (active ? <BusyMark /> : <span />);
+                return (
+                  <BrowserListRow
+                    key={d.attachmentId}
+                    data-testid="file-row"
+                    data-attachment-id={d.attachmentId}
+                    leading={
+                      <span className="files-type-mark">
+                        <Icon aria-hidden />
+                      </span>
+                    }
+                    title={<span className="attachment-name">{d.filename}</span>}
+                    metadata={text.attachmentSize(Number(d.plaintextBytes))}
+                    state={
+                      opener.failed.has(d.attachmentId) ? (
+                        <span role="alert">
+                          {text.attachmentReason[opener.failed.get(d.attachmentId)!]}
+                        </span>
+                      ) : removeFailed.has(d.attachmentId) ? (
+                        <span role="alert">{text.filesRemoveFailed}</span>
+                      ) : files && d.epoch !== files.epoch ? (
+                        text.filesResealing
+                      ) : null
+                    }
+                    actions={
+                      <>
+                        {!readOnly && raster && (
+                          <BrowserAction
+                            type="button"
+                            variant="secondary"
+                            label={text.attachmentPreview}
+                            leadingIcon={<Eye />}
+                            busy={working}
+                            busyMark={mark(opening)}
+                            disabled={!(files?.attachments ?? binding)}
+                            onActivate={(event) => {
+                              if (event.isTrusted) {
+                                setOverlay({
+                                  kind: 'preview',
+                                  lifetime: opener.currentLifetime(),
+                                  id: d.attachmentId,
+                                  filename: d.filename,
+                                  trigger: event.currentTarget,
+                                });
+                                void opener.preview(d);
+                              }
+                            }}
+                          />
+                        )}
+                        <BrowserAction
+                          type="button"
+                          variant="secondary"
+                          label={text.attachmentDownload}
+                          leadingIcon={<Download />}
+                          busy={working}
+                          busyMark={mark(opening && !raster)}
+                          disabled={!(files?.attachments ?? binding)}
+                          onActivate={(event) => {
+                            if (event.isTrusted) void opener.download(d);
+                          }}
+                        />
+                        {files && !readOnly && (
+                          <BrowserAction
+                            type="button"
+                            variant="ghost"
+                            label={text.attachRemove}
+                            leadingIcon={<Trash2 />}
+                            busy={working}
+                            busyMark={mark(removing === d.attachmentId)}
+                            disabled={disabled || adding}
+                            onActivate={(event) => {
+                              if (event.isTrusted)
+                                setOverlay({
+                                  kind: 'remove',
+                                  id: d.attachmentId,
+                                  filename: d.filename,
+                                  trigger: event.currentTarget,
+                                });
+                            }}
+                          />
+                        )}
+                      </>
+                    }
                   />
-                  {remove && (
-                    <BrowserAction
-                      type="button"
-                      variant="text"
-                      label={text.attachRemove}
-                      busy={working}
-                      busyMark={mark(dropping)}
-                      disabled={disabled}
-                      onActivate={(event) => {
-                        if (event.isTrusted) void drop(d.attachmentId);
-                      }}
-                    />
-                  )}
-                </>
-              }
+                );
+              })}
+            </BrowserList>
+          )}
+          {files ? (
+            <FilesUpload
+              descriptors={descriptors}
+              files={files}
+              disabled={disabled}
+              afterSave={afterSave}
+              readOnly={readOnly}
+              adding={adding}
+              setAdding={setAdding}
             />
-            {image && (
-              <li className="file-preview" data-testid="file-preview">
-                <img src={image} alt={d.filename} />
-              </li>
-            )}
-          </Fragment>
-        );
-      })}
-    </BrowserList>
+          ) : (
+            !descriptors.length && <p className="files-empty">{text.filesEmpty}</p>
+          )}
+        </div>
+      </BrowserDrawer>
+      <BrowserDialog
+        open={open && overlay?.kind === 'preview'}
+        title={overlay?.filename ?? text.files}
+        restoreFocus={false}
+        onDismiss={closeOverlay}
+        className="files-preview-dialog"
+        actions={
+          <BrowserAction
+            type="button"
+            variant="secondary"
+            label={text.filesClose}
+            onActivate={closeOverlay}
+          />
+        }
+      >
+        {!selected || (overlay?.kind === 'preview' && overlay.lifetime !== opener.lifetime) ? (
+          <p role="alert">{text.attachmentReason.changed}</p>
+        ) : opener.failed.has(selected.attachmentId) ? (
+          <p role="alert">{text.attachmentReason[opener.failed.get(selected.attachmentId)!]}</p>
+        ) : opener.shown[selected.attachmentId] ? (
+          <div data-testid="file-preview">
+            <img src={opener.shown[selected.attachmentId]} alt={selected.filename} />
+          </div>
+        ) : (
+          <div role="status" aria-label={text.attachmentOpening}>
+            <BusyMark />
+          </div>
+        )}
+      </BrowserDialog>
+      <BrowserDialog
+        open={open && overlay?.kind === 'remove'}
+        title={text.filesRemoveTitle(overlay?.filename ?? '')}
+        restoreFocus={false}
+        onDismiss={closeOverlay}
+        actions={
+          <>
+            <BrowserAction
+              type="button"
+              variant="secondary"
+              label={text.filesCancel}
+              busy={!!removing}
+              onActivate={closeOverlay}
+            />
+            <BrowserAction
+              type="button"
+              variant="destructive"
+              label={text.filesRemoveConfirm}
+              busy={!!removing}
+              busyMark={<BusyMark />}
+              disabled={!selected || disabled || readOnly || !files}
+              onActivate={(event) => {
+                if (event.isTrusted) void remove();
+              }}
+            />
+          </>
+        }
+      >
+        <p>{text.filesRemoveHint}</p>
+        {!selected && <p role="alert">{text.attachmentReason.changed}</p>}
+      </BrowserDialog>
+    </>
   );
 }
 
-/** The writer's Files panel: the page's files, then the attach row. Choosing files only adds
- * local chips; "Add to page" uploads them, proves them, and saves the references. */
-export function FilesPanel({
+/** The writer's retained staging owner. Choosing files only adds local chips; Add to page
+ * uploads them, proves them, and saves the references. The surface owns the file rows. */
+function FilesUpload({
   descriptors,
   files,
   disabled,
   afterSave,
   readOnly = false,
+  adding,
+  setAdding,
 }: {
+  adding: boolean;
+  setAdding(value: boolean): void;
   descriptors: readonly attachment.AttachmentDescriptor[];
   files: DocumentFiles;
   disabled: boolean;
@@ -178,7 +338,6 @@ export function FilesPanel({
   );
   useEffect(() => () => draft.dispose(), [draft]);
   const staged = useSyncExternalStore(draft.subscribe, draft.getSnapshot);
-  const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string>();
   const add = async () => {
     if (adding || disabled) return;
@@ -209,49 +368,52 @@ export function FilesPanel({
   };
   const attachable = !readOnly && !disabled && !adding;
   return (
-    <div className="files-panel" data-testid="files-panel">
-      <FilesList
-        descriptors={descriptors}
-        binding={files.attachments}
-        remove={
-          readOnly
-            ? undefined
-            : async (id) => {
-                // The save lands first; if it fails, nothing is removed.
-                if (await afterSave()) await files.remove([id]);
-              }
-        }
-        disabled={disabled || adding}
-        readOnly={readOnly}
-        epoch={files.epoch}
-      />
+    <section className="files-add">
+      {!readOnly && (
+        <>
+          <h3>{text.filesChooseTitle}</h3>
+          <p>{text.filesChooseHint}</p>
+        </>
+      )}
       {!descriptors.length && !staged.chips.length && (
         <p className="files-empty">{text.filesEmpty}</p>
       )}
       {!readOnly && (
         <>
-          <AttachmentChips draft={draft} disabled={!attachable} page />
           <div className="annotation-status-row">
-            <AttachButton draft={draft} disabled={!attachable} labeled />
+            <input
+              type="file"
+              multiple
+              aria-label={text.filesChoose}
+              disabled={!attachable}
+              onChange={(event) => {
+                const selected = [...(event.currentTarget.files ?? [])];
+                event.currentTarget.value = '';
+                if (selected.length) void draft.add(selected);
+              }}
+            />
+            <AttachmentChips draft={draft} disabled={!attachable} page />
             <p role="status" className="annotation-hint">
               {error}
             </p>
             {staged.chips.length > 0 && (
               <BrowserAction
                 type="button"
-                variant="text"
+                variant="primary"
+                leadingIcon={<Upload />}
                 label={text.filesAdd}
                 busy={adding}
                 busyMark={<BusyMark />}
-                disabled={!attachable || draft.uploading}
+                disabled={disabled || (!adding && draft.uploading)}
                 onActivate={(event) => {
                   if (event.isTrusted) void add();
                 }}
               />
             )}
           </div>
+          <p className="files-upload-note">{text.filesChooseNote}</p>
         </>
       )}
-    </div>
+    </section>
   );
 }

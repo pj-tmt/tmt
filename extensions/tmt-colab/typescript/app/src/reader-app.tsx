@@ -3,8 +3,8 @@ import { usePageLinks } from './page-link-bar.js';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { Circle, Info, X } from 'lucide-react';
 import type { AttachmentBinding } from './attachment-service.js';
-import { FilesList } from './files-panel.js';
-import { BrowserDrawer, BusyMark } from '@tmt/browser-ui/react';
+import { FilesSurface } from './files-panel.js';
+import { BusyMark } from '@tmt/browser-ui/react';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { ReaderSource, type ReaderEdit } from './reader-source.js';
@@ -241,15 +241,13 @@ export function ReaderApp({
         />
       )}
       {state.kind === 'ready' && (
-        <BrowserDrawer
+        <FilesSurface
           focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
           open={files && descriptors.length > 0}
-          title={text.files}
-          panel="files"
           onDismiss={() => setFiles(false)}
-        >
-          <FilesList descriptors={descriptors} binding={attachments} />
-        </BrowserDrawer>
+          descriptors={descriptors}
+          binding={attachments}
+        />
       )}
     </>
   );

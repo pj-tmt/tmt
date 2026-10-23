@@ -223,8 +223,12 @@ video, active content, relaxed CSP or renderer capability exists.
 
 The Files panel is a peer of Comments, Chat and Source, opened from a header action
 (`Files`, with the count when non-empty). A writer always has it; a read-only link shows it
-only when the page has files. Rows are the shared list rows with Preview, Download and, for
-writers, Remove; opening bytes follows the same trusted-click rule as message attachments,
+only when the page has files. Rows show a decorative type mark, filename and size, with Preview for the admitted
+raster subset, Download and, for writers, Remove. Preview and removal confirmation
+replace the Files drawer with one dialog, then restore it and the originating
+action’s focus without losing staged files. Only confirming Remove writes the
+existing typed reference removal; Cancel writes nothing. Opening a drawer or
+showing its decorative marks never reads file bytes; opening bytes follows the same trusted-click rule as message attachments,
 but through the admitted `document-current` read of the document's current content revision.
 
 Choosing files again only adds inert local chips. "Add to page" uploads each chip as a

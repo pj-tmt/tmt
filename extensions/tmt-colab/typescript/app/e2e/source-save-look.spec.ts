@@ -83,7 +83,7 @@ async function savingWithAFile(page: Page) {
   await open(page, 'Files');
   const panel = page.getByTestId('files-panel');
   const chooser = page.waitForEvent('filechooser');
-  await panel.getByRole('button', { name: text.attachFiles }).click();
+  await panel.getByLabel(text.filesChoose, { exact: true }).click();
   await (await chooser).setFiles([note('first.txt')]);
   await panel.getByRole('button', { name: text.filesAdd, exact: true }).click();
   await expect(panel.getByRole('button', { name: text.attachRemove })).toBeVisible();
@@ -97,35 +97,47 @@ async function savingWithAFile(page: Page) {
 }
 async function attachSecond(page: Page, panel: Locator) {
   const chooser = page.waitForEvent('filechooser');
-  await panel.getByRole('button', { name: text.attachFiles }).click();
+  await panel.getByLabel(text.filesChoose, { exact: true }).click();
   await (await chooser).setFiles([note('second.txt')]);
 }
 
-test('an Add and a Remove during a Source save wait for it, then apply once', async ({ page }) => {
-  const panel = await savingWithAFile(page);
-  await attachSecond(page, panel);
-  const add = panel.getByRole('button', { name: text.filesAdd, exact: true });
-  await expect(add).toBeEnabled();
-  await panel.getByRole('button', { name: text.attachRemove }).first().click();
-  await add.click();
-  // Nothing is lost and nothing is written while the save is in flight.
-  expect(await files(page)).toEqual(['files:add:first.txt']);
-  await run(page, 'releaseEdit');
-  // Each applies exactly once; the two were asked together, so their order is not asserted.
-  await expect
-    .poll(async () => (await files(page)).sort())
-    .toEqual(['files:add:first.txt', 'files:add:second.txt', 'files:remove:1']);
-});
-
-test('an Add and a Remove during a Source save that fails apply nothing', async ({ page }) => {
-  const panel = await savingWithAFile(page);
-  await attachSecond(page, panel);
-  await panel.getByRole('button', { name: text.attachRemove }).first().click();
-  await panel.getByRole('button', { name: text.filesAdd, exact: true }).click();
-  await run(page, 'releaseEdit', { fail: true });
-  // The save's error stays in the Source drawer; the staged file is kept to add again.
-  await expect(panel.getByRole('button', { name: text.filesAdd, exact: true })).toBeEnabled();
-  await open(page, 'Source');
-  await expect(page.getByText(text.saveNotSaved, { exact: true })).toBeVisible();
-  expect(await files(page)).toEqual(['files:add:first.txt']);
-});
+for (const operation of ['add', 'remove'] as const) {
+  for (const fails of [false, true]) {
+    test(`${operation} during a Source save ${fails ? 'that fails writes nothing' : 'waits then applies once'}`, async ({
+      page,
+    }) => {
+      const panel = await savingWithAFile(page);
+      await attachSecond(page, panel);
+      if (operation === 'remove') {
+        await panel
+          .getByTestId('file-row')
+          .getByRole('button', { name: text.attachRemove })
+          .click();
+        await page.getByRole('button', { name: text.filesRemoveConfirm, exact: true }).click();
+      } else {
+        const add = panel.getByRole('button', { name: text.filesAdd, exact: true });
+        await add.click();
+        await expect(add).toHaveAttribute('aria-busy', 'true');
+        expect(await add.evaluate((node) => (node as HTMLButtonElement).disabled)).toBe(false);
+        await add.focus();
+        await expect(add).toBeFocused();
+        await add.press('Enter');
+      }
+      expect(await files(page)).toEqual(['files:add:first.txt']);
+      await run(page, 'releaseEdit', { fail: fails });
+      if (fails) {
+        await expect(panel.getByRole('button', { name: text.filesAdd, exact: true })).toBeEnabled();
+        await open(page, 'Source');
+        await expect(page.getByText(text.saveNotSaved, { exact: true })).toBeVisible();
+        expect(await files(page)).toEqual(['files:add:first.txt']);
+      } else {
+        await expect
+          .poll(() => files(page))
+          .toEqual([
+            'files:add:first.txt',
+            operation === 'add' ? 'files:add:second.txt' : 'files:remove:1',
+          ]);
+      }
+    });
+  }
+}

@@ -46,7 +46,13 @@ Signed-in app-unavailable guidance shows a waiting-colored Update needed state a
 asks the person to update Colab to open the page, preserving space/sign-in details and the user command.
 
 `router.tsx` retains one active Source, Comments, Chat, Agents, Files, Export, Manage or
-About overlay. `page-header-actions.tsx` owns the page header's base entry points at every
+About overlay. Files owns its preview/removal subview locally in `FilesSurface`:
+these dialogs replace the drawer and return focus to the selected file action.
+The retained Files upload draft and admitted read owner do not unmount during
+that switch. Only explicit Preview/Download reads bytes, and only confirmation
+writes a file-reference removal; decorative type marks are inert.
+
+`page-header-actions.tsx` owns the page header's base entry points at every
 width: Search, Discussion (combined pending count; opens Chat or Comments), and More.
 More lists, top to bottom: Share… (the page's sharing and connection words as secondary text; it
 opens the Manage dialog), Remote (the submenu above), Projects… (when the viewer writes

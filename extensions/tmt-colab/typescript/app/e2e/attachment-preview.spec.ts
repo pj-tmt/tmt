@@ -265,3 +265,16 @@ for (const change of ['advance', 'unmount'])
     await expect.poll(urls).toBe(0);
     expect((await proof(page)).zeroed).toBe(true);
   });
+
+test('Files preview captures the current scope before another render', async ({ page }) => {
+  await mount(page, { count: 1, files: true });
+  await expect(page.getByTestId('file-row')).toBeVisible();
+  await invoke(page, 'advanceWithoutRender');
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'image-1.png', exact: true });
+  await expect(dialog.locator('img')).toHaveAttribute('src', /^data:image\/png;base64,/);
+  expect((await proof(page)).reads).toEqual(['image-1.png:document']);
+  expect((await proof(page)).zeroed).toBe(true);
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeFocused();
+});

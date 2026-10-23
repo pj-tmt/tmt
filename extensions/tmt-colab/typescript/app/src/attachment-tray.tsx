@@ -268,7 +268,21 @@ export function AttachmentChips({
                 {chip.state.kind === 'refused' &&
                   action(text.attachRetry, () => draft.retry(chip.id))}
                 {chip.state.kind !== 'uploading' &&
-                  action(text.attachRemove, () => draft.remove(chip.id))}
+                  (page ? (
+                    <BrowserIconAction
+                      type="button"
+                      variant="text"
+                      label={`Remove staged file ${chip.filename}`}
+                      tooltipLabel="Remove staged file"
+                      icon={<X />}
+                      disabled={disabled}
+                      onActivate={(event) => {
+                        if (event.isTrusted) draft.remove(chip.id);
+                      }}
+                    />
+                  ) : (
+                    action(text.attachRemove, () => draft.remove(chip.id))
+                  ))}
               </span>
             </li>
           ))}
