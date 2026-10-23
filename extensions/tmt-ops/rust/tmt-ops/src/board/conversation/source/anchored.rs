@@ -3,7 +3,7 @@
 //! new messages and a changing input band never move or drop it. The passage stays
 //! the literal displayed text, never evidence for a request or recipient.
 use super::super::{ConversationKey, Rendered, RowTarget};
-use ratatui::{crossterm::event::KeyEvent, layout::Rect};
+use ratatui::crossterm::event::KeyEvent;
 use std::{cmp::Reverse, collections::BTreeMap, ops::Range};
 use tmt_tui::components::Editor;
 
@@ -70,7 +70,7 @@ pub(in crate::board::conversation) struct Anchored {
     /// past between two frames fall back to the transcript's own text.
     rows: BTreeMap<usize, String>,
     pub(super) dragging: bool,
-    pub(super) control: Option<Rect>,
+    pub(super) control: Option<super::Menu>,
 }
 
 /// The transcript's text on displayed `line`, without the gutter.

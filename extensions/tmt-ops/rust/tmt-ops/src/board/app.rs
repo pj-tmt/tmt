@@ -4266,7 +4266,7 @@ impl App {
             self.last_click = None;
             return Effect::None;
         }
-        if let Some(effect) = self.conversation_quote_mouse(event) {
+        if let Some(effect) = self.conversation_menu_mouse(event) {
             return effect;
         }
         if let Some(effect) = self.paste_chip_mouse(event) {

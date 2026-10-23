@@ -7,6 +7,7 @@ use crate::{
     config::Pane,
 };
 use anchored::Anchored;
+use menu::{Entry, Menu};
 use ratatui::{
     Frame,
     crossterm::event::{
@@ -14,7 +15,6 @@ use ratatui::{
     },
     layout::Rect,
 };
-use tmt_cli_style::grid::Align;
 use tmt_tui::components::Editor;
 use unicode_width::UnicodeWidthStr;
 
@@ -37,7 +37,7 @@ pub(super) struct Source {
     surface: Surface,
     text: Editor,
     dragging: bool,
-    control: Option<Rect>,
+    control: Option<Menu>,
 }
 impl Source {
     fn author(&self) -> String {
@@ -89,7 +89,7 @@ impl Selection {
             Self::Text(anchored) => &anchored.target,
         }
     }
-    fn control(&self) -> Option<Rect> {
+    fn control(&self) -> Option<Menu> {
         match self {
             Self::Cells(source) => source.control,
             Self::Text(anchored) => anchored.control,
@@ -258,27 +258,6 @@ fn displayed(surface: &Surface, content: usize, offset: usize) -> impl Iterator<
         .take(rows.min(content.saturating_sub(offset)))
 }
 
-/// The "+ Quote" button after the selection's last painted glyph, or on the next
-/// row when the line has no room left.
-fn quote_control(frame: &mut Frame, app: &App, area: Rect, end: (u16, u16)) -> Option<Rect> {
-    let (x, y) = if area.right().saturating_sub(end.0 + 1) >= 9 {
-        (end.0 + 1, end.1)
-    } else {
-        (area.x, end.1 + 1)
-    };
-    if y >= area.bottom() {
-        return None;
-    }
-    crate::board::buttons::paint(
-        app,
-        frame.buffer_mut(),
-        Rect::new(x, y, area.right().saturating_sub(x), 1),
-        &[crate::board::buttons::Button::secondary("+ Quote")],
-        Align::Left,
-        None,
-    )[0]
-}
-
 /// Highlight a frozen task-field selection while the cells still show its text.
 fn paint_cells(frame: &mut Frame, app: &App, source: &mut Source, surfaces: &[Surface]) {
     let range = source.text.selection();
@@ -291,6 +270,7 @@ fn paint_cells(frame: &mut Frame, app: &App, source: &mut Source, surfaces: &[Su
     }
     let layout = source.text.layout(source.surface.area.width);
     let mut end = None;
+    let mut first = None;
     let mut matches = true;
     let mut highlights = Vec::new();
     for (row, line) in layout
@@ -311,17 +291,18 @@ fn paint_cells(frame: &mut Frame, app: &App, source: &mut Source, surfaces: &[Su
                 continue;
             }
             highlights.push((x, y, cell.width as u16));
+            first.get_or_insert(y);
             end = Some((x + cell.width as u16, y));
         }
     }
-    if matches && let Some(end) = end {
+    if matches && let Some((end, first)) = end.zip(first) {
         let style = app.look().selection();
         for (x, y, width) in highlights {
             for column in x..x.saturating_add(width).min(source.surface.area.right()) {
                 frame.buffer_mut()[(column, y)].set_style(style);
             }
         }
-        source.control = quote_control(frame, app, source.surface.area, end);
+        source.control = menu::paint(frame, app, source.surface.area, end, first);
     }
 }
 
@@ -343,6 +324,7 @@ fn paint_text(
     let style = app.look().selection();
     let (first, last) = anchored.lines();
     let mut end = None;
+    let mut first_row = None;
     for (row, text) in displayed(surface, rendered.mapped.lines.len(), offset).enumerate() {
         let line = offset + row;
         if line < first || line > last {
@@ -355,11 +337,12 @@ fn paint_text(
             for column in x..x.saturating_add(width as u16).min(area.right()) {
                 frame.buffer_mut()[(column, y)].set_style(style);
             }
+            first_row.get_or_insert(y);
             end = Some((x + width as u16, y));
         }
     }
-    if let Some(end) = end {
-        anchored.control = quote_control(frame, app, area, end);
+    if let Some((end, first)) = end.zip(first_row) {
+        anchored.control = menu::paint(frame, app, area, end, first);
     }
     Some(())
 }
@@ -500,7 +483,7 @@ impl App {
         }
         Some(
             if state.selection.as_ref().is_some_and(Selection::has_text) {
-                "select text to copy · y copy · Enter + Quote · Esc clear"
+                "select text to copy · y copy · q quote · Esc clear"
             } else {
                 // The way to the live screen joins the guidance only when all of it fits.
                 const SELECT: &str = "select text to copy · Shift+arrows select · Esc back";
@@ -535,7 +518,7 @@ impl App {
                 .selection
                 .as_ref()
                 .and_then(Selection::control)
-                .is_some_and(|area| area.contains(point))
+                .is_some_and(|menu| menu.bounds().contains(point))
         {
             state.selection = None;
         }
@@ -665,22 +648,16 @@ impl App {
             return Some(Effect::None);
         }
         let passage = state.passage(selection)?;
-        match event.code {
-            KeyCode::Char('y') if event.modifiers.is_empty() => {
-                drop(state);
-                Some(self.copy_rendered_selection(passage))
-            }
-            KeyCode::Enter if event.modifiers.is_empty() => {
-                let author = self.selection_author(&state, selection);
-                let target = selection.target().clone();
-                state.selection = None;
-                drop(state);
-                Some(self.quote_rendered(target, author, passage))
-            }
-            _ => None,
-        }
+        let entry = match event.code {
+            KeyCode::Char('y') if event.modifiers.is_empty() => Entry::Copy,
+            KeyCode::Char('q') | KeyCode::Enter if event.modifiers.is_empty() => Entry::Quote,
+            _ => return None,
+        };
+        drop(state);
+        Some(self.run_selection_entry(entry, passage))
     }
-    pub(in crate::board) fn conversation_quote_mouse(
+    /// A press on an entry of the Selection menu runs it, as its key does.
+    pub(in crate::board) fn conversation_menu_mouse(
         &mut self,
         event: MouseEvent,
     ) -> Option<Effect> {
@@ -688,17 +665,33 @@ impl App {
             return None;
         }
         let point = (event.column, event.row).into();
-        let mut state = self.conversation.borrow_mut();
-        let selection = state
-            .selection
-            .as_ref()
-            .filter(|selection| selection.control().is_some_and(|area| area.contains(point)))?;
+        let state = self.conversation.borrow();
+        let selection = state.selection.as_ref()?;
+        let menu = selection.control()?;
+        // The border and the hint belong to the box: they neither act nor start a selection.
+        let Some(entry) = menu.entry_at(point) else {
+            return menu.bounds().contains(point).then_some(Effect::None);
+        };
         let passage = state.passage(selection)?;
-        let author = self.selection_author(&state, selection);
-        let target = selection.target().clone();
-        state.selection = None;
         drop(state);
-        Some(self.quote_rendered(target, author, passage))
+        Some(self.run_selection_entry(entry, passage))
+    }
+    /// Quote or copy the selection: the one place the keys and the menu agree.
+    fn run_selection_entry(&mut self, entry: Entry, passage: String) -> Effect {
+        match entry {
+            Entry::Copy => self.copy_rendered_selection(passage),
+            Entry::Quote => {
+                let mut state = self.conversation.borrow_mut();
+                let Some(selection) = state.selection.as_ref() else {
+                    return Effect::None;
+                };
+                let author = self.selection_author(&state, selection);
+                let target = selection.target().clone();
+                state.selection = None;
+                drop(state);
+                self.quote_rendered(target, author, passage)
+            }
+        }
     }
     fn quote_rendered(&mut self, target: RowTarget, author: String, passage: String) -> Effect {
         if self.conversation_target().as_ref() != Some(&target)
@@ -889,5 +882,8 @@ impl App {
 }
 
 mod anchored;
+mod menu;
+#[cfg(test)]
+pub(in crate::board) mod scenes;
 #[cfg(test)]
 mod tests;
