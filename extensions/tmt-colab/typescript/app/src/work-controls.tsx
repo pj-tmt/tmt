@@ -369,14 +369,14 @@ function TaskActions({ id, task, work, onEdit }: TaskPart & { onEdit(): void }):
     <div className="work-control-group">
       <BrowserAction
         type="button"
-        variant="primary"
+        variant="secondary"
         label={label.edit}
         disabled={busy}
         onActivate={onEdit}
       />
       <BrowserAction
         type="button"
-        variant="primary"
+        variant="secondary"
         label={label.convert}
         disabled={busy || reasonNotConvertible !== undefined}
         disabledReason={reasonNotConvertible}

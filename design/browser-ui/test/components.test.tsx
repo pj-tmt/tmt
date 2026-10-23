@@ -29,7 +29,7 @@ describe('presentation contracts', () => {
     expect(accessibleName?.startsWith(visibleText!)).toBe(true);
   });
   it('retains decorative mark and label slots across every action variant and busy state', () => {
-    for (const variant of ['text', 'primary', 'destructive'] as const) {
+    for (const variant of ['text', 'primary', 'secondary', 'destructive'] as const) {
       for (const busyMark of [undefined, '◌']) {
         for (const busy of [false, true]) {
           const html = renderToStaticMarkup(
@@ -264,7 +264,7 @@ describe('presentation contracts', () => {
     expect(shortcut).toContain('aria-label="Collapse thread"');
     expect(shortcut).toContain('aria-keyshortcuts="Escape"');
     expect(shortcut).toContain('tmt-ui-icon-action-tooltip-label">Collapse · Esc');
-    for (const variant of ['text', 'primary', 'destructive'] as const) {
+    for (const variant of ['text', 'primary', 'secondary', 'destructive'] as const) {
       expect(renderToStaticMarkup(<BrowserIconAction {...props} variant={variant} />)).toContain(
         `data-variant="${variant}"`,
       );

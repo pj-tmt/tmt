@@ -26,6 +26,7 @@ function Controls() {
       <h1>Shared control frames</h1>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
         <BrowserAction type="button" variant="primary" label="Action" onActivate={() => {}} />
+        <BrowserAction type="button" variant="secondary" label="Secondary" onActivate={() => {}} />
         <BrowserAction
           type="button"
           variant="primary"

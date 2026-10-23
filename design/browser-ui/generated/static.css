@@ -1174,6 +1174,7 @@ svg.tmt-ui-mark {
 .tmt-ui-action:active:not(:disabled) {
   scale: var(--tmt-ui-motion-scale);
 }
+
 .tmt-ui-action[data-variant='primary'] {
   border-color: var(--tmt-ui-color-accent-strong);
   background: var(--tmt-ui-color-accent);

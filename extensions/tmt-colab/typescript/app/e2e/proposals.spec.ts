@@ -55,22 +55,27 @@ for (const width of [1440, 390])
       await expect(card).toHaveCSS('color-scheme', scheme);
       await expect(card.locator('.proposal-body')).toHaveCSS('color', ink);
       await expect(card.locator('.proposal-author')).toHaveCSS('color', muted);
+      // Approve is the card's one primary (the shared accent fill); Decline is the neutral
+      // secondary beside it.
       await expect(card.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
-        'background-color',
-        ink,
-      );
-      await expect(card.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
-        'color',
-        rgb(tokens.browser.surface.paper[scheme]),
-      );
-      // Decline is a plain primary action: the shared accent fill (Approve keeps its own ink fill).
-      await expect(card.getByRole('button', { name: 'Decline', exact: true })).toHaveCSS(
         'background-color',
         rgb(tokens.browser.color.accent[scheme]),
       );
-      await expect(card.getByRole('button', { name: 'Decline', exact: true })).toHaveCSS(
+      await expect(card.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
         'color',
         rgb(tokens.browser.color['on-accent'][scheme]),
+      );
+      await expect(card.getByRole('button', { name: 'Decline', exact: true })).toHaveAttribute(
+        'data-variant',
+        'secondary',
+      );
+      await expect(card.getByRole('button', { name: 'Decline', exact: true })).toHaveCSS(
+        'background-color',
+        rgb(tokens.browser.surface.command[scheme]),
+      );
+      await expect(card.getByRole('button', { name: 'Decline', exact: true })).toHaveCSS(
+        'color',
+        ink,
       );
       await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toHaveCSS(
         'color',

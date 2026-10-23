@@ -342,7 +342,11 @@ for (const width of [1440, 390])
         const action = drawer.getByRole('button', { name: `Download ${name}`, exact: true });
         await expect(action).toBeEnabled();
         await expect(action).toHaveClass(/tmt-ui-action/);
-        await expect(action).toHaveAttribute('data-variant', 'primary');
+        // The first file is the group's one primary; the rest are secondary.
+        await expect(action).toHaveAttribute(
+          'data-variant',
+          name === 'page.html' ? 'primary' : 'secondary',
+        );
         await expect(action).toHaveCSS('border-top-width', '1px');
       }
       await expect(drawer.getByRole('button', { name: /^Close/ })).toHaveCount(1);

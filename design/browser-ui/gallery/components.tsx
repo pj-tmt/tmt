@@ -28,7 +28,7 @@ import {
 } from '../src/react.js';
 import { Cell, Cells, FramePair, Pair, Section, noop, type Theme } from './kit.js';
 
-const variants = ['primary', 'text', 'destructive'] as const;
+const variants = ['primary', 'secondary', 'text', 'destructive'] as const;
 
 export function BrandSection() {
   const sizes = [16, 20, 24, 32, 48, 64, 96];
@@ -154,6 +154,18 @@ export function ActionsSection() {
           }
         </Pair>
       ))}
+      <Pair
+        title="Action group · one primary, the rest secondary or text"
+        note="A group holds at most one enabled primary, its main action. Decline sits beside Approve as secondary; Cancel is text."
+      >
+        {() => (
+          <div className="gallery-row">
+            <BrowserAction type="button" variant="primary" label="Approve" onActivate={noop} />
+            <BrowserAction type="button" variant="secondary" label="Decline" onActivate={noop} />
+            <BrowserAction type="button" variant="text" label="Cancel" onActivate={noop} />
+          </div>
+        )}
+      </Pair>
     </Section>
   );
 }

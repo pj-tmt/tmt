@@ -196,28 +196,24 @@ export function ProposalCard({
             // While the decision saves the buttons stay where they are, inert, and the busy mark
             // is the only sign: the row moves nothing until the decision stands in its place.
             <>
-              <span className="proposal-approve">
-                <BrowserAction
-                  type="button"
-                  variant="primary"
-                  label={text.proposalApprove}
-                  disabled={disabled || !canDecide}
-                  busy={deciding}
-                  busyMark={
-                    <BusyMark
-                      className={pressed === 'approved' ? undefined : 'proposal-unpressed'}
-                    />
-                  }
-                  onActivate={(e) => {
-                    if (!e.isTrusted) return;
-                    setPressed('approved');
-                    decide('approved');
-                  }}
-                />
-              </span>
               <BrowserAction
                 type="button"
                 variant="primary"
+                label={text.proposalApprove}
+                disabled={disabled || !canDecide}
+                busy={deciding}
+                busyMark={
+                  <BusyMark className={pressed === 'approved' ? undefined : 'proposal-unpressed'} />
+                }
+                onActivate={(e) => {
+                  if (!e.isTrusted) return;
+                  setPressed('approved');
+                  decide('approved');
+                }}
+              />
+              <BrowserAction
+                type="button"
+                variant="secondary"
                 label={text.proposalDecline}
                 disabled={disabled || !canDecide}
                 busy={deciding}

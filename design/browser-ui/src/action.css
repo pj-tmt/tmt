@@ -26,6 +26,9 @@
 .tmt-ui-action:active:not(:disabled) {
   scale: var(--tmt-ui-motion-scale);
 }
+/* `secondary` is the plain bordered button above: the neutral default. `primary` is the one loud
+   action of a group, so a group holds at most one enabled primary and every other action is
+   secondary or text. */
 .tmt-ui-action[data-variant='primary'] {
   border-color: var(--tmt-ui-color-accent-strong);
   background: var(--tmt-ui-color-accent);

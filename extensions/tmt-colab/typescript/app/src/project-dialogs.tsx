@@ -374,7 +374,7 @@ export function ManageProjectsDialog({
       )}
       {step.kind === 'list' && (
         <div className="project-actions project-footer">
-          <BrowserAction type="button" variant="primary" label={t.close} onActivate={close} />
+          <BrowserAction type="button" variant="secondary" label={t.close} onActivate={close} />
         </div>
       )}
     </BrowserDrawer>

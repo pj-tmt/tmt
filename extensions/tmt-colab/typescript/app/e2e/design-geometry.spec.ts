@@ -10,7 +10,7 @@ async function mount(page: Page) {
   });
   // A busy mark shows only after the busy delay.
   await expect(page.locator('#geometry-fixture .tmt-ui-action-mark[data-busy="true"]')).toHaveCount(
-    6,
+    8,
   );
 }
 
@@ -38,6 +38,8 @@ test('a busy action centres its mark on the label for every variant and theme', 
     'destructive',
     'primary',
     'primary',
+    'secondary',
+    'secondary',
     'text',
     'text',
   ]);

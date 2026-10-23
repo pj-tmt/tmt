@@ -136,7 +136,7 @@ export interface BrowserTab {
 export type BrowserTabSelectReason = 'keyboard' | 'activation';
 /** A status tile's dot: the notice tones plus `info` for a read-only fact. */
 export type BrowserStatusTone = BrowserNoticeTone | 'info';
-export type BrowserActionVariant = 'text' | 'primary' | 'destructive';
+export type BrowserActionVariant = 'text' | 'primary' | 'secondary' | 'destructive';
 export type BrowserAnnouncement = 'status' | 'alert' | 'none';
 export interface BrowserNotificationData {
   id: string;

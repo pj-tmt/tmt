@@ -14,7 +14,7 @@ document.querySelector('#run-focus').addEventListener('click', () => {
   }
 });
 
-for (const variant of ['text', 'primary', 'destructive']) {
+for (const variant of ['text', 'primary', 'secondary', 'destructive']) {
   for (const suppliedMark of [false, true]) {
     for (const busy of [false, true]) {
       const cell = document.createElement('div');

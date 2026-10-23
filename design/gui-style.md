@@ -33,7 +33,7 @@ named below; explicitly labelled design targets remain unshipped.
 3. **One sticky row.** Only the one-row header is sticky. Everything else that
    appears on demand is an overlay that never reflows the page.
 4. **Light actions.** Actions are light text buttons. A disabled action keeps its
-   place and shows why. One primary filled button per card at most.
+   place and shows why. One primary (accent-filled) action per action group at most.
 5. **Mark plus word.** A state is a mark and a word (`◆ waiting`, `✗ failed`).
    Color is never the only signal.
 6. **Our controls only.** Use custom choices, toggles and icon help,
@@ -79,9 +79,7 @@ name and a visible tooltip.
   indicator). It holds on three conditions: every field has a visible label (a
   select shows its value and a chevron instead), its fill (`surface.field`)
   differs from the surface behind it, and its focus and invalid states keep the
-  strong edge. The leaf's design audit (`controlBoundaries`) skips fields by name
-  for the border check and fails a field that fills like its surface or has no
-  visible label or value.
+  strong edge.
 - **Responsive:** every component works from 320 px up and sizes from its own
   container (CSS container queries), not only the viewport, because the same
   component appears full width and inside a 400 px overlay. Nothing overflows
@@ -145,16 +143,17 @@ page renders in it.
   the rail, and labels stay accessible names.
 - **Module menu:** the active module's own menu (Colab: All pages, then each project
   with its page count and needs-you count, then New project and Manage projects; Remote:
-  each saved remote, Add remote, Remote settings). It replaces header dropdowns.
-- **Header:** one continuous sticky row: the TMT mark and word above the rail, then
-  the host's header (moved into the shell's bar) as `<module> / <page>`, with one
-  bottom rule and no divider between them: `TMT · <module> / <page>`, every segment
-  in the header title's face and size, separators lighter. Under 480 px the module
-  crumb steps aside (its link stays for assistive technology) so the page title
-  keeps the row. The bar paints the
-  module's name at once and keeps its height and rule while a route loads. The
-  module menu has no title of its own and shares the rail's surface, rows and
-  selection marker.
+  each saved remote, Add remote, Remote settings). It replaces header dropdowns. On a
+  wide screen its pages nest under the current rail item and share the rail's surface,
+  rows and selection marker; on a phone they are a tab strip under the title bar. It has
+  no title of its own.
+- **Header:** one continuous sticky row: the host's header (moved into the shell's
+  bar) as `<module> / <page>` with one bottom rule, every segment in the header
+  title's face and size, separators lighter. The TMT mark and word are the rail's
+  head, the one place the brand sits; the bar does not repeat them. Under 480 px the
+  module crumb steps aside (its link stays for assistive technology) so the page
+  title keeps the row. The bar paints the module's name at once and keeps its height
+  and rule while a route loads.
 - **Module content:** the shell adds no padding or width to a module's main area;
   each module keeps its own layout. Shell page styles stay scoped to their own
   pages (Remote: `.tmt-page`), since every module shares the one document. While a
@@ -280,9 +279,11 @@ Not shipped. Basis: own.
 
 ### Button
 
-- Variants: **primary** (flat sheet; one emphasized decision per card), **text**
-  (light, default for actions), **destructive** (text in the `blocked` role,
-  always last in its group).
+- Variants: **primary** (the accent fill: the one main action of a group, at most one
+  enabled per action group, which Colab's `e2e/primary-groups.spec.ts` checks),
+  **secondary** (the neutral bordered button, for the other actions beside it),
+  **text** (light, default for actions), **destructive** (text in the `blocked`
+  role, always last in its group).
 - States follow the leaf
   [Action contract](browser-ui/README.md#controlled-input-contracts): neutral
   hover/focus (same text colour on `surface.hover`, lighter than selection), visible focus, opaque muted disabled controls
@@ -643,9 +644,7 @@ days`); exact time on hover.
   fast or base duration. Under `prefers-reduced-motion` every duration is 0 ms, so
   a change is instant. A leaving layer is inert: it takes no pointer input and
   hands its Escape to the layer under it. The LoaderCircle spin (see
-  [Transient states](#transient-states)) stops under the same preference. The
-  leaf's browser test (`design/browser-ui/e2e/overlay-motion.spec.ts`) asserts the
-  mounted-as-closed exit and the instant reduced-motion path.
+  [Transient states](#transient-states)) stops under the same preference.
 
 ## Transient states
 

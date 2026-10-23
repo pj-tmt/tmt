@@ -514,9 +514,10 @@ for (const width of [1440, 390])
           'color',
           rgb(tokens.browser.color.secondary[scheme]),
         );
+        // Approve is the card's one primary: the shared accent fill.
         await expect(proposal.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
           'background-color',
-          rgb(tokens.browser.color.text[scheme]),
+          rgb(tokens.browser.color.accent[scheme]),
         );
         await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveCSS(
           'color',

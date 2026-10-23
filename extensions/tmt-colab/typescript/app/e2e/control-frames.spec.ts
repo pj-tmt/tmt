@@ -46,6 +46,7 @@ for (const theme of ['light', 'dark'] as const)
       });
       for (const selector of [
         '.tmt-ui-action[data-variant="primary"]',
+        '.tmt-ui-action[data-variant="secondary"]',
         '.tmt-ui-field-control:not(.rich-input-field)',
         '.tmt-ui-toggle',
         '.tmt-ui-chip',

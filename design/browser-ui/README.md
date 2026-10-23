@@ -143,7 +143,9 @@ ID; error copy does not imply invalid. The host retains value, change handler,
 ref, read-only/disabled/access decisions and original control identity. Update
 attributes on that same control when access changes; no remount or draft reset.
 
-Action uses an explicit native button type, retained visible label and optional
+Action takes one `variant`: `primary` (the accent fill, a group's one main action: at most
+one enabled primary per group of actions), `secondary` (the neutral bordered button), `text` or
+`destructive`. It uses an explicit native button type, retained visible label and optional
 busy mark. Keep the same optional `busyMark` supplied in ready and busy states;
 its leading slot remains in flow while visibility changes, with an equal trailing
 reservation that centers the label in both states and preserves button geometry
