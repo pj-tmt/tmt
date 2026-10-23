@@ -142,55 +142,46 @@ export function validateHomeSearch(search: Record<string, unknown>): HomeSearch 
 function PageListActions({
   page,
   operate,
+  manage,
 }: {
   page: PageSummary;
+  manage(): void;
   operate(operation: PageOperation, page: PageSummary): void;
 }) {
   const port = rootRoute.useRouteContext().transport.management;
-  const [manageOpen, setManageOpen] = useState(false);
   return (
-    <>
-      <BrowserMenu
-        label={text.pageActionsFor(pageTitle(page))}
-        description={
-          <>
-            <p>Page ID: {page.id}</p>
-            <RetentionHint page={page} />
-          </>
-        }
-        items={
-          port
-            ? [
-                { key: 'manage', label: text.managePage },
-                page.archived
-                  ? { key: 'restore', label: t.restoreItem }
-                  : { key: 'archive', label: t.archiveItem },
-                { key: 'delete', label: t.deleteItem, separated: true },
-              ]
-            : []
-        }
-        onSelect={(key) =>
-          key === 'manage'
-            ? setManageOpen(true)
-            : operate(
-                key === 'archive'
-                  ? 'page.archive'
-                  : key === 'restore'
-                    ? 'page.unarchive'
-                    : 'page.delete',
-                page,
-              )
-        }
-      />
-      {port && (
-        <ManagePage
-          pageId={page.id}
-          title={page.title}
-          open={manageOpen}
-          close={() => setManageOpen(false)}
-        />
-      )}
-    </>
+    <BrowserMenu
+      label={text.pageActionsFor(pageTitle(page))}
+      description={
+        <>
+          <p>Page ID: {page.id}</p>
+          <RetentionHint page={page} />
+        </>
+      }
+      items={
+        port
+          ? [
+              { key: 'manage', label: text.managePage },
+              page.archived
+                ? { key: 'restore', label: t.restoreItem }
+                : { key: 'archive', label: t.archiveItem },
+              { key: 'delete', label: t.deleteItem, separated: true },
+            ]
+          : []
+      }
+      onSelect={(key) =>
+        key === 'manage'
+          ? manage()
+          : operate(
+              key === 'archive'
+                ? 'page.archive'
+                : key === 'restore'
+                  ? 'page.unarchive'
+                  : 'page.delete',
+              page,
+            )
+      }
+    />
   );
 }
 
@@ -503,6 +494,8 @@ export function Home() {
   const [operation, setOperation] = useState<{ kind: PageOperation; pages: PageSummary[] }>();
   const [operating, setOperating] = useState(false);
   const [newPage, setNewPage] = useState(false);
+  // The list owns the dialog even when a refreshed list no longer contains its page.
+  const [managedPage, setManagedPage] = useState<Pick<PageSummary, 'id' | 'title'>>();
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
   // Only pages the list shows count: a filter, a tab or a refresh drops the rest from the selection.
   const chosen = pages.filter((page) => selectedIds.has(page.id));
@@ -758,6 +751,7 @@ export function Home() {
                         />
                         <PageListActions
                           page={p}
+                          manage={() => setManagedPage({ id: p.id, title: p.title })}
                           operate={(kind, page) => setOperation({ kind, pages: [page] })}
                         />
                       </>
@@ -891,6 +885,14 @@ export function Home() {
       )}
       {port && (
         <>
+          {managedPage && (
+            <ManagePage
+              pageId={managedPage.id}
+              title={managedPage.title}
+              open
+              close={() => setManagedPage(undefined)}
+            />
+          )}
           <PageOperationDialog
             operation={operation?.kind}
             titles={operation ? operation.pages.map(pageTitle) : []}

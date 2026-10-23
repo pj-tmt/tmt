@@ -737,7 +737,7 @@ the scope has not reported, so a cold start never claims a tab is empty. A page 
 shows `◆ Needs you · N`: only the ◆ is the waiting colour (the Needs you tab's mark), so the
 word and the count carry it without colour. The row's actions (open in a new tab, projects, archive, the ⋯
 menu with `Manage page`, `Archive…` (or `Restore…` when archived) and `Delete…`) show on hover or focus where there is a pointer
-and stay on touch; under 480px the new-tab and archive icons give way to the ⋯ menu. Archive and
+and stay on touch; under 480px the new-tab and archive icons give way to the ⋯ menu. `Home` owns the open `ManagePage` dialog and its captured page ID/title above the rows: a list refresh that removes a row, including the last page after deletion, does not discard its pending request. Explicit Close or leaving the list ends that dialog. Archive and
 delete confirm in `PageOperationDialog` and run `runPageOperation` (`page-operations.ts`): the four
 steps `ShareDialog` runs (`read`, `prepare`, `send`, `verify`) for one `page.archive`, `page.unarchive` or
 `page.delete` statement, ending `verified`, `awaiting` (acknowledged but its log not read back, said
