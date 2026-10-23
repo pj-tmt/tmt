@@ -334,6 +334,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         scope,
         OpsKeyScope::Squad | OpsKeyScope::Member | OpsKeyScope::Pool
     ) {
+        entries.push(("n", "new-member"));
         entries.push(("s", "discover-agents"));
         entries.push(("f", "agents-filter"));
     }

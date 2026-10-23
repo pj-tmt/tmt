@@ -400,20 +400,20 @@ use `squad` (alias `sq`). Releases use `tmt-ops-v<version>`.
 [Ops](.agents/skills/tmt-ops-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md)
 own module/drawing boundaries and verification.
 
-- **Seam.** Ops calls public `tmt --json`/`tmt api` (minute `workspace.capture`) and
-  `tmt digest tick` via `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`.
-  Digest owns locks, deadlines and delivery. No direct Core state, tmux or
-  provider writes. The guard bans TMT-to-Ops and Ops-to-Core Cargo/source edges.
-  Uses `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state` and
-  dev-only `tmt-test-support`. tmt-lead reviews new APIs.
+- **Seam.** Ops uses public JSON/API (minute `workspace.capture`), `tmt digest tick` and
+  [`host templates`](contracts/driver-protocol-v1.md#launch-templates) via
+  `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`. `board/new_member`
+  fills host slots, runs frozen argv and observes a new bound UUID before squad
+  add. No private Core state or handwritten host/provider writes. Digest owns
+  locks/deadlines/delivery. No Core/Ops Cargo/source edges. tmt-lead reviews new APIs. Leaves: `tmt-tui`, `tmt-cli-style`,
+  `tmt-invoke`, `tmt-extension-state`; dev-only `tmt-test-support`.
 - **Data.** Squads are Core rooms `squad-<name>`; fields are identity metadata
   `squad.<name>.<field>`, with no Ops membership store. Ops owns `<dataRoot>/ops`
-  (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches. The workspace
-  never touches the retired internal `cache/board` display format; existing
-  files remain. `ops.toml` is user-owned: agents never write it;
+  (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches. Retired
+  `cache/board` files stay untouched. `ops.toml` is user-owned: agents never write it;
   Ops uses CAS; cron/checklists live in
   [`ops.db`](.agents/skills/tmt-ops-dev/references/data-and-state.md#ops-state-database).
-  `migration` owns locked byte-preserving legacy cutover; its notice warns once on CLI stderr and the UI projects it through App, with no out-of-band terminal writes.
+  `migration` owns locked byte-preserving cutover; CLI warns once, UI paints notices through App.
   No Ops data enters `config.json` or Core's database.
 - **Workspace.** Agents/Digest share one acquired roster; the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.

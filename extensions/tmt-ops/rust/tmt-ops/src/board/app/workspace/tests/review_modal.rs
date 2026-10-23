@@ -6,6 +6,28 @@ use crate::{
 use ratatui::buffer::Buffer;
 use tmt_tui::components::Step;
 
+#[test]
+fn new_member_opens_before_the_host_template_read_on_every_agents_row() {
+    for target in [
+        OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        },
+        OpsTarget::Squad(ROOM.into()),
+        OpsTarget::Pool,
+    ] {
+        let mut app = board();
+        app.workspace.selected = Some(target.clone());
+        app.workspace_reconcile();
+        let _no_commands = crate::runner::forbid_commands();
+        key(&mut app, KeyCode::Char('n'));
+        let screen = paint(&app, 150, 43).join("\n");
+        assert!(screen.contains("New member"), "{target:?}: {screen}");
+        assert!(screen.contains("Loading"), "{target:?}: {screen}");
+        assert!(!screen.contains("Squad name"), "n never creates a squad");
+    }
+}
+
 fn draw(app: &App, width: u16, height: u16) -> Buffer {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal
@@ -344,14 +366,14 @@ fn capture_fitted_management_reviews() {
 #[test]
 fn crud_keys_keep_create_uppercase_and_remove_distinct_from_leave() {
     let mut app = board();
-    assert!(!app.bindings().contains_key("n"));
+    assert_eq!(app.bindings()["n"].text, "new-member");
     assert_eq!(app.bindings()["N"].text, "create-squad");
     assert_eq!(app.bindings()["d"].text, "remove-member");
     assert_eq!(app.bindings()["x"].text, "remove-membership");
     for target in [OpsTarget::Squad(ROOM.into()), OpsTarget::Pool] {
         app.workspace.selected = Some(target);
         assert_eq!(app.bindings()["N"].text, "create-squad");
-        assert!(!app.bindings().contains_key("n"));
+        assert_eq!(app.bindings()["n"].text, "new-member");
         assert!(!app.bindings().contains_key("d"));
     }
 }
@@ -563,6 +585,7 @@ fn member_footer_uses_effective_crud_bindings_and_never_advertises_future_action
     let mut app = board();
     let text = paint(&app, 150, 43).join("\n");
     for hint in [
+        "n new",
         "r rename",
         "m move",
         "R resume",
@@ -571,11 +594,11 @@ fn member_footer_uses_effective_crud_bindings_and_never_advertises_future_action
     ] {
         assert!(text.contains(hint), "{hint}: {text}");
     }
-    assert!(!text.contains("n new"));
     assert!(!text.contains("S switch tool"));
     app.shell.tab = OpsTab::Digest;
     let digest = paint(&app, 150, 43).join("\n");
     assert!(!digest.contains("d remove"));
+    assert!(!digest.contains("n new"));
     let app = configured_member(
         "[bind]\nd = \"help\"\nz = \"remove-member\"\n",
         json!({"id":MEMBER,"name":"worker"}),

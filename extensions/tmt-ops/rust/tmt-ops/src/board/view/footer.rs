@@ -354,6 +354,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
     }
     if tab == crate::board::shell::OpsTab::Agents {
         for (action, preferred, word) in [
+            (Ui::NewMember, "n", "new"),
             (Ui::RenameMember, "r", "rename"),
             (Ui::MoveMembership, "m", "move"),
             (Ui::MemberSession, "R", "resume"),
@@ -362,7 +363,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
             (Ui::CreateSquad, "N", "create squad"),
         ] {
             let member = app.workspace_selected_member().is_some();
-            if (action == Ui::CreateSquad) == member {
+            if action != Ui::NewMember && (action == Ui::CreateSquad) == member {
                 continue;
             }
             if let Some(key) = find(Verb::Ui(action), preferred) {

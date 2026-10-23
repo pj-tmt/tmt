@@ -37,6 +37,7 @@ pub(super) enum Job {
     Recovery(super::recovery::load::Task),
     Discovery(super::discovery::load::Task),
     MemberSession(super::member_session::Task),
+    NewMember(super::new_member::Task),
     Open(Opening),
     /// Save the header's token-rate window with no settings overlay open.
     TokenWindow(String),
@@ -69,6 +70,7 @@ impl Job {
             Self::Versions => "Reading the versions…",
             Self::Recovery(_) => "Reading or applying the selected workspace snapshot…",
             Self::MemberSession(_) => "Loading session…",
+            Self::NewMember(_) => "Preparing or creating member…",
             Self::Discovery(_) => "Scanning or binding the selected agent…",
             Self::Open(Opening::Settings | Opening::SquadSettings(_) | Opening::HostAction(_)) => {
                 "Loading settings…"
@@ -112,6 +114,7 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
             BoardEvent::ViewStatePublished
         }
         Job::Recovery(task) => BoardEvent::Recovery(super::recovery::load::complete(core, task)),
+        Job::NewMember(task) => BoardEvent::NewMember(super::new_member::complete(core, task)),
         Job::MemberSession(task) => {
             BoardEvent::MemberSession(super::member_session::complete(core, task))
         }

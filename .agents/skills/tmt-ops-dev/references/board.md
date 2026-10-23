@@ -80,6 +80,16 @@ square shared modal. Incidental frame cells remain Dim; receiving focus and
 selection stay distinct. Frozen row/HOME provenance and decoded fixture approval
 are owned by the verification reference.
 
+`board/new_member` owns the `n` form on Agents rows and the launch-template
+editor reached from Settings. Held public inventory supplies defaults; the ordered
+lane loads Core's published host templates and Config, saves explicit per-host
+overrides, and executes one frozen argv only after review. UI input/paint never
+reads Core or locks Config. A template exit is not creation evidence: a new bound
+UUID must be publicly observed before the membership service joins the frozen room.
+Join failure still reports/selects the created Pool member with a repair command;
+uncertainty keeps the draft without retry, retirement or window closure. The shared
+`launch` owner validates/fills whole slots, leaving other script braces opaque.
+
 `board/member_session` owns the selected member's public host/session projection and
 Session dialog. It reuses the global identity inventory and typed activity. The target
 and resume-relevant observations fence a held confirmation; activity is read live
@@ -96,7 +106,7 @@ Only the unbound dialog uses intrinsic height; the surface retains its position 
 Existing memory/read guards still apply. Host / Session drops whole before other Agents tracks.
 Resume/Move review freezes the UUID and observed session. A changed selection or
 observation invalidates it; confirmation requires fully painted review text and choices.
-The shared `board/command_line.rs` helper quotes only shell-sensitive words for display and copy. Session resolves a matching first `tmt` on PATH on its read worker; otherwise it retains the selected executable path. Copy uses that exact displayed foreground argv without leaving the board. A confirmed
+The shared `crate::launch` owner quotes only shell-sensitive words for host command strings, display and copy; `board/command_line.rs` exposes board aliases. Session resolves a matching first `tmt` on PATH on its read worker; otherwise it retains the selected executable path. Copy uses that exact displayed foreground argv without leaving the board. A confirmed
 handoff refuses named drafts or pending effects; the board restores its terminal and
 stops workers before execing the public CLI with inherited stdio in this pane. Core
 alone revalidates and owns launch/move/refusal; no detached Run or new pane is used.

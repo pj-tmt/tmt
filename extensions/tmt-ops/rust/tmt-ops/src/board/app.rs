@@ -275,6 +275,7 @@ pub enum Effect {
     Recovery(super::recovery::load::Task),
     Discovery(super::discovery::load::Task),
     MemberSession(super::member_session::Task),
+    NewMember(super::new_member::Task),
     Foreground(super::member_session::Foreground),
 }
 
@@ -309,6 +310,7 @@ pub enum Choice {
         room_id: String,
     },
     HostAction,
+    LaunchTemplates,
     /// Opens the squad settings overlay for this squad from the Workspace settings menu.
     SquadSettings(String),
     /// A rule between menu groups: painted, never chosen.
@@ -586,6 +588,7 @@ pub(super) enum Overlay {
     QuotaDetails,
     Discovery,
     MemberSession,
+    NewMember,
     UsageControls,
     PastePreview,
 }
@@ -607,6 +610,7 @@ impl Overlay {
                 Self::QuotaDetails => "quota-details",
                 Self::Discovery => "discovery",
                 Self::MemberSession => "member-session",
+                Self::NewMember => "new-member",
                 Self::UsageControls => "usage-controls",
                 Self::PastePreview => "paste-preview",
             }
@@ -715,6 +719,8 @@ pub struct App {
     pub(super) discovery: Option<super::discovery::Controller>,
     pub(super) member_session: Option<super::member_session::Controller>,
     pub(super) member_session_generation: u64,
+    pub(super) new_member: Option<super::new_member::Controller>,
+    pub(super) new_member_generation: u64,
     pub(super) foreground: Option<super::member_session::Foreground>,
     pub(super) discovered_uuid: Option<String>,
     pub(super) checklist_generation: u64,
@@ -3027,6 +3033,7 @@ impl App {
                 room_id,
             } => self.workspace_choose_room(kind, &identity_id, &room_id),
             Choice::HostAction => Effect::HostAction,
+            Choice::LaunchTemplates => self.open_launch_templates(),
             Choice::SquadSettings(squad) => Effect::SquadSettings(squad),
             Choice::Rule | Choice::Heading => Effect::None,
             Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
@@ -3137,6 +3144,7 @@ impl App {
         if self.checklist_shown()
             || self.recovery_shown()
             || self.discovery_shown()
+            || self.new_member.is_some()
             || self.member_session.is_some()
         {
             return self
@@ -3696,6 +3704,8 @@ impl App {
             Some(Overlay::UsageControls)
         } else if self.quota_details.is_some() {
             Some(Overlay::QuotaDetails)
+        } else if self.new_member.is_some() {
+            Some(Overlay::NewMember)
         } else if self.member_session.is_some() {
             Some(Overlay::MemberSession)
         } else if self.discovery_shown() {
@@ -3756,6 +3766,7 @@ impl App {
                 Some(Effect::None)
             }
             Overlay::MemberSession => self.member_session_event(event),
+            Overlay::NewMember => self.new_member_event(event),
             Overlay::Discovery => self.discovery_event(event),
             Overlay::Help => {
                 let input = self.help_state.borrow_mut().input(event);
@@ -3797,6 +3808,11 @@ impl App {
                             self.settings_preview();
                             self.settings = None;
                             self.context_menu()
+                        }
+                        super::settings::Input::Pick("launch-templates") => {
+                            self.settings_preview();
+                            self.settings = None;
+                            self.open_launch_templates()
                         }
                         super::settings::Input::Pick("window") => self.cycle_token_window(),
                         super::settings::Input::Pick(id) => {
@@ -4062,6 +4078,9 @@ impl App {
         }
         if let Some(recovery) = &self.recovery {
             recovery.invalidate();
+        }
+        if let Some(member) = &self.new_member {
+            member.invalidate();
         }
         if let Some(session) = &self.member_session {
             session.invalidate();

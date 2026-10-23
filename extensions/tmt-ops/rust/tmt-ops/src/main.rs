@@ -25,6 +25,7 @@ mod hotkeys;
 mod id;
 mod idle_alert;
 mod labels;
+mod launch;
 mod layout;
 mod limits_command;
 mod links;

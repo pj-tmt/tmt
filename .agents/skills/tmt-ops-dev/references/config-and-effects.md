@@ -48,6 +48,13 @@ board-only home/meter/`usage.*` data.
   tokens, state entries, bindings and configured views are rejected with located config
   errors, including masked values that no current view would use.
 
+`[launch.<host>].argv` is an optional Ops-owned host launch override. Settings
+→ Launch templates and the new-member form's `e` share the editor. Validation and
+save/reset use Config's existing byte CAS; reset removes only that host's override
+and reveals Core's current template. Core stores none of these overrides. The
+[public host template contract](../../../../contracts/driver-protocol-v1.md#launch-templates)
+owns slot syntax and bounds; display/copy and execution use the same frozen argv.
+
 Shared unread markers live in `[workspace.read_markers.<actor-uuid>]`, keyed by
 member UUID with a positive safe-integer submission timestamp. `config::unread`
 validates canonical UUID pairs and max-merges updates into a freshly read document

@@ -38,6 +38,7 @@ pub enum OpsUiAction {
     ClearScope,
     Manage,
     CreateSquad,
+    NewMember,
     RemoveMembership,
     MoveMembership,
     RenameMember,
@@ -69,6 +70,13 @@ macro_rules! spec {
     };
 }
 const SPECS: &[OpsUiSpec] = &[
+    spec!(
+        NewMember,
+        "new-member",
+        "new",
+        "create an agent using the selected host launch template",
+        7
+    ),
     spec!(
         MemberSession,
         "member-session",
