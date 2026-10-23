@@ -148,9 +148,15 @@ ref, read-only/disabled/access decisions and original control identity. Update
 attributes on that same control when access changes; no remount or draft reset.
 
 Action takes one `variant`: `primary` (the accent fill, a group's one main action: at most
-one enabled primary per group of actions), `secondary` (the neutral bordered button), `text` or
-`destructive`. It uses an explicit native button type, retained visible label and optional
-busy mark. Keep the same optional `busyMark` supplied in ready and busy states;
+one enabled primary per group of actions), `secondary` (the neutral bordered button),
+`text` (underlined), `ghost` (plain) or `destructive`. Ghost has no resting fill or edge.
+Ghost uses secondary ink at rest, primary ink on hover or keyboard focus, the token hover fill
+and one inset keyboard-focus frame. It uses an explicit native button type, retained visible label and optional
+busy mark. Optional `leadingIcon: ReactNode` uses that same decorative, aria-hidden
+1em mark slot. A supplied `busyMark` replaces it on the existing delay/hold timing,
+with no extra slot or width shift; without a busyMark the leading icon stays.
+IconAction retains its separate required `icon` input and four variants.
+Keep the same optional `busyMark` supplied in ready and busy states;
 its leading slot remains in flow while visibility changes, with an equal trailing
 reservation that centers the label in both states and preserves button geometry
 without changing host padding or typography. Without a mark, both

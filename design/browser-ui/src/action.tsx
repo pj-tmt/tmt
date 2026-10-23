@@ -12,6 +12,8 @@ export interface BrowserActionProps {
   disabledReasonId?: string;
   busy?: boolean;
   busyMark?: ReactNode;
+  /** Decorative leading mark; the supplied busyMark replaces it on the existing timing. */
+  leadingIcon?: ReactNode;
   onActivate: (event: MouseEvent<HTMLButtonElement>) => void;
 }
 export function BrowserAction({
@@ -24,11 +26,13 @@ export function BrowserAction({
   disabledReasonId,
   busy = false,
   busyMark,
+  leadingIcon,
   onActivate,
 }: BrowserActionProps) {
   if (disabledReason !== undefined && !disabledReasonId)
     throw new Error('Disabled reason requires a stable ID');
   const marked = useBusyMark(busy && !disabled);
+  const readyMark = leadingIcon === undefined ? busyMark : leadingIcon;
   return (
     <>
       <button
@@ -47,9 +51,14 @@ export function BrowserAction({
           else if (!disabled) onActivate(event);
         }}
       >
-        {busyMark !== undefined && (
-          <span className={c.actionMark} aria-hidden="true" data-busy={marked}>
-            {busyMark}
+        {(busyMark !== undefined || leadingIcon !== undefined) && (
+          <span
+            className={c.actionMark}
+            aria-hidden="true"
+            data-busy={marked}
+            data-leading={leadingIcon !== undefined ? '' : undefined}
+          >
+            {marked && busyMark !== undefined ? busyMark : readyMark}
           </span>
         )}
         <span className={c.actionLabel}>{visibleLabel ?? label}</span>
