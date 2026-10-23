@@ -128,6 +128,8 @@ pub(super) struct Sent {
     pub message_state_label: Option<String>,
     /// Core's `canSendNow` from the same `messageState` as the label.
     pub can_send_now: bool,
+    /// Core's `messageState.state == "working"`, from the same `messageState` as the label.
+    pub working: bool,
 }
 
 /// Core's captured turn, independent of ordinary replies and pane observations.
@@ -392,6 +394,7 @@ impl App {
                     capture: Capture::read(send),
                     message_state_label: crate::requests::message_state_label(send),
                     can_send_now: crate::requests::can_send_now(send),
+                    working: crate::requests::is_working(send),
                 })
             })
             .collect()

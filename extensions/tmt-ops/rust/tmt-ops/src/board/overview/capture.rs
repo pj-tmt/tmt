@@ -414,6 +414,7 @@ fn capture_squads_packet(output: &str) {
                                     passthrough: true,
                                     message_state_label: None,
                                     can_send_now: false,
+                                    working: false,
                                     fallback: None,
                                     warning: None,
                                 }),
