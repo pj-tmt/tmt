@@ -1,7 +1,7 @@
 //! A provider hook in a pane records only the pane's main provider (#3638):
 //! the provider nearest the hook, with no other built-in runtime provider
 //! between it and the pane. A nested one, such as a daemon-hosted Claude
-//! worker below the terminal Claude, is refused before any write. The shared
+//! worker below the terminal Claude, is refused before admission; only a bounded refusal observation may be written. The shared
 //! exact-thread branch, which has no pane ancestry, is not part of this rule.
 //!
 //! Every tree is synthetic: links to `sh` named after a provider, under this
@@ -32,17 +32,64 @@ fn runtime(fixture: &Fixture) -> (String, i64, String, String) {
     .unwrap()
 }
 
-/// A refused hook: the fixed line, no context, and no stored row changed.
+/// A refused hook: the fixed line, no context, and no admission or preference row changed.
 fn assert_refused(fixture: &Fixture, rows: &[String], output: (i32, String, String), case: &str) {
     assert_eq!(
         output,
         (0, String::new(), HOOK_UNAVAILABLE.to_owned()),
         "{case}"
     );
+    let mut after = stored_rows(fixture);
+    let before = rows.to_vec();
+    let binding = after
+        .iter()
+        .position(|row| row.starts_with("bindings: "))
+        .unwrap();
+    let (prefix, observation) = after[binding].rsplit_once(" | ").unwrap();
+    if observation != "Null" {
+        let observation: Value = serde_json::from_str(observation).unwrap();
+        assert_eq!(
+            observation["reason"], "private_process_unverified",
+            "{case}"
+        );
+        assert!(matches!(
+            observation["driver"].as_str(),
+            Some("claude" | "codex")
+        ));
+        assert!(!observation["session"].as_str().unwrap().is_empty());
+        assert!(observation["atMs"].as_u64().unwrap() > 0);
+        let normalized = format!("{prefix} | Null");
+        assert!(
+            before.contains(&normalized),
+            "{case}: admission fields changed"
+        );
+        after[binding] = normalized;
+        let cursor = before
+            .iter()
+            .position(|row| row.starts_with("change_cursor: "))
+            .unwrap();
+        let after_cursor = after
+            .iter()
+            .position(|row| row.starts_with("change_cursor: "))
+            .unwrap();
+        let value = |row: &str| {
+            row.rsplit_once("Integer(")
+                .unwrap()
+                .1
+                .trim_end_matches(')')
+                .parse::<i64>()
+                .unwrap()
+        };
+        assert_eq!(
+            value(&after[after_cursor]),
+            value(&before[cursor]) + 1,
+            "{case}: one diagnostic publication"
+        );
+        after[after_cursor] = before[cursor].clone();
+    }
     assert_eq!(
-        stored_rows(fixture),
-        rows,
-        "{case}: a refused hook changed a row"
+        after, before,
+        "{case}: a refused hook changed non-diagnostic state"
     );
 }
 
@@ -318,9 +365,10 @@ fn a_nested_start_in_an_unbound_pane_gets_no_naming_hint() {
     assert_drivers_ended(&fixture);
 }
 
-/// The pane's process can be the provider itself, after a shell `exec`.
+/// Native ancestry can identify an exec'd provider, but it is not a private
+/// foreground below the bound pane and cannot be hand-adopted (#4544).
 #[test]
-fn a_provider_that_is_the_pane_process_is_the_main_provider() {
+fn a_provider_that_is_the_pane_process_is_not_hand_adopted() {
     register();
     let fixture = Fixture::new("main-is-pane");
     let record = fixture.approve();
@@ -337,7 +385,7 @@ fn a_provider_that_is_the_pane_process_is_the_main_provider() {
     assert_eq!(process.incarnation.pid(), u64::from(claude.child.id()));
     let (status, _, stderr) =
         claude.hook_with_env(start("startup"), &[("CLAUDE_PID", &pid_of(&process))]);
-    assert_eq!((status, stderr.as_str()), (0, ""));
+    assert_eq!((status, stderr.as_str()), (0, HOOK_UNAVAILABLE));
     let recorded: (String, i64) = rusqlite::Connection::open_with_flags(
         fixture.state().join("tmt.db"),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -350,9 +398,32 @@ fn a_provider_that_is_the_pane_process_is_the_main_provider() {
         |row| Ok((row.get(0)?, row.get(1)?)),
     )
     .unwrap();
+    assert_eq!(recorded, ("".to_owned(), 0));
+    let context = Storage::context_by_pane(
+        &fixture.state().join("tmt.db"),
+        tmt_core::host::HostKind::External(tmt_core::host::HostName::new("fake").unwrap()),
+        "fake-2",
+        &super::move_session::remembered(&fixture)
+            .entry
+            .binding
+            .unwrap()
+            .server
+            .server_id,
+        0,
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(
-        recorded,
-        ("s-1".to_owned(), process.incarnation.pid() as i64)
+        context
+            .entry
+            .binding
+            .unwrap()
+            .session
+            .start_refusal
+            .unwrap()
+            .reason
+            .as_str(),
+        "pane_process"
     );
     drop(claude);
     assert_eq!(process.seen(), Seen::Ended);

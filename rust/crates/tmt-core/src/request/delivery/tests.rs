@@ -12,6 +12,8 @@ fn facts(status: AttemptStatus) -> DeliveryFacts {
         max_hold_ms: None,
         oldest_held_at_ms: None,
         recipient: None,
+        recipient_unbound: None,
+        recipient_name: None,
     }
 }
 
@@ -236,4 +238,25 @@ fn every_send_now_refusal_has_one_pinned_sentence() {
     ] {
         assert_eq!((untyped.code(), untyped.message()), (code, sentence));
     }
+}
+
+#[test]
+fn a_refused_start_explains_delivery_without_reusing_the_old_sessions_activity() {
+    let mut sent = facts(AttemptStatus::Sent);
+    sent.recipient_unbound = Some(true);
+    sent.recipient_name = Some("worker's name".into());
+    sent.recipient = activity(ActivityPhase::Working, 100);
+    let view = delivery_view(&sent, 0);
+    assert_eq!(shown(&sent), ("delivered", "session_not_bound", false));
+    assert_eq!(
+        view.reason_text,
+        "session not bound · run: tmt resume -- 'worker'\\''s name'"
+    );
+    sent.status = AttemptStatus::Uncertain;
+    assert_eq!(shown(&sent), ("unconfirmed", "handed_over", false));
+    sent.status = AttemptStatus::DefinitelyFailed;
+    assert_eq!(shown(&sent), ("not_sent", "refused", false));
+    sent.status = AttemptStatus::Sent;
+    sent.recipient_unbound = None;
+    assert_eq!(shown(&sent), ("working", "agent_working", false));
 }

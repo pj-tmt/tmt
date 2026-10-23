@@ -2,6 +2,7 @@
 //! Preflight caller/target checks precede configuration and database effects.
 
 mod presentation;
+mod session;
 
 use crate::{
     binding_error::{binding_failure, endpoint_failure},
@@ -34,6 +35,7 @@ struct ListedRow {
     /// The existing `resume` JSON projection, kept byte for byte.
     resume: Option<serde_json::Value>,
     activity: serde_json::Value,
+    unbound: Option<bool>,
     running_driver: Option<String>,
     /// The identified driver's level, advisory like `driver`.
     driver_support: Option<tmt_core::driver::descriptor::Support>,
@@ -549,6 +551,10 @@ fn operation(
                                 )
                                 .caused_by(error)
                             })?;
+                    let unbound = row
+                        .binding
+                        .as_ref()
+                        .and_then(|b| b.session.unbound(&preferences));
                     let resume = crate::output::resume_document(&preferences, &registry);
                     let runtime = row
                         .binding
@@ -585,6 +591,7 @@ fn operation(
                         remembered: preferences.remembered,
                         resume,
                         activity,
+                        unbound,
                         running_driver,
                         driver_support,
                     })
@@ -633,6 +640,10 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
         Ok(ran) => ran,
         Err(error) => return error.publish(mode),
     };
+    let completion = match &report {
+        Report::Bound(result) => Some(session::complete(result)),
+        _ => None,
+    };
     let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     if mode.json {
         let mut document = presentation::document(&report);
@@ -645,6 +656,21 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
                 document["warnings"] = serde_json::json!([warning]);
             }
         }
+        if let Some(completion) = &completion {
+            document["session"] = serde_json::json!({"unbound":completion.unbound});
+            if let Some(warning) = &completion.warning {
+                let warnings = document
+                    .as_object_mut()
+                    .expect("binding document")
+                    .entry("warnings")
+                    .or_insert_with(|| serde_json::json!([]));
+                warnings
+                    .as_array_mut()
+                    .expect("warning array")
+                    .push(serde_json::json!({
+                    "code":"SESSION_NOT_RECORDED", "reason":warning.reason, "fix":warning.fix}));
+            }
+        }
         writeln!(stdout, "{document}")?;
     } else {
         let terminal = stdout.terminal();
@@ -654,6 +680,11 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     if !mode.json {
         let mut stderr = tmt_cli_style::stream::stderr();
         presentation::warnings(&mut stderr, &report)?;
+        if let Some(warning) = completion.as_ref().and_then(|value| value.warning.as_ref()) {
+            let terminal = stderr.terminal();
+            tmt_cli_style::message::warning(&mut stderr, terminal, &warning.reason, None)?;
+            tmt_cli_style::message::fix(&mut stderr, terminal, &warning.fix)?;
+        }
         if let Some(AgentNameOutcome {
             name,
             result: Err(error),
@@ -707,6 +738,8 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
 
 #[cfg(test)]
 pub(crate) use presentation::PRINTED_HINTS as PRESENTATION_HINTS;
+#[cfg(test)]
+pub(crate) use session::PRINTED_HINTS as SESSION_HINTS;
 
 /// Guarded add bypasses optional learning/capture on refusal. It shares the
 /// existing binding/publication policy, with admission before storage creation.

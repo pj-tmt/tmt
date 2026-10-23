@@ -810,6 +810,13 @@ retained, so `not_sent` carries one of the two generic reasons.
 | `unreachable`          | `not_sent`    | not sent, the agent could not be reached                       |
 | `refused`              | `not_sent`    | not sent, nothing reached the agent                            |
 
+A delivered message has reason `session_not_bound` when its current binding records
+an unadmitted provider SessionStart newer than its admitted session. Core supplies
+`session not bound · run: tmt resume -- <name>`, quoting the actual recipient name
+as one shell word. This reason never permits replay and takes precedence over a
+previous session's activity, but not over uncertain or failed delivery. Reads use
+stored observations only; missing activity alone does not mean unbound.
+
 ### Send now
 
 `tmt send-now <request-id> [--identity <name>]` (the unique prefix `tmt result` accepts also

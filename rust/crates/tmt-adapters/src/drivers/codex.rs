@@ -219,7 +219,10 @@ impl CodexObservation {
                     // unlike Claude it need not precede it with a clear-end.
                     return current.transition(old, self.transition, Some(self.session.clone()));
                 }
-            } else if previous != RuntimeLiveness::Gone && !owned_resume {
+            } else if previous != RuntimeLiveness::Gone
+                && !owned_resume
+                && current.last_transition != Some(SessionTransition::Ended)
+            {
                 return None;
             }
         }
@@ -1290,6 +1293,7 @@ mod tests {
         assert_eq!(
             named,
             BindingSessionState {
+                start_refusal: None,
                 last_transition: Some(SessionTransition::Compacted),
                 state: RuntimeState::Running,
                 key: Some(ObservedSessionKey {

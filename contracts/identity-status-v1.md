@@ -161,3 +161,34 @@ retirement/name reuse, explicit and inferred caller resolution, no tmux probe fo
 explicit selection, JSON/human/help output, and invalid-input preservation.
 Consumer projection tests must prove one durable record drives both views, expiration
 removes only the current cue, and reply attention wins without modifying status.
+
+## Session binding observation
+
+Each `tmt ls --json` row includes `session.unbound`: `true` when the binding's
+latest refused SessionStart is newer than its admitted session, `false` when an
+exact current session has been admitted, and `null` when neither is known. The
+field is a stored observation, not liveness or delivery authority. It adds no
+read-time probe. A missing activity sample does not imply unbound.
+
+A refused SessionStart in an existing bound pane records only the driver, provider
+session ID, bounded reason code and observation time, fenced to the exact binding.
+An admitted start clears it in the same CAS; rebind and retirement clear it with
+the binding. It never creates an identity, changes remembered preferences or
+permits adopting a nested, shared, pane-process or unverified provider. A hand
+resume may complete that existing binding only for the same recorded driver (or
+none), after the old session ended or its exact process is conclusively gone,
+and with the new private main process verified under that pane by PID/start.
+Unknown evidence refuses adoption. Hooks still require the user's installed,
+trusted setup; missing hooks cannot supply an observation.
+
+Explicit `this`, `name` and `add` perform the same admission after the pane bind
+commits. A verified caller-session locator applies only to that exact target;
+`add` from another pane cannot use its invoker's session. When a provider is
+present but its exact session cannot be admitted, the bind succeeds with additive
+`warnings:[{code:"SESSION_NOT_RECORDED",reason,fix}]` and `session.unbound`.
+Warnings merge with existing warnings. Human output prints the same reason and
+fix on stderr. With remembered coordinates, the fix names the actual identity and
+tells the user to exit the agent in that pane, then run `tmt resume -- <name>`.
+Without remembered coordinates, it names `tmt setup` and the next prompt needed
+to learn a session through installed hooks. No hook installation, process
+signal, automatic relaunch or guessed session is implied.

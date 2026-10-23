@@ -277,3 +277,69 @@ fn a_delivered_message_is_working_only_for_a_turn_the_bound_session_began_after_
     );
     f.storage.close().unwrap();
 }
+
+#[test]
+fn a_stored_refused_start_explains_delivery_without_reusing_the_old_working_turn() {
+    let mut f = Fixture::new();
+    let target = f.identity_id.clone();
+    let person = identity(&mut f, "Ben");
+    mark_user(&f, &person, "true");
+    service(&mut f)
+        .enqueue_delivery(
+            request(&target, Some(&person), "unbound"),
+            "attempt-unbound".into(),
+            7,
+            DeliveryPolicy::default(),
+        )
+        .unwrap();
+    assert!(service(&mut f).claim_wake("unbound").unwrap().claimed);
+    service(&mut f)
+        .settle_request_delivery("unbound", WakeState::Sent)
+        .unwrap();
+    bind_with_activity(&f, &target, "working", NOW_MS + 1);
+    assert_eq!(
+        shown(&mut f, "unbound"),
+        ("working", "agent_working", false)
+    );
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    let before: String = db
+        .query_row(
+            "SELECT driver_state FROM identity_session_preferences WHERE identity_id=?1",
+            [&target],
+            |row| row.get(0),
+        )
+        .unwrap();
+    db.execute("UPDATE bindings SET runtime_start_refusal=?1 WHERE identity_id=?2",
+        rusqlite::params![serde_json::json!({"driver":"claude", "session":"unadmitted", "reason":"previous_session_live", "atMs":NOW_MS + 2}).to_string(), target]).unwrap();
+    assert_eq!(
+        shown(&mut f, "unbound"),
+        ("delivered", "session_not_bound", false)
+    );
+    let name: String = db
+        .query_row(
+            "SELECT name FROM identities WHERE id=?1",
+            [&target],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        view(&mut f, "unbound").reason_text,
+        format!(
+            "session not bound · run: tmt resume -- {}",
+            tmt_core::names::command_word(&name)
+        )
+    );
+    let after: String = db
+        .query_row(
+            "SELECT driver_state FROM identity_session_preferences WHERE identity_id=?1",
+            [&target],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        after, before,
+        "reading the diagnostic cannot rewrite admitted activity"
+    );
+    drop(db);
+    f.storage.close().unwrap();
+}

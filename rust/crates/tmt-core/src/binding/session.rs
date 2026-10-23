@@ -7,6 +7,8 @@
 //! Foreground launch callers use `admit_launched`, not direct owner assignment.
 
 pub mod activity;
+pub mod start;
+pub use start::{StartRefusal, StartRefusalReason};
 
 use crate::endpoint::ProcessIncarnation;
 use std::{error::Error, fmt};
@@ -285,6 +287,8 @@ pub struct BindingSessionState {
     pub key: Option<ObservedSessionKey>,
     /// The foreground wrapper is binding evidence, not provider session identity.
     pub launch_owner: Option<ProcessIncarnation>,
+    /// The latest refused start after admission; diagnostic only, in the same CAS.
+    pub start_refusal: Option<StartRefusal>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -327,6 +331,7 @@ impl BindingSessionState {
             return None;
         }
         Some(Self {
+            start_refusal: self.start_refusal.clone(),
             key: Some(key),
             launch_owner: Some(owner),
             state: RuntimeState::Unknown,
@@ -354,6 +359,7 @@ impl BindingSessionState {
             return None;
         }
         Some(Self {
+            start_refusal: self.start_refusal.clone(),
             key: Some(key),
             launch_owner: Some(owner),
             state: RuntimeState::Ended,
@@ -422,6 +428,7 @@ impl BindingSessionState {
             return None;
         }
         Some(Self {
+            start_refusal: None,
             key: Some(key),
             launch_owner: self.launch_owner.clone(),
             state: RuntimeState::Running,
@@ -459,6 +466,7 @@ impl BindingSessionState {
             return None;
         }
         Some(Self {
+            start_refusal: None,
             launch_owner: self
                 .key
                 .as_ref()
@@ -604,6 +612,7 @@ mod tests {
         assert_eq!(
             BindingSessionState::default(),
             BindingSessionState {
+                start_refusal: None,
                 last_transition: None,
                 state: RuntimeState::Unknown,
                 key: None,
@@ -821,6 +830,7 @@ mod tests {
             assert_eq!(
                 launched.name_launch(named.clone(), transition),
                 Some(BindingSessionState {
+                    start_refusal: None,
                     last_transition: Some(transition),
                     state: RuntimeState::Running,
                     key: Some(named.clone()),

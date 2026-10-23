@@ -4,7 +4,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use tmt_core::binding::session::{
     BindingSessionState, DriverState, HarnessId, ObservedSessionKey, ProviderSessionId,
     RememberedSession, RetainedSession, RuntimeMode, RuntimeState, SessionPreferences,
-    SessionTransition,
+    SessionTransition, StartRefusal, StartRefusalReason,
 };
 use tmt_core::endpoint::ProcessIncarnation;
 
@@ -64,11 +64,47 @@ pub(super) fn decode_state(row: &Row<'_>, offset: usize) -> rusqlite::Result<Bin
         _ => return Err(rusqlite::Error::InvalidQuery),
     };
     Ok(BindingSessionState {
+        start_refusal: decode_refusal(row.get(offset + 9)?)?,
         launch_owner,
         last_transition,
         state,
         key,
     })
+}
+
+fn encode_refusal(value: Option<&StartRefusal>) -> Option<String> {
+    value.map(|value| {
+        serde_json::json!({"driver": value.harness.as_str(),
+        "session": value.session.as_str(), "reason": value.reason.as_str(),
+        "atMs": value.observed_at_ms})
+        .to_string()
+    })
+}
+
+fn decode_refusal(value: Option<String>) -> rusqlite::Result<Option<StartRefusal>> {
+    value
+        .map(|value| {
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase", deny_unknown_fields)]
+            struct Wire {
+                driver: String,
+                session: String,
+                reason: String,
+                at_ms: u64,
+            }
+            let invalid = || rusqlite::Error::InvalidQuery;
+            let wire: Wire = serde_json::from_str(&value).map_err(|_| invalid())?;
+            if wire.at_ms > tmt_core::limits::MAX_JS_SAFE_INTEGER {
+                return Err(invalid());
+            }
+            Ok(StartRefusal {
+                harness: HarnessId::new(&wire.driver).map_err(|_| invalid())?,
+                session: ProviderSessionId::new(&wire.session).map_err(|_| invalid())?,
+                reason: StartRefusalReason::parse(&wire.reason).ok_or_else(invalid)?,
+                observed_at_ms: wire.at_ms,
+            })
+        })
+        .transpose()
 }
 
 pub(super) fn preferences(
@@ -313,6 +349,18 @@ pub(super) fn set_state(
     expected: &BindingSessionState,
     value: &BindingSessionState,
 ) -> Result<bool, StorageError> {
+    for state in [expected, value] {
+        if state
+            .start_refusal
+            .as_ref()
+            .is_some_and(|v| v.observed_at_ms > tmt_core::limits::MAX_JS_SAFE_INTEGER)
+        {
+            return Err(classify(
+                rusqlite::Error::InvalidQuery,
+                "Validate runtime start observation time",
+            ));
+        }
+    }
     let stored_pid = |value: &BindingSessionState| {
         value
             .key
@@ -349,8 +397,8 @@ pub(super) fn set_state(
         })
     };
     connection.execute(
-        "UPDATE bindings SET runtime_state = ?, last_transition = ?, runtime_pid = ?, runtime_start_identity = ?, observed_provider_session_id = ?, launch_owner_pid = ?, launch_owner_start_identity = ?
-         WHERE id = ? AND runtime_state = ? AND last_transition IS ? AND runtime_pid IS ? AND runtime_start_identity IS ? AND observed_provider_session_id IS ? AND launch_owner_pid IS ? AND launch_owner_start_identity IS ?
+        "UPDATE bindings SET runtime_state = ?, last_transition = ?, runtime_pid = ?, runtime_start_identity = ?, observed_provider_session_id = ?, launch_owner_pid = ?, launch_owner_start_identity = ?, runtime_start_refusal = ?
+         WHERE id = ? AND runtime_state = ? AND last_transition IS ? AND runtime_pid IS ? AND runtime_start_identity IS ? AND observed_provider_session_id IS ? AND launch_owner_pid IS ? AND launch_owner_start_identity IS ? AND runtime_start_refusal IS ?
          AND EXISTS (SELECT 1 FROM identities i WHERE i.id = bindings.identity_id AND i.retired_at_ms IS NULL)",
         params![state(value.state), transition(value.last_transition),
             next_pid,
@@ -358,12 +406,14 @@ pub(super) fn set_state(
             value.key.as_ref().and_then(|key| key.provider_session.as_ref()).map(ProviderSessionId::as_str),
             next_owner_pid,
             value.launch_owner.as_ref().map(ProcessIncarnation::start_identity),
+            encode_refusal(value.start_refusal.as_ref()),
             binding_id, state(expected.state), transition(expected.last_transition),
             expected_pid,
             expected.key.as_ref().map(|key| key.incarnation.start_identity()),
             expected.key.as_ref().and_then(|key| key.provider_session.as_ref()).map(ProviderSessionId::as_str),
             expected_owner_pid,
-            expected.launch_owner.as_ref().map(ProcessIncarnation::start_identity)],
+            expected.launch_owner.as_ref().map(ProcessIncarnation::start_identity),
+            encode_refusal(expected.start_refusal.as_ref())],
     ).map(|changed| changed == 1).map_err(|error| classify(error, "Write binding session state"))
 }
 
@@ -401,6 +451,68 @@ mod tests {
                 resume_pending_at_ms: None,
             }),
         }
+    }
+
+    #[test]
+    fn refused_starts_round_trip_fence_stale_cas_and_clear_on_admission_or_rebind() {
+        use tmt_core::binding::session::RuntimeLiveness;
+        let fixture = Fixture::new();
+        let mut storage = fixture.open();
+        let identity = create_or_resolve(&mut storage, "Refused", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let binding = storage
+            .with_binding_transaction(|records| {
+                records.insert_binding(&identity, &server(), &pane("%4", 104))
+            })
+            .unwrap();
+        let initial = binding.session.clone();
+        let mut refused = initial.clone();
+        refused.start_refusal = Some(StartRefusal {
+            harness: HarnessId::new("codex").unwrap(),
+            session: ProviderSessionId::new("unadmitted-thread").unwrap(),
+            reason: StartRefusalReason::DriverMismatch,
+            observed_at_ms: 100,
+        });
+        storage
+            .with_binding_transaction::<_, StorageError>(|records| {
+                assert!(records.set_session_state(&binding.id, &initial, &refused)?);
+                assert!(!records.set_session_state(&binding.id, &initial, &initial)?);
+                Ok(())
+            })
+            .unwrap();
+        storage.close().unwrap();
+        let mut storage = fixture.open();
+        storage
+            .with_binding_transaction::<_, StorageError>(|records| {
+                assert_eq!(
+                    records
+                        .entry_by_id(&identity.id)?
+                        .unwrap()
+                        .binding
+                        .unwrap()
+                        .session,
+                    refused
+                );
+                let key = ObservedSessionKey {
+                    incarnation: ProcessIncarnation::new(123, "new-process").unwrap(),
+                    provider_session: Some(ProviderSessionId::new("admitted").unwrap()),
+                };
+                let admitted = refused
+                    .admit(key, SessionTransition::Started, RuntimeLiveness::Alive)
+                    .unwrap();
+                assert!(admitted.start_refusal.is_none());
+                assert!(records.set_session_state(&binding.id, &refused, &admitted)?);
+                assert!(!records.set_session_state(&binding.id, &refused, &refused)?);
+                assert!(records.set_session_state(&binding.id, &admitted, &refused)?);
+                records.detach_binding(&binding.id)?;
+                let rebound = records.insert_binding(&identity, &server(), &pane("%5", 105))?;
+                assert!(rebound.session.start_refusal.is_none());
+                assert_ne!(rebound.id, binding.id);
+                Ok(())
+            })
+            .unwrap();
+        storage.close().unwrap();
     }
 
     #[test]
@@ -800,6 +912,7 @@ mod tests {
                     &binding.id,
                     &BindingSessionState::default(),
                     &BindingSessionState {
+                        start_refusal: None,
                         launch_owner: None,
                         state: RuntimeState::Running,
                         last_transition: Some(SessionTransition::Started),
@@ -1028,6 +1141,7 @@ mod tests {
                 &binding.id,
                 &BindingSessionState::default(),
                 &BindingSessionState {
+                    start_refusal: None,
                     launch_owner: None,
                     state: RuntimeState::Ended,
                     last_transition: Some(SessionTransition::Ended),

@@ -55,6 +55,7 @@ fn binding(state: RuntimeState, session: Option<&str>) -> Binding {
         pane_pid: 10,
         pane_incarnation: None,
         session: BindingSessionState {
+            start_refusal: None,
             last_transition: None,
             state,
             key: session.map(|session| ObservedSessionKey {
@@ -90,6 +91,7 @@ fn row(
     };
     let (pane, binding) = live.map_or((None, None), |(pane, binding)| (Some(pane), Some(binding)));
     ListedRow {
+        unbound: None,
         activity: serde_json::json!({"state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{}}),
         presence: IdentityPresence {
             identity: identity(name, lifetime),
@@ -403,6 +405,7 @@ fn running_row(driver: &str, session: &str) -> ListedRow {
 fn running_document(mut row: ListedRow, runtime: RuntimeState) -> Value {
     let baseline = document(&Report::Listed {
         rows: vec![ListedRow {
+            unbound: None,
             presence: row.presence.clone(),
             remembered: row.remembered.clone(),
             resume: row.resume.clone(),
@@ -822,6 +825,7 @@ fn the_identified_driver_is_remembered_then_preferred_then_the_exact_live_execut
 fn support_document(mut row: ListedRow, support: Option<Support>) -> Value {
     let baseline = document(&Report::Listed {
         rows: vec![ListedRow {
+            unbound: None,
             presence: row.presence.clone(),
             remembered: row.remembered.clone(),
             resume: row.resume.clone(),

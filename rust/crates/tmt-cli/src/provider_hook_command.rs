@@ -142,7 +142,7 @@ fn observe_turn(
     if matches!(host, HostEvidence::Unsupported) {
         return Ok(Observation::default());
     }
-    let Caller::Bound(bound) = verified_caller(
+    let Caller::Bound(bound) = verified_lifecycle_caller(
         provider,
         lifecycle,
         host,
@@ -291,7 +291,7 @@ pub(super) struct BoundCaller {
     pub(super) process: ProcessIncarnation,
 }
 
-pub(super) fn verified_caller<R: CommandRunner + Clone>(
+pub(super) fn verified_lifecycle_caller<R: CommandRunner + Clone>(
     provider: &str,
     lifecycle: &dyn RuntimeLifecycle,
     host: HostEvidence,
@@ -300,6 +300,42 @@ pub(super) fn verified_caller<R: CommandRunner + Clone>(
     deadline: Instant,
     runner: R,
 ) -> Result<Caller, ()> {
+    verified_caller(
+        CallerRequest {
+            provider,
+            lifecycle,
+            host,
+            session,
+            verified_binding,
+            start: None,
+        },
+        deadline,
+        runner,
+    )
+}
+
+struct CallerRequest<'a> {
+    provider: &'a str,
+    lifecycle: &'a dyn RuntimeLifecycle,
+    host: HostEvidence,
+    session: &'a ProviderSessionId,
+    verified_binding: Option<&'a str>,
+    start: Option<&'a dyn tmt_adapters::runtime::lifecycle::LifecycleObservation>,
+}
+
+fn verified_caller<R: CommandRunner + Clone>(
+    request: CallerRequest<'_>,
+    deadline: Instant,
+    runner: R,
+) -> Result<Caller, ()> {
+    let CallerRequest {
+        provider,
+        lifecycle,
+        host,
+        session,
+        verified_binding,
+        start,
+    } = request;
     let paths = ConfigPaths::discover().map_err(|_| ())?;
     let now = tmt_adapters::request_runtime::wall_time_ms();
     let shared = host.shared();
@@ -315,6 +351,35 @@ pub(super) fn verified_caller<R: CommandRunner + Clone>(
         }
         .map_err(|_| ())?
         else {
+            if let Some(event) = start
+                && let Some(observed) = observed_hook_pane(&paths, deadline, runner.clone())?
+                && let Some(stored) = observed.stored.as_ref()
+            {
+                // An ambient pane variable cannot attribute a shared server:
+                // require the provider to be beneath this verified pane.
+                let process = lifecycle.observe_in_pane(
+                    &runner,
+                    u64::from(std::process::id()),
+                    observed.pid,
+                    deadline,
+                );
+                if process.as_ref().is_some_and(|process| {
+                    host.runtime_pid()
+                        .is_some_and(|pid| process.pid() == u64::from(pid))
+                }) {
+                    let _ = record_start_refusal(
+                        &paths,
+                        stored,
+                        &observed.snapshot,
+                        (
+                            provider,
+                            event.session(),
+                            tmt_core::binding::session::StartRefusalReason::SharedRuntime,
+                        ),
+                        deadline,
+                    );
+                }
+            }
             return Ok(Caller::Unobserved);
         };
         let binding = stored.entry.binding.as_ref().ok_or(())?;
@@ -340,66 +405,51 @@ pub(super) fn verified_caller<R: CommandRunner + Clone>(
         };
         (stored, snapshot, process)
     } else {
-        let environment = CallerEnvironment::current();
-        let panes = Host::for_verified_caller(
-            &environment,
-            runner.clone(),
-            tmt_adapters::host::external::approved(),
-            &mut tmt_adapters::storage::RecordedHostServers::new(&paths.database),
-        )
-        .map_err(|_| ())?;
-        let Some(pane) = panes.caller_pane(&environment).map_err(|_| ())? else {
-            return if Instant::now() < deadline {
-                Ok(Caller::Unobserved)
-            } else {
-                Err(())
-            };
+        let Some(observed) = observed_hook_pane(&paths, deadline, runner.clone())? else {
+            return Ok(Caller::Unobserved);
         };
-        let snapshot = panes
-            .observe_snapshot(OperationOptions {
-                deadline: Some(deadline),
-                pane_ids: Some(std::slice::from_ref(&pane)),
-            })
-            .map_err(|_| ())?;
-        let observed_pane = snapshot
-            .panes
-            .iter()
-            .find(|item| item.id == pane)
-            .ok_or(())?;
-        // A nested caller's host was chosen from one pinned ancestry; the
-        // pane it reports now must be the pane shell that ancestry held.
-        if panes
-            .pinned_caller_pane()
-            .is_some_and(|pid| pid != observed_pane.pane_pid)
-        {
-            return Err(());
-        }
+        let HookPane {
+            stored,
+            snapshot,
+            pid,
+            marked,
+        } = observed;
         let process = lifecycle
-            .observe_in_pane(
-                &runner,
-                u64::from(std::process::id()),
-                observed_pane.pane_pid,
-                deadline,
-            )
-            .ok_or(())?;
+            .observe_in_pane(&runner, u64::from(std::process::id()), pid, deadline)
+            .ok_or_else(|| {
+                if let (Some(event), Some(stored)) = (start, stored.as_ref()) {
+                    let _ = record_start_refusal(
+                        &paths,
+                        stored,
+                        &snapshot,
+                        (provider,
+                        event.session(),
+                        tmt_core::binding::session::StartRefusalReason::PrivateProcessUnverified),
+                        deadline,
+                    );
+                }
+            })?;
         if host
             .runtime_pid()
             .is_some_and(|pid| process.pid() != u64::from(pid))
         {
+            if let (Some(event), Some(stored)) = (start, stored.as_ref()) {
+                let _ = record_start_refusal(
+                    &paths,
+                    stored,
+                    &snapshot,
+                    (
+                        provider,
+                        event.session(),
+                        tmt_core::binding::session::StartRefusalReason::PrivateProcessUnverified,
+                    ),
+                    deadline,
+                );
+            }
             return Err(());
         }
-        let stored = Storage::context_by_pane(
-            &paths.database,
-            snapshot.server.host,
-            &pane,
-            &snapshot.server.server_id,
-            tmt_adapters::request_runtime::wall_time_ms(),
-        )
-        .map_err(|_| ())?;
         let Some(stored) = stored else {
-            return Ok(Caller::Unbound {
-                marked: observed_pane.marker.is_some(),
-            });
+            return Ok(Caller::Unbound { marked });
         };
         (stored, snapshot, process)
     };
@@ -410,6 +460,71 @@ pub(super) fn verified_caller<R: CommandRunner + Clone>(
         snapshot,
         process,
     })))
+}
+
+struct HookPane {
+    stored: Option<IdentityContextSnapshot>,
+    snapshot: EndpointSnapshot,
+    pid: u64,
+    marked: bool,
+}
+
+/// Host-neutral caller ancestry and a fresh pane snapshot; neither is session authority.
+fn observed_hook_pane<R: CommandRunner + Clone>(
+    paths: &ConfigPaths,
+    deadline: Instant,
+    runner: R,
+) -> Result<Option<HookPane>, ()> {
+    let environment = CallerEnvironment::current();
+    let panes = Host::for_verified_caller(
+        &environment,
+        runner.clone(),
+        tmt_adapters::host::external::approved(),
+        &mut tmt_adapters::storage::RecordedHostServers::new(&paths.database),
+    )
+    .map_err(|_| ())?;
+    let Some(pane) = panes.caller_pane(&environment).map_err(|_| ())? else {
+        return if Instant::now() < deadline {
+            Ok(None)
+        } else {
+            Err(())
+        };
+    };
+    let snapshot = panes
+        .observe_snapshot(OperationOptions {
+            deadline: Some(deadline),
+            pane_ids: Some(std::slice::from_ref(&pane)),
+        })
+        .map_err(|_| ())?;
+    let observed_pane = snapshot
+        .panes
+        .iter()
+        .find(|item| item.id == pane)
+        .ok_or(())?;
+    // A nested caller's host was chosen from one pinned ancestry; the
+    // pane it reports now must be the pane shell that ancestry held.
+    if panes
+        .pinned_caller_pane()
+        .is_some_and(|pid| pid != observed_pane.pane_pid)
+    {
+        return Err(());
+    }
+    let stored = Storage::context_by_pane(
+        &paths.database,
+        snapshot.server.host,
+        &pane,
+        &snapshot.server.server_id,
+        tmt_adapters::request_runtime::wall_time_ms(),
+    )
+    .map_err(|_| ())?;
+    let pid = observed_pane.pane_pid;
+    let marked = observed_pane.marker.is_some();
+    Ok(Some(HookPane {
+        stored,
+        snapshot,
+        pid,
+        marked,
+    }))
 }
 
 /// Discover or verify this exact foreground launch in one native admission pass.
@@ -433,7 +548,7 @@ pub(crate) fn verified_digest_launch<R: CommandRunner + Clone>(
         return Err(());
     }
     let host = lifecycle.host_evidence().map_err(|_| ())?;
-    let Caller::Bound(bound) = verified_caller(
+    let Caller::Bound(bound) = verified_lifecycle_caller(
         provider,
         lifecycle,
         host,
@@ -558,11 +673,14 @@ fn observe(
         snapshot,
         process,
     } = match verified_caller(
-        provider,
-        lifecycle,
-        host,
-        event.session(),
-        event.verified_binding(),
+        CallerRequest {
+            provider,
+            lifecycle,
+            host,
+            session: event.session(),
+            verified_binding: event.verified_binding(),
+            start: event.starting().then_some(event.as_ref()),
+        },
         deadline,
         SupervisedProbeRunner,
     )? {
@@ -607,9 +725,49 @@ fn observe(
             observe_runtime_process(&SupervisedProbeRunner, owner.pid(), deadline)
                 .is_ok_and(|value| value.matches(owner) == RuntimeLiveness::Alive)
         });
-    let next = event
-        .propose(&binding.session, &process, previous, host, owned_resume)
-        .ok_or(())?;
+    if event.starting()
+        && let Some(reason) = refused_start(
+            StartCandidate {
+                stored: &stored,
+                process: &process,
+                previous,
+                host,
+            },
+            lifecycle,
+            &harness,
+            event.as_ref(),
+            deadline,
+        )
+    {
+        record_start_refusal(
+            &paths,
+            &stored,
+            &snapshot,
+            (provider, event.session(), reason),
+            deadline,
+        )?;
+        return Err(());
+    }
+    let Some(mut next) = event.propose(&binding.session, &process, previous, host, owned_resume)
+    else {
+        if event.starting() {
+            record_start_refusal(
+                &paths,
+                &stored,
+                &snapshot,
+                (
+                    provider,
+                    event.session(),
+                    tmt_core::binding::session::StartRefusalReason::AdmissionRefused,
+                ),
+                deadline,
+            )?;
+        }
+        return Err(());
+    };
+    if event.starting() {
+        next.start_refusal = None;
+    }
     if Instant::now() >= deadline {
         return Err(());
     }
@@ -623,7 +781,7 @@ fn observe(
             event: event.as_ref(),
             harness: &harness,
             mode: &mode,
-            fence_preferences: owned_resume,
+            fence_preferences: event.starting() || owned_resume,
         },
     )
     .map_err(|_| ())?;
@@ -738,6 +896,145 @@ fn observe(
         context: encoded,
         workspace: Some(binding.server.clone()),
     })
+}
+
+/// Complete an existing binding only for its driver and an ended old session.
+/// Managed launches already admitted their exact child and retain their own fence.
+pub(super) struct StartCandidate<'a> {
+    pub stored: &'a IdentityContextSnapshot,
+    pub process: &'a ProcessIncarnation,
+    pub previous: RuntimeLiveness,
+    pub host: HostEvidence,
+}
+
+pub(super) fn refused_start(
+    candidate: StartCandidate<'_>,
+    lifecycle: &dyn RuntimeLifecycle,
+    harness: &HarnessId,
+    event: &dyn tmt_adapters::runtime::lifecycle::LifecycleObservation,
+    deadline: Instant,
+) -> Option<tmt_core::binding::session::StartRefusalReason> {
+    use tmt_core::binding::session::{
+        ObservedSessionKey, RuntimeState, SessionTransition, StartRefusalReason as Why,
+    };
+    let StartCandidate {
+        stored,
+        process,
+        previous,
+        host,
+    } = candidate;
+    let binding = stored.entry.binding.as_ref()?;
+    let key = binding.session.key.as_ref();
+    let managed = binding.session.launch_owner.is_some()
+        && key.is_some_and(|key| {
+            key.incarnation == *process
+                && (key.provider_session.is_none()
+                    || key.provider_session.as_ref() == Some(event.session()))
+        })
+        && stored.preferences.preferred_harness.as_ref() == Some(harness);
+    if managed {
+        return None;
+    }
+    let recorded = stored
+        .preferences
+        .remembered
+        .as_ref()
+        .map(|r| &r.harness)
+        .or(stored.preferences.preferred_harness.as_ref());
+    if recorded.is_some_and(|recorded| recorded != harness) {
+        return Some(Why::DriverMismatch);
+    }
+    let replacement = key.is_none_or(|key| {
+        key.incarnation != *process || key.provider_session.as_ref() != Some(event.session())
+    });
+    if !replacement {
+        return None;
+    }
+    if host.shared() {
+        return Some(Why::SharedRuntime);
+    }
+    if process.pid() == binding.pane_pid {
+        return Some(Why::PaneProcess);
+    }
+    if key.is_some() && previous == RuntimeLiveness::Unknown {
+        return Some(Why::PreviousSessionUnknown);
+    }
+    let ended = binding.session.state == RuntimeState::Ended
+        || binding.session.last_transition == Some(SessionTransition::Ended);
+    let context_transition = matches!(
+        event.transition(),
+        Some(SessionTransition::Cleared | SessionTransition::Compacted)
+    ) || (key.is_some_and(|key| key.incarnation == *process)
+        && event.transition() == Some(SessionTransition::Resumed));
+    if key.is_some() && !ended && previous != RuntimeLiveness::Gone && !context_transition {
+        return Some(if previous == RuntimeLiveness::Alive {
+            Why::PreviousSessionLive
+        } else {
+            Why::PreviousSessionUnknown
+        });
+    }
+    let mut candidate = binding.clone();
+    candidate.session.key = Some(ObservedSessionKey {
+        incarnation: process.clone(),
+        provider_session: Some(event.session().clone()),
+    });
+    let mut preferences = stored.preferences.clone();
+    let Some(mode) = lifecycle.mode(host) else {
+        return Some(Why::PrivateProcessUnverified);
+    };
+    preferences.remember(harness.clone(), mode, event.session().clone());
+    (lifecycle
+        .movable_process(&SupervisedProbeRunner, &candidate, &preferences, deadline)
+        .as_ref()
+        != Some(process))
+    .then_some(Why::PrivateProcessUnverified)
+}
+
+/// A refusal is diagnostic only. The captured binding and preferences fence it;
+/// it changes neither admission, identity nor remembered provider coordinates.
+pub(super) fn record_start_refusal(
+    paths: &ConfigPaths,
+    stored: &IdentityContextSnapshot,
+    snapshot: &EndpointSnapshot,
+    observation: (
+        &str,
+        &ProviderSessionId,
+        tmt_core::binding::session::StartRefusalReason,
+    ),
+    deadline: Instant,
+) -> Result<(), ()> {
+    let (provider, session, reason) = observation;
+    use tmt_core::binding::session::StartRefusal;
+    let binding = stored.entry.binding.as_ref().ok_or(())?;
+    if !matches!(
+        evaluate_binding(&stored.entry, &EndpointProbe::Live(snapshot.clone())),
+        BindingEvidence::Active(_)
+    ) {
+        return Err(());
+    }
+    let mut next = binding.session.clone();
+    next.start_refusal = Some(StartRefusal {
+        harness: HarnessId::new(provider).map_err(|_| ())?,
+        session: session.clone(),
+        reason,
+        observed_at_ms: tmt_adapters::request_runtime::wall_time_ms(),
+    });
+    let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
+    storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            if records
+                .entry_by_id(&binding.identity_id)?
+                .and_then(|entry| entry.binding)
+                .as_ref()
+                != Some(binding)
+                || records.session_preferences(&binding.identity_id)? != stored.preferences
+            {
+                return Ok(false);
+            }
+            records.set_session_state(&binding.id, &binding.session, &next)
+        })
+        .map_err(|_| ())?;
+    storage.close().map_err(|_| ())
 }
 
 /// The badge is a tmux state projection. An external pane has only its
@@ -878,7 +1175,7 @@ fn observe_main_event(
     if matches!(host, HostEvidence::Unsupported) {
         return Ok(Observation::default());
     }
-    let Caller::Bound(bound) = verified_caller(
+    let Caller::Bound(bound) = verified_lifecycle_caller(
         provider,
         lifecycle,
         host,
