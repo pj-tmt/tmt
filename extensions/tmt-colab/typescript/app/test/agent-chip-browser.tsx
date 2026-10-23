@@ -21,6 +21,12 @@ export function mount() {
       <p data-row="inline-working">
         Waiting for <AgentChip name="Atlas" activity="working" />
       </p>
+      <p data-row="beside-avatar-idle">
+        <AgentChip name="Atlas" activity="idle" mark={false} />
+      </p>
+      <p data-row="beside-avatar-working">
+        <AgentChip name="Atlas" activity="working" mark={false} />
+      </p>
       <p data-row="chip">
         <AgentChip name="Atlas" machine="My machine" variant="chip">
           <BrowserIconAction

@@ -538,8 +538,11 @@ state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
 - Chat and threads share `ConversationTurn` structure and history ownership, and one
   turn look: a message sits directly on its surface, with no card fill, border or rule,
   whoever wrote it. The author line is the Chat meta style in both: the person or agent
-  name in semibold sans, then the muted time. A person's turn in a thread keeps its
-  small avatar. The thread's own `THREAD` and `OPEN` header may stay mono.
+  name in semibold sans, then the muted time. A turn in a thread, a person's or an agent's,
+  leads with the shared `BrowserAvatar` (decorative, size `s`, the author's initials) before the
+  author line, so an agent's name there is the chip's text without its robot; a working agent
+  keeps the robot with its dot. Chat has no avatar and keeps the chip's robot. The thread's own
+  `THREAD` and `OPEN` header may stay mono.
 - An agent reply looks the same running or finished: no edge or colour per driver
   and no driver word. A running turn shows only the
   chip's own working state. The verified `runningDriver` never selects a

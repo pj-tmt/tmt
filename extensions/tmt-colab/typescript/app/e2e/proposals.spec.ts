@@ -99,9 +99,11 @@ for (const width of [1440, 390])
       expect((await run(page, 'proof')).sends).toHaveLength(0);
       await card.getByRole('button', { name: 'Approve', exact: true }).press('Enter');
       await expect(card.locator('.proposal-state')).toHaveText('Approved');
-      await expect(
-        card.locator(".conversation-turn[data-turn-role='user'] .conversation-avatar"),
-      ).toHaveCSS('color', ink);
+      // The person's turn leads with the shared round mark (decorative: the name stands beside it).
+      const avatar = card.locator(".conversation-turn[data-turn-role='user'] .tmt-ui-avatar");
+      await expect(avatar).toHaveCount(1);
+      await expect(avatar).toHaveAttribute('aria-hidden', 'true');
+      await expect(avatar).toHaveCSS('width', '24px');
       await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toBeFocused();
       await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toHaveCSS(
         'outline-color',
