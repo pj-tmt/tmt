@@ -319,7 +319,10 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     font-size: 10px;
   }
 }
+/* The marker lane the render frame reserves at the right edge of every page: page-frame.css declares
+   the same width for the frame, and e2e/column-frame.spec.ts holds the two equal. */
 .canvas {
+  --colab-lane: 28px;
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -1415,15 +1418,15 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 /* A band keeps out of the 28 px marker lane the render frame reserves at the right edge of every page
    (page-frame.css); a question block does the same by taking its bounds from its passage's slot. */
 .proposal-inline:not(.question-inline) {
-  padding-inline-end: calc(24px + 28px);
+  padding-inline-end: calc(24px + var(--colab-lane));
 }
 /* On a framed page (#3913) a band sits on the column the render frame draws: the numbers are those
    of page-frame.css, which the frame applies to its top-level blocks inside the 28 px marker lane it
    reserves at the right edge. A question block takes its bounds from the frame's measurement of its
    passage instead. */
 .canvas[data-layout] .proposal-inline:not(.question-inline) {
-  --band-side: max(16px, (100% - 28px - 1280px) / 2);
-  padding-inline: var(--band-side) calc(var(--band-side) + 28px);
+  --band-side: max(16px, (100% - var(--colab-lane) - 1280px) / 2);
+  padding-inline: var(--band-side) calc(var(--band-side) + var(--colab-lane));
 }
 .proposal-inline .proposal-card {
   border: 1px solid var(--tmt-ui-surface-rule);

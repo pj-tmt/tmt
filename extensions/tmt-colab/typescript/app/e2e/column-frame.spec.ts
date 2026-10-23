@@ -55,6 +55,15 @@ const column = (width: number) => {
 };
 const blocks = ['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'grid', 'stubborn', 'b9'];
 
+test('the parent stylesheet and the render frame declare one marker lane', async ({ page }) => {
+  await mount(page, 'column');
+  const lane = (node: Element) => getComputedStyle(node).getPropertyValue('--colab-lane').trim();
+  const parent = await page.locator('.canvas[data-layout="column"]').evaluate(lane);
+  const inFrame = await frame(page).locator('html').evaluate(lane);
+  expect(parent).toBe(`${LANE}px`);
+  expect(inFrame).toBe(parent);
+});
+
 for (const width of [1440, 390])
   for (const layout of ['column', 'full'] as const)
     test(`${layout} pages put every top-level block on one column at ${width}`, async ({
