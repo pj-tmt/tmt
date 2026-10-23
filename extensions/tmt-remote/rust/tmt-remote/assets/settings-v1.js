@@ -328,6 +328,7 @@ var browserUiClasses = Object.freeze({
 	choice: "tmt-ui-choice",
 	choiceText: "tmt-ui-choice-text",
 	choiceDescription: "tmt-ui-choice-description",
+	choiceHint: "tmt-ui-choice-hint",
 	pager: "tmt-ui-pager",
 	pagerPosition: "tmt-ui-pager-position",
 	statusTiles: "tmt-ui-status-tiles",

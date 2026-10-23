@@ -634,6 +634,16 @@ An inline panel that expands under a row to show more without leaving the list
 full inner width, its own collapse action as the last line. One open at a time.
 Basis: own.
 
+### Question item
+
+A question card's choices are the shared `BrowserChoice` rows in a `BrowserChoiceGroup`
+(legend `Choose one` or `Choose any that apply`), the `Other` row last. Each row ends with
+the digit that picks it as a key cap, hidden from assistive technology: the digit keys 1 to 9
+pick a row while focus is on the card but not on an input, and the control is named by its label alone. A row
+carries its own vertical spacing so the whole row is the tap target, with no gap between two
+rows. `Other` opens its own text field under the list. Shared row metrics stay owned by the
+[browser leaf](browser-ui/README.md).
+
 ### Proposal item
 
 Colab renders authenticated proposals as parent-owned cards: title, body,

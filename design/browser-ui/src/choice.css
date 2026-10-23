@@ -54,6 +54,24 @@
 .tmt-ui-choice:has(:disabled) .tmt-ui-choice-description {
   color: var(--tmt-ui-color-disabled-text);
 }
+/* A key at the end of the row: a small cap on the sheet, rule-edged like the shell's key hint
+   (`.tmt-ui-icon-action-icon > kbd`), mono, never the row's name. */
+.tmt-ui-choice-hint {
+  box-sizing: border-box;
+  flex: none;
+  min-width: 20px;
+  margin-inline-start: auto;
+  padding: 2px 5px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-s);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-secondary);
+  font: 500 var(--tmt-ui-caption-size) / 1 var(--tmt-ui-font-mono);
+  text-align: center;
+}
+.tmt-ui-choice:has(:disabled) .tmt-ui-choice-hint {
+  color: var(--tmt-ui-color-disabled-text);
+}
 /* The radio is the checkbox's drawing in a circle: a rule edge, an accent dot when chosen. */
 .tmt-ui-radio {
   appearance: none;

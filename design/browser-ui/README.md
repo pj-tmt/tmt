@@ -533,9 +533,13 @@ state, a React component.
   round mark, size `m` or `s`; it is an image with the name as its label unless `decorative`.
   `kind="person"` (the default) is the neutral fill; `kind="agent"` is the mint selection fill
   with the strong accent ink (`data-kind`), so the two read apart without a glyph.
-- **Choice rows.** `BrowserChoice` is a radio or check row with a label and an optional
-  sublabel; the whole row is the target and the control is a real input (`tmt-ui-radio`,
-  `tmt-ui-checkbox`). `BrowserChoiceGroup` is the fieldset with its legend, `stack` or `inline`.
+- **Choice rows.** `BrowserChoice` is a radio or check row with a label, an optional sublabel
+  and an optional `hint`; the whole row is the target and the control is a real input
+  (`tmt-ui-radio`, `tmt-ui-checkbox`). The hint is a short key at the end of the row (the digit
+  that picks it), drawn as a key cap in a `kbd` and hidden from assistive technology. The hint
+  sits inside the label, so a row with a hint names its input by the label text
+  (`aria-label`) and the key never joins the name. `BrowserChoiceGroup` is the fieldset with its
+  legend, `stack` or `inline`.
 - **Pager.** `BrowserPager` is `‹ 1/3 ›`: the host owns the 1-based position; the arrows stop at
   the ends; the position is a polite status named `<label> 1 of 3`.
 - **Status tile.** `BrowserStatusTiles` is a description list of `BrowserStatusTile` terms: a

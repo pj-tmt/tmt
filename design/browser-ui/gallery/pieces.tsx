@@ -218,6 +218,21 @@ export function ChoiceSection() {
                 ))}
               </BrowserChoiceGroup>
             </Cell>
+            <Cell label="with a key hint">
+              <BrowserChoiceGroup legend="Pick with a digit key">
+                {flavours.map(([label], index) => (
+                  <BrowserChoice
+                    key={label}
+                    type="radio"
+                    name={`hint-${theme}`}
+                    label={label}
+                    hint={String(index + 1)}
+                    checked={picked === label}
+                    onChange={() => setPicked(label)}
+                  />
+                ))}
+              </BrowserChoiceGroup>
+            </Cell>
             <Cell label="hover" pin="hover">
               <BrowserChoice type="radio" name={`hover-${theme}`} label="Compact rail" />
             </Cell>
@@ -235,6 +250,7 @@ export function ChoiceSection() {
                 name={`off-${theme}`}
                 label="Compact rail"
                 description="Not available on this page."
+                hint="4"
                 disabled
               />
             </Cell>
