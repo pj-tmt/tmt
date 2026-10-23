@@ -43,6 +43,7 @@ jobs:
       colab_firestore: ${{ steps.mainfull.outputs.colab_firestore || steps.scope.outputs.colab_firestore || steps.queue.outputs.colab_firestore || 'false' }}
       native_sync_emulator: ${{ steps.mainfull.outputs.native_sync_emulator || steps.scope.outputs.native_sync_emulator || steps.queue.outputs.native_sync_emulator || 'false' }}
       colab_chrome: ${{ steps.mainfull.outputs.colab_chrome || steps.scope.outputs.colab_chrome || steps.queue.outputs.colab_chrome || 'false' }}
+      browser_ui: ${{ steps.mainfull.outputs.browser_ui || steps.scope.outputs.browser_ui || steps.queue.outputs.browser_ui || steps.seed.outputs.browser_ui || 'false' }}
       scoped_native_tests: ${{ steps.mainfull.outputs.scoped_native_tests || steps.scope.outputs.scoped_native_tests || steps.queue.outputs.scoped_native_tests }}
       e2e_shard_1: ${{ steps.mainfull.outputs.e2e_shard_1 || steps.scope.outputs.e2e_shard_1 || steps.queue.outputs.e2e_shard_1 }}
       e2e_shard_2: ${{ steps.mainfull.outputs.e2e_shard_2 || steps.scope.outputs.e2e_shard_2 || steps.queue.outputs.e2e_shard_2 }}
@@ -328,6 +329,58 @@ jobs:
         with:
           name: colab-chrome-results
           path: ${{ runner.temp }}/colab-chrome-results/traces
+          if-no-files-found: ignore
+          retention-days: 7
+
+  browser-ui:
+    name: Design gallery audits (Chromium)
+    needs: changes
+    if: needs.changes.outputs.browser_ui == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
+      - name: Install frozen gallery tooling
+        working-directory: typescript
+        run: pnpm --filter @tmt/browser-ui... --fail-if-no-match install --frozen-lockfile --ignore-scripts
+      # Share Chromium dependencies and cache policy with colab-chrome.
+      - name: Point Playwright at a restorable browser directory
+        run: echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/colab-chrome-browsers" >> "$GITHUB_ENV"
+      - name: Read pinned Playwright version
+        id: playwright
+        working-directory: design/browser-ui
+        run: node -p '"version=" + require("@playwright/test/package.json").version' >> "$GITHUB_OUTPUT"
+      - name: Restore Chromium
+        id: browsers
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: colab-chrome-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+      - uses: ./.github/actions/install-chromium-deps
+      - name: Install Chromium
+        working-directory: typescript
+        run: pnpm --filter @tmt/browser-ui exec playwright install chromium
+      - name: Save Chromium on main only
+        if: github.ref == 'refs/heads/main' && steps.browsers.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: ${{ steps.browsers.outputs.cache-primary-key }}
+      - name: Run design gallery audits
+        working-directory: typescript
+        run: pnpm --filter @tmt/browser-ui --fail-if-no-match test:browser --workers=2
+      # Only this synthetic gallery's failure traces; no product, account or host state.
+      - name: Upload gallery failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-ui-traces
+          path: design/browser-ui/test-results
           if-no-files-found: ignore
           retention-days: 7
 
@@ -939,6 +992,7 @@ jobs:
         changes,
         native-notices,
         colab-chrome,
+        browser-ui,
         release-rehearsal,
         native-rust,
         unit-tests,
@@ -981,6 +1035,11 @@ jobs:
           CHROME_SELECTED: ${{ needs.changes.outputs.colab_chrome }}
           CHROME_RESULT: ${{ needs.colab-chrome.result }}
         run: node typescript/scripts/ci-scope.mjs gate "$CHROME_SELECTED" "$CHROME_RESULT"
+      - name: Require the selected design gallery audits
+        env:
+          BROWSER_UI_SELECTED: ${{ needs.changes.outputs.browser_ui }}
+          BROWSER_UI_RESULT: ${{ needs.browser-ui.result }}
+        run: node typescript/scripts/ci-scope.mjs gate "$BROWSER_UI_SELECTED" "$BROWSER_UI_RESULT"
       - name: Require the selected release rehearsal
         env:
           REHEARSAL_SELECTED: ${{ needs.changes.outputs.release_rehearsal }}
@@ -994,6 +1053,7 @@ jobs:
       - code-quality
       - native-notices
       - colab-chrome
+      - browser-ui
       - native-clippy
       - native-workspace-tests
       - native-process-tests

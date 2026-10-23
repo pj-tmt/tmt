@@ -826,3 +826,17 @@ viewport/theme coverage. Only `browser-ui-selection.spec.ts` is allocated in
 Colab; existing foundation HTML/runner remain its infrastructure. Added shard
 wall time and exact-head Colab acceptance accompany delivery. No consumer
 migration or Select revival is included.
+
+## Browser audits
+
+From `typescript/`, install the frozen leaf tools with
+`pnpm --filter @tmt/browser-ui... install --frozen-lockfile --ignore-scripts`, then run
+`pnpm --filter @tmt/browser-ui test:browser --workers=2`. The Playwright config starts
+only the private gallery, on port 5184 by default (`BROWSER_UI_TEST_PORT` overrides it).
+It never attaches to an existing server or opens a product/host fixture.
+
+The Chromium suite measures rounded borders, text inset, control radii, focus frames,
+border-only control contrast and the named soft-edge field exception, plus overlay exit
+and reduced motion. Seeded controls prove each audit detects a violation and accepts its
+repair. CI selection and gate ownership live in the
+[CI guide](../../.agents/skills/tmt-release/references/ci-selection.md#worker-gates).
