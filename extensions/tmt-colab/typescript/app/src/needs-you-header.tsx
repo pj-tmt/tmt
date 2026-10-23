@@ -18,6 +18,7 @@ import {
 } from '@tmt/browser-ui/ui';
 import '@tmt/browser-ui/ui.css';
 import { browserUiClasses as c, countText } from '@tmt/browser-ui/static';
+import { BrowserAvatar } from '@tmt/browser-ui/react';
 import { ChevronDown } from 'lucide-react';
 import { AgentList } from './components/agent-chip.js';
 import type { NeedsYouCandidate } from './needs-you.js';
@@ -25,6 +26,9 @@ import { useNotificationModalPresence } from './reply-notification-context.js';
 import { getTheme, subscribeTheme } from './theme.js';
 import { text } from './strings.js';
 import { openModifiedPage, plainPageClick } from './page-link.js';
+
+/** The agents named on a row; a section or page that names none has an empty name to skip. */
+const agentNames = (item: NeedsYouCandidate) => item.agents.filter((name) => name.trim() !== '');
 
 /** Only disclosure/focus live here. Each page layer owns its pending state and navigation. */
 export function NeedsYouHeader({
@@ -194,28 +198,44 @@ export function NeedsYouHeader({
                           }}
                         >
                           <span className="needs-you-header-row" title={item.title}>
-                            {item.kind === 'answer' && item.questionCount ? (
-                              <>
-                                <span
-                                  className="question-line-mark"
-                                  data-state="waiting"
-                                  aria-hidden="true"
-                                >
-                                  ◆
-                                </span>{' '}
-                                {item.questionCount.waiting} of {item.questionCount.total} questions
-                                waiting
-                                <span className="needs-you-header-agent"> · {item.title}</span>
-                              </>
+                            {agentNames(item).length > 0 ? (
+                              <BrowserAvatar
+                                name={agentNames(item)[0]!}
+                                kind="agent"
+                                size="s"
+                                decorative
+                              />
                             ) : (
-                              item.title
+                              <span className="needs-you-header-avatar-gap" aria-hidden="true" />
                             )}
-                            {item.agents.length > 0 && (
-                              <span className="needs-you-header-agent">
-                                {' · '}
-                                <AgentList names={item.agents} />
-                              </span>
-                            )}
+                            <span className="needs-you-header-text">
+                              <span className="needs-you-header-title">{item.title}</span>
+                              {(agentNames(item).length > 0 ||
+                                (item.kind === 'answer' && item.questionCount)) && (
+                                <span className="needs-you-header-agent">
+                                  {agentNames(item).length > 0 && (
+                                    <>
+                                      <span className="tmt-ui-visually-hidden"> · </span>
+                                      <AgentList names={agentNames(item)} mark={false} />
+                                    </>
+                                  )}
+                                  {item.kind === 'answer' && item.questionCount && (
+                                    <>
+                                      {agentNames(item).length > 0 ? ' · ' : null}
+                                      <span
+                                        className="question-line-mark"
+                                        data-state="waiting"
+                                        aria-hidden="true"
+                                      >
+                                        ◆
+                                      </span>{' '}
+                                      {item.questionCount.waiting} of {item.questionCount.total}{' '}
+                                      questions waiting
+                                    </>
+                                  )}
+                                </span>
+                              )}
+                            </span>
                           </span>
                         </a>
                       </DropdownMenuItem>

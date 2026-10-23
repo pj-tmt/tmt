@@ -269,6 +269,34 @@ for (const width of [1440, 390])
         'Please confirm · 1',
       ]);
       await expect(menu.getByRole('menuitem')).toHaveCount(3);
+      // Each row: the agent's round initials mark (decorative, the name is in the row), the title and
+      // the agent under it (#4503).
+      const avatars = menu.locator('.needs-you-header-row .tmt-ui-avatar');
+      await expect(avatars).toHaveCount(3);
+      await expect(avatars.first()).toHaveText('A1');
+      await expect(avatars.first()).toHaveAttribute('aria-hidden', 'true');
+      // A row names an agent, so its mark carries the agent kind (the mint fill).
+      await expect(
+        menu.locator('.needs-you-header-row .tmt-ui-avatar[data-kind="agent"]'),
+      ).toHaveCount(3);
+      await expect(avatars.first()).toHaveCSS('width', '24px');
+      await expect(menu.locator('.needs-you-header-title')).toHaveText([
+        'Read the summary',
+        'Choose the layout',
+        'Confirm the scope',
+      ]);
+      await expect(menu.locator('.needs-you-header-agent').first()).toContainText('Agent 1');
+      // The avatar names the agent once: the second line keeps the name's text without the robot icon.
+      await expect(menu.locator('.agent-chip-name')).toHaveText(['Agent 1', 'Agent 1', 'Agent 1']);
+      await expect(menu.locator('.agent-chip-mark')).toHaveCount(0);
+      // The open menu keeps at least 8px from both edges of the window, also on a phone where the
+      // trigger sits near the left edge.
+      const edges = await menu.evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return { left: box.left, right: innerWidth - box.right };
+      });
+      expect(edges.left).toBeGreaterThanOrEqual(8);
+      expect(edges.right).toBeGreaterThanOrEqual(8);
       await capture(page, `needs-you-menu-${width}-${theme}`);
       await menu.getByRole('menuitem', { name: 'Read the summary · Agent 1' }).click();
       const markRead = root
@@ -352,6 +380,29 @@ for (const width of [1440, 390])
       await capture(page, `needs-you-120-${width}-${theme}`);
     });
 
+test('a row without an agent keeps its title in line with the rows that have one', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  await run(
+    page,
+    'change',
+    `<h1>Mixed</h1><tmt-read data-id="a0000000-0000-4000-8000-000000600001" data-agent="Agent 1" data-why="Read it."><h2 data-title>With an agent</h2><p>Body.</p></tmt-read><tmt-review data-id="a0000000-0000-4000-8000-000000600002"><h2 data-title>Without an agent</h2><p>Body.</p></tmt-review>`,
+  );
+  await page.getByRole('button', { name: 'Needs you: 2', exact: true }).click();
+  const rows = page.getByRole('menu').locator('.needs-you-header-row');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(1).locator('.tmt-ui-avatar')).toHaveCount(0);
+  await expect(rows.nth(1).locator('.needs-you-header-avatar-gap')).toHaveCount(1);
+  const left = (index: number) =>
+    rows
+      .nth(index)
+      .locator('.needs-you-header-title')
+      .evaluate((node) => node.getBoundingClientRect().left);
+  expect(await left(1)).toBe(await left(0));
+});
+
 test('the menu does not shift the authored page under the fixed header', async ({ page }) => {
   await mount(page);
   const padding = await page.locator('body').evaluate((node) => getComputedStyle(node).paddingTop);
@@ -365,7 +416,7 @@ test('the menu does not shift the authored page under the fixed header', async (
 });
 
 for (const width of [390, 320])
-  test(`long target and agent labels remain accessible in a contained one-line row ${width}`, async ({
+  test(`long target and agent labels remain accessible in contained one-line title and agent rows ${width}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -384,20 +435,30 @@ for (const width of [390, 320])
     await trigger.click();
     const row = page.getByRole('menuitem', { name: `${title} · ${agent}`, exact: true });
     await expect(row).toBeVisible();
+    // Two lines, each contained and ellipsized: the title, then the agent.
     const shape = await row.locator('.needs-you-header-row').evaluate((node) => {
-      const style = getComputedStyle(node),
-        rect = node.getBoundingClientRect();
+      const rect = node.getBoundingClientRect();
+      const line = (selector: string) => {
+        const element = node.querySelector<HTMLElement>(selector)!;
+        const style = getComputedStyle(element);
+        return {
+          ellipsis: style.textOverflow,
+          lines: style.whiteSpace,
+          clipped: element.scrollWidth > element.clientWidth,
+        };
+      };
       return {
-        ellipsis: style.textOverflow,
-        lines: style.whiteSpace,
-        clipped: node.scrollWidth > node.clientWidth,
+        title: line('.needs-you-header-title'),
+        agent: line('.needs-you-header-agent'),
         left: rect.left,
         right: rect.right,
       };
     });
-    expect(shape.ellipsis).toBe('ellipsis');
-    expect(shape.lines).toBe('nowrap');
-    expect(shape.clipped).toBe(true);
+    for (const line of [shape.title, shape.agent]) {
+      expect(line.ellipsis).toBe('ellipsis');
+      expect(line.lines).toBe('nowrap');
+    }
+    expect(shape.title.clipped).toBe(true);
     expect(shape.left).toBeGreaterThanOrEqual(0);
     expect(shape.right).toBeLessThanOrEqual(width);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(

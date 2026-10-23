@@ -197,7 +197,7 @@ for (const width of [1440, 390]) {
         return rects.length > 0 && rects.every((rect) => Math.abs(rect.y - rects[0].y) < 1);
       }),
     ).toBe(true);
-    await expect(menuRow).toHaveCSS('text-overflow', 'ellipsis');
+    await expect(menuRow.locator('.needs-you-header-agent')).toHaveCSS('text-overflow', 'ellipsis');
     expect(await run(page, 'discussionProof')).toHaveLength(0);
     expect((await run(page, 'proof')).sends).toHaveLength(0);
   });

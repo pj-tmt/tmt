@@ -16,7 +16,8 @@ export type AgentChipState = 'checking' | 'not-found' | 'offline' | 'online' | '
  * bordered form for what the reader edits (a composer mention, a question recipient) and takes a
  * trailing control as children; `inline` sits inside a sentence, a menu row or a byline. While the
  * agent works the icon carries a small status dot and the name gains a hidden ", working"; the chip
- * never animates, and any other or unknown activity shows the plain icon (#3978).
+ * never animates, and any other or unknown activity shows the plain icon (#3978). Where the agent's
+ * own avatar already stands beside it, `mark={false}` leaves the icon out and keeps the name.
  */
 export function AgentChip({
   name,
@@ -24,6 +25,7 @@ export function AgentChip({
   state,
   activity,
   variant = 'inline',
+  mark = true,
   title,
   children,
 }: {
@@ -32,6 +34,7 @@ export function AgentChip({
   state?: AgentChipState;
   activity?: AgentActivity;
   variant?: 'inline' | 'chip';
+  mark?: boolean;
   title?: string;
   children?: ReactNode;
 }) {
@@ -52,9 +55,11 @@ export function AgentChip({
       data-activity={currentActivity}
       title={working ? `${title ?? name}, ${text.agentWorking}` : title}
     >
-      <span className="agent-chip-mark" data-working={working || undefined} aria-hidden>
-        <Bot className="agent-chip-icon" />
-      </span>
+      {mark && (
+        <span className="agent-chip-mark" data-working={working || undefined} aria-hidden>
+          <Bot className="agent-chip-icon" />
+        </span>
+      )}
       <span className="agent-chip-name">{name}</span>
       {working && (
         <span className="agent-chip-state tmt-ui-visually-hidden">, {text.agentWorking}</span>
@@ -89,11 +94,11 @@ export function agentsSentence(template: string, agents: ReactNode): ReactNode {
 }
 
 /** Several agents in running text, as inline chips separated by commas. */
-export function AgentList({ names }: { names: readonly string[] }) {
+export function AgentList({ names, mark }: { names: readonly string[]; mark?: boolean }) {
   return names.map((name, index) => (
     <Fragment key={`${index}:${name}`}>
       {index > 0 && ', '}
-      <AgentChip name={name} />
+      <AgentChip name={name} mark={mark} />
     </Fragment>
   ));
 }
