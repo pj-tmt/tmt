@@ -277,7 +277,8 @@ scrolls; the owning implementation reference is
 [Board notebooks](../.agents/skills/tmt-ops-dev/references/board-notebooks.md).
 
 Selecting rendered conversation or task text copies its plain text on mouse-up.
-`+ Quote` or Enter adds a removable author/excerpt chip in one row above the
+The Selection menu opens directly below the selection end (`q Quote`, `y Copy`);
+`q` or Enter adds a removable author/excerpt chip in one row above the
 input; it does not replace the draft. Up from the input's first line enters the
 chip row, Left/Right moves, `x`/Delete removes, and Down/Esc returns. Sending
 attaches compact quotes above the comment; failed sends retain the chips.

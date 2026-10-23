@@ -1373,15 +1373,15 @@ renameSync(output+'.tmp',output);
       pointer(0, 'M', text.x, text.y);
       pointer(32, 'M', text.x + 'hello there'.length, text.y);
       pointer(0, 'm', text.x + 'hello there'.length, text.y);
-      await fixture.waitForCapture((current) => current.includes('+ Quote'), shell.pane);
+      await fixture.waitForCapture((current) => current.includes('q Quote'), shell.pane);
 
       // The exchange stamp repaints the pane while the selection stands.
       const seen = age();
       expect(seen, 'the sent exchange shows its age').toBeDefined();
       await fixture.waitFor(() => age() !== seen, 15_000, 'the age line ticked');
-      expect(screen(), 'the button survived the repaint').toContain('+ Quote');
+      expect(screen(), 'the menu survived the repaint').toContain('q Quote');
 
-      const button = where('+ Quote');
+      const button = where('q Quote');
       pointer(0, 'M', button.x + 1, button.y);
       pointer(0, 'm', button.x + 1, button.y);
       await fixture.waitForCapture((current) => /hello there\s+×/.test(current), shell.pane);
@@ -1461,10 +1461,7 @@ renameSync(output+'.tmp',output);
       pointer(0, 'M', text.x, text.y);
       pointer(32, 'M', text.x + 'first question'.length, text.y);
       pointer(0, 'm', text.x + 'first question'.length, text.y);
-      await fixture.waitForCapture(
-        (current) => /first question\s+\+ Quote/.test(current),
-        shell.pane
-      );
+      await fixture.waitForCapture((current) => current.includes('q Quote'), shell.pane);
       await fixture.waitFor(
         () => buffer() === 'first question',
         5_000,
@@ -1496,9 +1493,7 @@ renameSync(output+'.tmp',output);
             (current) => current.includes(`step ${round} is done and the agent keeps writing`),
             shell.pane
           );
-          expect(screen(), `Quote stays after round ${round}:\n${screen()}`).toMatch(
-            /first question\s+\+ Quote/
-          );
+          expect(screen(), `Quote stays after round ${round}:\n${screen()}`).toContain('q Quote');
         }
       } finally {
         store.close();
@@ -1513,7 +1508,7 @@ renameSync(output+'.tmp',output);
         5_000,
         `y copied during the busy turn:\n${screen()}`
       );
-      const button = where('+ Quote');
+      const button = where('q Quote');
       pointer(0, 'M', button.x + 1, button.y);
       pointer(0, 'm', button.x + 1, button.y);
       await fixture.waitForCapture((current) => /first question\s+×/.test(current), shell.pane);
