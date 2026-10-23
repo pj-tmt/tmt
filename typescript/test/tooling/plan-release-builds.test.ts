@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
+import { runWithNonblockingStdin } from '../support/nonblocking-stdin';
 import {
   BUNDLE_ASSET,
   FAILURE_ASSET,
@@ -38,6 +39,21 @@ function draft(
 const tags = (plan: { builds: readonly { tag: string }[] }) => plan.builds.map(({ tag }) => tag);
 
 describe('release build plan', () => {
+  it('reads a multi-megabyte catalogue after EAGAIN on a real non-blocking pipe', () => {
+    const selected = 'v5.0.0-alpha.999999';
+    const input = JSON.stringify([
+      [{ ...draft('tmt-remote-v0.1.0-alpha.1', '1'), body: '雪🧪'.repeat(5_000_000) }],
+      [draft(selected, '2')],
+    ]);
+    expect(Buffer.byteLength(input)).toBeGreaterThan(32 * 1024 * 1024);
+    const result = runWithNonblockingStdin([script, '--product', 'cli', '--tag', selected], input);
+    expect(result.ready, JSON.stringify(result)).toBe(true);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe(
+      `matrix=${JSON.stringify({ include: [{ tag: selected, sha: sha('2') }] })}\nany=true\n`
+    );
+  }, 30_000);
+
   it('isolates Colab tags and leaves parked Colab drafts untouched', () => {
     const releases = [
       draft('tmt-colab-v0.1.0-alpha.1', '1'),
