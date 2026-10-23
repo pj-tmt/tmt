@@ -1,0 +1,76 @@
+//! A remembered session the provider no longer keeps is explained before any
+//! launch. Provider trees live only under the fixture's private HOME.
+use super::move_session::{SESSION, destination, remembered, start};
+use super::*;
+use std::os::unix::fs::PermissionsExt;
+
+fn resume(fixture: &Fixture) -> Output {
+    let mut command = fixture.command_in(Some("f2"), &["resume", "worker"]);
+    command.env(
+        "PATH",
+        format!(
+            "{}:/usr/bin:/bin:/usr/sbin:/sbin",
+            fixture.root.join("bin").display()
+        ),
+    );
+    command.output().unwrap()
+}
+
+#[test]
+fn a_gone_or_unreadable_session_is_explained_and_nothing_is_launched() {
+    register();
+    for provider in ["claude", "codex"] {
+        let fixture = Fixture::new(&format!("unrecoverable-{provider}"));
+        destination(&fixture);
+        let (old, process) = start(&fixture, provider, fixture.approve());
+        drop(old);
+        wait_until("the old provider ended", || process.seen() == Seen::Ended);
+        let home = fixture.root.join("home");
+        let (tree, file) = if provider == "claude" {
+            let tree = home.join(".claude/projects/-src");
+            (tree.clone(), tree.join(format!("{SESSION}.jsonl")))
+        } else {
+            let tree = home.join(".codex/sessions/2026/10/23");
+            (
+                tree.clone(),
+                tree.join(format!("rollout-2026-10-23T00-00-00-{SESSION}.jsonl")),
+            )
+        };
+        fs::create_dir_all(&tree).unwrap();
+        let before = remembered(&fixture);
+        for (reason, text) in [
+            ("missing", "is gone or expired"),
+            ("unreadable", "cannot be read"),
+        ] {
+            if reason == "unreadable" {
+                fs::write(&file, b"{}\n").unwrap();
+                fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+            }
+            let output = resume(&fixture);
+            let error = String::from_utf8(output.stderr).unwrap();
+            assert_eq!(
+                output.status.code(),
+                Some(1),
+                "{provider} {reason}: {error}"
+            );
+            assert!(error.contains(text), "{provider} {reason}: {error}");
+            assert!(error.contains("tmt resume --retry worker"), "{error}");
+            assert!(
+                error.contains("Start fresh with: tmt run worker"),
+                "{error}"
+            );
+            assert!(
+                !fixture.root.join("agent.pid").exists(),
+                "{provider} launched"
+            );
+            let after = remembered(&fixture);
+            assert_eq!(after.entry.identity, before.entry.identity);
+            assert_eq!(
+                after.preferences, before.preferences,
+                "nothing is marked or forgotten"
+            );
+        }
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_drivers_ended(&fixture);
+    }
+}

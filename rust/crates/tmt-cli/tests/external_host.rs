@@ -29,6 +29,8 @@ mod send_now;
 mod stop;
 #[allow(dead_code)]
 mod support;
+#[path = "external_host/unrecoverable_session.rs"]
+mod unrecoverable_session;
 #[path = "external_host/uuid_selectors.rs"]
 mod uuid_selectors;
 

@@ -790,6 +790,30 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         crate::runtime::sampling::codex_turn(&root, session, deadline)
     }
 
+    /// Codex keeps `YYYY/MM/DD/rollout-<time>-<session>.jsonl` under `sessions`.
+    fn session_presence(
+        &self,
+        session: &ProviderSessionId,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        deadline: std::time::Instant,
+    ) -> crate::runtime::session_presence::SessionPresence {
+        let root = codex_home(environment).join("sessions");
+        crate::runtime::session_presence::probe(
+            &crate::runtime::session_presence::Layout {
+                root: &root,
+                depth: 3,
+                names: |name, session| {
+                    name.strip_suffix(".jsonl")
+                        .and_then(|name| name.strip_suffix(session))
+                        .is_some_and(|name| name.starts_with("rollout-") && name.ends_with('-'))
+                },
+            },
+            session,
+            deadline,
+            crate::runtime::session_presence::PRESENCE_ENTRIES,
+        )
+    }
+
     fn turn_state(
         &self,
         turn: &crate::runtime::lifecycle::TurnEnd,

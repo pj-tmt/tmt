@@ -26,6 +26,7 @@ pub mod lifecycle;
 #[cfg(test)]
 mod prompt_tests;
 pub mod sampling;
+pub mod session_presence;
 pub mod transcript;
 #[cfg(test)]
 mod usage_tests;
@@ -331,6 +332,25 @@ impl RuntimeRegistry {
                 executable: entry.executable.clone(),
                 args: Vec::new(),
             })
+    }
+
+    /// Whether the remembered session's provider transcript still exists, within
+    /// [`session_presence::PRESENCE_BUDGET`]. An unregistered driver is `Unknown`.
+    pub fn session_presence(
+        &self,
+        session: &RememberedSession,
+        environment: &crate::skill_installation::ProviderEnvironment,
+    ) -> session_presence::SessionPresence {
+        self.lifecycle(&session.harness).map_or(
+            session_presence::SessionPresence::Unknown,
+            |lifecycle| {
+                lifecycle.session_presence(
+                    &session.provider_session,
+                    environment,
+                    std::time::Instant::now() + session_presence::PRESENCE_BUDGET,
+                )
+            },
+        )
     }
 
     pub fn resume(

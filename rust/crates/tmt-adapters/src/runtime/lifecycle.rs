@@ -127,6 +127,17 @@ impl CallerSessionRefusal {
 }
 
 pub trait RuntimeLifecycle {
+    /// Whether the provider still keeps this session's transcript (#4062). A
+    /// driver that cannot tell answers `Unknown`, which never refuses a resume.
+    fn session_presence(
+        &self,
+        _session: &ProviderSessionId,
+        _environment: &ProviderEnvironment,
+        _deadline: std::time::Instant,
+    ) -> super::session_presence::SessionPresence {
+        super::session_presence::SessionPresence::Unknown
+    }
+
     /// Apply provider policy to the selected foreground command after optional
     /// hook/channel composition, including their original-command fallback.
     fn prepare_launch(

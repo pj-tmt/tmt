@@ -1,7 +1,7 @@
 //! Public resume moves use only owned fake providers and a private host driver.
 use super::*;
 
-const SESSION: &str = "4f8c2a7e-0d3b-4c61-9a52-7b1e6d0c9f13";
+pub(super) const SESSION: &str = "4f8c2a7e-0d3b-4c61-9a52-7b1e6d0c9f13";
 
 pub(super) fn destination(fixture: &Fixture) {
     fs::write(fixture.root.join("driver/two-panes"), "").unwrap();
