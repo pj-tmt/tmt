@@ -110,9 +110,9 @@ list) draws no title in the header: the header keeps its accessible name, and th
   `by <name>` (original author only) replace the default left group. Attribution is display-only, with no
   switcher or menu; full labels remain accessible. Hide author below 900 px, then
   attribution text below 640 px; keep the Remote mark, title and state chip. At
-  640 px and narrower, Discussion (count) and More remain; Agents, Files (count),
-  Source and Export move into More with their current authority and disabled
-  states. The title truncates within the shared-height row. Reader and native
+  every width, Discussion (count) and More remain; Agent status, Files (count),
+  Source and Export live in More with their current authority and disabled
+  states. Agent status is writer-only. The title truncates within the shared-height row. Reader and native
   guidance headers retain the default mark and caption layout.
 - Primitive: shared Header; host-owned optional attribution and title-prefix slots.
 - Shipped as `ColabHeader` (`colab-header.tsx`). Basis: own.

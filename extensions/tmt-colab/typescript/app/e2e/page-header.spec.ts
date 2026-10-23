@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 
 /**
- * The lean page header (#4116): Search, Chat (Discussion) and Agents stay; a needs-you count and an
+ * The lean page header: Search and Chat (Discussion) stay; a needs-you count and an
  * attention mark show only while their state holds; everything else is in More.
  */
 const fixture = '/test/ask-page-browser.tsx';
@@ -49,7 +49,7 @@ const names = (page: Page) =>
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const) {
-    test(`idle: only Search, Chat, Agents and More, with no state shown at ${width} ${theme}`, async ({
+    test(`idle: only Search, Discussion and More, with no state shown at ${width} ${theme}`, async ({
       page,
     }) => {
       await open(page, width, theme);
@@ -60,7 +60,7 @@ for (const width of [1440, 390])
       await expect(header.getByText('Nothing waits')).toBeHidden();
       await expect(header.locator('.remote-header-chip')).toHaveCount(0);
       // Search sits in the shell bar's cluster, to the right of the page's own actions.
-      expect(await names(page)).toEqual(['Discussion (0)', 'Agents', 'More']);
+      expect(await names(page)).toEqual(['Discussion (0)', 'More']);
       await expect(
         page
           .locator('.tmt-ui-shell-tools')
@@ -95,7 +95,7 @@ for (const width of [1440, 390])
       const order = await names(page);
       expect(order[0]).toBe('Needs you: 2');
       expect(order.slice(1, 3).join(' ')).toMatch(/^△.*◉/s);
-      expect(order.slice(-3)).toEqual(['Discussion (0)', 'Agents', 'More']);
+      expect(order.slice(-2)).toEqual(['Discussion (0)', 'More']);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );
@@ -117,6 +117,7 @@ for (const width of [1440, 390])
       expect(rows.map((row) => row.replace(/\s+/g, ' ').trim())).toEqual([
         'Share… Link · Live',
         'Remote · offline',
+        'Agent status',
         'Source',
         'Export page',
         'Manage page',

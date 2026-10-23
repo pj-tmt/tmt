@@ -130,8 +130,9 @@ test('a page drawer opened from the embedded page sits at the right edge, closes
   page,
 }) => {
   await decideHere(page);
-  const agents = panel(page).getByRole('button', { name: text.agentStatus });
-  await agents.click();
+  const more = panel(page).getByRole('button', { name: text.more, exact: true });
+  await more.click();
+  await page.getByRole('menuitem', { name: text.agentStatus, exact: true }).click();
   const drawer = page.getByRole('dialog', { name: text.agentStatus });
   await expect(drawer).toBeVisible();
   const box = (await drawer.boundingBox())!;
@@ -148,7 +149,7 @@ test('a page drawer opened from the embedded page sits at the right edge, closes
   await expect(drawer).toBeHidden();
   await expect(panel(page)).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`\\?open=${PLAN}`));
-  await expect(agents).toBeFocused();
+  await expect(more).toBeFocused();
 });
 
 test('the More menu from the embedded bar anchors to its trigger and stays inside the viewport', async ({
@@ -184,7 +185,8 @@ test('below 900 px the full page route keeps its own drawer and menu, which look
   await page.evaluate((id) => (location.hash = `/pages/${id}`), PLAN);
   const actions = page.getByRole('navigation', { name: text.pageHeaderActions });
   await expect(actions).toBeVisible();
-  await actions.getByRole('button', { name: text.agentStatus }).click();
+  await actions.getByRole('button', { name: text.more, exact: true }).click();
+  await page.getByRole('menuitem', { name: text.agentStatus, exact: true }).click();
   const drawer = page.getByRole('dialog', { name: text.agentStatus });
   await expect(drawer).toBeVisible();
   await capture(page, 'narrow-drawer');

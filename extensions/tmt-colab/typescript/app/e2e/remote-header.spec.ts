@@ -254,7 +254,8 @@ for (const width of [1440, 390])
     const items = page.getByRole('menuitem');
     await expect(items.nth(0)).toHaveText(/^Share…/);
     await expect(items.nth(1)).toHaveAccessibleName('Remote: 3 live sessions');
-    await expect(items.nth(2)).toHaveText('Source');
+    await expect(items.nth(2)).toHaveText('Agent status');
+    await expect(items.nth(3)).toHaveText('Source');
     await page.keyboard.press('Escape');
     await fixture(page, { unconfirmed: true });
     const mark = header.locator('.page-attention[data-attention="remote"]');

@@ -1,7 +1,7 @@
 .agent-status-health {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
   margin: 0 0 16px;
 }
 .agent-status-health dt,
@@ -12,7 +12,10 @@
   color: var(--c-muted);
 }
 .agent-status-health dd {
-  margin: 0;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 600;
 }
 .agent-status-code {
   overflow-wrap: anywhere;
@@ -22,28 +25,26 @@
 }
 .agent-status-list {
   margin: 16px 0;
-  padding: 0;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--tmt-ui-surface-rule);
   list-style: none;
 }
-.agent-status-list li {
-  padding: 14px 0;
-  border-top: 1px solid var(--c-rule);
-}
-.agent-status-list li > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: baseline;
-}
-.agent-status-list .agent-chip {
+.agent-status-list .agent-status-name {
+  display: block;
   min-width: 0;
   overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 600;
 }
-.agent-status-list p {
+.agent-status-list .agent-status-machine {
   margin: 4px 0;
+  font-size: var(--tmt-ui-caption-size);
+  line-height: var(--tmt-ui-caption-line-height);
+  color: var(--tmt-ui-color-secondary);
 }
 .agent-status-list code {
-  font: 11px var(--f-mono);
+  display: block;
+  font: var(--tmt-ui-caption-size) / var(--tmt-ui-caption-line-height) var(--f-mono);
   overflow-wrap: anywhere;
 }
 .agent-status-presence {
@@ -51,17 +52,87 @@
   gap: 6px;
   align-items: center;
   white-space: nowrap;
+  padding: 3px 7px;
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-working-soft);
+  font-size: 10px;
 }
 [data-presence='active'] .agent-status-presence {
   color: var(--c-working);
 }
 [data-presence='offline'] .agent-status-presence {
+  background: var(--tmt-ui-surface-paper);
   color: var(--c-muted);
 }
 [data-presence='unknown'] .agent-status-presence {
+  background: var(--tmt-ui-surface-waiting-soft);
   color: var(--c-waiting);
 }
 .agent-status-note {
+  position: relative;
   margin-top: 20px;
+  padding: 12px 14px;
+  background: var(--tmt-ui-surface-working-soft);
   font-size: 12px;
+}
+
+.agent-status-note::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--c-working);
+}
+
+.agent-status-health > div {
+  padding: 12px;
+  min-width: 0;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-paper);
+}
+.agent-status-health dt {
+  font-size: 11px;
+}
+.agent-status-check-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.agent-status-checked {
+  margin: 0;
+  font-size: 10px;
+  flex: 1;
+  text-align: right;
+}
+.agent-status-list li {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border-top: 0;
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
+  padding: 16px 0;
+}
+.agent-status-list li > .agent-status-observation-data {
+  display: block;
+  min-width: 0;
+}
+.agent-status-observation-mark {
+  display: grid;
+  place-items: center;
+  width: 12px;
+  height: 16px;
+}
+.agent-status-observation-mark svg {
+  width: 11px;
+  height: 11px;
+}
+[data-presence='active'] .agent-status-observation-mark {
+  color: var(--c-working);
+}
+[data-presence='unknown'] .agent-status-observation-mark {
+  color: var(--c-waiting);
 }

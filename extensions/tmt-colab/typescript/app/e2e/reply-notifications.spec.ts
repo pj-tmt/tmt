@@ -424,7 +424,7 @@ test('Answer and Proposal share the sole polite queue and announce once after mo
     body: 'Proposal notification two',
   });
   await expect(live(page)).toHaveText('');
-  await close(page, 'Agents');
+  await close(page, 'Agent status');
   await expect(cards(page)).toHaveCount(2);
   await expect(live(page)).toContainText('Proposal notification two');
   await run(page, 'repeat');
@@ -670,7 +670,7 @@ test('Answer activation opens its closed question; a covering modal holds the ar
   await open(page, 'Agents');
   await run(page, 'arrive', { destination: 'Answer', human: true, body: 'Held under the modal' });
   await expect(cards(page)).toHaveCount(0);
-  await close(page, 'Agents');
+  await close(page, 'Agent status');
   // The block is visible after close, so it has now become read; never replay it.
   await expect(block).toContainText('Held under the modal');
   await expect(cards(page)).toHaveCount(0);

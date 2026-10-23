@@ -1,7 +1,6 @@
 import { BrowserAction, BusyMark } from '@tmt/browser-ui/react';
 import { Circle, CircleDot, CircleHelp } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AgentChip } from './components/agent-chip.js';
 import type { AskBinding } from './ask-panel.js';
 import type { AgentDirectoryObservation } from './live-ask.js';
 import { text } from './strings.js';
@@ -127,41 +126,50 @@ export function AgentStatusPanel({
   return (
     <section className="agent-status-panel" aria-label={text.agentStatus}>
       <dl className="agent-status-health" aria-live="polite">
-        <dt>{text.agentStatusPage}</dt>
-        <dd>
-          {admitted && current?.state !== 'page-unavailable'
-            ? text.agentStatusAdmitted
-            : text.agentStatusUnavailable}
-        </dd>
-        <dt>{text.agentStatusSession}</dt>
-        <dd>{session}</dd>
-        <dt>{text.agentStatusDirectory}</dt>
-        <dd>{directory}</dd>
+        <div>
+          <dt>{text.agentStatusPage}</dt>
+          <dd>
+            {admitted && current?.state !== 'page-unavailable'
+              ? text.agentStatusAdmitted
+              : text.agentStatusUnavailable}
+          </dd>
+        </div>
+        <div>
+          <dt>{text.agentStatusSession}</dt>
+          <dd>{session}</dd>
+        </div>
+        <div>
+          <dt>{text.agentStatusDirectory}</dt>
+          <dd>{directory}</dd>
+        </div>
       </dl>
       {failure?.code && (
         <p className="agent-status-code">
           <code className="tmt-ui-code">{failure.code}</code>
         </p>
       )}
-      <BrowserAction
-        type="button"
-        variant="text"
-        label={text.agentStatusRecheck}
-        busy={loading}
-        busyMark={<BusyMark />}
-        disabled={!admitted || !binding?.observeDestinations}
-        onActivate={(event) => {
-          if (event.isTrusted) read();
-        }}
-      />
-      {last && (
-        <p className="agent-status-checked">
-          {text.agentStatusLastCheck}:{' '}
-          <time dateTime={new Date(last.checkedAt).toISOString()}>
-            {new Date(last.checkedAt).toLocaleString()}
-          </time>
-        </p>
-      )}
+      <div className="agent-status-check-row">
+        <BrowserAction
+          type="button"
+          variant="secondary"
+          label={text.agentStatusRecheck}
+          visibleLabel="Recheck"
+          busy={loading}
+          busyMark={<BusyMark />}
+          disabled={!admitted || !binding?.observeDestinations}
+          onActivate={(event) => {
+            if (event.isTrusted) read();
+          }}
+        />
+        {last && (
+          <p className="agent-status-checked">
+            {text.agentStatusLastCheck}:{' '}
+            <time dateTime={new Date(last.checkedAt).toISOString()}>
+              {new Date(last.checkedAt).toLocaleString()}
+            </time>
+          </p>
+        )}
+      </div>
       {stale && (
         <p className="agent-status-stale" role="status">
           {text.agentStatusStale}
@@ -182,15 +190,15 @@ export function AgentStatusPanel({
                     : text.presenceUnknown;
               return (
                 <li key={`${agent.machine}:${agent.agent}:${index}`} data-presence={presence}>
-                  <div>
-                    <AgentChip name={agent.agentName} />
-                    <span className="agent-status-presence">
-                      <Mark aria-hidden />
-                      {label}
-                    </span>
+                  <span className="agent-status-observation-mark">
+                    <Mark aria-hidden />
+                  </span>
+                  <div className="agent-status-observation-data">
+                    <strong className="agent-status-name">{agent.agentName}</strong>
+                    <p className="agent-status-machine">{agent.machineName}</p>
+                    <code>{agent.agent}</code>
                   </div>
-                  <p>{agent.machineName}</p>
-                  <code>{agent.agent}</code>
+                  <span className="agent-status-presence">{label}</span>
                 </li>
               );
             })}

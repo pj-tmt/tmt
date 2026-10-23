@@ -371,7 +371,7 @@ for (const width of [1440, 390, 320])
 
 for (const width of [1440, 390, 320])
   for (const theme of ['light', 'dark'] as const)
-    test(`page header names the connection, shows no access words, and keeps three fitting actions: ${width}px ${theme}`, async ({
+    test(`page header names the connection, shows no access words, and keeps two fitting actions: ${width}px ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 800 });
@@ -408,7 +408,7 @@ for (const width of [1440, 390, 320])
       await expect(heading).toBeVisible();
       expect(await fittingCharacters(heading)).toBeGreaterThanOrEqual(width === 390 ? 12 : 1);
       const actions = header.getByRole('navigation', { name: 'Page actions' });
-      await expect(actions.getByRole('button')).toHaveCount(3);
+      await expect(actions.getByRole('button')).toHaveCount(2);
       for (const button of await actions.getByRole('button').all()) {
         await expect(button).toBeInViewport();
         expect(await button.getAttribute('aria-label')).toBeTruthy();
@@ -426,7 +426,7 @@ for (const width of [1440, 390, 320])
       // This page holds no file and the viewer cannot add one: no Files entry.
       await expect(menu.getByRole('menuitem', { name: /^Files/ })).toHaveCount(0);
       await expect(menu.getByRole('menuitem', { name: /^Share…/ })).toContainText('Private · Live');
-      await expect(menu.getByRole('menuitem', { name: 'Agents', exact: true })).toHaveCount(0);
+      await expect(menu.getByRole('menuitem', { name: 'Agent status', exact: true })).toBeVisible();
       const surface = actions.getByRole('dialog', { name: 'More', exact: true });
       expect(await surface.evaluate((node) => node.matches(':modal'))).toBe(true);
       // A floating layer carries the one overlay shadow.

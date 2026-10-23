@@ -27,8 +27,8 @@ async function captureHeader(page: Page, testInfo: TestInfo, screen: 'page' | 'h
         await expect(connection).toHaveText('Private · Live');
         expect((await connection.boundingBox())!.width).toBeLessThanOrEqual(1);
         const actions = header.getByRole('navigation', { name: 'Page actions' });
-        await expect(actions.getByRole('button')).toHaveCount(3);
-        for (const name of [/^Discussion \(/, 'Agents', 'More'])
+        await expect(actions.getByRole('button')).toHaveCount(2);
+        for (const name of [/^Discussion \(/, 'More'])
           await expect(actions.getByRole('button', { name, exact: true })).toBeInViewport();
         await expect(
           page
@@ -38,7 +38,7 @@ async function captureHeader(page: Page, testInfo: TestInfo, screen: 'page' | 'h
         const more = actions.getByRole('button', { name: 'More', exact: true });
         await more.click();
         const menu = actions.getByRole('menu');
-        for (const name of [/^Share…/, /^Remote:/, /^Files \(/, 'Source'])
+        for (const name of [/^Share…/, /^Remote:/, 'Agent status', /^Files \(/, 'Source'])
           await expect(menu.getByRole('menuitem', { name, exact: true })).toBeVisible();
         await expect(menu.getByRole('menuitem', { name: /^Share…/ })).toContainText(
           'Private · Live',
