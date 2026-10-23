@@ -825,20 +825,23 @@ export const text = {
     noArchived: 'No archived pages.',
     noArchivedInProject: (name: string) => `No archived pages in ${name}.`,
     nameField: 'Project name',
-    pagesField: 'Pages',
-    create: 'Create',
+    pagesField: 'Initial pages',
+    create: 'Create project',
     cancel: 'Cancel',
     rename: 'Rename',
     merge: 'Merge',
-    renameTo: 'New name',
     save: 'Save',
     remove: 'Delete',
     retry: 'Retry',
-    close: 'Done',
     noProjects: 'No projects yet.',
-    newProjectHint: 'Optional: tick the pages to put in it.',
-    pageCount: (count: number, archived = 0) =>
-      `${count} ${count === 1 ? 'page' : 'pages'}${archived ? ` · ${archived} archived` : ''}`,
+    newProjectHint: 'Create an empty project, or select its first pages.',
+    manageProjectsHint: 'Keep related pages together.',
+    renameProjectTitle: 'Rename project',
+    deleteProjectTitle: (name: string) => `Delete project ${name}?`,
+    newProjectVisible: '+ New project',
+    projectNamePlaceholder: 'e.g. research',
+    activeProjectCount: (active: number, archived: number) =>
+      `${active} active ${active === 1 ? 'page' : 'pages'}${archived ? ` · ${archived} archived` : ''}`,
     renameConfirm: (from: string, to: string, count: number, archived: number) =>
       `Rename ${from} to ${to} on ${count} ${count === 1 ? 'page' : 'pages'}${
         archived ? ` (${archived} archived)` : ''

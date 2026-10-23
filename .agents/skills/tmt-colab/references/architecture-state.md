@@ -713,6 +713,14 @@ keeps search, sort and filters because `projects` arrive in `/api/pages`. The pr
 suggestions count the pages the tab shows, while the manage dialog counts every page in the project
 and says how many of them are archived.
 
+`project-dialogs.tsx` presents the manager as separate project cards with active and archived
+counts. Its New project action uses the same Home-owned creation state as the module menu.
+The creation form names the project and optionally selects its initial pages, with archived
+pages explicitly labeled. Rename and delete replace the manager with one centered shared dialog;
+cancel returns to the named card action, and a successful write returns to the refreshed manager.
+Only one native modal is active. Busy requests retain their existing dismissal fence, and merge,
+archived impact and partial-write/refusal outcomes keep the same project contract and writer.
+
 The list follows the concept website’s `/#/colab/pages` composition: a hero with New page, the owner's actual pinned pages in pin order,
 then view tabs, project-scope pills, search and Sort, then the list. `page-list-items.tsx`
 owns display-only pinned cards and rows; Home retains filtering, selection and all write lifetimes.

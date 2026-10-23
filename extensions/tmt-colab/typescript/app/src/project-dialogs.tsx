@@ -1,5 +1,12 @@
-import { BrowserAction, BrowserCheckbox, BrowserDrawer, BrowserField } from '@tmt/browser-ui/react';
+import {
+  BrowserAction,
+  BrowserCheckbox,
+  BrowserDialog,
+  BrowserDrawer,
+  BrowserField,
+} from '@tmt/browser-ui/react';
 import { useEffect, useId, useRef, useState } from 'react';
+import { FileText } from 'lucide-react';
 import {
   projectNameError,
   withProject,
@@ -42,6 +49,8 @@ function NameField({
   onChange(value: string): void;
 }) {
   const id = useId();
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => input.current?.focus({ preventScroll: true }), []);
   return (
     <BrowserField
       controlId={`${id}-name`}
@@ -52,8 +61,11 @@ function NameField({
       renderControl={(field) => (
         <input
           {...field}
+          ref={input}
+          placeholder={t.projectNamePlaceholder}
           value={value}
           autoComplete="off"
+          required
           spellCheck={false}
           onChange={(event) => onChange(event.target.value)}
         />
@@ -86,6 +98,7 @@ export function NewProjectDialog({
     <BrowserDrawer
       open={open}
       keepMounted={false}
+      className="project-surface"
       title={t.newProject}
       onDismiss={() => {
         if (!saving.current) onClose();
@@ -180,6 +193,7 @@ function NewProjectForm({
           setError(undefined);
         }}
       />
+      <div className="project-divider" role="separator" />
       <fieldset className="project-pages">
         <legend>{t.pagesField}</legend>
         <p className="project-hint">{t.newProjectHint}</p>
@@ -197,8 +211,11 @@ function NewProjectForm({
                     setError(undefined);
                   }}
                 />
-                {pageTitle(page)}
-                {page.archived ? ` · ${text.archived}` : ''}
+                <FileText size={14} aria-hidden="true" />
+                <span>
+                  {pageTitle(page)}
+                  {page.archived ? ` · ${text.archived}` : ''}
+                </span>
               </label>
             </li>
           ))}
@@ -212,7 +229,7 @@ function NewProjectForm({
       <div className="project-actions">
         <BrowserAction
           type="button"
-          variant="text"
+          variant="secondary"
           label={t.cancel}
           disabled={busy}
           onActivate={onClose}
@@ -222,7 +239,7 @@ function NewProjectForm({
           variant="primary"
           label={t.create}
           busy={busy}
-          disabled={name === '' || nameError !== undefined}
+          disabled={nameError !== undefined}
           onActivate={() => {}}
         />
       </div>
@@ -242,21 +259,44 @@ export function ManageProjectsDialog({
   projects,
   writing,
   onClose,
+  onNewProject,
 }: {
   open: boolean;
   pages: readonly PageSummary[];
-  /** Every project of the space with the pages in it, those with none too. */
+  /** Every project of the space, including those with no pages. */
   projects: readonly { name: string; count: number }[];
   writing: ProjectWriting;
   onClose(): void;
+  onNewProject(): void;
 }) {
   const [step, setStep] = useState<Step>({ kind: 'list' });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; failed: boolean }>();
-  function close() {
+  const manager = useRef<HTMLDivElement>(null);
+  const returnAction = useRef<string | undefined>(undefined);
+  const removal = useRef<HTMLParagraphElement>(null);
+  // The manager is replaced while a confirmation owns modality. Its buttons are new nodes when
+  // it returns, so restore by the action's domain name rather than a detached opener element.
+  useEffect(() => {
+    if (step.kind === 'delete') removal.current?.focus({ preventScroll: true });
+    if (step.kind !== 'list' || !returnAction.current) return;
+    const target = Array.from(manager.current?.querySelectorAll('button') ?? []).find(
+      (button) => button.getAttribute('aria-label') === returnAction.current,
+    );
+    if (target) {
+      target.focus({ preventScroll: true });
+      returnAction.current = undefined;
+    }
+  }, [step, projects]);
+  function cancel() {
     if (busy) return;
     setStep({ kind: 'list' });
     setMessage(undefined);
+  }
+  function close() {
+    if (busy) return;
+    returnAction.current = undefined;
+    cancel();
     onClose();
   }
   async function run(name: string, to?: string) {
@@ -267,117 +307,149 @@ export function ManageProjectsDialog({
     );
     setBusy(false);
     if (outcome.failure === undefined) {
+      returnAction.current = to === undefined ? t.newProject : `${t.rename} ${to}`;
       setStep({ kind: 'list' });
       setMessage({ text: t.projectSaved, failed: false });
-      return;
-    }
-    setMessage({ text: writing.failureText(outcome.failure), failed: true });
+    } else setMessage({ text: writing.failureText(outcome.failure), failed: true });
   }
   const carrying = (name: string) => pages.filter((page) => page.projects?.includes(name));
   return (
-    <BrowserDrawer open={open} keepMounted={false} title={t.manageProjects} onDismiss={close}>
-      {step.kind === 'list' && (
-        <div className="project-form">
+    <>
+      <BrowserDrawer
+        open={open && step.kind === 'list'}
+        keepMounted={false}
+        title={t.manageProjects}
+        className="project-surface"
+        onDismiss={close}
+      >
+        <div className="project-form" ref={manager}>
+          <p className="project-hint">{t.manageProjectsHint}</p>
           {projects.length ? (
             <ul className="project-manage">
-              {projects.map(({ name, count }) => (
-                <li key={name}>
-                  <span className="project-manage-text">
-                    <span className="project-manage-name">{name}</span>
-                    <span className="project-manage-count">
-                      {t.pageCount(count, carrying(name).filter((page) => page.archived).length)}
-                    </span>
-                  </span>
-                  <span className="project-manage-actions">
-                    <BrowserAction
-                      type="button"
-                      variant="text"
-                      label={`${t.rename} ${name}`}
-                      visibleLabel={t.rename}
-                      onActivate={() => {
-                        setMessage(undefined);
-                        setStep({ kind: 'rename', name, to: name });
-                      }}
-                    />
-                    <BrowserAction
-                      type="button"
-                      variant="destructive"
-                      label={`${t.remove} ${name}`}
-                      visibleLabel={t.remove}
-                      onActivate={() => {
-                        setMessage(undefined);
-                        setStep({ kind: 'delete', name });
-                      }}
-                    />
-                  </span>
-                </li>
-              ))}
+              {projects.map(({ name, count }) => {
+                const archived = carrying(name).filter((page) => page.archived).length;
+                return (
+                  <li key={name}>
+                    <div className="project-manage-row">
+                      <span className="project-manage-text">
+                        <span className="project-manage-name">{name}</span>
+                        <span className="project-manage-count">
+                          {t.activeProjectCount(count - archived, archived)}
+                        </span>
+                      </span>
+                      <span className="project-manage-actions">
+                        <BrowserAction
+                          type="button"
+                          variant="secondary"
+                          label={`${t.rename} ${name}`}
+                          visibleLabel={t.rename}
+                          onActivate={() => {
+                            returnAction.current = `${t.rename} ${name}`;
+                            setMessage(undefined);
+                            setStep({ kind: 'rename', name, to: name });
+                          }}
+                        />
+                        <BrowserAction
+                          type="button"
+                          variant="text"
+                          label={`${t.remove} ${name}`}
+                          visibleLabel={t.remove}
+                          onActivate={() => {
+                            returnAction.current = `${t.remove} ${name}`;
+                            setMessage(undefined);
+                            setStep({ kind: 'delete', name });
+                          }}
+                        />
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p>{t.noProjects}</p>
           )}
+          {message && (
+            <p
+              role={message.failed ? 'alert' : 'status'}
+              className="project-error"
+              data-tone={message.failed ? 'error' : 'ok'}
+            >
+              {message.text}
+            </p>
+          )}
+          <div className="project-actions project-footer">
+            <BrowserAction
+              type="button"
+              variant="primary"
+              label={t.newProject}
+              visibleLabel={t.newProjectVisible}
+              onActivate={() => {
+                cancel();
+                onNewProject();
+              }}
+            />
+          </div>
         </div>
-      )}
-      {step.kind === 'rename' && (
-        <RenameStep
-          from={step.name}
-          to={step.to}
-          pages={carrying(step.name)}
-          existing={projects.map((project) => project.name)}
-          busy={busy}
-          onChange={(to) => setStep({ ...step, to })}
-          onConfirm={() => void run(step.name, step.to)}
-          onCancel={() => {
-            setMessage(undefined);
-            setStep({ kind: 'list' });
-          }}
-        />
-      )}
-      {step.kind === 'delete' && (
-        <div className="project-form">
-          <p>
+      </BrowserDrawer>
+      <BrowserDialog
+        open={open && step.kind !== 'list'}
+        title={step.kind === 'delete' ? t.deleteProjectTitle(step.name) : t.renameProjectTitle}
+        restoreFocus={false}
+        className="project-surface"
+        onDismiss={cancel}
+        actions={
+          step.kind === 'delete' ? (
+            <>
+              <BrowserAction
+                type="button"
+                variant="secondary"
+                label={t.cancel}
+                disabled={busy}
+                onActivate={cancel}
+              />
+              <BrowserAction
+                type="button"
+                variant="destructive"
+                label={message?.failed ? t.retry : t.remove}
+                busy={busy}
+                onActivate={() => void run(step.name)}
+              />
+            </>
+          ) : undefined
+        }
+      >
+        {step.kind === 'rename' && (
+          <RenameStep
+            from={step.name}
+            to={step.to}
+            pages={carrying(step.name)}
+            existing={projects.map((project) => project.name)}
+            busy={busy}
+            onChange={(to) => {
+              setMessage(undefined);
+              setStep({ ...step, to });
+            }}
+            onConfirm={() => void run(step.name, step.to)}
+            onCancel={cancel}
+          />
+        )}
+        {step.kind === 'delete' && (
+          <p ref={removal} tabIndex={-1}>
             {t.removeConfirm(
               step.name,
               carrying(step.name).length,
               carrying(step.name).filter((page) => page.archived).length,
             )}
           </p>
-          <div className="project-actions">
-            <BrowserAction
-              type="button"
-              variant="text"
-              label={t.cancel}
-              disabled={busy}
-              onActivate={() => {
-                setMessage(undefined);
-                setStep({ kind: 'list' });
-              }}
-            />
-            <BrowserAction
-              type="button"
-              variant="destructive"
-              label={message?.failed ? t.retry : t.remove}
-              busy={busy}
-              onActivate={() => void run(step.name)}
-            />
-          </div>
-        </div>
-      )}
-      {message && (
-        <p
-          role={message.failed ? 'alert' : 'status'}
-          className="project-error"
-          data-tone={message.failed ? 'error' : 'ok'}
-        >
-          {message.text}
-        </p>
-      )}
-      {step.kind === 'list' && (
-        <div className="project-actions project-footer">
-          <BrowserAction type="button" variant="secondary" label={t.close} onActivate={close} />
-        </div>
-      )}
-    </BrowserDrawer>
+        )}
+        {message?.failed && (
+          <p role="alert" className="project-error">
+            {message.text}
+          </p>
+        )}
+      </BrowserDialog>
+    </>
   );
 }
 function RenameStep({
@@ -409,7 +481,7 @@ function RenameStep({
       }}
     >
       <NameField
-        label={t.renameTo}
+        label={t.nameField}
         value={to}
         error={invalid ? t.nameErrors[invalid] : undefined}
         onChange={onChange}
@@ -424,7 +496,7 @@ function RenameStep({
       <div className="project-actions">
         <BrowserAction
           type="button"
-          variant="text"
+          variant="secondary"
           label={t.cancel}
           disabled={busy}
           onActivate={onCancel}
