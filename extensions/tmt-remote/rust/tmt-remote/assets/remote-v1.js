@@ -1774,6 +1774,7 @@ var browserUiClasses = Object.freeze({
 	tab: "tmt-ui-tab",
 	tabMark: "tmt-ui-tab-mark",
 	tabLabel: "tmt-ui-tab-label",
+	tabCount: "tmt-ui-tab-count",
 	tabsStatus: "tmt-ui-tabs-status",
 	tabPanel: "tmt-ui-tab-panel",
 	section: "tmt-ui-section",

@@ -597,12 +597,23 @@ const tabs: BrowserTab[] = [
   },
 ];
 
-function TabsDemo({ theme, variant }: { theme: Theme; variant: 'boxed' | 'flush' }) {
+function TabsDemo({
+  theme,
+  variant,
+  counts = false,
+  wrap = false,
+}: {
+  theme: Theme;
+  variant: 'boxed' | 'flush' | 'flat';
+  counts?: boolean;
+  wrap?: boolean;
+}) {
   const [selected, setSelected] = useState('pages');
-  const scoped = tabs.map((tab) => ({
+  const scoped = tabs.map((tab, index) => ({
     ...tab,
-    tabId: `${variant}-${theme}-${tab.tabId}-tab`,
-    panelId: `${variant}-${theme}-${tab.panelId}-panel`,
+    ...(counts ? { count: [6, 1, 3][index] } : {}),
+    tabId: `${variant}-${wrap ? 'wrap' : 'scroll'}-${theme}-${tab.tabId}-tab`,
+    panelId: `${variant}-${wrap ? 'wrap' : 'scroll'}-${theme}-${tab.panelId}-panel`,
   }));
   return (
     <BrowserTabs
@@ -611,6 +622,7 @@ function TabsDemo({ theme, variant }: { theme: Theme; variant: 'boxed' | 'flush'
       selected={selected}
       status="1/4 answered"
       variant={variant}
+      wrap={wrap}
       onSelect={(id) => setSelected(id)}
     >
       {(tab) => <p className="gallery-panel">{tab.label} panel</p>}
@@ -626,6 +638,16 @@ export function TabsSection() {
       </Pair>
       <Pair title="BrowserTabs · flush">
         {(theme) => <TabsDemo theme={theme} variant="flush" />}
+      </Pair>
+      <Pair title="BrowserTabs · flat, with counts">
+        {(theme) => <TabsDemo theme={theme} variant="flat" counts />}
+      </Pair>
+      <Pair title="BrowserTabs · flat, wrapping" stacked>
+        {(theme) => (
+          <div className="gallery-narrow">
+            <TabsDemo theme={theme} variant="flat" counts wrap />
+          </div>
+        )}
       </Pair>
     </Section>
   );
