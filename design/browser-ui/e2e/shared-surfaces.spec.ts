@@ -220,7 +220,7 @@ for (const close of ['close', 'unmount']) {
     // A host-driven state change does not move focus to the control invoking it.
     await page
       .getByRole('button', { name: 'Page action', exact: true })
-      .evaluate((node) => node.click());
+      .evaluate((node) => (node as HTMLButtonElement).click());
     await expect(panel).toHaveCount(0);
     await expect(opener).toBeFocused();
   });
