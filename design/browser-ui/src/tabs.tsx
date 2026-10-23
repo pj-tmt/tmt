@@ -26,6 +26,9 @@ export interface BrowserTabsProps {
    * content that sits on the page, for a list a few views of one set share; `flat` has no strip
    * frame at all: each tab is its own pill and the selected one is filled and edged. */
   variant?: 'boxed' | 'flush' | 'flat';
+  /** `flat` only: the strip wraps into rows instead of scrolling sideways, for a list whose tabs
+   * should all show on a phone. The arrow-key order stays the DOM order. Scroll stays the default. */
+  wrap?: boolean;
   panelTabIndex?: 0 | -1;
   children(tab: BrowserTab): ReactNode;
 }
@@ -44,6 +47,7 @@ export function BrowserTabs({
   onSelect,
   status,
   variant = 'boxed',
+  wrap = false,
   panelTabIndex,
   children,
 }: BrowserTabsProps) {
@@ -91,7 +95,11 @@ export function BrowserTabs({
     onSelect(tabs[next].id, 'keyboard', event);
   }
   return (
-    <div className={c.tabs} data-variant={variant}>
+    <div
+      className={c.tabs}
+      data-variant={variant}
+      data-wrap={wrap && variant === 'flat' ? '' : undefined}
+    >
       <div className={c.tabsHeader}>
         <div className={c.tabList} role="tablist" aria-label={label} ref={strip}>
           {tabs.map((tab, index) => (

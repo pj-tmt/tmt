@@ -71,6 +71,26 @@ it('frames its panels by default and drops the frame for a flush strip', () => {
   expect(render('flush')).toContain('data-variant="flush"');
   expect(render('flat')).toContain('data-variant="flat"');
 });
+it('marks a wrapping flat strip, and only a flat one', () => {
+  const render = (variant: 'boxed' | 'flush' | 'flat', wrap?: boolean) =>
+    renderToStaticMarkup(
+      <BrowserTabs
+        label="Pages"
+        tabs={tabs}
+        selected="one"
+        onSelect={() => {}}
+        variant={variant}
+        wrap={wrap}
+      >
+        {(tab) => tab.label}
+      </BrowserTabs>,
+    );
+  expect(render('flat', true)).toContain('data-variant="flat" data-wrap=""');
+  expect(render('flat')).not.toContain('data-wrap');
+  expect(render('flat', false)).not.toContain('data-wrap');
+  expect(render('boxed', true)).not.toContain('data-wrap');
+  expect(render('flush', true)).not.toContain('data-wrap');
+});
 it('draws a count after the label and names it, with the state word, in the accessible name', () => {
   const counted: BrowserTab[] = [
     { ...tabs[0]!, count: 6 },

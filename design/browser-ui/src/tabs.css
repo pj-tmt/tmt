@@ -171,6 +171,11 @@
   border-color: var(--tmt-ui-color-focus);
   outline: 0;
 }
+/* Wrap: every tab shows, in rows; nothing scrolls, so nothing is clipped at the strip's edge. */
+.tmt-ui-tabs[data-variant='flat'][data-wrap] .tmt-ui-tab-list {
+  flex-wrap: wrap;
+  overflow: visible;
+}
 .tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab-panel {
   padding: var(--tmt-ui-header-gap) 0 0;
 }

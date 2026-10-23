@@ -296,7 +296,9 @@ views of a list that sits on the page: the strip keeps its rule underneath and t
 carries a straight 2px accent underline instead of the fill. `variant="flat"` drops the strip's
 frame altogether: every tab is its own pill with a transparent 1px edge, and the selected one takes
 the selection fill and the neutral rule edge with strong text, for a row of states that sits on a
-page's header. A tab's optional `count` (`99+` above 99) is a small muted number after its label,
+page's header; its opt-in `wrap` (`data-wrap` on the root for static hosts) wraps the strip into
+rows instead of scrolling sideways, with the arrow-key order staying the DOM order, and scroll stays
+the default. A tab's optional `count` (`99+` above 99) is a small muted number after its label,
 drawn in every variant; the accessible name carries it as `Label, 6` before any state word.
 No product state, routing or persistence belongs to Tabs.
 Static hosts use `tabs`, `tabsHeader`, `tabList`, `tab`, `tabMark`, `tabLabel`, `tabCount`,
