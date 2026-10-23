@@ -1,15 +1,23 @@
-//! The Selection menu: `q Quote` and `y Copy` on one row, opened directly below the
-//! end of a selection so it is clear which text they act on.
+//! The Selection menu: a small bordered box with one action per line (`q› Quote`,
+//! `y  Copy`) and a dim `Esc clears` line, opened directly below the end of a selection
+//! so it is clear which text it acts on.
 use crate::board::app::App;
 use ratatui::{
     Frame,
     layout::{Position, Rect},
+    style::Style,
+    text::Line,
+    widgets::{Block, Clear},
 };
-use tmt_cli_style::grid::Align;
+use tmt_cli_style::{Role, grid::Align};
+use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
-const QUOTE: &str = "q Quote";
-const COPY: &str = "y Copy";
+const TITLE: &str = " Selection ";
+const HINT: &str = "Esc clears";
+/// Each entry is its key cell, then its word; the key cell marks the Enter default with `›`.
+const ENTRIES: [(Entry, &str, &str); 2] =
+    [(Entry::Quote, "q›", "Quote"), (Entry::Copy, "y ", "Copy")];
 
 /// What a menu entry does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,16 +26,17 @@ pub(super) enum Entry {
     Copy,
 }
 
-/// The painted entries of the last frame, for hit testing.
+/// The painted box and its entry lines of the last frame, for hit testing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::board::conversation) struct Menu {
+    pub(super) bounds: Rect,
     pub(super) quote: Rect,
     pub(super) copy: Rect,
 }
 
 impl Menu {
     pub(super) fn bounds(&self) -> Rect {
-        self.quote.union(self.copy)
+        self.bounds
     }
 
     pub(super) fn entry_at(&self, point: Position) -> Option<Entry> {
@@ -41,59 +50,103 @@ impl Menu {
     }
 }
 
-/// The two padded chips and the cell between them.
-fn width() -> u16 {
-    (QUOTE.width() + 2 + 1 + COPY.width() + 2) as u16
+fn label(key: &str, word: &str) -> String {
+    format!("{key} {word}")
 }
 
-/// Where the menu goes: its left edge at the selection end (`end` is the cell after the
+/// The widest line, then one cell of padding and the border on each side.
+fn width() -> u16 {
+    let lines = ENTRIES
+        .iter()
+        .map(|(_, key, word)| label(key, word).width())
+        .chain([HINT.width()])
+        .max()
+        .unwrap_or(0);
+    (lines + 4).max(TITLE.width() + 2) as u16
+}
+
+/// Two borders, one line per entry and the hint.
+fn height() -> u16 {
+    ENTRIES.len() as u16 + 3
+}
+
+/// Where the box goes: its left edge at the selection end (`end` is the cell after the
 /// last selected glyph), flipped to end there when the right edge is too near; on the
-/// row below the end, or above the selection's `first` row when the bottom is too
-/// near, so it never covers selected text. `None` when `area` has no room for it.
-pub(super) fn place(area: Rect, end: (u16, u16), first: u16) -> Option<Rect> {
-    let width = width();
-    if area.width < width {
-        return None;
+/// rows below the end, or above the selection's `first` row when the bottom is too
+/// near, so it never covers selected text. It stays inside the `pane`; a pane too small
+/// for it falls back to the `frame`. `None` when neither has room.
+pub(super) fn place(pane: Rect, frame: Rect, end: (u16, u16), first: u16) -> Option<Rect> {
+    let (width, height) = (width(), height());
+    for bound in [pane, frame] {
+        if bound.width < width {
+            continue;
+        }
+        let x = if end.0.saturating_add(width) <= bound.right() {
+            end.0.max(bound.x)
+        } else {
+            end.0.saturating_sub(width).max(bound.x)
+        };
+        let below = end.1 + 1;
+        if below + height <= bound.bottom() {
+            return Some(Rect::new(x, below, width, height));
+        }
+        if first >= bound.y + height {
+            return Some(Rect::new(x, first - height, width, height));
+        }
     }
-    let x = if end.0.saturating_add(width) <= area.right() {
-        end.0
-    } else {
-        end.0.saturating_sub(width).max(area.x)
-    };
-    let y = if end.1 + 1 < area.bottom() {
-        end.1 + 1
-    } else if first > area.y {
-        first - 1
-    } else {
-        return None;
-    };
-    Some(Rect::new(x, y, width, 1))
+    None
 }
 
 pub(super) fn paint(
     frame: &mut Frame,
     app: &App,
-    area: Rect,
+    pane: Rect,
     end: (u16, u16),
     first: u16,
 ) -> Option<Menu> {
-    let at = place(area, end, first)?;
-    // The cell between the chips would otherwise show the text beneath it.
-    frame.render_widget(ratatui::widgets::Clear, at);
-    let painted = crate::board::buttons::paint(
-        app,
+    let bounds = place(pane, frame.area(), end, first)?;
+    let look = app.look();
+    let dim = look.role(Role::Dim);
+    frame.render_widget(Clear, bounds);
+    let block = Block::bordered()
+        .border_style(dim)
+        .title(TITLE)
+        .title_style(dim);
+    let inner = block.inner(bounds);
+    frame.render_widget(block, bounds);
+    let mut lines = Vec::new();
+    for (index, (_, key, word)) in ENTRIES.iter().enumerate() {
+        let line = Rect::new(inner.x, inner.y + index as u16, inner.width, 1);
+        // The chip pads its label by a cell on each side, so the hover fills the line.
+        let text = format!(
+            "{:<width$}",
+            label(key, word),
+            width = usize::from(inner.width) - 2
+        );
+        let painted = crate::board::buttons::paint(
+            app,
+            frame.buffer_mut(),
+            line,
+            &[crate::board::buttons::Button::secondary(&text).idle(Style::default())],
+            Align::Left,
+            None,
+        );
+        lines.push(painted[0]?);
+    }
+    strip::paint_left(
         frame.buffer_mut(),
-        at,
-        &[
-            crate::board::buttons::Button::secondary(QUOTE),
-            crate::board::buttons::Button::secondary(COPY),
-        ],
-        Align::Left,
-        None,
+        Rect::new(
+            inner.x + 1,
+            inner.y + ENTRIES.len() as u16,
+            inner.width - 1,
+            1,
+        ),
+        Line::styled(HINT, dim),
     );
     Some(Menu {
-        quote: painted[0]?,
-        copy: painted[1]?,
+        bounds,
+        quote: lines[0],
+        copy: lines[1],
     })
 }
 
@@ -101,47 +154,70 @@ pub(super) fn paint(
 mod tests {
     use super::*;
 
-    const AREA: Rect = Rect::new(10, 5, 60, 20);
+    const PANE: Rect = Rect::new(10, 5, 60, 20);
+    const FRAME: Rect = Rect::new(0, 0, 100, 36);
+
+    fn at(end: (u16, u16), first: u16) -> Rect {
+        place(PANE, FRAME, end, first).unwrap()
+    }
+
+    #[test]
+    fn the_box_is_as_wide_as_its_widest_line_and_holds_every_entry() {
+        assert_eq!((width(), height()), (14, 5));
+        assert!(TITLE.width() as u16 + 2 <= width());
+    }
 
     #[test]
     fn the_menu_opens_below_the_selection_end() {
-        let at = place(AREA, (30, 8), 8).unwrap();
-        assert_eq!((at.x, at.y, at.height), (30, 9, 1));
-        assert_eq!(at.width, 18);
+        let menu = at((30, 8), 8);
+        assert_eq!((menu.x, menu.y), (30, 9));
+        assert_eq!((menu.width, menu.height), (14, 5));
     }
 
     #[test]
     fn near_the_right_edge_it_flips_left_to_end_at_the_selection_end() {
-        let at = place(AREA, (66, 8), 8).unwrap();
-        assert_eq!((at.right(), at.y), (66, 9));
-        assert!(at.x >= AREA.x);
-        let at = place(AREA, (70, 8), 8).unwrap();
-        assert_eq!(at.right(), AREA.right(), "the end is the area's edge");
-        let at = place(AREA, (12, 8), 8).unwrap();
-        assert_eq!(at.x, 12, "a roomy left end does not flip");
+        let menu = at((66, 8), 8);
+        assert_eq!((menu.right(), menu.y), (66, 9));
+        let menu = at((70, 8), 8);
+        assert_eq!(menu.right(), PANE.right(), "the end is the pane's edge");
+        assert_eq!(at((12, 8), 8).x, 12, "a roomy left end does not flip");
     }
 
     #[test]
-    fn on_the_last_row_it_opens_above_the_first_selected_row() {
-        let at = place(AREA, (30, 24), 22).unwrap();
-        assert_eq!((at.x, at.y), (30, 21));
-        let at = place(AREA, (68, 24), 24).unwrap();
-        assert_eq!((at.right(), at.y), (68, 23));
+    fn near_the_bottom_it_opens_above_the_first_selected_row() {
+        let menu = at((30, 24), 22);
+        assert_eq!((menu.x, menu.bottom()), (30, 22));
+        let menu = at((68, 24), 24);
+        assert_eq!((menu.right(), menu.bottom()), (68, 24));
     }
 
     #[test]
-    fn with_no_room_below_or_above_there_is_no_menu() {
-        assert_eq!(place(AREA, (30, 5), 5).map(|at| at.y), Some(6));
-        let one = Rect::new(10, 5, 60, 1);
-        assert_eq!(place(one, (30, 5), 5), None);
-        assert_eq!(place(Rect::new(10, 5, 17, 20), (12, 8), 8), None);
+    fn a_pane_without_room_falls_back_to_the_frame_and_then_to_no_menu() {
+        let short = Rect::new(10, 5, 60, 6);
+        let menu = place(short, FRAME, (30, 8), 8).unwrap();
+        assert_eq!((menu.y, menu.bottom()), (9, 14), "below, over the frame");
+        let tiny = Rect::new(0, 0, 60, 6);
+        let menu = place(tiny, tiny, (30, 3), 3);
+        assert_eq!(menu, None);
+        assert_eq!(
+            place(
+                Rect::new(10, 5, 10, 20),
+                Rect::new(10, 5, 10, 20),
+                (12, 8),
+                8
+            ),
+            None
+        );
     }
 
     #[test]
-    fn a_menu_below_never_touches_the_selected_rows() {
-        for (end, first) in [((30, 8), 6), ((66, 12), 10), ((15, 24), 20)] {
-            let at = place(AREA, end, first).unwrap();
-            assert!(at.y > end.1 || at.y < first, "{end:?} {first} {at:?}");
+    fn the_box_never_touches_the_selected_rows() {
+        for (end, first) in [((30, 8), 6), ((66, 12), 10), ((15, 24), 20), ((15, 12), 12)] {
+            let menu = at(end, first);
+            assert!(
+                menu.y > end.1 || menu.bottom() <= first,
+                "{end:?} {first} {menu:?}"
+            );
         }
     }
 }

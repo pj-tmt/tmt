@@ -667,7 +667,11 @@ impl App {
         let point = (event.column, event.row).into();
         let state = self.conversation.borrow();
         let selection = state.selection.as_ref()?;
-        let entry = selection.control()?.entry_at(point)?;
+        let menu = selection.control()?;
+        // The border and the hint belong to the box: they neither act nor start a selection.
+        let Some(entry) = menu.entry_at(point) else {
+            return menu.bounds().contains(point).then_some(Effect::None);
+        };
         let passage = state.passage(selection)?;
         drop(state);
         Some(self.run_selection_entry(entry, passage))

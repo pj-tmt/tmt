@@ -236,10 +236,13 @@ first or last row, scrolls one line per pointer event, so holding the pointer st
 at the edge does not keep scrolling. The selection ends on Esc, an outside press, a
 new drag, a conversation switch, or when it can no longer be shown: its lines are
 gone, an end's text changed before its end, or a resize re-wrapped the transcript.
-A selection opens the Selection menu (`conversation/source/menu.rs`): `q Quote` and
-`y Copy` on one row directly below the selection end, flipped left of the end near the
-right edge and above the first selected row near the bottom, so it never covers selected
-text (no room, no menu; the keys still work). Keys and mouse run the same entries.
+A selection opens the Selection menu (`conversation/source/menu.rs`): a bordered box with
+`q› Quote` and `y  Copy` on their own lines and a dim `Esc clears`, directly below the
+selection end. It flips left of the end near the right edge and opens above the first
+selected row near the bottom, so it never covers selected text; it stays inside the
+pane and falls back to the frame when the pane is too short (no room at all, no menu; the
+keys still work). Keys and mouse run the same entries; a press on the border or the hint
+neither acts nor starts a selection.
 Copy and Quote carry the Markdown source of the selected messages
 (`conversation/copy.rs`; each displayed line keeps its message and source line): tables,
 code (with its fences), headings, lists and quotes as whole source lines, and a selection
