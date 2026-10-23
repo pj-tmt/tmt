@@ -1,4 +1,3 @@
-import { shellIconNodes, type ShellIcon } from './shell-icons.js';
 export const browserUiClasses = Object.freeze({
   chips: 'tmt-ui-chips',
   chip: 'tmt-ui-chip',
@@ -243,18 +242,4 @@ export function createActionMark(doc: Document = document): HTMLElement {
   mark.dataset.busy = 'false';
   mark.append(createBusyMark(doc));
   return mark;
-}
-
-/** A line icon from the shared icon nodes, for a framework-free page: it takes the text colour. */
-export function createIcon(name: ShellIcon, doc: Document = document): SVGSVGElement {
-  const svg = doc.createElementNS(SVG, 'svg');
-  svg.setAttribute('class', browserUiClasses.glyph);
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  for (const [tag, attributes] of shellIconNodes[name]) {
-    const node = doc.createElementNS(SVG, tag);
-    for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
-    svg.append(node);
-  }
-  return svg;
 }

@@ -6,6 +6,7 @@
   "exports": {
     "./static.css": "./generated/static.css",
     "./static": "./src/static.ts",
+    "./glyph": "./src/glyph.ts",
     "./busy-mark": "./src/busy-mark-gate.ts",
     "./shell": "./src/shell.ts",
     "./shell-host": "./src/shell-host.ts",

@@ -567,7 +567,8 @@ state, a React component.
 - **Meter.** `tmt-ui-meter` is a read-only measure; its fill's width is `--tmt-ui-meter-fill`
   (0-100) and its colour comes from a chart series class (`tmt-ui-chart-sN`). Give it `role="img"`
   and a label that states the value.
-- **Glyph.** `createIcon(name)` returns a `tmt-ui-glyph`: a line icon from the shell's icon set,
+- **Glyph.** `createIcon(name)` (from `@tmt/browser-ui/glyph`, outside the static graph because it reads the
+  shell's icon data) returns a `tmt-ui-glyph`: a line icon from the shell's icon set,
   drawn in the colour of its text and hidden from assistive tech.
 - **Page head.** `tmt-ui-page-head` holds a `tmt-ui-page-title` (the display face, the page's
   first read) over a `tmt-ui-page-subtitle`. Static only.

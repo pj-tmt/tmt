@@ -2,7 +2,8 @@
  * time from the module menu. Rows are the shared list rows; every state is a mark and a word. */
 import { pageLoading } from './page-loading.js';
 import type { RemoteShell } from './remote-shell.js';
-import { browserUiClasses, createIcon } from '@tmt/browser-ui/static';
+import { browserUiClasses } from '@tmt/browser-ui/static';
+import { createIcon } from '@tmt/browser-ui/glyph';
 import { notAvailable, notInBrowser } from './not-available.js';
 import {
   AGENT_STATES,

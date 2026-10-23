@@ -1665,111 +1665,6 @@ function remoteMenu(actions, shell = remoteShell()) {
 	};
 }
 //#endregion
-//#region ../../../../design/browser-ui/src/shell-icons.ts
-/**
-* Lucide 1.52.0 (ISC, see `LICENSE.lucide`) node data for the shell, so static hosts draw the
-* same icons without a React or Lucide runtime. The first eight are the module icon allow-list
-* of Remote's describe contract; an unknown name falls back to `box`.
-*/
-var shellIconNodes = {
-	house: [["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" }], ["path", { d: "M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
-	"file-text": [
-		["path", { d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" }],
-		["path", { d: "M14 2v5a1 1 0 0 0 1 1h5" }],
-		["path", { d: "M10 9H8" }],
-		["path", { d: "M16 13H8" }],
-		["path", { d: "M16 17H8" }]
-	],
-	"monitor-smartphone": [
-		["path", { d: "M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8" }],
-		["path", { d: "M10 19v-3.96 3.15" }],
-		["path", { d: "M7 19h5" }],
-		["rect", {
-			width: "6",
-			height: "10",
-			x: "16",
-			y: "12",
-			rx: "2"
-		}]
-	],
-	users: [
-		["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }],
-		["path", { d: "M16 3.128a4 4 0 0 1 0 7.744" }],
-		["path", { d: "M22 21v-2a4 4 0 0 0-3-3.87" }],
-		["circle", {
-			cx: "9",
-			cy: "7",
-			r: "4"
-		}]
-	],
-	"chart-column": [
-		["path", { d: "M3 3v16a2 2 0 0 0 2 2h16" }],
-		["path", { d: "M18 17V9" }],
-		["path", { d: "M13 17V5" }],
-		["path", { d: "M8 17v-3" }]
-	],
-	search: [["path", { d: "m21 21-4.34-4.34" }], ["circle", {
-		cx: "11",
-		cy: "11",
-		r: "8"
-	}]],
-	settings: [["path", { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }], ["circle", {
-		cx: "12",
-		cy: "12",
-		r: "3"
-	}]],
-	box: [
-		["path", { d: "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" }],
-		["path", { d: "m3.3 7 8.7 5 8.7-5" }],
-		["path", { d: "M12 22V12" }]
-	],
-	"panel-left-close": [
-		["rect", {
-			width: "18",
-			height: "18",
-			x: "3",
-			y: "3",
-			rx: "2"
-		}],
-		["path", { d: "M9 3v18" }],
-		["path", { d: "m16 15-3-3 3-3" }]
-	],
-	"panel-left-open": [
-		["rect", {
-			width: "18",
-			height: "18",
-			x: "3",
-			y: "3",
-			rx: "2"
-		}],
-		["path", { d: "M9 3v18" }],
-		["path", { d: "m14 9 3 3-3 3" }]
-	],
-	menu: [
-		["path", { d: "M4 5h16" }],
-		["path", { d: "M4 12h16" }],
-		["path", { d: "M4 19h16" }]
-	],
-	"chevron-down": [["path", { d: "m6 9 6 6 6-6" }]],
-	"chevron-right": [["path", { d: "m9 18 6-6-6-6" }]],
-	"triangle-alert": [
-		["path", { d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" }],
-		["path", { d: "M12 9v4" }],
-		["path", { d: "M12 17h.01" }]
-	]
-};
-var moduleIcons = [
-	"house",
-	"file-text",
-	"monitor-smartphone",
-	"users",
-	"chart-column",
-	"search",
-	"settings",
-	"box"
-];
-var moduleIcon = (name) => moduleIcons.includes(name) ? name : "box";
-//#endregion
 //#region ../../../../design/browser-ui/src/static.ts
 var browserUiClasses = Object.freeze({
 	chips: "tmt-ui-chips",
@@ -1926,13 +1821,13 @@ var busyDots = [
 ];
 /** The radius of each busy-mark dot on the 16x16 viewBox. */
 var busyDotRadius = 1.6;
-var SVG$2 = "http://www.w3.org/2000/svg";
+var SVG$3 = "http://www.w3.org/2000/svg";
 /** The busy mark's SVG (its dots in currentColor), as `BusyMark` renders it. */
 function busySvg(doc) {
-	const svg = doc.createElementNS(SVG$2, "svg");
+	const svg = doc.createElementNS(SVG$3, "svg");
 	svg.setAttribute("viewBox", "0 0 16 16");
 	for (const [cx, cy] of busyDots) {
-		const dot = doc.createElementNS(SVG$2, "circle");
+		const dot = doc.createElementNS(SVG$3, "circle");
 		dot.setAttribute("class", browserUiClasses.busyDot);
 		dot.setAttribute("cx", String(cx));
 		dot.setAttribute("cy", String(cy));
@@ -1947,19 +1842,6 @@ function createBusyMark(doc = document) {
 	busy.className = browserUiClasses.busyMark;
 	busy.append(busySvg(doc));
 	return busy;
-}
-/** A line icon from the shared icon nodes, for a framework-free page: it takes the text colour. */
-function createIcon(name, doc = document) {
-	const svg = doc.createElementNS(SVG$2, "svg");
-	svg.setAttribute("class", browserUiClasses.glyph);
-	svg.setAttribute("viewBox", "0 0 24 24");
-	svg.setAttribute("aria-hidden", "true");
-	for (const [tag, attributes] of shellIconNodes[name]) {
-		const node = doc.createElementNS(SVG$2, tag);
-		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
-		svg.append(node);
-	}
-	return svg;
 }
 //#endregion
 //#region src/remote-registry.ts
@@ -2670,6 +2552,111 @@ function claimIconActionTooltip(document, dismiss) {
 	};
 }
 //#endregion
+//#region ../../../../design/browser-ui/src/shell-icons.ts
+/**
+* Lucide 1.52.0 (ISC, see `LICENSE.lucide`) node data for the shell, so static hosts draw the
+* same icons without a React or Lucide runtime. The first eight are the module icon allow-list
+* of Remote's describe contract; an unknown name falls back to `box`.
+*/
+var shellIconNodes = {
+	house: [["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" }], ["path", { d: "M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
+	"file-text": [
+		["path", { d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" }],
+		["path", { d: "M14 2v5a1 1 0 0 0 1 1h5" }],
+		["path", { d: "M10 9H8" }],
+		["path", { d: "M16 13H8" }],
+		["path", { d: "M16 17H8" }]
+	],
+	"monitor-smartphone": [
+		["path", { d: "M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8" }],
+		["path", { d: "M10 19v-3.96 3.15" }],
+		["path", { d: "M7 19h5" }],
+		["rect", {
+			width: "6",
+			height: "10",
+			x: "16",
+			y: "12",
+			rx: "2"
+		}]
+	],
+	users: [
+		["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }],
+		["path", { d: "M16 3.128a4 4 0 0 1 0 7.744" }],
+		["path", { d: "M22 21v-2a4 4 0 0 0-3-3.87" }],
+		["circle", {
+			cx: "9",
+			cy: "7",
+			r: "4"
+		}]
+	],
+	"chart-column": [
+		["path", { d: "M3 3v16a2 2 0 0 0 2 2h16" }],
+		["path", { d: "M18 17V9" }],
+		["path", { d: "M13 17V5" }],
+		["path", { d: "M8 17v-3" }]
+	],
+	search: [["path", { d: "m21 21-4.34-4.34" }], ["circle", {
+		cx: "11",
+		cy: "11",
+		r: "8"
+	}]],
+	settings: [["path", { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }], ["circle", {
+		cx: "12",
+		cy: "12",
+		r: "3"
+	}]],
+	box: [
+		["path", { d: "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" }],
+		["path", { d: "m3.3 7 8.7 5 8.7-5" }],
+		["path", { d: "M12 22V12" }]
+	],
+	"panel-left-close": [
+		["rect", {
+			width: "18",
+			height: "18",
+			x: "3",
+			y: "3",
+			rx: "2"
+		}],
+		["path", { d: "M9 3v18" }],
+		["path", { d: "m16 15-3-3 3-3" }]
+	],
+	"panel-left-open": [
+		["rect", {
+			width: "18",
+			height: "18",
+			x: "3",
+			y: "3",
+			rx: "2"
+		}],
+		["path", { d: "M9 3v18" }],
+		["path", { d: "m14 9 3 3-3 3" }]
+	],
+	menu: [
+		["path", { d: "M4 5h16" }],
+		["path", { d: "M4 12h16" }],
+		["path", { d: "M4 19h16" }]
+	],
+	"chevron-down": [["path", { d: "m6 9 6 6 6-6" }]],
+	"chevron-right": [["path", { d: "m9 18 6-6-6-6" }]],
+	"triangle-alert": [
+		["path", { d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" }],
+		["path", { d: "M12 9v4" }],
+		["path", { d: "M12 17h.01" }]
+	]
+};
+var moduleIcons = [
+	"house",
+	"file-text",
+	"monitor-smartphone",
+	"users",
+	"chart-column",
+	"search",
+	"settings",
+	"box"
+];
+var moduleIcon = (name) => moduleIcons.includes(name) ? name : "box";
+//#endregion
 //#region ../../../../design/browser-ui/src/shell.ts
 /** The counts a menu entry draws, in order: a plain total only above zero (a page list of none has
 * nothing to count), then the needs-you count, which exists only above zero. */
@@ -2848,7 +2835,7 @@ function shellRail(answer, place, host) {
 	};
 }
 var RAIL_KEY = "tmt.shell.rail";
-var SVG$1 = "http://www.w3.org/2000/svg";
+var SVG$2 = "http://www.w3.org/2000/svg";
 function railCollapsed() {
 	try {
 		return localStorage.getItem(RAIL_KEY) === "collapsed";
@@ -2862,12 +2849,12 @@ function rememberRail(collapsed) {
 	} catch {}
 }
 function icon(document, name) {
-	const svg = document.createElementNS(SVG$1, "svg");
+	const svg = document.createElementNS(SVG$2, "svg");
 	svg.setAttribute("class", "tmt-ui-shell-icon");
 	svg.setAttribute("viewBox", "0 0 24 24");
 	svg.setAttribute("aria-hidden", "true");
 	for (const [tag, attributes] of shellIconNodes[name]) {
-		const node = document.createElementNS(SVG$1, tag);
+		const node = document.createElementNS(SVG$2, tag);
 		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
 		svg.append(node);
 	}
@@ -3507,9 +3494,9 @@ function round(value) {
 * DOM helpers the leaf's chart painters share. No style attributes in markup: every look comes from a
 * `tmt-ui-chart-*` class, so a chart works under a strict style policy.
 */
-var SVG = "http://www.w3.org/2000/svg";
+var SVG$1 = "http://www.w3.org/2000/svg";
 function svgEl(name, attrs = {}, className) {
-	const node = document.createElementNS(SVG, name);
+	const node = document.createElementNS(SVG$1, name);
 	for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
 	if (className) node.setAttribute("class", className);
 	return node;
@@ -5057,6 +5044,22 @@ function moduleLoad(rail, entry, here, fallback) {
 		link,
 		entry: target.href
 	} : { link };
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/glyph.ts
+var SVG = "http://www.w3.org/2000/svg";
+/** A line icon from the shared icon nodes, for a framework-free page: it takes the text colour. */
+function createIcon(name, doc = document) {
+	const svg = doc.createElementNS(SVG, "svg");
+	svg.setAttribute("class", browserUiClasses.glyph);
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("aria-hidden", "true");
+	for (const [tag, attributes] of shellIconNodes[name]) {
+		const node = doc.createElementNS(SVG, tag);
+		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+		svg.append(node);
+	}
+	return svg;
 }
 //#endregion
 //#region src/ops-source.ts
