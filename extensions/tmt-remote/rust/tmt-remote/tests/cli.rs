@@ -3718,7 +3718,7 @@ fn owner_sending_scope_cli_works_stopped_and_running_without_changing_other_poli
     let toggle = |pilot: &Pilot, mode: &str| {
         let output = pilot
             .command()
-            .args(["devices", "talk", &id, mode, "--json"])
+            .args(["devices", "talk", "Owner device", mode, "--json"])
             .output()
             .unwrap();
         assert!(
@@ -3745,7 +3745,7 @@ fn owner_sending_scope_cli_works_stopped_and_running_without_changing_other_poli
     assert!(human.status.success());
     assert_eq!(
         String::from_utf8(human.stdout).unwrap(),
-        "✓ Disabled sending for Owner device\n"
+        "✓ Sending is off for Owner device\n"
     );
     let on = toggle(&pilot, "on");
     assert_eq!(on["revision"], 3);

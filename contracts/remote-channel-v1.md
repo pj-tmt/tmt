@@ -750,6 +750,11 @@ export-based backup, automatic key replacement, passkey renewal or remote grant 
 
 ### Trust grants and remote lifecycle
 
+Owner-local `devices talk <person|client-id> on|off` and `devices revoke <person|client-id>`
+resolve an exact client ID first, otherwise a unique active device name. Duplicate names refuse
+with the matching client IDs; no first-match selection occurs. Selection stays under the Store
+lock through the existing grant mutation. Names are command selectors, not persisted authority.
+
 A grant makes one device a trusted source on one machine. Grant JSON names are `clientId`,
 `machineId`, `profile`, `publicKey`, `kind`, `origin`, `name`, `agents`, `scopes`, `mode`,
 `issuedAtMs`, `expiresAtMs`, `revision` and `disabled`. `agents` is the string `"all"` (every

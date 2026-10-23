@@ -110,11 +110,11 @@ const TALK: CommandSpec = CommandSpec {
     name: "talk",
     summary: "Enable or disable sending for one paired device",
     examples: &[Example {
-        command: "tmt remote devices talk <client-id> on|off",
+        command: "tmt remote devices talk <person> on|off",
         note: "Keep its other grant policy unchanged",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Only the local owner can run this command. A changed scope ends Sessions on the previous revision; revoked devices cannot be enabled.",
+    details: "Use a unique device name or a client ID. Only the local owner can run this command. A changed scope ends Sessions on the previous revision; revoked devices cannot be enabled.",
 };
 const DEVICES: CommandSpec = CommandSpec {
     name: "devices",
@@ -125,7 +125,7 @@ const DEVICES: CommandSpec = CommandSpec {
             note: "Show each device with its fingerprint words",
         },
         Example {
-            command: "tmt remote devices revoke <client-id>",
+            command: "tmt remote devices revoke <person>",
             note: "End a device's access now",
         },
         Example {
@@ -140,8 +140,8 @@ const REVOKE: CommandSpec = CommandSpec {
     name: "revoke",
     summary: "Revoke one paired device",
     examples: &[Example {
-        command: "tmt remote devices revoke <client-id>",
-        note: "The client ID is shown by tmt remote devices",
+        command: "tmt remote devices revoke <person>",
+        note: "Use a unique device name or the client ID shown by tmt remote devices",
     }],
     outputs: OutputModes::HumanAndJson,
     details: "Revoking a revoked device reports it again. Pair again to trust the device anew.\nTo revoke this machine's Firestore sign-in instead, use tmt remote sync revoke.",
@@ -1478,15 +1478,12 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
         return Ok(tmt_cli_style::message::success(
             &mut output,
             terminal,
-            &format!(
-                "{} {name}",
-                match request["op"].as_str() {
-                    Some("rename") => "Renamed",
-                    Some("talk") if request["enabled"] == true => "Enabled sending for",
-                    Some("talk") => "Disabled sending for",
-                    _ => "Revoked",
-                }
-            ),
+            &match request["op"].as_str() {
+                Some("rename") => format!("Renamed {name}"),
+                Some("talk") if request["enabled"] == true => format!("Sending is on for {name}."),
+                Some("talk") => format!("Sending is off for {name}."),
+                _ => format!("Revoked {name}. This machine no longer accepts their requests."),
+            },
         )?);
     }
     use tmt_cli_style::{

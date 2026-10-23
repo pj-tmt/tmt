@@ -543,7 +543,7 @@ Home/Remote/SDK; read-only auto-pair; no companions/skills; [release gates](.age
 
 [Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
 settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
-Remote owns authority; UI grants none. Local: keys/grants/signatures/last-use/cleanup.
+Remote owns authority; UI grants none. Native pairing proofs/uid state only.
 Firestore: Auth/Rules only; Core never uses Remote trust.
 `message`: envelopes/grants/scope/allowlist/hold/uncertainty/audit; names→UUID.
 Proposed (#4533): `talk` → Remote interface → target host → driver.

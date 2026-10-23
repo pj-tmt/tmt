@@ -10,6 +10,7 @@ pub mod cloud_command;
 pub mod cloud_hpke;
 pub mod cloud_inbox;
 pub mod cloud_keys;
+pub mod cloud_pairing;
 pub mod control;
 pub mod core;
 pub mod crypto;

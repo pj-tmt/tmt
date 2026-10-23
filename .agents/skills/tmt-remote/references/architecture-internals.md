@@ -9,6 +9,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `http`, `routes`, `site`, `limits`               | Loopback door framing and bounds, `/r/` binding routes, route dispatch; every bound is named in `limits`                                                                                                                                            |
 | `wire`, `canonical`, `crypto`                    | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                                                                                         |
 | `cloud_hpke`, `cloud_keys`                       | Fixed native HPKE descriptors/carriers and consuming response contexts; private Document keyring renewed at serve startup and existing Site maintenance; no transport, peer authority or replay ledger                                              |
+| `cloud_pairing`                                  | Native enrollment/uid-change transcripts and verified proofs; Store confirmation, original receipts and desired uid routes under the existing lease; no provider or CLI enrollment yet                                                              |
 | `session`, `admission`                           | `session.open`, one normal message in flight per session, durable sequence consumption and admitted permits                                                                                                                                         |
 | `message`                                        | Common signed-message receive service: session admission, operation/journal hand-off and signed refusal/audit responses; foreground composition owns the service, not a backend                                                                     |
 | `transport`                                      | Pure envelope/result driver port (`append`, finite `subscribe`, explicit `ack`); loopback `routes` forwards to the injected common service, never owns admission/effects                                                                            |
@@ -297,3 +298,22 @@ cloud_inbox_emulator -- --ignored --nocapture` from `rust/`, in an Infra-approve
 both emulator hosts set to loopback and the fixture's `demo-cloud-inbox` project. It has no real-provider
 fallback; without the explicit feature the test contains no executable case. Fixture setup alone seeds
 registrations. The maintained ordinary-user driver uses `ProductionHttp`, common admission and the journal.
+
+## Native pairing state library
+
+`cloud_pairing` separates byte proofs from local-owner confirmation. Its distinct transcript binds
+project, owner UUID/key, offer/challenge/generation/expiry, peer UUID/key, authenticated uid, name
+and candidate nonce. One-shot reroutes sign the target machine UUID/key, peer, new uid, generation
+and timestamp; the provider createTime supplies the 60-second freshness reference. It reuses local pairing MAC, possession, fingerprint and receipt-proof primitives.
+A verified proof alone grants nothing. Terminal enrollment and Firestore mailbox composition remain
+pending; the library never runs Core or HTTP.
+
+The additive `cloud_pairing` migration uses the existing Store/lease. Explicit owner confirmation
+atomically saves a read-only grant, original receipt/proof and desired route. Exact lost-join
+observation needs possession plus the saved candidate digest before the original expiry; it retains
+no raw code or response key. The sender reserves its counter durably before signing. A native-key proof with a strictly greater
+generation replaces a uid only under the current grant fence, without changing permissions. Revoke
+marks routes for cleanup inside the existing revoker transaction.
+Provider publication must apply each peer's desired route swap atomically; acknowledgments compare
+project/uid/peer/generation/revocation, so stale completion cannot hide newer changes. Offline work
+stays pending. This state is not a second operation ledger.
