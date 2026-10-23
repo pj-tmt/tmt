@@ -219,8 +219,10 @@ fn select_command_in(
         ));
     };
     let harness = session.harness.as_str();
-    // `--retry` tries the exact session once more, whatever the probe says.
+    // `--retry` tries the exact session once more, whatever the probe says. A
+    // move needs a running agent, whose transcript may not be written yet.
     if !resume.retry
+        && !resume.move_running
         && let Some(environment) = environment
         && let Some(failure) = unrecoverable(
             name,
@@ -672,6 +674,15 @@ mod presence_tests {
     }
 
     fn select(home: &Home, retry: bool, stale: bool) -> Result<Launch, Failure> {
+        select_with(home, retry, stale, false)
+    }
+
+    fn select_with(
+        home: &Home,
+        retry: bool,
+        stale: bool,
+        move_running: bool,
+    ) -> Result<Launch, Failure> {
         select_command_in(
             &mut RuntimeRegistry::first_party(),
             RunRequest {
@@ -680,7 +691,7 @@ mod presence_tests {
                 resume: Some(super::super::Resume {
                     driver: None,
                     retry,
-                    move_running: false,
+                    move_running,
                 }),
                 save: false,
                 options: &Default::default(),
@@ -758,5 +769,12 @@ mod presence_tests {
         fs::write(home.session_file(), b"{}\n").unwrap();
         resumed(select(&home, false, false));
         assert_eq!(refusal(select(&home, false, true)).1, "session_stale");
+    }
+
+    #[test]
+    fn a_move_never_probes_because_its_agent_is_running() {
+        // A live session may not have written its transcript yet.
+        let home = Home::new("move");
+        resumed(select_with(&home, false, false, true));
     }
 }

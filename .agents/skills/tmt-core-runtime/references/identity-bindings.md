@@ -234,17 +234,20 @@ delivery. They install and launch nothing.
   `--move` command; unknown evidence refuses with a check-the-old-pane next step.
   Only conclusive exit or a different native process incarnation permits continuing.
   Fresh launches keep their existing degraded-evidence policy.
-- Before an exact resume without `--retry`, the session's first-party driver probes for its
-  transcript by exact UUID only (`runtime::session_presence`): Claude
+- Before an exact resume without `--retry` or `--move`, the session's first-party driver probes
+  for its transcript by exact UUID only (`runtime::session_presence`): Claude
   `projects/*/<uuid>.jsonl`, Codex `sessions/YYYY/MM/DD/rollout-*-<uuid>.jsonl`. It lists
   directories without following symlinks, admits a file only through the `runtime::transcript`
-  boundary, and reads no content, within 500 ms and 16,384 entries. `Missing` (the whole tree
-  was read, no file names the session) refuses with `RESUME_UNAVAILABLE` and
-  `error.reason: session_missing`; a named file that is denied, a symlink or not regular is
-  `session_unreadable`. Any doubt (no tree, an unlistable directory, the deadline, the bound,
-  another open error, a non-UUID ID, a community driver) is `Unknown` and resumes as before.
-  The probe marks, forgets and launches nothing; `--retry` skips it. A stale refusal carries
-  `error.reason: session_stale`.
+  boundary, and reads no content; 16,384 entries, and 500 ms checked between entries. `Missing`
+  (the whole tree was read, no file names the session) refuses with `RESUME_UNAVAILABLE` and
+  `error.reason: session_missing`; a named file whose open is denied, a symlink or not regular
+  is `session_unreadable`. Any doubt is `Unknown` and resumes as before: no tree, a linked or
+  unlistable directory, the deadline, the bound, another open error, a file that opens but
+  fails the transcript boundary, a non-UUID ID, a community driver, or a Codex match in its flat
+  `archived_sessions` (Codex can unarchive a thread). A move is not probed: its agent runs, and
+  its transcript may not be written yet. The probe marks, forgets and launches nothing; `--retry`
+  skips it. A stale refusal carries `error.reason: session_stale`. Read `error.reason` with
+  `error.code`: a runtime refusal keeps its own reason vocabulary.
 - Explicit `resume <name> --move` preflights the exact session and caller destination before
   stopping anything. The lifecycle driver proves the captured process is its private main
   agent under the old pane; a pane process, nested agent or shared Codex server refuses.

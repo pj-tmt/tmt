@@ -807,7 +807,8 @@ with `RESUME_UNAVAILABLE` and `error.reason` `session_missing` or
 `session_unreadable`; nothing is marked or forgotten. A resume
 that fails before the provider confirms the session marks it stale
 (`session_stale`); a stale session needs `tmt resume --retry <name>` or
-`tmt resume --forget <name>`. `--retry` also tries a session the check refused. Never
+`tmt resume --forget <name>`. `--retry` also tries a session the check refused,
+and `--move` skips the check. Never
 combine `--resume` with an explicit command, and never resend a task after a
 failed resume. Codex's opt-in channel resumes the exact selected thread, never
 a fresh substitute. Claude exact resume also creates a fresh channel enrollment

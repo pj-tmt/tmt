@@ -95,6 +95,11 @@ fn resume_move_stops_only_the_recorded_agent_and_preserves_the_identity_and_sess
         let fixture = Fixture::new(&format!("move-{provider}"));
         destination(&fixture);
         let (old, process) = start(&fixture, provider, fixture.approve());
+        // Readable provider trees without this session's transcript: a move of a
+        // running agent must not be refused as gone (#4062).
+        for tree in [".claude/projects/-src", ".codex/sessions/2026/10/23"] {
+            fs::create_dir_all(fixture.root.join("home").join(tree)).unwrap();
+        }
         let before = remembered(&fixture);
         let executable = fixture.root.join("bin").join(provider);
         // The running stand-in already loaded sh; replace only our own link.

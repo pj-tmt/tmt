@@ -221,3 +221,64 @@ fn first_party_drivers_look_only_in_their_own_private_tree() {
         SessionPresence::Unknown
     );
 }
+
+#[test]
+fn a_symlinked_project_directory_is_doubt_not_absence() {
+    let directory = TestDirectory::new();
+    let elsewhere = directory.path.join("elsewhere");
+    fs::create_dir_all(&elsewhere).unwrap();
+    fs::write(elsewhere.join(format!("{SESSION}.jsonl")), b"{}\n").unwrap();
+    let root = directory.path.join("projects");
+    fs::create_dir_all(&root).unwrap();
+    // Not followed, but the session may live behind it.
+    symlink(&elsewhere, root.join("-linked")).unwrap();
+    assert_eq!(probe_claude(&root), SessionPresence::Unknown);
+}
+
+#[test]
+fn a_file_that_opens_but_fails_the_transcript_boundary_is_doubt() {
+    let directory = TestDirectory::new();
+    let project = project(&directory);
+    let file = project.join(format!("{SESSION}.jsonl"));
+    fs::write(&file, b"{}\n").unwrap();
+    // The boundary also fails on races such as a rotated file; that is doubt.
+    let other_root = directory.path.join("other");
+    fs::create_dir_all(&other_root).unwrap();
+    assert_eq!(admit(&other_root, &file), SessionPresence::Unknown);
+    assert_eq!(
+        admit(&directory.path.join("projects"), &file),
+        SessionPresence::Present
+    );
+}
+
+#[test]
+fn an_archived_codex_thread_is_doubt_not_gone() {
+    use crate::{runtime::RuntimeRegistry, skill_installation::ProviderEnvironment};
+    let directory = TestDirectory::new();
+    let home = directory.path.join("home");
+    let environment = ProviderEnvironment::from_parts(&home, &directory.path, Vec::new(), []);
+    let registry = RuntimeRegistry::first_party();
+    let codex = remembered("codex", crate::drivers::codex::MODE_EMBEDDED);
+    fs::create_dir_all(home.join(".codex/sessions/2026/10/23")).unwrap();
+    let archived = home.join(".codex/archived_sessions");
+    fs::create_dir_all(&archived).unwrap();
+    fs::write(
+        archived.join(format!("rollout-2026-10-01T00-00-00-{OTHER}.jsonl")),
+        b"{}\n",
+    )
+    .unwrap();
+    assert_eq!(
+        registry.session_presence(&codex, &environment),
+        SessionPresence::Missing
+    );
+    // Codex can unarchive a thread, so an archived one is not gone.
+    fs::write(
+        archived.join(format!("rollout-2026-10-01T00-00-00-{SESSION}.jsonl")),
+        b"{}\n",
+    )
+    .unwrap();
+    assert_eq!(
+        registry.session_presence(&codex, &environment),
+        SessionPresence::Unknown
+    );
+}

@@ -4,16 +4,13 @@ use super::move_session::{SESSION, destination, remembered, start};
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 
+/// The fake provider stays off PATH: without the probe this resume would bind
+/// and try to launch, and fail fast instead of starting an agent.
 fn resume(fixture: &Fixture) -> Output {
-    let mut command = fixture.command_in(Some("f2"), &["resume", "worker"]);
-    command.env(
-        "PATH",
-        format!(
-            "{}:/usr/bin:/bin:/usr/sbin:/sbin",
-            fixture.root.join("bin").display()
-        ),
-    );
-    command.output().unwrap()
+    fixture
+        .command_in(Some("f2"), &["resume", "worker"])
+        .output()
+        .unwrap()
 }
 
 #[test]
@@ -25,6 +22,9 @@ fn a_gone_or_unreadable_session_is_explained_and_nothing_is_launched() {
         let (old, process) = start(&fixture, provider, fixture.approve());
         drop(old);
         wait_until("the old provider ended", || process.seen() == Seen::Ended);
+        // The old pane no longer carries the marker, so a resume here would
+        // bind and launch; only the probe stops it.
+        fs::remove_file(fixture.root.join("driver/marker")).unwrap();
         let home = fixture.root.join("home");
         let (tree, file) = if provider == "claude" {
             let tree = home.join(".claude/projects/-src");

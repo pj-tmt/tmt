@@ -790,28 +790,53 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         crate::runtime::sampling::codex_turn(&root, session, deadline)
     }
 
-    /// Codex keeps `YYYY/MM/DD/rollout-<time>-<session>.jsonl` under `sessions`.
+    /// Codex keeps `YYYY/MM/DD/rollout-<time>-<session>.jsonl` under `sessions`,
+    /// and moves an archived thread flat into `archived_sessions`. Codex can
+    /// unarchive a thread, so an archived match is doubt, never `Missing`.
     fn session_presence(
         &self,
         session: &ProviderSessionId,
         environment: &crate::skill_installation::ProviderEnvironment,
         deadline: std::time::Instant,
     ) -> crate::runtime::session_presence::SessionPresence {
-        let root = codex_home(environment).join("sessions");
-        crate::runtime::session_presence::probe(
-            &crate::runtime::session_presence::Layout {
-                root: &root,
+        use crate::runtime::session_presence::{Layout, PRESENCE_ENTRIES, SessionPresence, probe};
+        fn rollout(name: &str, session: &str) -> bool {
+            name.strip_suffix(".jsonl")
+                .and_then(|name| name.strip_suffix(session))
+                .is_some_and(|name| name.starts_with("rollout-") && name.ends_with('-'))
+        }
+        let home = codex_home(environment);
+        let current = probe(
+            &Layout {
+                root: &home.join("sessions"),
                 depth: 3,
-                names: |name, session| {
-                    name.strip_suffix(".jsonl")
-                        .and_then(|name| name.strip_suffix(session))
-                        .is_some_and(|name| name.starts_with("rollout-") && name.ends_with('-'))
-                },
+                names: rollout,
             },
             session,
             deadline,
-            crate::runtime::session_presence::PRESENCE_ENTRIES,
-        )
+            PRESENCE_ENTRIES,
+        );
+        if current != SessionPresence::Missing {
+            return current;
+        }
+        let archived = home.join("archived_sessions");
+        match std::fs::symlink_metadata(&archived) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => current,
+            Err(_) => SessionPresence::Unknown,
+            Ok(_) => match probe(
+                &Layout {
+                    root: &archived,
+                    depth: 0,
+                    names: rollout,
+                },
+                session,
+                deadline,
+                PRESENCE_ENTRIES,
+            ) {
+                SessionPresence::Missing => SessionPresence::Missing,
+                _ => SessionPresence::Unknown,
+            },
+        }
     }
 
     fn turn_state(

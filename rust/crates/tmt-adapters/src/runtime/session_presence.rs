@@ -17,9 +17,10 @@ pub enum SessionPresence {
     Present,
     /// The whole tree was read and no file names the session: gone or expired.
     Missing,
-    /// A file names the session but TMT may not or cannot read it.
+    /// A file names the session but is denied, a symlink or not a regular file.
     Unreadable,
-    /// The probe could not decide (no tree, deadline, bound, read error).
+    /// The probe could not decide (no tree, a linked or unlistable directory,
+    /// deadline, bound, read error). The deadline is checked between entries.
     Unknown,
 }
 
@@ -61,8 +62,14 @@ pub(crate) fn probe(
             let Ok(kind) = entry.file_type() else {
                 return SessionPresence::Unknown;
             };
-            if kind.is_dir() && depth < layout.depth {
-                pending.push((entry.path(), depth + 1));
+            if depth < layout.depth {
+                // A linked or special entry is not followed, but the session
+                // may live behind it, so the tree is not fully read.
+                if kind.is_dir() {
+                    pending.push((entry.path(), depth + 1));
+                } else if !kind.is_file() {
+                    doubt = true;
+                }
                 continue;
             }
             let named = depth == layout.depth
@@ -93,8 +100,9 @@ pub(crate) fn probe(
     }
 }
 
-/// Only a denied open is evidence of an unreadable file; any other open error
-/// may be transient. An opened file must also pass the transcript boundary.
+/// Only a denied open is evidence of an unreadable file. Any other open error,
+/// or an opened file that then fails the transcript boundary (for example one
+/// rotated between the two opens), may be transient.
 fn admit(root: &Path, path: &Path) -> SessionPresence {
     let flags = nix::fcntl::OFlag::O_NOFOLLOW | nix::fcntl::OFlag::O_NONBLOCK;
     match fs::File::options()
@@ -107,7 +115,7 @@ fn admit(root: &Path, path: &Path) -> SessionPresence {
         }
         Err(_) => SessionPresence::Unknown,
         Ok(_) if transcript::open(root, path).is_some() => SessionPresence::Present,
-        Ok(_) => SessionPresence::Unreadable,
+        Ok(_) => SessionPresence::Unknown,
     }
 }
 
