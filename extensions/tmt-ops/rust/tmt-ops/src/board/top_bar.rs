@@ -112,7 +112,20 @@ fn paint(
     observations: Option<&Observations<'_>>,
     look: Look,
 ) {
-    paint_with_control(buffer, area, layer, attention, observations, look, 0);
+    let caption = Caption {
+        layer,
+        ..Caption::default()
+    };
+    paint_with_control(buffer, area, caption, attention, observations, look, 0);
+}
+
+/// What the caption names after the mark: the named view layer and the running version,
+/// with the Ops build's own when it differs from the CLI's.
+#[derive(Clone, Copy, Default)]
+pub(in crate::board) struct Caption<'a> {
+    pub layer: Option<&'a str>,
+    pub version: Option<&'a str>,
+    pub ops: Option<&'a str>,
 }
 
 /// Paints the caption and attention strip. A control of `control_width` columns takes the right
@@ -121,22 +134,35 @@ fn paint(
 pub(in crate::board) fn paint_with_control(
     buffer: &mut Buffer,
     area: Rect,
-    layer: Option<&str>,
+    Caption {
+        layer,
+        version,
+        ops,
+    }: Caption<'_>,
     attention: Option<&Attention>,
     observations: Option<&Observations<'_>>,
     look: Look,
     control_width: u16,
 ) -> Option<Rect> {
     // Whole semantic segments yield in the approved order. Never fit a partial
-    // percentage or token count into the space between the two owners.
+    // percentage or token count into the space between the two owners. The Ops build's
+    // version yields first, then the CLI's, before any of them; the mark never does.
     let stages = [
-        (true, true, true, true),
-        (false, true, true, true),
-        (false, false, true, true),
-        (false, false, false, true),
-        (false, false, false, false),
+        (2, true, true, true, true),
+        (1, true, true, true, true),
+        (0, true, true, true, true),
+        (0, false, true, true, true),
+        (0, false, false, true, true),
+        (0, false, false, false, true),
+        (0, false, false, false, false),
     ];
-    for (index, (weekly, words, window, brand)) in stages.into_iter().enumerate() {
+    for (index, (named, weekly, words, window, brand)) in stages.into_iter().enumerate() {
+        // A stage that names a version the caption has none of is the stage below it.
+        if (named == 2 && ops.is_none()) || (named > 0 && version.is_none()) {
+            continue;
+        }
+        let version = version.filter(|_| named > 0);
+        let ops = ops.filter(|_| named == 2);
         let right = attention.map(|value| {
             if words {
                 value.fitted(look, usize::from(area.width))
@@ -148,11 +174,16 @@ pub(in crate::board) fn paint_with_control(
             area.width
                 .saturating_sub((line.width() as u16).saturating_add(2))
         });
-        let mut caption = Line::from(vec![
-            Span::styled(
-                if brand { " ▚ TMT   " } else { " ▚ TMT" },
-                look.role(Role::Text),
-            ),
+        let mut caption = Line::from(vec![Span::styled(" ▚ TMT", look.role(Role::Text))]);
+        if let Some(version) = version {
+            let ops = ops.map(|ops| format!(" · ops {ops}")).unwrap_or_default();
+            caption.spans.push(Span::styled(
+                format!(" {version}{ops}"),
+                look.role(Role::Muted),
+            ));
+        }
+        caption.spans.extend([
+            Span::styled(if brand { "   " } else { "" }, look.role(Role::Text)),
             Span::styled(if brand { "OPS / UI" } else { "" }, look.role(Role::Muted)),
         ]);
         let control = (control_width > 0
@@ -166,6 +197,9 @@ pub(in crate::board) fn paint_with_control(
                     1,
                 )
             });
+        if version.is_some() && control_width > 0 && control.is_none() {
+            continue;
+        }
         if control.is_some() {
             left_width = left_width.saturating_sub(control_width + 1);
         }
@@ -174,6 +208,11 @@ pub(in crate::board) fn paint_with_control(
                 .then(|| usize::from(left_width).saturating_sub(caption.width()));
             value.line(weekly, window, width, look)
         });
+        if version.is_some()
+            && caption.width() + extra.as_ref().map_or(0, Line::width) > usize::from(left_width)
+        {
+            continue;
+        }
         if let Some(extra) = extra.filter(|line| !line.spans.is_empty()) {
             if caption.width() + extra.width() > usize::from(left_width) {
                 if index + 1 < stages.len() {
@@ -236,7 +275,7 @@ mod tests {
             let control = paint_with_control(
                 &mut buffer,
                 area,
-                None,
+                Caption::default(),
                 Some(&attention),
                 None,
                 Look::default(),
@@ -259,6 +298,115 @@ mod tests {
                 );
             }
         }
+    }
+    fn attention() -> Attention {
+        Attention {
+            online: "28".into(),
+            unread: Default::default(),
+            waiting: "9".into(),
+            blocked: "1".into(),
+            waiting_positive: true,
+            blocked_positive: true,
+            complete: true,
+            ascii: false,
+        }
+    }
+    fn top(
+        width: u16,
+        version: Option<(&str, Option<&str>)>,
+        control: u16,
+    ) -> (String, Option<Rect>) {
+        let area = Rect::new(0, 0, width, 1);
+        let mut buffer = Buffer::empty(area);
+        let control = paint_with_control(
+            &mut buffer,
+            area,
+            Caption {
+                layer: None,
+                version: version.map(|(version, _)| version),
+                ops: version.and_then(|(_, ops)| ops),
+            },
+            Some(&attention()),
+            None,
+            Look::default(),
+            control,
+        );
+        let text = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        (text, control)
+    }
+    const VERSION: (&str, Option<&str>) = ("5.0.0-alpha.378", Some("0.1.0-alpha.4"));
+    #[test]
+    fn the_version_follows_the_mark_and_a_missing_one_leaves_the_mark_alone() {
+        let (text, _) = top(150, Some(VERSION), 0);
+        assert!(
+            text.starts_with(" ▚ TMT 5.0.0-alpha.378 · ops 0.1.0-alpha.4   OPS / UI"),
+            "{text:?}"
+        );
+        let (loading, _) = top(150, None, 0);
+        assert!(loading.starts_with(" ▚ TMT   OPS / UI"), "{loading:?}");
+        let muted = Look::default().role(Role::Muted);
+        let area = Rect::new(0, 0, 150, 1);
+        let mut buffer = Buffer::empty(area);
+        paint_with_control(
+            &mut buffer,
+            area,
+            Caption {
+                layer: None,
+                version: Some("5.0.0"),
+                ops: None,
+            },
+            None,
+            None,
+            Look::default(),
+            0,
+        );
+        assert_eq!(buffer[(7, 0)].symbol(), "5");
+        assert_eq!(Some(buffer[(7, 0)].fg), muted.fg, "the version is muted");
+        assert_eq!(
+            Some(buffer[(2, 0)].fg),
+            Look::default().role(Role::Text).fg,
+            "the mark keeps its role"
+        );
+    }
+    #[test]
+    fn the_version_yields_before_any_count_the_caption_or_the_control_and_the_mark_stays() {
+        let (mut shown, mut dropped, mut only_cli) = (0, 0, 0);
+        for width in (14..=150).rev() {
+            for control in [0, 15] {
+                let (with, with_control) = top(width, Some(VERSION), control);
+                let (without, without_control) = top(width, None, control);
+                if with.contains("5.0.0-alpha.378") {
+                    shown += 1;
+                    only_cli += usize::from(!with.contains("ops 0.1.0"));
+                    assert_eq!(
+                        with_control.is_some(),
+                        without_control.is_some(),
+                        "{width}: the version never takes the control's room"
+                    );
+                    for word in ["online", "need you", "blocked", "OPS / UI"] {
+                        assert_eq!(
+                            with.contains(word),
+                            without.contains(word),
+                            "{width} {word}"
+                        );
+                    }
+                } else {
+                    dropped += 1;
+                    assert_eq!(with, without, "{width}: a dropped version leaves no trace");
+                    assert_eq!(with_control, without_control, "{width}");
+                }
+                assert_eq!(
+                    with.starts_with(" ▚ TMT"),
+                    without.starts_with(" ▚ TMT"),
+                    "{width}: the version never costs the mark: {with:?}"
+                );
+                if width >= 60 {
+                    assert!(with.starts_with(" ▚ TMT"), "{width}: {with:?}");
+                }
+            }
+        }
+        assert!(shown > 0 && dropped > 0, "{shown} shown, {dropped} dropped");
+        assert!(only_cli > 0, "the Ops build yields before the CLI version");
     }
     #[test]
     fn only_nonzero_attention_glyphs_use_state_colour() {

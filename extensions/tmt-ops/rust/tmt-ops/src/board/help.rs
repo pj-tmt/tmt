@@ -298,6 +298,19 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 .collect(),
         });
     }
+    if let Some(versions) = &app.versions {
+        sections.insert(
+            0,
+            section(
+                "versions",
+                "versions",
+                &[
+                    ("tmt", versions.cli.as_str()),
+                    ("ops", versions.ops.as_str()),
+                ],
+            ),
+        );
+    }
     KeyHelp { sections }
 }
 
