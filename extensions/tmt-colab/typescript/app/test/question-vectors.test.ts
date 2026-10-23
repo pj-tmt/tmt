@@ -4,6 +4,7 @@ import {
   QUESTION_GROUP_LIMIT,
   QUESTION_LABEL_POINTS,
   QUESTION_CHOICE_POINTS,
+  QUESTION_CHOICE_DESCRIPTION_POINTS,
   QUESTION_CHOICES,
   QUESTION_FINDING_CODES,
   QUESTION_LIMIT,
@@ -24,6 +25,7 @@ it('the vector limits equal the named constants, so a number cannot drift', () =
     titlePoints: limits.titlePoints,
     choices: limits.choices,
     choicePoints: limits.choicePoints,
+    choiceDescriptionPoints: limits.choiceDescriptionPoints,
     agentPoints: limits.agentPoints,
   }).toEqual({
     pageQuestions: QUESTION_LIMIT,
@@ -34,6 +36,7 @@ it('the vector limits equal the named constants, so a number cannot drift', () =
     titlePoints: QUESTION_TITLE_POINTS,
     choices: QUESTION_CHOICES,
     choicePoints: QUESTION_CHOICE_POINTS,
+    choiceDescriptionPoints: QUESTION_CHOICE_DESCRIPTION_POINTS,
     agentPoints: QUESTION_AGENT_POINTS,
   });
 });

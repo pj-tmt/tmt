@@ -3,15 +3,43 @@
 use std::collections::HashMap;
 
 use super::{
-    Finding, Question, QuestionGroup, Report, Severity, group, reading, review,
+    Finding, Question, QuestionChoice, QuestionGroup, Report, Severity, group, reading, review,
     tree::{Id, Tree},
 };
 use crate::limits::{
-    GROUP_QUESTIONS, QUESTION_AGENT_POINTS, QUESTION_CHOICE_POINTS, QUESTION_CHOICES,
-    QUESTION_PAGE, QUESTION_TITLE_POINTS, READING_PAGE, REVIEW_PAGE,
+    GROUP_QUESTIONS, QUESTION_AGENT_POINTS, QUESTION_CHOICE_DESCRIPTION_POINTS,
+    QUESTION_CHOICE_POINTS, QUESTION_CHOICES, QUESTION_PAGE, QUESTION_TITLE_POINTS, READING_PAGE,
+    REVIEW_PAGE,
 };
 
 const KINDS: [&str; 4] = ["single", "multiple", "short", "long"];
+
+/// A refused description is omitted, never folded back into the choice label.
+fn read_choice(tree: &Tree, id: Id) -> (QuestionChoice, bool) {
+    let descriptions: Vec<Id> = tree
+        .child_elements(id)
+        .filter(|child| tree.attr(*child, "data-choice-description").is_some())
+        .collect();
+    let label = question_text(&tree.text_excluding_children(id, &descriptions));
+    let mut choice = QuestionChoice {
+        label,
+        description: None,
+    };
+    let Some(description) = descriptions.first() else {
+        return (choice, false);
+    };
+    let value = question_text(&tree.text(*description));
+    let valid = descriptions.len() == 1
+        && tree.name(*description) == "span"
+        && tree.plain_text(*description)
+        && !value.is_empty()
+        && !over(&value, QUESTION_CHOICE_DESCRIPTION_POINTS)
+        && !has_control(&value);
+    if valid {
+        choice.description = Some(value);
+    }
+    (choice, !valid)
+}
 
 /// What the rules read about one question block.
 pub(super) struct Candidate {
@@ -273,6 +301,11 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
         let id_value = tree.attr(id, "data-id").unwrap_or("");
         let container = tree.closest(id, &["tmt-question", "tmt-questions"]);
         let split_id = tree.attr(id, "data-group").map(str::to_owned);
+        let choices: Vec<_> = tree
+            .child_elements(id)
+            .filter(|child| tree.attr(*child, "data-choice").is_some())
+            .map(|child| read_choice(tree, child))
+            .collect();
         let candidate = Candidate {
             split_conflict: !split_eligible(id)
                 || split_id
@@ -292,10 +325,9 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
             title: headings
                 .first()
                 .map_or_else(String::new, |h| question_text(&tree.text(*h))),
-            choices: tree
-                .child_elements(id)
-                .filter(|child| tree.attr(*child, "data-choice").is_some())
-                .map(|child| question_text(&tree.text(child)))
+            choices: choices
+                .iter()
+                .map(|(choice, _)| choice.label.clone())
                 .collect(),
             nested: tree.has_ancestor(id, "tmt-question") || tree.has_ancestor(id, "tmt-read"),
             wrapped: container.is_some_and(|c| {
@@ -316,6 +348,14 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
         );
         if !failed.is_empty() {
             continue;
+        }
+        if choices.iter().any(|(_, invalid)| *invalid) {
+            report.findings.push(finding(
+                id,
+                Severity::Warning,
+                "question-choice-description-invalid",
+                None,
+            ));
         }
         // Admitted. With a group ancestor it is a direct question of a group that passed.
         let group = tree
@@ -346,7 +386,7 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
             id: candidate.id,
             kind: candidate.kind,
             title: candidate.title,
-            choices: candidate.choices,
+            choices: choices.into_iter().map(|(choice, _)| choice).collect(),
             other: candidate.other,
             agent: candidate.agent,
             group: group

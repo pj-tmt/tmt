@@ -1824,7 +1824,7 @@ export function question(
     kind?: 'single' | 'multiple' | 'short' | 'long';
     agent?: string;
     title?: string;
-    choices?: string[];
+    choices?: Array<string | { label: string; description?: string }>;
     other?: boolean;
     placement?: 'inline' | 'duplicate' | 'nested';
     mixed?: boolean;
@@ -1837,7 +1837,12 @@ export function question(
   const kind = options.kind ?? 'single';
   const choices =
     options.choices ?? (kind === 'single' || kind === 'multiple' ? ['Keep it', 'Change it'] : []);
-  const markup = `<tmt-question data-id="${id(90)}" data-kind="${kind}" data-agent="${escape(options.agent ?? 'Agent 1')}" ${options.other ? 'data-other' : ''}><p data-question>${escape(options.title ?? 'Which heading should we use?')}</p>${choices.map((choice) => `<span data-choice>${escape(choice)}</span>`).join('')}</tmt-question>`;
+  const markup = `<tmt-question data-id="${id(90)}" data-kind="${kind}" data-agent="${escape(options.agent ?? 'Agent 1')}" ${options.other ? 'data-other' : ''}><p data-question>${escape(options.title ?? 'Which heading should we use?')}</p>${choices
+    .map((choice) => {
+      const { label, description } = typeof choice === 'string' ? { label: choice } : choice;
+      return `<span data-choice>${escape(label)}${description === undefined ? '' : `<span data-choice-description>${escape(description)}</span>`}</span>`;
+    })
+    .join('')}</tmt-question>`;
   if (options.mixed) proposal('inline');
   current = {
     ...current,

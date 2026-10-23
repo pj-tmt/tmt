@@ -218,6 +218,8 @@ pub const NEEDS_YOU_ITEMS: usize = PAGE_PROPOSALS + QUESTION_PAGE + REVIEW_PAGE 
 pub const QUESTION_TITLE_POINTS: usize = 200;
 pub const QUESTION_CHOICES: usize = 20;
 pub const QUESTION_CHOICE_POINTS: usize = 200;
+/// Optional choice description, in Unicode code points.
+pub const QUESTION_CHOICE_DESCRIPTION_POINTS: usize = 200;
 pub const QUESTION_AGENT_POINTS: usize = 64;
 /// Direct questions a `tmt-questions` group holds, and the longest tab label of one of them.
 pub const GROUP_QUESTIONS: usize = 12;

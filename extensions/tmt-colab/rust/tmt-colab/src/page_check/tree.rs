@@ -8,7 +8,7 @@
 //! The arena is the only `TreeSink`: nodes are indices, parents are indices, and nothing is
 //! recursive, so a deeply nested source can neither overflow the stack nor on drop.
 
-use std::{borrow::Cow, cell::Cell, cell::RefCell, rc::Rc};
+use std::{borrow::Cow, cell::Cell, cell::RefCell, collections::HashSet, rc::Rc};
 
 use crate::limits::PAGE_DEPTH;
 
@@ -195,10 +195,30 @@ impl Tree {
             .any(|name| self.attr(id, name).is_some())
     }
 
+    /// Whether the element contains plain text only, without markup or comments.
+    pub(super) fn plain_text(&self, id: Id) -> bool {
+        self.nodes[id]
+            .children
+            .iter()
+            .all(|child| matches!(self.nodes[*child].kind, Kind::Text(_)))
+    }
+
     /// The `textContent` of an element: every descendant text node, comments excluded.
     pub(super) fn text(&self, id: Id) -> String {
+        self.text_excluding_children(id, &[])
+    }
+
+    /// `textContent` with named immediate children (including their descendants) left out.
+    pub(super) fn text_excluding_children(&self, id: Id, excluded: &[Id]) -> String {
+        let excluded: HashSet<Id> = excluded.iter().copied().collect();
         let mut text = String::new();
-        let mut stack: Vec<Id> = self.nodes[id].children.iter().rev().copied().collect();
+        let mut stack: Vec<Id> = self.nodes[id]
+            .children
+            .iter()
+            .rev()
+            .copied()
+            .filter(|child| !excluded.contains(child))
+            .collect();
         while let Some(next) = stack.pop() {
             match &self.nodes[next].kind {
                 Kind::Text(value) => text.push_str(value),

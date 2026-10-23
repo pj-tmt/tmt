@@ -7,6 +7,7 @@
     "titlePoints": 200,
     "choices": 20,
     "choicePoints": 200,
+    "choiceDescriptionPoints": 200,
     "agentPoints": 64,
     "labelPoints": 24,
     "dataImageBytes": 32768,
@@ -45,7 +46,7 @@
             "id": "10000000-0000-4000-8000-000000000001",
             "kind": "single",
             "title": "Pick one?",
-            "choices": ["A", "B"],
+            "choices": [{ "label": "A" }, { "label": "B" }],
             "other": true,
             "agent": "Agent 1",
             "group": null,
@@ -55,7 +56,7 @@
             "id": "10000000-0000-4000-8000-000000000002",
             "kind": "multiple",
             "title": "Pick some?",
-            "choices": ["A", "B", "C"],
+            "choices": [{ "label": "A" }, { "label": "B" }, { "label": "C" }],
             "other": false,
             "agent": "",
             "group": null,
@@ -124,7 +125,7 @@
             "id": "10000000-0000-4000-8000-000000000001",
             "kind": "single",
             "title": "Which colour now?",
-            "choices": ["Dark blue", "Green"],
+            "choices": [{ "label": "Dark blue" }, { "label": "Green" }],
             "other": false,
             "agent": "",
             "group": null,
@@ -177,26 +178,66 @@
             "kind": "single",
             "title": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
             "choices": [
-              "c000xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c001xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c002xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c003xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c004xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c005xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c006xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c007xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c008xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c009xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c010xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c011xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c012xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c013xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c014xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c015xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c016xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c017xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c018xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-              "c019xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              {
+                "label": "c000xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c001xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c002xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c003xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c004xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c005xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c006xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c007xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c008xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c009xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c010xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c011xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c012xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c013xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c014xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c015xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c016xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c017xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c018xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              {
+                "label": "c019xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              }
             ],
             "other": false,
             "agent": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -2502,7 +2543,7 @@
             "id": "10000000-0000-4000-8000-000000000001",
             "kind": "single",
             "title": "Q",
-            "choices": ["A"],
+            "choices": [{ "label": "A" }],
             "other": true,
             "agent": "",
             "group": null,
@@ -2535,7 +2576,7 @@
             "id": "10000000-0000-4000-8000-000000000001",
             "kind": "single",
             "title": "Pick one now",
-            "choices": ["A b"],
+            "choices": [{ "label": "A b" }],
             "other": false,
             "agent": "",
             "group": null,
@@ -4576,212 +4617,202 @@
       ]
     },
     {
-    "name": "group-form-chip",
-    "scope": "parser",
-    "why": "A group with data-form=\"chip\" is admitted as the chip form.",
-    "source": [
-      "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\" data-form=\"chip\">",
-      "<p data-title>Decisions</p>",
-      "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
-      "  <p data-question>Question</p>",
-      "</tmt-question>",
-      "</tmt-questions>"
-    ],
-    "admitted": {
-      "questions": [
-        {
-          "id": "10000000-0000-4000-8000-000000000001",
-          "kind": "short",
-          "title": "Question",
-          "choices": [],
-          "other": false,
-          "agent": "",
-          "group": "10000000-0000-4000-8000-000000000100",
-          "label": "Q1"
-        }
+      "name": "group-form-chip",
+      "scope": "parser",
+      "why": "A group with data-form=\"chip\" is admitted as the chip form.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\" data-form=\"chip\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
       ],
-      "groups": [
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Decisions",
+            "questions": ["10000000-0000-4000-8000-000000000001"],
+            "form": "chip"
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "lone-form-chip",
+      "scope": "parser",
+      "why": "A lone question with data-form=\"chip\" is the chip form of its internal group of one.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" data-form=\"chip\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"],
+            "form": "chip"
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "group-form-invalid",
+      "scope": "parser",
+      "why": "Any data-form value other than chip on a group is a warning and the block form.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\" data-form=\"inline\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Decisions",
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": [
         {
+          "element": "tmt-questions",
+          "ordinal": 1,
           "id": "10000000-0000-4000-8000-000000000100",
-          "title": "Decisions",
-          "questions": [
-            "10000000-0000-4000-8000-000000000001"
-          ],
-          "form": "chip"
+          "line": 1,
+          "severity": "warning",
+          "code": "group-form-invalid"
         }
       ]
-    },
-    "findings": []
     },
     {
-    "name": "lone-form-chip",
-    "scope": "parser",
-    "why": "A lone question with data-form=\"chip\" is the chip form of its internal group of one.",
-    "source": [
-      "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" data-form=\"chip\">",
-      "  <p data-question>Question</p>",
-      "</tmt-question>"
-    ],
-    "admitted": {
-      "questions": [
-        {
-          "id": "10000000-0000-4000-8000-000000000001",
-          "kind": "short",
-          "title": "Question",
-          "choices": [],
-          "other": false,
-          "agent": "",
-          "group": null,
-          "label": null
-        }
+      "name": "question-form-invalid",
+      "scope": "parser",
+      "why": "The value is exact and lowercase: data-form=\"Chip\" on a lone question is a warning and the block form.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" data-form=\"Chip\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>"
       ],
-      "groups": [
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": [
         {
+          "element": "tmt-question",
+          "ordinal": 1,
           "id": "10000000-0000-4000-8000-000000000001",
-          "title": null,
-          "questions": [
-            "10000000-0000-4000-8000-000000000001"
-          ],
-          "form": "chip"
+          "line": 1,
+          "severity": "warning",
+          "code": "question-form-invalid"
         }
       ]
-    },
-    "findings": []
     },
     {
-    "name": "group-form-invalid",
-    "scope": "parser",
-    "why": "Any data-form value other than chip on a group is a warning and the block form.",
-    "source": [
-      "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\" data-form=\"inline\">",
-      "<p data-title>Decisions</p>",
-      "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
-      "  <p data-question>Question</p>",
-      "</tmt-question>",
-      "</tmt-questions>"
-    ],
-    "admitted": {
-      "questions": [
-        {
-          "id": "10000000-0000-4000-8000-000000000001",
-          "kind": "short",
-          "title": "Question",
-          "choices": [],
-          "other": false,
-          "agent": "",
-          "group": "10000000-0000-4000-8000-000000000100",
-          "label": "Q1"
-        }
+      "name": "question-form-member",
+      "scope": "parser",
+      "why": "A group member carrying data-form is a warning; the group decides the form.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" data-form=\"chip\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
       ],
-      "groups": [
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Decisions",
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": [
         {
-          "id": "10000000-0000-4000-8000-000000000100",
-          "title": "Decisions",
-          "questions": [
-            "10000000-0000-4000-8000-000000000001"
-          ]
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 3,
+          "severity": "warning",
+          "code": "question-form-member"
         }
       ]
-    },
-    "findings": [
-      {
-        "element": "tmt-questions",
-        "ordinal": 1,
-        "id": "10000000-0000-4000-8000-000000000100",
-        "line": 1,
-        "severity": "warning",
-        "code": "group-form-invalid"
-      }
-    ]
-    },
-    {
-    "name": "question-form-invalid",
-    "scope": "parser",
-    "why": "The value is exact and lowercase: data-form=\"Chip\" on a lone question is a warning and the block form.",
-    "source": [
-      "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" data-form=\"Chip\">",
-      "  <p data-question>Question</p>",
-      "</tmt-question>"
-    ],
-    "admitted": {
-      "questions": [
-        {
-          "id": "10000000-0000-4000-8000-000000000001",
-          "kind": "short",
-          "title": "Question",
-          "choices": [],
-          "other": false,
-          "agent": "",
-          "group": null,
-          "label": null
-        }
-      ],
-      "groups": [
-        {
-          "id": "10000000-0000-4000-8000-000000000001",
-          "title": null,
-          "questions": [
-            "10000000-0000-4000-8000-000000000001"
-          ]
-        }
-      ]
-    },
-    "findings": [
-      {
-        "element": "tmt-question",
-        "ordinal": 1,
-        "id": "10000000-0000-4000-8000-000000000001",
-        "line": 1,
-        "severity": "warning",
-        "code": "question-form-invalid"
-      }
-    ]
-    },
-    {
-    "name": "question-form-member",
-    "scope": "parser",
-    "why": "A group member carrying data-form is a warning; the group decides the form.",
-    "source": [
-      "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
-      "<p data-title>Decisions</p>",
-      "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" data-form=\"chip\">",
-      "  <p data-question>Question</p>",
-      "</tmt-question>",
-      "</tmt-questions>"
-    ],
-    "admitted": {
-      "questions": [
-        {
-          "id": "10000000-0000-4000-8000-000000000001",
-          "kind": "short",
-          "title": "Question",
-          "choices": [],
-          "other": false,
-          "agent": "",
-          "group": "10000000-0000-4000-8000-000000000100",
-          "label": "Q1"
-        }
-      ],
-      "groups": [
-        {
-          "id": "10000000-0000-4000-8000-000000000100",
-          "title": "Decisions",
-          "questions": [
-            "10000000-0000-4000-8000-000000000001"
-          ]
-        }
-      ]
-    },
-    "findings": [
-      {
-        "element": "tmt-question",
-        "ordinal": 1,
-        "id": "10000000-0000-4000-8000-000000000001",
-        "line": 3,
-        "severity": "warning",
-        "code": "question-form-member"
-      }
-    ]
     },
     {
       "name": "group-label-empty-fallback",
@@ -9354,6 +9385,490 @@
           "line": 1,
           "severity": "ignored",
           "code": "group-empty"
+        }
+      ]
+    },
+    {
+      "name": "choice-description-plain",
+      "scope": "parser",
+      "why": "Description metadata never becomes the label or changes question admission.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"single\"><p data-question>Pick one?</p><span data-choice>Keep it</span></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "single",
+            "title": "Pick one?",
+            "choices": [
+              {
+                "label": "Keep it"
+              }
+            ],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "choice-description-normalized",
+      "scope": "parser",
+      "why": "Description metadata never becomes the label or changes question admission.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"single\"><p data-question>Pick one?</p><span data-choice>Keep it<span data-choice-description>  More   detail </span></span></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "single",
+            "title": "Pick one?",
+            "choices": [
+              {
+                "label": "Keep it",
+                "description": "More detail"
+              }
+            ],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "choice-description-unicode-limit",
+      "scope": "parser",
+      "why": "Description metadata never becomes the label or changes question admission.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"single\"><p data-question>Pick one?</p><span data-choice>Keep it<span data-choice-description>🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈</span></span></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "single",
+            "title": "Pick one?",
+            "choices": [
+              {
+                "label": "Keep it",
+                "description": "🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈"
+              }
+            ],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "choice-description-over-limit",
+      "scope": "parser",
+      "why": "Description metadata never becomes the label or changes question admission.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"single\"><p data-question>Pick one?</p><span data-choice>Keep it<span data-choice-description>🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈</span></span></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "single",
+            "title": "Pick one?",
+            "choices": [
+              {
+                "label": "Keep it"
+              }
+            ],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "warning",
+          "code": "question-choice-description-invalid"
+        }
+      ]
+    },
+    {
+      "name": "choice-description-markup",
+      "scope": "parser",
+      "why": "Description metadata never becomes the label or changes question admission.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"single\"><p data-question>Pick one?</p><span data-choice>Keep it<span data-choice-description><b>Detail</b></span></span></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "single",
+            "title": "Pick one?",
+            "choices": [
+              {
+                "label": "Keep it"
+              }
+            ],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "warning",
+          "code": "question-choice-description-invalid"
+        }
+      ]
+    },
+    {
+      "name": "choice-description-wrong-container",
+      "scope": "parser",
+      "why": "Description metadata never becomes the label or changes question admission.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"single\"><p data-question>Pick one?</p><span data-choice>Keep it<em data-choice-description>Detail</em></span></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "single",
+            "title": "Pick one?",
+            "choices": [
+              {
+                "label": "Keep it"
+              }
+            ],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "warning",
+          "code": "question-choice-description-invalid"
+        }
+      ]
+    },
+    {
+      "name": "choice-description-multiple",
+      "scope": "parser",
+      "why": "Description metadata never becomes the label or changes question admission.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"single\"><p data-question>Pick one?</p><span data-choice>Keep it<span data-choice-description>One</span><span data-choice-description>Two</span></span></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "single",
+            "title": "Pick one?",
+            "choices": [
+              {
+                "label": "Keep it"
+              }
+            ],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "warning",
+          "code": "question-choice-description-invalid"
+        }
+      ]
+    },
+    {
+      "name": "choice-description-empty",
+      "scope": "parser",
+      "why": "Description metadata never becomes the label or changes question admission.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"single\"><p data-question>Pick one?</p><span data-choice>Keep it<span data-choice-description> </span></span></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "single",
+            "title": "Pick one?",
+            "choices": [
+              {
+                "label": "Keep it"
+              }
+            ],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "warning",
+          "code": "question-choice-description-invalid"
+        }
+      ]
+    },
+    {
+      "name": "choice-description-control",
+      "scope": "parser",
+      "why": "Description metadata never becomes the label or changes question admission.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"single\"><p data-question>Pick one?</p><span data-choice>Keep it<span data-choice-description>Bad&#127;text</span></span></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "single",
+            "title": "Pick one?",
+            "choices": [
+              {
+                "label": "Keep it"
+              }
+            ],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "warning",
+          "code": "question-choice-description-invalid"
+        }
+      ]
+    },
+    {
+      "name": "choice-description-comment",
+      "scope": "parser",
+      "why": "Description metadata never becomes the label or changes question admission.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"single\"><p data-question>Pick one?</p><span data-choice>Keep it<span data-choice-description>Detail<!-- no markup --></span></span></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "single",
+            "title": "Pick one?",
+            "choices": [
+              {
+                "label": "Keep it"
+              }
+            ],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "warning",
+          "code": "question-choice-description-invalid"
+        }
+      ]
+    },
+    {
+      "name": "choice-description-literal",
+      "scope": "parser",
+      "why": "Description metadata never becomes the label or changes question admission.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"single\"><p data-question>Pick one?</p><span data-choice>Keep it<span data-choice-description>&lt;b&gt;Plain&lt;/b&gt;</span></span></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "single",
+            "title": "Pick one?",
+            "choices": [
+              {
+                "label": "Keep it",
+                "description": "<b>Plain</b>"
+              }
+            ],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "choice-description-duplicate-label",
+      "scope": "parser",
+      "why": "Existing label rules still apply independently of descriptions.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"single\"><p data-question>Pick one?</p><span data-choice>Same<span data-choice-description>One</span></span><span data-choice>Same<span data-choice-description>Two</span></span></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "ignored",
+          "code": "question-choice-duplicate"
+        }
+      ]
+    },
+    {
+      "name": "choice-description-missing-label",
+      "scope": "parser",
+      "why": "Existing label rules still apply independently of descriptions.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"single\"><p data-question>Pick one?</p><span data-choice><span data-choice-description>Not a label</span></span></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "ignored",
+          "code": "question-choice-empty"
         }
       ]
     }

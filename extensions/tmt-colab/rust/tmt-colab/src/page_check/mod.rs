@@ -56,13 +56,21 @@ pub struct Finding {
     pub questions_skipped: Option<usize>,
 }
 
+/// Plain choice metadata; drafts and recorded answers still contain only the label.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct QuestionChoice {
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
 /// A question the page shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Question {
     pub id: String,
     pub kind: String,
     pub title: String,
-    pub choices: Vec<String>,
+    pub choices: Vec<QuestionChoice>,
     pub other: bool,
     pub agent: String,
     /// The group it belongs to; `None` for a lone question.
@@ -264,6 +272,7 @@ pub fn codes() -> Vec<&'static str> {
         "page-too-deep",
         "question-page-limit",
         "question-marker-misplaced",
+        "question-choice-description-invalid",
     ];
     codes.extend(question::RULES.iter().map(|(code, _)| *code));
     codes.extend(group::RULES.iter().map(|(code, _)| *code));
