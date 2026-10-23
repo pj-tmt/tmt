@@ -22,7 +22,7 @@ fn complete(store: &Store, item: &str, revision: u64) -> Result<(), Error> {
     )
 }
 fn store(f: &Fixture) -> Store {
-    Store::new(&f.root, id(ROOM), "ops").unwrap()
+    Store::new(&f.root, id(ROOM), None, "ops").unwrap()
 }
 /// Ops creates its state directories private; so does the fixture for a legacy tree.
 fn legacy_directory(f: &Fixture) {
@@ -78,7 +78,7 @@ fn concurrent_first_create_preserves_one_inventory() {
             let root = f.root.clone();
             let barrier = barrier.clone();
             std::thread::spawn(move || {
-                let store = Store::new(&root, id(ROOM), "ops").unwrap();
+                let store = Store::new(&root, id(ROOM), None, "ops").unwrap();
                 barrier.wait();
                 insert(&store)
             })
@@ -109,11 +109,11 @@ fn a_read_and_a_write_report_busy_after_the_budget_without_changing_bytes() {
     let start = Instant::now();
     let read = std::thread::spawn({
         let root = f.root.clone();
-        move || Store::new(&root, id(ROOM), "ops").unwrap().read()
+        move || Store::new(&root, id(ROOM), None, "ops").unwrap().read()
     });
     let write = std::thread::spawn({
         let root = f.root.clone();
-        move || complete(&Store::new(&root, id(ROOM), "ops").unwrap(), ITEM, 1)
+        move || complete(&Store::new(&root, id(ROOM), None, "ops").unwrap(), ITEM, 1)
     });
     let (read, write) = (read.join().unwrap(), write.join().unwrap());
     assert!(
@@ -250,7 +250,7 @@ fn a_refused_publication_and_an_unacknowledged_commit_keep_their_bytes_and_their
     assert_eq!(error.code, Code::OutcomeUnknown);
     assert_eq!(f.literal()["items"][0]["revision"], 2);
     assert_eq!(f.literal()["items"][0]["completion"], "complete");
-    let reread = Store::new(&f.root, id(ROOM), "ops")
+    let reread = Store::new(&f.root, id(ROOM), None, "ops")
         .unwrap()
         .read()
         .unwrap()
@@ -299,7 +299,7 @@ fn competing_writes_queue_and_use_the_current_document() {
     let (release_tx, release_rx) = mpsc::channel();
     let root = f.root.clone();
     let writer = std::thread::spawn(move || {
-        let store = Store::new(&root, id(ROOM), "ops").unwrap();
+        let store = Store::new(&root, id(ROOM), None, "ops").unwrap();
         store.update(
             |d| {
                 model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None)?;
@@ -315,7 +315,7 @@ fn competing_writes_queue_and_use_the_current_document() {
     let (done_tx, done_rx) = mpsc::channel();
     let root = f.root.clone();
     let competitor = std::thread::spawn(move || {
-        let store = Store::new(&root, id(ROOM), "ops").unwrap();
+        let store = Store::new(&root, id(ROOM), None, "ops").unwrap();
         done_tx
             .send(store.update(
                 |d| model::apply(d, &mutate(ITEM, 1, Mutation::Archive), None).map(|_| ()),
@@ -345,7 +345,7 @@ fn competing_writes_queue_and_use_the_current_document() {
     assert_eq!(refreshed.items[0].revision, 2);
     assert_eq!(refreshed.items[1].revision, 1);
     complete(&store, OTHER, refreshed.items[1].revision).unwrap();
-    let restarted = Store::new(&f.root, id(ROOM), "ops")
+    let restarted = Store::new(&f.root, id(ROOM), None, "ops")
         .unwrap()
         .read()
         .unwrap()
@@ -384,7 +384,7 @@ fn eight_parallel_edits_to_different_items_all_land() {
         .map(|n| {
             let (root, barrier) = (f.root.clone(), barrier.clone());
             std::thread::spawn(move || {
-                let store = Store::new(&root, id(ROOM), "ops").unwrap();
+                let store = Store::new(&root, id(ROOM), None, "ops").unwrap();
                 barrier.wait();
                 complete(&store, &item(n), 1)
             })
@@ -447,7 +447,7 @@ fn a_corrupt_or_foreign_legacy_document_refuses_and_stays_where_it_is() {
     let other_room = {
         // A well-formed document that belongs to another room.
         let other = Fixture::new();
-        let store = Store::new(&other.root, id(OTHER), "ops").unwrap();
+        let store = Store::new(&other.root, id(OTHER), None, "ops").unwrap();
         store
             .update(
                 |d| {
@@ -516,7 +516,7 @@ fn eight_processes_importing_at_once_leave_one_document_and_one_archive() {
         .map(|n| {
             let (root, barrier) = (f.root.clone(), barrier.clone());
             std::thread::spawn(move || {
-                let store = Store::new(&root, id(ROOM), "ops").unwrap();
+                let store = Store::new(&root, id(ROOM), None, "ops").unwrap();
                 barrier.wait();
                 if n % 2 == 0 {
                     store.read().map(|d| d.unwrap().items.len())

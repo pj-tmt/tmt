@@ -76,20 +76,22 @@ fn all_requests_preserve_exact_targets_revisions_and_supplied_fields() {
         panic!("create")
     };
     assert_eq!(
+        parsed(&args("create", &["T", "--expect-inventory", "absent"]))
+            .unwrap()
+            .checklist_id,
+        Some(id(CHECKLIST))
+    );
+    assert_eq!(
         created,
-        Request {
-            room_id: id(ROOM),
-            checklist_id: id(CHECKLIST),
-            action: Action::Create {
-                item_id: id(ITEM),
-                inventory: InventoryExpectation::Absent,
-                content: ItemContent {
-                    title: "Authored title".into(),
-                    body: None,
-                    reference: None
-                },
-                assignee: None,
-            }
+        Action::Create {
+            item_id: id(ITEM),
+            inventory: InventoryExpectation::Absent,
+            content: ItemContent {
+                title: "Authored title".into(),
+                body: None,
+                reference: None
+            },
+            assignee: None,
         }
     );
     let explicit = parsed(&args(
@@ -107,14 +109,10 @@ fn all_requests_preserve_exact_targets_revisions_and_supplied_fields() {
         ],
     ))
     .unwrap();
-    let Operation::Apply(Request {
-        action:
-            Action::Create {
-                inventory,
-                content,
-                assignee,
-                ..
-            },
+    let Operation::Apply(Action::Create {
+        inventory,
+        content,
+        assignee,
         ..
     }) = explicit.operation
     else {
@@ -140,7 +138,7 @@ fn all_requests_preserve_exact_targets_revisions_and_supplied_fields() {
         panic!("edit")
     };
     assert_eq!(
-        edited.action,
+        edited,
         Action::Item {
             item_id: id(ITEM),
             revision: 7,
@@ -164,7 +162,7 @@ fn all_requests_preserve_exact_targets_revisions_and_supplied_fields() {
         };
         assert_eq!(input.action, name);
         assert_eq!(
-            request.action,
+            request,
             Action::Item {
                 item_id: id(ITEM),
                 revision: 7,
@@ -181,7 +179,7 @@ fn all_requests_preserve_exact_targets_revisions_and_supplied_fields() {
         panic!("assign")
     };
     assert_eq!(
-        request.action,
+        request,
         Action::Item {
             item_id: id(ITEM),
             revision: 7,
@@ -206,7 +204,7 @@ fn all_requests_preserve_exact_targets_revisions_and_supplied_fields() {
         panic!("delete")
     };
     assert_eq!(
-        request.action,
+        request,
         Action::Item {
             item_id: id(ITEM),
             revision: 7,
@@ -235,7 +233,7 @@ fn all_requests_preserve_exact_targets_revisions_and_supplied_fields() {
         panic!("reorder")
     };
     assert_eq!(
-        request.action,
+        request,
         Action::Reorder {
             inventory_revision: 2,
             order: vec![id(OTHER), id(ITEM)]
@@ -243,7 +241,8 @@ fn all_requests_preserve_exact_targets_revisions_and_supplied_fields() {
     );
     let show = parsed(&args("show", &[])).unwrap();
     assert!(
-        matches!(show.operation, Operation::Show { checklist_id, item_id } if checklist_id==id(CHECKLIST) && item_id==id(ITEM))
+        matches!(&show.operation, Operation::Show { item_id } if *item_id == id(ITEM))
+            && show.checklist_id == Some(id(CHECKLIST))
     );
 }
 
@@ -524,4 +523,142 @@ fn no_op_conflict_denial_tombstone_and_unknown_preserve_scoped_failure_projectio
         );
         assert!(text_output(&failed.document, Terminal::PLAIN).is_empty());
     }
+}
+
+#[test]
+fn a_member_replaces_the_checklist_uuid_and_the_service_derives_it() {
+    // --member makes --checklist optional on every action but ls, and carries the raw selector.
+    for words in [
+        vec!["show", "--room", ROOM, "--member", "Worker", "--item", ITEM],
+        vec![
+            "create",
+            "--room",
+            ROOM,
+            "--member",
+            WORKER,
+            "--item",
+            ITEM,
+            "--expect-inventory",
+            "absent",
+            "Title",
+        ],
+        vec![
+            "complete",
+            "--room",
+            ROOM,
+            "--member",
+            "Worker",
+            "--item",
+            ITEM,
+            "--expect-revision",
+            "1",
+        ],
+    ] {
+        let input = parsed(&words).unwrap();
+        assert_eq!(input.checklist_id, None, "{words:?}");
+        assert!(input.member.is_some(), "{words:?}");
+    }
+    let listed = parsed(&["ls", "--room", ROOM, "--member", "Worker"]).unwrap();
+    assert_eq!(listed.member.as_deref(), Some("Worker"));
+    // Without a member the checklist UUID is still required.
+    assert!(
+        grammar()
+            .try_get_matches_from(["checklist", "show", "--room", ROOM, "--item", ITEM])
+            .is_err()
+    );
+}
+
+#[test]
+fn a_member_command_runs_against_the_conversation_list_and_names_what_it_refuses() {
+    let f = Fixture::new();
+    let created = invoke(
+        &f,
+        &[
+            "create",
+            "--room",
+            ROOM,
+            "--member",
+            "Worker",
+            "--item",
+            ITEM,
+            "--expect-inventory",
+            "absent",
+            "Add a link",
+        ],
+    )
+    .document;
+    assert_eq!(created["action"], "create", "{created}");
+    let derived = created["current"]["checklistId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(created["current"]["member"]["id"], WORKER);
+    assert_eq!(f.keys(), [format!("{ROOM}/{WORKER}")]);
+
+    // The same list by UUID, then completed without ever naming its checklist.
+    let done = invoke(
+        &f,
+        &[
+            "complete",
+            "--room",
+            ROOM,
+            "--member",
+            WORKER,
+            "--item",
+            ITEM,
+            "--expect-revision",
+            "1",
+        ],
+    )
+    .document;
+    assert_eq!(done["current"]["checklistId"], derived.as_str(), "{done}");
+    assert_eq!(done["current"]["items"][0]["completion"], "complete");
+
+    // A given checklist UUID must be the derived one.
+    let wrong = invoke(
+        &f,
+        &[
+            "complete",
+            "--room",
+            ROOM,
+            "--member",
+            WORKER,
+            "--checklist",
+            CHECKLIST,
+            "--item",
+            ITEM,
+            "--expect-revision",
+            "2",
+        ],
+    )
+    .document;
+    assert_eq!(wrong["error"]["code"], "CHECKLIST_INPUT_INVALID", "{wrong}");
+    let right = invoke(
+        &f,
+        &[
+            "show",
+            "--room",
+            ROOM,
+            "--member",
+            WORKER,
+            "--checklist",
+            &derived,
+            "--item",
+            ITEM,
+        ],
+    )
+    .document;
+    assert_eq!(right["action"], "show", "{right}");
+
+    // An unknown name is refused with the name; nothing is written.
+    let unknown = invoke(&f, &["ls", "--room", ROOM, "--member", "nobody"]).document;
+    assert_eq!(unknown["error"]["code"], "CHECKLIST_MEMBER_UNAVAILABLE");
+    assert!(
+        unknown["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("\"nobody\""),
+        "{unknown}"
+    );
+    assert_eq!(f.keys(), [format!("{ROOM}/{WORKER}")]);
 }

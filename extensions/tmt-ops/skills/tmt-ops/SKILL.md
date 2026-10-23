@@ -925,8 +925,8 @@ No command accepts an actor override or uses a member filter as assignment.
 | `delete`                                               | Item/checklist UUIDs, `--expect-revision`, `--expect-inventory`, matching `--confirm-item UUID --confirm-revision POSITIVE`                                     |
 | `reorder`                                              | `--checklist UUID --expect-inventory POSITIVE --order JSON_UUID_ARRAY`; all nondeleted items including archived items                                           |
 
-Generate new checklist/item UUIDs before the first Create and keep them fixed for
-that submission. First Create expects `absent`; subsequent Create expects the
+Generate new checklist/item UUIDs before the first Create of a room list and keep them
+fixed for that submission (a conversation list needs no checklist UUID, below). First Create expects `absent`; subsequent Create expects the
 reviewed positive inventory revision. No command invents new UUIDs, adopts a
 latest revision, retries or substitutes a same-name target after refusal.
 Set/clear pairs conflict. Empty body normalizes to absent; empty reference is
@@ -934,6 +934,26 @@ invalid and clearing it is explicit. Title is nonblank, without controls, at mos
 1024 UTF-8 bytes; body is at most 65536 bytes with only line break/tab controls.
 A single reference is inert HTTP(S), at most 4096 bytes, never fetched or opened.
 Authored strings remain data.
+
+### Conversation lists
+
+`--member NAME|UUID` on any action uses that member's conversation list in the room
+instead of the room's own; without it nothing changes. It is how an agent keeps its own
+todos and links. The name or UUID is resolved once and only the UUID is kept: a name
+reaches the active identity, a UUID also a retired one (its list stays readable and takes
+no writes), a rename keeps the list, and a same-name replacement is another UUID with a new,
+empty list. An unknown member is refused with what you gave.
+
+Omit `--checklist` with `--member`: the list has exactly one checklist UUID, derived from
+the room and the member (a different one is refused), and the first Create (`--expect-inventory
+absent`) makes the list. Item UUIDs are still yours to generate. Permissions, revisions, inventory
+expectations and errors are those of a room list, and `current` adds
+`member:{id,name,retired}` for a conversation list only.
+
+```sh
+tmt ops sq checklist create "Read the design" --room ROOM_UUID --member MY_NAME --item "$(uuidgen)" --expect-inventory absent --reference https://example.org/design
+tmt ops sq checklist complete --room ROOM_UUID --member MY_NAME --item ITEM_UUID --expect-revision 1
+```
 
 The verified invoking caller decides authority. Only when no caller is bound may
 the active user be used; ambiguous or invalid callers refuse. Active
