@@ -774,10 +774,16 @@ impl Session {
                 text.push_str("You · now\n\n");
             } else {
                 // A stacked body follows the previous one on the next line: the blank line
-                // that keeps the two Markdown blocks apart is compacted away.
+                // that keeps the two Markdown blocks apart is compacted away, unless either
+                // body has several paragraphs.
                 let before = lines(&text);
                 text.push_str("\n\n");
-                self.compact_separators.insert(before + 1);
+                if !super::answer_order::spaced(
+                    &self.outgoing[index - 1].ticket.text,
+                    &entry.ticket.text,
+                ) {
+                    self.compact_separators.insert(before + 1);
+                }
             }
             text.push_str(crate::board::notes::sanitize(&entry.ticket.text).trim_end_matches('\n'));
             let message_end = lines(&text);

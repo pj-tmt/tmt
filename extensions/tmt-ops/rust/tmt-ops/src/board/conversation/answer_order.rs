@@ -104,6 +104,14 @@ pub(super) fn place(sends: &[Probe]) -> Vec<Place> {
     places
 }
 
+/// Whether two stacked bodies need a blank line between them: a body of more than one
+/// paragraph must not run into its neighbour, or the message boundary would read as a line
+/// break inside one text.
+pub(super) fn spaced(previous: &str, next: &str) -> bool {
+    let paragraphs = |text: &str| text.trim().lines().any(|line| line.trim().is_empty());
+    paragraphs(previous) || paragraphs(next)
+}
+
 /// The one status line of a block, from its members' lines oldest first: the newest line that
 /// is not a plain delivery (the turn still working, a send held or queued), else `✓ delivered`.
 pub(super) fn block_status<'a>(lines: impl DoubleEndedIterator<Item = &'a str>) -> String {

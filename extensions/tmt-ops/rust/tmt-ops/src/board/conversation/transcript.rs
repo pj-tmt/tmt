@@ -459,6 +459,7 @@ impl Session {
         }
         group(&mut run, &mut places);
         let mut first = true;
+        let mut previous: Option<&str> = None;
         for source in order {
             if matches!(source, Source::Pane(index) if captured_outputs.contains(&index)) {
                 continue;
@@ -475,9 +476,20 @@ impl Session {
                         )
                 )
             );
-            if !first && !stacked {
+            let current = match source {
+                Source::Exchange(block) => match messages[block].1 {
+                    super::history::Block::Sent(index) => Some(sends[index].text.as_str()),
+                    _ => None,
+                },
+                Source::Pane(_) => None,
+            };
+            let spaced = stacked
+                && matches!((previous, current),
+                    (Some(previous), Some(current)) if super::answer_order::spaced(previous, current));
+            if !first && (!stacked || spaced) {
                 append(Line::default(), vec![], None);
             }
+            previous = current;
             first = false;
             match source {
                 Source::Exchange(block) => {

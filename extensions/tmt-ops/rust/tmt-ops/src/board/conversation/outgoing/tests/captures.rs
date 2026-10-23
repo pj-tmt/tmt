@@ -1140,7 +1140,7 @@ fn a_failed_send_stays_visible_in_place_with_its_own_error_and_ends_the_block() 
 }
 
 #[test]
-fn a_long_multi_paragraph_body_keeps_its_own_paragraphs_between_two_short_messages() {
+fn a_multi_paragraph_body_is_set_off_by_a_blank_line_from_its_short_neighbours() {
     const NOW: u64 = 1_791_600_000_000;
     crate::status::with_now_ms(NOW, || {
         for restored in [false, true] {
@@ -1170,8 +1170,8 @@ fn a_long_multi_paragraph_body_keeps_its_own_paragraphs_between_two_short_messag
             );
             assert_eq!(
                 one - opener,
-                1,
-                "restored={restored}: no separator before the long body\n{shown}"
+                2,
+                "restored={restored}: a blank line before the long body\n{shown}"
             );
             assert_eq!(
                 two - one,
@@ -1181,8 +1181,8 @@ fn a_long_multi_paragraph_body_keeps_its_own_paragraphs_between_two_short_messag
             assert_eq!(three - two, 2, "restored={restored}: {shown}");
             assert_eq!(
                 closer - three,
-                1,
-                "restored={restored}: no separator after it\n{shown}"
+                2,
+                "restored={restored}: and after it\n{shown}"
             );
             assert!(row_of(&rows, TURN_ANSWER) > closer, "{shown}");
         }

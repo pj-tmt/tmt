@@ -123,7 +123,7 @@ Core's truncation flag), and `no_answer` names the missing output. One turn can 
 `conversation/answer_order.rs` groups every later direct send with no capture of its own that
 was sent before the answered turn settled (a pending or bound first send groups optimistically
 and regroups when a later send gets its own turn) into one message block: one header, bodies
-stacked without a separator, one status line (the newest line that is not `✓ delivered`) and
+stacked without a separator (one blank line when either body has several paragraphs), one status line (the newest line that is not `✓ delivered`) and
 the answer after the last body. Annotate, ask-lead and failed sends never group; live entries
 and restored sends use the same placement and keep each body's own source lines for copy and
 quote. A bound turn has

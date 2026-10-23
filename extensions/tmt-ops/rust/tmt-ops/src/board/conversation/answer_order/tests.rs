@@ -151,3 +151,11 @@ fn the_block_status_is_the_newest_line_that_is_not_a_plain_delivery() {
     );
     assert_eq!(block_status(std::iter::empty()), "");
 }
+
+#[test]
+fn only_a_body_of_several_paragraphs_asks_for_a_blank_line_between_bodies() {
+    assert!(!spaced("one line", "another line"));
+    assert!(!spaced("two\nlines", "a third\n"));
+    assert!(spaced("first paragraph\n\nsecond paragraph", "short"));
+    assert!(spaced("short", "first\n\nsecond"));
+}
