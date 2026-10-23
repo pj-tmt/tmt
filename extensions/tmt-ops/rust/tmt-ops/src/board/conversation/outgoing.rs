@@ -141,6 +141,8 @@ impl Completed {
 pub(super) struct Entry {
     ticket: Ticket,
     pub(super) started_ms: u64,
+    /// A direct chat message (Talk), the only kind that can join a block.
+    talk: bool,
     outcome: Option<Result<Accepted, SquadError>>,
     /// The agent question that opened this send's group, when it arrived after
     /// earlier sends; the first group's question is `Session::before_send`.
@@ -157,6 +159,18 @@ pub(super) struct Entry {
 impl Entry {
     pub(super) fn pending(&self) -> bool {
         self.outcome.is_none()
+    }
+    /// A direct message that no agent question or reply came with: the only send that joins or
+    /// opens a block. One still sending counts, so a second quick send groups at once.
+    fn direct(&self) -> bool {
+        self.talk
+            && self.lead_in.is_none()
+            && self.reply.is_none()
+            && match &self.outcome {
+                None => true,
+                Some(Ok(accepted)) => accepted.passthrough,
+                Some(Err(_)) => false,
+            }
     }
     pub(super) fn request(&self) -> Option<&str> {
         let outcome = self.outcome.as_ref()?;
@@ -284,8 +298,8 @@ impl Session {
             .filter_map(|entry| entry.reply.as_ref())
     }
 
-    /// Where each live send's answer goes: one turn can answer several sends.
-    fn answer_places(&self) -> Vec<super::answer_order::Place> {
+    /// How the live sends group into message blocks (see `answer_order`).
+    pub(super) fn answer_places(&self) -> Vec<super::answer_order::Place> {
         super::answer_order::place(
             &self
                 .outgoing
@@ -293,9 +307,29 @@ impl Session {
                 .map(|entry| super::answer_order::Probe {
                     at_ms: entry.started_ms,
                     capture: entry.capture.as_ref(),
+                    direct: entry.direct(),
                 })
                 .collect::<Vec<_>>(),
         )
+    }
+
+    /// The status line painted under the send at `index`: its own, or its block's.
+    fn status_in(&self, places: &[super::answer_order::Place], index: usize) -> String {
+        if places[index].role != super::answer_order::Role::Last {
+            return self.outgoing[index].status();
+        }
+        let first = (0..=index)
+            .rev()
+            .find(|member| places[*member].role == super::answer_order::Role::First)
+            .unwrap_or(index);
+        let lines: Vec<String> = self
+            .outgoing
+            .iter()
+            .skip(first)
+            .take(index - first + 1)
+            .map(Entry::status)
+            .collect();
+        super::answer_order::block_status(lines.iter().map(String::as_str))
     }
 
     pub(super) fn grouped_feedback(
@@ -308,12 +342,7 @@ impl Session {
             .outgoing
             .iter()
             .position(|entry| entry.ticket.sequence == sequence)?;
-        let status = self.outgoing[index].status();
-        let status = if self.answer_places()[index].answered_below {
-            super::answer_order::answered_below(&status)
-        } else {
-            status
-        };
+        let status = self.status_in(&self.answer_places(), index);
         Some(super::super::markdown::wrap_styled(
             super::super::exchange_view::feedback_content(&status, look),
             width,
@@ -714,33 +743,45 @@ impl Session {
         self.authored_lines.clear();
         self.compact_separators.clear();
         let places = self.answer_places();
+        let statuses: Vec<String> = (0..self.outgoing.len())
+            .map(|index| self.status_in(&places, index))
+            .collect();
+        let lines = |text: &str| text.bytes().filter(|byte| *byte == b'\n').count();
         for (index, entry) in self.outgoing.iter().enumerate() {
             let place = &places[index];
-            if let Some(question) = &entry.lead_in {
-                push_question(
-                    &mut text,
-                    &mut self.authored_lines,
-                    &mut self.compact_separators,
-                    &mut self.response_spans,
-                    question,
+            if place.header() {
+                if let Some(question) = &entry.lead_in {
+                    push_question(
+                        &mut text,
+                        &mut self.authored_lines,
+                        &mut self.compact_separators,
+                        &mut self.response_spans,
+                        question,
+                    );
+                }
+                if !text.is_empty() {
+                    text.push_str("\n\n");
+                }
+                let header_line = lines(&text);
+                self.authored_lines.insert(
+                    header_line,
+                    super::AuthoredLine::Outgoing {
+                        answer: false,
+                        sequence: entry.ticket.sequence,
+                    },
                 );
-            }
-            if !text.is_empty() {
+                self.compact_separators.insert(header_line + 1);
+                text.push_str("You · now\n\n");
+            } else {
+                // A stacked body follows the previous one on the next line: the blank line
+                // that keeps the two Markdown blocks apart is compacted away.
+                let before = lines(&text);
                 text.push_str("\n\n");
+                self.compact_separators.insert(before + 1);
             }
-            let header_line = text.bytes().filter(|byte| *byte == b'\n').count();
-            self.authored_lines.insert(
-                header_line,
-                super::AuthoredLine::Outgoing {
-                    answer: false,
-                    sequence: entry.ticket.sequence,
-                },
-            );
-            self.compact_separators.insert(header_line + 1);
-            text.push_str("You · now\n\n");
             text.push_str(crate::board::notes::sanitize(&entry.ticket.text).trim_end_matches('\n'));
-            let message_end = text.bytes().filter(|byte| *byte == b'\n').count();
-            if entry.reply.is_none() {
+            let message_end = lines(&text);
+            if place.status() && entry.reply.is_none() {
                 self.compact_separators.insert(message_end + 1);
                 self.authored_lines.insert(
                     message_end + 2,
@@ -749,21 +790,11 @@ impl Session {
                     },
                 );
                 text.push_str("\n\n");
-                let status = entry.status();
-                push_literal(
-                    &mut text,
-                    &if place.answered_below {
-                        super::answer_order::answered_below(&status)
-                    } else {
-                        status
-                    },
-                );
+                push_literal(&mut text, &statuses[index]);
             }
-            // The group's answer follows its last send; the first send's own answer is painted
-            // there, not under itself.
+            // A lone send keeps its own answer; a block's answer follows its last send.
             let own = entry.capture.as_ref().filter(|capture| {
-                !place.hoisted
-                    && !place.mate
+                place.role == super::answer_order::Role::Single
                     && !matches!(
                         capture,
                         crate::board::row_detail::Capture::Pending
@@ -958,6 +989,7 @@ impl App {
         session.outgoing.push_back(Entry {
             ticket: ticket.clone(),
             started_ms: crate::status::now_ms(),
+            talk: matches!(input.compose, crate::board::app::Compose::Talk { .. }),
             outcome: None,
             lead_in,
             reply: None,

@@ -10,96 +10,110 @@ fn answered(bound: u64, settled: u64) -> Capture {
         settled_ms: Some(settled),
     }
 }
-fn probes<'a>(sends: &'a [(u64, Option<Capture>)]) -> Vec<Probe<'a>> {
+fn probes<'a>(sends: &'a [(u64, Option<Capture>, bool)]) -> Vec<Probe<'a>> {
     sends
         .iter()
-        .map(|(at_ms, capture)| Probe {
+        .map(|(at_ms, capture, direct)| Probe {
             at_ms: *at_ms,
             capture: capture.as_ref(),
+            direct: *direct,
         })
         .collect()
 }
-fn at(places: &[Place], index: usize) -> (bool, bool, Vec<usize>) {
-    let place = &places[index];
-    (place.answered_below, place.hoisted, place.answers.clone())
+fn roles(sends: &[(u64, Option<Capture>, bool)]) -> Vec<Role> {
+    place(&probes(sends))
+        .iter()
+        .map(|place| place.role)
+        .collect()
 }
 
 #[test]
-fn a_send_typed_during_the_turn_gets_the_answer_after_it_and_the_first_says_so() {
-    // A is answered by a turn settled at 262; B was sent at 218 with no capture of its own.
+fn sends_typed_while_the_turn_is_open_form_one_block_before_any_answer() {
     let sends = [
-        (100, Some(answered(110, 262))),
-        (218, Some(Capture::NoAnswer)),
+        (100, Some(Capture::Bound), true),
+        (218, Some(Capture::Pending), true),
+        (237, Some(Capture::Pending), true),
+    ];
+    assert_eq!(roles(&sends), [Role::First, Role::Member, Role::Last]);
+    let places = place(&probes(&sends));
+    assert!(places.iter().all(|place| place.grouped));
+    assert!(places[2].answers.is_empty(), "no answer yet");
+    assert!(places[0].header() && !places[1].header() && !places[2].header());
+    assert!(!places[0].status() && !places[1].status() && places[2].status());
+}
+
+#[test]
+fn a_just_sent_direct_send_groups_before_its_capture_is_read() {
+    let sends = [(100, None, true), (110, None, true)];
+    assert_eq!(roles(&sends), [Role::First, Role::Last]);
+}
+
+#[test]
+fn the_answered_turn_belongs_to_the_block_and_paints_under_its_last_send() {
+    let sends = [
+        (100, Some(answered(110, 262)), true),
+        (218, Some(Capture::NoAnswer), true),
+        (237, None, true),
     ];
     let places = place(&probes(&sends));
     assert_eq!(
-        at(&places, 0),
-        (true, true, vec![]),
-        "A: answered below, not under itself"
+        places.iter().map(|place| place.role).collect::<Vec<_>>(),
+        [Role::First, Role::Member, Role::Last]
     );
     assert_eq!(
-        at(&places, 1),
-        (false, false, vec![0]),
-        "B carries A's answer"
+        places[2].answers,
+        [0],
+        "the first send's answer follows the last"
     );
+    assert!(places[0].answers.is_empty() && places[1].answers.is_empty());
 }
 
 #[test]
-fn three_sends_in_one_turn_share_the_answer_under_the_last() {
-    let sends = [
-        (100, Some(answered(110, 262))),
-        (218, Some(Capture::NoAnswer)),
-        (237, None),
+fn a_send_after_the_turn_settled_or_with_its_own_turn_starts_a_new_block() {
+    let after = [
+        (100, Some(answered(110, 262)), true),
+        (262, None, true),
+        (300, None, true),
     ];
-    let places = place(&probes(&sends));
-    assert_eq!(at(&places, 0), (true, true, vec![]));
-    assert_eq!(at(&places, 1), (true, false, vec![]));
-    assert_eq!(at(&places, 2), (false, false, vec![0]));
-}
-
-#[test]
-fn a_send_with_its_own_capture_or_after_the_turn_is_not_part_of_the_group() {
-    let own = [
-        (100, Some(answered(110, 262))),
-        (218, Some(answered(220, 300))),
-    ];
-    let places = place(&probes(&own));
     assert_eq!(
-        at(&places, 0),
-        (false, false, vec![]),
-        "B has its own answer"
+        roles(&after),
+        [Role::Single, Role::First, Role::Last],
+        "the send at the settle time opens the next block, the next one joins it"
     );
-    assert_eq!(at(&places, 1), (false, false, vec![]));
-    let waiting = [
-        (100, Some(answered(110, 262))),
-        (218, Some(Capture::Pending)),
-        (240, Some(Capture::Bound)),
+    let own_turn = [
+        (100, Some(answered(110, 262)), true),
+        (218, Some(answered(220, 300)), true),
     ];
-    let places = place(&probes(&waiting));
-    assert!(
-        places.iter().all(|place| *place == Place::default()),
-        "a turn in progress is its own"
+    assert_eq!(roles(&own_turn), [Role::Single, Role::Single]);
+    let bound = [
+        (100, Some(answered(110, 262)), true),
+        (218, Some(Capture::Bound), true),
+    ];
+    assert_eq!(roles(&bound), [Role::Single, Role::Single]);
+}
+
+#[test]
+fn a_send_that_is_not_direct_or_failed_never_joins_and_ends_the_block() {
+    let sends = [
+        (100, Some(Capture::Bound), true),
+        (150, None, false),
+        (200, Some(Capture::Pending), true),
+    ];
+    assert_eq!(
+        roles(&sends),
+        [Role::Single, Role::Single, Role::Single],
+        "the failed send in the middle splits the run"
     );
-    let after = [(100, Some(answered(110, 262))), (262, None), (300, None)];
-    let places = place(&probes(&after));
-    assert!(
-        places.iter().all(|place| *place == Place::default()),
-        "sent at or after the turn settled"
+    let first_not_direct = [(100, None, false), (150, None, true), (160, None, true)];
+    assert_eq!(
+        roles(&first_not_direct),
+        [Role::Single, Role::First, Role::Last]
     );
 }
 
 #[test]
-fn a_lone_answered_send_and_plain_sends_are_untouched() {
-    let sends = [
-        (100, Some(answered(110, 262))),
-        (400, None),
-        (500, Some(Capture::Pending)),
-    ];
-    let places = place(&probes(&sends));
-    assert!(places.iter().all(|place| *place == Place::default()));
-    assert!(place(&[]).is_empty());
-    // An answer without a window cannot group anything.
-    let unbound = [
+fn a_turn_without_a_window_or_with_no_answer_groups_nothing() {
+    let no_window = [
         (
             100,
             Some(Capture::Answered {
@@ -110,22 +124,30 @@ fn a_lone_answered_send_and_plain_sends_are_untouched() {
                 bound_ms: None,
                 settled_ms: None,
             }),
+            true,
         ),
-        (218, None),
+        (218, None, true),
     ];
-    assert!(
-        place(&probes(&unbound))
-            .iter()
-            .all(|place| *place == Place::default())
-    );
+    assert_eq!(roles(&no_window), [Role::Single, Role::Single]);
+    let no_answer = [(100, Some(Capture::NoAnswer), true), (110, None, true)];
+    assert_eq!(roles(&no_answer), [Role::Single, Role::Single]);
+    assert!(place(&[]).is_empty());
 }
 
 #[test]
-fn only_a_plain_delivered_label_gets_the_answered_below_note() {
+fn the_block_status_is_the_newest_line_that_is_not_a_plain_delivery() {
     assert_eq!(
-        answered_below("✓ delivered"),
-        "✓ delivered · answered below"
+        block_status(["✓ delivered", "⠹ working…", "✓ delivered"].into_iter()),
+        "⠹ working…"
     );
-    assert_eq!(answered_below("◌ held · digest"), "◌ held · digest");
-    assert_eq!(answered_below("⠹ working…"), "⠹ working…");
+    assert_eq!(
+        block_status(["✓ delivered", "✓ delivered"].into_iter()),
+        "✓ delivered"
+    );
+    assert_eq!(
+        block_status(["◌ held · digest", "⠹ working…"].into_iter()),
+        "⠹ working…",
+        "the newest wins among states that are not plain deliveries"
+    );
+    assert_eq!(block_status(std::iter::empty()), "");
 }
