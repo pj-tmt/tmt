@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { pageAction } from '../test/page-actions.js';
+import { rgb, tokens } from './tokens.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -213,28 +214,47 @@ for (const width of [1440, 390])
       await expect(root.locator('[data-inline-review]')).not.toHaveAttribute('data-detached');
       await expect(root.locator('.question-line')).toBeVisible();
       const initialWidth = (await root.locator('.needs-you-header').boundingBox())!.width;
+      const widths: number[] = [];
+      // The v2 count chip (#4501): the word at a wide window, the boxed count and a chevron, in the
+      // attention tone; no underline in any state.
       await expect
         .poll(async () => (await trigger.innerText()).replace(/\s+/g, ''))
-        .toBe(width === 390 ? '◆3▾' : '◆Needsyou3▾');
+        .toBe(width === 390 ? '3' : 'Needsyou3');
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-      const decoration = () =>
-        trigger.evaluate((node) => getComputedStyle(node).textDecorationLine);
+      await expect(trigger).toHaveClass(/tmt-ui-count-chip/);
+      await expect(trigger).toHaveAttribute('data-tone', 'attention');
+      await expect(trigger.locator('.tmt-ui-count')).toHaveText('3');
+      // The word is visible at a wide window and hidden visually on a phone, where the accessible name
+      // still carries the word and the count.
+      await expect(trigger).toHaveAccessibleName('Needs you: 3');
+      if (width === 390) await expect(trigger.locator('.needs-you-wide')).toBeHidden();
+      else await expect(trigger.locator('.needs-you-wide')).toBeVisible();
+      await expect(trigger.locator('svg.tmt-ui-icon')).toHaveCount(1);
+      const look = () =>
+        trigger.evaluate((node) => {
+          const style = getComputedStyle(node);
+          return {
+            decoration: style.textDecorationLine,
+            background: style.backgroundColor,
+            border: style.borderTopColor,
+            colour: style.color,
+          };
+        });
       await page.mouse.move(0, 0);
-      expect(await decoration()).toBe('none');
+      const rest = await look();
+      expect(rest.decoration).toBe('none');
+      expect(rest.colour).toBe(rgb(tokens.browser.color.waiting[theme]));
       await trigger.hover();
-      expect(await decoration()).toBe('underline');
+      const hovered = await look();
+      expect(hovered.decoration).toBe('none');
+      expect(hovered.background).not.toBe(rest.background);
       await page.mouse.move(0, 0);
       await trigger.press('Shift+Tab');
       await page.keyboard.press('Tab');
       await expect(trigger).toBeFocused();
-      expect(await decoration()).toBe('underline');
+      expect((await look()).border).toBe(rgb(tokens.browser.color.focus[theme]));
       await trigger.evaluate((node) => (node as HTMLButtonElement).blur());
-      expect(await decoration()).toBe('none');
-      const colours = await trigger.evaluate((node) => ({
-        mark: getComputedStyle(node.querySelector('.needs-you-header-mark')!).color,
-        text: getComputedStyle(node).color,
-      }));
-      expect(colours.mark).not.toBe(colours.text);
+      expect((await look()).border).toBe(rest.border);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );
@@ -258,6 +278,7 @@ for (const width of [1440, 390])
       expect(await run(page, 'proof')).toEqual(before);
       await markRead.press('Enter');
       await expect(root.getByRole('button', { name: 'Needs you: 2', exact: true })).toBeVisible();
+      widths.push((await root.locator('.needs-you-header').boundingBox())!.width);
       await root.getByRole('button', { name: 'Needs you: 2', exact: true }).click();
       await page.getByRole('menuitem', { name: 'Choose the layout · Agent 1' }).click();
       const panel = root.locator('[data-question-group]');
@@ -267,6 +288,7 @@ for (const width of [1440, 390])
       await panel.getByLabel('Your answer', { exact: true }).fill('Use the compact layout.');
       await panel.getByRole('button', { name: /^Send/ }).click();
       await expect(root.getByRole('button', { name: 'Needs you: 1', exact: true })).toBeVisible();
+      widths.push((await root.locator('.needs-you-header').boundingBox())!.width);
       await expect(panel.locator('.question-line')).toHaveAttribute('aria-expanded', 'false');
       await root.getByRole('button', { name: 'Needs you: 1', exact: true }).click();
       await page.getByRole('menuitem', { name: 'Confirm the scope · Agent 1' }).click();
@@ -279,13 +301,56 @@ for (const width of [1440, 390])
       await expect(zero).toBeVisible();
       await expect(zero.getByRole('button')).toHaveCount(0);
       // The entry's slot is its own width while something waits; at zero only a one-pixel anchor stays.
-      expect(initialWidth).toBe(width === 390 ? 48 : 148);
+      // The chip is as wide at 3, 2 and 1: the count box has one width for a single digit.
+      expect(initialWidth).toBeGreaterThan(40);
+      expect(widths).toEqual([initialWidth, initialWidth]);
       expect((await zero.boundingBox())!.width).toBeLessThanOrEqual(1);
       expect((await run(page, 'proof')).actions).toEqual(['status:resolve', 'status:resolve']);
       expect(await run(page, 'discussionProof')).toHaveLength(3);
       await capture(page, `needs-you-0-${width}-${theme}`);
     });
   }
+
+/** A page with `reads` readings, `reviews` reviews and `groups` question groups, each waiting on the reader. */
+function waitingPage(reads: number, reviews: number, groups: number) {
+  const id = (base: number, index: number) =>
+    `a0000000-0000-4000-8000-${String(base + index).padStart(12, '0')}`;
+  const blocks = (count: number, render: (index: number) => string) =>
+    Array.from({ length: count }, (_, index) => render(index)).join('\n');
+  return `<style>
+body { margin:24px; font:16px/1.5 sans-serif; background:#fff; color:#222 }
+html[data-theme="dark"] body { background:#181818; color:#eee }
+tmt-read,tmt-review { display:block; margin:8px 0 }
+</style><h1>Everything waits</h1>
+${blocks(reads, (index) => `<tmt-read data-id="${id(1000, index)}" data-agent="Agent 1" data-why="Read it."><h2 data-title>Summary ${index + 1}</h2><p>Body ${index + 1}.</p></tmt-read>`)}
+${blocks(reviews, (index) => `<tmt-review data-id="${id(2000, index)}" data-agent="Agent 1"><h2 data-title>Scope ${index + 1}</h2><p>Confirm ${index + 1}.</p></tmt-review>`)}
+${blocks(groups, (index) => `<div>Decision ${index + 1}: <tmt-questions data-id="${id(3000, index)}" data-form="chip"><p data-title>Choose ${index + 1}</p><tmt-question data-id="${id(4000, index)}" data-kind="short" data-agent="Agent 1"><p data-question>Which?</p></tmt-question></tmt-questions></div>`)}`;
+}
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`a long list shows 99+ and keeps the exact count in the name at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.goto('/');
+      await run(page, 'mount');
+      await run(page, 'change', waitingPage(50, 50, 20));
+      const root = page.locator('#ask-page-fixture');
+      await (await pageAction(root, theme === 'dark' ? 'Theme: Dark' : 'Theme: Light')).click();
+      const trigger = root.getByRole('button', { name: 'Needs you: 120', exact: true });
+      await expect(trigger).toBeVisible();
+      await expect(trigger.locator('.tmt-ui-count')).toHaveText('99+');
+      await expect(trigger).toHaveAccessibleName('Needs you: 120');
+      if (width === 390) await expect(trigger.locator('.needs-you-wide')).toBeHidden();
+      // The chip fits the header: nothing scrolls sideways and its edge is inside the window.
+      const right = await trigger.evaluate((node) => node.getBoundingClientRect().right);
+      expect(right).toBeLessThanOrEqual(width);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await capture(page, `needs-you-120-${width}-${theme}`);
+    });
 
 test('the menu does not shift the authored page under the fixed header', async ({ page }) => {
   await mount(page);

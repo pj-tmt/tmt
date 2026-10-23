@@ -6,6 +6,7 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { rgb, tokens } from './tokens.js';
 
 let capture: Server;
 let origin: string;
@@ -2063,6 +2064,7 @@ test('the rest highlight underlines the passage in the annotation rule colour', 
           line: rule.style.getPropertyValue('text-decoration-line'),
           color: rule.style.getPropertyValue('text-decoration-color'),
           thickness: rule.style.getPropertyValue('text-decoration-thickness'),
+          skipInk: rule.style.getPropertyValue('text-decoration-skip-ink'),
           background: rule.style.getPropertyValue('background'),
         }));
     const root = getComputedStyle(document.documentElement);
@@ -2082,6 +2084,7 @@ test('the rest highlight underlines the passage in the annotation rule colour', 
       line: 'underline',
       color: 'var(--tmt-ui-color-annotation-rule)',
       thickness: '1px',
+      skipInk: 'none',
       background: 'var(--tmt-ui-surface-annotation-highlight)',
     },
   ]);
@@ -2090,8 +2093,495 @@ test('the rest highlight underlines the passage in the annotation rule colour', 
       line: 'underline',
       color: 'var(--tmt-ui-color-annotation-rule)',
       thickness: '2px',
+      skipInk: 'none',
       background: 'var(--tmt-ui-surface-annotation-highlight-hover)',
     },
+  ]);
+});
+
+/** A renderer frame bound by a test-owned parent that keeps its port, to send the frame raw messages. */
+async function bindPort(page: Page, id: string, source: string) {
+  const renderId = `00000000-0000-4000-8000-000000000004:${'d'.repeat(64)}`;
+  await page.evaluate(
+    async ({ id, source, renderId }) => {
+      const target = document.createElement('iframe');
+      target.id = id;
+      target.setAttribute('sandbox', 'allow-scripts');
+      target.src = '/renderer.html';
+      await new Promise<void>((resolve) => {
+        target.onload = () => resolve();
+        document.body.append(target);
+      });
+      const { port1, port2 } = new MessageChannel();
+      const waiting = new Map<string, () => void>();
+      port1.onmessage = (event) => {
+        if (event.data?.type === 'colab.render.anchors') waiting.get(event.data.requestId)?.();
+      };
+      Object.assign(window, { [`port_${id}`]: { port: port1, waiting } });
+      target.contentWindow!.postMessage(
+        {
+          type: 'colab.render.bind',
+          renderId,
+          sourceDigest: 'd'.repeat(64),
+          source,
+          theme: 'light',
+        },
+        '*',
+        [port2],
+      );
+    },
+    { id, source, renderId },
+  );
+  return renderId;
+}
+type PortWindow = Window & Record<string, { port: MessagePort; waiting: Map<string, () => void> }>;
+/** A highlight request and the frame's answer to it, which comes after every earlier port message. */
+const requestHighlight = (
+  page: Page,
+  id: string,
+  renderId: string,
+  requestId: string,
+  anchors: {
+    id: string;
+    ordinal: number;
+    selector: { exact: string; prefix: string; suffix: string };
+  }[],
+) =>
+  page.evaluate(
+    ({ id, renderId, requestId, anchors }) =>
+      new Promise<void>((resolve) => {
+        const bound = (window as unknown as PortWindow)[`port_${id}`]!;
+        bound.waiting.set(requestId, resolve);
+        bound.port.postMessage({
+          type: 'colab.render.highlight',
+          renderId,
+          requestId,
+          anchors,
+          threadCount: Math.max(0, ...anchors.map((anchor) => anchor.ordinal)),
+          draft: null,
+        });
+      }),
+    { id, renderId, requestId, anchors },
+  );
+const sendToFrame = (page: Page, id: string, message: unknown) =>
+  page.evaluate(
+    ({ id, message }) => (window as unknown as PortWindow)[`port_${id}`]!.port.postMessage(message),
+    { id, message },
+  );
+/** The passages the frame paints in the selected look, or null when it paints none. */
+const selectedPassages = (page: Page, id: string) =>
+  page
+    .frameLocator(`#${id}`)
+    .locator('html')
+    .evaluate(() => {
+      const selected = CSS.highlights.get('colab-selected');
+      return selected
+        ? { passages: [...selected].map((range) => range.toString()), priority: selected.priority }
+        : null;
+    });
+
+/** The labels of the lane markers that wear the open-thread ring. */
+const ringedMarkers = (page: Page, id: string) =>
+  page
+    .frameLocator(`#${id}`)
+    .locator('.annotation-number[data-colab-selected]')
+    .evaluateAll((nodes) => nodes.map((node) => node.textContent));
+
+test('a selection paints one passage in the selected look, and anything that is not a selection of the current request is refused', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const id = 'selecting';
+  const renderId = await bindPort(
+    page,
+    id,
+    '<p>First passage of the page.</p><p>Second passage of the page.</p><p>Third passage.</p>',
+  );
+  const anchor = (key: string, ordinal: number, exact: string) => ({
+    id: key,
+    ordinal,
+    selector: { exact, prefix: '', suffix: '' },
+  });
+  const anchors = [
+    anchor('t0', 1, 'First passage'),
+    anchor('t1', 2, 'Second passage'),
+    anchor('t2', 3, 'Third passage'),
+  ];
+  const first = '00000000-0000-4000-8000-0000000000a1';
+  const second = '00000000-0000-4000-8000-0000000000a2';
+  const third = '00000000-0000-4000-8000-0000000000a3';
+  await requestHighlight(page, id, renderId, first, anchors);
+  // No selection: today's look, nothing in the selected highlight.
+  expect(await selectedPassages(page, id)).toBeNull();
+  const select = (requestId: string, value: unknown = 't1', extra: object = {}) =>
+    sendToFrame(page, id, {
+      type: 'colab.render.select',
+      renderId,
+      requestId,
+      id: value,
+      ...extra,
+    });
+  await select(first);
+  await requestHighlight(page, id, renderId, second, anchors);
+  // The selection outlives a new request, painted above the hover tint.
+  expect(await selectedPassages(page, id)).toEqual({ passages: ['Second passage'], priority: 2 });
+  // Its lane marker, and only that one, wears the ring.
+  expect(await ringedMarkers(page, id)).toEqual(['2']);
+  // Each of these is refused and leaves the selection as it was: a stale request, another render, an
+  // extra key, a missing id, an id that is not text, empty (the draft), unknown, or a list.
+  for (const message of [
+    { type: 'colab.render.select', renderId, requestId: first, id: 't0' },
+    { type: 'colab.render.select', renderId: 'other', requestId: second, id: 't0' },
+    { type: 'colab.render.select', renderId, requestId: second, id: 't0', extra: true },
+    { type: 'colab.render.select', renderId, requestId: second },
+    { type: 'colab.render.select', renderId, requestId: second, id: 7 },
+    { type: 'colab.render.select', renderId, requestId: second, id: '' },
+    { type: 'colab.render.select', renderId, requestId: second, id: 'not-a-thread' },
+    { type: 'colab.render.select', renderId, requestId: second, id: ['t0'] },
+    { type: 'colab.render.select', renderId, requestId: second, id: { id: 't0' } },
+  ])
+    await sendToFrame(page, id, message);
+  await requestHighlight(page, id, renderId, third, anchors);
+  expect(await selectedPassages(page, id)).toEqual({ passages: ['Second passage'], priority: 2 });
+  expect(await ringedMarkers(page, id)).toEqual(['2']);
+  // Another thread replaces it; there is one selected passage at a time.
+  const fourth = '00000000-0000-4000-8000-0000000000a4';
+  await select(third, 't0');
+  await requestHighlight(page, id, renderId, fourth, anchors);
+  expect(await selectedPassages(page, id)).toEqual({ passages: ['First passage'], priority: 2 });
+  expect(await ringedMarkers(page, id)).toEqual(['1']);
+  // A request that no longer holds the thread paints nothing, and null clears the selection.
+  const fifth = '00000000-0000-4000-8000-0000000000a5';
+  await requestHighlight(page, id, renderId, fifth, anchors.slice(1));
+  expect(await selectedPassages(page, id)).toBeNull();
+  expect(await ringedMarkers(page, id)).toEqual([]);
+  await requestHighlight(page, id, renderId, '00000000-0000-4000-8000-0000000000a6', anchors);
+  expect(await selectedPassages(page, id)).toEqual({ passages: ['First passage'], priority: 2 });
+  await select('00000000-0000-4000-8000-0000000000a6', null);
+  await requestHighlight(page, id, renderId, '00000000-0000-4000-8000-0000000000a7', anchors);
+  expect(await selectedPassages(page, id)).toBeNull();
+  expect(await ringedMarkers(page, id)).toEqual([]);
+});
+
+test('the ring marks the open thread on a +n pill that holds it, and changes no size', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(
+    page,
+    '<style>body{margin:0}p{font:16px/32px system-ui;margin:0 0 0 24px}</style><p>Alpha beta and gamma delta on one line</p><p>Second paragraph on its own line</p>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frameLocator('#probe iframe');
+  await page.evaluate(() => {
+    const { handle } = (
+      window as unknown as {
+        probe: { handle: { highlight(value: unknown[]): void } };
+      }
+    ).probe;
+    handle.highlight([
+      { id: 'one', selector: { exact: 'Alpha beta', prefix: '', suffix: '' } },
+      { id: 'two', selector: { exact: 'gamma delta', prefix: '', suffix: '' } },
+      { id: 'three', selector: { exact: 'Second paragraph', prefix: '', suffix: '' } },
+    ]);
+  });
+  const markers = frame.locator('.annotation-number');
+  await expect(markers).toHaveText(['+2', '3']);
+  const geometry = () =>
+    markers.evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const box = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        return {
+          width: box.width,
+          height: box.height,
+          ring:
+            style.outlineStyle === 'none' ? 'none' : `${style.outlineWidth} ${style.outlineOffset}`,
+          color: style.outlineColor,
+        };
+      }),
+    );
+  const rest = await geometry();
+  expect(rest.map((marker) => marker.ring)).toEqual(['none', 'none']);
+  const select = (id: string | null) =>
+    page.evaluate(
+      (id) =>
+        (
+          window as unknown as { probe: { handle: { select(id: string | null): void } } }
+        ).probe.handle.select(id),
+      id,
+    );
+  // A member of the pill is open: the pill wears the ring and the single marker does not.
+  await select('two');
+  await expect(frame.locator('.annotation-number[data-colab-selected]')).toHaveText(['+2']);
+  const ringed = await geometry();
+  const ring = rgb(tokens.browser.color['annotation-rule-selected'].light);
+  expect(ringed[0]).toMatchObject({ ring: '2px -2px', color: ring });
+  expect(ringed[1]).toMatchObject({ ring: 'none' });
+  // The ring changes no size: it is drawn inside the 24 px target.
+  expect(ringed.map(({ width, height }) => ({ width, height }))).toEqual(
+    rest.map(({ width, height }) => ({ width, height })),
+  );
+  await select('three');
+  await expect(frame.locator('.annotation-number[data-colab-selected]')).toHaveText(['3']);
+  await select(null);
+  await expect(frame.locator('.annotation-number[data-colab-selected]')).toHaveCount(0);
+});
+
+/** WCAG contrast ratio of two #rrggbb colours. */
+const contrast = (first: string, second: string) => {
+  const luminance = (hex: string) => {
+    const [red, green, blue] = [1, 3, 5].map((at) => {
+      const value = parseInt(hex.slice(at, at + 2), 16) / 255;
+      return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    }) as [number, number, number];
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  };
+  const [light, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a) as [
+    number,
+    number,
+  ];
+  return (light + 0.05) / (dark + 0.05);
+};
+
+test('the selected highlight is a stronger tint and a solid rule thicker than the hover look', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(page, '<p id="quote">One highlighted passage</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frameLocator('#probe iframe');
+  const rules = await frame.locator('body').evaluate(() => {
+    const read = (selector: string) => {
+      const rule = [...document.styleSheets]
+        .flatMap((sheet) => [...sheet.cssRules])
+        .find((value): value is CSSStyleRule => (value as CSSStyleRule).selectorText === selector);
+      return {
+        line: rule?.style.getPropertyValue('text-decoration-line'),
+        color: rule?.style.getPropertyValue('text-decoration-color'),
+        thickness: rule?.style.getPropertyValue('text-decoration-thickness'),
+        skipInk: rule?.style.getPropertyValue('text-decoration-skip-ink'),
+        background: rule?.style.getPropertyValue('background'),
+      };
+    };
+    const root = getComputedStyle(document.documentElement);
+    return {
+      hover: read('::highlight(colab-hover)'),
+      selected: read('::highlight(colab-selected)'),
+      tint: root.getPropertyValue('--tmt-ui-surface-annotation-highlight-selected').trim(),
+      stroke: root.getPropertyValue('--tmt-ui-color-annotation-rule-selected').trim(),
+    };
+  });
+  expect(rules.selected).toEqual({
+    line: 'underline',
+    color: 'var(--tmt-ui-color-annotation-rule-selected)',
+    thickness: '3px',
+    skipInk: 'none',
+    background: 'var(--tmt-ui-surface-annotation-highlight-selected)',
+  });
+  // The rule steps up from hover's, so the two do not read alike.
+  expect(parseFloat(rules.selected.thickness!)).toBeGreaterThan(parseFloat(rules.hover.thickness!));
+  expect(rules.tint).toBe(
+    tokens.browser.surface['annotation-highlight-selected'].light.toLowerCase(),
+  );
+  expect(rules.stroke).toBe(tokens.browser.color['annotation-rule-selected'].light.toLowerCase());
+});
+
+test('the selected tint steps clearly from the rest tint and keeps text as readable as hover', () => {
+  for (const theme of ['light', 'dark'] as const) {
+    const rest = tokens.browser.surface['annotation-highlight'][theme];
+    const hover = tokens.browser.surface['annotation-highlight-hover'][theme];
+    const selected = tokens.browser.surface['annotation-highlight-selected'][theme];
+    expect(contrast(rest, selected), `${theme} rest to selected`).toBeGreaterThanOrEqual(1.3);
+    // Page text at the palette's text colour and at the common near-black / near-white: at 7:1, or
+    // as readable as on the hover tint where that is below 7:1.
+    for (const text of [
+      tokens.browser.color.text[theme],
+      theme === 'light' ? '#343434' : '#dddddd',
+    ])
+      expect(contrast(text, selected), `${theme} ${text} on selected`).toBeGreaterThanOrEqual(
+        Math.min(7, contrast(text, hover)),
+      );
+  }
+});
+
+/** The pixel row of the clip with the most of the rule's colour: how much of the clip's width the rule
+ * covers there and how much shows the tint instead, which is a gap in the rule. A glyph's tail
+ * crossing the rule is neither. */
+async function ruleRow(
+  page: Page,
+  clip: { x: number; y: number; width: number; height: number },
+  rule: string,
+  tint: string,
+) {
+  const png = (await page.screenshot({ clip })).toString('base64');
+  return page.evaluate(
+    async ({ png, rule, tint }) => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${png}`;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext('2d')!;
+      context.drawImage(image, 0, 0);
+      const { data, width, height } = context.getImageData(0, 0, image.width, image.height);
+      const channels = (hex: string) => [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16));
+      const near = (at: number, colour: number[], tolerance: number) =>
+        colour.every((channel, index) => Math.abs(data[at + index]! - channel) <= tolerance);
+      let best = { rule: 0, gaps: 1 };
+      for (let y = 0; y < height; y++) {
+        let ruled = 0;
+        let gaps = 0;
+        for (let x = 0; x < width; x++) {
+          const at = (y * width + x) * 4;
+          if (near(at, channels(rule), 12)) ruled++;
+          else if (near(at, channels(tint), 4)) gaps++;
+        }
+        if (ruled / width > best.rule) best = { rule: ruled / width, gaps: gaps / width };
+      }
+      return best;
+    },
+    { png, rule, tint },
+  );
+}
+
+test('the hover and selected rules run unbroken under descenders', async ({ page }) => {
+  await page.goto('/');
+  await mount(
+    page,
+    '<style>body{margin:24px;font:28px/2 system-ui;background:#fff;color:#343434}</style><p id="quote">typography, jumping quickly</p><p id="other">Another paragraph</p>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frameLocator('#probe iframe');
+  await page.evaluate(() =>
+    (
+      window as unknown as { probe: { handle: { highlight(value: unknown[]): void } } }
+    ).probe.handle.highlight([
+      { id: 'one', selector: { exact: 'typography, jumping quickly', prefix: '', suffix: '' } },
+    ]),
+  );
+  await expect
+    .poll(() => frame.locator('html').evaluate(() => CSS.highlights.has('colab-comments')))
+    .toBe(true);
+  // The passage's box on the page, where the rule runs along the foot of the tint.
+  const passage = async () => {
+    const frameBox = (await page.locator('#probe iframe').boundingBox())!;
+    const text = await frame.locator('#quote').evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const { left, top, width, height } = range.getBoundingClientRect();
+      return { left, top, width, height };
+    });
+    return {
+      x: frameBox.x + text.left,
+      y: frameBox.y + text.top,
+      width: text.width,
+      height: text.height + 8,
+    };
+  };
+  const clip = await passage();
+  // Hover: the 2 px rule in the annotation rule colour, in one run across the passage.
+  await page.mouse.move(clip.x + 20, clip.y + 10);
+  await expect
+    .poll(() => frame.locator('html').evaluate(() => CSS.highlights.has('colab-hover')))
+    .toBe(true);
+  const hovered = await ruleRow(
+    page,
+    clip,
+    tokens.browser.color['annotation-rule'].light,
+    tokens.browser.surface['annotation-highlight-hover'].light,
+  );
+  expect(hovered.rule).toBeGreaterThan(0.7);
+  expect(hovered.gaps).toBeLessThan(0.01);
+  // Selected: the 3 px rule in the selected colour, with the pointer away.
+  await page.evaluate(() =>
+    (
+      window as unknown as { probe: { handle: { select(id: string | null): void } } }
+    ).probe.handle.select('one'),
+  );
+  await page.mouse.move(clip.x + 20, clip.y + clip.height + 120);
+  await expect
+    .poll(() => frame.locator('html').evaluate(() => CSS.highlights.has('colab-selected')))
+    .toBe(true);
+  const selected = await ruleRow(
+    page,
+    clip,
+    tokens.browser.color['annotation-rule-selected'].light,
+    tokens.browser.surface['annotation-highlight-selected'].light,
+  );
+  expect(selected.rule).toBeGreaterThan(0.7);
+  expect(selected.gaps).toBeLessThan(0.01);
+});
+
+test('without the Highlight API the selected passage keeps the same look on its overlay marks', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(
+    page,
+    '<style>body{margin:24px;font:20px/1.6 sans-serif}</style><p>First passage here.</p><p>Second passage here.</p><script>window.Highlight=undefined;</script>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frameLocator('#probe iframe');
+  const marks = () =>
+    frame.locator('body').evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>('[data-colab-highlight] > div[data-thread]')].map(
+        (mark) => ({
+          thread: mark.dataset.thread,
+          background: mark.style.background,
+          border: mark.style.borderBottom,
+        }),
+      ),
+    );
+  await page.evaluate(() => {
+    const probe = (
+      window as unknown as {
+        probe: { handle: { highlight(value: unknown[]): void; select(id: string | null): void } };
+      }
+    ).probe;
+    probe.handle.highlight([
+      { id: 'one', selector: { exact: 'First passage', prefix: '', suffix: '' } },
+      { id: 'two', selector: { exact: 'Second passage', prefix: '', suffix: '' } },
+    ]);
+  });
+  await expect.poll(async () => (await marks()).length).toBe(2);
+  // The overlay's rule is a border, unbroken at descenders; its marks carry the same setting.
+  expect(
+    await frame
+      .locator('[data-colab-highlight] > div[data-thread]')
+      .first()
+      .evaluate((mark) => getComputedStyle(mark).textDecorationSkipInk),
+  ).toBe('none');
+  const rest = {
+    background: 'var(--tmt-ui-surface-annotation-highlight)',
+    border: '1px solid var(--tmt-ui-color-annotation-rule)',
+  };
+  const selected = {
+    background: 'var(--tmt-ui-surface-annotation-highlight-selected)',
+    border: '3px solid var(--tmt-ui-color-annotation-rule-selected)',
+  };
+  expect(await marks()).toEqual([
+    { thread: 'one', ...rest },
+    { thread: 'two', ...rest },
+  ]);
+  await page.evaluate(() =>
+    (
+      window as unknown as { probe: { handle: { select(id: string | null): void } } }
+    ).probe.handle.select('two'),
+  );
+  await expect.poll(marks).toEqual([
+    { thread: 'one', ...rest },
+    { thread: 'two', ...selected },
+  ]);
+  await page.evaluate(() =>
+    (
+      window as unknown as { probe: { handle: { select(id: string | null): void } } }
+    ).probe.handle.select(null),
+  );
+  await expect.poll(marks).toEqual([
+    { thread: 'one', ...rest },
+    { thread: 'two', ...rest },
   ]);
 });
 

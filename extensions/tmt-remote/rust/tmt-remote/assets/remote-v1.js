@@ -2484,6 +2484,17 @@ var brandMarkSmall = (size) => size !== void 0 && size < 28;
 var stop = (name, offset, opacity) => `<stop class="tmt-brand-mark-${name}" offset="${offset}"${opacity === void 0 ? "" : ` stop-opacity="${opacity}"`}></stop>`;
 var light = (offset, opacity) => `<stop offset="${offset}" stop-color="#fff" stop-opacity="${opacity}"></stop>`;
 var box = "filterUnits=\"userSpaceOnUse\" x=\"0\" y=\"0\" width=\"96\" height=\"96\"";
+/**
+* A paint-server id prefix that no element of the document uses yet: `base`, then `base-1`,
+* `base-2`. Marks that share a prefix resolve `url(#…)` to the first paint server in the document,
+* which can sit in a hidden subtree and paint nothing. `taken` asks the live document, so marks
+* drawn by separate bundles do not collide either.
+*/
+function freshMarkId(base, taken) {
+	let id = base;
+	for (let count = 1; taken(id); count++) id = `${base}-${count}`;
+	return id;
+}
 /** The mark's children; `id` prefixes its paint servers, unique per document. */
 function brandMarkInner(small, id) {
 	const shape = small ? SMALL : FULL;
@@ -2843,7 +2854,7 @@ function mountShell(root, view, select) {
 	brand.className = "tmt-ui-shell-brand";
 	brand.innerHTML = brandMarkSvg({
 		size: 32,
-		id: "tmt-rail"
+		id: freshMarkId("tmt-rail", (prefix) => document.getElementById(`${prefix}-aurora`) !== null)
 	});
 	const text = document.createElement("span");
 	text.className = "tmt-ui-shell-brand-text";

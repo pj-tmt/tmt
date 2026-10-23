@@ -2630,7 +2630,8 @@ resolution; replacement/navigation/disposal closes ports, observers and highligh
 
 CSS Highlights, or pointer-inert range overlays when unavailable, leave author text
 nodes intact. Resolved ranges keep a mint tint and a 1 px underline (a 2 px underline and a
-stronger tint under the pointer) and a number marker, a 16 px circle in a 24 px target, in
+stronger tint under the pointer), each drawn unbroken under descenders (`text-decoration-skip-ink:
+none` on the highlight, which the page root's value does not reach), and a number marker, a 16 px circle in a 24 px target, in
 the frame's right marker lane, centred on the line the passage ends on, so it covers no text
 and moves none. On a `column` or `full` page the marker stands 4 px after the end of the
 column, beside the text it belongs to; on any other page, whose content spans the frame, at the
@@ -2642,7 +2643,18 @@ its current highlight request and opens that thread's anchored parent window. A 
 posts exactly `type:"colab.render.open-list"`, `renderId`, `requestId`; the parent accepts the
 current render and request only and opens the Comments list (closing an open annotation
 window), with no thread ID and no thread opened. Forging either view-only
-action cannot publish, sign or send. Resize and DOM changes re-resolve positions;
+action cannot publish, sign or send. The passage of the thread whose anchored window is open
+takes a selected look: a stronger tint (`surface.annotation-highlight-selected`) and a solid 3 px
+underline (`color.annotation-rule-selected`, against hover's 2 px), above the hover look, and its
+lane marker, or the `+n` pill that holds it, wears a 2 px ring in the same colour, 2 px outside the
+circle and inside the 24 px target, so the lane names the open thread even when its passage is off
+screen; both return to rest when the window closes or another thread opens; a window for a new quote, resolved threads (which have no
+page passage) and a page without a selection draw nothing extra. The parent selects it with
+exactly `type:"colab.render.select"`, `renderId`, `requestId` and `id`, where `id` is a thread ID
+of its current highlight request or `null`; the frame accepts only the current render and request
+and an ID its request holds, refuses any other value and key set, keeps the selection across a new
+request (the parent sends it again with each) and paints nothing for an ID that does not resolve.
+It carries no discussion content and draws only; it cannot publish, sign or send. Resize and DOM changes re-resolve positions;
 thread-list navigation scrolls the window to the reported anchor offset (the bounded
 viewport-coupled fallback scrolls inside its frame). Author scripts can tamper with these APIs, DOM or cosmetic results;
 the parent sends bounded quote/tooltip data, never full records, keys or application capability through the channel.

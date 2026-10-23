@@ -110,9 +110,29 @@ for (const width of [1440, 390])
         await expect(page.locator('.annotation-popover')).not.toHaveAttribute('data-leader');
       }
       await page.keyboard.press('Escape');
+      // The passage at rest is not selected; the one whose thread window opens takes the selected look
+      // (#4490) and returns to rest when the window closes.
+      const selectedPassages = () =>
+        frame.locator('html').evaluate(() => {
+          const selected = CSS.highlights.get('colab-selected');
+          return selected ? [...selected].map((range) => range.toString()) : null;
+        });
+      expect(await selectedPassages()).toBeNull();
       await markers.filter({ hasText: /^1$/ }).click();
       const thread = page.getByTestId('comment-thread');
       await expect(thread).toBeVisible();
+      await expect.poll(selectedPassages).toEqual(['Check the mobile layout before release.']);
+      // The open thread's marker, and only that one, wears the ring: 2 px in the selected rule colour,
+      // drawn inside the 24 px target.
+      const ringed = frame.locator('.annotation-number[data-colab-selected]');
+      await expect(ringed).toHaveText(['1']);
+      await expect(ringed).toHaveCSS('outline-width', '2px');
+      await expect(ringed).toHaveCSS('outline-style', 'solid');
+      await expect(ringed).toHaveCSS('outline-offset', '-2px');
+      await expect(ringed).toHaveCSS(
+        'outline-color',
+        rgb(tokens.browser.color['annotation-rule-selected'][theme]),
+      );
       await expectRuleEdge(page.locator('.annotation-popover'), theme);
       await expect(thread.locator('.annotation-number')).toHaveText('1');
       const human = thread.locator('.conversation-turn[data-turn-role="user"]');
@@ -125,6 +145,8 @@ for (const width of [1440, 390])
       await expect(human.locator('.conversation-body .agent-chip')).toHaveCount(2);
       await page.screenshot({ path: `${captures}/annotation-thread-${width}-${theme}.png` });
       await page.keyboard.press('Escape');
+      await expect.poll(selectedPassages).toBeNull();
+      await expect(frame.locator('.annotation-number[data-colab-selected]')).toHaveCount(0);
       const comments = await pageAction(app, 'Comments');
       await comments.click();
       const panel = page.getByTestId('comments-panel');
