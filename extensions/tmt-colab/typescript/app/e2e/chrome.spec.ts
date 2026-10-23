@@ -114,7 +114,7 @@ async function metrics(page: Page) {
       foreground: style.color,
       mark: brandFont('.tmt-ui-mark'),
       wordmark: brandFont('.tmt-ui-wordmark'),
-      title: font('.tmt-ui-title'),
+      title: brandFont('.tmt-ui-title'),
       actions: font('.tmt-ui-actions'),
     };
   });
@@ -154,7 +154,7 @@ for (const width of [1440, 390, 320])
       // Router screens render in the TMT shell (the header sits in its sticky bar, as one
       // breadcrumb); reader, mounted and native screens keep the standalone fixed header. Each
       // kind shares one chrome.
-      const references = new Map<boolean, Awaited<ReturnType<typeof metrics>>>();
+      const references = new Map<boolean, Omit<Awaited<ReturnType<typeof metrics>>, 'title'>>();
       let cardReference: unknown;
       for (const screen of [...screens, 'rust-private', 'rust-owner'] as const) {
         await test.step(screen, async () => {
@@ -187,12 +187,20 @@ for (const width of [1440, 390, 320])
           const current = await metrics(page);
           const shelled =
             (await page.locator('.tmt-ui-shell-bar > .tmt-ui-header:visible').count()) > 0;
-          if (!references.has(shelled)) references.set(shelled, current);
-          expect(current, screen).toEqual({ ...references.get(shelled)!, gap: tokens.header.gap });
+          const { title, ...frame } = current;
+          if (!references.has(shelled)) references.set(shelled, frame);
+          expect(frame, screen).toEqual({ ...references.get(shelled)!, gap: tokens.header.gap });
           expect(current.height).toBe(
             parseFloat(width < 480 ? tokens.header['compact-height'] : tokens.header.height),
           );
-          expect(current.title.size).toBe(tokens.header['title-size']);
+          if (screen === 'pages' || screen === 'archived' || screen === 'empty') {
+            expect(title).toBeNull();
+            await expect(page.locator('#chrome-fixture .home h1')).toHaveCount(1);
+            await expect(page.locator('.tmt-ui-header:visible')).toHaveAttribute(
+              'aria-label',
+              /Colab.*Pages/,
+            );
+          } else expect(title?.size).toBe(tokens.header['title-size']);
           // The shell bar carries the page title alone; standalone headers keep the brand.
           if (shelled) expect(current.wordmark).toBeNull();
           else expect(current.wordmark?.size).toBe(tokens.header['wordmark-size']);
@@ -320,11 +328,13 @@ test('the Archived tab filters archived pages with a tab, not a native checkbox'
     const path = '/test/chrome-browser.tsx';
     await (await import(path)).mount('pages');
   });
-  // Only a row's own selection box is a checkbox; the Archived filter is a tab.
-  await expect(
-    page.locator('#chrome-fixture input[type="checkbox"]:not(.tmt-ui-list-leading > input)'),
-  ).toHaveCount(0);
-  const rows = page.locator('#chrome-fixture ul.pages li');
+  // Rows and the header own selection checkboxes; Archived remains a tab.
+  const root = page.locator('#chrome-fixture');
+  const rows = root.locator('ul.pages li');
+  await expect(root.getByRole('checkbox', { name: 'Select all matching pages' })).toBeVisible();
+  await expect(rows.getByRole('checkbox')).toHaveCount(await rows.count());
+  await expect(root.getByRole('checkbox')).toHaveCount((await rows.count()) + 1);
+  await expect(root.getByRole('checkbox', { name: 'Archived', exact: true })).toHaveCount(0);
   await expect(rows.first()).toContainText('Release notes');
   const all = page.locator('#chrome-fixture').getByRole('tab', { name: /^All, \d+\+?$/ });
   const archived = page.locator('#chrome-fixture').getByRole('tab', { name: /^Archived/ });
