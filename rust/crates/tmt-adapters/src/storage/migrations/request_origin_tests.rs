@@ -23,7 +23,7 @@ fn origin_migration_adds_the_column_without_inventing_history_and_guards_it() {
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 61);
+    assert_eq!(storage.health().unwrap().schema_version, 62);
     let context = RequestService::new(&mut storage, || 2000)
         .get_context("old-request")
         .unwrap()

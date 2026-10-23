@@ -653,15 +653,11 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
 }
 
 pub(in crate::board) fn savings_document() -> serde_json::Value {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../tmt-digest/contracts/vectors/status-v1.json");
-    let mut document: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    document = document["status"][0]["response"].clone();
+    let mut document = crate::labels::tests::status_document();
     let mut row = document["members"][0].clone();
     row["identityId"] = serde_json::json!(MEMBER);
     row["labels"] = serde_json::json!([{"text":"Auto","colorClass":"text"}]);
-    row["savings"] = serde_json::json!({"method":"context-input-avoided-v1", "window":"24h", "fromMs":0, "throughMs":1000, "estimatedInputTokensAvoided":18200, "complete":true,"gap":null});
+    row["savings"] = crate::labels::tests::savings("24h", 0, 1000, 18200);
     document["members"] = serde_json::json!([row]);
     document
 }
@@ -1677,6 +1673,10 @@ fn the_stopped_tick_notice_is_the_only_waiting_part_of_the_summary_and_outlives_
         Some(serde_json::json!(1_000_000_000u64 - 600_000)),
         Some(true),
     );
+    // This assertion distinguishes role colours, independent of ambient NO_COLOR.
+    let view = app.view.as_mut().unwrap();
+    view.look = crate::look::Look::default();
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
     press(&mut app, '2');
     let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
     terminal

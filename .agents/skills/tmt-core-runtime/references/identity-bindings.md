@@ -202,8 +202,14 @@ delivery. They install and launch nothing.
   - SessionStart is the explicit exception to the admitted-activity rule. A start of either
     provider sets it from its own valid reported model, and clears it otherwise. The kept
     resume model is not evidence, and caller discovery clears it.
-- One identity has one current runtime: only starting provider events replace the session, and
-  a launch under another driver drops the previous driver's session and state.
+- One identity has one current binding/runtime and one exact resume record per driver.
+  `SessionPreferences::retained` holds inactive records and their own channel choice;
+  selecting a driver does not assert liveness. Storage schema 62 keeps inactive records in
+  `identity_resume_records`, in the same transaction/fence as current preferences.
+  Retirement clears both. A switch archives only an exactly associated launch preset
+  under `resume.driver.<harness>`; another driver's settings never apply.
+  [Driver switching](../../../../contracts/driver-protocol-v1.md#built-in-driver-switch)
+  owns handoff, stop and caller-pane launch behavior.
 - An independent provider hook, attributed by pane ancestry, records only the pane's main
   provider: the nearest provider process above the hook with no built-in provider above it up
   to the verified pane. The pane process itself may be that provider after a shell exec.
@@ -232,8 +238,10 @@ delivery. They install and launch nothing.
   stopping anything. The lifecycle driver proves the captured process is its private main
   agent under the old pane; a pane process, nested agent or shared Codex server refuses.
   The process adapter rechecks PID/start immediately before one TERM, with three seconds
-  for exit confirmation and no force or signal retry. Request under binding coordination,
-  release the writer while waiting, and leave binding/preferences unchanged on stop failure.
+  for exit confirmation and no force or signal retry. The binding writer holds only
+  the bounded pre-signal probes and TERM fence, preventing a concurrent resume or
+  rebind between proof and signal. It is never held across the 30-second handoff,
+  exit wait or new launch. Stop failure leaves binding/preferences unchanged.
   After exit, re-read final hook state and fence binding, owner, session and launch choices.
   Pure `binding::move_identity` admits a concurrent Ended settlement only for that same
   attachment, process/session key and launch owner; all other captured fields and preferences

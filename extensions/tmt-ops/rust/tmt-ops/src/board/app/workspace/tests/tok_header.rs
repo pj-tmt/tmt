@@ -144,6 +144,10 @@ fn each_tok_part_lights_up_alone_under_the_pointer() {
     for width in [120, 80] {
         for (name, filter) in LISTS {
             let mut app = open(filter, SavingsUnit::Tokens);
+            // This assertion compares colours, independent of ambient NO_COLOR.
+            let view = app.view.as_mut().unwrap();
+            view.look = crate::look::Look::default();
+            view.home.as_mut().unwrap().workspace.squad_looks.clear();
             paint(&app, width, 40);
             let at = parts(&app);
             let y = at.unit.y;

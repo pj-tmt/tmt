@@ -3,7 +3,8 @@
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use tmt_core::binding::session::{
     BindingSessionState, DriverState, HarnessId, ObservedSessionKey, ProviderSessionId,
-    RememberedSession, RuntimeMode, RuntimeState, SessionPreferences, SessionTransition,
+    RememberedSession, RetainedSession, RuntimeMode, RuntimeState, SessionPreferences,
+    SessionTransition,
 };
 use tmt_core::endpoint::ProcessIncarnation;
 
@@ -74,14 +75,42 @@ pub(super) fn preferences(
     connection: &Connection,
     identity_id: &str,
 ) -> Result<SessionPreferences, StorageError> {
-    connection.query_row(
+    if connection.is_autocommit() {
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| classify(error, "Begin session preference snapshot"))?;
+        let value = preferences(&transaction, identity_id)?;
+        transaction
+            .commit()
+            .map_err(|error| classify(error, "Close session preference snapshot"))?;
+        return Ok(value);
+    }
+    let mut preferences = connection.query_row(
         "SELECT p.preferred_harness, p.remembered_harness, p.runtime_mode, p.provider_session_id,
                 p.driver_state_version, p.driver_state, p.stale_at_ms, p.resume_pending_at_ms, p.channel FROM identity_session_preferences p
          JOIN identities i ON i.id = p.identity_id WHERE p.identity_id = ? AND i.retired_at_ms IS NULL",
         [identity_id],
         |row| decode_preferences(row, 0),
     ).optional().map(|value| value.unwrap_or_default())
-        .map_err(|error| classify(error, "Read session preferences"))
+        .map_err(|error| classify(error, "Read session preferences"))?;
+    let mut query = connection
+        .prepare(
+            "SELECT harness, harness, runtime_mode, provider_session_id, driver_state_version,
+         driver_state, stale_at_ms, resume_pending_at_ms, channel FROM identity_resume_records r JOIN identities i ON i.id = r.identity_id
+         WHERE r.identity_id = ? AND i.retired_at_ms IS NULL ORDER BY harness",
+        )
+        .map_err(|error| classify(error, "Read retained driver sessions"))?;
+    preferences.retained = query
+        .query_map([identity_id], |row| {
+            let value = decode_preferences(row, 0)?;
+            Ok(RetainedSession {
+                session: value.remembered.ok_or(rusqlite::Error::InvalidQuery)?,
+                channel: value.channel,
+            })
+        })
+        .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        .map_err(|error| classify(error, "Decode retained driver sessions"))?;
+    Ok(preferences)
 }
 
 pub(super) fn decode_preferences(
@@ -119,6 +148,7 @@ pub(super) fn decode_preferences(
         _ => return Err(rusqlite::Error::InvalidQuery),
     };
     Ok(SessionPreferences {
+        retained: Vec::new(),
         preferred_harness,
         remembered,
         channel: row.get(offset + 8)?,
@@ -143,12 +173,24 @@ pub(super) fn set_preferences(
     identity_id: &str,
     value: &SessionPreferences,
 ) -> Result<bool, StorageError> {
+    if value.remembered.as_ref().is_some_and(|active| {
+        value
+            .retained
+            .iter()
+            .any(|record| record.session.harness == active.harness)
+    }) {
+        return Err(classify(
+            rusqlite::Error::InvalidQuery,
+            "Duplicate current driver session",
+        ));
+    }
+    let retained_changed = preferences(connection, identity_id)?.retained != value.retained;
     let remembered = value.remembered.as_ref();
     let state = remembered.and_then(|session| session.state.as_ref());
     let stale_at_ms = stored_time(remembered.and_then(|session| session.stale_at_ms))?;
     let resume_pending_at_ms =
         stored_time(remembered.and_then(|session| session.resume_pending_at_ms))?;
-    connection
+    let changed = connection
         .execute(
             "INSERT INTO identity_session_preferences (identity_id, preferred_harness, remembered_harness, runtime_mode,
              provider_session_id, driver_state_version, driver_state, stale_at_ms, resume_pending_at_ms, channel)
@@ -172,12 +214,37 @@ pub(super) fn set_preferences(
             ],
         )
         .map(|changed| changed == 1)
-        .map_err(|error| classify(error, "Write session preferences"))
+        .map_err(|error| classify(error, "Write session preferences"))?;
+    if changed && retained_changed {
+        connection
+            .execute(
+                "DELETE FROM identity_resume_records WHERE identity_id = ?",
+                [identity_id],
+            )
+            .map_err(|error| classify(error, "Replace retained driver sessions"))?;
+        for record in &value.retained {
+            let session = &record.session;
+            let state = session.state.as_ref();
+            connection.execute("INSERT INTO identity_resume_records
+                (identity_id,harness,runtime_mode,provider_session_id,driver_state_version,driver_state,stale_at_ms,resume_pending_at_ms,channel)
+                VALUES (?,?,?,?,?,?,?,?,?)", params![identity_id,session.harness.as_str(),session.mode.as_str(),
+                    session.provider_session.as_str(),state.map(DriverState::version),state.map(DriverState::document),
+                    stored_time(session.stale_at_ms)?,stored_time(session.resume_pending_at_ms)?,record.channel])
+                .map_err(|error| classify(error, "Write retained driver session"))?;
+        }
+    }
+    Ok(changed)
 }
 
 /// Clears the remembered session and its driver state. Retirement calls this
 /// in the retiring transaction, whatever the lifetime.
 pub(super) fn forget(connection: &Connection, identity_id: &str) -> Result<(), StorageError> {
+    connection
+        .execute(
+            "DELETE FROM identity_resume_records WHERE identity_id = ?",
+            [identity_id],
+        )
+        .map_err(|error| classify(error, "Clear retired driver sessions"))?;
     connection
         .execute(
             "UPDATE identity_session_preferences SET remembered_harness = NULL, runtime_mode = NULL,
@@ -198,7 +265,9 @@ pub(super) fn purge_unregistered(
             .prepare(
                 "SELECT p.identity_id, i.name, p.remembered_harness FROM identity_session_preferences p
                  JOIN identities i ON i.id = p.identity_id
-                 WHERE p.remembered_harness IS NOT NULL ORDER BY p.identity_id",
+                 WHERE p.remembered_harness IS NOT NULL
+                 UNION SELECT r.identity_id, i.name, r.harness FROM identity_resume_records r
+                 JOIN identities i ON i.id = r.identity_id ORDER BY 1, 3",
             )
             .map_err(|error| classify(error, "Find remembered sessions"))?;
         statement
@@ -216,8 +285,24 @@ pub(super) fn purge_unregistered(
             .filter(|purged| !registered.contains(&purged.harness.as_str()))
             .collect::<Vec<_>>()
     };
-    for purged in &orphaned {
-        forget(connection, &purged.identity_id)?;
+    let identities = orphaned
+        .iter()
+        .map(|item| item.identity_id.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    for identity in identities {
+        let mut value = preferences(connection, identity)?;
+        if value
+            .remembered
+            .as_ref()
+            .is_some_and(|session| !registered.contains(&session.harness.as_str()))
+        {
+            value.remembered = None;
+            value.channel = None;
+        }
+        value
+            .retained
+            .retain(|record| registered.contains(&record.session.harness.as_str()));
+        set_preferences(connection, identity, &value)?;
     }
     Ok(orphaned)
 }
@@ -304,6 +389,7 @@ mod tests {
 
     fn remembered() -> SessionPreferences {
         SessionPreferences {
+            retained: Vec::new(),
             channel: None,
             preferred_harness: Some(HarnessId::new("claude").unwrap()),
             remembered: Some(RememberedSession {
@@ -315,6 +401,92 @@ mod tests {
                 resume_pending_at_ms: None,
             }),
         }
+    }
+
+    #[test]
+    fn inactive_driver_records_survive_reopen_and_a_current_session_clear() {
+        let root = crate::test_support::TestDirectory::new();
+        let path = root.path.join("drivers.db");
+        let mut storage = crate::storage::Storage::open(&path).unwrap();
+        let identity = create_or_resolve(&mut storage, "Switcher", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let mut value = remembered();
+        value.channel = Some(true);
+        let codex = HarnessId::new("codex").unwrap();
+        value.launched(&codex);
+        value.remember(
+            codex,
+            RuntimeMode::new("embedded").unwrap(),
+            ProviderSessionId::new("codex-thread").unwrap(),
+        );
+        storage
+            .with_binding_transaction::<_, StorageError>(|records| {
+                records.set_session_preferences(&identity.id, &value)?;
+                Ok(())
+            })
+            .unwrap();
+        storage.close().unwrap();
+        let mut storage = crate::storage::Storage::open(&path).unwrap();
+        assert_eq!(storage.session_preferences(&identity.id).unwrap(), value);
+        value.remembered = None;
+        storage
+            .with_binding_transaction::<_, StorageError>(|records| {
+                records.set_session_preferences(&identity.id, &value)?;
+                Ok(())
+            })
+            .unwrap();
+        let mut restored = storage.session_preferences(&identity.id).unwrap();
+        restored.launched(&HarnessId::new("claude").unwrap());
+        assert_eq!(restored.remembered, remembered().remembered);
+        assert_eq!(restored.channel, Some(true));
+        forget(storage.connection().unwrap(), &identity.id).unwrap();
+        assert!(
+            storage
+                .session_preferences(&identity.id)
+                .unwrap()
+                .retained
+                .is_empty()
+        );
+        storage.close().unwrap();
+    }
+
+    #[test]
+    fn unchanged_retained_records_do_not_advance_the_cursor_and_duplicate_writes_roll_back() {
+        let fixture = Fixture::new();
+        let mut storage = fixture.open();
+        let identity = create_or_resolve(&mut storage, "Driver records", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let mut value = remembered();
+        value.launched(&HarnessId::new("codex").unwrap());
+        storage
+            .with_binding_transaction::<_, StorageError>(|records| {
+                records.set_session_preferences(&identity.id, &value)?;
+                Ok(())
+            })
+            .unwrap();
+        let cursor = storage.change_cursor().unwrap();
+        storage
+            .with_binding_transaction::<_, StorageError>(|records| {
+                records.set_session_preferences(&identity.id, &value)?;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(storage.change_cursor().unwrap(), cursor);
+        let mut invalid = value.clone();
+        invalid.retained.push(invalid.retained[0].clone());
+        assert!(
+            storage
+                .with_binding_transaction::<_, StorageError>(|records| {
+                    records.set_session_preferences(&identity.id, &invalid)?;
+                    Ok(())
+                })
+                .is_err()
+        );
+        assert_eq!(storage.session_preferences(&identity.id).unwrap(), value);
+        assert_eq!(storage.change_cursor().unwrap(), cursor);
+        storage.close().unwrap();
     }
 
     #[test]

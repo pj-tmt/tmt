@@ -117,6 +117,14 @@ pub(in crate::grammar) fn resume() -> Command {
         ]
     ))
     .arg(
+        Arg::new("driver")
+            .long("driver")
+            .value_name("DRIVER")
+            .requires("name")
+            .conflicts_with_all(["forget", "forget-launch", "show"])
+            .help("Ask for a handoff, stop the old agent, and switch drivers in this pane"),
+    )
+    .arg(
         Arg::new("move")
             .long("move")
             .action(ArgAction::SetTrue)

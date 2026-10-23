@@ -592,7 +592,13 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         }
         // Exact channel admission accepts options between `resume` and the
         // selected session; the embedded-mode suffix must stay after it.
-        command.args.splice(1..1, options);
+        let index = usize::from(command.args.first().is_some_and(|arg| arg == "resume"));
+        command.args.splice(index..index, options);
+        true
+    }
+
+    fn initial_message(&self, command: &mut crate::runtime::RuntimeCommand, message: &str) -> bool {
+        command.args.extend(["--".into(), message.into()]);
         true
     }
 
@@ -1419,6 +1425,7 @@ mod tests {
         let server = ProcessIncarnation::new(30, "server-start").unwrap();
         let session = ProviderSessionId::new("exact-thread").unwrap();
         let preferences = SessionPreferences {
+            retained: Vec::new(),
             channel: None,
             preferred_harness: Some(HarnessId::new("codex").unwrap()),
             remembered: Some(RememberedSession {

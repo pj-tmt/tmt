@@ -272,6 +272,8 @@ pub enum Effect {
     Checklist(super::checklist::load::Task),
     Recovery(super::recovery::load::Task),
     Discovery(super::discovery::load::Task),
+    MemberSession(super::member_session::Task),
+    Foreground(super::member_session::Foreground),
 }
 
 /// What a menu entry does: run a binding, or reply to one open request.
@@ -581,6 +583,7 @@ pub(super) enum Overlay {
     Checklist,
     QuotaDetails,
     Discovery,
+    MemberSession,
     UsageControls,
     PastePreview,
 }
@@ -601,6 +604,7 @@ impl Overlay {
                 Self::Checklist => "checklist",
                 Self::QuotaDetails => "quota-details",
                 Self::Discovery => "discovery",
+                Self::MemberSession => "member-session",
                 Self::UsageControls => "usage-controls",
                 Self::PastePreview => "paste-preview",
             }
@@ -707,6 +711,9 @@ pub struct App {
     pub(super) checklist: Option<super::checklist::Controller>,
     pub(super) recovery: Option<super::recovery::Controller>,
     pub(super) discovery: Option<super::discovery::Controller>,
+    pub(super) member_session: Option<super::member_session::Controller>,
+    pub(super) member_session_generation: u64,
+    pub(super) foreground: Option<super::member_session::Foreground>,
     pub(super) discovered_uuid: Option<String>,
     pub(super) checklist_generation: u64,
     pub(super) initial_look: Option<crate::look::Look>,
@@ -1722,6 +1729,7 @@ impl App {
                 }
                 self.error = None;
                 self.discovery_refreshed();
+                self.member_session_changed();
             }
             Err(error) => {
                 if let Some(snapshot) = self
@@ -3100,7 +3108,11 @@ impl App {
     pub(super) fn paste(&mut self, text: &str) -> Effect {
         self.composer.paste_preview.get_mut().take();
         self.composer.invalidate();
-        if self.checklist_shown() || self.recovery_shown() || self.discovery_shown() {
+        if self.checklist_shown()
+            || self.recovery_shown()
+            || self.discovery_shown()
+            || self.member_session.is_some()
+        {
             return self
                 .overlay_event(&Event::Paste(text.to_owned()))
                 .unwrap_or(Effect::None);
@@ -3651,6 +3663,8 @@ impl App {
             Some(Overlay::UsageControls)
         } else if self.quota_details.is_some() {
             Some(Overlay::QuotaDetails)
+        } else if self.member_session.is_some() {
+            Some(Overlay::MemberSession)
         } else if self.discovery_shown() {
             Some(Overlay::Discovery)
         } else if self.help {
@@ -3708,6 +3722,7 @@ impl App {
                 }
                 Some(Effect::None)
             }
+            Overlay::MemberSession => self.member_session_event(event),
             Overlay::Discovery => self.discovery_event(event),
             Overlay::Help => {
                 let input = self.help_state.borrow_mut().input(event);
@@ -4014,6 +4029,9 @@ impl App {
         }
         if let Some(recovery) = &self.recovery {
             recovery.invalidate();
+        }
+        if let Some(session) = &self.member_session {
+            session.invalidate();
         }
         if let Some(discovery) = &self.discovery {
             discovery.invalidate();

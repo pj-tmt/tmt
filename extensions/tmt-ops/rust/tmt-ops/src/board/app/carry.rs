@@ -33,6 +33,22 @@ impl App {
         self.restore_pending();
     }
 
+    pub(in crate::board) fn member_session_blocker(&self) -> Option<&'static str> {
+        if self.input.is_some() || self.composer.has_drafts() {
+            Some("Keep or send the conversation draft before closing this board.")
+        } else if self.status_draft.is_some() {
+            Some("Finish the status draft before closing this board.")
+        } else if self.cron_draft.is_some() {
+            Some("Finish the timer draft before closing this board.")
+        } else if self.in_flight > 0 {
+            Some("Wait for the pending action before closing this board.")
+        } else if self.loading_since.is_some() || self.pending_resume.is_some() {
+            Some("Wait for the pending board refresh before closing this board.")
+        } else {
+            None
+        }
+    }
+
     /// Whether replacing the process now would lose something the user has open
     /// or is waiting on: a draft, an overlay, a search being typed, a request in
     /// flight, a view still loading or a resumed state not yet applied.
@@ -61,6 +77,7 @@ impl App {
             || self.cron_list.is_some()
             || self.checklist_shown()
             || self.recovery.as_ref().is_some_and(|c| c.blocks_reload())
+            || self.member_session.is_some()
             || self.discovery.as_ref().is_some_and(|c| c.reload_blocked())
             || self.discovered_uuid.is_some()
             || self.row_details.reader.is_some()

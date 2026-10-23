@@ -118,9 +118,11 @@ grammar or key tables into the references below.
 
 ## Invariants
 
-- Core reachability: public `--json` commands and `tmt api` only, through
-  `TMT_EXECUTABLE` (or `tmt` on PATH). `runner` maps results and errors onto
-  `tmt-invoke` for bounded capture. No TMT crate depends on Squad; the
+- Core reachability: public JSON output and `tmt api` only, through
+  `TMT_EXECUTABLE` (or `tmt` on PATH). `resume --show` emits JSON itself and
+  rejects `--json`. `runner` maps read results and errors onto `tmt-invoke` for
+  bounded capture. An explicitly confirmed member-session handoff restores the
+  terminal and stops workers before execing public `tmt resume` in this pane. No TMT crate depends on Squad; the
   architecture guard enforces both directions for Cargo dependencies and source
   references. Runtime TMT dependencies are the neutral leaves `tmt-cli-style`,
   `tmt-extension-state`, `tmt-invoke` and `tmt-tui`.

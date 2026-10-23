@@ -1,9 +1,7 @@
 use super::*;
 use serde_json::json;
 
-fn document() -> Value {
-    super::super::tests::vectors()["status"][0]["response"].clone()
-}
+use super::super::tests::{savings, status_document as document, with_savings};
 
 fn parse(document: &Value) -> Option<Status> {
     let labels = super::super::parse("digest", document)?;
@@ -220,21 +218,6 @@ fn digest_window_uses_supplier_arguments_and_honest_display_names() {
     assert_eq!(DigestWindow::parse("1h"), None);
 }
 
-fn with_savings(window: &str, values: &[(u64, u64, u64)]) -> Value {
-    let mut document = document();
-    for (row, (from, through, tokens)) in document["members"]
-        .as_array_mut()
-        .unwrap()
-        .iter_mut()
-        .zip(values)
-    {
-        row["savings"] = json!({"method":"context-input-avoided-v1", "window":window,
-            "fromMs":from, "throughMs":through, "estimatedInputTokensAvoided":tokens,
-            "complete":true, "gap":null});
-    }
-    document
-}
-
 #[test]
 fn independently_dated_estimates_sum_once_with_explicit_unavailable_members() {
     let mut document = with_savings(
@@ -399,9 +382,10 @@ fn valuation_vectors() -> Value {
 
 /// Savings for one member row with the given valuations attached.
 fn valued(window: &str, tokens: u64, cost: Value, percent: Value) -> Value {
-    json!({"method":"context-input-avoided-v1", "window":window, "fromMs":0, "throughMs":600_000,
-        "estimatedInputTokensAvoided":tokens, "complete":true, "gap":null,
-        "cost":cost, "percent":percent})
+    let mut estimate = savings(window, 0, 600_000, tokens);
+    estimate["cost"] = cost;
+    estimate["percent"] = percent;
+    estimate
 }
 
 fn with_valuations(window: &str, rows: &[(u64, Value, Value)]) -> Value {
