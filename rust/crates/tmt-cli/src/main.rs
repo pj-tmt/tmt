@@ -48,6 +48,7 @@ mod digest_hook_command;
 mod parser;
 mod profile_command;
 mod provider_hook_command;
+mod pty_serve_command;
 mod reply_notice_command;
 mod request_observer_command;
 mod response_command;
@@ -280,6 +281,15 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             directory,
         } => {
             return channel_server_command::execute(&harness, &binding_id, &generation, &directory);
+        }
+        Invocation::PtyServe {
+            directory,
+            id,
+            cols,
+            rows,
+            program,
+        } => {
+            return pty_serve_command::execute(&directory, &id, cols, rows, program);
         }
         Invocation::Channel(request) => {
             return channel_command::execute(request, parsed.mode);

@@ -711,6 +711,7 @@ fn every_workspace_crate_reviews_new_dev_dependencies() {
         "tmt-cli-style",
         "tmt-command-output",
         "tmt-host-grammar",
+        "tmt-pty-protocol",
         "tmt-driver-protocol",
         "tmt-driver-herdr",
         "tmt-invoke",
@@ -897,6 +898,7 @@ fn fixture_publication_has_exactly_four_dev_consumers_and_no_product_edges() {
         "tmt-driver-protocol",
         "tmt-driver-herdr",
         "tmt-host-grammar",
+        "tmt-pty-protocol",
         "tmt-sys",
         "tmt-test-support",
     ] {
@@ -1827,13 +1829,14 @@ fn extension_state_is_a_leaf_with_reviewed_consumers() {
 
 /// Every workspace package, so a consumer cannot be forgotten or misspelled: a
 /// misspelled name would be refused as an unreviewed package, not for the leaf.
-const WORKSPACE_PACKAGES: [&str; 18] = [
+const WORKSPACE_PACKAGES: [&str; 19] = [
     "tmt-core",
     "tmt-adapters",
     "tmt-cli",
     "tmt-cli-style",
     "tmt-command-output",
     "tmt-host-grammar",
+    "tmt-pty-protocol",
     "tmt-driver-protocol",
     "tmt-driver-herdr",
     "tmt-invoke",
@@ -1962,6 +1965,7 @@ fn extension_objects_is_a_strict_leaf_consumed_by_remote_service_and_colab_chann
                 "tmt-driver-protocol",
                 "tmt-driver-herdr",
                 "tmt-host-grammar",
+                "tmt-pty-protocol",
                 "tmt-extension-state",
                 "tmt-invoke",
                 "tmt-test-support",

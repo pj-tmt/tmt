@@ -59,6 +59,10 @@ pub const HIDDEN: &[(&str, &str)] = &[
         "stdio message-channel server a provider starts for tmt run --channel",
     ),
     (
+        "tmt __pty-serve",
+        "supervisor a built-in host launch starts for one member",
+    ),
+    (
         "tmt __request-observer",
         "detached timeout observer that talk starts for a request",
     ),

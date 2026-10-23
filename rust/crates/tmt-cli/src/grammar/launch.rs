@@ -105,6 +105,24 @@ pub(in crate::grammar) fn channel_server() -> Command {
     .arg(operand("directory", true))
 }
 
+/// The supervisor of one built-in-host member; the program follows the operands.
+pub(in crate::grammar) fn pty_server() -> Command {
+    internal("__pty-serve", "Internal built-in host member supervisor")
+        .hide(true)
+        .arg(operand("directory", true))
+        .arg(operand("id", true))
+        .arg(operand("cols", true).value_parser(clap::value_parser!(u16)))
+        .arg(operand("rows", true).value_parser(clap::value_parser!(u16)))
+        .arg(
+            Arg::new("program")
+                .required(true)
+                .num_args(1..)
+                .trailing_var_arg(true)
+                .allow_hyphen_values(true)
+                .value_parser(clap::builder::OsStringValueParser::new()),
+        )
+}
+
 pub(in crate::grammar) fn resume() -> Command {
     let command = base(spec!(
         "resume",

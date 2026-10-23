@@ -314,12 +314,13 @@ port, the tmux module or core's `binding`, `endpoint` or `host` model. Every hos
 the built-in tmux and external drivers alike, implements `host::driver::HostDriver`,
 and one binding policy in `host::driver::{status, send, focus, swap_into}` decides which
 evidence makes a binding present and when input is blocked. A host with agent
-names (Herdr) gets the identity's name as the agent's name, in one direction
-only: the host's name is shown, never evidence and never copied back. Endpoint identity is
+names (Herdr) shows the identity's name as the agent's; the host's name is never
+evidence and never copied back. Endpoint identity is
 opaque to everything but its host: `HostKind` is pure data, evidence from another
 host is `Unknown`, and only `tmt-core/src/host.rs`, `tmt-adapters/src/host.rs` and
 `tmux/` may spell a built-in host's name. Core's delivery policy rewrites ASCII `!` to
-fullwidth `！` in any text typed into a pane. Details are in the
+fullwidth `！` in any text typed into a pane. Details, including the built-in host's
+supervisor (`tmt-adapters::pty`, not yet wired to `tmt run`), are in the
 [hosts and drivers reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md).
 
 ### Agent drivers
@@ -343,9 +344,9 @@ contracts own behavior and limits.
 
 `tmt-driver-protocol` owns host/runtime wire types and `tmt-host-grammar` owns host
 syntax; [driver-protocol-v1](contracts/driver-protocol-v1.md) owns the wire contract.
-`tmt-adapters::driver_protocol` owns explicit approval, the automatic approval of the
-driver the running release ships (`registry::approve_shipped`) and bounded calls, while
-`host::external` composes approved hosts. Core decides evidence; unavailable drivers
+`tmt-adapters::driver_protocol` owns explicit approval, automatic approval of the
+shipped driver (`registry::approve_shipped`) and bounded calls; `host::external`
+composes approved hosts. Core decides evidence; unavailable drivers
 never prove loss. External runtime launch/setup/hooks remain unwired. Details:
 [hosts and drivers](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#driver-protocol-crates).
 
