@@ -1,5 +1,5 @@
 import { pageAction } from '../test/page-actions.js';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Locator } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 const fixture = '/test/agent-status-browser.html';
 async function command(
@@ -68,6 +68,46 @@ test('Agent status belongs to More and returns focus there', async ({ page }) =>
   await panel.getByRole('button', { name: 'Close Agent status', exact: true }).click();
   await expect(more).toBeFocused();
 });
+async function expectObservationRows(panel: Locator) {
+  for (const row of await panel.locator('.agent-status-list li').all()) {
+    const data = row.locator('.agent-status-observation-data');
+    await expect(data.locator('svg')).toHaveCount(0);
+    const layout = await row.evaluate((node) => {
+      const mark = node.querySelector('.agent-status-observation-mark')!;
+      const data = node.querySelector('.agent-status-observation-data')!;
+      const name = node.querySelector('.agent-status-name')!;
+      const machine = node.querySelector('.agent-status-machine')!;
+      const id = data.querySelector('code')!;
+      const rect = (el: Element) => el.getBoundingClientRect();
+      const caption = getComputedStyle(machine).getPropertyValue('--tmt-ui-caption-size').trim();
+      const reference = document.createElement('span');
+      reference.style.color = 'var(--tmt-ui-color-secondary)';
+      node.append(reference);
+      const secondary = getComputedStyle(reference).color;
+      reference.remove();
+      return {
+        markRight: rect(mark).right,
+        nameLeft: rect(name).left,
+        machineLeft: rect(machine).left,
+        idLeft: rect(id).left,
+        markCenter: rect(mark).top + rect(mark).height / 2,
+        dataCenter: rect(data).top + rect(data).height / 2,
+        machineSize: getComputedStyle(machine).fontSize,
+        idSize: getComputedStyle(id).fontSize,
+        machineColor: getComputedStyle(machine).color,
+        caption,
+        secondary,
+      };
+    });
+    expect(layout.markRight).toBeLessThan(layout.nameLeft);
+    expect(layout.nameLeft).toBe(layout.machineLeft);
+    expect(layout.nameLeft).toBe(layout.idLeft);
+    expect(Math.abs(layout.markCenter - layout.dataCenter)).toBeLessThanOrEqual(1);
+    expect(layout.machineSize).toBe(layout.caption);
+    expect(layout.idSize).toBe(layout.caption);
+    expect(layout.machineColor).toBe(layout.secondary);
+  }
+}
 for (const width of [1586, 390])
   for (const theme of ['light', 'dark'] as const) {
     test(`actual agent drawer shows admitted presence and read health: ${width}px ${theme}`, async ({
@@ -94,6 +134,7 @@ for (const width of [1586, 390])
       const panel = await openStatus(page);
       await expect(panel).toBeVisible();
       await expect(panel.locator('.agent-status-list li')).toHaveCount(3);
+      await expectObservationRows(panel);
       for (const presence of ['Active', 'Offline', 'Unknown'])
         await expect(panel.getByText(presence, { exact: true })).toBeVisible();
       await expect(panel.getByText('Read', { exact: true })).toHaveCount(2);

@@ -29,15 +29,22 @@
   border-top: 1px solid var(--tmt-ui-surface-rule);
   list-style: none;
 }
-.agent-status-list .agent-chip {
+.agent-status-list .agent-status-name {
+  display: block;
   min-width: 0;
   overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 600;
 }
-.agent-status-list p {
+.agent-status-list .agent-status-machine {
   margin: 4px 0;
+  font-size: var(--tmt-ui-caption-size);
+  line-height: var(--tmt-ui-caption-line-height);
+  color: var(--tmt-ui-color-secondary);
 }
 .agent-status-list code {
-  font: 11px var(--f-mono);
+  display: block;
+  font: var(--tmt-ui-caption-size) / var(--tmt-ui-caption-line-height) var(--f-mono);
   overflow-wrap: anywhere;
 }
 .agent-status-presence {

@@ -1,7 +1,6 @@
 import { BrowserAction, BusyMark } from '@tmt/browser-ui/react';
 import { Circle, CircleDot, CircleHelp } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AgentChip } from './components/agent-chip.js';
 import type { AskBinding } from './ask-panel.js';
 import type { AgentDirectoryObservation } from './live-ask.js';
 import { text } from './strings.js';
@@ -195,8 +194,8 @@ export function AgentStatusPanel({
                     <Mark aria-hidden />
                   </span>
                   <div className="agent-status-observation-data">
-                    <AgentChip name={agent.agentName} />
-                    <p>{agent.machineName}</p>
+                    <strong className="agent-status-name">{agent.agentName}</strong>
+                    <p className="agent-status-machine">{agent.machineName}</p>
                     <code>{agent.agent}</code>
                   </div>
                   <span className="agent-status-presence">{label}</span>
