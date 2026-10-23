@@ -274,7 +274,9 @@ maintenance callback renews without adding a worker and a failure never stops lo
 `provider` reuses `NativeRuntime` Auth/HTTP/budget; `ingress` alone constructs a verified hand-off into
 `MessageService`; `driver` reconciles one machine query with peer checkpoints; `sender` freezes before
 HTTP and recovers a lost context with a fresh signed ID lookup. `store` uses the authoritative Store
-connection/lease and existing journal effect owner, never a second replay ledger. `cloud_command`
+connection/lease and existing journal effect owner, never a second replay ledger. Permanent carrier
+refusals share that row and the existing audit transaction; transient polls back off without advancing.
+`cloud_command`
 owns the provisional public JSON schema; the production UUID query remains refused until Core's seam
 is agreed. Cross-person enrollment and production activation stay separate; `serve::native_factory::ProjectOwner::prepare`
 is the future composition point. No cloud poll starts in production now. The contract owns all bounds.

@@ -148,6 +148,9 @@ impl Sender {
         {
             return Err(invalid());
         }
+        if crate::cloud_command::dispatch_created_at(&request)? != Some(created_at_ms) {
+            return Err(conflict());
+        }
         // The operation and exact payload are Core's frozen intent; refreshed transport headers
         // cannot replace it, and a changed intent under the same ID is refused by storage.
         let intent = canonical::framed(&[e.operation.as_bytes(), &request.payload])

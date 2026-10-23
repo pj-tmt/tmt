@@ -10,6 +10,12 @@ use crate::{
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
 
+struct InboxRow {
+    digest: Vec<u8>,
+    created_ms: i64,
+    response: Option<Vec<u8>>,
+    refusal: Option<String>,
+}
 fn invalid() -> RemoteError {
     RemoteError::new(
         "REMOTE_CLOUD_CONFLICT",
@@ -39,14 +45,18 @@ impl Store {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database)?;
-        let old: Option<(Vec<u8>, i64, Option<Vec<u8>>)>=tx.query_row(
-            "SELECT digest,created_ms,response FROM cloud_transport WHERE peer_id=?1 AND kind='inbox' AND id=?2",
-            [peer,id],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional().map_err(database)?;
-        if let Some((old, time, response)) = old {
-            if old != digest.as_slice() || time as u64 != created_ms {
+        let old:Option<InboxRow>=tx.query_row(
+            "SELECT digest,created_ms,response,refusal FROM cloud_transport WHERE peer_id=?1 AND kind='inbox' AND id=?2",
+            [peer,id],|row|Ok(InboxRow{digest:row.get(0)?,created_ms:row.get(1)?,response:row.get(2)?,refusal:row.get(3)?})).optional().map_err(database)?;
+        if let Some(old) = old {
+            if old.digest != digest.as_slice() || old.created_ms as u64 != created_ms {
                 return Err(invalid());
             }
-            return Ok(response.map_or(Replay::Pending, Replay::Frozen));
+            return Ok(if old.refusal.is_some() {
+                Replay::Refused(old.response)
+            } else {
+                old.response.map_or(Replay::Pending, Replay::Frozen)
+            });
         }
         let (count,bytes):(i64,i64)=tx.query_row("SELECT COUNT(*),COALESCE(SUM(length(carrier)+COALESCE(length(response),0)),0) FROM cloud_transport WHERE peer_id=?1 AND kind<>'checkpoint'",[peer],|r|Ok((r.get(0)?,r.get(1)?))).map_err(database)?;
         if count >= journal::OPERATIONS
@@ -60,6 +70,63 @@ impl Store {
         tx.execute("INSERT INTO cloud_transport(peer_id,kind,id,digest,carrier,created_ms) VALUES (?1,'inbox',?2,?3,?4,?5)",params![peer,id,digest.as_slice(),carrier,created_ms as i64]).map_err(database)?;
         tx.commit().map_err(database)?;
         Ok(Replay::Fresh)
+    }
+    /// Durable per-document terminal refusal; no operation is adopted and no effect is retried.
+    /// Unknown peers have no authority revision: zero is refusal-only audit metadata.
+    pub(crate) fn cloud_refuse(
+        &mut self,
+        peer: &str,
+        id: &str,
+        code: &str,
+        response: Option<&[u8]>,
+        now: u64,
+    ) -> Result<(), RemoteError> {
+        canonical::uuid(peer).map_err(|_| invalid())?;
+        canonical::uuid(id).map_err(|_| invalid())?;
+        if code.is_empty()
+            || code.len() > 64
+            || !code.bytes().all(|b| b.is_ascii_uppercase() || b == b'_')
+        {
+            return Err(invalid());
+        }
+        if let Some(bytes) = response {
+            validate(peer, id, bytes, now)?;
+        }
+        let revision = self.grant(peer)?.map_or(0, |grant| grant.revision);
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database)?;
+        let (digest,old):(Vec<u8>,Option<String>)=tx.query_row("SELECT digest,refusal FROM cloud_transport WHERE peer_id=?1 AND kind='inbox' AND id=?2",[peer,id],|r|Ok((r.get(0)?,r.get(1)?))).map_err(database)?;
+        if old.is_some() {
+            return Ok(());
+        }
+        if let Some(bytes) = response {
+            let used:i64=tx.query_row("SELECT COALESCE(SUM(length(carrier)+COALESCE(length(response),0)),0) FROM cloud_transport WHERE peer_id=?1 AND kind<>'checkpoint'",[peer],|r|r.get(0)).map_err(database)?;
+            if used.saturating_add(bytes.len() as i64) > journal::FROZEN_BYTES {
+                return Err(RemoteError::new(
+                    "REMOTE_CLOUD_CAPACITY",
+                    "Cloud recovery storage is full.",
+                ));
+            }
+        }
+        crate::audit::append(
+            &tx,
+            crate::audit::AuditMetadata {
+                time: now,
+                client: peer,
+                request: id,
+                operation: "unsupported",
+                operation_id: None,
+                resources: &[],
+                digest: &digest,
+                revision,
+                decision: "refused",
+                code,
+            },
+        )?;
+        tx.execute("UPDATE cloud_transport SET refusal=?3,response=?4 WHERE peer_id=?1 AND kind='inbox' AND id=?2",params![peer,id,code,response]).map_err(database)?;
+        tx.commit().map_err(database)
     }
     pub(crate) fn cloud_freeze(
         &mut self,

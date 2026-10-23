@@ -233,7 +233,7 @@ fn encrypted_offline_delivery_uses_common_hold_and_survives_new_door_window() {
     let descriptor = keys.advertised(now).unwrap();
     let window = "22222222-2222-4222-8222-222222222222";
     let session = "55555555-5555-4555-8555-555555555555";
-    let payload=json!({"version":1,"operation":"dispatch.create","originator":"anonymous","input":{"operationId":ID,"recipientIds":["66666666-6666-4666-8666-666666666666"],"message":"offline request","kind":"request","expectedName":"recipient"}}).to_string();
+    let payload=json!({"version":1,"operation":"dispatch.create","originator":"anonymous","createdAtMs":now,"input":{"operationId":ID,"recipientIds":["66666666-6666-4666-8666-666666666666"],"message":"offline request","kind":"request","expectedName":"recipient"}}).to_string();
     let envelope = Envelope {
         kind: "request",
         id: ID,
@@ -271,6 +271,45 @@ fn encrypted_offline_delivery_uses_common_hold_and_survives_new_door_window() {
     );
     let value = json!({"name":format!("{provider_root}/m/{machine}/peers/{PEER}/inbox/{ID}"),"createTime":stamp,"fields":{"peerId":{"stringValue":PEER},"carrier":{"bytesValue":STANDARD.encode(&carrier)},"createdAt":{"timestampValue":stamp}}});
     let document = Document::read(&value, provider_root, machine, "inbox").unwrap();
+    let fresh = |fresh_id: &str, created: u64| {
+        let mut fresh_payload: serde_json::Value = serde_json::from_str(&payload).unwrap();
+        fresh_payload["input"]["operationId"] = json!(fresh_id);
+        fresh_payload["createdAtMs"] = json!(created);
+        let fresh_payload = fresh_payload.to_string();
+        let fresh_envelope = Envelope {
+            id: fresh_id,
+            payload: fresh_payload.as_bytes(),
+            ..envelope
+        };
+        let mut fresh_exact: serde_json::Value = serde_json::from_str(&exact).unwrap();
+        fresh_exact["id"] = json!(fresh_id);
+        fresh_exact["payload"] = json!(canonical::base64url(fresh_payload.as_bytes()));
+        fresh_exact["signature"] = json!(canonical::base64url(
+            &sender
+                .sign(&canonical::envelope(&fresh_envelope).unwrap())
+                .to_bytes()
+        ));
+        let (fresh_carrier, fresh_opener) = super::seal_native(
+            fresh_exact.to_string().as_bytes(),
+            &descriptor,
+            now,
+            Sender {
+                client_id: PEER,
+                authentication_key: &grant.public_key,
+            },
+            |bytes| sender.sign(bytes).to_bytes(),
+        )
+        .unwrap();
+        let mut fresh_doc = value.clone();
+        fresh_doc["name"] = json!(format!(
+            "{provider_root}/m/{machine}/peers/{PEER}/inbox/{fresh_id}"
+        ));
+        fresh_doc["fields"]["carrier"] = json!({"bytesValue":STANDARD.encode(fresh_carrier)});
+        (
+            Document::read(&fresh_doc, provider_root, machine, "inbox").unwrap(),
+            fresh_opener,
+        )
+    };
     let build = |window: &str| {
         let sessions = Arc::new(DoorSessions::new(
             machine.into(),
@@ -294,7 +333,10 @@ fn encrypted_offline_delivery_uses_common_hold_and_survives_new_door_window() {
         Receiver::new(sessions, Arc::clone(&keys), service)
     };
     let first = build(window);
-    let response = first.receive(&document, now + 3 * 86_400_000).unwrap();
+    let response = first
+        .receive(&document, now + 3 * 86_400_000)
+        .unwrap()
+        .unwrap();
     let opened = opener
         .open(&response.bytes, crate::limits::CLOUD_ENVELOPE_BYTES)
         .unwrap();
@@ -309,9 +351,32 @@ fn encrypted_offline_delivery_uses_common_hold_and_survives_new_door_window() {
         restarted
             .receive(&document, now + 3 * 86_400_000)
             .unwrap()
+            .unwrap()
             .bytes,
         response.bytes,
         "reopened driver returns exact frozen ciphertext, never reseals"
+    );
+    // The provider and envelope timestamps are fresh, but Core's original request is not.
+    let expired_id = "99999999-9999-4999-8999-999999999999";
+    let (expired_doc, expired_opener) = fresh(expired_id, now - crate::journal::RECOVERY);
+    let expired = restarted.receive(&expired_doc, now).unwrap().unwrap();
+    let plain = expired_opener
+        .open(&expired.bytes, crate::limits::CLOUD_ENVELOPE_BYTES)
+        .unwrap();
+    let signed =
+        crate::wire::SignedMessage::decode_any(&plain, crate::limits::CLOUD_ENVELOPE_BYTES)
+            .unwrap();
+    assert_eq!(
+        signed.input["error"]["code"],
+        "REMOTE_CLOUD_MESSAGE_EXPIRED"
+    );
+    assert!(
+        store
+            .lock()
+            .unwrap()
+            .owned(&grant, expired_id, now)
+            .is_err(),
+        "expired immutable Core request is never adopted"
     );
     let mut guard = store.lock().unwrap();
     assert_eq!(guard.owned(&grant, ID, now).unwrap().phase, "held");
@@ -322,14 +387,34 @@ fn encrypted_offline_delivery_uses_common_hold_and_survives_new_door_window() {
         "REMOTE_CLOSED",
         "revocation between receipt and HTTP prevents response publication"
     );
-    assert_eq!(
+    assert!(
         restarted
             .receive(&document, now + 3 * 86_400_000)
-            .err()
             .unwrap()
-            .code,
-        "REMOTE_CLOSED"
+            .is_none(),
+        "an already-frozen accepted response must not be resealed under a revoked context"
     );
+    // A fresh, valid encrypted carrier can receive a signed refusal after revoke. This
+    // consumes only its own response context; it never changes a previously frozen reply.
+    let fresh_id = "88888888-8888-4888-8888-888888888888";
+    let (fresh_doc, fresh_opener) = fresh(fresh_id, now);
+    let refused = restarted
+        .receive(&fresh_doc, now + 3 * 86_400_000)
+        .unwrap()
+        .unwrap();
+    let plain = fresh_opener
+        .open(&refused.bytes, crate::limits::CLOUD_ENVELOPE_BYTES)
+        .unwrap();
+    let signed =
+        crate::wire::SignedMessage::decode_any(&plain, crate::limits::CLOUD_ENVELOPE_BYTES)
+            .unwrap();
+    assert_eq!(signed.input["error"]["code"], "REMOTE_CLOSED");
+    assert!(
+        refused.claim_publication().unwrap(),
+        "signed refusal publication grants no operation access"
+    );
+    assert_eq!(store.lock().unwrap().connection.query_row("SELECT grant_revision FROM audit WHERE envelope_id=?1 AND decision='refused' ORDER BY position DESC LIMIT 1",[fresh_id],|r|r.get::<_,i64>(0)).unwrap(),2,"known peer refusal keeps its observed authority revision");
+    drop(refused);
     drop(restarted);
     drop(response);
     drop(keys);
@@ -426,6 +511,45 @@ fn sender_recovery_cap_prunes_only_after_retention_and_skew_and_keeps_original_e
         "REMOTE_CLOUD_CONFLICT"
     );
     assert!(super::check_request_age(boundary, boundary + 1).is_ok());
+    drop(store);
+    drop(lease);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn unknown_peer_refusal_is_audit_metadata_without_a_grant_or_operation() {
+    let root = std::env::temp_dir().join(format!("tmt-cloud-unknown-{}", uuid_v4().unwrap()));
+    let layout = Layout::open(&root).unwrap();
+    let lease = layout.serve_lock().unwrap();
+    let mut store = Store::open(&lease).unwrap();
+    assert_eq!(
+        store
+            .cloud_begin(PEER, ID, b"undecryptable", 1_000)
+            .unwrap(),
+        super::Replay::Fresh
+    );
+    store
+        .cloud_refuse(PEER, ID, "REMOTE_CLOSED", None, 2_000)
+        .unwrap();
+    store
+        .cloud_refuse(PEER, ID, "REMOTE_CLOSED", None, 2_001)
+        .unwrap();
+    assert_eq!(
+        store
+            .cloud_begin(PEER, ID, b"undecryptable", 1_000)
+            .unwrap(),
+        super::Replay::Refused(None)
+    );
+    assert_eq!(store.connection.query_row("SELECT COUNT(*) FROM audit WHERE envelope_id=?1 AND decision='refused' AND grant_revision=0",[ID],|r|r.get::<_,i64>(0)).unwrap(),1);
+    assert!(store.grant(PEER).unwrap().is_none());
+    assert_eq!(
+        store
+            .connection
+            .query_row("SELECT COUNT(*) FROM operations", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
     drop(store);
     drop(lease);
     std::fs::remove_dir_all(root).unwrap();

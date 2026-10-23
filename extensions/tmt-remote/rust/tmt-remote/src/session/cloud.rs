@@ -32,11 +32,20 @@ impl DoorSessions {
         }
         Ok(())
     }
+    /// A retained native key verifies content even after revoke; it grants no operation access.
+    pub(crate) fn cloud_peer_key(&self, peer: &str) -> Result<Grant, RemoteError> {
+        self.with_operation_store(|store| store.grant(peer))?
+            .filter(|grant| grant.kind == "cli" && grant.origin == "cli")
+            .ok_or_else(|| RemoteError::new("REMOTE_CLOSED", "Cloud peer authority ended."))
+    }
     pub(crate) fn cloud_peer(&self, peer: &str, now: u64) -> Result<Grant, RemoteError> {
-        let grant = self
-            .with_operation_store(|store| store.grant(peer))?
-            .filter(|g| g.kind == "cli" && g.origin == "cli" && g.live_at(now))
-            .ok_or_else(|| RemoteError::new("REMOTE_CLOSED", "Cloud peer authority ended."))?;
+        let grant = self.cloud_peer_key(peer)?;
+        if !grant.live_at(now) {
+            return Err(RemoteError::new(
+                "REMOTE_CLOSED",
+                "Cloud peer authority ended.",
+            ));
+        }
         grant.authority()?;
         Ok(grant)
     }

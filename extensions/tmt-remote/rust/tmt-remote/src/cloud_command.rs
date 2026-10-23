@@ -82,8 +82,23 @@ impl Request {
     }
     /// Core's prepared identity describes the remote sender, never a local owner identity.
     pub fn dispatch(&self) -> serde_json::Value {
-        serde_json::json!({"version":1,"operation":"dispatch.create","originator":"anonymous","requestDigest":crate::canonical::base64url(&self.fingerprint),"input":{"operationId":self.request_id,"recipientIds":[self.target.id],"expectedName":self.target.name,"message":self.message,"kind":"request"}})
+        serde_json::json!({"version":1,"operation":"dispatch.create","originator":"anonymous","requestDigest":crate::canonical::base64url(&self.fingerprint),"createdAtMs":self.created_at_ms,"input":{"operationId":self.request_id,"recipientIds":[self.target.id],"expectedName":self.target.name,"message":self.message,"kind":"request"}})
     }
+}
+/// Transport freshness and the prepared request lifetime are separate clocks. Recovery controls
+/// are observations, not a fresh effect, and do not extend an original request's lifetime.
+pub(crate) fn dispatch_created_at(
+    message: &crate::wire::SignedMessage,
+) -> Result<Option<u64>, RemoteError> {
+    if message.envelope().operation != "dispatch.create" {
+        return Ok(None);
+    }
+    message
+        .input
+        .get("createdAtMs")
+        .and_then(serde_json::Value::as_u64)
+        .map(Some)
+        .ok_or_else(upgrade)
 }
 pub fn upgrade() -> RemoteError {
     RemoteError::new(

@@ -29,6 +29,8 @@ struct Dispatch {
     #[serde(default)]
     #[serde(rename = "requestDigest")]
     request_digest: Option<String>,
+    #[serde(default, rename = "createdAtMs")]
+    created_at_ms: Option<u64>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -355,10 +357,14 @@ impl Operations {
                     return Err(invalid());
                 }
                 permits(&permit.grant, &value.input)?;
-                if permit.cloud() && value.input.expected_name.is_none() {
+                if permit.cloud()
+                    && (value.input.expected_name.is_none() || value.created_at_ms.is_none())
+                {
                     return Err(crate::cloud_command::upgrade());
                 }
-                if !permit.cloud() && value.input.expected_name.is_some() {
+                if !permit.cloud()
+                    && (value.input.expected_name.is_some() || value.created_at_ms.is_some())
+                {
                     return Err(invalid());
                 }
                 if value.input.expected_name.as_ref().is_some_and(|name| {

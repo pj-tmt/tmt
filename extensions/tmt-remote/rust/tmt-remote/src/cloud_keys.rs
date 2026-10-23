@@ -38,6 +38,12 @@ fn error(code: Error) -> RemoteError {
         },
     )
 }
+fn retired_key() -> RemoteError {
+    RemoteError::new(
+        "REMOTE_CLOUD_KEY_RETIRED",
+        "The carrier recipient key is unknown or retired.",
+    )
+}
 fn entropy() -> Result<[u8; 48], RemoteError> {
     let mut bytes = [0; 48];
     getrandom::fill(&mut bytes)
@@ -180,14 +186,14 @@ impl CloudKeys {
             .read()?
             .into_iter()
             .find(|entry| entry.descriptor.key_id() == key_id)
-            .ok_or_else(|| error(Error::Key))?;
+            .ok_or_else(retired_key)?;
         if now
             >= entry
                 .descriptor
                 .expires_at_ms()
                 .saturating_add(crate::journal::RECOVERY)
         {
-            return Err(error(Error::Key));
+            return Err(retired_key());
         }
         entry.descriptor.valid_at(created_ms).map_err(error)?;
         Ok((entry.key, entry.descriptor))

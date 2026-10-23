@@ -15,8 +15,8 @@ impl InboxDriver {
             provider,
         }
     }
-    /// Run only on the serving owner's joined worker. Cancellation and provider refusals
-    /// end this worker; a new owner resumes its persisted checkpoints after restart.
+    /// Run only on the serving owner's joined worker. Transient failures back off without
+    /// advancing; cancellation ends the worker and a new owner resumes after restart.
     pub async fn run(&self, io: &IoBudget<'_>) -> Result<(), RemoteError> {
         let mut cadence = crate::native_sync::PollCadence::default();
         loop {
@@ -30,10 +30,17 @@ impl InboxDriver {
                 cancelled: io.cancelled,
             };
             let time = self.provider.now();
-            let count = self.reconcile(time.wall_ms, &round).await?;
-            cadence.succeeded();
-            if count > 0 {
-                cadence.activity(time.monotonic_ms);
+            match self.reconcile(time.wall_ms, &round).await {
+                Ok(count) => {
+                    cadence.succeeded();
+                    if count > 0 {
+                        cadence.activity(time.monotonic_ms);
+                    }
+                }
+                Err(error) if io.check().is_err() || error.code == "REMOTE_SERVE_STOPPED" => {
+                    return Err(error);
+                }
+                Err(_) => cadence.failed(),
             }
             let delay = poll_delay(&cadence, self.provider.now().monotonic_ms, |max| {
                 self.provider.jitter(max)
@@ -74,49 +81,48 @@ impl InboxDriver {
                     ));
                 }
                 count += 1;
-                if now.saturating_sub(document.created_ms()) >= crate::journal::RECOVERY {
-                    self.provider
-                        .delete(document.peer(), "inbox", document.id(), io)
-                        .await?;
-                    self.provider
-                        .delete(document.peer(), "responses", document.id(), io)
-                        .await?;
-                    self.sessions.with_operation_store(|s| {
-                        s.cloud_forget(document.peer(), document.id(), now)
-                    })?;
-                } else {
-                    let frozen = Arc::new(self.receiver.receive(&document, now)?);
-                    let publication = Arc::clone(&frozen);
-                    let observed = self
-                        .provider
-                        .create(
-                            document.peer(),
-                            "responses",
-                            document.id(),
-                            &frozen.bytes,
-                            Box::new(move || {
-                                publication
-                                    .claim_publication()
-                                    .map_err(|_| crate::sealed_sync::SyncError::Unavailable)
-                            }),
-                            io,
-                        )
-                        .await?;
-                    match observed {
-                        Some(response) if response.bytes() == frozen.bytes => {}
-                        Some(_) => {
-                            return Err(RemoteError::new(
+                let delivery = async {
+                    if let Some(frozen) = self.receiver.receive(&document, now)? {
+                        let frozen = Arc::new(frozen);
+                        let publication = Arc::clone(&frozen);
+                        let observed = self.provider.create(
+                            document.peer(), "responses", document.id(), &frozen.bytes,
+                            Box::new(move || publication.claim_publication().map_err(|error| {
+                                if super::ingress::permanent(&error.code) {
+                                    crate::sealed_sync::SyncError::Denied
+                                } else {
+                                    crate::sealed_sync::SyncError::Unavailable
+                                }
+                            })), io,
+                        ).await?;
+                        match observed {
+                            Some(response) if response.bytes() == frozen.bytes => {},
+                            Some(_) => return Err(RemoteError::new(
                                 "REMOTE_CLOUD_CONFLICT",
                                 "The response ID belongs to different ciphertext.",
-                            ));
-                        }
-                        None => {
-                            return Err(RemoteError::new(
+                            )),
+                            None => return Err(RemoteError::new(
                                 "REMOTE_CLOUD_UNCONFIRMED",
                                 "The cloud response could not be confirmed; it will not be sent again.",
-                            ));
+                            )),
                         }
                     }
+                    Ok(())
+                }.await;
+                match delivery {
+                    Ok(()) => {}
+                    Err(error) if super::ingress::permanent(&error.code) => {
+                        self.sessions.with_operation_store(|store| {
+                            store.cloud_refuse(
+                                document.peer(),
+                                document.id(),
+                                &error.code,
+                                None,
+                                now,
+                            )
+                        })?
+                    }
+                    Err(error) => return Err(error),
                 }
                 cursor = Some(document.cursor().clone());
             }

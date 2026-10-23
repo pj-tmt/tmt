@@ -102,6 +102,7 @@ struct Wire {
     cancel_after_create: Mutex<Option<Arc<AtomicBool>>>,
     requests: Mutex<Vec<(Operation, String)>>,
     deny_responses: AtomicBool,
+    fail_queries: AtomicBool,
 }
 impl Http for Wire {
     fn send(&self, request: &Request, _: u64, _: &dyn Cancellation) -> Result<Response, AuthError> {
@@ -173,6 +174,9 @@ impl Http for Wire {
                     }
                 }
             }
+            Operation::Query if self.fail_queries.load(Ordering::SeqCst) => {
+                return Err(AuthError::unavailable());
+            }
             Operation::Query => {
                 assert_eq!(input["structuredQuery"]["limit"], 1);
                 assert_eq!(
@@ -221,9 +225,16 @@ impl tmt_remote::core::CloudIdentityQuery for CurrentIdentity {
     }
 }
 fn provider(wire: Arc<Wire>, uid: &'static str) -> Provider {
+    provider_clock(wire, uid, Arc::new(ClockPort))
+}
+fn provider_clock(
+    wire: Arc<Wire>,
+    uid: &'static str,
+    clock: Arc<dyn Clock + Send + Sync>,
+) -> Provider {
     let runtime = Arc::new(NativeRuntime::new(
         wire,
-        Arc::new(ClockPort),
+        clock,
         Arc::new(ClockPort),
         Arc::new(Budget(Mutex::new(NativeUsage::new(NOW)))),
     ));
@@ -235,13 +246,14 @@ fn provider(wire: Arc<Wire>, uid: &'static str) -> Provider {
     )
     .unwrap()
 }
-fn request(key: &MachineKey) -> Vec<u8> {
+
+fn request(key: &MachineKey, id: &str) -> Vec<u8> {
     let window = "22222222-2222-4222-8222-222222222222";
     let session = "55555555-5555-4555-8555-555555555555";
-    let payload=json!({"version":1,"operation":"dispatch.create","originator":"anonymous","input":{"operationId":ID,"recipientIds":[TARGET],"expectedName":"target","message":"one offline effect","kind":"request"}}).to_string();
+    let payload=json!({"version":1,"operation":"dispatch.create","originator":"anonymous","createdAtMs":NOW,"input":{"operationId":id,"recipientIds":[TARGET],"expectedName":"target","message":"one offline effect","kind":"request"}}).to_string();
     let envelope = Envelope {
         kind: "request",
-        id: ID,
+        id,
         correlation_id: None,
         machine_id: MACHINE,
         window_id: window,
@@ -253,7 +265,7 @@ fn request(key: &MachineKey) -> Vec<u8> {
         operation: "dispatch.create",
         payload: payload.as_bytes(),
     };
-    json!({"version":1,"profile":"local-v1","kind":"request","id":ID,"correlationId":null,"machineId":MACHINE,"windowId":window,"clientId":PEER,"sessionId":session,"sequence":"1","timestampMs":NOW,"origin":"cli","operation":"dispatch.create","payload":canonical::base64url(payload.as_bytes()),"signature":canonical::base64url(&key.sign(&canonical::envelope(&envelope).unwrap()))}).to_string().into_bytes()
+    json!({"version":1,"profile":"local-v1","kind":"request","id":id,"correlationId":null,"machineId":MACHINE,"windowId":window,"clientId":PEER,"sessionId":session,"sequence":"1","timestampMs":NOW,"origin":"cli","operation":"dispatch.create","payload":canonical::base64url(payload.as_bytes()),"signature":canonical::base64url(&key.sign(&canonical::envelope(&envelope).unwrap()))}).to_string().into_bytes()
 }
 #[test]
 fn lost_create_answer_then_sender_restart_recovers_by_fresh_id_with_one_core_effect() {
@@ -264,10 +276,11 @@ fn lost_create_answer_then_sender_restart_recovers_by_fresh_id_with_one_core_eff
         cancel_after_create: Mutex::new(None),
         requests: Mutex::new(vec![]),
         deny_responses: AtomicBool::new(false),
+        fail_queries: AtomicBool::new(false),
     });
     let driver = world.driver(provider(Arc::clone(&wire), "owner"));
     *wire.owner.lock().unwrap() = Arc::downgrade(&driver);
-    let exact = request(&world.key);
+    let exact = request(&world.key, ID);
     let stopped = Arc::new(AtomicBool::new(false));
     *wire.cancel_after_create.lock().unwrap() = Some(Arc::clone(&stopped));
     let sender = Sender::new(
@@ -366,6 +379,7 @@ fn prepared_core_boundary_delivers_or_refuses_the_uuid_query_without_a_name_fall
             cancel_after_create: Mutex::new(None),
             requests: Mutex::new(vec![]),
             deny_responses: AtomicBool::new(false),
+            fail_queries: AtomicBool::new(false),
         });
         let driver = world.driver(provider(wire.clone(), "owner"));
         *wire.owner.lock().unwrap() = Arc::downgrade(&driver);
@@ -466,6 +480,7 @@ fn unreadable_response_after_a_confirmed_request_is_unconfirmed_not_refused() {
         cancel_after_create: Mutex::new(None),
         requests: Mutex::new(vec![]),
         deny_responses: AtomicBool::new(true),
+        fail_queries: AtomicBool::new(false),
     });
     let driver = world.driver(provider(wire.clone(), "owner"));
     *wire.owner.lock().unwrap() = Arc::downgrade(&driver);
@@ -487,4 +502,204 @@ fn unreadable_response_after_a_confirmed_request_is_unconfirmed_not_refused() {
     assert_eq!(answer.state, tmt_remote::cloud_command::State::Unconfirmed);
     assert_eq!(answer.reason.as_deref(), Some("REMOTE_CLOUD_UNCONFIRMED"));
     assert_eq!(world.core.sends(), 1);
+}
+
+#[test]
+fn poison_between_good_carriers_is_durable_per_document_and_transient_reads_do_not_advance() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use rusqlite::OptionalExtension;
+    let mut world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+    std::fs::write(world.core.root.join("multi"), b"per-operation receipts").unwrap();
+    let wire = Arc::new(Wire {
+        documents: Mutex::new(BTreeMap::new()),
+        owner: Mutex::new(Weak::new()),
+        cancel_after_create: Mutex::new(None),
+        requests: Mutex::new(vec![]),
+        deny_responses: AtomicBool::new(false),
+        fail_queries: AtomicBool::new(true),
+    });
+    let bad = "55555555-5555-4555-8555-555555555555";
+    let good2 = "77777777-7777-4777-8777-777777777777";
+    for id in [ID, bad, good2] {
+        let carrier = if id == bad {
+            b"{}".to_vec()
+        } else {
+            tmt_remote::cloud_inbox::seal_native(
+                &request(&world.key, id),
+                &world.descriptor,
+                NOW,
+                tmt_remote::cloud_hpke::Sender {
+                    client_id: PEER,
+                    authentication_key: &world.key.public(),
+                },
+                |bytes| world.key.sign(bytes),
+            )
+            .unwrap()
+            .0
+        };
+        let name = format!("{ROOT}/m/{MACHINE}/peers/{PEER}/inbox/{id}");
+        wire.documents.lock().unwrap().insert(name.clone(),json!({"name":name,"createTime":STAMP,"fields":{"peerId":{"stringValue":PEER},"carrier":{"bytesValue":STANDARD.encode(carrier)},"createdAt":{"timestampValue":STAMP}}}));
+    }
+    let inspect = || {
+        rusqlite::Connection::open_with_flags(
+            world.owner_layout.directory.join("remote.db"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )
+        .unwrap()
+    };
+    let checkpoint = || {
+        inspect()
+            .query_row(
+                "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint'",
+                [PEER],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()
+            .unwrap()
+            .unwrap_or(0)
+    };
+    let driver = world.driver(provider(wire.clone(), "owner"));
+    let stopped = AtomicBool::new(false);
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(10),
+        cancelled: &stopped,
+    };
+    assert!(ready(driver.reconcile(NOW, &io)).is_err());
+    assert_eq!(checkpoint(), 0, "transient read failure cannot advance");
+    wire.fail_queries.store(false, Ordering::SeqCst);
+    assert_eq!(
+        ready(driver.reconcile(NOW, &io)).unwrap(),
+        3,
+        "poison must not stop the machine inbox"
+    );
+    assert_eq!(
+        world.core.sends(),
+        2,
+        "both good messages have one Core effect"
+    );
+    assert_eq!(checkpoint(), NOW as i64);
+    let refused: String = inspect()
+        .query_row(
+            "SELECT refusal FROM cloud_transport WHERE peer_id=?1 AND id=?2",
+            [PEER, bad],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(refused, "REMOTE_CLOUD_CARRIER_INVALID");
+    assert_eq!(
+        inspect()
+            .query_row(
+                "SELECT COUNT(*) FROM audit WHERE envelope_id=?1 AND decision='refused'",
+                [bad],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+    drop(driver);
+    world = world.reopen(NOW, Arc::new(CurrentIdentity));
+    let driver = world.driver(provider(wire.clone(), "owner"));
+    assert_eq!(ready(driver.reconcile(NOW, &io)).unwrap(), 3);
+    assert_eq!(world.core.sends(), 2);
+    let inspect = rusqlite::Connection::open_with_flags(
+        world.owner_layout.directory.join("remote.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )
+    .unwrap();
+    assert_eq!(
+        inspect
+            .query_row(
+                "SELECT COUNT(*) FROM audit WHERE envelope_id=?1 AND decision='refused'",
+                [bad],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1,
+        "restart deduplicates refused IDs"
+    );
+}
+
+struct BackoffClock {
+    stopped: Arc<AtomicBool>,
+    ticks: std::sync::atomic::AtomicU64,
+    waits: Mutex<Vec<u64>>,
+}
+impl Clock for BackoffClock {
+    fn now(&self) -> Time {
+        let elapsed = self.ticks.load(Ordering::SeqCst);
+        Time {
+            wall_ms: NOW + elapsed,
+            monotonic_ms: elapsed,
+        }
+    }
+    fn wait_until(&self, until: u64, _: &dyn Cancellation) -> bool {
+        let before = self.ticks.swap(until, Ordering::SeqCst);
+        let mut waits = self.waits.lock().unwrap();
+        waits.push(until - before);
+        if waits.len() == 2 {
+            self.stopped.store(true, Ordering::SeqCst);
+            return false;
+        }
+        true
+    }
+}
+#[test]
+fn transient_poll_failure_backs_off_until_cancellation_without_a_checkpoint() {
+    let world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+    let wire = Arc::new(Wire {
+        documents: Mutex::new(BTreeMap::new()),
+        owner: Mutex::new(Weak::new()),
+        cancel_after_create: Mutex::new(None),
+        requests: Mutex::new(vec![]),
+        deny_responses: AtomicBool::new(false),
+        fail_queries: AtomicBool::new(true),
+    });
+    let stopped = Arc::new(AtomicBool::new(false));
+    let clock = Arc::new(BackoffClock {
+        stopped: stopped.clone(),
+        ticks: std::sync::atomic::AtomicU64::new(0),
+        waits: Mutex::new(vec![]),
+    });
+    let driver = world.driver(provider_clock(wire.clone(), "owner", clock.clone()));
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(10),
+        cancelled: stopped.as_ref(),
+    };
+    assert!(ready(driver.run(&io)).is_err());
+    assert_eq!(
+        wire.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(op, _)| *op == Operation::Query)
+            .count(),
+        2,
+        "transient failure does not end the worker"
+    );
+    assert_eq!(clock.waits.lock().unwrap().len(), 2);
+    assert!(
+        clock
+            .waits
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|ms| *ms >= tmt_remote::limits::CLOUD_POLL_MIN_MS
+                && *ms <= tmt_remote::limits::CLOUD_POLL_IDLE_MS)
+    );
+    let inspect = rusqlite::Connection::open_with_flags(
+        world.owner_layout.directory.join("remote.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )
+    .unwrap();
+    assert_eq!(
+        inspect
+            .query_row(
+                "SELECT COUNT(*) FROM cloud_transport WHERE kind='checkpoint'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    assert_eq!(world.core.sends(), 0);
 }

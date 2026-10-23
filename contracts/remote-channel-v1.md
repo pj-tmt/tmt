@@ -1586,6 +1586,9 @@ Remote keeps files only in its own subtree of the data root reported by `tmt api
 regular-file admission and durable atomic state replacement. Never rewrite core DB/config or
 provider settings. Local append-only audit records time, device/request/operation IDs, resource
 UUIDs, digest, grant revision, decision and sanitized code before effects and outcome afterward.
+In `audit.grant_revision`, 0 means no grant observed, allowed only for an unadopted unsupported cloud
+carrier refusal with no logical operation ID or resources; a known peer records its real revision.
+That metadata never confers authority.
 Never log code, MAC, signature, private key, session token, message/reply, check capture, URL/title
 or reply receipts. It is not tamper-proof against the OS user or secure erasure. Audit failure
 before effect refuses; after an effect it preserves partial/uncertain recovery.
@@ -2252,6 +2255,17 @@ sender restart, observe the original request ID, then use a fresh signed `operat
 new HPKE context to read the original journal outcome. The old encrypted response remains unread until
 owner retention. Recovery never repeats the dispatch effect or reuses the lost context's key/nonce.
 
+Transient network, Auth refresh, budget or Store failures leave the checkpoint unchanged and retry
+on the next bounded poll with native backoff. Permanent malformed, undecryptable, foreign, retired-key,
+revoked or expired carriers receive one immutable refusal code in the same transport row and existing
+audit transaction. They grant no operation authority and are de-duplicated across restart; a durable
+refusal lets the checkpoint advance without stopping other peers. Where decryption provided a safe
+response context, the owner freezes and publishes a signed refusal. An undecryptable carrier has no
+response. A previously frozen accepted response is never replaced or resealed under a revoked
+context. A no-response in-flight observation ends as `REMOTE_CLOUD_UNCONFIRMED`: it may still be
+processed, so observe the same request ID and never resend. Only immutable request age reaching
+RECOVERY is `REMOTE_CLOUD_MESSAGE_EXPIRED`.
+
 The emulator fixture composes the finite driver with the lease-owning message service and cancellation;
 it persists no process-specific subscription. The driver is not reachable in production until #4538
 (enrollment) and #4536 (UUID-pinned identity query) land. #4538 will wire it at
@@ -2271,9 +2285,12 @@ fixed `reason`. States are `sent`, `held`, `refused`, `unconfirmed`, `unavailabl
 receipts and retention; `createdAtMs` is the immutable original creation time in integer milliseconds,
 identical on every repeat. A request at least `journal::RECOVERY` old refuses with
 `REMOTE_CLOUD_MESSAGE_EXPIRED` before any write; a future time beyond the 60-second skew bound refuses.
+The signed dispatch carries that same creation time; the receiver checks it again before adoption,
+so owner downtime cannot extend a queued request's lifetime.
 A repeat must retain the exact prepared bytes, including creation time, sender and expected name.
 A changed creation time conflicts with its frozen outbox row. The existing maintenance pass prunes
-sender outbox rows only past RECOVERY plus clock skew; it adds no tombstone ledger or context secret. Nonzero exit carries a JSON error code. Explicit/default/local selection never silently changes
+sender outbox rows only past RECOVERY plus clock skew; it adds no tombstone ledger or context secret.
+Nonzero exit carries a JSON error code. Explicit/default/local selection never silently changes
 backend. The final schema/argv is aligned at Core's separate slice. Until the real UUID-pinned
 `identity show` exists, production cloud delivery refuses with `REMOTE_CLOUD_UPGRADE_REQUIRED`;
 tests inject the fake public Core boundary. Never fall back to name-addressed `check`. Expected name is

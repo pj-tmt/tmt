@@ -56,6 +56,7 @@ pub(crate) enum Replay {
     Fresh,
     Pending,
     Frozen(Vec<u8>),
+    Refused(Option<Vec<u8>>),
 }
 #[cfg(test)]
 mod tests;
