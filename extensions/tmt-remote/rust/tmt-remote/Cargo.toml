@@ -20,6 +20,8 @@ include = [
 ]
 
 [dependencies]
+hpke = { workspace = true, features = ["nistp"] }
+aes-gcm.workspace = true
 ed25519-dalek.workspace = true
 base64.workspace = true
 hmac.workspace = true

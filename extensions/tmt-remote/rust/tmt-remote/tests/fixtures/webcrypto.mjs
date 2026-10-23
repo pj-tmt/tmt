@@ -71,3 +71,6 @@ assert.equal(
 console.log(
   `${process.version}: ${cases.length} Ed25519 signatures and enrollment/serverProof HMACs match; browser security remains a separate gate`
 );
+
+// Native cloud application framing shares this existing independent-vector gate.
+await import('./cloud-hpke-reference.mjs');

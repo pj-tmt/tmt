@@ -1,6 +1,13 @@
 //! Door bounds from the remote-client-v1 `loopback-http` binding.
 use std::time::Duration;
 
+/// Fixed native cloud encryption lifecycle; no new scheduler or configurable crypto profile.
+pub const CLOUD_KEY_LIFETIME_MS: u64 = 30 * 86_400_000;
+pub const CLOUD_KEY_RENEW_LEAD_MS: u64 = 7 * 86_400_000;
+pub const CLOUD_KEY_CHECK_MS: u64 = 60_000;
+pub const CLOUD_KEYRING_BYTES: usize = 16 * 1024;
+pub const CLOUD_KEYRING_KEYS: usize = 2;
+
 /// Fixed native Auth defaults. Policy settings and Keychain are later work.
 pub const FIREBASE_CREDENTIAL_BYTES: usize = 16 * 1024;
 pub const FIREBASE_CREDENTIAL_LIFETIME_MS: u64 = 365 * 86_400_000;

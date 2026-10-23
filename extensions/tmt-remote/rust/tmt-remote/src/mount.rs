@@ -1423,16 +1423,16 @@ mod reconnect_tests {
                 Mounts::with_extensions(root.clone(), &origin, PREFIX, Arc::new(NoSessions), ONE);
             mounts.before_slot_drop = Some(barrier);
             let mounts = Arc::new(mounts);
-            let site = Arc::new(Site {
-                routes: Routes::new(1024, PREFIX.into()).unwrap(),
-                mounts: Arc::clone(&mounts),
-                pages: Some(Pages::new(
+            let site = Arc::new(Site::new(
+                Routes::new(1024, PREFIX.into()).unwrap(),
+                Arc::clone(&mounts),
+                Some(Pages::new(
                     &origin,
                     "fixture".into(),
                     "window".into(),
                     PREFIX,
                 )),
-            });
+            ));
             let stop = Arc::new(AtomicBool::new(false));
             let flag = Arc::clone(&stop);
             let running = thread::spawn(move || door.run(&flag, site as Arc<dyn Handler>).unwrap());

@@ -200,22 +200,22 @@ impl Mounted {
         let door = Door::bind(0).unwrap();
         let addr = door.socket_addr().unwrap();
         let origin = door.origin.clone();
-        let site = Arc::new(Site {
+        let site = Arc::new(Site::new(
             routes,
-            mounts: Arc::new(Mounts::with_extensions(
+            Arc::new(Mounts::with_extensions(
                 root.clone(),
                 &origin,
                 &prefix,
                 sessions,
                 extensions,
             )),
-            pages: Some(Pages::new(
+            Some(Pages::new(
                 &origin,
                 "fixture-machine".into(),
                 "fixture-window".into(),
                 &prefix,
             )),
-        });
+        ));
         let stop = Arc::new(AtomicBool::new(false));
         let mounts = Arc::clone(&site.mounts);
         let flag = Arc::clone(&stop);

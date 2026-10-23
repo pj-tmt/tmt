@@ -1344,17 +1344,37 @@ fn address_parts(address: &str) -> (&str, &str, u16) {
     (origin, path, port)
 }
 fn stopped_files(pilot: &Pilot) -> Vec<(std::ffi::OsString, Vec<u8>, std::time::SystemTime)> {
-    let mut files: Vec<_> = fs::read_dir(pilot.root.join("state/remote"))
-        .unwrap()
-        .map(|entry| {
+    fn capture(
+        root: &std::path::Path,
+        directory: &std::path::Path,
+        files: &mut Vec<(std::ffi::OsString, Vec<u8>, std::time::SystemTime)>,
+    ) {
+        for entry in fs::read_dir(directory).unwrap() {
             let entry = entry.unwrap();
-            (
-                entry.file_name(),
-                fs::read(entry.path()).unwrap(),
+            let path = entry.path();
+            let kind = entry.file_type().unwrap();
+            assert!(
+                kind.is_file() || kind.is_dir(),
+                "unexpected private state entry: {path:?}"
+            );
+            files.push((
+                path.strip_prefix(root).unwrap().as_os_str().to_owned(),
+                if kind.is_file() {
+                    fs::read(&path).unwrap()
+                } else {
+                    vec![]
+                },
                 entry.metadata().unwrap().modified().unwrap(),
-            )
-        })
-        .collect();
+            ));
+            if kind.is_dir() {
+                capture(root, &path, files);
+            }
+        }
+    }
+    // Document's owned lock directory is state too: snapshot its entries rather than skipping it.
+    let root = pilot.root.join("state/remote");
+    let mut files = vec![];
+    capture(&root, &root, &mut files);
     files.sort_by(|left, right| left.0.cmp(&right.0));
     files
 }
