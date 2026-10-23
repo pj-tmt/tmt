@@ -27,7 +27,7 @@ import {
 } from '../src/shell.js';
 import { startShellHost, type ShellSlot } from '../src/shell-host.js';
 import { FramePair, Section, noop } from './kit.js';
-import { menuItems } from './components.js';
+import { menuItems, NoticeSection } from './components.js';
 import { UiOverlayFrame } from './ui-overlays.js';
 
 /*
@@ -356,6 +356,12 @@ function NotificationsFrame() {
 
 export function frameFor(name: string, params: URLSearchParams): ReactNode {
   switch (name) {
+    case 'notice':
+      return (
+        <main className="gallery-main">
+          <NoticeSection />
+        </main>
+      );
     case 'shell':
       return <ShellFrame params={params} />;
     case 'hosted':
