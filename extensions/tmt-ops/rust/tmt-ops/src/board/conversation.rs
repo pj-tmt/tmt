@@ -53,7 +53,7 @@ pub struct SendNowDone {
 
 pub(super) type ConversationKey = (Option<String>, String);
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Refresh {
     Current,
     Loading,
@@ -86,18 +86,34 @@ impl App {
             self.selected_request,
             super::refresh::SelectedRequest::AwaitingSnapshot
         );
-        if !self.loading()
-            && !awaiting_snapshot
-            && !self.conversation_sources_pending(target)
-            && !pane_pending
-        {
+        let sources =
+            self.loading() || awaiting_snapshot || self.conversation_sources_pending(target);
+        if !sources && !pane_pending {
             return Refresh::Current;
         }
         if session.is_some_and(|session| session.rendered.is_some()) {
-            Refresh::Retained
+            // The per-refresh pane read is silent: only a source read marks held content.
+            if sources {
+                Refresh::Retained
+            } else {
+                Refresh::Current
+            }
         } else {
             Refresh::Loading
         }
+    }
+
+    /// The glyph for held content that a source read is refreshing, once the read
+    /// has outlasted the spinner delay; nothing before, so a fast read paints nothing.
+    pub(super) fn conversation_spinner(&self, target: &RowTarget) -> Option<&'static str> {
+        let retained = self.conversation_refresh(target) == Refresh::Retained;
+        let id = self.target_row(target)?["id"].as_str()?.to_owned();
+        let identity = (self.view.as_ref().and_then(|view| view.me_id.clone()), id);
+        let mut state = self.conversation.borrow_mut();
+        state
+            .sessions
+            .get_mut(&identity)?
+            .refresh_spinner(self, retained)
     }
 }
 
@@ -211,6 +227,8 @@ struct Session {
     transcript_context: transcript::Context,
     /// When the exchanges first went unanswered, for the delayed loading line.
     pending_since_ms: Option<u64>,
+    /// When a source read first held this content as retained, for the delayed spinner.
+    refreshing_since_ms: Option<u64>,
     /// The user's durable sends to this agent, restored from storage.
     sent: Vec<crate::board::row_detail::Sent>,
     /// What the live screen read last said, when the next read is due, and whether the
@@ -246,6 +264,7 @@ impl Default for Session {
             pane_output_fresh: false,
             transcript_context: Default::default(),
             pending_since_ms: None,
+            refreshing_since_ms: None,
             sent: Vec::new(),
             screen: Default::default(),
             screen_due_ms: 0,
@@ -772,6 +791,7 @@ fn render_target(
     let send_now_pending = state.send_now_pending.clone();
     let mut send_now_hit = None;
     let session = state.sessions.entry(identity.clone()).or_default();
+    let spinner = session.refresh_spinner(app, refresh == Refresh::Retained);
     let state_words = if refresh == Refresh::Current {
         session.observe_context(app, &target, row)
     } else {
@@ -998,11 +1018,7 @@ fn render_target(
         rule(
             format!(
                 "Response · {flow}{}",
-                if refresh == Refresh::Retained {
-                    " · refreshing"
-                } else {
-                    ""
-                }
+                spinner.map_or(String::new(), |glyph| format!(" · {glyph}"))
             ),
             if session.change != Change::Current {
                 Role::Waiting

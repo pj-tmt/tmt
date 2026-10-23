@@ -514,6 +514,7 @@ pub(super) fn board(sections: Value) -> App {
             me_id: None,
             replies: Vec::new(),
         }),
+        cursor: None,
     });
     app
 }
