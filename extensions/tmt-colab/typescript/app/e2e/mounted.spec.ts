@@ -638,6 +638,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
 test('trusted home manages retention, archive and verified or awaiting deletion', async ({
   page,
 }, testInfo) => {
+  await page.clock.install();
   const f = await fixture(page),
     other = '00000000-0000-4000-8000-000000000103',
     log = [f.genesis, f.shared];
@@ -859,6 +860,12 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(dialog.getByRole('alert')).toContainText(
     'Your machine accepted the deletion, but it is not confirmed yet',
   );
+  // A missing-summary refresh removes the last row, but must keep its pending dialog.
+  await page.clock.runFor(2000);
+  await expect(page.locator('.pages li')).toHaveCount(0);
+  await expect(dialog.getByRole('alert')).toContainText(
+    'Your machine accepted the deletion, but it is not confirmed yet',
+  );
   const sockets = contexts.length;
   await dialog.getByRole('button', { name: 'Check again' }).click();
   await expect(dialog.getByRole('alert')).toContainText(
@@ -868,6 +875,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   expect(contexts).toHaveLength(sockets);
   await expect(page.locator('iframe')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
   await expect(page.locator('.pages li')).toHaveCount(0);
   await expect(page.getByText('No pages in this space yet.', { exact: false })).toContainText(
     'tmt colab page create',
