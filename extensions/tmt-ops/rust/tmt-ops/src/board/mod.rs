@@ -22,7 +22,7 @@ mod exchange_matrix;
 mod exchange_view;
 mod filter_bar;
 #[cfg(test)]
-mod glyph_guard;
+pub(crate) mod glyph_guard;
 mod header_sort;
 mod help;
 mod home;

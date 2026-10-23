@@ -204,5 +204,13 @@ pub(in crate::board) fn chip(summary: Option<&Summary>) -> String {
     }
 }
 
+/// The chip fitted to `columns` so that it also fits where an East Asian locale draws the
+/// ambiguous-width `≡` two cells wide.
+pub(in crate::board) fn fitted(summary: Option<&Summary>, columns: usize) -> String {
+    super::view::fit(&chip(summary), columns.saturating_sub(1))
+        .trim_end()
+        .to_owned()
+}
+
 #[cfg(test)]
-mod tests;
+pub(in crate::board) mod tests;

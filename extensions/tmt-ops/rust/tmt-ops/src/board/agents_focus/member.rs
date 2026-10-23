@@ -52,7 +52,13 @@ pub(super) fn render(
             area,
             y,
             neutral(
-                format!(" {}", conversation_notes::chip(app.notes.summary(&key))),
+                format!(
+                    " {}",
+                    conversation_notes::fitted(
+                        app.notes.summary(&key),
+                        usize::from(area.width).saturating_sub(1)
+                    )
+                ),
                 look,
             ),
         );

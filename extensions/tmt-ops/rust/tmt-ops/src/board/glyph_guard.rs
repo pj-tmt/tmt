@@ -119,6 +119,7 @@ fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced
         "Est. ctx avoided 1d: —",
         "◆ 0 ✗ 1 ◐ 2 ● 3 ◌ 4",
         "2 other",
+        "≡ Notes · 3 links · 2 todo · 1 done",
         "▁▂▃▄▅▆▇█▒░ ■ Claude · ↩ reply",
     ] {
         assert_eq!(glyph_error(good), None, "positive control {good:?}");

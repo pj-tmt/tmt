@@ -193,6 +193,87 @@ fn only_a_member_of_a_squad_has_a_list() {
     assert_eq!(Key::of(&OpsTarget::Pool), None);
 }
 
+/// Oracle scenes: the chip once the read has answered with counts, with nothing, and with a failure.
+pub(in crate::board) const SCENES: &[&str] = &["notes-counts", "notes-empty", "notes-unavailable"];
+
+pub(in crate::board) fn capture_case(
+    scene: &str,
+    look: crate::look::Look,
+) -> crate::board::app::App {
+    let mut app = crate::board::app::workspace::tests::board();
+    let view = app.view.as_mut().unwrap();
+    view.look = look;
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| {
+            matches!(
+                row.target,
+                crate::board::workspace::OpsTarget::Member { .. }
+            )
+        })
+        .expect("the fixture has a member");
+    app.select(index);
+    let key = app.conversation_notes_key().expect("a squad member");
+    app.notes = State::reading();
+    let now = Instant::now();
+    let task = app.notes.offer(Some(&key), now).unwrap();
+    let result = match scene {
+        "notes-counts" => Ok(Counts {
+            links: 3,
+            todo: 2,
+            done: 1,
+        }),
+        "notes-empty" => Ok(Counts::default()),
+        _ => Err("No admitted caller or recorded active user.".into()),
+    };
+    app.notes.finished(
+        Completed {
+            key: task.key,
+            result,
+        },
+        now,
+    );
+    app
+}
+
+#[test]
+fn the_chip_fits_whether_the_ambiguous_equivalence_sign_is_one_cell_or_two() {
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+    assert_eq!(
+        ('≡'.width(), '≡'.width_cjk()),
+        (Some(1), Some(2)),
+        "the sign is ambiguous"
+    );
+    let summaries = [
+        None,
+        Some(Summary::Counts(Counts::default())),
+        Some(Summary::Counts(Counts {
+            links: 12,
+            todo: 345,
+            done: 6789,
+        })),
+        Some(Summary::Unavailable("no".into())),
+    ];
+    for summary in &summaries {
+        for columns in 0..=60 {
+            let text = fitted(summary.as_ref(), columns);
+            // `columns` is what the header leaves for the chip after its leading space.
+            assert!(text.width() <= columns, "{columns}: {text:?}");
+            // Counting the sign two cells wide, as an East Asian locale draws it, still fits.
+            let sign = usize::from(text.contains('≡'));
+            assert!(text.width() + sign <= columns, "{columns}: {text:?} (CJK)");
+        }
+        let text = chip(summary.as_ref());
+        assert_eq!(
+            crate::board::glyph_guard::glyph_error(&text),
+            None,
+            "the sign is a registered mark: {text:?}"
+        );
+    }
+}
+
 mod header {
     use super::*;
     use crate::board::{
