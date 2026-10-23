@@ -34,6 +34,25 @@ test('concept17 shows real pins in owner order, wraps after three and shares the
   for (const title of ['Review 2', 'Spec 1', 'Plan 3', 'Notes 4']) await pin(page, title);
   const pins = app(page).getByRole('list', { name: 'Pinned pages' });
   await expect(pins.getByRole('link')).toHaveText(['Review 2', 'Spec 1', 'Plan 3', 'Notes 4']);
+  const firstPin = pins.getByRole('link').first();
+  const beforeFocus = await firstPin.boundingBox();
+  await firstPin.focus();
+  await expect(firstPin).toBeFocused();
+  const frame = await firstPin.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return {
+      width: parseFloat(style.outlineWidth),
+      offset: parseFloat(style.outlineOffset),
+      border: parseFloat(style.borderWidth),
+      shadow: style.boxShadow,
+    };
+  });
+  expect(frame.width).toBeGreaterThan(0);
+  expect(frame.offset).toBeLessThanOrEqual(-frame.width);
+  expect(frame.border).toBe(0);
+  expect(frame.shadow).toBe('none');
+  expect(await firstPin.boundingBox()).toEqual(beforeFocus);
+
   const bounds = await pins
     .locator('> li')
     .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top));
