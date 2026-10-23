@@ -34,6 +34,7 @@ import {
   type ProviderView,
 } from './digest-view.js';
 import { notAvailable } from './not-available.js';
+import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { whileVisible } from './owner-reads.js';
 
 /** The terminal Digest's own cadence: the usage read refreshes once a minute. */
@@ -66,13 +67,13 @@ function card(
 ): HTMLElement {
   const node = el(
     'section',
-    options.className ? `digest-card ${options.className}` : 'digest-card',
+    options.className ? `${ui.card} digest-card ${options.className}` : `${ui.card} digest-card`,
   );
   node.id = id;
   node.setAttribute('aria-labelledby', `${id}-title`);
-  const heading = el('h2', 'digest-card-title', title);
+  const heading = el('h2', ui.cardTitle, title);
   heading.id = `${id}-title`;
-  const head = el('div', 'digest-card-head');
+  const head = el('div', ui.cardHead);
   head.append(heading);
   if (options.actions) head.append(options.actions);
   node.append(head, ...body);
@@ -86,7 +87,8 @@ function row(className: string, ...cards: Node[]): HTMLElement {
 }
 
 function table(head: readonly string[], rows: readonly (readonly (string | Node)[])[]) {
-  const node = el('table', 'usage-table');
+  const node = el('table', ui.table);
+  node.dataset.numeric = '';
   const header = el('tr');
   for (const text of head) {
     const cell = el('th', undefined, text);
@@ -116,19 +118,23 @@ function table(head: readonly string[], rows: readonly (readonly (string | Node)
   return node;
 }
 
-/** A segmented control of buttons; `aria-pressed` marks the active one. */
-function segments<T extends string>(
+/** The leaf's boxed tabs as a two-way choice for one panel; `aria-selected` marks the active one. */
+function tabChoice<T extends string>(
   label: string,
+  controls: string,
   options: readonly { value: T; text: string }[],
   initial: T,
   change: (value: T) => void,
 ): HTMLElement {
-  const group = el('div', 'digest-segments');
-  group.setAttribute('role', 'group');
-  group.setAttribute('aria-label', label);
+  const header = el('div', ui.tabsHeader);
+  const list = el('div', ui.tabList);
+  list.setAttribute('role', 'tablist');
+  list.setAttribute('aria-label', label);
   const buttons = options.map((option) => {
-    const button = el('button', 'digest-segment', option.text);
+    const button = el('button', ui.tab, option.text);
     button.type = 'button';
+    button.setAttribute('role', 'tab');
+    button.setAttribute('aria-controls', controls);
     button.addEventListener('click', () => {
       sync(option.value);
       change(option.value);
@@ -137,50 +143,85 @@ function segments<T extends string>(
   });
   const sync = (active: T) => {
     for (const { button, value } of buttons)
-      button.setAttribute('aria-pressed', String(value === active));
+      button.setAttribute('aria-selected', String(value === active));
   };
   sync(initial);
-  group.append(...buttons.map(({ button }) => button));
+  list.append(...buttons.map(({ button }) => button));
+  header.append(list);
+  return header;
+}
+
+/** One numeric fact as the leaf's status tile: a label over a large value. Inside a card the tiles
+ * are bare (`data-bare` on the group); `series` adds a dot in that chart series' colour, `hero` sets
+ * the value at the page's first-read size. A tile without a tone draws no dot. */
+function tile(
+  label: string,
+  value: string,
+  options: { hero?: boolean; series?: number } = {},
+): HTMLElement {
+  const node = el('div', ui.statusTile);
+  const term = el('dt', ui.statusTileLabel, label);
+  const figure = el('dd', ui.statusTileValue);
+  figure.dataset.numeric = value === '0' ? 'zero' : 'count';
+  if (options.hero) figure.dataset.size = 'hero';
+  if (options.series !== undefined) {
+    const dot = el('span', `${ui.statusTileDot} tmt-ui-chart-s${options.series}`);
+    dot.setAttribute('aria-hidden', 'true');
+    figure.append(dot);
+  }
+  figure.append(value);
+  node.append(term, figure);
+  return node;
+}
+
+/** A passive label for a state that is not an action: the leaf's chip without a remove control. */
+function passiveChip(text: string): HTMLElement {
+  const node = el('span', ui.chip);
+  node.append(el('span', ui.chipLabel, text));
+  return node;
+}
+
+/** A group of bare tiles for use inside a card. */
+function bareTiles(...tiles: HTMLElement[]): HTMLElement {
+  const group = el('dl', ui.statusTiles);
+  group.dataset.bare = '';
+  group.append(...tiles);
   return group;
 }
 
 function providerCard(view: ProviderView, nowMs: number): HTMLElement {
   const resets = view.stale ? 'stale' : resetsIn(view.resetsAtMs, nowMs);
-  const meter = el('div', 'digest-meter');
+  const meter = el('div', ui.meter);
   meter.setAttribute('role', 'img');
   meter.setAttribute('aria-label', `${view.leftPercent}% of the weekly allowance left`);
-  const fill = el('div', `digest-meter-fill tmt-ui-chart-s${view.style}`);
-  fill.style.setProperty('--digest-fill', String(Math.max(0, Math.min(100, view.leftPercent))));
+  const fill = el('div', `${ui.meterFill} tmt-ui-chart-s${view.style}`);
+  fill.style.setProperty(
+    '--tmt-ui-meter-fill',
+    String(Math.max(0, Math.min(100, view.leftPercent))),
+  );
   meter.append(fill);
   const figure = el('div', 'digest-provider-figure');
   figure.append(
-    el('p', 'digest-big', `${view.leftPercent}%`),
-    el('p', 'digest-big-label', 'allowance left'),
+    bareTiles(tile('Allowance left', `${view.leftPercent}%`, { hero: true, series: view.style })),
     meter,
   );
   const history = view.chart
     ? createSeriesChart(view.chart)
     : el('p', 'usage-note', 'The weekly history is not served yet; this shows the latest window.');
-  const stat = (label: string, value: string) => {
-    const cell = el('div', 'digest-stat');
-    cell.append(el('dt', undefined, label), el('dd', undefined, value));
-    return cell;
-  };
-  const stats = el('dl', 'digest-stats');
-  stats.append(
-    stat('Elapsed', view.elapsedPercent === null ? '—' : `${Math.round(view.elapsedPercent)}%`),
-    stat(
+  const stats = bareTiles(
+    tile('Elapsed', view.elapsedPercent === null ? '—' : `${Math.round(view.elapsedPercent)}%`),
+    tile(
       'Pace',
       view.paceDeltaPoints === null
         ? '—'
         : `${view.paceDeltaPoints > 0 ? '+' : ''}${view.paceDeltaPoints.toFixed(1)} pts`,
     ),
-    stat('Resets in', resets),
+    tile('Resets in', resets),
   );
   const body = el('div', 'digest-provider-body');
   body.append(figure, history);
   return card(`digest-provider-${view.line || 'account'}`, view.provider, [body, stats], {
-    actions: el('span', 'digest-card-meta', `Resets in ${resets}`),
+    actions: el('span', ui.cardMeta, `Resets in ${resets}`),
     className: 'digest-provider',
   });
 }
@@ -220,8 +261,10 @@ function tokensCard(doc: UsageDocument, scale: { share: boolean }): HTMLElement 
     body.append(
       el('p', 'usage-note', 'Some buckets are incomplete: they are lower bounds, not errors.'),
     );
-  const control = segments(
+  host.id = 'digest-tokens-chart';
+  const control = tabChoice(
     'Scale',
+    host.id,
     [
       { value: 'absolute', text: 'Absolute' },
       { value: 'share', text: 'Share' },
@@ -288,7 +331,8 @@ function rankingCard(doc: UsageDocument): HTMLElement {
   if (view.partial)
     body.push(el('p', 'usage-note', '* Partial: some of this range has no data for the seat.'));
   if (view.other) {
-    const toggle = el('button', 'digest-more');
+    const toggle = el('button', ui.action);
+    toggle.dataset.variant = 'text';
     toggle.type = 'button';
     toggle.setAttribute('aria-controls', host.id);
     const sync = (all: boolean) => {
@@ -376,14 +420,13 @@ function coverageCard(): HTMLElement {
   const list = el('dl', 'digest-gaps');
   for (const [term, source] of gaps) {
     const line = el('div', 'digest-gap');
-    line.append(
-      el('dt', undefined, term),
-      el('dd', 'digest-badge', 'Not connected'),
-      el('dd', 'digest-gap-source', source),
-    );
+    const status = el('dd');
+    status.append(passiveChip('Not connected'));
+    line.append(el('dt', undefined, term), status, el('dd', 'digest-gap-source', source));
     list.append(line);
   }
-  const method = el('details', 'digest-method');
+  const method = el('details', ui.disclosure);
+  method.dataset.divided = '';
   method.id = 'digest-method';
   method.append(
     el('summary', undefined, 'Method & caveats'),
@@ -411,6 +454,7 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
   const note = document.getElementById('usage-note');
   const badge = document.getElementById('usage-badge');
   if (!tabs || !panel || !note || !badge) return;
+  const badgeLabel = badge.querySelector<HTMLElement>(`.${ui.chipLabel}`)!;
   let current: UsageRange = USAGE_RANGES[0];
   let generation = 0;
   let shown = '';
@@ -419,7 +463,7 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
   // The token chart's Absolute/Share choice survives a refresh.
   const scale = { share: false };
   const buttons = USAGE_RANGES.map((range) => {
-    const button = el('button', 'digest-segment', range);
+    const button = el('button', ui.tab, range);
     button.type = 'button';
     button.setAttribute('role', 'tab');
     button.setAttribute('aria-controls', 'usage-panel');
@@ -440,7 +484,7 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
     shown = fingerprint(report);
     good = undefined;
     badge!.hidden = true;
-    badge!.textContent = '';
+    badgeLabel.textContent = '';
     if (report.unavailable || !report.document) {
       panel!.replaceChildren();
       return notAvailable(note!, report.unavailable ?? 'Usage is not available.');
@@ -454,7 +498,7 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
       ...(activityBlock ? [activityBlock] : []),
       row('digest-row-coverage', exchangeCard(doc), coverageCard()),
     );
-    if (report.sample) badge!.textContent = 'Sample data';
+    if (report.sample) badgeLabel.textContent = 'Sample data';
     badge!.hidden = !report.sample;
     ordinaryNote(report);
   }

@@ -533,9 +533,13 @@ state, a React component.
   round mark, size `m` or `s`; it is an image with the name as its label unless `decorative`.
   `kind="person"` (the default) is the neutral fill; `kind="agent"` is the mint selection fill
   with the strong accent ink (`data-kind`), so the two read apart without a glyph.
-- **Choice rows.** `BrowserChoice` is a radio or check row with a label and an optional
-  sublabel; the whole row is the target and the control is a real input (`tmt-ui-radio`,
-  `tmt-ui-checkbox`). `BrowserChoiceGroup` is the fieldset with its legend, `stack` or `inline`.
+- **Choice rows.** `BrowserChoice` is a radio or check row with a label, an optional sublabel
+  and an optional `hint`; the whole row is the target and the control is a real input
+  (`tmt-ui-radio`, `tmt-ui-checkbox`). The hint is a short key at the end of the row (the digit
+  that picks it), drawn as a key cap in a `kbd` and hidden from assistive technology. The hint
+  sits inside the label, so a row with a hint names its input by the label text
+  (`aria-label`) and the key never joins the name. `BrowserChoiceGroup` is the fieldset with its
+  legend, `stack` or `inline`.
 - **Pager.** `BrowserPager` is `‹ 1/3 ›`: the host owns the 1-based position; the arrows stop at
   the ends; the position is a polite status named `<label> 1 of 3`.
 - **Status tile.** `BrowserStatusTiles` is a description list of `BrowserStatusTile` terms: a
@@ -547,6 +551,17 @@ state, a React component.
   (`dot`, `ring`, `dashed`, `clock`, `diamond`, `cross`, `unknown`), in the colour of the text around it. Every
   mark has the same footprint whatever font a glyph would fall back to; the state word beside it
   carries the meaning, so the mark is `aria-hidden`.
+- **Bare status tiles.** `data-bare` on `tmt-ui-status-tiles` drops each tile's border, fill and
+  padding for use inside a card: a label over a value, no box in a box. The dot appears only when a
+  tile carries a tone. `data-size='hero'` on a numeric value sets it at the page's first-read size
+  (about 40px).
+- **Card.** `tmt-ui-card` is a flat sheet that groups one subject: `tmt-ui-card-head` (the
+  `tmt-ui-card-title` and an optional `tmt-ui-card-meta`) over the body. Static only.
+- **Meter.** `tmt-ui-meter` is a read-only measure; its fill's width is `--tmt-ui-meter-fill`
+  (0-100) and its colour comes from a chart series class (`tmt-ui-chart-sN`). Give it `role="img"`
+  and a label that states the value.
+- **Passive chip.** A `tmt-ui-chip` whose label is its only child carries no remove control and is
+  padded the same on both sides: a label for a state that is not an action.
 
 ## Isolated shadcn foundation (Slice1)
 
@@ -815,3 +830,17 @@ viewport/theme coverage. Only `browser-ui-selection.spec.ts` is allocated in
 Colab; existing foundation HTML/runner remain its infrastructure. Added shard
 wall time and exact-head Colab acceptance accompany delivery. No consumer
 migration or Select revival is included.
+
+## Browser audits
+
+From `typescript/`, install the frozen leaf tools with
+`pnpm --filter @tmt/browser-ui... install --frozen-lockfile --ignore-scripts`, then run
+`pnpm --filter @tmt/browser-ui test:browser --workers=2`. The Playwright config starts
+only the private gallery, on port 5184 by default (`BROWSER_UI_TEST_PORT` overrides it).
+It never attaches to an existing server or opens a product/host fixture.
+
+The Chromium suite measures rounded borders, text inset, control radii, focus frames,
+border-only control contrast and the named soft-edge field exception, plus overlay exit
+and reduced motion. Seeded controls prove each audit detects a violation and accepts its
+repair. CI selection and gate ownership live in the
+[CI guide](../../.agents/skills/tmt-release/references/ci-selection.md#worker-gates).

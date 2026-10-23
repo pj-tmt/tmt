@@ -20,6 +20,7 @@ export const sections = [
   ['choice', 'Choice'],
   ['pager', 'Pager'],
   ['status-tile', 'Status tile'],
+  ['card', 'Card and meter'],
   ['menus', 'Menus'],
   ['tabs', 'Tabs'],
   ['list', 'List'],

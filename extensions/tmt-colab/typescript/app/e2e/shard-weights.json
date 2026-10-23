@@ -7,7 +7,8 @@
     "Model error: the slowest measured job exceeded its prediction by 35 seconds in run 39062994614 and by 48 seconds in run 39098088280, so the shard-count test adds 50 seconds of margin to the predicted wall.",
     "Observed between-run duration ratios (validation/measurement), for the 76 files taking at least one second in the measurement: 0.59 to 1.29, median 0.93, p90 1.22. Two runs describe observed variation, not a confidence interval. Refit from the existing JSON results artifacts when the suite changes.",
     "Additional file measurement: page-links.spec.ts, run 39403394586 at 976807e085b770c9ddb75a3387916cbfceaf8991, colab-app-results-1/results.json. All 23 cases passed; summed result durations 47,851 ms, rounded up to 48 seconds. Other file weights retain the measurement above.",
-    "Additional file measurement: page-end-clearance.spec.ts, local Chromium run on 2026-10-23 at the head that adds it (#4588), one worker: 6 cases passed, summed result durations 4,392 ms, rounded up to 5 seconds. Other file weights retain the measurement above."
+    "Additional file measurement: page-end-clearance.spec.ts, local Chromium run on 2026-10-23 at the head that adds it (#4588), one worker: 6 cases passed, summed result durations 4,392 ms, rounded up to 5 seconds. Other file weights retain the measurement above.",
+    "Additional file measurement: question-choice-rows.spec.ts, local Chromium run on 2026-10-23 at the head that adds it (#4585), one worker: 5 cases passed, summed result durations 4,964 ms, rounded up to 5 seconds. Other file weights retain the measurement above."
   ],
   "jobOverheadSeconds": 58,
   "modelErrorSeconds": 50,
@@ -71,6 +72,7 @@
     "pending-attachments.spec.ts": 35,
     "proposals.spec.ts": 52,
     "question-chip.spec.ts": 20,
+    "question-choice-rows.spec.ts": 5,
     "question-groups.spec.ts": 87,
     "question-vectors.spec.ts": 1,
     "questions.spec.ts": 62,

@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { AGENT_STATES } from '../src/ops-source.js';
+import { mockDocument } from '../src/digest-mock.js';
+import type { UsageRange } from '../src/digest-source.js';
 
 /**
  * The one TMT web app as a host (#3937): conditions the door and the shell must keep, against a
@@ -999,4 +1001,99 @@ test.describe('the Ops route on the owner read', () => {
     await expect(page.locator('#ops-section .tmt-ui-list-row')).toHaveCount(0);
     await page.close();
   });
+});
+
+/**
+ * The Digest route on the owner reads `x/-/digest/<range>` and `x/-/limits`: the page's pieces are
+ * the leaf's (card, status tile, segments, meter, badge, table), not page-local copies.
+ */
+test.describe('the Digest route on the owner reads', () => {
+  async function stub(page: Page) {
+    await page.route(`${origin}/sdk/mount`, (route) =>
+      route.fulfill({ json: { address: `${origin}/r/owner` } }),
+    );
+    await page.route(new RegExp(`${origin}/r/owner/x/-/digest/(24h|7d|30d)$`), (route) => {
+      const range = route.request().url().split('/').pop() as UsageRange;
+      return route.fulfill({
+        json: {
+          version: 1,
+          state: 'ok',
+          since: range,
+          report: mockDocument(range),
+          observedAtMs: Date.now(),
+        },
+      });
+    });
+    await page.route(`${origin}/r/owner/x/-/limits`, (route) =>
+      route.fulfill({
+        json: { version: 1, state: 'unavailable', reason: 'not_sampled', observedAtMs: Date.now() },
+      }),
+    );
+  }
+
+  for (const width of [1440, 390])
+    test(`draws cards, tiles, tabs, meters and chips from the leaf pieces at ${width}`, async () => {
+      const { page } = await openApp('/digest', async (page) => {
+        await page.setViewportSize({ width, height: 900 });
+        await stub(page);
+      });
+      const cards = page.locator('#digest-sections .tmt-ui-card');
+      await expect(cards.first()).toBeVisible();
+      expect(await cards.count()).toBeGreaterThanOrEqual(6);
+      await expect(cards.first()).toHaveCSS('border-radius', '8px');
+      // A provider: the allowance as the hero tile over its meter, then Elapsed, Pace, Resets in.
+      const provider = page.locator('.digest-provider').first();
+      const tiles = provider.locator('.tmt-ui-status-tile');
+      await expect(tiles.locator('.tmt-ui-status-tile-label')).toHaveText([
+        'Allowance left',
+        'Elapsed',
+        'Pace',
+        'Resets in',
+      ]);
+      const hero = tiles.first().locator('.tmt-ui-status-tile-value');
+      await expect(hero).toHaveAttribute('data-size', 'hero');
+      await expect(hero).toHaveCSS('font-family', /Bricolage Grotesque/);
+      await expect(provider.locator('.tmt-ui-meter-fill')).toHaveCSS(
+        'background-color',
+        /rgb\(\d+, \d+, \d+\)/,
+      );
+      const left = await provider
+        .locator('.tmt-ui-meter-fill')
+        .evaluate((node) => (node as HTMLElement).style.getPropertyValue('--tmt-ui-meter-fill'));
+      expect(Number(left)).toBeGreaterThan(0);
+      // The range is the leaf's boxed tabs, one selected; choosing 7d reads that range.
+      const ranges = page.locator('#usage-ranges .tmt-ui-tab');
+      await expect(ranges).toHaveText(['24h', '7d', '30d']);
+      await expect(ranges.first()).toHaveAttribute('aria-selected', 'true');
+      await ranges.nth(1).click();
+      await expect(ranges.nth(1)).toHaveAttribute('aria-selected', 'true');
+      await expect(page.locator('#digest-ranking-rows')).toBeVisible();
+      expect((await page.locator('#usage-ranges').boundingBox())!.width).toBeGreaterThan(80);
+      // The token scale is the same tabs for the chart below it.
+      const scale = page.locator('#digest-tokens .tmt-ui-tab');
+      await expect(scale).toHaveText(['Absolute', 'Share']);
+      await expect(scale.first()).toHaveAttribute('aria-selected', 'true');
+      expect(
+        (await page.locator('#digest-tokens .tmt-ui-tab-list').boundingBox())!.width,
+      ).toBeGreaterThan(80);
+      // The coverage states are passive chips, padded the same on both sides; the numeric table is
+      // the leaf's and its headings keep their words.
+      const chips = page.locator('#digest-missing .tmt-ui-chip');
+      await expect(chips).toHaveCount(4);
+      await expect(chips.first().locator('.tmt-ui-chip-label')).toHaveCSS('padding-left', '6px');
+      await expect(chips.first().locator('.tmt-ui-chip-label')).toHaveCSS('padding-right', '6px');
+      const heading = page.locator('#digest-ranking-rows .tmt-ui-table[data-numeric] th').nth(2);
+      await expect(heading).toHaveText('Tokens');
+      expect((await heading.boundingBox())!.height).toBeLessThan(40);
+      // Nothing is a page-local copy any more.
+      await expect(
+        page.locator(
+          '.digest-badge, .digest-segment, .digest-segments, .digest-stat, .digest-meter, .tmt-ui-segments, .tmt-ui-badge',
+        ),
+      ).toHaveCount(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+        width,
+      );
+      await page.close();
+    });
 });

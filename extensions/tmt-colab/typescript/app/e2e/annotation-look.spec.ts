@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { captureDirectory } from './captures.js';
+import { readFrameStyle } from './frame-style.js';
 import { destination } from '../test/ask-fixtures.js';
 import { pageAction } from '../test/page-actions.js';
 import { text } from '../src/strings.js';
@@ -395,11 +396,17 @@ for (const width of [1440, 1024, 390])
         'justify-items': 'center',
       });
       expect(
-        await marker.evaluate((node) => ({
-          children: node.children.length,
-          before: getComputedStyle(node, '::before').content,
-          after: getComputedStyle(node, '::after').content,
-        })),
+        await readFrameStyle(page.frameLocator('#ask-page-fixture iframe'), (body) => {
+          const node = [...body.ownerDocument.querySelectorAll('[data-colab-thread]')].find(
+            (candidate) => candidate.textContent?.trim() === '1',
+          );
+          if (!node?.isConnected) return undefined;
+          return {
+            children: node.children.length,
+            before: getComputedStyle(node, '::before').content,
+            after: getComputedStyle(node, '::after').content,
+          };
+        }),
       ).toEqual({ children: 0, before: 'none', after: 'none' });
       const popover = page.locator('.annotation-popover');
       await expect(popover).not.toHaveAttribute('data-leader');

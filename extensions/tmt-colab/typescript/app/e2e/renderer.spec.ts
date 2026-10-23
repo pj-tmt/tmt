@@ -7,6 +7,7 @@ import type { AddressInfo } from 'node:net';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { rgb, tokens } from './tokens.js';
+import { readFrameStyle } from './frame-style.js';
 
 let capture: Server;
 let origin: string;
@@ -1771,9 +1772,10 @@ test('selection mode outlines one target, captures text-bearing clicks and refus
   await frame.locator('#target').hover();
   await expect(frame.locator('[data-colab-selection-outline]')).toHaveCount(1);
   expect(
-    await frame
-      .locator('[data-colab-selection-outline]')
-      .evaluate((node) => getComputedStyle(node).backgroundColor),
+    await readFrameStyle(frame, (body) => {
+      const node = body.ownerDocument.querySelector('[data-colab-selection-outline]');
+      return node?.isConnected ? getComputedStyle(node).backgroundColor : undefined;
+    }),
   ).toBe('rgba(0, 0, 0, 0)');
   await frame.locator('#target').click();
   await expect(page.locator('#probe')).toHaveAttribute('data-selection', 'Comment on these words');
@@ -2041,7 +2043,12 @@ test('a hovered thread passage is tinted through the highlight API, without an o
   expect(await quote.evaluate(() => CSS.highlights.get('colab-hover')?.size)).toBe(1);
   const outline = frame.locator('[data-colab-thread-outline]');
   await expect(outline).toHaveAttribute('data-colab-thread-outline', 'one');
-  expect(await outline.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe('none');
+  expect(
+    await readFrameStyle(frame, (body) => {
+      const node = body.ownerDocument.querySelector('[data-colab-thread-outline]');
+      return node?.isConnected ? getComputedStyle(node).outlineStyle : undefined;
+    }),
+  ).toBe('none');
   // Past the end of the line of text, still inside the frame: the pointer leaves the passage.
   await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2);
   await expect.poll(tinted).toBe(false);
@@ -2287,9 +2294,11 @@ test('the ring marks the open thread on a +n pill that holds it, and changes no 
   });
   const markers = frame.locator('.annotation-number');
   await expect(markers).toHaveText(['+2', '3']);
-  const measure = () =>
-    markers.evaluateAll((nodes) =>
-      nodes.map((node) => {
+  const geometry = () =>
+    readFrameStyle(frame, (body) => {
+      const nodes = [...body.ownerDocument.querySelectorAll('.annotation-number')];
+      if (nodes.length === 0 || nodes.some((node) => !node.isConnected)) return undefined;
+      return nodes.map((node) => {
         const box = node.getBoundingClientRect();
         const style = getComputedStyle(node);
         return {
@@ -2299,20 +2308,8 @@ test('the ring marks the open thread on a +n pill that holds it, and changes no 
             style.outlineStyle === 'none' ? 'none' : `${style.outlineWidth} ${style.outlineOffset}`,
           color: style.outlineColor,
         };
-      }),
-    );
-  // A frame that has not been laid out yet has no computed style (every property reads empty):
-  // read again until the markers have one.
-  const geometry = async () => {
-    let read: Awaited<ReturnType<typeof measure>> = [];
-    await expect
-      .poll(async () => {
-        read = await measure();
-        return read.length > 0 && read.every(({ color }) => color !== '');
-      })
-      .toBe(true);
-    return read;
-  };
+      });
+    });
   const rest = await geometry();
   expect(rest.map((marker) => marker.ring)).toEqual(['none', 'none']);
   const select = (id: string | null) =>
@@ -2560,10 +2557,10 @@ test('without the Highlight API the selected passage keeps the same look on its 
   await expect.poll(async () => (await marks()).length).toBe(2);
   // The overlay's rule is a border, unbroken at descenders; its marks carry the same setting.
   expect(
-    await frame
-      .locator('[data-colab-highlight] > div[data-thread]')
-      .first()
-      .evaluate((mark) => getComputedStyle(mark).textDecorationSkipInk),
+    await readFrameStyle(frame, (body) => {
+      const mark = body.ownerDocument.querySelector('[data-colab-highlight] > div[data-thread]');
+      return mark?.isConnected ? getComputedStyle(mark).textDecorationSkipInk : undefined;
+    }),
   ).toBe('none');
   const rest = {
     background: 'var(--tmt-ui-surface-annotation-highlight)',

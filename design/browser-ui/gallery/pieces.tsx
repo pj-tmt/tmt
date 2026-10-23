@@ -218,6 +218,21 @@ export function ChoiceSection() {
                 ))}
               </BrowserChoiceGroup>
             </Cell>
+            <Cell label="with a key hint">
+              <BrowserChoiceGroup legend="Pick with a digit key">
+                {flavours.map(([label], index) => (
+                  <BrowserChoice
+                    key={label}
+                    type="radio"
+                    name={`hint-${theme}`}
+                    label={label}
+                    hint={String(index + 1)}
+                    checked={picked === label}
+                    onChange={() => setPicked(label)}
+                  />
+                ))}
+              </BrowserChoiceGroup>
+            </Cell>
             <Cell label="hover" pin="hover">
               <BrowserChoice type="radio" name={`hover-${theme}`} label="Compact rail" />
             </Cell>
@@ -235,6 +250,7 @@ export function ChoiceSection() {
                 name={`off-${theme}`}
                 label="Compact rail"
                 description="Not available on this page."
+                hint="4"
                 disabled
               />
             </Cell>
@@ -382,6 +398,87 @@ export function StatusTileSection() {
                   <BrowserStatusTile label="Review" value="Needs review" tone="review" />
                   <BrowserStatusTile label="Machine" value="Offline" />
                 </BrowserStatusTiles>
+              </div>
+            </Cell>
+          </Cells>
+        )}
+      </Pair>
+    </Section>
+  );
+}
+
+/** The flat card with a head, bare facts and a meter, and the meter at its ends. */
+export function CardSection() {
+  return (
+    <Section id="card">
+      <Pair
+        title="tmt-ui-card"
+        note="A flat sheet that groups one subject: a head (title, optional note) over its body. Facts inside it are bare tiles; the meter is a read-only measure coloured by a chart series."
+      >
+        {() => (
+          <Cells>
+            <Cell label="card with bare facts and a meter">
+              <div style={{ width: 'min(100%, 28rem)' }}>
+                <section className="tmt-ui-card" aria-labelledby="gallery-card-title">
+                  <div className="tmt-ui-card-head">
+                    <h3 className="tmt-ui-card-title" id="gallery-card-title">
+                      Claude
+                    </h3>
+                    <span className="tmt-ui-card-meta">Resets in 3d 4h</span>
+                  </div>
+                  <dl className="tmt-ui-status-tiles" data-bare="">
+                    <div className="tmt-ui-status-tile">
+                      <dt className="tmt-ui-status-tile-label">Allowance left</dt>
+                      <dd
+                        className="tmt-ui-status-tile-value"
+                        data-numeric="count"
+                        data-size="hero"
+                      >
+                        <span
+                          className="tmt-ui-status-tile-dot tmt-ui-chart-s1"
+                          aria-hidden="true"
+                        />
+                        72%
+                      </dd>
+                    </div>
+                  </dl>
+                  <div
+                    className="tmt-ui-meter"
+                    role="img"
+                    aria-label="72% of the weekly allowance left"
+                  >
+                    <div
+                      className="tmt-ui-meter-fill tmt-ui-chart-s1"
+                      style={{ ['--tmt-ui-meter-fill' as string]: 72 }}
+                    />
+                  </div>
+                  <dl className="tmt-ui-status-tiles" data-bare="">
+                    <div className="tmt-ui-status-tile">
+                      <dt className="tmt-ui-status-tile-label">Elapsed</dt>
+                      <dd className="tmt-ui-status-tile-value" data-numeric="count">
+                        41%
+                      </dd>
+                    </div>
+                    <div className="tmt-ui-status-tile">
+                      <dt className="tmt-ui-status-tile-label">Pace</dt>
+                      <dd className="tmt-ui-status-tile-value" data-numeric="count">
+                        +4.2 pts
+                      </dd>
+                    </div>
+                  </dl>
+                </section>
+              </div>
+            </Cell>
+            <Cell label="meter: empty, half, full">
+              <div style={{ display: 'grid', gap: '0.75rem', width: 'min(100%, 20rem)' }}>
+                {[0, 50, 100].map((fill) => (
+                  <div key={fill} className="tmt-ui-meter" role="img" aria-label={`${fill}% left`}>
+                    <div
+                      className="tmt-ui-meter-fill tmt-ui-chart-s2"
+                      style={{ ['--tmt-ui-meter-fill' as string]: fill }}
+                    />
+                  </div>
+                ))}
               </div>
             </Cell>
           </Cells>

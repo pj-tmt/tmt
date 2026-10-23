@@ -79,7 +79,9 @@ name and a visible tooltip.
   indicator). It holds on three conditions: every field has a visible label (a
   select shows its value and a chevron instead), its fill (`surface.field`)
   differs from the surface behind it, and its focus and invalid states keep the
-  strong edge.
+  strong edge. The leaf's design audit (`controlBoundaries`) skips fields by name
+  for the border check and fails a field that fills like its surface or has no
+  visible label or value.
 - **Responsive:** every component works from 320 px up and sizes from its own
   container (CSS container queries), not only the viewport, because the same
   component appears full width and inside a 400 px overlay. Nothing overflows
@@ -335,6 +337,11 @@ An opaque, shadow-free sheet with the shared thin edge and the control radius.
   `NoticeCard` (`notice-card.tsx`).
 - **Item card:** a page in the page list: icon, title, short ID, audience tag,
   expiry, actions row.
+- **Group card:** `tmt-ui-card`, one subject per card (a Digest provider, a chart): a head
+  (sentence-case title, optional muted note) over the body. Facts inside it are bare status tiles
+  (label over value, no tile box, a dot only for a tone), never a box in a box; tile chrome is for a
+  page-level row such as Ops. A read-only measure is a `tmt-ui-meter` placed directly under the
+  value it measures, coloured by its chart series.
 - Basis: own.
 
 ### Chip
@@ -344,7 +351,8 @@ inline flex). Kinds: **status** (mark plus word), **filter** (a toggle button, a
 **count** (a label and a boxed number such as `Needs you 5`: `BrowserCountChip`, or a
 `BrowserMenu` count trigger with a chevron that opens its list; the attention tone is
 for work that waits on the reader). Static chips are rounded outlines; interactive
-ones are buttons with a focus edge. Height 20 px, filter
+ones are buttons with a focus edge. A **passive** chip (label only, no remove control) names a
+state that is not an action, such as `Not connected`. Height 20 px, filter
 24 px. Basis: own.
 
 ### BrowserChips
@@ -626,6 +634,16 @@ An inline panel that expands under a row to show more without leaving the list
 full inner width, its own collapse action as the last line. One open at a time.
 Basis: own.
 
+### Question item
+
+A question card's choices are the shared `BrowserChoice` rows in a `BrowserChoiceGroup`
+(legend `Choose one` or `Choose any that apply`), the `Other` row last. Each row ends with
+the digit that picks it as a key cap, hidden from assistive technology: the digit keys 1 to 9
+pick a row while focus is on the card but not on an input, and the control is named by its label alone. A row
+carries its own vertical spacing so the whole row is the tap target, with no gap between two
+rows. `Other` opens its own text field under the list. Shared row metrics stay owned by the
+[browser leaf](browser-ui/README.md).
+
 ### Proposal item
 
 Colab renders authenticated proposals as parent-owned cards: title, body,
@@ -669,7 +687,9 @@ days`); exact time on hover.
   fast or base duration. Under `prefers-reduced-motion` every duration is 0 ms, so
   a change is instant. A leaving layer is inert: it takes no pointer input and
   hands its Escape to the layer under it. The LoaderCircle spin (see
-  [Transient states](#transient-states)) stops under the same preference.
+  [Transient states](#transient-states)) stops under the same preference. The
+  leaf's browser test (`design/browser-ui/e2e/overlay-motion.spec.ts`) asserts the
+  mounted-as-closed exit and the instant reduced-motion path.
 
 ## Transient states
 

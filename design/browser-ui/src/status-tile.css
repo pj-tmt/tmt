@@ -16,6 +16,13 @@
   background: var(--tmt-ui-surface-sheet);
   color: var(--tmt-ui-color-text);
 }
+/* Inside a card the facts are bare: a label over a value, no tile of their own. */
+.tmt-ui-status-tiles[data-bare] .tmt-ui-status-tile {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
 .tmt-ui-status-tile-label {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
@@ -29,6 +36,9 @@
 }
 .tmt-ui-status-tile-value[data-numeric] {
   font: 600 1.5rem / 1.1 var(--tmt-ui-font-display);
+}
+.tmt-ui-status-tile-value[data-numeric][data-size='hero'] {
+  font-size: 2.5rem;
 }
 .tmt-ui-status-tile-value[data-numeric='zero'] {
   color: var(--tmt-ui-color-secondary);
