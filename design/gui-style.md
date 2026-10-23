@@ -280,7 +280,8 @@ Not shipped. Basis: own.
 ### Button
 
 - Variants: **primary** (the accent fill: the one main action of a group, at most one
-  enabled per action group, which Colab's `e2e/primary-groups.spec.ts` checks),
+  enabled per action group, which Colab's `e2e/primary-groups.spec.ts` checks; a panel
+  that holds several forms and rows marks itself `data-action-group` and is one group),
   **secondary** (the neutral bordered button, for the other actions beside it),
   **text** (light, default for actions), **destructive** (text in the `blocked`
   role, always last in its group).

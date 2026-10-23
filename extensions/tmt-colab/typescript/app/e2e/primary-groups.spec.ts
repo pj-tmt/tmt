@@ -61,7 +61,8 @@ for (const { width, scheme } of views) {
     for (const id of ['T-3', 'T-2']) {
       await band.locator('.work-row', { hasText: id }).locator('button').click();
       await expect(band.locator('.work-controls')).toBeVisible();
-      // Every form's submit is enabled once it has its input: each is its own group's one primary.
+      // Every form has its input, so each submit is enabled: the panel is one group, and only
+      // the task's decision (Sign off) is primary.
       await band.getByRole('textbox', { name: 'Name' }).fill('Atlas');
       await band.getByRole('textbox', { name: 'New task' }).fill('Ship it');
       await expectOnePrimaryPerGroup(page, `work controls of ${id}`);

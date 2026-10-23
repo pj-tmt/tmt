@@ -145,7 +145,7 @@ export function TaskControls({
   pageHref?(pageId: string): string;
 }): ReactNode {
   return (
-    <div className="work-controls">
+    <div className="work-controls" data-action-group>
       <StateControls id={id} task={task} state={state} work={work} />
       <AssignForm id={id} task={task} work={work} />
       <EditArea id={id} task={task} work={work} />
@@ -219,7 +219,7 @@ function StateControls({ id, task, state, work }: TaskPart & { state: TaskState 
               <>
                 <BrowserAction
                   type="submit"
-                  variant="primary"
+                  variant="secondary"
                   label={label.block}
                   disabled={busy || !reason.trim()}
                   onActivate={() => undefined}
@@ -277,7 +277,7 @@ function AssignForm({ id, task, work }: TaskPart): ReactNode {
           <>
             <BrowserAction
               type="submit"
-              variant="primary"
+              variant="secondary"
               label={label.assign}
               disabled={busy || !name.trim()}
               onActivate={() => undefined}
@@ -472,7 +472,7 @@ export function AddTask({ work }: { work: WorkRun }): ReactNode {
         trailing={
           <BrowserAction
             type="submit"
-            variant="primary"
+            variant="secondary"
             label={label.add}
             disabled={work.busy || !title.trim()}
             onActivate={() => undefined}
