@@ -625,8 +625,8 @@ Cargo graph once. Full-history closing merges supply changed paths and containin
 ancestry, not historical attribution rules. Native release policy/version helpers own
 product identities; notes, commit types and recency windows are not release evidence.
 A sibling product can publish between the checkout's tag fetch and the REST release listing,
-so `validateTags` fetches exactly the missing published tags once and revalidates; tags still
-unresolved fail the sweep closed and are named in the error.
+so `validateTags` uses the shared `release-tag-refs.mjs` reconciliation owner
+([snapshot rule](main-cuts.md#publication-gates-and-recovery)); unresolved tags fail closed and are named.
 For each affected product choose the earliest publication whose tag contains every closing
 merge. Only complete product coverage permits `Released`; otherwise retain available
 publication evidence and `Merged`. Private components await their consumers' releases.

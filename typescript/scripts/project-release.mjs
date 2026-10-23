@@ -6,6 +6,7 @@ import { productOfTag, productOfComponent, archivePrefix } from './native-releas
 import { compareVersions, versionOfTag } from './release-versions.mjs';
 import { readReleaseSourceAtRef } from './release-source-at-ref.mjs';
 import { runPackedCommand } from './packed-command.mjs';
+import { reconcilePublishedTags } from './release-tag-refs.mjs';
 import { ownerOf, parseComponentMap, releasedComponentsForPath } from './ci-scope.mjs';
 
 export const PROJECT_ID = 'PVT_kwDOFBKkD84BlZ_A';
@@ -223,9 +224,6 @@ export function readClosingPrs(api, items, repository) {
   return { issues, prs };
 }
 
-// Tag names are fetched by exact refspec; reject anything that could be read as an option.
-const PUBLISHED_TAG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
 /** Local full-history git supplies merged paths and ancestry; no per-commit API fan-out. */
 export function gitEvidence({ cwd = process.cwd(), spawn = spawnSync } = {}) {
   const git = (args, input) => {
@@ -243,43 +241,7 @@ export function gitEvidence({ cwd = process.cwd(), spawn = spawnSync } = {}) {
   if (git(['rev-parse', '--is-shallow-repository']).trim() !== 'false')
     throw new Error('Release tracking requires full git history and tags.');
   return {
-    validateTags: (tags) => {
-      if (!tags.length) return;
-      const unresolved = () => {
-        const objects = git(
-          ['cat-file', '--batch-check=%(objectname) %(objecttype)'],
-          tags.map((tag) => `refs/tags/${tag}^{commit}\n`).join('')
-        )
-          .trim()
-          .split('\n');
-        if (objects.length !== tags.length)
-          throw new Error('Git evidence failed: unexpected tag check output.');
-        return tags.filter((_, index) => !/^[a-f0-9]{40} commit$/.test(objects[index]));
-      };
-      let missing = unresolved();
-      if (!missing.length) return;
-      // A sibling product can publish between this checkout's tag fetch and the REST release
-      // listing. Fetch exactly the missing tags once, then fail closed if they still do not resolve.
-      let fetchFailure = '';
-      if (missing.every((tag) => PUBLISHED_TAG.test(tag))) {
-        try {
-          git([
-            'fetch',
-            '--no-tags',
-            '--quiet',
-            'origin',
-            ...missing.map((tag) => `+refs/tags/${tag}:refs/tags/${tag}`),
-          ]);
-          missing = unresolved();
-        } catch (error) {
-          fetchFailure = ` (${error.message})`;
-        }
-      } else fetchFailure = ' (unsupported tag name, not fetched)';
-      if (missing.length)
-        throw new Error(
-          `Git evidence failed: published tag(s) do not resolve to a commit: ${missing.join(', ')}${fetchFailure}`
-        );
-    },
+    validateTags: (tags) => reconcilePublishedTags(tags, git),
     paths: (sha) => {
       if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error('Invalid merge commit.');
       // First-parent delta is the change actually merged, including both sides of renames.

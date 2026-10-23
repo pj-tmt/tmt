@@ -1,4 +1,5 @@
-//! One document per canonical room UUID in the Ops state database.
+//! One document per canonical room UUID, and one per (room, member) UUID pair, in the Ops state
+//! database.
 use super::{
     Code, Error,
     model::{Document, Id},
@@ -15,9 +16,16 @@ const LIMIT: u64 = 64 * 1024 * 1024;
 pub(super) struct Store {
     extension_root: PathBuf,
     room_id: Id,
+    /// Set for a conversation list; the room's own list has none.
+    member_id: Option<Id>,
 }
 impl Store {
-    pub(super) fn new(root: &Path, room_id: Id, subtree: &'static str) -> Result<Self, Error> {
+    pub(super) fn new(
+        root: &Path,
+        room_id: Id,
+        member_id: Option<Id>,
+        subtree: &'static str,
+    ) -> Result<Self, Error> {
         if !root.is_absolute() {
             return Err(Error::storage(
                 "storage.root must return an absolute dataRoot.",
@@ -33,21 +41,38 @@ impl Store {
         Ok(Self {
             extension_root: root.join(subtree),
             room_id,
+            member_id,
         })
     }
     pub(super) fn room_id(&self) -> &Id {
         &self.room_id
     }
+    pub(super) fn member_id(&self) -> Option<&Id> {
+        self.member_id.as_ref()
+    }
     fn slot(&self) -> Slot {
-        Slot {
-            kind: "checklist",
-            key: self.room_id.as_str().to_owned(),
-            legacy: self
-                .extension_root
-                .join("checklist")
-                .join(self.room_id.as_str())
-                .join("items.json"),
-            limit: LIMIT,
+        let room = self
+            .extension_root
+            .join("checklist")
+            .join(self.room_id.as_str());
+        match &self.member_id {
+            None => Slot {
+                kind: "checklist",
+                key: self.room_id.as_str().to_owned(),
+                legacy: room.join("items.json"),
+                limit: LIMIT,
+            },
+            // Both halves are canonical UUIDs, so this key cannot equal a room's. No earlier
+            // release stored a conversation list, so its legacy file is a name nothing creates.
+            Some(member) => Slot {
+                kind: "checklist",
+                key: format!("{}/{}", self.room_id.as_str(), member.as_str()),
+                legacy: room
+                    .join("members")
+                    .join(member.as_str())
+                    .join("items.json"),
+                limit: LIMIT,
+            },
         }
     }
     fn decode(&self, bytes: Option<&[u8]>) -> Result<Option<Document>, Error> {
@@ -59,6 +84,11 @@ impl Store {
         if document.room_id != self.room_id {
             return Err(Error::storage(
                 "Checklist document belongs to another room UUID.",
+            ));
+        }
+        if document.member_id != self.member_id {
+            return Err(Error::storage(
+                "Checklist document belongs to another conversation.",
             ));
         }
         Ok(Some(document))
@@ -96,8 +126,10 @@ impl Store {
                     let document = document
                         .ok_or_else(|| Error::storage("Checklist documents cannot be removed."))?;
                     document.validate()?;
-                    if document.room_id != self.room_id {
-                        return Err(Error::storage("Candidate room UUID changed."));
+                    if document.room_id != self.room_id || document.member_id != self.member_id {
+                        return Err(Error::storage(
+                            "Candidate room or conversation UUID changed.",
+                        ));
                     }
                     let bytes = serde_json::to_vec(&document.encode()).map_err(Error::storage)?;
                     if bytes.len() as u64 > LIMIT {

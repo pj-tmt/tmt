@@ -82,7 +82,10 @@ stale and unavailable observations stay explicit. Transient footer feedback keep
 key hints and uses a right-hand neutral filled chip; only a failure mark is red.
 App owns its message and failure/expiry metadata; the existing UI loop expires it
 after four seconds, and the next key dismisses it. Notices resolve identity names
-from held observations, never perform acquisition or display raw UUIDs. Persistent
+from held observations, never perform acquisition or display raw UUIDs. A lane job's
+progress notice is held until `SPINNER_DELAY` (`App::set_progress`), so a job that ends
+sooner paints nothing; a job the user did not ask to wait on (`Job::shows_progress`) has
+none, and a result or failure is shown at once. Persistent
 migration and acquisition failures retain their existing footer priority.
 
 `board::unread` projects submitted finals from the existing originator-results

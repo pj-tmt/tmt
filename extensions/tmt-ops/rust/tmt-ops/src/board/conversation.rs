@@ -111,10 +111,11 @@ impl App {
         let id = self.target_row(target)?["id"].as_str()?.to_owned();
         let identity = (self.view.as_ref().and_then(|view| view.me_id.clone()), id);
         let mut state = self.conversation.borrow_mut();
-        state
-            .sessions
-            .get_mut(&identity)?
-            .refresh_spinner(self, retained)
+        state.sessions.get_mut(&identity)?.refresh_spinner(
+            self,
+            retained,
+            outgoing::motion_allowed(self, target),
+        )
     }
 }
 
@@ -792,7 +793,11 @@ fn render_target(
     let send_now_pending = state.send_now_pending.clone();
     let mut send_now_hit = None;
     let session = state.sessions.entry(identity.clone()).or_default();
-    let spinner = session.refresh_spinner(app, refresh == Refresh::Retained);
+    let spinner = session.refresh_spinner(
+        app,
+        refresh == Refresh::Retained,
+        outgoing::motion_allowed(app, &target),
+    );
     let state_words = if refresh == Refresh::Current {
         session.observe_context(app, &target, row)
     } else {

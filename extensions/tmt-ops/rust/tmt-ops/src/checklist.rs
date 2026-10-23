@@ -20,6 +20,7 @@ pub enum Code {
     Forbidden,
     RoomUnavailable,
     AssigneeUnavailable,
+    MemberUnavailable,
     NotFound,
     Deleted,
     StateInvalid,
@@ -34,6 +35,7 @@ impl Code {
             Self::Forbidden => "CHECKLIST_FORBIDDEN",
             Self::RoomUnavailable => "CHECKLIST_ROOM_UNAVAILABLE",
             Self::AssigneeUnavailable => "CHECKLIST_ASSIGNEE_UNAVAILABLE",
+            Self::MemberUnavailable => "CHECKLIST_MEMBER_UNAVAILABLE",
             Self::NotFound => "CHECKLIST_NOT_FOUND",
             Self::Deleted => "CHECKLIST_DELETED",
             Self::StateInvalid => "CHECKLIST_STATE_INVALID",
@@ -77,6 +79,14 @@ pub struct RoomView {
     pub available: bool,
     pub manager: bool,
 }
+/// The member whose conversation a list belongs to. A retired member keeps the list,
+/// readable; nothing is written to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemberView {
+    pub id: Id,
+    pub name: Option<String>,
+    pub retired: bool,
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemView {
     pub item: Item,
@@ -86,6 +96,8 @@ pub struct ItemView {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Current {
     pub room: RoomView,
+    /// Present only on a conversation list.
+    pub member: Option<MemberView>,
     pub checklist_id: Option<Id>,
     pub inventory_revision: Option<u64>,
     pub items: Vec<ItemView>,
@@ -121,6 +133,7 @@ pub struct Preview {
 
 struct Admission {
     room: RoomView,
+    member: Option<MemberView>,
     roster: Vec<Member>,
 }
 
@@ -133,7 +146,35 @@ pub struct Service {
     store: Store,
 }
 impl Service {
+    /// The room's own list.
     pub fn new(core: &Core, config: &Config, room_id: Id) -> Result<Self, Error> {
+        Self::build(core, config, room_id, None)
+    }
+
+    /// The list of one member's conversation in a room, from the member's UUID alone; a name is
+    /// resolved once, before this, by [`resolve_member`].
+    pub fn for_conversation(
+        core: &Core,
+        config: &Config,
+        room_id: Id,
+        member_id: Id,
+    ) -> Result<Self, Error> {
+        Self::build(core, config, room_id, Some(member_id))
+    }
+
+    /// The only checklist id a conversation list can have, which the caller need not supply.
+    pub fn conversation_checklist_id(&self) -> Option<Id> {
+        self.store
+            .member_id()
+            .map(|member| Id::conversation_checklist(self.store.room_id(), member))
+    }
+
+    fn build(
+        core: &Core,
+        config: &Config,
+        room_id: Id,
+        member_id: Option<Id>,
+    ) -> Result<Self, Error> {
         let actor = match me::caller(core).map_err(|e| port(Code::Forbidden, e))? {
             Some(caller) => caller.me,
             None => recorded(core)?.ok_or_else(|| {
@@ -157,6 +198,7 @@ impl Service {
             store: Store::new(
                 &root,
                 room_id,
+                member_id,
                 crate::migration::paths(core, None)
                     .map_err(Error::storage)?
                     .subtree(),
@@ -189,6 +231,7 @@ impl Service {
                 "Core returned an incomplete room reference.",
             ));
         }
+        let conversation = self.member_view(write)?;
         let available = room["found"] == true && room["retired"] == false;
         if !available {
             if write {
@@ -211,6 +254,7 @@ impl Service {
                         available: false,
                         manager: true,
                     },
+                    member: conversation,
                     roster: Vec::new(),
                 },
                 None,
@@ -271,10 +315,54 @@ impl Service {
                     available: true,
                     manager: is_manager,
                 },
+                member: conversation,
                 roster,
             },
             assignee,
         ))
+    }
+
+    /// The conversation's member, resolved from Core on every admission. A retired member is
+    /// readable and never written to; an unknown one is refused by its UUID.
+    fn member_view(&self, write: bool) -> Result<Option<MemberView>, Error> {
+        let Some(member) = self.store.member_id() else {
+            return Ok(None);
+        };
+        let refs = self
+            .core
+            .api(
+                "references.resolve",
+                json!({"identityIds":[member.as_str()]}),
+            )
+            .map_err(|e| port(Code::MemberUnavailable, e))?;
+        let identity = &refs["identities"][0];
+        if identity["id"] != member.as_str() || !identity["found"].is_boolean() {
+            return Err(Error::new(
+                Code::MemberUnavailable,
+                "Core returned an incomplete member reference.",
+            ));
+        }
+        if identity["found"] != true {
+            return Err(Error::new(
+                Code::MemberUnavailable,
+                format!("No identity has the UUID {}.", member.as_str()),
+            ));
+        }
+        let retired = identity["retired"] == true;
+        if retired && write {
+            return Err(Error::new(
+                Code::MemberUnavailable,
+                format!(
+                    "The member {} is retired: its conversation list stays readable and takes no writes.",
+                    member.as_str()
+                ),
+            ));
+        }
+        Ok(Some(MemberView {
+            id: member.clone(),
+            name: identity["name"].as_str().map(str::to_owned),
+            retired,
+        }))
     }
 
     /// Full inventory and eligible identities for an explicit board preview.
@@ -347,12 +435,25 @@ impl Service {
         })
     }
 
+    /// The room this service was admitted for.
+    pub fn room_id(&self) -> &Id {
+        self.store.room_id()
+    }
+
     pub fn apply(&self, request: &Request) -> Result<Applied, Error> {
         request.validate()?;
         if &request.room_id != self.store.room_id() {
             return Err(Error::new(
                 Code::InputInvalid,
                 "Request room differs from the admitted service room.",
+            ));
+        }
+        if let Some(derived) = self.conversation_checklist_id()
+            && request.checklist_id != derived
+        {
+            return Err(Error::new(
+                Code::InputInvalid,
+                "A conversation list has exactly one checklist UUID, derived from its room and member.",
             ));
         }
         // Refuse unauthorized operations before creating any storage infrastructure.
@@ -365,6 +466,11 @@ impl Service {
                     self.admit(true, request.action.manager(), request.action.assignment())?;
                 let before = document.clone();
                 let mutation = model::apply(document, request, assignee);
+                // The list a create just made belongs to this conversation; an existing one
+                // was decoded as exactly this conversation's.
+                if let (Some(created), Some(member)) = (document.as_mut(), self.store.member_id()) {
+                    created.member_id = Some(member.clone());
+                }
                 let outcome = match mutation {
                     Ok(outcome) => outcome,
                     Err(mut error) => {
@@ -408,6 +514,33 @@ impl Service {
     }
 }
 
+/// A member given as a UUID or a name, resolved once through Core's public identity reads;
+/// only the UUID goes on. A UUID may name a retired identity (its list stays readable); a
+/// name resolves to the active identity only, so a replacement of the same name is another
+/// UUID with another, empty list.
+pub fn resolve_member(core: &Core, selector: &str) -> Result<Id, Error> {
+    if let Ok(id) = Id::parse(selector) {
+        let refs = core
+            .api("references.resolve", json!({"identityIds":[id.as_str()]}))
+            .map_err(|e| port(Code::MemberUnavailable, e))?;
+        let identity = &refs["identities"][0];
+        return if identity["id"] == id.as_str() && identity["found"] == true {
+            Ok(id)
+        } else {
+            Err(Error::new(
+                Code::MemberUnavailable,
+                format!("No identity has the UUID {}.", id.as_str()),
+            ))
+        };
+    }
+    match me::lookup(core, selector).map_err(|e| port(Code::MemberUnavailable, e))? {
+        Some(found) => Id::parse(&found.id),
+        None => Err(Error::new(
+            Code::MemberUnavailable,
+            format!("No active identity is named {selector:?}."),
+        )),
+    }
+}
 fn port(code: Code, error: SquadError) -> Error {
     Error::new(code, error.to_string())
 }
@@ -430,6 +563,7 @@ fn active(core: &Core, id: &Id, code: Code) -> Result<String, Error> {
 fn project(admission: &Admission, document: Option<&Document>, item_id: Option<&Id>) -> Current {
     Current {
         room: admission.room.clone(),
+        member: admission.member.clone(),
         checklist_id: document.map(|d| d.checklist_id.clone()),
         inventory_revision: document.map(|d| d.inventory_revision),
         items: document

@@ -30,6 +30,29 @@ impl Id {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// The one checklist id a conversation list can have: derived from its two UUIDs, so a
+    /// caller never invents one and the list is created on its first add under a stable name.
+    pub fn conversation_checklist(room: &Id, member: &Id) -> Self {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(format!(
+            "tmt-ops/conversation-checklist/v1\n{}\n{}",
+            room.0, member.0
+        ));
+        let mut bytes = [0u8; 16];
+        bytes.copy_from_slice(&digest[..16]);
+        bytes[6] = (bytes[6] & 0x0f) | 0x50;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        Self(format!(
+            "{}-{}-{}-{}-{}",
+            &hex[0..8],
+            &hex[8..12],
+            &hex[12..16],
+            &hex[16..20],
+            &hex[20..32]
+        ))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,6 +144,8 @@ pub struct Tombstone {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
     pub room_id: Id,
+    /// Set only on a conversation list: the member whose conversation it belongs to.
+    pub member_id: Option<Id>,
     pub checklist_id: Id,
     pub inventory_revision: u64,
     /// Full authored order, including archived items.
@@ -218,7 +243,12 @@ pub struct Request {
 }
 impl Request {
     pub fn validate(&self) -> Result<(), Error> {
-        match &self.action {
+        self.action.validate()
+    }
+}
+impl Action {
+    pub fn validate(&self) -> Result<(), Error> {
+        match self {
             Action::Create {
                 content, inventory, ..
             } => {
@@ -344,6 +374,7 @@ pub(super) fn apply(
         } else {
             *document = Some(Document {
                 room_id: request.room_id.clone(),
+                member_id: None,
                 checklist_id: request.checklist_id.clone(),
                 inventory_revision: 1,
                 items: vec![item],
@@ -483,24 +514,34 @@ pub(super) fn apply(
 impl Document {
     pub(super) fn encode(&self) -> serde_json::Value {
         use serde_json::json;
-        json!({"version":1,"roomId":self.room_id.as_str(),"checklistId":self.checklist_id.as_str(),"inventoryRevision":self.inventory_revision,
+        let mut document = json!({"version":1,"roomId":self.room_id.as_str(),"checklistId":self.checklist_id.as_str(),"inventoryRevision":self.inventory_revision,
             "items":self.items.iter().map(|i| json!({"id":i.id.as_str(),"revision":i.revision,"title":i.content.title,"body":i.content.body,"reference":i.content.reference,
                 "assignee":i.assignee.as_ref().map(|a| json!({"id":a.id.as_str(),"label":a.label})),"completion":match i.completion { Completion::Open=>"open",Completion::Complete=>"complete" },"archived":i.archived})).collect::<Vec<_>>(),
-            "deleted":self.deleted.iter().map(|d| json!({"roomId":self.room_id.as_str(),"checklistId":self.checklist_id.as_str(),"itemId":d.item_id.as_str(),"deletionRevision":d.deletion_revision})).collect::<Vec<_>>()})
+            "deleted":self.deleted.iter().map(|d| json!({"roomId":self.room_id.as_str(),"checklistId":self.checklist_id.as_str(),"itemId":d.item_id.as_str(),"deletionRevision":d.deletion_revision})).collect::<Vec<_>>()});
+        // A room list's bytes are unchanged: the field exists only on a conversation list.
+        if let Some(member) = &self.member_id {
+            document["memberId"] = json!(member.as_str());
+        }
+        document
     }
 
     pub(super) fn decode(value: &serde_json::Value) -> Result<Self, Error> {
-        keys(
-            value,
-            &[
-                "version",
-                "roomId",
-                "checklistId",
-                "inventoryRevision",
-                "items",
-                "deleted",
-            ],
-        )?;
+        let member_id = value
+            .get("memberId")
+            .map(|_| id(value, "memberId"))
+            .transpose()?;
+        let mut expected = vec![
+            "version",
+            "roomId",
+            "checklistId",
+            "inventoryRevision",
+            "items",
+            "deleted",
+        ];
+        if member_id.is_some() {
+            expected.push("memberId");
+        }
+        keys(value, &expected)?;
         if value["version"] != 1 {
             return Err(Error::storage("Unsupported checklist storage version."));
         }
@@ -564,6 +605,7 @@ impl Document {
         }
         let document = Self {
             room_id,
+            member_id,
             checklist_id,
             inventory_revision: positive(value, "inventoryRevision")?,
             items,

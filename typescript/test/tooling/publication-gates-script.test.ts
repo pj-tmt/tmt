@@ -390,7 +390,18 @@ function scenario(options: Scenario = {}) {
       product: 'cli',
       tag: 'v5.0.0-alpha.9',
     });
-  return { run, calls, uploaded, candidate, readState, publication };
+  return {
+    run,
+    calls,
+    uploaded,
+    candidate,
+    readState,
+    publication,
+    git,
+    repo,
+    previous,
+    previousTag,
+  };
 }
 
 const early = ['early', '--product', 'cli', '--tag', 'v5.0.0-alpha.9'];
@@ -633,6 +644,109 @@ describe('publication-gates.mjs dry', () => {
     sha,
     ...more,
   ];
+
+  const publishAfterCheckout = (fixture: ReturnType<typeof scenario>, publish = true) => {
+    const origin = path.join(fixture.repo, '..', 'origin.git');
+    fixture.git('init', '--bare', '-q', origin);
+    fixture.git('remote', 'add', 'origin', origin);
+    fixture.git('-c', 'push.followTags=false', 'push', '-q', 'origin', 'HEAD:refs/heads/main');
+    fixture.git('tag', '-d', fixture.previousTag);
+    expect(fixture.git('tag', '--list', fixture.previousTag)).toBe('');
+    // The published REST row arrives after the checkout's ref snapshot.
+    if (publish) {
+      fixture.git(
+        '--git-dir',
+        origin,
+        '-c',
+        'user.name=Test',
+        '-c',
+        'user.email=test@example.test',
+        'tag',
+        '-a',
+        '-m',
+        'published after checkout',
+        fixture.previousTag,
+        fixture.previous
+      );
+      fixture.git('--git-dir', origin, 'tag', 'v5.0.0-alpha.77', fixture.previous);
+    }
+  };
+
+  it('reconciles a tag published after checkout before evaluating the captured dry gates', () => {
+    const fixture = scenario({ hold: null });
+    publishAfterCheckout(fixture);
+    const result = fixture.run(dry(fixture.candidate));
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.summary).toContain('- passed `migration`');
+    expect(fixture.git('rev-parse', `refs/tags/${fixture.previousTag}^{commit}`)).toBe(
+      fixture.previous
+    );
+    expect(fixture.git('tag', '--list', 'v5.0.0-alpha.77')).toBe('');
+    expect(fixture.calls().filter((call) => call.includes('--method'))).toEqual([]);
+    expect(fixture.uploaded('publication-held.json')).toBeNull();
+  });
+
+  it('fails closed when the captured publication has no resolvable remote tag', () => {
+    const fixture = scenario({ hold: null });
+    publishAfterCheckout(fixture, false);
+    const result = fixture.run(dry(fixture.candidate));
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      `published tag(s) do not resolve to a commit: ${fixture.previousTag}`
+    );
+    expect(fixture.git('tag', '--list', fixture.previousTag)).toBe('');
+    expect(fixture.calls().filter((call) => call.includes('--method'))).toEqual([]);
+    expect(fixture.uploaded('publication-held.json')).toBeNull();
+  });
+
+  it('never replaces an existing non-commit tag while reconciling a publication', () => {
+    const fixture = scenario({ hold: null });
+    publishAfterCheckout(fixture);
+    const tree = fixture.git('rev-parse', `${fixture.previous}^{tree}`);
+    fixture.git('tag', fixture.previousTag, tree);
+    const result = fixture.run(dry(fixture.candidate));
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      `published tag(s) do not resolve to a commit: ${fixture.previousTag}`
+    );
+    expect(fixture.git('rev-parse', `refs/tags/${fixture.previousTag}`)).toBe(tree);
+    expect(fixture.calls().filter((call) => call.includes('--method'))).toEqual([]);
+    expect(fixture.uploaded('publication-held.json')).toBeNull();
+  });
+
+  it('imports a newly published supporting CLI before freezing declaration ancestry', () => {
+    const fixture = scenario({ digestPricing: 'valid', hold: null });
+    publishAfterCheckout(fixture);
+    const result = fixture.run([
+      'dry',
+      '--product',
+      'digest',
+      '--tag',
+      'tmt-digest-v0.1.0-alpha.999999',
+      '--sha',
+      fixture.candidate,
+    ]);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.summary).toContain('- passed `migration`');
+    expect(fixture.git('rev-parse', `refs/tags/${fixture.previousTag}^{commit}`)).toBe(
+      fixture.previous
+    );
+    expect(fixture.calls().filter((call) => call.includes('--method'))).toEqual([]);
+    expect(fixture.uploaded('publication-held.json')).toBeNull();
+  });
+
+  it('still refuses a breaking change after importing the new published tag', () => {
+    const fixture = scenario({ failedCut: 'breaking', hold: null });
+    publishAfterCheckout(fixture);
+    const result = fixture.run(dry(fixture.candidate));
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('at migration');
+    expect(fixture.git('rev-parse', `refs/tags/${fixture.previousTag}^{commit}`)).toBe(
+      fixture.previous
+    );
+    expect(fixture.calls().filter((call) => call.includes('--method'))).toEqual([]);
+    expect(fixture.uploaded('publication-held.json')).toBeNull();
+  });
 
   it.each(['valid', 'missing', 'oversized'] as const)(
     'rehearses the Digest source requirement without a draft: %s',

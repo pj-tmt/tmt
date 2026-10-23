@@ -277,3 +277,59 @@ fn when_core_moves_the_state_on_the_chip_goes_even_for_a_send_made_here() {
     assert!(!painted.contains("Send now"), "{painted}");
     assert!(app.conversation.borrow().send_now_hit.is_none());
 }
+
+/// The `working` message-state mark is the shell spinner: it advances with the tick and holds
+/// still without motion; other states keep their static marks and Core's words are verbatim.
+#[test]
+fn the_working_state_mark_spins_with_the_shared_tick_and_other_marks_hold_still() {
+    const SENT: u64 = 1_791_600_000_000;
+    let mark_before = |screen: &str, words: &str| -> String {
+        let at = screen
+            .find(words)
+            .unwrap_or_else(|| panic!("{words}: {screen}"));
+        screen[..at]
+            .chars()
+            .rev()
+            .take(2)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
+    };
+    for (state, text, spins, reduced) in [
+        ("working", "the agent has started on it", true, false),
+        ("working", "the agent has started on it", false, true),
+        ("delivered", "typed into the agent", false, false),
+    ] {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .reduced_motion = reduced;
+        let fake = Fake::new(
+            json!({"requestId":"w1","status":"sent",
+                "messageState":{"state":state,"reason":{"text":text}}}),
+            false,
+        );
+        let completed = crate::status::with_now_ms(SENT, || send(&mut app, &fake, "hello"));
+        finish(&mut app, completed);
+        let marks: std::collections::BTreeSet<String> = (0..10)
+            .map(|tick| {
+                let screen = crate::status::with_now_ms(SENT + 2_000 + tick * 80, || draw(&app));
+                assert!(
+                    screen.contains(text),
+                    "Core's words stay verbatim: {screen}"
+                );
+                mark_before(&screen, text)
+            })
+            .collect();
+        assert_eq!(
+            marks.len() > 1,
+            spins,
+            "{state} reduced={reduced}: {marks:?}"
+        );
+    }
+}

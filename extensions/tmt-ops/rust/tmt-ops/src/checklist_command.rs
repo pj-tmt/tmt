@@ -1,7 +1,7 @@
 //! Native checklist grammar and projection; the existing service owns admission and effects.
 
 use crate::{
-    checklist::{self, Code, Current, Error, Filter, Service},
+    checklist::{self, Code, Current, Error, Filter, Service, resolve_member},
     config::Config,
     core::Core,
     membership::Outcome,
@@ -24,10 +24,17 @@ fn option(name: &'static str, value: &'static str, help: &'static str) -> Arg {
     Arg::new(name).long(name).value_name(value).help(help)
 }
 fn room(command: Command) -> Command {
-    command.arg(option("room", "UUID", "Exact Squad room UUID").required(true))
+    command
+        .arg(option("room", "UUID", "Exact Squad room UUID").required(true))
+        .arg(option(
+            "member",
+            "NAME|UUID",
+            "Use this member's conversation list in the room, created on its first add",
+        ))
 }
 fn checklist(command: Command) -> Command {
-    room(command).arg(option("checklist", "UUID", "Exact checklist UUID").required(true))
+    room(command)
+        .arg(option("checklist", "UUID", "Exact checklist UUID").required_unless_present("member"))
 }
 fn item(command: Command) -> Command {
     checklist(command).arg(option("item", "UUID", "Exact item UUID").required(true))
@@ -166,13 +173,17 @@ pub fn grammar() -> Command {
 
 pub struct ChecklistCommand {
     room_id: Id,
+    /// A conversation list's member, as given: a name or a UUID, resolved once in `run`.
+    member: Option<String>,
+    /// The exact checklist UUID, given or (for a conversation list) derived in `run`.
+    checklist_id: Option<Id>,
     action: &'static str,
     operation: Operation,
 }
 enum Operation {
     List(Filter),
-    Show { checklist_id: Id, item_id: Id },
-    Apply(Request),
+    Show { item_id: Id },
+    Apply(Action),
 }
 fn text<'a>(matches: &'a ArgMatches, name: &str) -> Option<&'a str> {
     matches
@@ -217,9 +228,12 @@ fn edit_field(matches: &ArgMatches, name: &str, clear: &str) -> Option<Option<St
 pub fn parse(parent: &ArgMatches) -> Result<ChecklistCommand, Error> {
     let (name, flags) = parent.subcommand().expect("checklist action required");
     let room_id = Id::parse(required(flags, "room"))?;
+    let member = text(flags, "member").map(str::to_owned);
     if name == "ls" {
         return Ok(ChecklistCommand {
             room_id,
+            member,
+            checklist_id: None,
             action: "list",
             operation: Operation::List(Filter {
                 include_archived: flags.get_flag("include-archived"),
@@ -234,13 +248,14 @@ pub fn parse(parent: &ArgMatches) -> Result<ChecklistCommand, Error> {
             }),
         });
     }
-    let checklist_id = Id::parse(required(flags, "checklist"))?;
+    let checklist_id = optional_id(flags, "checklist")?;
     if name == "show" {
         return Ok(ChecklistCommand {
             room_id,
+            member,
+            checklist_id,
             action: "show",
             operation: Operation::Show {
-                checklist_id,
                 item_id: Id::parse(required(flags, "item"))?,
             },
         });
@@ -318,26 +333,52 @@ pub fn parse(parent: &ArgMatches) -> Result<ChecklistCommand, Error> {
             )
         }
     };
-    let request = Request {
-        room_id: room_id.clone(),
-        checklist_id,
-        action: operation,
-    };
-    request.validate()?;
+    operation.validate()?;
     Ok(ChecklistCommand {
         room_id,
+        member,
+        checklist_id,
         action,
-        operation: Operation::Apply(request),
+        operation: Operation::Apply(operation),
     })
 }
 
 pub fn run(core: &Core, config: &Config, invocation: ChecklistCommand) -> Outcome {
     finish((|| {
-        let service = Service::new(core, config, invocation.room_id)?;
-        execute(&service, invocation.action, invocation.operation)
+        // The member is resolved once; the service and the store see only its UUID.
+        let (service, checklist_id) = match invocation.member.as_deref() {
+            Some(selector) => {
+                let member = resolve_member(core, selector)?;
+                let service = Service::for_conversation(core, config, invocation.room_id, member)?;
+                let derived = service.conversation_checklist_id();
+                if let (Some(given), Some(derived)) = (&invocation.checklist_id, &derived)
+                    && given != derived
+                {
+                    return Err(invalid(
+                        "A conversation list has exactly one checklist UUID, derived from its room and member; omit --checklist.",
+                    ));
+                }
+                (service, derived)
+            }
+            None => (
+                Service::new(core, config, invocation.room_id)?,
+                invocation.checklist_id,
+            ),
+        };
+        execute(
+            &service,
+            checklist_id,
+            invocation.action,
+            invocation.operation,
+        )
     })())
 }
-fn execute(service: &Service, action: &str, operation: Operation) -> Result<Value, Error> {
+fn execute(
+    service: &Service,
+    checklist_id: Option<Id>,
+    action: &str,
+    operation: Operation,
+) -> Result<Value, Error> {
     match operation {
         Operation::List(filter) => {
             let listed = service.list(&filter)?;
@@ -345,13 +386,18 @@ fn execute(service: &Service, action: &str, operation: Operation) -> Result<Valu
                 json!({"action":action,"current":current(&listed.current),"totalCount":listed.total_count,"matchedCount":listed.current.items.len()}),
             )
         }
-        Operation::Show {
-            checklist_id,
-            item_id,
-        } => {
+        Operation::Show { item_id } => {
+            let checklist_id =
+                checklist_id.ok_or_else(|| invalid("A checklist UUID is required."))?;
             Ok(json!({"action":action,"current":current(&service.show(&checklist_id, &item_id)?)}))
         }
-        Operation::Apply(request) => {
+        Operation::Apply(action_request) => {
+            let request = Request {
+                room_id: service.room_id().clone(),
+                checklist_id: checklist_id
+                    .ok_or_else(|| invalid("A checklist UUID is required."))?,
+                action: action_request,
+            };
             let applied = service.apply(&request)?;
             let mut result = json!({"action":action,"current":current(&applied.current),"changed":applied.changed});
             if let Some(id) = applied.item_id {
@@ -388,9 +434,15 @@ fn current(view: &Current) -> Value {
             "assignee":item.assignee.as_ref().map(|assignee| json!({"id":assignee.id.as_str(),"label":view.assignee_label,"available":view.assignee_available})),
             "completion":match item.completion { Completion::Open => "open", Completion::Complete => "complete" },"archived":item.archived})
     }).collect();
-    json!({"room":{"id":view.room.id.as_str(),"name":view.room.name,"available":view.room.available,"manager":view.room.manager},
+    let mut document = json!({"room":{"id":view.room.id.as_str(),"name":view.room.name,"available":view.room.available,"manager":view.room.manager},
         "checklistId":view.checklist_id.as_ref().map(Id::as_str),"inventoryRevision":view.inventory_revision,"items":items,
-        "deletion":view.deletion.as_ref().map(|deletion| json!({"itemId":deletion.item_id.as_str(),"deletionRevision":deletion.deletion_revision}))})
+        "deletion":view.deletion.as_ref().map(|deletion| json!({"itemId":deletion.item_id.as_str(),"deletionRevision":deletion.deletion_revision}))});
+    // A room list's document is unchanged; only a conversation list names its member.
+    if let Some(member) = &view.member {
+        document["member"] =
+            json!({"id":member.id.as_str(),"name":member.name,"retired":member.retired});
+    }
+    document
 }
 
 /// Errors go through main's existing stderr path; typed admitted current is the only context.
