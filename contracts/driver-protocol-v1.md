@@ -139,10 +139,22 @@ The request is `{}`. The answer:
   match this declared syntax.
 - **`callerEnv`:** at most 4 environment variables that `caller` reads, each
   `[A-Z][A-Z0-9_]*` and never `TMT_*`.
+- **`launch`:** optional. The host's default launch template, the command line
+  that opens a new pane in a session and runs one command there
+  (`["herdr-open", "{session}", "--", "{command}"]`). It has 2–16 words, each
+  1–1024 bytes and 4096 in all, without control characters. The first word is a
+  literal program. `{session}` is a whole word, at least once; `{command}` is a
+  whole word, exactly once. A word that only contains one of them, or is any other
+  `{name}`, is refused; other braces are text, such as a tmux format
+  `#{pane_id}`. A caller fills each placeholder as exactly one argument and runs
+  the argv directly: `{session}` is a session name, `{command}` one command line
+  for the new pane's shell. A driver without the field publishes no template, and
+  [`tmt host templates`](#launch-templates) reports `null` for it. Core never runs
+  a template; the caller that expands it does.
 
 Installation refuses a driver when any of these hold:
 
-- its declaration is invalid;
+- its declaration is invalid, a `launch` template included;
 - it uses a built-in's name;
 - its name or prefix is already used by another installed driver;
 - its sample target (every `{n}` as `1`) is a target of tmux or of another
@@ -187,7 +199,7 @@ A `Pane`:
 ```json
 {"id": "term_7", "target": "w1:p2", "cwd": "/src", "command": "claude",
  "panePid": 4242, "suggestedName": null, "agentName": "reviewer",
- "marker": Marker | null}
+ "marker": Marker | null, "openedByTmt": true}
 ```
 
 - **`id` and `target`:** follow the declared syntax.
@@ -201,6 +213,16 @@ A `Pane`:
   answers the snapshot. It is the name of the agent, never a label of the
   pane, and it is not evidence: it proves no binding and names no identity.
   Core only shows it; it never copies a host's name into an identity.
+- **`openedByTmt`:** optional boolean, `true` only when the pane carries the mark
+  that a [launch template](#launch-templates) sets as it opens the pane. It is
+  absent, which reads `false`, for every other pane and for a host whose template
+  sets no mark. The mark is a property the host keeps with the pane itself (tmux:
+  the pane option `@tmt.opened`, which stays through a respawn of the pane's
+  process). It is evidence of intent, never authority: reading it allows
+  nothing. `tmt stop --close` (#4579) will still run the whole verified stop
+  first and close only that one pane, and a template a user edited so that it
+  leaves no mark gives a pane `--close` refuses, with a next step. Nothing in
+  core reads the field yet.
 - **Text:** all text is free of control characters.
 
 ### `probe`
@@ -684,6 +706,39 @@ TMT approves it again itself when a command that works with hosts next runs,
 and prints one line saying so; a first-party driver the user removed with
 `tmt driver rm` is approved again only by `tmt driver install`.
 
+## Launch templates
+
+`tmt host templates [--json]` reads, per host, the template its `launch`
+capability describes. It is read-only: it needs no caller pane and creates no
+pane or session. It lists tmux first, then each approved host driver in the
+registry's order:
+
+```json
+{"version": 1, "hosts": [
+ {"host": "tmux", "state": "builtin",
+  "launch": {"argv": ["sh", "-c", "…", "tmt-launch", "{session}", "{command}"],
+             "placeholders": ["session", "command"]}},
+ {"host": "herdr", "state": "ok", "launch": null}]}
+```
+
+- **`state`:** `builtin` for tmux; for a driver, its approval state (`ok`,
+  `changed`, `missing`). Only an `ok` driver offers its `launch`: a changed or
+  missing executable's command line is not the one the user saw, so it reads
+  `null`.
+- **`launch`:** `null` when the host publishes none. Core validates a stored
+  template again on every read.
+- A user's own template for a host is the caller's setting. Core keeps none.
+
+The tmux template is built into the CLI: `sh -c` with the session and the command
+as positional arguments, so nothing is interpolated into the script. It opens a
+detached window in the session, or creates a missing session detached with the
+command as its first window. It then sets the pane option `@tmt.opened` on the
+pane it opened, and prints that pane's ID. An empty session or command is
+refused before tmux is reached (exit 2), because tmux reads an empty session
+target as any session. A session name holds no `.` or `:`, which tmux rewrites.
+A command that ends before the mark is set leaves no pane to mark, and the
+template exits non-zero.
+
 ## Trust boundary
 
 Everything a driver prints is untrusted input. Core bounds it, parses it
@@ -717,6 +772,8 @@ an operating-system sandbox: the driver runs as the user.
 
 **Consent:** an installed driver is consented and fingerprinted like an
 extension hook, in `<global>/drivers.json` (mode 0600, replaced atomically).
+The consent view shows a `launch` template as "opens panes with", and a shipped
+driver's upgrade that adds or changes one needs approval again.
 Approval requires a regular executable owned by the user, with neither it nor
 its directory writable by anyone else. It records the path, the SHA-256
 digest, the metadata fingerprint and the capabilities. Checks at use:

@@ -479,3 +479,25 @@ pub(in crate::grammar) fn driver() -> Command {
         .arg(operand("name", true)),
     )
 }
+
+/// What each terminal host offers, read-only (#4580).
+pub(in crate::grammar) fn host() -> Command {
+    general(spec!(
+        "host",
+        "Inspect the terminal hosts TMT can drive",
+        [
+            "Show how each host opens a new pane" => "tmt host templates",
+            "Read the templates as JSON" => "tmt host templates --json",
+        ]
+    ))
+    .subcommand_required(true)
+    .subcommand(general(spec!(
+        "templates",
+        "Show how each host opens a new pane",
+        details = "A template is the command line that opens a new pane in a session and runs one command there. {session} fills one word, {command} one word holding the command line. A host without a template reports none; nothing here creates a pane or a session.",
+        [
+            "Show every host's template" => "tmt host templates",
+            "Read the templates as JSON" => "tmt host templates --json",
+        ]
+    )))
+}

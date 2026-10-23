@@ -16,6 +16,7 @@
 mod delivery;
 pub(crate) mod driver;
 pub mod external;
+pub mod launch;
 mod nested;
 
 use external::ExternalCaller;
@@ -50,6 +51,24 @@ pub use driver::PaneSwap;
 pub use driver::{AgentNameRefusal, AgentNaming};
 pub use tmt_core::discovery::DiscoveryObservation;
 pub use tmt_core::host::SwapDirection;
+
+/// The default launch template of every host: tmux's own, then each approved host driver's
+/// (see [`launch::HostLaunch`]).
+pub fn launch_templates(
+    drivers: &[(
+        crate::driver_protocol::registry::DriverRecord,
+        crate::driver_protocol::registry::ApprovalState,
+    )],
+) -> Vec<launch::HostLaunch> {
+    launch::compose(
+        launch::HostLaunch {
+            host: HostKind::Tmux.as_str().into(),
+            source: launch::HostSource::BuiltIn,
+            launch: Some(tmux::launch_template()),
+        },
+        drivers,
+    )
+}
 
 /// Recovery topology and evidence returned by the optional host capture port.
 pub struct WorkspaceCapture {
