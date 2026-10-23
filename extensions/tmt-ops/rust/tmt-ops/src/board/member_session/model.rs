@@ -11,6 +11,7 @@ pub(in crate::board) struct Evidence {
     pub driver: Option<String>,
     pub session: Option<String>,
     pub stale: Option<bool>,
+    pub unbound: Option<bool>,
     pub support: Option<String>,
     pub error: Option<String>,
 }
@@ -38,6 +39,7 @@ impl Evidence {
                 _ => None,
             },
             support: text(&v["driverSupport"]),
+            unbound: v["session"]["unbound"].as_bool(),
             error: error.map(str::to_owned),
         }
     }
@@ -48,7 +50,17 @@ impl Evidence {
             && self.driver.is_some()
             && self.session.is_some()
     }
+    pub fn is_unbound(&self) -> bool {
+        self.error.is_none() && self.unbound == Some(true)
+    }
     pub fn compact(&self) -> String {
+        if self.is_unbound() {
+            return format!(
+                "{} unbound · {}",
+                tmt_cli_style::mark::Mark::Warning.symbol(),
+                self.host.as_deref().unwrap_or("—")
+            );
+        }
         format!(
             "{} · {}",
             self.host.as_deref().unwrap_or("—"),
@@ -72,6 +84,8 @@ impl Evidence {
         }
         let status = if self.error.is_some() {
             "Session unavailable · observation failed"
+        } else if self.is_unbound() {
+            "Session unbound · the provider session is not bound to this identity"
         } else if self.remembered() {
             "Session remembered · checked on launch"
         } else if self.stale == Some(true) {
@@ -82,6 +96,11 @@ impl Evidence {
             "Session unavailable · no admitted remembered session"
         };
         lines.push(status.into());
+        if self.is_unbound() && !self.remembered() {
+            lines.push(
+                "Copy unavailable · needs a fresh remembered session from a full driver.".into(),
+            );
+        }
         if let Some(driver) = &self.driver {
             lines.push(format!("Remembered driver: {driver}"));
         }

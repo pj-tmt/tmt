@@ -25,6 +25,7 @@ if args and args[0] == "resume":
         assert args == ["resume", "--show", "--", spec["recipient"]]
         print(json.dumps({"identity": "worker", "launch": None}))
         sys.exit(0)
+    assert not spec.get("unbound"), "an unbound Session action must remain copy-only"
     expected = ["resume"] + (["--move"] if spec["move"] else []) + ["--", spec["recipient"]]
     assert args == expected
     active = []
@@ -52,8 +53,10 @@ try:
         value = json.loads(result.stdout)
         for row in value["identities"]:
             if row["id"] == spec["recipient"]:
-                row.update(driverSupport="full", location={"host": "tmux", "session": "work", "window": "agents"},
+                row.update(driverSupport="full", location={"host": spec.get("host", "tmux"), "session": "work", "window": "agents"},
                            resume={"driver": "codex", "session": "fixture-only", "staleAtMs": None})
+                if "unbound" in spec:
+                    row["session"] = {"unbound": spec["unbound"]}
         sys.stdout.write(json.dumps(value))
     else:
         sys.stdout.buffer.write(result.stdout)

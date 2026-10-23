@@ -4859,9 +4859,14 @@ describe('Ops path migration with unchanged Squad commands', () => {
 });
 
 describe('member session foreground handoff', () => {
-  it.each([false, true])(
-    'copies and cancels before a foreground handoff with restored modes (move=%s)',
-    async (move) => {
+  it.each([
+    { move: false, host: 'tmux', unbound: undefined },
+    { move: true, host: 'tmux', unbound: undefined },
+    { move: false, host: 'tmux', unbound: true },
+    { move: false, host: 'herdr', unbound: true },
+  ])(
+    'copies or confirms the exact UUID command with restored modes: %j',
+    async ({ move, host, unbound }) => {
       await withSandbox(async (sandbox) => {
         const bin = installSquad(sandbox);
         await identity(sandbox, 'Ben');
@@ -4909,21 +4914,36 @@ describe('member session foreground handoff', () => {
               cli: [sandbox.cli.executable, ...sandbox.cli.args],
               recipient,
               move,
+              host,
+              unbound,
             }),
           ],
           { cwd: sandbox.cwd, env, encoding: 'utf8', timeout: 90_000, maxBuffer: 1024 * 1024 }
         );
         expect(result.status, result.stdout + result.stderr).toBe(0);
         const proof = JSON.parse(result.stdout);
-        expect(proof).toMatchObject({
-          mode: move ? 'move' : 'resume',
-          samePid: true,
-          terminalRestoredBeforeExec: true,
-          foreground: true,
-          copyAndCancelWithoutExec: true,
-          activeReads: 0,
-          coreExit: 23,
-        });
+        if (unbound) {
+          expect(proof).toMatchObject({
+            mode: 'copy',
+            copyOnly: true,
+            foreground: false,
+            host,
+            copyAndCancelWithoutExec: true,
+            terminalRestoredAfterQuit: true,
+            activeReads: 0,
+            boardExit: 0,
+          });
+        } else {
+          expect(proof).toMatchObject({
+            mode: move ? 'move' : 'resume',
+            samePid: true,
+            terminalRestoredBeforeExec: true,
+            foreground: true,
+            copyAndCancelWithoutExec: true,
+            activeReads: 0,
+            coreExit: 23,
+          });
+        }
         expect(proof.argv).toEqual(['resume', ...(move ? ['--move'] : []), '--', recipient]);
       });
     },

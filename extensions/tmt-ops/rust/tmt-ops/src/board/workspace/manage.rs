@@ -3,6 +3,7 @@
 use super::{OpsMember, OpsObservation, OpsTarget};
 use crate::board::{
     app::{App, Choice, Compose, Effect, Menu, MenuEntry, Request},
+    command_line::command_line,
     shell::OpsTab,
 };
 use crate::membership::workspace::{Operation, RoomTarget};
@@ -458,25 +459,6 @@ impl Draft {
         }
         .into()
     }
-}
-/// Display/copy only: each word is literal, never passed to a shell by Ops.
-fn shell_word(word: &str) -> String {
-    if !word.is_empty()
-        && word
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"_@%+=:,./-".contains(&byte))
-    {
-        word.to_owned()
-    } else {
-        format!("'{}'", word.replace('\'', "'\\''"))
-    }
-}
-fn command_line(words: &[&str]) -> String {
-    words
-        .iter()
-        .map(|word| shell_word(word))
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 fn room(app: &App, id: &str) -> Option<RoomTarget> {
     let snapshot = app.workspace_snapshot()?;

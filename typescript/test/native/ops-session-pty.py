@@ -76,12 +76,23 @@ def wait_for(predicate, label):
         read_output(min(0.1, max(0, deadline - time.monotonic())))
 
 
-def open_review():
+def open_session():
     before = len(output)
     os.write(master, b"R")
     wait_for(lambda: len(output) > before and screen.contains("Launch preset:"), "session public read completed")
+
+
+def open_review():
+    open_session()
     os.write(master, b"\x1b[H" + (b"\x1b[B" if spec["move"] else b"") + b"\r")
     wait_for(lambda: screen.contains("The board closes here") and screen.contains("c copy command"), "review before foreground handoff")
+
+
+def command_copied(expected):
+    try:
+        return shlex.split((root / "copied").read_text()) == [spec["proxy"]] + expected
+    except (FileNotFoundError, ValueError):
+        return False
 
 
 try:
@@ -104,16 +115,46 @@ os.read(release,1)
     wait_for(lambda: screen.contains("▾"), "expanded squad")
     os.write(master, b"\x1b[F")
     wait_for(lambda: screen.contains("⏎ to message worker"), "selected UUID")
+    if spec.get("unbound"):
+        open_session()
+        assert screen.contains("Session unbound") and screen.contains("Copy command")
+        assert screen.contains("Run it in the agent's pane")
+        assert not screen.contains("Resume here") and not screen.contains("Move here")
+        expected_argv = ["resume", "--", spec["recipient"]]
+        os.write(master, b"\x1b[H\r")
+        wait_for(lambda: command_copied(expected_argv), "copy-only recovery command")
+        assert board_status is None and not (root / "handoff.json").exists()
+        os.write(master, b"\x1b")
+        wait_for(lambda: not screen.contains("Identity UUID:"), "close copy-only session")
+        open_session()
+        assert screen.contains("Copy command") and not (root / "handoff.json").exists()
+        os.write(master, b"\x1b")
+        wait_for(lambda: not screen.contains("Identity UUID:"), "cancel without foreground handoff")
+        os.write(master, b"q")
+        deadline = time.monotonic() + 25
+        while board_status is None and time.monotonic() < deadline:
+            read_output(0.1)
+        assert board_status == 0 and termios.tcgetattr(slave) == original
+        assert not (root / "handoff.json").exists()
+        for entry in (root / "active").iterdir():
+            try:
+                os.kill(int(entry.name), 0)
+            except ProcessLookupError:
+                continue
+            raise AssertionError("a public read remained active after quitting the board")
+        calls = [json.loads(line) for line in (root / "resume-calls.jsonl").read_text().splitlines()]
+        assert calls == [["resume", "--show", "--", spec["recipient"]]] * 2
+        os.write(release_write, b"x")
+        child.wait(timeout=5)
+        print(json.dumps({"mode":"copy", "copyOnly":True, "foreground":False,
+            "copyAndCancelWithoutExec":True, "terminalRestoredAfterQuit":True,
+            "activeReads":0, "boardExit":board_status, "host":spec["host"], "argv":expected_argv}))
+        sys.exit(0)
     open_review()
     os.write(master, b"c")
     copied = root / "copied"
     expected_argv = ["resume"] + (["--move"] if spec["move"] else []) + ["--", spec["recipient"]]
-    def copy_ready():
-        try:
-            return shlex.split(copied.read_text()) == [spec["proxy"]] + expected_argv
-        except (FileNotFoundError, ValueError):
-            return False
-    wait_for(copy_ready, "complete exact command copied without leaving the board")
+    wait_for(lambda: command_copied(expected_argv), "complete exact command copied without leaving the board")
     assert shlex.split(copied.read_text()) == [spec["proxy"]] + expected_argv
     assert board_status is None and not (root / "handoff.json").exists()
     os.write(master, b"\x1b")
