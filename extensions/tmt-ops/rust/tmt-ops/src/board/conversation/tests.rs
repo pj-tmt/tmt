@@ -1964,8 +1964,45 @@ fn the_response_rule_carries_the_same_delayed_spinner() {
     );
     let late = rule_at(now + delay);
     assert!(late.contains("Response · "), "{late}");
-    assert!(late.contains(" · ⠹"), "{late}");
+    let glyph = crate::board::view::feedback_glyph(now + delay, true);
+    assert!(late.contains(&format!(" · {glyph}")), "{late}");
     assert!(!late.contains("refreshing"));
+}
+
+#[test]
+fn the_refresh_glyph_turns_on_the_shared_tick_and_holds_still_without_motion() {
+    let mut app = settled_workspace();
+    app.observe_cursor(Some(5));
+    let start = 1_791_600_000_000;
+    let after = start + crate::board::view::SPINNER_DELAY.as_millis() as u64;
+    let tick = 80;
+    let glyph_at = |app: &App, at: u64| {
+        frame_at(app, at)
+            .chars()
+            .find(|c| SPINNER_GLYPHS.contains(c))
+    };
+    frame_at(&app, start);
+    let first = glyph_at(&app, after).expect("spinner after the delay");
+    let next = glyph_at(&app, after + tick).expect("spinner on the next tick");
+    assert_ne!(first, next, "the glyph advances on the shared tick");
+    let wait = crate::board::view::feedback_wait(&app, after + tick);
+    assert!(wait.is_some_and(|wait| wait <= std::time::Duration::from_millis(tick)));
+
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .reduced_motion = true;
+    app.frame_clocks.borrow_mut().clear();
+    assert_eq!(glyph_at(&app, after), Some('⠹'));
+    assert_eq!(
+        glyph_at(&app, after + tick),
+        Some('⠹'),
+        "no motion: held glyph"
+    );
+    assert_eq!(crate::board::view::feedback_wait(&app, after + tick), None);
 }
 
 #[test]

@@ -207,8 +207,14 @@ impl Session {
     }
 
     /// The retained-content spinner: nothing for the spinner delay, then the shell's
-    /// glyph; the gate wakes the board to repaint at that instant.
-    pub(super) fn refresh_spinner(&mut self, app: &App, retained: bool) -> Option<&'static str> {
+    /// glyph; the gate wakes the board to repaint at that instant. With `motion` the
+    /// glyph turns on the shared tick, otherwise it holds still.
+    pub(super) fn refresh_spinner(
+        &mut self,
+        app: &App,
+        retained: bool,
+        motion: bool,
+    ) -> Option<&'static str> {
         if !retained {
             self.refreshing_since_ms = None;
             return None;
@@ -220,7 +226,10 @@ impl Session {
             crate::board::view::ClockSurface::admit_delay_gate(app, until_ms);
             return None;
         }
-        Some(crate::board::view::feedback_glyph(now, false))
+        if motion {
+            crate::board::view::ClockSurface::admit_refresh_spinner(app);
+        }
+        Some(crate::board::view::feedback_glyph(now, motion))
     }
 
     #[cfg(test)]
