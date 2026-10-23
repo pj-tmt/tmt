@@ -163,6 +163,13 @@
 }
 
 @layer base {
+  html {
+    background-color: var(--tmt-surface-paper);
+  }
+  :where(pre) {
+    max-width: 100%;
+    overflow-x: auto;
+  }
   *,
   ::before,
   ::after {
