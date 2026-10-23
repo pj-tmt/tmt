@@ -2610,7 +2610,7 @@ one hover outline, a completed text selection or a text-bearing click captured t
 the same bounded quote owner opens the existing anchored discussion. Textless clicks
 show a temporary polite hint and create nothing. Source replacement reprojects mode;
 page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
-Escape consumes one level: a nested menu or mention list, then the active drawer (Chat draft retained and busy sends uninterrupted), then the anchored window (draft retained), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. This key request cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Page-link requests have only the bounded activation/confirmation exception above. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
+Escape consumes one level: a nested menu or mention list, then the active drawer (Chat draft retained and busy sends uninterrupted; in the Comments drawer, Escape from a Discussion view's reply field first returns to the comment list, and a send or status change in flight holds the drawer), then the anchored window (draft retained), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. This key request cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Page-link requests have only the bounded activation/confirmation exception above. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
 Alt+Enter still explicitly requests the annotation view with exactly
 `type:"colab.render.annotate",renderId`; it cannot send. A trusted parent action captures
 the quote. Page-wide comments have null anchors.
@@ -2641,11 +2641,11 @@ frame's edge. Markers whose lines are closer than one target share one `+n` mark
 tall and at least 16 px wide with 4 px inside each end, in the same 24 px target. Hover
 shows the bounded quoted text. Comment first-line tooltips stay in parent chrome. A marker posts exactly `type:"colab.render.open-thread"`,
 `renderId`, `requestId`, `id` on the bound port; the parent accepts only a known ID in
-its current highlight request and opens that thread's anchored parent window. A `+n` marker
+its current highlight request and opens that thread's Discussion view in the Comments drawer. A `+n` marker
 posts exactly `type:"colab.render.open-list"`, `renderId`, `requestId`; the parent accepts the
 current render and request only and opens the Comments list (closing an open annotation
 window), with no thread ID and no thread opened. Forging either view-only
-action cannot publish, sign or send. The passage of the thread whose anchored window is open
+action cannot publish, sign or send. The passage of the thread whose anchored window or Discussion view is open
 takes a selected look: a stronger tint (`surface.annotation-highlight-selected`) and a solid 3 px
 underline (`color.annotation-rule-selected`, against hover's 2 px), above the hover look, and its
 lane marker, or the `+n` pill that holds it, wears a 2 px ring in the same colour, 2 px outside the
@@ -3390,7 +3390,8 @@ is no confirmation screen or automatic send. The popover closes with its ×, wit
 inside it, with a press outside it, and with a selection cleared by a page click while
 no nonblank message is typed; none of these interrupts a send in flight. Typed text is kept
 for the page (see Draft retention) together with bound mention UUIDs and restored, with a "Draft kept"
-note, when the same selection is annotated again or its known thread is reopened.
+note, when the same selection is annotated again; a known thread reopened from its marker restores the
+draft into its Discussion view.
 After a thread exists, an outside page press collapses it even with a typed draft;
 Close never resolves or sends. The anchored collapse action uses ChevronUp with accessible name "Collapse thread" and help "Collapse · Esc"; Resolve uses CircleCheck, named "Resolve thread" in the anchored window and "Resolve" in the drawer. Existing writer-owned Resolve collapses only after
 a successful explicit action; failure retains the window and draft. A live source revision preserves the mounted composer, its unsent text and frozen
@@ -3562,7 +3563,7 @@ snippet, participants, display time and open/resolved status. Selecting a row sc
 the window to its anchor and opens that thread's Discussion view in the overlay, in place
 of the list (the drawer reads Discussion with the thread's position, `n / N`, and `All
 comments` returns to the list); the selected thread stays selected while Comments is closed
-and reopened. A margin marker reopens the same thread in its anchored window. Page-owned per-thread drafts also
+and reopened. A margin marker, and a Thread notification, open the same thread's Discussion view in that drawer; the anchored window exists only for a new selection and the first thread it creates. Page-owned per-thread drafts also
 survive switching to the explicit Comments details view. Agent replies join verified Ask records to comment IDs and
 remain attributed to their agent. Overlay geometry does not reflow page content.
 Shared Chat, Source, Agents, Files, Comments and Export drawers leave an 8 px
@@ -3623,7 +3624,7 @@ proposer display metadata can establish participation or choose a destination.
 
 A destination already visible and following the history end suppresses its
 arrival. Trusted activation opens the existing Chat Drawer and reveals the exact
-reply, or scrolls the canonical Thread quote and opens its anchored window with
+reply, or scrolls the canonical Thread quote and opens its Discussion view in Comments with
 the existing unresolved-anchor fallback. It never sends or creates a conversation.
 Actual Drawer/Menu/Manage/attachment owners, an open anchored Thread window and
 document visibility suspend the queue; closures cannot resume it while another

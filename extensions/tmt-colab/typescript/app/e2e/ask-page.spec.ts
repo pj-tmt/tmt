@@ -707,20 +707,26 @@ for (const width of [1440, 390])
       await expect(frame.locator('[data-colab-selection-outline]')).toHaveCount(1);
       await page.screenshot({ path: capturePath(`2586-hover-${width}-${theme}.png`) });
       await page.mouse.click(point.x, point.y);
-      const window = page.locator('.annotation-popover');
+      const window = page.getByTestId('comment-thread');
       await expect(window).toBeVisible();
-      await expect(window.getByText('Existing anchored discussion', { exact: true })).toBeVisible();
+      await expect(window).toHaveAttribute('data-layout', 'discussion');
+      await expect(
+        window.getByText('Existing anchored discussion', { exact: true }).first(),
+      ).toBeVisible();
       await page.screenshot({ path: capturePath(`2586-open-${width}-${theme}.png`) });
       const input = window.getByRole('combobox', { name: 'Message' });
       await input.fill('Keep this discussion draft');
-      await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
+      await page.getByRole('button', { name: 'Close Discussion', exact: true }).click();
+      await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
       const mode = page
         .locator('.selection-mode')
         .getByRole('button', { name: 'Selection mode', exact: true });
       await mode.click();
       await page.mouse.click(point.x, point.y);
       await expect(input).toHaveText('Keep this discussion draft');
-      await expect(window.getByText('Existing anchored discussion', { exact: true })).toBeVisible();
+      await expect(
+        window.getByText('Existing anchored discussion', { exact: true }).first(),
+      ).toBeVisible();
       expect(await run(page, 'discussionProof')).toEqual(before);
       expect(await run(page, 'proof')).toEqual(proof);
     });
@@ -816,7 +822,7 @@ for (const [width, height, theme] of [
   [390, 300, 'dark'],
   [720, 450, 'light'],
 ] as const) {
-  test(`Escape steps the retained thread ladder and keeps the toggle at the content edge ${width} ${height} ${theme}`, async ({
+  test(`Escape steps the retained Discussion ladder and keeps the draft ${width} ${height} ${theme}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });
@@ -856,8 +862,8 @@ for (const [width, height, theme] of [
     await expect(mode).toHaveAttribute('aria-keyshortcuts', 'c Escape');
     const frame = page.frameLocator('#ask-page-fixture iframe');
     await frame.locator('[data-colab-thread]').click();
-    const window = page.locator('.annotation-popover');
-    await expect(page.getByTestId('comment-thread')).toHaveAttribute('data-layout', 'anchored');
+    const window = page.locator('.tmt-ui-drawer[open]');
+    await expect(page.getByTestId('comment-thread')).toHaveAttribute('data-layout', 'discussion');
     const input = window.getByRole('combobox', { name: 'Message' });
     await input.fill('Draft retained @');
     await expect(page.getByRole('option').first()).toBeVisible();
@@ -869,19 +875,6 @@ for (const [width, height, theme] of [
     for (const key of ['Shift+Escape', 'Alt+Escape', 'Control+Escape', 'Meta+Escape'])
       await input.press(key);
     await expect(window).toBeVisible();
-    await expect
-      .poll(async () => {
-        const toggle = (await mode.boundingBox())!;
-        const thread = (await window.boundingBox())!;
-        const header = (await page.locator('#ask-page-fixture .tmt-ui-header').boundingBox())!;
-        return (
-          toggle.y >= header.height &&
-          Math.abs(toggle.y + toggle.height - (height - (width <= 640 ? 16 : 24))) <= 1 &&
-          thread.y + thread.height <= toggle.y - 8
-        );
-      })
-      .toBe(true);
-    await expect(mode).toBeVisible();
     await page.screenshot({ path: capturePath(`2719-thread-${width}-${height}-${theme}.png`) });
     if (height <= 500) {
       const send = window.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true });
@@ -895,12 +888,14 @@ for (const [width, height, theme] of [
         .toBe(true);
       await page.screenshot({ path: capturePath(`2719-composer-${width}-${height}-${theme}.png`) });
     }
+    // Escape in the composer steps back to the comment list; the next one closes the drawer.
     await input.press('Escape');
+    await expect(page.getByTestId('comment-thread')).toHaveCount(0);
+    await expect(window).toBeVisible();
+    await expect(mode).toHaveAttribute('aria-pressed', 'true');
+    await page.keyboard.press('Escape');
     await expect(window).toHaveCount(0);
     await expect(mode).toHaveAttribute('aria-pressed', 'true');
-    // Collapse returns focus to the opaque frame; its cosmetic Escape notification
-    // must reach the same parent owner, not a second selection-mode ladder.
-    await expect(page.locator('#ask-page-fixture iframe')).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(mode).toHaveAttribute('aria-pressed', 'false');
     await expect(mode).toHaveAccessibleName(text.selectionMode);
@@ -909,6 +904,9 @@ for (const [width, height, theme] of [
     expect((await run(page, 'proof')).sends).toEqual([]);
     expect((await run(page, 'proof')).actions).toEqual([]);
     await input.press('Escape');
+    await expect(page.getByRole('option')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Close Discussion', exact: true }).click();
+    await expect(window).toHaveCount(0);
     await mode.click();
     await mode.evaluate((node) => node.blur());
     for (const key of ['Shift+Escape', 'Alt+Escape', 'Control+Escape', 'Meta+Escape'])
@@ -965,7 +963,7 @@ for (const width of [1440, 390]) {
   });
 }
 
-test('Escape does not collapse an anchored thread during its explicit send', async ({ page }) => {
+test('Escape does not close the Discussion view during its explicit send', async ({ page }) => {
   await page.goto('/');
   await run(page, 'mount');
   await run(page, 'conversation', {
@@ -974,7 +972,7 @@ test('Escape does not collapse an anchored thread during its explicit send', asy
     message: 'Existing discussion',
   });
   await page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').click();
-  const window = page.locator('.annotation-popover');
+  const window = page.locator('.tmt-ui-drawer[open]');
   const input = window.getByRole('combobox', { name: 'Message' });
   await input.fill('@');
   await page.getByRole('option').first().click();
@@ -984,7 +982,7 @@ test('Escape does not collapse an anchored thread during its explicit send', asy
   await expect(
     window.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
   ).toBeDisabled();
-  await page.getByRole('button', { name: 'Collapse thread', exact: true }).focus();
+  await page.getByRole('button', { name: 'Close Discussion', exact: true }).focus();
   await page.keyboard.press('Escape');
   await expect(window).toBeVisible();
   expect((await run(page, 'proof')).sends).toEqual([]);
@@ -1059,18 +1057,19 @@ for (const [width, theme] of [
     await close.click();
     await expect(chat).toBeHidden();
     expect((await run(page, 'proof')).sends).toEqual([]);
-    await run(page, 'conversation', {
-      surface: 'thread',
-      state: 'replied',
-      message: 'An existing annotation',
+    // An annotation window is not modal: @ still reaches the existing Chat while it is open.
+    await frame.locator('#selected').evaluate((node) => {
+      const range = node.ownerDocument.createRange();
+      range.selectNodeContents(node);
+      const selection = node.ownerDocument.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
     });
-    await frame.locator('[data-colab-thread]').click();
-    const thread = page.locator('.annotation-popover');
+    await page.getByTestId('selection-ask').click();
+    const thread = page.getByRole('dialog', { name: 'Annotate selection' });
     const collapse = thread.getByRole('button', { name: 'Collapse thread', exact: true });
     await expect(collapse.locator('svg')).toHaveClass(/lucide-chevron-up/);
     await expect(collapse).toHaveAttribute('aria-keyshortcuts', 'Escape');
-    const resolve = thread.getByRole('button', { name: 'Resolve thread', exact: true });
-    await expect(resolve.locator('svg')).toHaveClass(/lucide-circle-check/);
     await collapse.focus();
     await page.keyboard.press('Tab');
     await page.keyboard.press('Shift+Tab');

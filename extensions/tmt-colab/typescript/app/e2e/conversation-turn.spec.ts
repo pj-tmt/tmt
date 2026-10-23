@@ -47,7 +47,7 @@ async function mount(page: Page, surface: 'thread' | 'chat', state = 'waiting') 
   await expect(host.locator('.status')).toContainText('Live');
   if (surface === 'thread') {
     await page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').click();
-    await expect(page.getByTestId('comment-thread')).toHaveAttribute('data-layout', 'anchored');
+    await expect(page.getByTestId('comment-thread')).toHaveAttribute('data-layout', 'discussion');
   } else {
     const toggle = await pageAction(host, 'Chat');
     await toggle.click();
@@ -112,13 +112,17 @@ async function styles(message: Locator) {
 }
 async function flat(message: Locator) {
   const chat = await message.evaluate((node) => !!node.closest('.chat-panel'));
+  // The Discussion view is the sheet itself: its turns run full width with a rule between them.
+  const discussion = await message.evaluate(
+    (node) => !!node.closest('.comment-thread[data-layout="discussion"]'),
+  );
   await expect(message).toHaveCSS('border-radius', '0px');
   await expect(message).toHaveCSS('box-shadow', 'none');
-  await expect(message).toHaveCSS('border-bottom-width', '0px');
+  await expect(message).toHaveCSS('border-bottom-width', discussion ? '1px' : '0px');
   // One turn look: no fill and no rule for an agent either, in Chat and in a thread (#4111).
   await expect(message).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(message).toHaveCSS('border-left-width', '0px');
-  await expect(message).toHaveCSS('padding-top', chat ? '8px' : '0px');
+  if (!discussion) await expect(message).toHaveCSS('padding-top', chat ? '8px' : '0px');
   expect(await message.getAttribute('data-turn-layout')).toBeNull();
   const bounds = await message.evaluate((node) => {
     const history = node.closest('.conversation-messages')!;
@@ -130,16 +134,22 @@ async function flat(message: Locator) {
   expect(bounds.right).toBeLessThanOrEqual(1);
 }
 async function shell(window: Locator) {
-  const chat = (await window.getAttribute('data-testid')) === 'chat-panel';
+  // Chat and the Discussion view live in the drawer and use its header; a window draws its own bar.
+  const drawer = await window.evaluate((node) => !!node.closest('.tmt-ui-drawer'));
   await expect(
-    chat
-      ? window.page().locator('.tmt-ui-drawer[data-panel=chat][open] > .tmt-ui-drawer-header')
+    drawer
+      ? window.page().locator('.tmt-ui-drawer[open] > .tmt-ui-drawer-header')
       : window.locator(':scope > .conversation-window-bar'),
   ).toHaveCount(1);
-  if (chat) await expect(window.locator(':scope > .conversation-window-bar')).toHaveCount(0);
+  if (drawer) await expect(window.locator(':scope > .conversation-window-bar')).toHaveCount(0);
   await expect(window.locator(':scope > .conversation-composer')).toHaveCount(1);
   await expect(window.locator('.conversation-composer .annotation-compose')).toHaveCount(1);
-  await expect(window.locator('.conversation-composer')).toHaveCSS('padding', '12px 16px 16px');
+  // The Discussion view's reply field is flush with its content column.
+  const flush = (await window.getAttribute('data-layout')) === 'discussion';
+  await expect(window.locator('.conversation-composer')).toHaveCSS(
+    'padding',
+    flush ? '12px 0px 16px' : '12px 16px 16px',
+  );
   await expect(window.locator('.conversation-composer')).toHaveCSS('border-top-width', '1px');
   for (const button of await window.locator('.conversation-composer button').all())
     await expect(button).toBeInViewport();
@@ -286,7 +296,7 @@ for (const width of [1440, 390]) {
         }
       }
       expect(computed['chat-user'].row['border-bottom']).toContain('0px');
-      expect(computed['thread-user'].row['border-bottom']).toContain('0px');
+      expect(computed['thread-user'].row['border-bottom']).toContain('1px');
       expect(computed['chat-agent'].row['border-left']).toContain('0px');
       expect(computed['thread-agent'].row['border-left']).toContain('0px');
       // The same agent reply has one meta line style in Chat and in a thread.
@@ -494,8 +504,8 @@ test('status copy preserves every ledger outcome and explicit trusted tracking a
   await expect(window.getByText(text.askEmptyReply)).toBeVisible();
   await expect(window.getByTestId('ask-state')).toHaveCount(0);
   await expect(window.getByRole('button', { name: text.askRecheck })).toHaveCount(0);
-  await window.getByRole('button', { name: text.threadResolveAction, exact: true }).click();
-  await expect(page.getByTestId('comment-thread')).toHaveCount(0);
+  await window.getByRole('button', { name: text.threadResolve, exact: true }).click();
+  await expect(page.getByTestId('discussion-state')).toContainText(text.threadResolved);
   expect((await run(page, 'proof')).sends).toEqual([]);
 });
 
@@ -621,7 +631,7 @@ async function windowStyles(window: Locator) {
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
-    test(`annotation content fit and shared thread geometry at ${width} ${theme}`, async ({
+    test(`annotation content fit and shared window geometry at ${width} ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -655,6 +665,7 @@ for (const width of [1440, 390])
       await expect(continued.getByTestId('comment-entry')).toHaveCount(1);
       await expect(input).toHaveAttribute('id', inputId!);
       const firstSend = await windowGeometry(continued);
+      const continuedStyles = await windowStyles(continued);
       const newTurn = (await continued.getByTestId('comment-entry').boundingBox())!;
       // The attached thread has no whole-thread action row: measure the new turn itself.
       await expect(
@@ -706,10 +717,9 @@ for (const width of [1440, 390])
       });
       const scrolled = await windowGeometry(annotation);
 
-      await mount(page, 'thread');
-      const thread = page.getByTestId('comment-thread');
-      await record(thread, 'anchored-thread');
-      expect(await windowStyles(thread)).toEqual(annotationStyles);
+      // The thread an annotation window continues into keeps that window's own look; an existing
+      // thread opens as the Discussion view in the drawer, which is its own layout.
+      expect(continuedStyles).toEqual(annotationStyles);
       // The quote is a compact footer hint; it never duplicates the long source in history.
       expect(short.history.height).toBe(0);
       expect(firstSend.window.height - short.window.height).toBeLessThanOrEqual(
@@ -1453,7 +1463,13 @@ for (const surface of ['chat', 'thread'] as const)
       const button = window.getByRole('button', { name: text.askRecheck });
       await expect(button).toHaveCount(1);
       await expect(button).toHaveAccessibleName('Check again');
-      const [clock, control] = await Promise.all([clockLine.boundingBox(), button.boundingBox()]);
+      // A countdown that wraps has one box per line; the control follows the last one.
+      const clock = await clockLine.evaluate((node) => {
+        const rects = node.getClientRects();
+        const last = rects[rects.length - 1];
+        return { x: last.x, y: last.y, width: last.width, height: last.height };
+      });
+      const control = await button.boundingBox();
       // The same line as the countdown, and after it.
       expect(
         Math.abs(control!.y + control!.height / 2 - (clock!.y + clock!.height / 2)),

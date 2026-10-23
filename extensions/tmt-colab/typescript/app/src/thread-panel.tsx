@@ -23,7 +23,7 @@ import { threadNotificationDestination } from './reply-notification-context.js';
 import { MarkdownText } from './components/markdown-text.js';
 import { EchoAttachments, MessageAttachments } from './message-attachments.js';
 import { ConversationTurn } from './components/conversation-turn.js';
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { AskPanel, type AskRetryInput, type AskBinding, type PageAsk } from './ask-panel.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import type { ThreadBinding } from './thread-store.js';
@@ -997,6 +997,19 @@ export function ThreadPanel({
           : !!row.thread.proposal;
   const visibleRows = rows.filter(matches);
   const discussed = active ? rows.find((row) => row.id === active) : undefined;
+  // Leaving the Discussion view removes the control that held focus; the thread's row takes it, so
+  // the next Escape still reaches the drawer instead of the page behind it.
+  const listRoot = useRef<HTMLElement>(null);
+  const discussedBefore = useRef<string | null>(null);
+  useEffect(() => {
+    const left = discussedBefore.current;
+    discussedBefore.current = discussed ? discussed.id : null;
+    if (!left || discussed) return;
+    const threadId = left.slice(left.lastIndexOf(':') + 1);
+    listRoot.current
+      ?.querySelector<HTMLElement>(`.annotation-row[data-thread-id="${CSS.escape(threadId)}"]`)
+      ?.focus();
+  }, [discussed]);
   const tab = (id: CommentsView, label: string, state?: BrowserTab['state']): BrowserTab => ({
     id,
     tabId: `${scope}-tab-${id}`,
@@ -1091,7 +1104,12 @@ export function ThreadPanel({
     );
   }
   return (
-    <aside className="comments-panel" aria-label={text.comments} data-testid="comments-panel">
+    <aside
+      ref={listRoot}
+      className="comments-panel"
+      aria-label={text.comments}
+      data-testid="comments-panel"
+    >
       {!hideHeader && (
         <header>
           <h2>{text.comments}</h2>
