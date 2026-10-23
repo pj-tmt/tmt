@@ -195,6 +195,7 @@ describe('Exchange attention through the real Docker/tmux fixture', { concurrent
           fs.writeFileSync(path.join(fixture.workspace, 'tmt.json'), '{}');
           expect(expectJsonResult(await fixture.runJsonCli(['name', name]))).toEqual({
             bound: true,
+            session: { unbound: null },
             id: created.identity.id,
             lifetime: 'saved',
             name: 'Alice',

@@ -123,7 +123,7 @@ fn session_upgrade_preserves_binding_and_rolls_back_observations_with_history() 
         .execute_batch("DROP TRIGGER reject_session_migration;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 62);
+    assert_eq!(storage.health().unwrap().schema_version, 63);
     let row = oracle.query_row(
         "SELECT id, identity_id, pane_id, bound_at, last_verified_at, runtime_state, last_transition FROM bindings",
         [], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?)),
@@ -180,7 +180,7 @@ fn driver_state_upgrade_keeps_remembered_sessions_without_state() {
     .unwrap();
     old.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 62);
+    assert_eq!(storage.health().unwrap().schema_version, 63);
     storage.close().unwrap();
     let oracle = Connection::open(&path).unwrap();
     let row: (String, Option<String>, Option<i64>, Option<i64>) = oracle
@@ -323,7 +323,7 @@ fn inactive_driver_upgrade_is_atomic_and_keeps_the_current_coordinates() {
         .unwrap();
     oracle.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 62);
+    assert_eq!(storage.health().unwrap().schema_version, 63);
     let preferences = storage.session_preferences("old-id").unwrap();
     assert_eq!(preferences.channel, Some(true));
     assert!(preferences.retained.is_empty());
@@ -348,4 +348,46 @@ fn inactive_driver_upgrade_is_atomic_and_keeps_the_current_coordinates() {
         "{\"model\":\"sonnet\"}"
     );
     storage.close().unwrap();
+}
+
+#[test]
+fn refused_start_upgrade_rolls_back_its_column_and_cursor_trigger_together() {
+    let root = TestDirectory::new();
+    let path = root.path.join("refused-start-upgrade.db");
+    let mut old = Connection::open(&path).unwrap();
+    test_support::seed_history(&mut old);
+    apply_through(&mut old, 62).unwrap();
+    let trigger: String = old
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE name='bindings_advances_change_cursor_on_update'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    old.execute_batch("CREATE TRIGGER reject_refusal BEFORE INSERT ON _migrations WHEN NEW.version=63 BEGIN SELECT RAISE(ABORT,'injected observation migration failure'); END;").unwrap();
+    old.close().unwrap();
+    assert_eq!(
+        Storage::open(&path).err().unwrap().migration_version,
+        Some(63)
+    );
+    let oracle = Connection::open(&path).unwrap();
+    assert_eq!(oracle.query_row("SELECT count(*) FROM pragma_table_info('bindings') WHERE name='runtime_start_refusal'", [], |row| row.get::<_,i64>(0)).unwrap(), 0);
+    assert_eq!(oracle.query_row("SELECT sql FROM sqlite_schema WHERE name='bindings_advances_change_cursor_on_update'", [], |row| row.get::<_,String>(0)).unwrap(), trigger);
+    oracle
+        .execute_batch("DROP TRIGGER reject_refusal;")
+        .unwrap();
+    let mut storage = Storage::open(&path).unwrap();
+    assert_eq!(storage.health().unwrap().schema_version, 63);
+    assert_eq!(
+        oracle
+            .query_row(
+                "SELECT count(*) FROM bindings WHERE runtime_start_refusal IS NOT NULL",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    storage.close().unwrap();
+    oracle.close().unwrap();
 }

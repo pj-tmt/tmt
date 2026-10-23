@@ -205,6 +205,7 @@ describe('scoped identity operations in a large tmux session', { concurrent: fal
         expect(namedIdentity.lifetime).toBe('temporary');
         expect(json(named)).toEqual({
           bound: true,
+          session: { unbound: null },
           id: namedIdentity.id,
           name: 'LargeSession',
           pane: fixture.pane,
@@ -248,6 +249,7 @@ describe('scoped identity operations in a large tmux session', { concurrent: fal
           code: 0,
           stdout: {
             bound: true,
+            session: { unbound: null },
             id: descendantIdentity.id,
             name: 'DescendantAlias',
             pane: realName.pane,
@@ -262,6 +264,7 @@ describe('scoped identity operations in a large tmux session', { concurrent: fal
           interfaceKind: 'container',
           sessionState: 'unknown',
           bound: true,
+          session: { unbound: null },
           id: namedIdentity.id,
           name: 'LargeSession',
           pane: fixture.pane,

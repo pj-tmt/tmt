@@ -12,7 +12,22 @@ pub(super) fn facts(
     now: u64,
 ) -> Result<DeliveryFacts, StorageError> {
     let recipient = attempt.recipient_identity_id.as_deref();
+    let context = recipient
+        .map(|id| {
+            let rows = crate::storage::bindings::BindingRows(db);
+            let entry = rows.entry_by_id(id)?;
+            let refusal = entry
+                .as_ref()
+                .and_then(|entry| entry.binding.as_ref())
+                .and_then(|binding| binding.session.start_refusal.as_ref())
+                .map(|refusal| refusal.reason);
+            Ok::<_, StorageError>((refusal, entry.map(|entry| entry.identity.name)))
+        })
+        .transpose()?
+        .unwrap_or_default();
     Ok(DeliveryFacts {
+        recipient_start_refusal: context.0,
+        recipient_name: context.1,
         status: attempt.status,
         inbox: matches!(attempt.route, RequestRoute::Inbox { .. }),
         wake: RequestRows(db)

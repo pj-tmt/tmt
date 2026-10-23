@@ -17,6 +17,7 @@ fn ordinary_whoami_preserves_existing_fields_and_human_text() {
         label: "%1".into(),
         identity: Some(identity),
         runtime: RuntimeState::Running,
+        unbound: Some(false),
     };
     let mut projected = document(&report);
     assert_eq!(
@@ -27,6 +28,10 @@ fn ordinary_whoami_preserves_existing_fields_and_human_text() {
         projected.as_object_mut().unwrap().remove("sessionState"),
         Some(json!("running"))
     );
+    assert_eq!(
+        projected.as_object_mut().unwrap().remove("session"),
+        Some(json!({"unbound":false}))
+    );
     assert_eq!(projected, original);
     let mut human = Vec::new();
     text(&mut human, Terminal::PLAIN, &report).unwrap();
@@ -36,6 +41,7 @@ fn ordinary_whoami_preserves_existing_fields_and_human_text() {
         label: "%1".into(),
         identity: None,
         runtime: RuntimeState::Unknown,
+        unbound: None,
     };
     assert_eq!(
         document(&report),

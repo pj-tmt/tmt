@@ -100,7 +100,7 @@ it.each(['claude', 'codex'] as const)(
         ]
           .map(quote)
           .join(' ');
-        fixture.tmux(['new-window', '-d', '-t', 'e2e', '-n', 'notes-hooks', command]);
+        fixture.tmux(['new-window', '-d', '-t', 'e2e', '-n', 'notes-hooks', `${command}; :`]);
         await fixture.waitFor(() => fs.existsSync(report), 20000, 'causal notes hook report');
         const results = JSON.parse(fs.readFileSync(report, 'utf8')) as Array<{
           code: number;

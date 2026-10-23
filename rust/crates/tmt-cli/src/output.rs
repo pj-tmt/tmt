@@ -2,19 +2,7 @@
 
 pub use tmt_command_output::{Failure, after_cleanup, identity_document, identity_missing};
 
-/// One shell word for a command a hint prints: plain when safe, otherwise
-/// single-quoted, so a name or ID pastes back exactly.
-pub fn shell_word(value: &str) -> String {
-    if !value.is_empty()
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"-._".contains(&byte))
-    {
-        value.into()
-    } else {
-        format!("'{}'", value.replace('\'', "'\\''"))
-    }
-}
+pub use tmt_core::names::command_word as shell_word;
 
 /// The remembered session projection shared by `identity show` and
 /// `ls --json`. It is additive: the `resume` key appears only while a session

@@ -9,6 +9,8 @@
 mod caller_session;
 #[path = "external_host/driver_switch.rs"]
 mod driver_switch;
+#[path = "external_host/hand_resume.rs"]
+mod hand_resume;
 #[path = "external_host/move_session.rs"]
 mod move_session;
 #[path = "external_host/nested_host.rs"]
@@ -1399,7 +1401,16 @@ fn a_refused_or_unconfirmed_agent_name_keeps_the_binding_and_says_which() {
         let stderr = String::from_utf8_lossy(&human.stderr);
         assert!(stderr.contains(said), "{answer}: {stderr}");
         assert!(stderr.contains("The binding stays"), "{answer}: {stderr}");
-        assert_eq!(stderr.matches("warning:").count(), 1, "{answer}: {stderr}");
+        // Session completion reports independently of agent naming. A native
+        // provider can be visible beneath this fixture's shared pane ancestor.
+        let session_warning = usize::from(
+            stderr.contains("The pane is bound, but the provider session was not recorded:"),
+        );
+        assert_eq!(
+            stderr.matches("warning:").count(),
+            1 + session_warning,
+            "{answer}: {stderr}"
+        );
         assert_eq!(
             stderr.contains("was not set"),
             warning.is_none(),
@@ -2002,8 +2013,20 @@ impl SteppedProvider {
         } else {
             std::process::Command::new(program)
         };
+        if provider == "codex" {
+            // Codex's direct caller proof conservatively rejects `-c` as a
+            // config override. A file keeps this shell stand-in's argv honest.
+            let script_path = steps.join("provider.sh");
+            fs::write(
+                &script_path,
+                format!("t=$1; shift\n{}", script.replace("\"$0\"", "\"$t\"")),
+            )
+            .unwrap();
+            command.arg(script_path);
+        } else {
+            command.args(["-c", script]);
+        }
         let child = command
-            .args(["-c", script])
             .arg(tmt.get_program())
             .arg(&steps)
             .arg(provider)
