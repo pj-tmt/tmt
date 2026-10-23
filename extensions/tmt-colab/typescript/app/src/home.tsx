@@ -12,7 +12,6 @@ import {
 import { getRouteApi, useRouter } from '@tanstack/react-router';
 import { Archive, ArchiveRestore, ExternalLink, Pin } from 'lucide-react';
 import { useContext, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import {
   ProjectWriting,
   ManageProjectsDialog,
@@ -43,7 +42,6 @@ import {
   type PageStage,
 } from './list-stage.js';
 import { AUTHOR_BYTES } from './bootstrap.js';
-import { HeaderSlot } from './header-slot.js';
 import { ProjectMenuActionsSlot } from './project-menu-actions.js';
 import { inScope, knownScope, writeScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
@@ -64,7 +62,6 @@ import {
 } from './page-list-search.js';
 import { PageListItem, PinnedPages } from './page-list-items.js';
 import { RetentionHint } from './retention-hint.js';
-import { useScrollEdges } from './scroll-edges.js';
 import { text } from './strings.js';
 import type { PageSummary } from './transport.js';
 import './page-list.css';
@@ -293,7 +290,6 @@ function StageEmpty({
 export function Home() {
   const space = homeRoute.useLoaderData();
   const { transport, space: spaceId } = rootRoute.useRouteContext();
-  const slot = useContext(HeaderSlot);
   const offerProjectActions = useContext(ProjectMenuActionsSlot);
   const search = homeRoute.useSearch();
   const navigate = homeRoute.useNavigate();
@@ -343,29 +339,29 @@ export function Home() {
   );
   const stages = stageCounts(activeInScope);
   const unreported = activeInScope.filter((p) => pageStage(p) === undefined).length;
-  const tab = (id: HomeView, label: string, state?: BrowserTab['state']) => ({
+  const tab = (id: HomeView, label: string, count: number, state?: BrowserTab['state']) => ({
     id,
     tabId: `page-list-tab-${id}`,
     panelId: `page-list-panel-${id}`,
     label,
+    count,
     ...(state ? { state } : {}),
   });
   const waitingInScope = waitingCount(activeInScope);
   // All first; Needs you is a view of every active page, marked while any waits.
   const viewTabs = [
-    tab('all', t.tabAllCount(activeInScope.length)),
+    tab('all', t.tabAll, activeInScope.length),
     tab(
       'needs',
-      t.tabNeedsYou(waitingInScope),
+      t.tabNeedsYou,
+      waitingInScope,
       waitingInScope ? { mark: '◆', tone: 'waiting', word: t.tabNeedsYouWaiting } : undefined,
     ),
-    tab('discussion', t.tabDiscussion(stages.discussion)),
-    tab('in-progress', t.tabInProgress(stages['in-progress'])),
-    tab('done', t.tabDone(stages.done)),
-    tab('archived', t.tabArchived(archivedInScope)),
+    tab('discussion', t.tabDiscussion, stages.discussion),
+    tab('in-progress', t.tabInProgress, stages['in-progress']),
+    tab('done', t.tabDone, stages.done),
+    tab('archived', t.tabArchived, archivedInScope),
   ];
-  const tabsHost = useRef<HTMLDivElement>(null);
-  useScrollEdges(tabsHost, `${Boolean(port)}|${viewTabs.map((item) => item.label).join('|')}`);
   const pages = filterPages(scoped, filter, sort);
   const listScroll = useRef<HTMLDivElement>(null);
   const drawn = useShownRows(listScroll, pages.length, JSON.stringify([view, filter, sort, scope]));
@@ -863,10 +859,11 @@ export function Home() {
       />
       <NewPageDialog open={newPage} onClose={() => setNewPage(false)} />
       {port ? (
-        <div className="page-stage-tabs" ref={tabsHost}>
+        <div className="page-stage-tabs">
           <BrowserTabs
             label={t.views}
-            variant="boxed"
+            variant="flat"
+            wrap
             tabs={viewTabs}
             selected={view}
             onSelect={(id) => chooseView(id as HomeView)}
@@ -911,17 +908,6 @@ export function Home() {
           />
         </>
       )}
-      {slot &&
-        scope !== undefined &&
-        createPortal(
-          <>
-            <span className="colab-title-divider" aria-hidden="true">
-              /
-            </span>
-            <span className="colab-scope-title">{scope}</span>
-          </>,
-          slot,
-        )}
     </section>
   );
 }

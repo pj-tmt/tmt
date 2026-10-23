@@ -719,8 +719,8 @@ owns display-only pinned cards and rows; Home retains filtering, selection and a
 Pins wrap after three on a wide screen and stack on compact screens; no pins means no card block.
 Project membership remains plural and neutral; missing summaries never become a fabricated stage.
 Wide rows have Title, Project, Stage, Updated, Author and Access columns, with comment counts
-under the title; compact rows stack the same metadata without sideways overflow. Only the tab
-strip may scroll horizontally. The `New page` action (`new-page-dialog.tsx`) still gives the
+under the title; compact rows stack the same metadata without sideways overflow. The shared
+flat tabs show separate numeric counts and wrap on compact screens, without a horizontal scroller. The `New page` action (`new-page-dialog.tsx`) still gives the
 `tmt colab page create` command with `CopyCommand`; the browser creates no page.
 The list fills the shell content pane. Rows scroll in `.page-list-scroll`; tall wrapped pin groups
 or compact controls may also scroll the containing home vertically so every control stays reachable.
@@ -788,8 +788,9 @@ list opens. The default scope is device-local: `readScope`/`writeScope` keep it 
 `localStorage` (a refused access means All pages), the home loader redirects an unscoped `/` to it
 with `replace`, and choosing All pages removes it. A scope the space no longer has (a stale link or
 a remembered project that was deleted) shows All pages and is neither redirected to nor rewritten.
-`AppHeader` provides the heading's element through `HeaderSlot` (`header-slot.ts`), where `Home`
-names the current scope as plain text after the title. A page
+The home hero names the current scope; `AppHeader` passes `titleVisible=false` through
+`ColabHeader` to the shared header, retaining its accessible name and tools without another
+visible heading. Other routes keep the default header title. A page
 opened from a scoped list carries the scope in history state only, and its own header shows
 `<project> / <title>` with the project linking back to `/?scope=<project>` (the shell bar draws no
 module crumb); a copied or reloaded page link has no crumb. A heading narrower than 200px (a

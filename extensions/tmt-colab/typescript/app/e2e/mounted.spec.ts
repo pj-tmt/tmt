@@ -850,7 +850,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(dialog.getByRole('button', { name: 'Manage another change' })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByText('No archived pages.', { exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: /^All \d+$/ }).click();
+  await page.getByRole('tab', { name: /^All, \d+\+?$/ }).click();
   await row(other)
     .getByRole('button', { name: /^Actions for/ })
     .click();
@@ -1030,7 +1030,7 @@ test('the list keeps its tab across a reload, Back and Forward, and a fresh visi
   await page.goForward();
   await expect(page).toHaveURL(/\/p\//);
   await page.goto(mount);
-  await expect(page.getByRole('tab', { name: /^All \d+$/ })).toHaveAttribute(
+  await expect(page.getByRole('tab', { name: /^All, \d+\+?$/ })).toHaveAttribute(
     'aria-selected',
     'true',
   );
@@ -1062,7 +1062,7 @@ for (const status of [403, 503])
     // so the read count is polled, not sampled. Other readers of the catalog (a re-read for a page
     // with no summary yet) may add reads on a slow machine, so `once` is the device refresh: one
     // registration, however many reads follow it.
-    await expect(page.getByRole('tab', { name: /^All \d+$/ })).toHaveAttribute(
+    await expect(page.getByRole('tab', { name: /^All, \d+\+?$/ })).toHaveAttribute(
       'aria-selected',
       'true',
     );

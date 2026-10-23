@@ -326,7 +326,7 @@ test('the Archived tab filters archived pages with a tab, not a native checkbox'
   ).toHaveCount(0);
   const rows = page.locator('#chrome-fixture ul.pages li');
   await expect(rows.first()).toContainText('Release notes');
-  const all = page.locator('#chrome-fixture').getByRole('tab', { name: /^All \d+$/ });
+  const all = page.locator('#chrome-fixture').getByRole('tab', { name: /^All, \d+\+?$/ });
   const archived = page.locator('#chrome-fixture').getByRole('tab', { name: /^Archived/ });
   await expect(all).toHaveAttribute('aria-selected', 'true');
   await archived.click();

@@ -8,7 +8,7 @@ export const homeList = (page: Page) => page.locator('section.home');
  * page's row asks for All first.
  */
 export async function showAllPages(page: Page) {
-  const all = page.getByRole('tab', { name: /^All \d+$/ });
+  const all = page.getByRole('tab', { name: /^All, \d+\+?$/ });
   await all.click();
   await expect(all).toHaveAttribute('aria-selected', 'true');
 }

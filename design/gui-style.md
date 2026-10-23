@@ -268,7 +268,8 @@ progress show only available metadata; no missing summary becomes a false zero o
 Wide rows separate title, projects, stage, updated, author and access; compact rows stack
 these without horizontal page overflow. Rows with divider rules remain square inside the
 fully bordered rounded list frame. Selection, keyboard actions, incremental rendering and
-management refusals retain their product owners. The tab strip is the only horizontal scroller.
+management refusals retain their product owners. The shared flat state tabs show muted numeric
+counts and wrap on compact screens; the hero owns the heading and the shell bar keeps only tools.
 
 ### Quick switcher
 

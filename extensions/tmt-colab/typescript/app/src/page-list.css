@@ -115,22 +115,6 @@
   flex: 1 1 0;
   padding-top: 0;
 }
-/* Only the tab strip may overflow horizontally; its own edge cue stays inside its padding. */
-.page-stage-tabs[data-edge-end] [role='tablist'] {
-  mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
-}
-.page-stage-tabs[data-edge-start] [role='tablist'] {
-  mask-image: linear-gradient(to left, #000 calc(100% - 16px), transparent);
-}
-.page-stage-tabs[data-edge-start][data-edge-end] [role='tablist'] {
-  mask-image: linear-gradient(
-    to right,
-    transparent,
-    #000 16px,
-    #000 calc(100% - 16px),
-    transparent
-  );
-}
 .page-list-controls {
   display: flex;
   flex-wrap: wrap;

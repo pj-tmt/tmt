@@ -25,6 +25,11 @@ test('concept17 shows real pins in owner order, wraps after three and shares the
   await page.setViewportSize({ width: 1586, height: 992 });
   await mount(page);
   await expect(app(page).getByRole('heading', { name: 'A shared place for ideas.' })).toBeVisible();
+  await expect(app(page).locator('h1:visible')).toHaveCount(1);
+  const header = app(page).locator('.tmt-ui-header:visible');
+  await expect(header).toHaveAttribute('aria-label', /Colab.*Pages/);
+  await expect(header.locator('h1, .tmt-ui-title')).toHaveCount(0);
+
   await expect(app(page).getByRole('list', { name: 'Pinned pages' })).toHaveCount(0);
   for (const title of ['Review 2', 'Spec 1', 'Plan 3', 'Notes 4']) await pin(page, title);
   const pins = app(page).getByRole('list', { name: 'Pinned pages' });
@@ -39,6 +44,10 @@ test('concept17 shows real pins in owner order, wraps after three and shares the
     app(page).getByRole('button', { name: 'Scope to blog', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true');
   await expect(pins.getByRole('link')).toHaveText(['Review 2']);
+  await expect(app(page).getByRole('heading', { name: 'blog', exact: true })).toBeVisible();
+  await expect(app(page).locator('h1:visible')).toHaveCount(1);
+  await expect(header).not.toContainText('blog');
+
   await expect(row(page, 'Spec 1')).toHaveCount(0);
 });
 for (const width of [1586, 1440, 1150, 901, 900, 651, 650, 390])

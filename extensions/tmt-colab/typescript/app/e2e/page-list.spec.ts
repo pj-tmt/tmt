@@ -74,7 +74,7 @@ const manageRequests = (page: Page) => page.evaluate(() => window.__projectManag
 /** A page's project crumb links to the scoped list, which opens on All like any bare link. */
 const showAll = (page: Page) =>
   app(page)
-    .getByRole('tab', { name: /^All \d+$/ })
+    .getByRole('tab', { name: /^All, \d+\+?$/ })
     .click();
 
 test("a page's project button filters the list, adds a token and removes it again", async ({
@@ -386,7 +386,7 @@ test('the Needs you tab keeps the pages waiting on the viewer, combines with a p
   page,
 }) => {
   await mount(page);
-  const needs = app(page).getByRole('tab', { name: /Needs you 1/ });
+  const needs = app(page).getByRole('tab', { name: /Needs you, 1/ });
   await expect(needs).toHaveAttribute('aria-selected', 'false');
   await needs.click();
   await expect(needs).toHaveAttribute('aria-selected', 'true');
@@ -413,7 +413,7 @@ test('the Needs you tab keeps the pages waiting on the viewer, combines with a p
   await expect(needs).toHaveAttribute('aria-selected', 'true');
   // Another tab leaves it.
   await app(page)
-    .getByRole('tab', { name: /^All \d+$/ })
+    .getByRole('tab', { name: /^All, \d+\+?$/ })
     .click();
   await expect(titles(page)).toHaveCount(4);
   expect(new URL(page.url()).hash).not.toContain('needs');
@@ -441,8 +441,8 @@ test('sort orders by title; the Archived tab shows archived pages and counts the
   await app(page).getByRole('button', { name: 'Sort: Title' }).click();
   await app(page).getByRole('menuitemradio', { name: 'Recently updated' }).click();
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review', 'Gamma notes', 'Delta ops']);
-  const all = app(page).getByRole('tab', { name: /^All \d+$/ });
-  const archived = app(page).getByRole('tab', { name: 'Archived 1' });
+  const all = app(page).getByRole('tab', { name: /^All, \d+\+?$/ });
+  const archived = app(page).getByRole('tab', { name: 'Archived, 1' });
   await expect(all).toHaveAttribute('aria-selected', 'true');
   await expect(archived).toHaveAttribute('aria-selected', 'false');
   await archived.click();
@@ -540,7 +540,7 @@ test('archiving from a row confirms, explains restoration, and sends one stateme
     { operation: 'page.archive', pageId: 'c0000003-1111-4111-8111-000000000001' },
   ]);
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review', 'Delta ops']);
-  await expect(app(page).getByRole('tab', { name: 'Archived 2' })).toBeVisible();
+  await expect(app(page).getByRole('tab', { name: 'Archived, 2' })).toBeVisible();
 });
 
 test('deleting from the menu names the page, says it cannot be undone, and removes it', async ({
@@ -582,7 +582,7 @@ test('an archived row offers Restore and Delete while keeping archive unavailabl
     .click();
   await expect(status(page)).toHaveText('Deleted “Archived spec”.');
   await expect(app(page).getByText('No archived pages.')).toBeVisible();
-  await expect(app(page).getByRole('tab', { name: 'Archived 0' })).toBeVisible();
+  await expect(app(page).getByRole('tab', { name: 'Archived, 0' })).toBeVisible();
 });
 
 for (const width of [1440, 390]) {
@@ -977,10 +977,10 @@ test('choosing a project scopes the list, the project suggestions and the Needs 
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await expect(search(page)).toHaveText('');
-  await expect(app(page).getByRole('tab', { name: 'Needs you 0' })).toBeVisible();
+  await expect(app(page).getByRole('tab', { name: 'Needs you, 0' })).toBeVisible();
   await scopeTo(page, 'design');
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
-  await expect(app(page).getByRole('tab', { name: /Needs you 1/ })).toBeVisible();
+  await expect(app(page).getByRole('tab', { name: /Needs you, 1/ })).toBeVisible();
   // A project: token filters inside the scope; a project outside it matches nothing.
   await filterProject(page, 'q4 plan');
   await expect(titles(page)).toHaveText(['Alpha plan']);
@@ -1314,7 +1314,7 @@ for (const width of [1440, 390])
       await scopeTo(page, 'All pages');
       await expect(titles(page)).toHaveCount(4);
       await app(page)
-        .getByRole('tab', { name: /Needs you 1/ })
+        .getByRole('tab', { name: /Needs you, 1/ })
         .click();
       await expect(titles(page)).toHaveCount(1);
       expect(await flat()).toBe(true);
@@ -1353,7 +1353,7 @@ for (const width of [1440, 390])
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3746-archived-tab-${width}-${theme}.png`) });
       await app(page)
-        .getByRole('tab', { name: /^All \d+$/ })
+        .getByRole('tab', { name: /^All, \d+\+?$/ })
         .click();
       await page.screenshot({ path: await capturePath(`3747-scope-menu-${width}-${theme}.png`) });
       await fromScopeMenu(page, 'Manage projects…');
@@ -1561,7 +1561,7 @@ test('restoring an Archived row confirms and returns it to the active list after
   page,
 }) => {
   await mount(page);
-  await app(page).getByRole('tab', { name: 'Archived 1' }).click();
+  await app(page).getByRole('tab', { name: 'Archived, 1' }).click();
   const row = rows(page).filter({ hasText: 'Archived spec' });
   await row.getByRole('button', { name: 'Restore “Archived spec”', exact: true }).click();
   const dialog = confirmDialog(page, 'Restore “Archived spec”?');
@@ -1580,7 +1580,7 @@ test('restoring an Archived row confirms and returns it to the active list after
   ]);
   await expect(titles(page)).toHaveCount(0);
   await app(page)
-    .getByRole('tab', { name: /^All \d+$/ })
+    .getByRole('tab', { name: /^All, \d+\+?$/ })
     .click();
   await expect(titles(page)).toHaveCount(5);
   await expect(titles(page).filter({ hasText: 'Archived spec' })).toBeVisible();
@@ -1594,7 +1594,7 @@ for (const width of [1440, 390])
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
-      await app(page).getByRole('tab', { name: 'Archived 1' }).click();
+      await app(page).getByRole('tab', { name: 'Archived, 1' }).click();
       const row = rows(page).filter({ hasText: 'Archived spec' });
       await row.getByRole('button', { name: 'Actions for Archived spec' }).click();
       await page.getByRole('menuitem', { name: 'Restore…', exact: true }).click();

@@ -164,13 +164,6 @@ body:not(:has(.tmt-ui-shell)) {
   flex: none;
   color: var(--c-muted);
 }
-/* The list's scope after the divider: one line that ellipsizes, never widening the header. */
-.colab-scope-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .tmt-ui-heading:has(> .colab-title-divider) .tmt-ui-caption {
   max-width: 22ch;
   min-width: 0;
@@ -244,14 +237,6 @@ body:not(:has(.tmt-ui-shell)) {
   white-space: normal;
 }
 
-/* The project crumbs: the home list's scope control after the title, and in a page the project the
-   reader came from before it. Both read as the title's siblings and truncate before the chevron. */
-.header-project-slot {
-  display: flex;
-  align-items: center;
-  gap: var(--tmt-ui-header-gap);
-  min-width: 0;
-}
 /* The crumb and its divider go together: the crumb shrinks before the title does, and a heading too
    narrow for both leaves it out (the brand link still returns to the remembered scope). */
 .tmt-ui-heading:has(> .colab-crumb-group) {

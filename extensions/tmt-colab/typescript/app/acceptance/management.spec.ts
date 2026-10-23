@@ -205,7 +205,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
     await expect(managementStatus(dialog)).toContainText('Done.');
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-    await page.getByRole('tab', { name: /^All \d+$/ }).click();
+    await page.getByRole('tab', { name: /^All, \d+\+?$/ }).click();
     const remaining = page.locator(`ul.pages li[data-page-id="${second.pageId}"]`);
     await remaining.getByRole('button', { name: /^Actions for/ }).click();
     await page.getByRole('menuitem', { name: 'Manage page' }).click();
