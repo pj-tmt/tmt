@@ -78,7 +78,6 @@ impl Connection {
     }
 
     fn handshake_until(stream: UnixStream, deadline: Instant) -> io::Result<Self> {
-
         let mut connection = Self {
             stream,
             decoder: Decoder::new(),
@@ -94,7 +93,6 @@ impl Connection {
             return Err(error);
         }
         match answer? {
-
             Some(ServerMessage::Welcome { version, size }) if version == VERSION => {
                 connection.size = size;
                 Ok(connection)

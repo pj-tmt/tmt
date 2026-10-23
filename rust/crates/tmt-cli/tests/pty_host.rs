@@ -104,6 +104,47 @@ impl World {
     }
     fn remember(&mut self) {
         let directory = support::state_dir(&self.root).join("pty");
+        // A fast launcher may close its socket before a cleanup client connects.
+        // Retain its already verified incarnation from this private world's DB;
+        // cleanup still rechecks that exact PID/start before any signal.
+        let database = support::state_dir(&self.root).join("tmt.db");
+        if database.is_file() {
+            let recorded = (|| -> rusqlite::Result<Vec<(String, i64, String)>> {
+                let db = rusqlite::Connection::open_with_flags(
+                    &database,
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                )?;
+                let mut statement = db.prepare("SELECT socket_path,server_pid,server_start_time FROM host_servers WHERE host='pty'")?;
+                statement
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                    .collect()
+            })();
+            match recorded {
+                Ok(rows) => {
+                    for (socket, pid, start) in rows {
+                        let socket = PathBuf::from(socket);
+                        if socket.parent() != Some(directory.as_path()) {
+                            self.unconfirmed = true;
+                            continue;
+                        }
+                        if let Ok(pid) = u64::try_from(pid)
+                            && let Ok(process) = ProcessIncarnation::new(pid, &start)
+                        {
+                            self.known_sockets.insert(socket);
+                            if !self.owned.contains(&process) {
+                                self.owned.push(process);
+                            }
+                        } else {
+                            self.unconfirmed = true;
+                        }
+                    }
+                }
+                Err(error) => {
+                    eprintln!("could not read owned supervisor evidence: {error}");
+                    self.unconfirmed = true;
+                }
+            }
+        }
         let Ok(files) = fs::read_dir(&directory) else {
             return;
         };

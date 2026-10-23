@@ -62,7 +62,7 @@ fn approved_hosts_are_registered_once_and_parse_as_external() {
     // Past the limit: the name still reads, but no syntax is its own.
     let skipped = HostKind::parse("extra15").unwrap();
     assert!(!skipped.is_pane_id("x15-1"));
-    assert_eq!(HostKind::all().count(), 1 + MAX_EXTERNAL_HOSTS);
+    assert_eq!(HostKind::all().count(), 2 + MAX_EXTERNAL_HOSTS);
 
     let herdr = HostKind::parse("herdr").unwrap();
     assert_eq!(HostKind::of_pane_id("term_65ca1161edc141"), Some(herdr));

@@ -146,10 +146,12 @@ fn the_program_has_a_terminal_of_its_own_and_the_supervisor_ends_with_it() {
         &[
             "sh",
             "-c",
-            "[ -t 0 ] && [ -t 1 ] && [ -t 2 ] && exec 3</dev/tty && echo terminal-ok; read l; exit 5",
+            "read ready; [ -t 0 ] && [ -t 1 ] && [ -t 2 ] && exec 3</dev/tty && echo terminal-ok; read l; exit 5",
         ],
     );
     let mut client = fixture.connect("pty_a");
+    // Start the terminal probe only after this output subscriber is connected.
+    client.input(b"ready\r").unwrap();
     output_until(&mut client, "terminal-ok");
     assert!(socket_path(&fixture.directory, "pty_a").exists());
     assert!(lock_path(&fixture.directory, "pty_a").exists());
