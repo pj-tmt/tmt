@@ -83,6 +83,13 @@
   padding: var(--tmt-ui-space-m) var(--tmt-ui-space-xl);
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
+/* The host's optional actions precede Close; the absent slot adds no wrapper or geometry. */
+.tmt-ui-drawer-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  margin-left: auto;
+}
 .tmt-ui-drawer-heading {
   display: flex;
   align-items: baseline;

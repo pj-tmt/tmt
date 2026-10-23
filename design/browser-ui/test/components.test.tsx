@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { MouseEvent, ReactElement } from 'react';
 import type { BrowserIconActionProps } from '../src/react';
 import {
+  BrowserDrawer,
   BrowserHeader,
   BrowserNotice,
   BrowserField,
@@ -420,4 +421,30 @@ describe('presentation contracts', () => {
     (disabled.props as { onClick: (event: MouseEvent<HTMLButtonElement>) => void }).onClick(event);
     expect(calls).toHaveLength(1);
   });
+});
+
+it('keeps the default drawer header and puts optional host actions before Close', () => {
+  const base = { open: false, title: 'Source', onDismiss: () => {} };
+  const plain = renderToStaticMarkup(<BrowserDrawer {...base}>Draft</BrowserDrawer>);
+  expect(
+    renderToStaticMarkup(
+      <BrowserDrawer {...base} headerActions={undefined}>
+        Draft
+      </BrowserDrawer>,
+    ),
+  ).toBe(plain);
+  expect(plain).not.toContain('tmt-ui-drawer-header-actions');
+  const html = renderToStaticMarkup(
+    <BrowserDrawer
+      {...base}
+      headerActions={
+        <BrowserAction type="button" variant="primary" label="Save" onActivate={() => {}} />
+      }
+    >
+      Draft
+    </BrowserDrawer>,
+  );
+  expect(html).toContain('tmt-ui-drawer-header-actions');
+  expect(html.indexOf('>Save<')).toBeLessThan(html.indexOf('aria-label="Close Source"'));
+  expect(html).not.toContain('headerActions=');
 });
