@@ -6,7 +6,8 @@
     "Fit from one complete run, with measured job overhead above summed result durations rounded up to 58 seconds. Independent validation: run 39062994614, head 0dc416a521b2f00f96e9e664dc9b125806b67e72, all 1,399 cases and existing 65 skips preserved; slowest job 626 seconds versus the 591-second prediction.",
     "Model error: the slowest measured job exceeded its prediction by 35 seconds in run 39062994614 and by 48 seconds in run 39098088280, so the shard-count test adds 50 seconds of margin to the predicted wall.",
     "Observed between-run duration ratios (validation/measurement), for the 76 files taking at least one second in the measurement: 0.59 to 1.29, median 0.93, p90 1.22. Two runs describe observed variation, not a confidence interval. Refit from the existing JSON results artifacts when the suite changes.",
-    "Additional file measurement: page-links.spec.ts, run 39403394586 at 976807e085b770c9ddb75a3387916cbfceaf8991, colab-app-results-1/results.json. All 23 cases passed; summed result durations 47,851 ms, rounded up to 48 seconds. Other file weights retain the measurement above."
+    "Additional file measurement: page-links.spec.ts, run 39403394586 at 976807e085b770c9ddb75a3387916cbfceaf8991, colab-app-results-1/results.json. All 23 cases passed; summed result durations 47,851 ms, rounded up to 48 seconds. Other file weights retain the measurement above.",
+    "Additional file measurement: page-end-clearance.spec.ts, local Chromium run on 2026-10-23 at the head that adds it (#4588), one worker: 6 cases passed, summed result durations 4,392 ms, rounded up to 5 seconds. Other file weights retain the measurement above."
   ],
   "jobOverheadSeconds": 58,
   "modelErrorSeconds": 50,
@@ -62,6 +63,7 @@
     "needs-you-parity.spec.ts": 55,
     "needs-you.spec.ts": 27,
     "page-author.spec.ts": 15,
+    "page-end-clearance.spec.ts": 5,
     "page-index.spec.ts": 21,
     "page-links.spec.ts": 48,
     "page-list.spec.ts": 40,

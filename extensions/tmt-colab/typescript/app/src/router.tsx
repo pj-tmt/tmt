@@ -119,8 +119,11 @@ import { useAnnotations } from './use-annotations.js';
 import { usePageRenderer } from './use-page-renderer.js';
 import { SaveNotice } from './save-notice.js';
 
-/** In-page cards whose controls the floating actions move above, never over. */
-const AVOIDED_CARDS = '.question-group-footer, .proposal-inline .proposal-card';
+/** Controls in the page and above it that the floating actions move above, never over: the cards'
+ * footers, and the open work band's controls and add-task row, which can fill a phone's viewport. */
+const AVOIDED_CARDS = '.question-group-footer, .proposal-inline .proposal-card, .work-add';
+const AVOIDED_BAND =
+  '.work-band :is(button, a[href], input, select, textarea, [role="combobox"], [role="menuitem"])';
 
 /** The control belongs to trusted chrome; only mode is projected into author content. */
 function PageFloatingActions({
@@ -156,6 +159,7 @@ function PageFloatingActions({
     visibility: 'visible' | 'hidden';
   }>({ right: 24, bottom: 24, visibility: 'hidden' });
   useEffect(() => {
+    const workspace = host?.closest('.workspace');
     const place = () => {
       const box = host?.getBoundingClientRect();
       if (!box) return;
@@ -170,7 +174,9 @@ function PageFloatingActions({
       let bottom = Math.min(innerHeight, box.bottom);
       const fab = element.current?.getBoundingClientRect();
       const left = right - margin - (fab?.width ?? 0);
-      const cards = [...(host?.parentElement?.querySelectorAll<HTMLElement>(AVOIDED_CARDS) ?? [])]
+      const avoided = [
+        ...(workspace?.querySelectorAll<HTMLElement>(`${AVOIDED_CARDS}, ${AVOIDED_BAND}`) ?? []),
+      ]
         .filter((footer) => !footer.closest('[data-detached],[hidden]'))
         .map((footer) =>
           (footer.closest('.question-compact-block') ?? footer).getBoundingClientRect(),
@@ -180,14 +186,22 @@ function PageFloatingActions({
             footer.width > 0 && footer.height > 0 && footer.bottom > 0 && footer.top < innerHeight,
         )
         .sort((a, b) => b.top - a.top);
-      for (const footer of cards) {
-        if (
-          left < footer.right &&
-          right - margin > footer.left &&
-          bottom - margin > footer.top &&
-          bottom - margin - (fab?.height ?? 0) < footer.bottom
-        )
-          bottom = footer.top + margin - 8;
+      // Moving above one control can land on the next one up: settle in a few passes. With no room
+      // left above them the group hides below, as for the cards.
+      for (let pass = 0; pass < 4; pass++) {
+        let moved = false;
+        for (const footer of avoided) {
+          if (
+            left < footer.right &&
+            right - margin > footer.left &&
+            bottom - margin > footer.top &&
+            bottom - margin - (fab?.height ?? 0) < footer.bottom
+          ) {
+            bottom = footer.top + margin - 8;
+            moved = true;
+          }
+        }
+        if (!moved) break;
       }
       setPlacement({
         right: Math.max(margin, innerWidth - right + margin),
@@ -199,7 +213,9 @@ function PageFloatingActions({
     const observer = new ResizeObserver(place);
     if (host) observer.observe(host);
     if (element.current) observer.observe(element.current);
-    for (const card of host?.parentElement?.querySelectorAll(AVOIDED_CARDS) ?? [])
+    // The band opens and closes above the host without resizing it: the workspace's own size follows.
+    if (workspace) observer.observe(workspace);
+    for (const card of workspace?.querySelectorAll(`${AVOIDED_CARDS}, ${AVOIDED_BAND}`) ?? [])
       observer.observe(card);
     // Native dialog show/close happens in its own effect. Follow its actual layout,
     // rather than depending on sibling effect order.
