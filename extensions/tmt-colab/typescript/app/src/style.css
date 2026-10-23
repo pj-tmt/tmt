@@ -93,11 +93,6 @@ footer {
   margin: auto;
   padding: 56px 32px 80px;
 }
-/* Colab settings share the home's frame; the note says where the values change. */
-.colab-settings-note {
-  margin: 0 0 24px;
-  color: var(--c-muted);
-}
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.1em;

@@ -4358,6 +4358,16 @@ as a search key, before anything else reads the location:
   `/colab/` with its fragment, which becomes `/colab/pages/<id>?read=<id>` (or `anchor`, `task`, `open`).
 - `#t=<threadId>` stays a fragment.
 
+### Browser settings reference (#4710)
+
+The Colab settings route has no browser read or write of the machine's settings yet.
+It names `tmt colab settings` as the terminal handoff and labels its four schema examples
+**Reference defaults**, with a **CLI managed** badge and the explicit statement that they
+are not the reader's live settings. One exported frontend constant supplies these examples;
+its test pins browser-open, WIP, repository and expiry values to their native definitions.
+An injected successful settings read keeps its own values and is never replaced by examples.
+Copying the command changes only the clipboard; it does not execute a command or change settings.
+
 ### Short owner-page aliases (#1688)
 
 Remote forwards `/read/<id>` without device context.

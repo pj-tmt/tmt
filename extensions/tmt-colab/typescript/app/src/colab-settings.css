@@ -1,0 +1,177 @@
+/* Settings owns layout; shared Alert and Command keep their leaf presentation. */
+.home.colab-settings {
+  max-width: none;
+  padding: 33px 36px 32px;
+}
+.colab-settings-hero {
+  margin-bottom: 24px;
+}
+.home .colab-settings-hero h1 {
+  margin: 0;
+  font-size: 37px;
+  line-height: 1.2;
+  letter-spacing: -1.35px;
+}
+.colab-settings-hero p {
+  margin: 7px 0 0;
+  color: var(--tmt-ui-color-secondary);
+}
+.colab-settings-warning {
+  color: var(--tmt-ui-color-waiting);
+}
+.colab-settings-handoff {
+  width: 100%;
+  min-width: 0;
+}
+.colab-settings-handoff strong {
+  color: var(--tmt-ui-color-text);
+  font-size: 12px;
+}
+.colab-settings-handoff p {
+  margin: 6px 0 12px;
+  font-size: 11px;
+}
+.colab-settings-card {
+  margin-top: 22px;
+  padding: 22px;
+  background: var(--tmt-ui-surface-sheet);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+}
+.colab-settings-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.colab-settings-card-heading h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  line-height: 1.3;
+}
+.colab-settings-card-heading p {
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 12px;
+}
+.colab-settings-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 5px;
+  padding: 4px 7px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  color: var(--tmt-ui-color-secondary);
+  font-size: 10px;
+}
+.colab-settings-badge svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+.colab-settings-rows {
+  margin: 2px 0 0;
+}
+.colab-settings-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 105px;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 0;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.colab-settings-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.colab-settings-row dt {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+  font-size: 12px;
+}
+.colab-settings-help {
+  display: block;
+  margin-top: 3px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.colab-settings-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  background: var(--tmt-ui-surface-paper);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  color: var(--tmt-ui-color-accent);
+}
+.colab-settings-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.colab-settings-row dd {
+  margin: 0;
+  min-width: 0;
+  padding: 7px 9px;
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-paper);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.colab-settings-footer {
+  margin: 17px 0 0;
+  padding-top: 16px;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  color: var(--tmt-ui-color-secondary);
+  font-size: 11px;
+}
+@media (max-width: 650px) {
+  .home.colab-settings {
+    padding: 24px 18px;
+  }
+  .home .colab-settings-hero h1 {
+    font-size: 29px;
+  }
+  .colab-settings-card {
+    padding: 18px;
+  }
+  .colab-settings-card-heading {
+    gap: 12px;
+  }
+  .colab-settings-badge {
+    max-width: 75px;
+    font-size: 9px;
+  }
+  .colab-settings-card-heading h2 {
+    font-size: 20px;
+  }
+  .colab-settings-row {
+    grid-template-columns: minmax(0, 1fr) 80px;
+    gap: 10px;
+    padding: 20px 0;
+  }
+  .colab-settings-icon {
+    width: 32px;
+    height: 32px;
+  }
+  .colab-settings-row dt {
+    align-items: flex-start;
+  }
+}
+@media (max-width: 360px) {
+  .colab-settings-card-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .colab-settings-row {
+    grid-template-columns: minmax(0, 1fr) 64px;
+  }
+  .colab-settings-row dd {
+    padding: 7px 8px;
+  }
+}

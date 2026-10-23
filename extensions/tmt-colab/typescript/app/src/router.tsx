@@ -1055,7 +1055,7 @@ function Shell() {
           {!isPage && (
             <AppHeader
               remote={isHome ? { deviceName: transport.backendName } : undefined}
-              titleVisible={!isHome}
+              titleVisible={!isHome && pathname !== '/settings'}
               title={
                 pathname.startsWith('/short/')
                   ? 'Open a page'

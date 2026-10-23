@@ -915,13 +915,13 @@ test('the module menu lists dashboards under Dashboards and opens Colab settings
   await moduleMenu(page).getByRole('link', { name: 'Colab settings', exact: true }).click();
   await expect(page).toHaveURL(/#\/settings$/);
   const settings = page.getByRole('region', { name: 'Colab settings' }).first();
-  // No browser read of these settings yet: the page names the terminal command, no values.
-  await expect(settings.getByRole('note')).toHaveText(
-    'Colab settings are not in the browser yet. Run tmt colab settings in a terminal.',
-  );
-  await expect(settings.getByRole('note').locator('code')).toHaveText('tmt colab settings');
-  await expect(settings.getByRole('note').locator('a')).toHaveCount(0);
-  await expect(settings.locator('.tmt-ui-list-state')).toHaveCount(0);
+  // The native read is still unavailable; examples are explicitly reference-only.
+  await expect(settings).toContainText('Colab settings are not in the browser yet.');
+  await expect(settings.locator('.tmt-ui-command code')).toHaveText('tmt colab settings');
+  await expect(
+    settings.getByRole('region', { name: 'Reference defaults', exact: true }),
+  ).toContainText('An illustration of the current schema, not your live settings.');
+  await expect(settings.locator('dd')).toHaveText(['On', '1 per agent', 'Not set', '180 days']);
   await expect(
     moduleMenu(page).locator('a[data-id="colab-settings"][aria-current="page"]'),
   ).toBeVisible();

@@ -1,8 +1,8 @@
 /**
  * What the Colab settings page reads: the settings `tmt colab settings --json` prints (opening the
  * browser, the work-in-progress limit, the GitHub repository, page expiry), in the same shape. The
- * page depends only on `ColabSettingsSource`; the default source is a MOCK until Colab serves this
- * read to the owner's browser.
+ * page depends only on `ColabSettingsSource`; the default source reports that the browser read
+ * is unavailable. Explicit reference examples are separate from an actual read.
  */
 export interface ColabSettingsView {
   /** `serve` and `page create` open the browser. */
@@ -16,7 +16,7 @@ export interface ColabSettingsView {
   /** Whether these are sample values, not this space's settings. */
   sample: boolean;
 }
-/** A read that does not exist yet: what the page needs, shown instead of any value. */
+/** A missing browser read: the terminal handoff, never a current-value snapshot. */
 export interface ColabSettingsUnavailable {
   unavailable: string;
   /** The terminal command that shows these settings. */
@@ -26,11 +26,18 @@ export interface ColabSettingsSource {
   read(): Promise<ColabSettingsView | ColabSettingsUnavailable>;
 }
 
-// MOCK: Colab's defaults, so the page can be built and reviewed before the read exists. Replace with
-// the owner read; nothing else in the page changes.
+/** Schema examples only. The test pins each value to its owning native Rust definition. */
+export const colabSettingsReferenceDefaults: ColabSettingsView = {
+  open: true,
+  wipLimit: { default: 1, agents: {} },
+  pageExpiryDays: 180,
+  sample: true,
+};
+
+/** Explicit sample source for isolated fixtures; never a fallback for a successful real read. */
 export const mockColabSettingsSource: ColabSettingsSource = {
   async read() {
-    return { open: true, wipLimit: { default: 1, agents: {} }, pageExpiryDays: 180, sample: true };
+    return colabSettingsReferenceDefaults;
   },
 };
 
