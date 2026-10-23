@@ -42,6 +42,9 @@ impl RemoteError {
             Some(ErrorDetail::CloudProvider(provider)) => {
                 value["error"]["provider"] = serde_json::json!(provider)
             }
+            Some(ErrorDetail::CloudDocument(reason)) => {
+                value["error"]["reason"] = serde_json::json!(reason)
+            }
             _ => {}
         }
         value
@@ -61,6 +64,10 @@ impl RemoteError {
     }
     pub(crate) fn with_cloud_provider(mut self, provider: CloudProviderDiagnostic) -> Self {
         self.detail = Some(ErrorDetail::CloudProvider(provider));
+        self
+    }
+    pub(crate) fn with_cloud_document(mut self, reason: CloudDocumentReason) -> Self {
+        self.detail = Some(ErrorDetail::CloudDocument(reason));
         self
     }
     pub fn with_hint(mut self, hint: &str) -> Self {
@@ -189,4 +196,20 @@ enum ErrorDetail {
     OwnedRead(OwnedReadFailure),
     DeployProvider(DeployProviderDiagnostic),
     CloudProvider(CloudProviderDiagnostic),
+    CloudDocument(CloudDocumentReason),
+}
+
+/// Closed codec stages; contains no provider values, identifiers or ciphertext.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CloudDocumentReason {
+    QueryShape,
+    NameShape,
+    FieldsShape,
+    PeerShape,
+    CreateTime,
+    IndexedTime,
+    TimeDelta,
+    Encoding,
+    Size,
 }

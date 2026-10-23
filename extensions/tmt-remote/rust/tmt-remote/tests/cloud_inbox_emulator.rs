@@ -102,6 +102,56 @@ impl Jitter for ZeroJitter {
         0
     }
 }
+// Retain enough structure to reproduce a codec refusal without logging provider values.
+fn sanitized_shape(value: &Value, depth: usize, nodes: &mut usize) -> Value {
+    if *nodes == 0 {
+        return json!({"type":"truncated"});
+    }
+    *nodes -= 1;
+    match value {
+        Value::Object(fields) => {
+            let known = [
+                "document",
+                "readTime",
+                "name",
+                "fields",
+                "createTime",
+                "updateTime",
+                "peer",
+                "carrier",
+                "createdAt",
+                "timestampValue",
+                "stringValue",
+                "bytesValue",
+                "result",
+                "done",
+                "transaction",
+                "skippedResults",
+                "error",
+                "code",
+                "status",
+                "message",
+                "details",
+            ];
+            let rows:Vec<_>=fields.iter().take(if depth<6 {8}else{0}).map(|(name,value)| json!({"field":if known.contains(&name.as_str()){name.as_str()}else{"<other>"},"shape":sanitized_shape(value,depth+1)})).collect();
+            json!({"type":"object","fields":fields.len(),"members":rows})
+        }
+        Value::Array(values) => {
+            json!({"type":"array","length":values.len(),"items":values.iter().take(if depth<6{2}else{0}).map(|v|sanitized_shape(v,depth+1)).collect::<Vec<_>>()})
+        }
+        Value::String(text) => json!({"type":"string","bytes":text.len()}),
+        Value::Number(_) => json!({"type":"number"}),
+        Value::Bool(_) => json!({"type":"boolean"}),
+        Value::Null => json!({"type":"null"}),
+    }
+}
+#[test]
+fn shape_evidence_contains_no_provider_identifier_token_or_carrier_values() {
+    let value = json!({"document":{"name":"SECRET_NAME","fields":{"peer":{"stringValue":"SECRET_PEER"},"carrier":{"bytesValue":"SECRET_CARRIER"}}},"SECRET_FIELD":"SECRET_VALUE"});
+    let shape = sanitized_shape(&value, 0, &mut 64).to_string();
+    assert!(!shape.contains("SECRET"));
+    assert!(shape.contains("bytesValue"));
+}
 struct Wire {
     http: ProductionHttp,
     clock: Arc<SystemClock>,
@@ -116,6 +166,17 @@ impl Http for Wire {
         cancel: &dyn Cancellation,
     ) -> Result<Response, AuthError> {
         let response = self.http.send(request, deadline, cancel)?;
+        if matches!(request.operation(), Operation::Read | Operation::Query) {
+            let shape = serde_json::from_slice(&response.body)
+                .map(|value| sanitized_shape(&value, 0, &mut 64))
+                .unwrap_or_else(|_| json!({"type":"invalid-json","bytes":response.body.len()}));
+            println!(
+                "cloud response_shape operation={:?} status={} shape={shape}",
+                request.operation(),
+                response.status
+            );
+        }
+
         if response.status >= 400 {
             let value: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
             let known: Option<tmt_remote::error::CloudProviderStatus> =

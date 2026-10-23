@@ -185,8 +185,58 @@ fn provider_document_uses_output_create_time_and_exact_machine_namespace() {
     fields.insert("unexpected".into(), json!({"stringValue": PEER}));
     assert!(super::document::Document::read(&missing_peer, root, machine, "inbox").is_err());
     let mut bad = row.clone();
-    bad["fields"]["createdAt"]["timestampValue"] = json!("2026-10-23T04:00:05Z");
-    assert!(super::document::Document::read(&bad, root, machine, "inbox").is_err());
+    for indexed in [
+        "2026-10-23T04:00:00.125Z",
+        "2026-10-23T04:00:05Z",
+        "2026-10-23T04:01:00.123Z",
+        "2026-10-23T03:59:00.123Z",
+    ] {
+        bad["fields"]["createdAt"]["timestampValue"] = json!(indexed);
+        let admitted = super::document::Document::read(&bad, root, machine, "inbox").unwrap();
+        assert_eq!(
+            admitted.created_ms(),
+            document.created_ms(),
+            "routing time never replaces freshness authority"
+        );
+    }
+    bad["fields"]["createdAt"]["timestampValue"] = json!("2026-10-23T04:01:00.124Z");
+    let error = super::document::Document::read(&bad, root, machine, "inbox")
+        .err()
+        .unwrap();
+    assert_eq!(error.json_value()["error"]["reason"], "time-delta");
+    for (field, value, expected) in [
+        ("name", json!("SECRET_MARKER"), "name-shape"),
+        ("fields", serde_json::Value::Null, "fields-shape"),
+        ("createTime", json!("SECRET_MARKER"), "create-time"),
+    ] {
+        let mut bad = row.clone();
+        bad[field] = value;
+        let error = super::document::Document::read(&bad, root, machine, "inbox")
+            .err()
+            .unwrap()
+            .json_value();
+        assert_eq!(error["error"]["reason"], expected);
+        assert!(!error.to_string().contains("SECRET_MARKER"));
+    }
+    for (field, value, expected) in [
+        ("peer", json!({"stringValue":"SECRET_MARKER"}), "peer-shape"),
+        (
+            "createdAt",
+            json!({"timestampValue":"SECRET_MARKER"}),
+            "indexed-time",
+        ),
+        ("carrier", json!({"bytesValue":"SECRET_MARKER"}), "encoding"),
+        ("carrier", json!({"bytesValue":""}), "size"),
+    ] {
+        let mut bad = row.clone();
+        bad["fields"][field] = value;
+        let error = super::document::Document::read(&bad, root, machine, "inbox")
+            .err()
+            .unwrap()
+            .json_value();
+        assert_eq!(error["error"]["reason"], expected);
+        assert!(!error.to_string().contains("SECRET_MARKER"));
+    }
     assert!(super::document::Document::read(&row, root, machine, "responses").is_err());
     for time in [
         "2026-02-30T00:00:00Z",

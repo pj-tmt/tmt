@@ -1,7 +1,7 @@
 //! Ordinary-user Firestore calls through the serving project's existing Auth/HTTP/budget owner.
 use super::document::{self, Document};
 use crate::{
-    error::{CloudProviderDiagnostic, CloudProviderOperation, RemoteError},
+    error::{CloudDocumentReason, CloudProviderDiagnostic, CloudProviderOperation, RemoteError},
     firebase_auth::Operation,
     firestore_budget::{Model, READ_LOOKUPS, WRITE_LOOKUPS},
     native_sync::{NativeRuntime, client::RestCall},
@@ -85,7 +85,8 @@ impl Provider {
         let bytes = if operation == Operation::Read {
             vec![]
         } else {
-            serde_json::to_vec(&body).map_err(|_| invalid())?
+            serde_json::to_vec(&body)
+                .map_err(|_| document::invalid(CloudDocumentReason::QueryShape))?
         };
         let url = format!(
             "https://firestore.googleapis.com/v1/{}{}",
@@ -142,10 +143,11 @@ impl Provider {
                 &response,
             ));
         }
-        let value = crate::wire::strict_json(&response.body).ok_or_else(invalid)?;
+        let value = crate::wire::strict_json(&response.body)
+            .ok_or_else(|| document::invalid(CloudDocumentReason::QueryShape))?;
         let document = Document::read(&value, &self.root, &self.machine, stream)?;
         if document.peer() != peer {
-            return Err(invalid());
+            return Err(document::invalid(CloudDocumentReason::PeerShape));
         }
         Ok(Some(document))
     }
@@ -198,7 +200,7 @@ impl Provider {
         io: &IoBudget<'_>,
     ) -> Result<Page, RemoteError> {
         if limit == 0 || limit > crate::journal::OPERATIONS as usize {
-            return Err(invalid());
+            return Err(document::invalid(CloudDocumentReason::QueryShape));
         }
         let mut value = json!({"structuredQuery":{"from":[{"collectionId":"inbox","allDescendants":false}],"where":{"fieldFilter":{"field":{"fieldPath":"createdAt"},"op":"GREATER_THAN_OR_EQUAL","value":{"timestampValue":stamp(from_ms)}}},"orderBy":[{"field":{"fieldPath":"createdAt"},"direction":"ASCENDING"},{"field":{"fieldPath":"__name__"},"direction":"ASCENDING"}],"limit":limit}});
         if let Some(after) = after {
@@ -220,14 +222,19 @@ impl Provider {
         }
         let values = crate::wire::strict_json(&response.body)
             .and_then(|v| v.as_array().cloned())
-            .ok_or_else(invalid)?;
+            .ok_or_else(|| document::invalid(CloudDocumentReason::QueryShape))?;
         if values.len() > limit + 1 {
-            return Err(invalid());
+            return Err(document::invalid(CloudDocumentReason::QueryShape));
         }
         let mut documents = vec![];
         let mut read_ms = None;
         for value in values {
-            let read = document::timestamp(value["readTime"].as_str().ok_or_else(invalid)?)?;
+            let read = document::timestamp(
+                value["readTime"]
+                    .as_str()
+                    .ok_or_else(|| document::invalid(CloudDocumentReason::QueryShape))?,
+            )
+            .map_err(|_| document::invalid(CloudDocumentReason::QueryShape))?;
             read_ms = Some(read_ms.map_or(read, |old: u64| old.min(read)));
             if let Some(value) = value.get("document") {
                 documents.push(Document::read(value, &self.root, &self.machine, "inbox")?);
@@ -236,7 +243,7 @@ impl Provider {
         let full = documents.len() == limit;
         Ok(Page {
             documents,
-            read_ms: read_ms.ok_or_else(invalid)?,
+            read_ms: read_ms.ok_or_else(|| document::invalid(CloudDocumentReason::QueryShape))?,
             full,
         })
     }
@@ -331,6 +338,7 @@ fn invalid() -> RemoteError {
         "REMOTE_CLOUD_DOCUMENT_INVALID",
         "Invalid cloud carrier document.",
     )
+    .with_cloud_document(CloudDocumentReason::NameShape)
 }
 fn unavailable() -> RemoteError {
     RemoteError::new(
@@ -473,7 +481,7 @@ mod tests {
             assert_eq!(*budget.charged.lock().unwrap(), vec![WRITE_LOOKUPS]);
         }
     }
-    struct Rejected(&'static str);
+    struct Rejected(u16, &'static str);
     impl Http for Rejected {
         fn send(
             &self,
@@ -483,9 +491,9 @@ mod tests {
         ) -> Result<Response, AuthError> {
             assert_eq!(request.operation(), Operation::Query);
             Ok(Response {
-                status: 400,
+                status: self.0,
                 retry_after_ms: None,
-                body: self.0.as_bytes().to_vec(),
+                body: self.1.as_bytes().to_vec(),
             })
         }
     }
@@ -506,7 +514,7 @@ mod tests {
                 charged: Mutex::new(vec![]),
             });
             let runtime = Arc::new(NativeRuntime::new(
-                Arc::new(Rejected(body)),
+                Arc::new(Rejected(400, body)),
                 Arc::new(Ports),
                 Arc::new(Ports),
                 budget,
@@ -599,5 +607,45 @@ mod tests {
             panic!("foreign peer must refuse")
         };
         assert_eq!(error.code, "REMOTE_CLOUD_DOCUMENT_INVALID");
+    }
+    #[test]
+    fn successful_query_with_invalid_shape_has_a_closed_codec_reason() {
+        for body in [
+            r#"{"SECRET_MARKER":"SECRET_MARKER"}"#,
+            r#"[{"readTime":false}]"#,
+        ] {
+            let runtime = Arc::new(NativeRuntime::new(
+                Arc::new(Rejected(200, body)),
+                Arc::new(Ports),
+                Arc::new(Ports),
+                Arc::new(Budget {
+                    refuse: false,
+                    charged: Mutex::new(vec![]),
+                }),
+            ));
+            let provider = Provider::new(
+                Arc::new(Auth),
+                runtime,
+                Model::new(4, 4).unwrap(),
+                "11111111-1111-4111-8111-111111111111",
+            )
+            .unwrap();
+            let stopped = AtomicBool::new(false);
+            let io = IoBudget {
+                deadline: Instant::now() + Duration::from_secs(1),
+                cancelled: &stopped,
+            };
+            let mut future = pin!(provider.inbox(0, 1, None, &io));
+            let Poll::Ready(Err(error)) = future
+                .as_mut()
+                .poll(&mut Context::from_waker(std::task::Waker::noop()))
+            else {
+                panic!("invalid query shape must refuse")
+            };
+            assert_eq!(error.code, "REMOTE_CLOUD_DOCUMENT_INVALID");
+            let value = error.json_value();
+            assert_eq!(value["error"]["reason"], "query-shape");
+            assert!(!value.to_string().contains("SECRET_MARKER"));
+        }
     }
 }

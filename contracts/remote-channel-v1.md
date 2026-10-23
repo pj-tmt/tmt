@@ -2233,7 +2233,9 @@ An unprocessed carrier expires after `journal::RECOVERY` (30 days), with `REMOTE
 
 Inbox and response paths are `/m/<machineId>/inbox/<operationId>` and
 `/m/<machineId>/responses/<operationId>`. A document contains exactly `peer`, ciphertext `carrier` bytes and server
-`createdAt`. The operation ID is a lowercase UUIDv4. There is no chunking, manifest, plaintext fallback
+`createdAt`. This Rules-pinned server request time is only the query/order key; the codec sanity-checks
+it within the existing 60-second band of output-only `createTime`, which alone establishes freshness.
+The operation ID is a lowercase UUIDv4. There is no chunking, manifest, plaintext fallback
 or provider-side operation authority. One carrier fits `firestore_limits::DOCUMENT_PAYLOAD_BYTES`;
 `limits::CLOUD_ENVELOPE_BYTES` is the largest conservative envelope cap below that bound. The prepared
 message cap also reserves worst-case JSON escaping/base64. Oversize refuses as
@@ -2278,7 +2280,10 @@ per-document permanent refusal, the latter remains retryable. Both keep the exis
 `REMOTE_CLOUD_PROVIDER_UNAVAILABLE` includes sanitized `error.provider` evidence: fixed `operation`
 (`inbox-read`, `response-read`, `inbox-query`, `inbox-create` or `response-create`), numeric HTTP `status`,
 and optional `errorStatus` from the canonical Google RPC status enum. Unknown status text is omitted;
-provider body/message, token, carrier and resource identifiers never cross this diagnostic boundary. Existing
+provider body/message, token, carrier and resource identifiers never cross this diagnostic boundary.
+`REMOTE_CLOUD_DOCUMENT_INVALID` carries a closed `error.reason`: `query-shape`, `name-shape`,
+`fields-shape`, `peer-shape`, `create-time`, `indexed-time`, `time-delta`, `encoding` or `size`.
+The reason contains no provider values or identifiers. Existing
 `REMOTE_INTENT_CONFLICT` and `REMOTE_CURSOR_EXPIRED` are also per-document permanent refusals.
 Permanent malformed, undecryptable, foreign, retired-key,
 revoked or expired carriers receive one immutable refusal code in the same transport row and existing
