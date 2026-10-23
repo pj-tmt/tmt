@@ -44,19 +44,33 @@ pub(super) fn render(
         ),
     );
     blank(area, y);
-    let link = conversation::link_preview(app, row, &app.workspace_bindings());
-    line(
-        frame,
-        area,
-        y,
-        neutral(
-            format!(
-                " link {}",
-                link.as_ref().map_or("—", |link| link.value.as_str())
+    // A member of a squad has a Notes list in its room; one of the Common pool has no room,
+    // so it keeps the link line.
+    if let Some(key) = conversation_notes::Key::of(target) {
+        line(
+            frame,
+            area,
+            y,
+            neutral(
+                format!(" {}", conversation_notes::chip(app.notes.summary(&key))),
+                look,
             ),
-            look,
-        ),
-    );
+        );
+    } else {
+        let link = conversation::link_preview(app, row, &app.workspace_bindings());
+        line(
+            frame,
+            area,
+            y,
+            neutral(
+                format!(
+                    " link {}",
+                    link.as_ref().map_or("—", |link| link.value.as_str())
+                ),
+                look,
+            ),
+        );
+    }
     blank(area, y);
 }
 

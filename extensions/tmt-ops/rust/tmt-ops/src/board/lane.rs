@@ -42,6 +42,8 @@ pub(super) enum Job {
     TokenWindow(String),
     ViewState(super::view_state::Writer),
     ReadMarkers(super::unread::publish::Writer),
+    /// Read the Notes summary of the conversation on screen.
+    Notes(super::conversation_notes::Task),
 }
 
 impl Job {
@@ -50,7 +52,11 @@ impl Job {
     pub fn shows_progress(&self) -> bool {
         !matches!(
             self,
-            Self::Recovery(_) | Self::TokenWindow(_) | Self::ViewState(_) | Self::ReadMarkers(_)
+            Self::Recovery(_)
+                | Self::TokenWindow(_)
+                | Self::ViewState(_)
+                | Self::ReadMarkers(_)
+                | Self::Notes(_)
         )
     }
 
@@ -60,6 +66,7 @@ impl Job {
             Self::Act(request) | Self::Send { request, .. } => request.progress(),
             Self::Jump { .. } => "Jumping…",
             Self::ReadMarkers(_) => "Saving read markers…",
+            Self::Notes(_) => "Reading the Notes…",
             Self::Recovery(_) => "Reading or applying the selected workspace snapshot…",
             Self::MemberSession(_) => "Loading session…",
             Self::Discovery(_) => "Scanning or binding the selected agent…",
@@ -77,6 +84,7 @@ impl Job {
 pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent {
     match job {
         Job::ReadMarkers(writer) => BoardEvent::ReadMarkersPublished(writer.publish(core)),
+        Job::Notes(task) => BoardEvent::NotesRead(super::conversation_notes::complete(core, task)),
         Job::Jump {
             member,
             seen,

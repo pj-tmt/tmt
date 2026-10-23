@@ -38,6 +38,7 @@ mod lane;
 mod limits;
 mod member_session;
 pub(crate) use limits::history::document as limits_history;
+mod conversation_notes;
 mod markdown;
 mod member_links;
 mod mentions;
@@ -232,6 +233,8 @@ pub(in crate::board) enum BoardEvent {
     /// A quiet cache publication; it owns no user action or progress notice.
     ViewStatePublished,
     ReadMarkersPublished(Result<crate::config::ReadMarkers, String>),
+    /// A conversation's Notes summary was read; it owns no user action or progress notice.
+    NotesRead(conversation_notes::Completed),
 }
 
 fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::background::ReplyFilter>) {
@@ -626,6 +629,10 @@ fn session(
         }
         if let Some(writer) = app.unread.writer.offer() {
             io(lane::Job::ReadMarkers(writer));
+        }
+        let shown = app.conversation_notes_key();
+        if let Some(task) = app.notes.offer(shown.as_ref(), now) {
+            io(lane::Job::Notes(task));
         }
         // The footer names a waiting reload, so a new one repaints.
         dirty |= app.expire_notice(now);
@@ -1071,6 +1078,11 @@ fn session(
                 Effect::None
             }
             Ok(BoardEvent::ViewStatePublished) => Effect::None,
+            Ok(BoardEvent::NotesRead(completed)) => {
+                app.notes.finished(completed, Instant::now());
+                dirty = true;
+                Effect::None
+            }
             Ok(BoardEvent::ReadMarkersPublished(result)) => {
                 app.finished_unread(result);
                 dirty = true;
@@ -1503,6 +1515,7 @@ pub fn run(
     app.popup = popup;
     app.view_layer = layer;
     app.reload = reload::Watch::start(now_ms);
+    app.notes = conversation_notes::State::reading();
     if let Some(resume) = resume {
         app.carry(resume);
         if app.notice.is_none() {

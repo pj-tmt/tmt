@@ -786,6 +786,8 @@ pub struct App {
     pub(super) references: super::inventory::Inventory,
     /// Lane jobs submitted whose events have not arrived.
     pub(super) in_flight: usize,
+    /// The Notes summaries of the conversations shown, read on the lane.
+    pub(in crate::board) notes: super::conversation_notes::State,
     /// Current-frame inline band, reserved by the row painter.
     pub(super) input_band: std::cell::Cell<Option<ratatui::layout::Rect>>,
     /// Current-frame editor geometry; cleared before paint and on resize.

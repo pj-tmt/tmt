@@ -285,6 +285,12 @@ projects its typed results/errors. The board consumes the same typed service dir
   and store see only the UUID. Every admission re-resolves the member: unknown is
   `CHECKLIST_MEMBER_UNAVAILABLE`, retired is readable and refuses writes. Admission to the
   room and the actor's authority are those of the room list. No Core schema or contract changes.
+- The board's Notes chip (`board/conversation_notes.rs`) is a read-only projection of a conversation
+  list, one per `(room, member)`: a lane job runs `Service::for_conversation(..).preview()` for
+  the member on screen (never per frame; the first read, then one per five seconds, a failed
+  one waits thirty) and keeps only the counts. An item with a `reference` is a link; one
+  without is a todo (open) or done (complete); archived items count nowhere. A Common-pool
+  member has no room and no list. Only the running board reads (`State::reading`).
 - A write queues behind another writer for at most five seconds; a spent budget is
   `CHECKLIST_STORAGE_ERROR` saying nothing was saved with the one retry, and a commit that
   timed out is `CHECKLIST_OUTCOME_UNKNOWN`. The implementation limits are 64 MiB per document
