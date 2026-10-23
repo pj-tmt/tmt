@@ -101,7 +101,8 @@ shadcn manner (code copied into our package, not a themed dependency).
 The one sticky row on every screen: TMT mark, product word and plain screen
 title on the left, without a default divider; status group, then light actions on
 the right. Use the same height, type and order across screens. Actions that do not fit overflow into More;
-status remains visible as mark plus word.
+status remains visible as mark plus word. A page whose hero is its heading (the Colab page
+list) draws no title in the header: the header keeps its accessible name, and the hero is the page's `h1`.
 
 - Colab owner pages and space home are the exception to the leading mark: neutral
   `◉ local · <backend name>` (`local` when absent), Colab, `/`, title and muted

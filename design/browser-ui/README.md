@@ -16,7 +16,7 @@ There is no root entry. `@tmt/browser-ui/static.css` exports checked
 [Shell](../gui-style.md#shell) model (`shellRail`, `describedMenu`, `shellCount`), its reader
 `loadShellAnswer` and the framework-free `mountShell` renderer, with Lucide icon data
 (`src/shell-icons.ts`, ISC, `src/LICENSE.lucide`); `@tmt/browser-ui/chart` exports the framework-free chart painters and their pure models ([Charts](../gui-style.md#charts)); `@tmt/browser-ui/react`
-exports `BrandMark`, `BrandLockup`, `BrowserShell` (with `useShellBar`, the header slot, and `useShellTools`, the bar's search and chip slots), `BrowserHeader` (`inShell` draws no brand and keeps the product in its accessible name), `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
+exports `BrandMark`, `BrandLockup`, `BrowserShell` (with `useShellBar`, the header slot, and `useShellTools`, the bar's search and chip slots), `BrowserHeader` (`inShell` draws no brand and keeps the product in its accessible name; `titleVisible={false}` draws no heading, for a page whose hero is its heading, and keeps `<product> · <title>` as the landmark's name), `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
 `BrowserToggle`, `BrowserCheckbox`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserDialog`, `BrowserMenu`, `BrowserTabs`, `BrowserNotifications`, `BrowserChips`, `BrowserChip` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
 lucide-react 1.52.0. React components use built-in icons for controls such as Drawer
 and Notifications dismissal; IconAction also accepts a caller-supplied icon.

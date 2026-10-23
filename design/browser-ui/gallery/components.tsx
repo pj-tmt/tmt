@@ -95,6 +95,36 @@ export function HeaderSection() {
         )}
       </Pair>
       <Pair
+        title="BrowserHeader, title hidden"
+        note="The page's hero names the page: no heading is drawn, the landmark keeps its name. First the default, then the hidden title."
+        stacked
+      >
+        {(theme) => (
+          <div className="gallery-stack">
+            {[true, false].map((titleVisible) => (
+              <BrowserHeader
+                key={String(titleVisible)}
+                productLabel="Colab"
+                title="Pages"
+                titleVisible={titleVisible}
+                inShell
+                captionId={`header-hidden-${theme}-${titleVisible}`}
+                status={<span>◆ 2 need you</span>}
+                actions={
+                  <BrowserIconAction
+                    type="button"
+                    variant="text"
+                    label="Settings"
+                    icon={<Settings />}
+                    onActivate={noop}
+                  />
+                }
+              />
+            ))}
+          </div>
+        )}
+      </Pair>
+      <Pair
         title="BrowserHeader, long title"
         note="A title longer than its room truncates; the suffix keeps its width."
         stacked
