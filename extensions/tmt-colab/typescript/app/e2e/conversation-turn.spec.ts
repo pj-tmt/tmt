@@ -28,6 +28,17 @@ const turning = (thread: Locator) =>
           }),
       ).size,
   );
+/** The dialog around `node` has finished sliding in: a box read mid-slide moves between two reads
+    of one test. Endless animations (the busy marks) are left to run. */
+const arrived = (node: Locator) =>
+  node.evaluate((element) =>
+    Promise.all(
+      (element.closest('dialog') ?? element)
+        .getAnimations({ subtree: true })
+        .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+        .map((animation) => animation.finished),
+    ),
+  );
 async function mount(page: Page, surface: 'thread' | 'chat', state = 'waiting') {
   await page.goto('/');
   await run(page, 'mount');
@@ -40,6 +51,7 @@ async function mount(page: Page, surface: 'thread' | 'chat', state = 'waiting') 
   } else {
     const toggle = await pageAction(host, 'Chat');
     await toggle.click();
+    await arrived(page.getByTestId('chat-panel'));
   }
 }
 async function annotate(page: Page) {
