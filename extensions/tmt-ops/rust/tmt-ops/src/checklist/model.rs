@@ -4,6 +4,12 @@ use super::{Code, Error};
 use crate::effects;
 use std::collections::BTreeSet;
 
+/// The stored document version: 2 adds who added and last changed each item. A version 1
+/// document still reads and is rewritten as version 2 by the first write.
+const VERSION: u64 = 2;
+/// Times are JSON numbers read by JavaScript clients, so they stay exact there.
+const MAX_SAFE_MS: u64 = (1 << 53) - 1;
+
 /// Canonical UUID text is the sole storage and reference identity.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Id(String);
@@ -124,6 +130,14 @@ pub enum Completion {
     Complete,
 }
 
+/// Who did something to an item and when: the admitted caller's identity UUID and the
+/// service's clock. A request carries neither, so no client can author one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stamp {
+    pub by: Id,
+    pub at_ms: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Item {
     pub id: Id,
@@ -132,6 +146,11 @@ pub struct Item {
     pub assignee: Option<Assignee>,
     pub completion: Completion,
     pub archived: bool,
+    /// `None` for an item stored before provenance was recorded (document version 1): unknown,
+    /// never guessed.
+    pub added: Option<Stamp>,
+    /// The last change that moved the item's revision; set when it is added too.
+    pub last_changed: Option<Stamp>,
 }
 
 /// Content-free identity protection, never an operation receipt.
@@ -326,6 +345,7 @@ pub(super) fn apply(
     document: &mut Option<Document>,
     request: &Request,
     assignee: Option<Assignee>,
+    stamp: &Stamp,
 ) -> Result<Outcome, Error> {
     request.validate()?;
     if let Action::Create {
@@ -367,6 +387,8 @@ pub(super) fn apply(
             assignee,
             completion: Completion::Open,
             archived: false,
+            added: Some(stamp.clone()),
+            last_changed: Some(stamp.clone()),
         };
         if let Some(d) = document {
             d.inventory_revision = next(d.inventory_revision)?;
@@ -502,6 +524,7 @@ pub(super) fn apply(
             let changed = before != *item;
             if changed {
                 item.revision = next(item.revision)?;
+                item.last_changed = Some(stamp.clone());
             }
             Ok(Outcome {
                 changed,
@@ -514,9 +537,11 @@ pub(super) fn apply(
 impl Document {
     pub(super) fn encode(&self) -> serde_json::Value {
         use serde_json::json;
-        let mut document = json!({"version":1,"roomId":self.room_id.as_str(),"checklistId":self.checklist_id.as_str(),"inventoryRevision":self.inventory_revision,
+        let mut document = json!({"version":VERSION,"roomId":self.room_id.as_str(),"checklistId":self.checklist_id.as_str(),"inventoryRevision":self.inventory_revision,
             "items":self.items.iter().map(|i| json!({"id":i.id.as_str(),"revision":i.revision,"title":i.content.title,"body":i.content.body,"reference":i.content.reference,
-                "assignee":i.assignee.as_ref().map(|a| json!({"id":a.id.as_str(),"label":a.label})),"completion":match i.completion { Completion::Open=>"open",Completion::Complete=>"complete" },"archived":i.archived})).collect::<Vec<_>>(),
+                "assignee":i.assignee.as_ref().map(|a| json!({"id":a.id.as_str(),"label":a.label})),"completion":match i.completion { Completion::Open=>"open",Completion::Complete=>"complete" },"archived":i.archived,
+                "addedBy":i.added.as_ref().map(|s| s.by.as_str()),"addedAtMs":i.added.as_ref().map(|s| s.at_ms),
+                "lastChangedBy":i.last_changed.as_ref().map(|s| s.by.as_str()),"lastChangedAtMs":i.last_changed.as_ref().map(|s| s.at_ms)})).collect::<Vec<_>>(),
             "deleted":self.deleted.iter().map(|d| json!({"roomId":self.room_id.as_str(),"checklistId":self.checklist_id.as_str(),"itemId":d.item_id.as_str(),"deletionRevision":d.deletion_revision})).collect::<Vec<_>>()});
         // A room list's bytes are unchanged: the field exists only on a conversation list.
         if let Some(member) = &self.member_id {
@@ -542,26 +567,30 @@ impl Document {
             expected.push("memberId");
         }
         keys(value, &expected)?;
-        if value["version"] != 1 {
-            return Err(Error::storage("Unsupported checklist storage version."));
-        }
+        // Version 1 predates provenance; it reads with every stamp unknown, and the first write
+        // stores version 2.
+        let version = match value["version"].as_u64() {
+            Some(version @ (1 | VERSION)) => version,
+            _ => return Err(Error::storage("Unsupported checklist storage version.")),
+        };
         let room_id = id(value, "roomId")?;
         let checklist_id = id(value, "checklistId")?;
         let mut items = Vec::new();
         for i in array(value, "items")? {
-            keys(
-                i,
-                &[
-                    "id",
-                    "revision",
-                    "title",
-                    "body",
-                    "reference",
-                    "assignee",
-                    "completion",
-                    "archived",
-                ],
-            )?;
+            let mut item_keys = vec![
+                "id",
+                "revision",
+                "title",
+                "body",
+                "reference",
+                "assignee",
+                "completion",
+                "archived",
+            ];
+            if version == VERSION {
+                item_keys.extend(["addedBy", "addedAtMs", "lastChangedBy", "lastChangedAtMs"]);
+            }
+            keys(i, &item_keys)?;
             let assignee = if i["assignee"].is_null() {
                 None
             } else {
@@ -588,6 +617,8 @@ impl Document {
                 archived: i["archived"]
                     .as_bool()
                     .ok_or_else(|| Error::storage("Invalid archive flag."))?,
+                added: stamp(i, "addedBy", "addedAtMs")?,
+                last_changed: stamp(i, "lastChangedBy", "lastChangedAtMs")?,
             });
         }
         let mut deleted = Vec::new();
@@ -676,6 +707,22 @@ fn id(value: &serde_json::Value, key: &str) -> Result<Id, Error> {
         return Err(Error::storage("Stored UUID is not canonical."));
     }
     Ok(id)
+}
+/// An author and a time stored together: both absent (unknown) or both present.
+fn stamp(value: &serde_json::Value, by: &str, at_ms: &str) -> Result<Option<Stamp>, Error> {
+    match (value[by].is_null(), value[at_ms].is_null()) {
+        (true, true) => Ok(None),
+        (false, false) => Ok(Some(Stamp {
+            by: id(value, by)?,
+            at_ms: value[at_ms]
+                .as_u64()
+                .filter(|ms| *ms <= MAX_SAFE_MS)
+                .ok_or_else(|| Error::storage(format!("Invalid {at_ms}.")))?,
+        })),
+        _ => Err(Error::storage(format!(
+            "{by} and {at_ms} are stored together."
+        ))),
+    }
 }
 fn positive(value: &serde_json::Value, key: &str) -> Result<u64, Error> {
     value[key]

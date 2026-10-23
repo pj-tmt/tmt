@@ -465,7 +465,11 @@ impl Service {
                 let (admission, assignee) =
                     self.admit(true, request.action.manager(), request.action.assignment())?;
                 let before = document.clone();
-                let mutation = model::apply(document, request, assignee);
+                let stamp = model::Stamp {
+                    by: self.actor_id.clone(),
+                    at_ms: crate::status::now_ms(),
+                };
+                let mutation = model::apply(document, request, assignee, &stamp);
                 // The list a create just made belongs to this conversation; an existing one
                 // was decoded as exactly this conversation's.
                 if let (Some(created), Some(member)) = (document.as_mut(), self.store.member_id()) {

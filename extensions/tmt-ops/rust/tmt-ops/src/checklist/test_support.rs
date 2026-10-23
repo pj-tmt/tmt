@@ -6,7 +6,7 @@ use std::{
 };
 
 pub(super) const USER: &str = "11111111-1111-4111-8111-111111111111";
-pub(super) const LEAD: &str = "22222222-2222-4222-8222-222222222222";
+pub(crate) const LEAD: &str = "22222222-2222-4222-8222-222222222222";
 pub(crate) const WORKER: &str = "33333333-3333-4333-8333-333333333333";
 pub(crate) const ROOM: &str = "44444444-4444-4444-8444-444444444444";
 pub(crate) const CHECKLIST: &str = "55555555-5555-4555-8555-555555555555";
@@ -14,6 +14,13 @@ pub(crate) const ITEM: &str = "66666666-6666-4666-8666-666666666666";
 pub(crate) const OTHER: &str = "77777777-7777-4777-8777-777777777777";
 pub(crate) fn id(text: &str) -> Id {
     Id::parse(text).unwrap()
+}
+/// The stamp every test write carries unless it needs two different ones.
+pub(super) fn stamp() -> model::Stamp {
+    model::Stamp {
+        by: id(LEAD),
+        at_ms: 1_000,
+    }
 }
 pub(super) fn create(
     item: &str,

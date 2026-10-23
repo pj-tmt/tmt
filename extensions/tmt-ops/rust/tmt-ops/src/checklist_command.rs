@@ -432,7 +432,9 @@ fn current(view: &Current) -> Value {
         json!({"id":item.id.as_str(),"revision":item.revision,"title":item.content.title,
             "body":item.content.body,"reference":item.content.reference,
             "assignee":item.assignee.as_ref().map(|assignee| json!({"id":assignee.id.as_str(),"label":view.assignee_label,"available":view.assignee_available})),
-            "completion":match item.completion { Completion::Open => "open", Completion::Complete => "complete" },"archived":item.archived})
+            "completion":match item.completion { Completion::Open => "open", Completion::Complete => "complete" },"archived":item.archived,
+            "addedBy":item.added.as_ref().map(|stamp| stamp.by.as_str()),"addedAtMs":item.added.as_ref().map(|stamp| stamp.at_ms),
+            "lastChangedBy":item.last_changed.as_ref().map(|stamp| stamp.by.as_str()),"lastChangedAtMs":item.last_changed.as_ref().map(|stamp| stamp.at_ms)})
     }).collect();
     let mut document = json!({"room":{"id":view.room.id.as_str(),"name":view.room.name,"available":view.room.available,"manager":view.room.manager},
         "checklistId":view.checklist_id.as_ref().map(Id::as_str),"inventoryRevision":view.inventory_revision,"items":items,

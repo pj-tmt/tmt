@@ -11,13 +11,29 @@ use std::{
 
 fn insert(store: &Store) -> Result<(), Error> {
     store.update(
-        |d| model::apply(d, &create(ITEM, InventoryExpectation::Absent, None), None).map(|_| ()),
+        |d| {
+            model::apply(
+                d,
+                &create(ITEM, InventoryExpectation::Absent, None),
+                None,
+                &stamp(),
+            )
+            .map(|_| ())
+        },
         || Ok(()),
     )
 }
 fn complete(store: &Store, item: &str, revision: u64) -> Result<(), Error> {
     store.update(
-        |d| model::apply(d, &mutate(item, revision, Mutation::Complete), None).map(|_| ()),
+        |d| {
+            model::apply(
+                d,
+                &mutate(item, revision, Mutation::Complete),
+                None,
+                &stamp(),
+            )
+            .map(|_| ())
+        },
         || Ok(()),
     )
 }
@@ -217,7 +233,7 @@ fn a_refused_publication_and_an_unacknowledged_commit_keep_their_bytes_and_their
     // The caller's own last check refuses: nothing is saved.
     let error = store
         .update(
-            |d| model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None).map(|_| ()),
+            |d| model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None, &stamp()).map(|_| ()),
             || Err(Error::new(Code::Forbidden, "privilege changed")),
         )
         .unwrap_err();
@@ -271,7 +287,7 @@ fn a_refused_publication_and_an_unacknowledged_commit_keep_their_bytes_and_their
     // A new operation succeeds afterwards.
     store
         .update(
-            |d| model::apply(d, &mutate(ITEM, 2, Mutation::Archive), None).map(|_| ()),
+            |d| model::apply(d, &mutate(ITEM, 2, Mutation::Archive), None, &stamp()).map(|_| ()),
             || Ok(()),
         )
         .unwrap();
@@ -289,6 +305,7 @@ fn competing_writes_queue_and_use_the_current_document() {
                     d,
                     &create(OTHER, InventoryExpectation::Revision(1), None),
                     None,
+                    &stamp(),
                 )
                 .map(|_| ())
             },
@@ -302,7 +319,7 @@ fn competing_writes_queue_and_use_the_current_document() {
         let store = Store::new(&root, id(ROOM), None, "ops").unwrap();
         store.update(
             |d| {
-                model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None)?;
+                model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None, &stamp())?;
                 locked_tx.send(()).unwrap();
                 release_rx.recv_timeout(Duration::from_secs(10)).unwrap();
                 Ok(())
@@ -318,7 +335,9 @@ fn competing_writes_queue_and_use_the_current_document() {
         let store = Store::new(&root, id(ROOM), None, "ops").unwrap();
         done_tx
             .send(store.update(
-                |d| model::apply(d, &mutate(ITEM, 1, Mutation::Archive), None).map(|_| ()),
+                |d| {
+                    model::apply(d, &mutate(ITEM, 1, Mutation::Archive), None, &stamp()).map(|_| ())
+                },
                 || Ok(()),
             ))
             .unwrap();
@@ -373,7 +392,7 @@ fn eight_parallel_edits_to_different_items_all_land() {
                     } else {
                         InventoryExpectation::Revision(n - 1)
                     };
-                    model::apply(d, &create(&id_text, inventory, None), None).map(|_| ())
+                    model::apply(d, &create(&id_text, inventory, None), None, &stamp()).map(|_| ())
                 },
                 || Ok(()),
             )
@@ -432,11 +451,47 @@ fn the_first_use_after_an_upgrade_imports_items_json_and_keeps_the_old_file_rena
     // The import carried the document's revisions: the next edit continues from them.
     store
         .update(
-            |d| model::apply(d, &mutate(ITEM, 2, Mutation::Archive), None).map(|_| ()),
+            |d| model::apply(d, &mutate(ITEM, 2, Mutation::Archive), None, &stamp()).map(|_| ()),
             || Ok(()),
         )
         .unwrap();
     assert_eq!(archived(&f), archive);
+}
+
+#[test]
+fn a_version_1_document_is_read_as_stored_and_the_first_write_stores_version_2() {
+    let f = Fixture::new();
+    let v1 = serde_json::json!({"version":1,"roomId":ROOM,"checklistId":CHECKLIST,"inventoryRevision":1,
+        "items":[{"id":ITEM,"revision":1,"title":"Before provenance","body":null,"reference":null,
+            "assignee":null,"completion":"open","archived":false}],"deleted":[]});
+    legacy_directory(&f);
+    let seeded = serde_json::to_vec(&v1).unwrap();
+    fs::write(f.directory().join("items.json"), &seeded).unwrap();
+    let store = store(&f);
+    // Reads decode it with every stamp unknown and write nothing.
+    let read = store.read().unwrap().unwrap();
+    assert_eq!(
+        (&read.items[0].added, &read.items[0].last_changed),
+        (&None, &None)
+    );
+    assert_eq!(f.bytes(), seeded);
+    // The first write is the migration: version 2, the old item unknown until it changes.
+    store
+        .update(
+            |d| model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None, &stamp()).map(|_| ()),
+            || Ok(()),
+        )
+        .unwrap();
+    let stored: serde_json::Value = serde_json::from_slice(&f.bytes()).unwrap();
+    assert_eq!(stored["version"], 2);
+    let item = &stored["items"][0];
+    assert_eq!(item["addedBy"], serde_json::Value::Null);
+    assert_eq!(item["lastChangedBy"], LEAD);
+    assert_eq!(item["lastChangedAtMs"], 1_000);
+    assert_eq!(
+        store.read().unwrap().unwrap().items[0].last_changed,
+        Some(stamp())
+    );
 }
 
 #[test]
@@ -453,7 +508,7 @@ fn a_corrupt_or_foreign_legacy_document_refuses_and_stays_where_it_is() {
                 |d| {
                     let mut request = create(ITEM, InventoryExpectation::Absent, None);
                     request.room_id = id(OTHER);
-                    model::apply(d, &request, None).map(|_| ())
+                    model::apply(d, &request, None, &stamp()).map(|_| ())
                 },
                 || Ok(()),
             )
