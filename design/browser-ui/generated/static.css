@@ -2850,6 +2850,43 @@ svg.tmt-ui-mark {
   padding: var(--tmt-ui-header-gap) 0 0;
 }
 
+.tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab-list {
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab {
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m);
+  border: var(--tmt-ui-rule-width) solid transparent;
+  border-radius: var(--tmt-ui-radius);
+}
+.tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab[aria-selected='true'] {
+  color: var(--tmt-ui-color-text);
+  background: var(--tmt-ui-surface-hover);
+  border-color: var(--tmt-ui-surface-rule);
+  font-weight: inherit;
+}
+.tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab:hover:not([aria-selected='true']) {
+  color: var(--tmt-ui-color-text);
+  background: var(--tmt-ui-surface-command);
+}
+.tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
+}
+.tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab-panel {
+  padding: var(--tmt-ui-header-gap) 0 0;
+}
+
+.tmt-ui-tab-count {
+  flex: 0 0 auto;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  font-weight: normal;
+}
+
 .tmt-ui-notifications {
   position: fixed;
   inset: calc(var(--tmt-ui-header-height) + var(--tmt-ui-space-s) + env(safe-area-inset-top))

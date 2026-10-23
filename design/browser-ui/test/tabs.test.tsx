@@ -61,7 +61,7 @@ it('lets the host opt panels into the Tab order', () => {
   expect(html.match(/tabindex="0"/g)).toHaveLength(3);
 });
 it('frames its panels by default and drops the frame for a flush strip', () => {
-  const render = (variant?: 'boxed' | 'flush') =>
+  const render = (variant?: 'boxed' | 'flush' | 'flat') =>
     renderToStaticMarkup(
       <BrowserTabs label="Views" tabs={tabs} selected="one" onSelect={() => {}} variant={variant}>
         {(tab) => tab.label}
@@ -69,4 +69,25 @@ it('frames its panels by default and drops the frame for a flush strip', () => {
     );
   expect(render()).toContain('data-variant="boxed"');
   expect(render('flush')).toContain('data-variant="flush"');
+  expect(render('flat')).toContain('data-variant="flat"');
+});
+it('draws a count after the label and names it, with the state word, in the accessible name', () => {
+  const counted: BrowserTab[] = [
+    { ...tabs[0]!, count: 6 },
+    { ...tabs[1]!, count: 120 },
+    { id: 'three', tabId: 'tab-three', panelId: 'panel-three', label: 'Done', count: 0 },
+    { id: 'four', tabId: 'tab-four', panelId: 'panel-four', label: 'Plain' },
+  ];
+  const html = renderToStaticMarkup(
+    <BrowserTabs label="Pages" tabs={counted} selected="one" onSelect={() => {}} variant="flat">
+      {(tab) => tab.label}
+    </BrowserTabs>,
+  );
+  expect(html).toContain('aria-label="✓ Layout, 6 · Answered"');
+  expect(html).toContain('aria-label="◆ Pages, 99+ · Waiting"');
+  expect(html).toContain('aria-label="Done, 0"');
+  expect(html).toContain('aria-label="Plain"');
+  // Counts are drawn, not announced twice; a tab without one draws none.
+  expect(html.match(/class="tmt-ui-tab-count" aria-hidden="true"/g)).toHaveLength(3);
+  expect(html).toContain('>99+</span>');
 });

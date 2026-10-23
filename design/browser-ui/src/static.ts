@@ -107,6 +107,7 @@ export const browserUiClasses = Object.freeze({
   tab: 'tmt-ui-tab',
   tabMark: 'tmt-ui-tab-mark',
   tabLabel: 'tmt-ui-tab-label',
+  tabCount: 'tmt-ui-tab-count',
   tabsStatus: 'tmt-ui-tabs-status',
   tabPanel: 'tmt-ui-tab-panel',
   section: 'tmt-ui-section',
@@ -139,6 +140,8 @@ export interface BrowserTab {
   tabId: string;
   panelId: string;
   label: string;
+  /** A small muted number after the label (`99+` above 99), such as how many pages a state holds. */
+  count?: number;
   state?: { mark: string; word: string; tone: BrowserNoticeTone };
 }
 export type BrowserTabSelectReason = 'keyboard' | 'activation';

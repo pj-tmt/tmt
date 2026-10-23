@@ -5,7 +5,12 @@ import {
   type MouseEvent,
   type ReactNode,
 } from 'react';
-import { browserUiClasses as c, type BrowserTab, type BrowserTabSelectReason } from './static.js';
+import {
+  browserUiClasses as c,
+  countText,
+  type BrowserTab,
+  type BrowserTabSelectReason,
+} from './static.js';
 export type { BrowserTab, BrowserTabSelectReason } from './static.js';
 export interface BrowserTabsProps {
   label: string;
@@ -18,10 +23,17 @@ export interface BrowserTabsProps {
   ): void;
   status?: ReactNode;
   /** `boxed` (default) frames the strip and its panels; `flush` is a strip with an underline over
-   * content that sits on the page, for a list a few views of one set share. */
-  variant?: 'boxed' | 'flush';
+   * content that sits on the page, for a list a few views of one set share; `flat` has no strip
+   * frame at all: each tab is its own pill and the selected one is filled and edged. */
+  variant?: 'boxed' | 'flush' | 'flat';
   panelTabIndex?: 0 | -1;
   children(tab: BrowserTab): ReactNode;
+}
+
+/** The tab's accessible name: its label, its count and its state word; colour alone says nothing. */
+function tabName(tab: BrowserTab): string {
+  const label = tab.count === undefined ? tab.label : `${tab.label}, ${countText(tab.count)}`;
+  return tab.state ? `${tab.state.mark} ${label} · ${tab.state.word}` : label;
 }
 
 /** Selection and panel lifetimes belong to the host. Every panel stays mounted. */
@@ -91,9 +103,7 @@ export function BrowserTabs({
               role="tab"
               aria-controls={tab.panelId}
               aria-selected={tab.id === selected}
-              aria-label={
-                tab.state ? `${tab.state.mark} ${tab.label} · ${tab.state.word}` : tab.label
-              }
+              aria-label={tabName(tab)}
               tabIndex={tab.id === selected ? 0 : -1}
               onKeyDown={(event) => key(event, index)}
               onClick={(event) => onSelect(tab.id, 'activation', event)}
@@ -106,6 +116,11 @@ export function BrowserTabs({
               <span className={c.tabLabel} aria-hidden="true">
                 {tab.label}
               </span>
+              {tab.count !== undefined && (
+                <span className={c.tabCount} aria-hidden="true">
+                  {countText(tab.count)}
+                </span>
+              )}
             </button>
           ))}
         </div>

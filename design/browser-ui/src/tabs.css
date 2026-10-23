@@ -142,3 +142,42 @@
 .tmt-ui-tabs[data-variant='flush'] .tmt-ui-tab-panel {
   padding: var(--tmt-ui-header-gap) 0 0;
 }
+
+/* Flat: no strip frame. Each tab is its own pill; the selected one is filled and fully edged in the
+   neutral rule, the others plain. The edge is the tab's own 1px, so focus recolours it. */
+.tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab-list {
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab {
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m);
+  border: var(--tmt-ui-rule-width) solid transparent;
+  border-radius: var(--tmt-ui-radius);
+}
+.tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab[aria-selected='true'] {
+  color: var(--tmt-ui-color-text);
+  background: var(--tmt-ui-surface-hover);
+  border-color: var(--tmt-ui-surface-rule);
+  font-weight: inherit;
+}
+.tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab:hover:not([aria-selected='true']) {
+  color: var(--tmt-ui-color-text);
+  background: var(--tmt-ui-surface-command);
+}
+.tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
+}
+.tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab-panel {
+  padding: var(--tmt-ui-header-gap) 0 0;
+}
+/* A count after a tab's label: small and muted, in every variant. */
+.tmt-ui-tab-count {
+  flex: 0 0 auto;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  font-weight: normal;
+}

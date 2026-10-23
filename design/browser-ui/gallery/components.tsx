@@ -567,10 +567,19 @@ const tabs: BrowserTab[] = [
   },
 ];
 
-function TabsDemo({ theme, variant }: { theme: Theme; variant: 'boxed' | 'flush' }) {
+function TabsDemo({
+  theme,
+  variant,
+  counts = false,
+}: {
+  theme: Theme;
+  variant: 'boxed' | 'flush' | 'flat';
+  counts?: boolean;
+}) {
   const [selected, setSelected] = useState('pages');
-  const scoped = tabs.map((tab) => ({
+  const scoped = tabs.map((tab, index) => ({
     ...tab,
+    ...(counts ? { count: [6, 1, 3][index] } : {}),
     tabId: `${variant}-${theme}-${tab.tabId}-tab`,
     panelId: `${variant}-${theme}-${tab.panelId}-panel`,
   }));
@@ -596,6 +605,9 @@ export function TabsSection() {
       </Pair>
       <Pair title="BrowserTabs · flush">
         {(theme) => <TabsDemo theme={theme} variant="flush" />}
+      </Pair>
+      <Pair title="BrowserTabs · flat, with counts">
+        {(theme) => <TabsDemo theme={theme} variant="flat" counts />}
       </Pair>
     </Section>
   );
