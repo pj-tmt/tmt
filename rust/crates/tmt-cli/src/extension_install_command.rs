@@ -49,7 +49,7 @@ use tmt_cli_style::{
 const CONSENT: &str = "EXTENSION_CONSENT_REQUIRED";
 
 // Historical products stay recognizable for receipt recovery and removal.
-const INSTALLABLE_EXTENSIONS: &[Product] = &[
+pub(crate) const INSTALLABLE_EXTENSIONS: &[Product] = &[
     Product::Ops,
     Product::Remote,
     Product::Colab,
@@ -73,16 +73,23 @@ pub(crate) fn require_installable(product: Product) -> Result<(), Failure> {
 
 /// Consent for one change to the user's installation.
 fn ask(yes: bool, mode: OutputMode, action: &str) -> Result<bool, Failure> {
-    ask_declining(yes, mode, action, "No changes made.")
+    ask_declining(yes, mode, action, "No changes made.", false)
 }
 
+/// `default_yes` makes Enter agree (`[Y/n]`), for the one question whose expected answer is yes.
 fn ask_declining(
     yes: bool,
     mode: OutputMode,
     action: &str,
     declined: &str,
+    default_yes: bool,
 ) -> Result<bool, Failure> {
-    consent::ask(
+    let ask = if default_yes {
+        consent::ask_defaulting_yes
+    } else {
+        consent::ask
+    };
+    ask(
         &mut tmt_cli_style::stream::stdout(mode.json),
         yes,
         mode,

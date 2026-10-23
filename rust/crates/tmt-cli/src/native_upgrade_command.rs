@@ -3,10 +3,12 @@
 mod database;
 mod extensions;
 mod rename;
+mod summary;
 
 use crate::{invocation::OutputMode, output::Failure};
 use serde_json::{Value, json};
 use std::{
+    collections::BTreeMap,
     error::Error,
     fs,
     io::{self, Write},
@@ -20,7 +22,7 @@ use tmt_adapters::{
     process::{CommandFailure, CommandRequest, CommandRunner, UnixCommandRunner},
     skill_installation::ProviderEnvironment,
 };
-use tmt_core::{native_install::Channel, skill_catalog::Group};
+use tmt_core::native_install::Channel;
 
 pub fn execute_with_schema_consent(
     channel: Option<Channel>,
@@ -47,8 +49,16 @@ pub fn execute_with_schema_consent(
             );
         }
     };
-    let ran_from_moved_prefix = std::env::current_exe()
-        .is_ok_and(|executable| native_install::in_moved_prefix(&executable));
+    let current = std::env::current_exe().ok();
+    let prior = Prior {
+        ran_from_moved_prefix: current
+            .as_deref()
+            .is_some_and(native_install::in_moved_prefix),
+        versions: current
+            .as_deref()
+            .map(installed_versions)
+            .unwrap_or_default(),
+    };
     let result = (|| {
         let executable = std::env::current_exe()?;
         native_install::upgrade_product_with_schema_consent(
@@ -90,7 +100,7 @@ pub fn execute_with_schema_consent(
     };
     if report.skipped_pinned {
         drop(interrupt);
-        return finish(&report, None, None, yes, ran_from_moved_prefix, None, mode);
+        return finish(&report, None, None, yes, &prior, None, mode);
     }
     if interrupt.is_interrupted() {
         return publish(
@@ -122,15 +132,35 @@ pub fn execute_with_schema_consent(
     let database = failure
         .is_none()
         .then(|| database::run(&report.installation.active_executable, &UnixCommandRunner));
-    finish(
-        &report,
-        skills,
-        failure,
-        yes,
-        ran_from_moved_prefix,
-        database,
-        mode,
-    )
+    finish(&report, skills, failure, yes, &prior, database, mode)
+}
+
+/// What the upgrade started from: where it ran and which versions were installed, for the
+/// table's `from → to`.
+struct Prior {
+    ran_from_moved_prefix: bool,
+    versions: BTreeMap<String, String>,
+}
+
+/// The installed version of the CLI and of every installed extension, by product name.
+fn installed_versions(executable: &Path) -> BTreeMap<String, String> {
+    let Some(prefix) = native_install::release_prefix(executable) else {
+        return BTreeMap::new();
+    };
+    std::iter::once(native_install::Product::Cli)
+        .chain(
+            crate::extension_install_command::INSTALLABLE_EXTENSIONS
+                .iter()
+                .copied(),
+        )
+        .filter_map(|product| {
+            let installed = native_install::inspect_product_prefix(product, prefix).ok()?;
+            Some((
+                product.as_str().to_owned(),
+                installed.state.version.to_string(),
+            ))
+        })
+        .collect()
 }
 
 fn finish(
@@ -138,7 +168,7 @@ fn finish(
     skills: Option<Value>,
     failure: Option<Failure>,
     yes: bool,
-    ran_from_moved_prefix: bool,
+    prior: &Prior,
     database: Option<Value>,
     mode: OutputMode,
 ) -> io::Result<u8> {
@@ -167,7 +197,7 @@ fn finish(
     };
     // The upgrade that moves the installation keeps the former prefix on
     // purpose; only a later one reports why it could not remove it.
-    let former_hint = if after_upgrade && ran_from_moved_prefix {
+    let former_hint = if after_upgrade && prior.ran_from_moved_prefix {
         native_install::retained_former_hint(&report.installation.active_executable)
     } else {
         None
@@ -200,6 +230,7 @@ fn finish(
             pane_rename: &rename_hints,
             named: &named_hints,
             database: database.as_ref(),
+            before: Some(&prior.versions),
         },
         mode,
     )
@@ -313,6 +344,8 @@ struct Notices<'a> {
     pane_rename: &'a [String],
     named: &'a [(&'a str, &'a str)],
     database: Option<&'a Value>,
+    /// Versions installed before the upgrade, by product name.
+    before: Option<&'a BTreeMap<String, String>>,
 }
 
 fn publish_products_with_hints(
@@ -327,6 +360,7 @@ fn publish_products_with_hints(
         pane_rename: rename_hints,
         named: named_hints,
         database,
+        before,
     } = notices;
     let failure = failure.map(|mut failure| {
         if let Some(report) = report {
@@ -371,59 +405,49 @@ fn publish_products_with_hints(
     if mode.json {
         writeln!(stdout, "{document}")?;
     } else {
-        if let Some(report) = report {
-            let what = format!(
-                "tmt {} at {}",
-                report.installation.version,
-                report.installation.executable.display()
-            );
-            if report.skipped_pinned {
-                writeln!(stdout, "Pinned {what}")?;
-            } else if report.installation.changed {
-                tmt_cli_style::message::success(&mut stdout, terminal, &format!("Updated {what}"))?;
-            } else {
-                writeln!(stdout, "Current {what}")?;
-            }
-            if !report.skipped_pinned
-                && let Some(refreshed) = document["skills"]["refreshed"].as_array()
-            {
-                let conflicts = document["skills"]["conflicts"]
-                    .as_array()
-                    .expect("validated skill report");
-                writeln!(stdout, "{}", skills_summary(&document["skills"]))?;
-                for target in conflicts {
-                    tmt_cli_style::message::hint(
-                        &mut stdout,
-                        terminal,
-                        &crate::skill_refresh_command::conflict_hint(Path::new(
+        let conflict_hints = document["skills"]["conflicts"]
+            .as_array()
+            .filter(|_| report.is_some_and(|report| !report.skipped_pinned))
+            .map(|conflicts| {
+                conflicts
+                    .iter()
+                    .map(|target| {
+                        crate::skill_refresh_command::conflict_hint(Path::new(
                             target.as_str().expect("validated skill path"),
-                        )),
-                    )?;
-                }
-                if !refreshed.is_empty() {
-                    tmt_cli_style::message::hint(
-                        &mut stdout,
-                        terminal,
-                        "reload or restart your agent to use updated guidance; existing conversations can read tmt learn --skill",
-                    )?;
-                }
-            }
-        }
-        if let Some(message) = document["skills"]["warning"]["message"].as_str() {
-            tmt_cli_style::message::warning(&mut stdout, terminal, message, None)?;
-        }
-        for product in products.iter().skip(1) {
-            write_extension_product(&mut stdout, terminal, product)?;
-        }
-        let database_hint = database.and_then(database::hint);
-        for hint in rename_hints
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let reload = report.is_some_and(|report| !report.skipped_pinned);
+        let required = rename_hints
             .iter()
-            .map(String::as_str)
-            .chain(named_hints.iter().map(|(_, hint)| *hint))
-            .chain(database_hint.as_deref())
-        {
-            tmt_cli_style::message::hint(&mut stdout, terminal, hint)?;
-        }
+            .cloned()
+            .chain(database.and_then(database::hint))
+            .collect::<Vec<_>>();
+        let optional = named_hints
+            .iter()
+            .map(|(_, hint)| *hint)
+            .collect::<Vec<_>>();
+        summary::write(
+            &mut stdout,
+            terminal,
+            &summary::Account {
+                products: &products,
+                has_report: report.is_some(),
+                skipped_pinned: report.is_some_and(|report| report.skipped_pinned),
+                before,
+                skills: &document["skills"],
+                followups: summary::Followups {
+                    required: &required,
+                    optional: &optional,
+                    conflict_hints,
+                    reload_hint: reload.then_some(
+                        "reload or restart your agent to use updated guidance; existing conversations can read tmt learn --skill",
+                    ),
+                },
+            },
+        )?;
         if let Some(warning) = warning {
             drop(stdout);
             let mut stderr = tmt_cli_style::stream::stderr();
@@ -435,61 +459,6 @@ fn publish_products_with_hints(
         }
     }
     Ok(failure.map_or(u8::from(extension_failed), |failure| failure.status))
-}
-
-fn write_extension_product(
-    stdout: &mut impl Write,
-    terminal: tmt_cli_style::Terminal,
-    product: &Value,
-) -> io::Result<()> {
-    if let Some(message) = product["message"].as_str() {
-        writeln!(stdout, "{message}")?;
-    } else {
-        writeln!(
-            stdout,
-            "{}: {}{}",
-            product["product"].as_str().unwrap_or("extension"),
-            product["status"].as_str().unwrap_or("failed"),
-            product["version"]
-                .as_str()
-                .map(|v| format!(" ({v})"))
-                .unwrap_or_default()
-        )?;
-    }
-    if product["message"].is_null()
-        && let Some(hint) = product["hint"].as_str()
-    {
-        tmt_cli_style::message::hint(stdout, terminal, hint)?;
-    }
-    if product["status"] == "failed" {
-        writeln!(
-            stdout,
-            "{}: {}",
-            product["error"]["code"]
-                .as_str()
-                .unwrap_or("EXTENSION_UPGRADE_FAILED"),
-            product["error"]["message"]
-                .as_str()
-                .unwrap_or("Extension update failed")
-        )?;
-    }
-    if let Some(skills) = product["details"].get("skills") {
-        writeln!(
-            stdout,
-            "Agent skills: {} published",
-            skills["published"].as_array().map_or(0, Vec::len)
-        )?;
-        if let Some(message) = skills["warning"]["message"].as_str() {
-            tmt_cli_style::message::warning(stdout, terminal, message, None)?;
-        }
-    }
-    if let Some(hint) = product["details"]["restartHint"]
-        .as_str()
-        .or_else(|| product["error"]["suggestion"].as_str())
-    {
-        tmt_cli_style::message::hint(stdout, terminal, hint)?;
-    }
-    Ok(())
 }
 
 fn failure_document(failure: &Failure) -> Value {
@@ -555,39 +524,6 @@ fn retry_hint(report: &UpgradeReport) -> String {
     }
 }
 
-/// The plain-text skills line. Only core's own skills that went missing are
-/// worth the user's attention: a skill of an extension that is frozen or not
-/// installed is not a fault, and the JSON report keeps every skipped path.
-fn skills_summary(skills: &Value) -> String {
-    let core = |target: &Value| {
-        target
-            .as_str()
-            .and_then(|target| Path::new(target).file_name())
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| {
-                tmt_core::skill_catalog::BUNDLED
-                    .iter()
-                    .any(|skill| skill.name == name && skill.group == Group::Core)
-            })
-    };
-    let missing = skills["skipped"]
-        .as_array()
-        .map_or(0, |skipped| skipped.iter().filter(|t| core(t)).count());
-    let mut line = format!(
-        "Managed skills: {} current/refreshed",
-        skills["refreshed"].as_array().map_or(0, Vec::len)
-    );
-    if missing > 0 {
-        line.push_str(&format!(", {missing} missing"));
-    }
-    let conflicts = skills["conflicts"].as_array().map_or(0, Vec::len);
-    if conflicts > 0 {
-        line.push_str(&format!(", {conflicts} conflicts preserved"));
-    }
-    line.push('.');
-    line
-}
-
 #[cfg(test)]
 #[path = "native_upgrade_command_tests.rs"]
 mod tests;
@@ -605,10 +541,6 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         "reload or restart your agent to use updated guidance; existing conversations can read tmt learn --skill",
         &[""],
         &[],
-    ),
-    crate::cli_style_tests::HintSpec::skipped(
-        "tmt {} at {}",
-        "Installed-executable summary, not a command suggestion.",
     ),
 ];
 
