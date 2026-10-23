@@ -667,8 +667,10 @@ Colab renders authenticated proposals as parent-owned cards: title, body,
 proposing agent and Approve / Decline / Follow up / Resolve actions. Approve is
 the emphasized decision; Resolve is muted. Follow up opens a composer inside
 the card. Resolved proposals fold to a plain one-line row with a resolved mark,
-retained-history disclosure and Reopen. Comments offers `Proposals only`; its
-header count combines unresolved ordinary threads and undecided unresolved
+retained-history disclosure and Reopen. Comments lists the page's threads in
+views `Open`, `Needs you` and `Resolved` (and `Proposals` when the page has one)
+as rows of number, title, quoted passage and `N comments · state`, with an
+empty state per view; its header count combines unresolved ordinary threads and undecided unresolved
 proposals.
 
 The [Colab proposal contract](../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)

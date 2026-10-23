@@ -5,13 +5,14 @@ import { Check, ChevronUp, CircleCheck, CircleDot, RotateCcw, X } from 'lucide-r
 import {
   BrowserAction,
   BrowserIconAction,
-  BrowserToggle,
+  BrowserTabs,
+  type BrowserTab,
   BusyMark,
   busyMarkDelayMs,
   busyMarkHoldMs,
   useBusyMark,
 } from '@tmt/browser-ui/react';
-import { AgentChip, AgentList } from './components/agent-chip.js';
+import { AgentList } from './components/agent-chip.js';
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import { captureConversation, conversationAsks } from './thread-store.js';
@@ -21,7 +22,7 @@ import { threadNotificationDestination } from './reply-notification-context.js';
 import { MarkdownText } from './components/markdown-text.js';
 import { EchoAttachments, MessageAttachments } from './message-attachments.js';
 import { ConversationTurn } from './components/conversation-turn.js';
-import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { AskPanel, type AskRetryInput, type AskBinding, type PageAsk } from './ask-panel.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import type { ThreadBinding } from './thread-store.js';
@@ -34,7 +35,6 @@ import {
   type MessageEcho,
   type MessageEchoHost,
 } from './message-echo.js';
-import { relativeTime } from './display-time.js';
 import { AnnotationInput, ArchivedDraft } from './annotation-input.js';
 import {
   presentationOf,
@@ -835,6 +835,8 @@ export function ThreadWindow({
   );
 }
 
+type CommentsView = 'open' | 'needs' | 'resolved' | 'proposals';
+
 export function ThreadPanel({
   numbers: suppliedNumbers,
   creationRecipient,
@@ -886,11 +888,53 @@ export function ThreadPanel({
 }) {
   const numbers = suppliedNumbers ?? threadNumbers(threads);
   const [compose, setCompose] = useState(false);
-  const [proposalsOnly, setProposalsOnly] = useState(false);
+  const [view, setView] = useState<CommentsView>('open');
   const [pending, setPending] = useState<Record<string, boolean>>({});
-  const visibleThreads = threads.filter((thread) => !proposalsOnly || !!thread.proposal);
-  const [now, setNow] = useState(0);
-  useEffect(() => setNow(Date.now()), [threads, asks]);
+  const scope = useId();
+  const hasProposals =
+    !!renderProposal && threads.some((thread) => thread.proposal && !thread.deleted);
+  const shownView = view === 'proposals' && !hasProposals ? 'open' : view;
+  const rows = threads.map((thread) => {
+    const id = `${thread.ref.writer}:${thread.threadId}`;
+    const status = presentationOf(presentations, thread.ref)?.status;
+    // A status change shows in the row in the same frame as in its window.
+    const shownResolved = pending[id] ?? thread.resolved;
+    // Waiting for the person: a proposal with no decision, or news they have not seen.
+    const needsYou =
+      !shownResolved &&
+      !thread.deleted &&
+      ((!!thread.proposal && (!thread.decision || thread.decision.deleted)) || !!status?.unseen);
+    return { thread, id, status, shownResolved, needsYou };
+  });
+  const matches = (row: (typeof rows)[number]) =>
+    row.id === active ||
+    (shownView === 'open'
+      ? !row.shownResolved
+      : shownView === 'needs'
+        ? row.needsYou
+        : shownView === 'resolved'
+          ? row.shownResolved
+          : !!row.thread.proposal);
+  const visibleRows = rows.filter(matches);
+  const tab = (id: CommentsView, label: string, state?: BrowserTab['state']): BrowserTab => ({
+    id,
+    tabId: `${scope}-tab-${id}`,
+    panelId: `${scope}-panel-${id}`,
+    label,
+    ...(state ? { state } : {}),
+  });
+  // News in a resolved thread is not in the Open view; its tab says so.
+  const resolvedNews = rows.some((row) => row.shownResolved && row.status?.unseen);
+  const tabs = [
+    tab('open', text.commentsViewOpen),
+    tab('needs', text.needsYouWord),
+    tab(
+      'resolved',
+      text.threadResolved,
+      resolvedNews ? { mark: '●', tone: 'waiting', word: text.threadUnseen } : undefined,
+    ),
+    ...(hasProposals ? [tab('proposals', text.commentsViewProposals)] : []),
+  ];
   return (
     <aside className="comments-panel" aria-label={text.comments} data-testid="comments-panel">
       {!hideHeader && (
@@ -899,193 +943,181 @@ export function ThreadPanel({
           <span>{threads.filter((value) => !value.deleted).length}</span>
         </header>
       )}
-      <div className="comments-controls">
-        {renderProposal && (
-          <BrowserToggle
-            label={text.proposalsOnly}
-            pressed={proposalsOnly}
-            onActivate={(event) => {
-              if (event.isTrusted) setProposalsOnly((previous) => !previous);
-            }}
-          />
-        )}
-        {!archived && (
-          <BrowserAction
-            type="button"
-            variant="text"
-            label={`+ ${text.commentPage}`}
-            disabled={!binding || blocked || compose}
-            onActivate={(event) => {
-              if (event.isTrusted) setCompose(true);
-            }}
-          />
-        )}
-      </div>
-      {compose && binding && (
-        <Composer
-          label={text.commentPost}
-          submit={async (body) => {
-            const context = await binding.create(body, null);
-            select(context.thread);
-          }}
-          cancel={() => setCompose(false)}
-          blocked={blocked}
-          archived={archived}
-        />
-      )}
-      {!visibleThreads.length && (
-        <p className="comment-status">{proposalsOnly ? text.proposalsEmpty : text.commentEmpty}</p>
-      )}
-      <div className="annotation-list">
-        {visibleThreads.map((thread) => {
-          const id = `${thread.ref.writer}:${thread.threadId}`;
-          const agentNames = new Set([
-            ...(thread.proposal ? [thread.proposal.proposer.label] : []),
-            ...asks.filter((value) => value.thread === thread.threadId).map((v) => v.agentName),
-          ]);
-          const participants = [
-            ...new Set([
-              thread.proposal?.proposer.label || thread.deviceName || text.commentDevice,
-              ...thread.comments
-                .filter((value) => !value.deleted)
-                .map((value) => value.deviceName || text.commentDevice),
-              ...agentNames,
-            ]),
-          ];
-          const at = Number(thread.comments.at(-1)?.at ?? thread.at);
-          const status = presentationOf(presentations, thread.ref)?.status;
-          // A status change shows in the row in the same frame as in its window.
-          const isPending = pending[id] !== undefined;
-          const shownResolved = pending[id] ?? thread.resolved;
-          return (
-            <section
-              className="annotation-list-item"
-              data-resolved={shownResolved || undefined}
-              key={id}
-            >
-              <div className="annotation-row-controls">
-                <button
-                  className="annotation-row"
-                  data-testid="annotation-row"
-                  data-thread-id={thread.threadId}
-                  data-resolved={shownResolved || undefined}
-                  title={Array.from(
-                    (
-                      thread.comments.find(
-                        (value) => !value.deleted && value.ref.writer === thread.ref.writer,
-                      ) ?? thread.comments.find((value) => !value.deleted)
-                    )?.body.split('\n')[0] ?? '',
-                  )
-                    .slice(0, 32)
-                    .join('')}
-                  aria-expanded={active === id}
-                  onClick={(event) => {
-                    if (event.isTrusted)
-                      select(thread.proposal && active === id ? null : thread.ref);
-                  }}
-                >
-                  <strong>
-                    {numbers.get(id) !== undefined && (
-                      <span className="annotation-number">{numbers.get(id)}</span>
-                    )}
-                    {thread.deleted
-                      ? text.threadDeleted
-                      : (thread.proposal?.title ?? thread.anchor?.exact ?? 'Page comments')}
-                  </strong>
-                  <span>
-                    {participants.map((name, index) => (
-                      <Fragment key={name}>
-                        {index > 0 && ', '}
-                        {agentNames.has(name) ? <AgentChip name={name} /> : name}
-                      </Fragment>
-                    ))}{' '}
-                    · <time dateTime={new Date(at).toISOString()}>{relativeTime(at, now)}</time>
-                  </span>
-                  <span data-testid="thread-row-status" data-unseen={status?.unseen || undefined}>
-                    {shownResolved ? (
-                      <CircleCheck aria-hidden />
-                    ) : thread.proposal && thread.decision ? (
-                      thread.decision.decision === 'approved' ? (
-                        <Check aria-hidden />
-                      ) : (
-                        <X aria-hidden />
-                      )
-                    ) : (
-                      <CircleDot aria-hidden />
-                    )}
-                    {thread.proposal ? `${text.proposalOpen} · ` : ''}
-                    {shownResolved
-                      ? isPending
-                        ? text.threadResolved
-                        : resolvedLabel(status)
-                      : thread.proposal && thread.decision
-                        ? thread.decision.decision === 'approved'
-                          ? text.proposalApproved
-                          : text.proposalDeclined
-                        : text.threadOpen}
-                    {status?.unseen ? ` · ${text.threadUnseen}` : ''}
-                    {thread.anchor && !shownResolved && !resolved.includes(id)
-                      ? ` · ${text.commentDetached}`
-                      : ''}
-                  </span>
-                </button>
-                {!archived &&
-                  thread.proposal &&
-                  thread.resolved &&
-                  status?.controllable &&
-                  reopenProposal && (
-                    <span className="proposal-row-reopen">
-                      <BrowserAction
-                        type="button"
-                        variant="text"
-                        label={text.threadReopen}
-                        disabled={blocked}
-                        onActivate={(event) => {
-                          if (event.isTrusted) reopenProposal(thread);
-                        }}
-                      />
-                    </span>
-                  )}
-              </div>
-              {active === id &&
-                (thread.proposal ? (
-                  renderProposal?.(thread)
-                ) : (
-                  <ThreadWindow
-                    connectionPresentation={connectionPresentation}
-                    archived={archived}
-                    creationRecipient={creationRecipient}
-                    thread={thread}
-                    number={numbers.get(id)}
-                    attached={resolved.includes(id)}
-                    anchorsChecked={anchorsChecked}
-                    selection={selection}
-                    binding={binding}
-                    ask={ask}
-                    asks={asks}
-                    title={title}
-                    close={() => select(null)}
-                    blocked={blocked}
-                    initialEdit={draft?.(thread.ref)}
-                    onDraft={(edit) => onDraft?.(thread.ref, edit)}
-                    onBusy={onBusy}
-                    status={status}
-                    onStatusChange={
-                      onStatusChange && ((resolved) => onStatusChange(thread, resolved))
-                    }
-                    pendingResolved={pending[id]}
-                    onPendingResolved={(value) =>
-                      setPending((previous) => {
-                        const { [id]: _, ...rest } = previous;
-                        return value === undefined ? rest : { ...rest, [id]: value };
-                      })
-                    }
+      <BrowserTabs
+        label={text.commentsViews}
+        variant="flat"
+        wrap
+        tabs={tabs}
+        selected={shownView}
+        onSelect={(id) => setView(id as CommentsView)}
+      >
+        {(current) =>
+          current.id !== shownView ? null : (
+            <>
+              {!archived && (
+                <div className="comments-add">
+                  <BrowserAction
+                    type="button"
+                    variant="text"
+                    label={`+ ${text.commentPage}`}
+                    disabled={!binding || blocked || compose}
+                    onActivate={(event) => {
+                      if (event.isTrusted) setCompose(true);
+                    }}
                   />
-                ))}
-            </section>
-          );
-        })}
-      </div>
+                </div>
+              )}
+              {compose && binding && (
+                <Composer
+                  label={text.commentPost}
+                  submit={async (body) => {
+                    const context = await binding.create(body, null);
+                    select(context.thread);
+                  }}
+                  cancel={() => setCompose(false)}
+                  blocked={blocked}
+                  archived={archived}
+                />
+              )}
+              {!visibleRows.length && (
+                <div className="comments-empty" data-testid="comments-empty">
+                  <Check aria-hidden />
+                  <h3>{threads.length ? text.commentsEmptyTitle : text.commentsEmptyNone}</h3>
+                  <p>
+                    {!threads.length
+                      ? text.commentsEmptyNoneHint
+                      : shownView === 'resolved'
+                        ? text.commentsEmptyResolved
+                        : text.commentsEmptyCaughtUp}
+                  </p>
+                </div>
+              )}
+              <div className="annotation-list">
+                {visibleRows.map(({ thread, id, status, shownResolved, needsYou }) => {
+                  const isPending = pending[id] !== undefined;
+                  const count = thread.comments.filter((value) => !value.deleted).length;
+                  const first =
+                    thread.comments.find(
+                      (value) => !value.deleted && value.ref.writer === thread.ref.writer,
+                    ) ?? thread.comments.find((value) => !value.deleted);
+                  const rowTitle = thread.deleted
+                    ? text.threadDeleted
+                    : (thread.proposal?.title ?? first?.body.split('\n')[0] ?? text.pageComments);
+                  const quote = thread.proposal
+                    ? `${text.proposalOpen} · ${thread.proposal.proposer.label}`
+                    : thread.anchor?.exact;
+                  const state = [
+                    ...(shownResolved
+                      ? [isPending ? text.threadResolved : resolvedLabel(status)]
+                      : thread.proposal && thread.decision && !thread.decision.deleted
+                        ? [
+                            thread.decision.decision === 'approved'
+                              ? text.proposalApproved
+                              : text.proposalDeclined,
+                          ]
+                        : []),
+                    ...(needsYou ? [text.needsYouWord] : []),
+                    ...(shownResolved && status?.unseen ? [text.threadUnseen] : []),
+                    ...(thread.anchor && !shownResolved && !resolved.includes(id)
+                      ? [text.commentDetached]
+                      : []),
+                  ];
+                  return (
+                    <section
+                      className="annotation-list-item"
+                      data-resolved={shownResolved || undefined}
+                      key={id}
+                    >
+                      <div className="annotation-row-controls">
+                        <button
+                          className="annotation-row"
+                          data-testid="annotation-row"
+                          data-thread-id={thread.threadId}
+                          data-resolved={shownResolved || undefined}
+                          title={Array.from(first?.body.split('\n')[0] ?? '')
+                            .slice(0, 32)
+                            .join('')}
+                          aria-expanded={active === id}
+                          onClick={(event) => {
+                            if (event.isTrusted)
+                              select(thread.proposal && active === id ? null : thread.ref);
+                          }}
+                        >
+                          {numbers.get(id) !== undefined && (
+                            <span className="annotation-number">{numbers.get(id)}</span>
+                          )}
+                          <span className="annotation-row-text">
+                            <strong>{rowTitle}</strong>
+                            {quote && <span className="annotation-row-quote">{quote}</span>}
+                            <small
+                              data-testid="thread-row-status"
+                              data-unseen={status?.unseen || undefined}
+                            >
+                              {[...(count ? [text.commentCount(count)] : []), ...state].join(' · ')}
+                            </small>
+                          </span>
+                        </button>
+                        {!archived &&
+                          thread.proposal &&
+                          thread.resolved &&
+                          status?.controllable &&
+                          reopenProposal && (
+                            <span className="proposal-row-reopen">
+                              <BrowserAction
+                                type="button"
+                                variant="text"
+                                label={text.threadReopen}
+                                disabled={blocked}
+                                onActivate={(event) => {
+                                  if (event.isTrusted) reopenProposal(thread);
+                                }}
+                              />
+                            </span>
+                          )}
+                      </div>
+                      {active === id &&
+                        (thread.proposal ? (
+                          renderProposal?.(thread)
+                        ) : (
+                          <ThreadWindow
+                            connectionPresentation={connectionPresentation}
+                            archived={archived}
+                            creationRecipient={creationRecipient}
+                            thread={thread}
+                            number={numbers.get(id)}
+                            attached={resolved.includes(id)}
+                            anchorsChecked={anchorsChecked}
+                            selection={selection}
+                            binding={binding}
+                            ask={ask}
+                            asks={asks}
+                            title={title}
+                            close={() => select(null)}
+                            blocked={blocked}
+                            initialEdit={draft?.(thread.ref)}
+                            onDraft={(edit) => onDraft?.(thread.ref, edit)}
+                            onBusy={onBusy}
+                            status={status}
+                            onStatusChange={
+                              onStatusChange && ((resolved) => onStatusChange(thread, resolved))
+                            }
+                            pendingResolved={pending[id]}
+                            onPendingResolved={(value) =>
+                              setPending((previous) => {
+                                const { [id]: _, ...rest } = previous;
+                                return value === undefined ? rest : { ...rest, [id]: value };
+                              })
+                            }
+                          />
+                        ))}
+                    </section>
+                  );
+                })}
+              </div>
+            </>
+          )
+        }
+      </BrowserTabs>
     </aside>
   );
 }

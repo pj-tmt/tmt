@@ -824,13 +824,14 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   left: 100%;
 }
 
+/* The website's row: number bubble, then title, quoted passage and a small line. */
 .annotation-row {
   display: flex;
-  flex-direction: column;
-  gap: 5px;
+  align-items: flex-start;
+  gap: 8px;
   width: 100%;
   margin: 0;
-  padding: 14px 0;
+  padding: 18px 0;
   border: 0;
   border-bottom: 1px solid var(--c-rule);
   background: transparent;
@@ -838,14 +839,29 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   text-align: left;
   box-shadow: none;
 }
+.annotation-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
 .annotation-row strong {
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+  font-weight: 500;
 }
-/* The muted meta line is not the number badge, which keeps its own one specification. */
-.annotation-row span:where(:not(.annotation-number)),
+.annotation-row-quote {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+.annotation-row-quote,
+.annotation-row small,
 .annotation-hint {
   color: var(--c-muted);
   font-size: 12px;
@@ -858,19 +874,9 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   font-size: 12px;
 }
 .annotation-row .annotation-number {
-  margin-inline-end: 8px;
+  margin-top: 1px;
 }
-.annotation-row [data-testid='thread-row-status'] {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.annotation-row [data-testid='thread-row-status'] svg {
-  width: 14px;
-  height: 14px;
-  flex: none;
-}
-.annotation-row [data-testid='thread-row-status'][data-unseen] {
+.annotation-row small[data-unseen] {
   color: var(--c-text);
   font-weight: 600;
 }
@@ -1556,12 +1562,37 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   color: var(--c-muted);
 }
 
-.comments-controls {
+/* The add action ends under the view strip, at its right edge, with the list right below. */
+.comments-add {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
+  justify-content: flex-end;
+}
+.comments-add > .tmt-ui-action[data-variant='text'] {
+  padding-inline: 0;
+}
+.comments-panel .annotation-list-item:first-child .annotation-row {
+  padding-top: 10px;
+}
+.comments-empty {
+  padding: 40px 10px;
+  text-align: center;
+  color: var(--c-muted);
+}
+.comments-empty > svg {
+  width: 25px;
+  height: 25px;
+  margin: 0 auto 14px;
+  color: var(--tmt-ui-color-accent);
+}
+.comments-empty h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+.comments-empty p {
+  margin: 9px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
 }
 .proposal-card[data-resolved] header {
   flex-wrap: nowrap;
@@ -1602,9 +1633,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   min-width: 0;
 }
 .annotation-row[data-resolved] strong {
-  display: block;
-  overflow: visible;
-  overflow-wrap: anywhere;
   color: var(--c-muted);
 }
 .proposal-row-reopen {

@@ -33,14 +33,14 @@ test('resolving hides the margin marker, Reopen restores it, and each click writ
 }) => {
   const { markers, row, status } = await open(page);
   await expect(markers).toHaveCount(1);
-  await expect(status).toHaveText('Open');
+  await expect(status).toHaveText('1 comment');
   await row.click();
   const thread = page.getByTestId('comment-thread');
   await thread.getByRole('button', { name: 'Resolve', exact: true }).click();
   await expect(thread.getByRole('button', { name: 'Reopen', exact: true })).toBeEnabled();
   await expect(markers).toHaveCount(0);
   await expect(thread).toHaveAttribute('data-anchor', 'resolved');
-  await expect(status).toHaveText('Resolved by You');
+  await expect(status).toHaveText('1 comment · Resolved by You');
   await expect(thread.getByText('Detached')).toHaveCount(0);
   expect(await statusActions(page)).toEqual(['status:resolve']);
   await thread.getByRole('button', { name: 'Reopen', exact: true }).click();
@@ -54,11 +54,14 @@ test('an agent resolution stays unseen until the person opens the thread', async
   await run(page, 'agentResolves');
   await expect(markers).toHaveCount(0);
   await expect(toggle).toHaveAccessibleName(/New/);
-  await expect(status).toHaveText('Resolved by Atlas · New');
+  // The thread left the Open view; the Resolved tab carries the news.
+  await expect(page.getByRole('tab', { name: 'Open', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: '● Resolved · New', exact: true }).click();
+  await expect(status).toHaveText('1 comment · Resolved by Atlas · New');
   // Rendering and the open panel never acknowledge it.
   expect(await run(page, 'seenProof')).toBe(0);
   await row.click();
-  await expect(status).toHaveText('Resolved by Atlas');
+  await expect(status).toHaveText('1 comment · Resolved by Atlas');
   await expect(toggle).not.toHaveAccessibleName(/New/);
   expect(await run(page, 'seenProof')).toBe(1);
   await expect(page.getByTestId('comment-thread')).toHaveAttribute('data-anchor', 'resolved');
@@ -104,7 +107,7 @@ test('Resolve shows the resolved thread in the click frame, and the record takes
   await row.click();
   const thread = page.getByTestId('comment-thread');
   await expect(thread.getByTestId('comment-entry').first()).toBeVisible();
-  await expect(status).toHaveText('Open');
+  await expect(status).toHaveText('1 comment');
   await capture(page, 'open');
   const open_ = await box(thread);
   await run(page, 'holdStatusOnce');
@@ -114,7 +117,7 @@ test('Resolve shows the resolved thread in the click frame, and the record takes
   await expect(thread.getByTestId('comment-entry').first()).toBeHidden();
   await expect(thread.getByText('Resolved', { exact: true })).toBeVisible();
   // The Comments list row shows the same state in the same frame.
-  await expect(status).toHaveText('Resolved');
+  await expect(status).toHaveText('1 comment · Resolved');
   await expect(row).toHaveAttribute('data-resolved', 'true');
   await capture(page, 'click-frame');
   const echoed = await box(thread);
@@ -123,7 +126,7 @@ test('Resolve shows the resolved thread in the click frame, and the record takes
   await run(page, 'releaseStatus');
   await expect(thread).toHaveAttribute('data-anchor', 'resolved');
   await expect(thread.locator('.resolved-summary')).toBeVisible();
-  await expect(status).toHaveText('Resolved by You');
+  await expect(status).toHaveText('1 comment · Resolved by You');
   // Focus stays on the control, which now offers Reopen.
   await expect(thread.getByRole('button', { name: 'Reopen', exact: true })).toBeFocused();
   const verified = await box(thread);
@@ -150,7 +153,7 @@ test('a Resolve that fails restores the open thread, reports at once and keeps f
     fixture,
   );
   await expect(thread.locator('.resolved-summary')).toHaveCount(0);
-  await expect(status).toHaveText('Open');
+  await expect(status).toHaveText('1 comment');
   await expect(row).not.toHaveAttribute('data-resolved');
   await expect(thread.getByRole('alert')).toBeVisible();
   await expect(thread.getByRole('button', { name: 'Resolve', exact: true })).toBeFocused();
