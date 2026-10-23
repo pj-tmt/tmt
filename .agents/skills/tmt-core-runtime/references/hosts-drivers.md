@@ -215,6 +215,44 @@ channels and the driver protocol. The owner map is in
   writes no provider files. The external runtime protocol is defined, but core
   launch, provider hooks and setup do not consume it.
 
+## Built-in host
+
+The built-in host (#4605, design on #1339/#1340) gives a member a terminal when no
+tmux or Herdr hosts it. Only the supervisor exists so far: `tmt run`, the host driver,
+`tmt check`, `tmt attach` and the Ops stream are later slices of #4605.
+
+- **One process per member, no daemon.** `tmt __pty-serve DIRECTORY ID COLS ROWS PROGRAM...`
+  (hidden; `tmt-adapters::pty::serve_process`) leaves its session, takes the member's lock,
+  binds the socket, starts the program on a new pseudo-terminal (a new session whose
+  controlling terminal it is), prints `ready <program pid>` and points its standard streams
+  at `/dev/null`, so a launcher can read its pipes to the end. It ends when the program
+  does: it tells attached clients (`Exited`), then removes its socket and lock. A supervisor
+  that dies, even by SIGKILL, closes the terminal and the kernel hangs the program up; its
+  leftover socket and lock are replaced by the next start of the same id (ids are never
+  reused).
+- **Ownership.** `tmt-pty-protocol` is a dependency-free leaf for the frames
+  (`kind: u8`, `length: u32`, payload of at most 64 KiB; strict decode; the version is in
+  `Hello`/`Welcome`). `tmt-adapters::pty` owns the effects (`Supervisor`, `Connection`);
+  `tmt-sys` owns only the terminal system calls (`spawn_on_terminal`, `set_window_size`,
+  `peer_uid`). A new frame or message needs a protocol version decision.
+- **Access.** The directory must be owner-only (`private_file::ensure_private_directory`,
+  shared with the Claude channel), the socket is 0600, a peer whose user differs from the
+  supervisor's is refused, at most 16 clients attach, and a client that does not say hello
+  within 5 s is dropped. The socket path stays under 100 bytes.
+- **Clients.** Several may attach. Output is read whether or not anyone is attached and is
+  never stored (no scrollback). A client with 256 KiB queued pauses reading the program, so
+  a slow terminal slows the program instead of losing output; one that reads nothing for 3 s
+  while output waits is evicted (`TooSlow`). `TakeSole` evicts the others (`TakenOver`).
+- **Window size.** Only a client that sent `Resize` has a size. The terminal takes the size
+  of the client that last resized, typed after another did, or took sole use, so a delivery
+  that never resizes cannot change it. `Resized` tells every client.
+- **Input** from all clients is written to the terminal in arrival order; clients are not
+  read while 64 KiB are waiting. Delivery policy stays in Core: the supervisor adds no
+  `!` rewrite, paste delay or Enter.
+- **Tests** run real pseudo-terminals with `sh` programs, in process
+  (`tmt-adapters/src/pty/tests.rs`) and as a process (`tmt-cli/tests/pty_supervisor.rs`:
+  terminal ownership, SIGKILL hang-up and restart, second supervisor, refused starts).
+
 ## Agent drivers
 
 - One `DriverDescriptor` (name, executables, hook format and display hue) plus one

@@ -1,5 +1,6 @@
 //! Settings files TMT replaces whole, readable only by their owner. A crash
-//! leaves the previous file or the new one, never a mix.
+//! leaves the previous file or the new one, never a mix. Also the owner-only
+//! directories that hold local sockets and records.
 
 use std::{
     fs::{self, File},
@@ -39,6 +40,35 @@ pub fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
         let _ = fs::remove_file(&staging);
     }
     result
+}
+
+/// Whether `directory` is a real directory (not a link) owned by this user and
+/// closed to everyone else.
+pub fn directory_is_private(directory: &Path) -> bool {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    fs::symlink_metadata(directory).is_ok_and(|metadata| {
+        metadata.is_dir()
+            && metadata.uid() == nix::unistd::geteuid().as_raw()
+            && metadata.permissions().mode() & 0o077 == 0
+    })
+}
+
+/// Creates `directory` owner-only, which it must stay: a record or socket
+/// another user could write is no evidence.
+pub fn ensure_private_directory(directory: &Path) -> io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(directory)?;
+    if directory_is_private(directory) {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "the directory must be an owner-only directory",
+        ))
+    }
 }
 
 #[cfg(test)]

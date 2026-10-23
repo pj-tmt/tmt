@@ -1,0 +1,16 @@
+[package]
+name = "tmt-pty-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+# A dependency-free leaf: the frames a built-in-host supervisor and its attached
+# terminals exchange, so tmt-adapters, tmt-tui and Ops speak one stream without
+# depending on each other.
+[dependencies]
+
+[lints]
+workspace = true
