@@ -168,6 +168,34 @@ mod tests {
         )
         .unwrap();
         assert_eq!(verified.bytes(), bytes);
+        let mut off_curve = [0; 65];
+        off_curve[0] = 4;
+        assert!(
+            Descriptor::sign(
+                "11111111-1111-4111-8111-111111111111",
+                "22222222-2222-4222-8222-222222222222",
+                1,
+                &off_curve,
+                1,
+                2,
+                |_| panic!("off-curve input must refuse before signing")
+            )
+            .is_err()
+        );
+        off_curve[0] = 3;
+        assert!(
+            Descriptor::sign(
+                "11111111-1111-4111-8111-111111111111",
+                "22222222-2222-4222-8222-222222222222",
+                1,
+                &off_curve,
+                1,
+                2,
+                |_| panic!("compressed point must refuse before signing")
+            )
+            .is_err()
+        );
+
         let oversized = vec![b' '; crate::limits::CLOUD_DESCRIPTOR_BYTES + 1];
         assert!(matches!(
             Descriptor::verify(

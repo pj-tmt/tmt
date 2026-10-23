@@ -310,7 +310,14 @@ mod tests {
         );
         reopened.renew_at(after, || Ok([2; 48])).unwrap();
         assert_eq!(reopened.advertised(after).unwrap().revision(), 2);
-        assert!(reopened.recipient(first.key_id(), after).is_err());
+        assert_eq!(
+            reopened
+                .recipient(first.key_id(), after)
+                .err()
+                .unwrap()
+                .code,
+            Error::Key.code()
+        );
         assert_eq!(
             std::fs::read(f.root.join("remote/machine.key")).unwrap(),
             auth

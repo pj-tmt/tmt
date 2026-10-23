@@ -502,6 +502,27 @@ mod tests {
             auth: owner,
         };
         assert_eq!(reader.open(&bytes, 4096).unwrap(), response);
+        let mut wrong_request = binding();
+        wrong_request.digest[0] ^= 1;
+        assert!(
+            ResponseOpener {
+                binding: wrong_request,
+                auth: owner
+            }
+            .open(&bytes, 4096)
+            .is_err()
+        );
+        let mut wrong_enc = binding();
+        wrong_enc.enc = canonical::base64url(&[4; 65]);
+        assert!(
+            ResponseOpener {
+                binding: wrong_enc,
+                auth: owner
+            }
+            .open(&bytes, 4096)
+            .is_err()
+        );
+
         let context = canonical::framed(&[b"tmt-cloud-response-v1", &digest]).unwrap();
         for (name, label) in [
             ("exporterKeyContext", b"key".as_slice()),
