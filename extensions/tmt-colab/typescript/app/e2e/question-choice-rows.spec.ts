@@ -98,3 +98,52 @@ test('a single question picks its row with the digit and the Other row clears th
   await page.keyboard.type('2');
   await expect(card.getByLabel('Your other answer', { exact: true })).toHaveValue('2');
 });
+
+for (const width of [1586, 390])
+  for (const theme of ['light', 'dark'] as const)
+    for (const kind of ['single', 'multiple'] as const)
+      test(`choice descriptions keep label-only answers and native controls ${kind} ${width} ${theme}`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 900 });
+        const description = 'Open the discussion when a user clicks an inline marker.';
+        const card = await mount(page, {
+          kind,
+          choices: [{ label: 'Keep it', description }, { label: 'Change it' }],
+          other: true,
+        });
+        await (
+          await pageAction(
+            page.locator('#ask-page-fixture'),
+            `Theme: ${theme === 'dark' ? 'Dark' : 'Light'}`,
+          )
+        ).click();
+        const role = kind === 'single' ? 'radio' : 'checkbox';
+        const first = card.getByRole(role, { name: 'Keep it', exact: true });
+        await expect(first).toHaveAccessibleDescription(description);
+        await expect(
+          card.getByRole(role, { name: 'Change it', exact: true }),
+        ).toHaveAccessibleDescription('Press 2 to pick');
+        await expect(card.locator('.tmt-ui-choices')).toHaveAttribute('data-layout', 'stack');
+        await card.getByText(description, { exact: true }).click();
+        await expect(first).toBeChecked();
+        await first.focus();
+        await page.keyboard.press('2');
+        await expect(card.getByRole(role, { name: 'Change it', exact: true })).toBeChecked();
+        if (kind === 'single') await expect(first).not.toBeChecked();
+        else await expect(first).toBeChecked();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+          width,
+        );
+        await page.screenshot({
+          path: capturePath(`choice-description-${kind}-${width}-${theme}.png`),
+        });
+        await card.getByRole('button', { name: /^Send answer/ }).click();
+        await expect(card.locator('.question-line')).toHaveAttribute('aria-expanded', 'false');
+        const threads = await run(page, 'discussionProof');
+        expect(threads).toHaveLength(1);
+        expect(threads[0].comments[0].body).toBe(
+          `Answer to “Which heading should we use?”: ${kind === 'single' ? 'Change it' : 'Keep it; Change it'}\nPage: Live shared page\n@Agent 1`,
+        );
+        expect(threads[0].comments[0].body).not.toContain(description);
+      });

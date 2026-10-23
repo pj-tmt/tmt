@@ -153,6 +153,10 @@ fn the_vector_limits_equal_the_named_constants() {
         ("titlePoints", limits::QUESTION_TITLE_POINTS),
         ("choices", limits::QUESTION_CHOICES),
         ("choicePoints", limits::QUESTION_CHOICE_POINTS),
+        (
+            "choiceDescriptionPoints",
+            limits::QUESTION_CHOICE_DESCRIPTION_POINTS,
+        ),
         ("agentPoints", limits::QUESTION_AGENT_POINTS),
         ("groupQuestions", limits::GROUP_QUESTIONS),
         ("labelPoints", limits::GROUP_LABEL_POINTS),

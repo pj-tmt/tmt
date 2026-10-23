@@ -3047,6 +3047,34 @@ supply no controls. Choice kinds require choices; text kinds have neither choice
 nor `data-other`. Short answers allow 200 code points; long/Other text allows
 8192 UTF-8 bytes. The complete comment remains within the existing 16 KiB limit.
 
+A choice may contain one optional immediate `span[data-choice-description]` child:
+
+```html
+<span data-choice
+  >Click a marker
+  <span data-choice-description>Open the discussion when a user clicks an inline marker.</span>
+</span>
+```
+
+The description is non-empty plain text, with the same whitespace normalization,
+no control characters and at most 200 Unicode code points. Nested markup,
+comments, multiple marked children, a different container or invalid text cause
+`question-choice-description-invalid`: a warning on the admitted question that
+drops the description only. All immediate children marked
+`data-choice-description`, valid or invalid, are excluded from the choice label.
+Other nested text keeps the existing label rules. Labels still decide emptiness,
+length and duplicate-choice admission; a description cannot supply a missing label
+or distinguish duplicate labels. The internal choice holds `{label, description?}`;
+drafts, recorded answers and their publication remain label strings in authored
+order, never description text.
+
+When any admitted choice has a description, its choice group stacks the existing
+shared choice rows; otherwise it retains the wrapped inline row. Each description
+uses the shared choice's `aria-describedby`, with the label alone as the control's
+accessible name. Clicking the description selects its owning choice. Native
+radio/checkbox behavior, numeric shortcuts, Other, Send and refusal ownership are
+unchanged.
+
 Related questions can share one logical group across separate passages: set
 `data-group="GROUP_UUID"` on each standalone `tmt-question`. A logical group has at
 most 12 raw question placements, ordered as authored. Its ID holds the shared
@@ -3080,7 +3108,7 @@ which opens the target, scrolls it into view and focuses its first control.
 Open/closed state belongs to the viewer, never the page or answer records. Opening
 reveals the existing parent-owned answer controls under the line, in the heading's
 column: a kind line (`Single choice · Other available`), an instruction (`Choose one
-answer, or write your own.`) and the choices in one wrapped row. The `Other` field
+answer, or write your own.`) and the choices in one wrapped row (stacked when a choice has a description). The `Other` field
 (`Your other answer`) is drawn under the row once Other is picked. A rule, then a
 `Goes to` row carries the recipient chips and the add control, and `Send answer` /
 `Send answers` is the group's one primary action at the end of that row. Answered questions are read-only until the existing Change answer
@@ -6043,6 +6071,7 @@ the choice-shape rules for a valid kind, so one defect is not reported twice):
 | `question-kind-invalid`                                           | ignored  | `data-kind` is not `single`, `multiple`, `short` or `long`                                                                                                                                |
 | `question-choices-too-many`                                       | ignored  | more than 20 direct `data-choice` children                                                                                                                                                |
 | `question-choice-empty` / `-too-long` / `-control` / `-duplicate` | ignored  | a choice fails the same text bounds (200 code points), or two are equal after normalization                                                                                               |
+| `question-choice-description-invalid`                             | warning  | an admitted question has an invalid immediate choice description: not one span, not plain non-empty text, over 200 code points or containing a control; only the description is dropped   |
 | `question-choices-missing`                                        | ignored  | `single` or `multiple` without a choice                                                                                                                                                   |
 | `question-choices-unexpected` / `question-other-unexpected`       | ignored  | `short` or `long` with a choice, or with `data-other`                                                                                                                                     |
 | `question-group-id-invalid`                                       | ignored  | explicit `data-group` is not a canonical lowercase UUID                                                                                                                                   |

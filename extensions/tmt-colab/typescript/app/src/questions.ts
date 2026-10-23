@@ -13,15 +13,20 @@ export const QUESTION_LABEL_POINTS = 24;
 export const QUESTION_TITLE_POINTS = 200;
 export const QUESTION_CHOICES = 20;
 export const QUESTION_CHOICE_POINTS = 200;
+export const QUESTION_CHOICE_DESCRIPTION_POINTS = 200;
 export const QUESTION_SHORT_POINTS = 200;
 export const QUESTION_LONG_BYTES = 8192;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export type QuestionKind = 'single' | 'multiple' | 'short' | 'long';
+export interface QuestionChoice {
+  label: string;
+  description?: string;
+}
 export interface Question {
   id: string;
   title: string;
   kind: QuestionKind;
-  choices: string[];
+  choices: QuestionChoice[];
   other: boolean;
   agent: string;
   group: string | null;
@@ -78,6 +83,7 @@ export type QuestionFindingCode =
   | 'question-choice-too-long'
   | 'question-choice-control'
   | 'question-choice-duplicate'
+  | 'question-choice-description-invalid'
   | 'question-choices-missing'
   | 'question-choices-unexpected'
   | 'question-other-unexpected'
@@ -275,6 +281,7 @@ export const QUESTION_FINDING_CODES: readonly QuestionFindingCode[] = [
   'question-page-limit',
   ...QUESTION_RULES.map(([code]) => code),
   'question-marker-misplaced',
+  'question-choice-description-invalid',
   ...GROUP_RULES.map(([code]) => code),
   'group-empty',
   ...LABEL_RULES.map(([code]) => code),
@@ -286,6 +293,28 @@ export const QUESTION_FINDING_CODES: readonly QuestionFindingCode[] = [
   'reading-page-limit',
   ...READING_RULES.map(([code]) => code),
 ];
+
+/** A description is inert metadata; even a refused description never becomes the label. */
+function readChoice(node: Element): { choice: QuestionChoice; invalidDescription: boolean } {
+  const labelNode = node.cloneNode(true) as Element;
+  const descriptions = [...labelNode.children].filter((child) =>
+    child.hasAttribute('data-choice-description'),
+  );
+  for (const child of descriptions) child.remove();
+  const choice: QuestionChoice = { label: questionText(labelNode.textContent ?? '') };
+  if (!descriptions.length) return { choice, invalidDescription: false };
+  const description = descriptions[0]!;
+  const value = questionText(description.textContent ?? '');
+  const valid =
+    descriptions.length === 1 &&
+    description.localName === 'span' &&
+    [...description.childNodes].every((child) => child.nodeType === Node.TEXT_NODE) &&
+    !!value &&
+    !over(value, QUESTION_CHOICE_DESCRIPTION_POINTS) &&
+    !hasControl(value);
+  if (valid) choice.description = value;
+  return { choice, invalidDescription: !valid };
+}
 
 /**
  * Parent-parse inert authored source. Group IDs and candidate question IDs use one fixed holder
@@ -404,6 +433,9 @@ export function inspectQuestions(source: string): QuestionInspection {
     const nested = !!node.parentElement?.closest('tmt-question, tmt-read');
     const headings = [...node.children].filter((child) => child.hasAttribute('data-question'));
     const splitId = node.getAttribute('data-group');
+    const choices = [...node.children]
+      .filter((child) => child.hasAttribute('data-choice'))
+      .map(readChoice);
     const candidate: Candidate = {
       splitId,
       splitConflict:
@@ -416,9 +448,7 @@ export function inspectQuestions(source: string): QuestionInspection {
       other: node.hasAttribute('data-other'),
       headings: headings.length,
       title: questionText(headings[0]?.textContent ?? ''),
-      choices: [...node.children]
-        .filter((child) => child.hasAttribute('data-choice'))
-        .map((child) => questionText(child.textContent ?? '')),
+      choices: choices.map(({ choice }) => choice.label),
       nested,
       holders: questionHolders.has(node) ? (holders.get(id) ?? 0) : 0,
       groupChildInvalid: !!group && node.parentElement !== group && !nested,
@@ -433,6 +463,14 @@ export function inspectQuestions(source: string): QuestionInspection {
         code,
       });
     if (failed.length) return;
+    if (choices.some(({ invalidDescription }) => invalidDescription))
+      findings.push({
+        element: 'tmt-question',
+        ordinal: index + 1,
+        id: authored(node),
+        severity: 'warning',
+        code: 'question-choice-description-invalid',
+      });
     let label: string | null = null;
     if (group) {
       const authoredLabel = questionText(node.getAttribute('data-label') ?? '');
@@ -463,7 +501,7 @@ export function inspectQuestions(source: string): QuestionInspection {
       id,
       title: candidate.title,
       kind: candidate.kind as QuestionKind,
-      choices: candidate.choices,
+      choices: choices.map(({ choice }) => choice),
       other: candidate.other,
       agent: candidate.agent,
       group: group ? idOf(group) : splitId,
@@ -635,7 +673,7 @@ export function answerComment(
   const typed = value.trim();
   if (question.kind === 'single' || question.kind === 'multiple') {
     if (
-      selected.some((choice) => !question.choices.includes(choice)) ||
+      selected.some((choice) => !question.choices.some(({ label }) => label === choice)) ||
       new Set(selected).size !== selected.length ||
       (other && (!question.other || !typed)) ||
       (!other && !selected.length) ||
@@ -651,7 +689,9 @@ export function answerComment(
   const answer =
     question.kind === 'single' || question.kind === 'multiple'
       ? [
-          ...question.choices.filter((choice) => selected.includes(choice)),
+          ...question.choices
+            .filter(({ label }) => selected.includes(label))
+            .map(({ label }) => label),
           ...(other ? [`Other: ${typed}`] : []),
         ].join('; ')
       : typed;

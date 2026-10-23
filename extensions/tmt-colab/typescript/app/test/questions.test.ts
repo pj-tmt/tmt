@@ -10,7 +10,7 @@ const question: Question = {
   id: '10000000-0000-4000-8000-000000000001',
   title: 'Which colour?',
   kind: 'single',
-  choices: ['Blue', 'Green'],
+  choices: [{ label: 'Blue', description: 'A cool colour' }, { label: 'Green' }],
   other: true,
   agent: 'Agent 1',
   group: null,

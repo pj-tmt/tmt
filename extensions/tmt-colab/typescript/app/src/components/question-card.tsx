@@ -160,28 +160,30 @@ export function QuestionCard({
             <p className="question-kind">{text.questionKind(question.kind, question.other)}</p>
             {(question.kind === 'single' || question.kind === 'multiple') && (
               <BrowserChoiceGroup
-                layout="inline"
+                layout={question.choices.some((choice) => choice.description) ? 'stack' : 'inline'}
                 legend={text.questionInstruction(question.kind, question.other)}
               >
                 {question.choices.map((choice, index) => (
                   <BrowserChoice
-                    key={choice}
+                    key={choice.label}
                     type={question.kind === 'single' ? 'radio' : 'checkbox'}
                     name={heading}
-                    label={choice}
+                    label={choice.label}
+                    description={choice.description}
+                    aria-label={choice.label}
                     data-choice-index={index + 1}
                     aria-keyshortcuts={String(index + 1)}
                     title={text.questionKey(index + 1)}
                     disabled={disabled}
-                    checked={choices.includes(choice)}
+                    checked={choices.includes(choice.label)}
                     onChange={(event) => {
                       if (question.kind === 'single') {
-                        onDraft({ choices: [choice], other: false });
+                        onDraft({ choices: [choice.label], other: false });
                       } else
                         onDraft({
                           choices: event.target.checked
-                            ? [...choices, choice]
-                            : choices.filter((item) => item !== choice),
+                            ? [...choices, choice.label]
+                            : choices.filter((item) => item !== choice.label),
                         });
                     }}
                   />
