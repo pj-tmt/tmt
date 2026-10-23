@@ -1,5 +1,5 @@
 use super::*;
-use crate::checklist::test_support::{CHECKLIST, Fixture, ITEM, OTHER, ROOM, WORKER, id};
+use crate::checklist::test_support::{CHECKLIST, Fixture, ITEM, LEAD, OTHER, ROOM, WORKER, id};
 
 fn parsed(words: &[&str]) -> Result<ChecklistCommand, Error> {
     let matches = grammar()
@@ -388,14 +388,18 @@ fn admitted_service_result_has_literal_nulls_current_labels_and_distinct_empty_s
     assert_eq!(assigned.document["error"]["code"], "CHECKLIST_FORBIDDEN");
     assert!(assigned.document["error"].get("current").is_none());
     assert!(!f.directory().exists());
-    let created = invoke(
-        &f,
-        &args("create", &["Title", "--expect-inventory", "absent"]),
-    );
+    // The service stamps the admitted caller and its own clock; the request carries neither.
+    let created = crate::status::with_now_ms(1_700_000_000_000, || {
+        invoke(
+            &f,
+            &args("create", &["Title", "--expect-inventory", "absent"]),
+        )
+    });
     assert!(created.complete);
     assert_eq!(
         created.document,
-        json!({"action":"create","changed":true,"itemId":ITEM,"itemRevision":1,"current":{"room":{"id":ROOM,"name":"product","available":true,"manager":false},"checklistId":CHECKLIST,"inventoryRevision":1,"items":[{"id":ITEM,"revision":1,"title":"Title","body":null,"reference":null,"assignee":null,"completion":"open","archived":false}],"deletion":null}})
+        json!({"action":"create","changed":true,"itemId":ITEM,"itemRevision":1,"current":{"room":{"id":ROOM,"name":"product","available":true,"manager":false},"checklistId":CHECKLIST,"inventoryRevision":1,"items":[{"id":ITEM,"revision":1,"title":"Title","body":null,"reference":null,"assignee":null,"completion":"open","archived":false,
+            "addedBy":WORKER,"addedAtMs":1_700_000_000_000u64,"lastChangedBy":WORKER,"lastChangedAtMs":1_700_000_000_000u64}],"deletion":null}})
     );
     let filtered = invoke(&f, &["list", "--room", ROOM, "--completion", "complete"]);
     assert_eq!(filtered.document["totalCount"], 1);
@@ -403,13 +407,25 @@ fn admitted_service_result_has_literal_nulls_current_labels_and_distinct_empty_s
     assert!(text_output(&filtered.document, Terminal::PLAIN).contains("not empty"));
     assert!(text_output(&absent.document, Terminal::PLAIN).contains("No checklist exists"));
     f.manager();
-    let assigned = invoke(
-        &f,
-        &args("assign", &["--expect-revision", "1", "--assignee", WORKER]),
-    );
+    let assigned = crate::status::with_now_ms(1_700_000_005_000, || {
+        invoke(
+            &f,
+            &args("assign", &["--expect-revision", "1", "--assignee", WORKER]),
+        )
+    });
     assert_eq!(
         assigned.document["current"]["items"][0]["assignee"],
         json!({"id":WORKER,"label":"Worker","available":true})
+    );
+    // Who added it stays; the change is the lead's, at the time of the write.
+    let item = &assigned.document["current"]["items"][0];
+    assert_eq!(
+        (&item["addedBy"], &item["addedAtMs"]),
+        (&json!(WORKER), &json!(1_700_000_000_000u64))
+    );
+    assert_eq!(
+        (&item["lastChangedBy"], &item["lastChangedAtMs"]),
+        (&json!(LEAD), &json!(1_700_000_005_000u64))
     );
     f.change(|m| m["retired"] = json!([WORKER]));
     let listed = invoke(&f, &["ls", "--room", ROOM]);

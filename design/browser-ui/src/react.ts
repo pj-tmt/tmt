@@ -1,7 +1,7 @@
 export { BrandMark, BrandLockup } from './brand-mark.js';
 export type { BrandMarkProps } from './brand-mark.js';
 export { BrowserHeader } from './header';
-export { BrowserShell, HostedShell, useShellBar } from './browser-shell.js';
+export { BrowserShell, HostedShell, useShellBar, useShellTools } from './browser-shell.js';
 export type { BrowserShellProps, HostedShellProps } from './browser-shell.js';
 export { BrowserCommand } from './command.js';
 export type { BrowserCommandProps } from './command.js';

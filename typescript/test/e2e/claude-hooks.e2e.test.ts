@@ -60,7 +60,7 @@ describe(
           ]
             .map(quote)
             .join(' ');
-          fixture.tmux(['new-window', '-d', '-t', 'e2e', '-n', 'claude-hooks', command]);
+          fixture.tmux(['new-window', '-d', '-t', 'e2e', '-n', 'claude-hooks', `${command}; :`]);
           await fixture.waitFor(
             () => fs.existsSync(report),
             15000,
@@ -175,7 +175,7 @@ describe(
             ]
               .map(quote)
               .join(' ');
-            fixture.tmux(['new-window', '-d', '-t', 'e2e', '-n', name, command]);
+            fixture.tmux(['new-window', '-d', '-t', 'e2e', '-n', name, `${command}; :`]);
             return { name, inner, report: file('report.json'), outer: file('outer-report.json') };
           });
           const read = (file: string) =>

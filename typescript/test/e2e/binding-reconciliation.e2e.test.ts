@@ -197,7 +197,7 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
           presence: 'unknown',
           pane: null,
           command: '',
-          session: { activity: unknownActivity },
+          session: { activity: unknownActivity, unbound: null },
         },
       ]);
       const removed = await fixture.runJsonCli<{ error: { code: string } }>([
@@ -277,6 +277,7 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
       const initial = expectJsonResult(await fixture.runJsonCli<Bound>(['name', 'Alice']));
       expect(initial).toEqual({
         bound: true,
+        session: { unbound: null },
         id: expect.any(String),
         name: 'Alice',
         pane: fixture.pane,
@@ -306,7 +307,7 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
           presence: 'active',
           pane: fixture.pane,
           command: expect.any(String),
-          session: { activity: unknownActivity },
+          session: { activity: unknownActivity, unbound: null },
           target: fixture.paneTarget(fixture.pane),
           cwd: fixture.workspace,
         },
@@ -334,7 +335,7 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
           presence: 'offline',
           pane: null,
           command: '',
-          session: { activity: unknownActivity },
+          session: { activity: unknownActivity, unbound: null },
         },
       ]);
       const denied = await fixture.runJsonCli<{ error: { code: string } }>(['rm', 'Alice'], {
@@ -450,6 +451,7 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
         expect(result.code, result.stderr).toBe(0);
         expect(result.stdout).toMatchObject({
           bound: true,
+          session: { unbound: null },
           name: 'Descendant',
           pane: real.pane,
           lifetime: 'temporary',

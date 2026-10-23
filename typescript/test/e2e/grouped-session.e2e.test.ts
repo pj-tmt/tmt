@@ -137,6 +137,7 @@ async function runRealName(
     code: 0,
     stdout: {
       bound: true,
+      session: { unbound: null },
       id: identity.id,
       name,
       pane: real.pane,
@@ -168,6 +169,7 @@ async function exerciseBoundMockPane(
   const peerIdentity = durableIdentity(fixture, peer.name);
   expect(json(added)).toEqual({
     bound: true,
+    session: { unbound: null },
     id: identity.id,
     name: identityName,
     pane: pane.pane,
@@ -182,6 +184,7 @@ async function exerciseBoundMockPane(
     interfaceKind: 'container',
     sessionState: 'unknown',
     bound: true,
+    session: { unbound: null },
     id: identity.id,
     name: identityName,
     pane: pane.pane,

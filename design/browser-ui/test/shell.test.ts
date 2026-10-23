@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import {
   describedMenu,
+  entryCounts,
   moduleMount,
   shellAddress,
   shellCount,
@@ -141,6 +142,26 @@ it('caps counts at 99+ and falls back to the box icon', () => {
   expect(shellCount(5, 'plain')).toEqual({ text: '5', needsYou: false });
   expect(moduleIcon('network')).toBe('box');
   expect(moduleIcon('users')).toBe('users');
+});
+
+it('hides a plain total at zero and a needs-you count at zero, and keeps both above it', () => {
+  expect(entryCounts({ total: 0 })).toEqual([]);
+  expect(entryCounts({ total: 6 })).toEqual([{ text: '6', needsYou: false }]);
+  expect(entryCounts({ total: 6, count: shellCount(1) })).toEqual([
+    { text: '6', needsYou: false },
+    { text: '1', needsYou: true },
+  ]);
+  const empty: ShellModule = {
+    ...colab,
+    menu: [
+      { id: 'a', label: 'All', path: colab.rail.path, count: { value: 0, kind: 'needs-you' } },
+      { id: 'b', label: 'Mine', path: colab.rail.path, count: { value: 2, kind: 'needs-you' } },
+    ],
+  };
+  const items = describedMenu(empty, { origin, href: colab.rail.path }).groups.flatMap(
+    (group) => group.items,
+  );
+  expect(items.map((item) => item.count?.text)).toEqual([undefined, '2']);
 });
 
 it('turns a described module into its menu with settings last and the current entry marked', () => {

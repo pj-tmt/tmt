@@ -1599,6 +1599,10 @@ function OpenPage({
         );
         if (thread) openAnchoredThread(thread.ref);
       },
+      onOpenList: () => {
+        if (annotationRef.current) closeRef.current(false);
+        panelsRef.current.show('comments');
+      },
     },
   });
   // Resolving hides the margin marker; Reopen restores it. Resolved history stays in Comments.

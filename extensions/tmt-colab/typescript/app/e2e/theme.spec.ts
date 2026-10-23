@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
+import { backToPageList } from '../test/home-list.js';
 import { rgb, tokens } from './tokens.js';
 
 // Use the shipped author starter rather than maintaining another palette fixture.
@@ -92,8 +93,11 @@ for (const width of [1280, 1440, 1800, 390]) {
       width < 900 ? width : width - Number.parseFloat(tokens.browser.metric['rail-width']!),
     );
     expect(geometry.viewport).toBe(column);
-    expect(geometry.width).toBe(Math.min(column, 1280));
-    expect(geometry.x).toBe((column - geometry.width) / 2);
+    // The frame keeps a 28 px marker lane at the right edge; the starter's container is centred in
+    // the rest.
+    const usable = column - 28;
+    expect(geometry.width).toBe(Math.min(usable, 1280));
+    expect(geometry.x).toBe((usable - geometry.width) / 2);
     expect(geometry.gutter).toBe(16);
     expect(geometry.scrollWidth).toBe(column);
     for (const block of geometry.content) {
@@ -142,12 +146,7 @@ for (const width of [1440, 390]) {
         await page.emulateMedia({ colorScheme: os === 'dark' ? 'light' : 'dark' });
         await palette(page, theme);
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-        // Back to the list: the module crumb, or under 480px (where the shell clips that crumb) the
-        // module menu's All pages.
-        const fixture = page.locator('#layout-fixture');
-        if (width < 480)
-          await fixture.locator('.tmt-ui-module-menu a', { hasText: 'All pages' }).click();
-        else await fixture.getByRole('link', { name: /^Colab · local/ }).click();
+        await backToPageList(page);
         await expect(frame).toHaveCount(0);
         await page
           .locator('#layout-fixture')

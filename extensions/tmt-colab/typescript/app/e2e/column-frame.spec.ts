@@ -46,9 +46,12 @@ async function mount(page: Page, layout: Layout, width = 1440, source = authored
 }
 const frameWidth = (page: Page) =>
   page.locator('#ask-page-fixture iframe').evaluate((node) => node.clientWidth);
+/** Every page reserves a 28 px marker lane at the right edge; the column is centred in what is left. */
+const LANE = 28;
 const column = (width: number) => {
-  const size = Math.min(1280, width - 32);
-  return { left: (width - size) / 2, right: (width + size) / 2 };
+  const usable = width - LANE;
+  const size = Math.min(1280, usable - 32);
+  return { left: (usable - size) / 2, right: (usable + size) / 2 };
 };
 const blocks = ['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'grid', 'stubborn', 'b9'];
 
@@ -95,7 +98,9 @@ for (const width of [1440, 390])
     expect(await gap('b6', 'grid')).toBeCloseTo(16, 0);
   });
 
-test('a full block touches both edges and keeps its text on the column', async ({ page }) => {
+test('a full block touches both edges, the marker lane included, and keeps its text on the column', async ({
+  page,
+}) => {
   for (const width of [1440, 390]) {
     await mount(page, 'column', width);
     const size = await frameWidth(page);
@@ -131,7 +136,7 @@ for (const layout of ['freeform', 'canvas', undefined] as const)
     // body { max-width: 900px; margin: auto; padding: 24px } is a 948 px box, and the section keeps
     // its 700 px cap (734 with its padding and border).
     const heading = await edges(frame(page).locator('#b1'));
-    expect(heading.left).toBeCloseTo((size - 948) / 2 + 24, 0);
+    expect(heading.left).toBeCloseTo((size - LANE - 948) / 2 + 24, 0);
     const section = await edges(frame(page).locator('#b3'));
     expect(section.right - section.left).toBeCloseTo(734, 0);
     const stubborn = await edges(frame(page).locator('#stubborn'));

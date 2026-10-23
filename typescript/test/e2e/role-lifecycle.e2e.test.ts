@@ -104,6 +104,7 @@ describe('durable role profiles', { concurrent: false }, () => {
         interfaceKind: 'container',
         sessionState: 'unknown',
         bound: true,
+        session: { unbound: null },
         id: assigned.identity.id,
         name: 'Alice',
         pane: fixture.pane,

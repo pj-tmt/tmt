@@ -219,7 +219,11 @@ impl CodexObservation {
                     // unlike Claude it need not precede it with a clear-end.
                     return current.transition(old, self.transition, Some(self.session.clone()));
                 }
-            } else if previous != RuntimeLiveness::Gone && !owned_resume {
+            } else if previous != RuntimeLiveness::Gone
+                && !owned_resume
+                && !(previous == RuntimeLiveness::Alive
+                    && current.last_transition == Some(SessionTransition::Ended))
+            {
                 return None;
             }
         }
@@ -1290,6 +1294,7 @@ mod tests {
         assert_eq!(
             named,
             BindingSessionState {
+                start_refusal: None,
                 last_transition: Some(SessionTransition::Compacted),
                 state: RuntimeState::Running,
                 key: Some(ObservedSessionKey {
@@ -1400,12 +1405,14 @@ mod tests {
                 .propose(&ended, &process, RuntimeLiveness::Alive, false)
                 .is_none()
         );
-        let replacement = ProcessIncarnation::new(20, "different-start").unwrap();
+        let replacement = ProcessIncarnation::new(21, "different-start").unwrap();
         for evidence in [RuntimeLiveness::Alive, RuntimeLiveness::Unknown] {
-            assert!(
+            assert_eq!(
                 start("startup", "new-thread")
                     .propose(&ended, &replacement, evidence, false)
-                    .is_none()
+                    .is_some(),
+                evidence == RuntimeLiveness::Alive,
+                "an ended session permits a verified live replacement, never unknown evidence"
             );
         }
         assert!(

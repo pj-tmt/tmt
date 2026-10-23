@@ -28,6 +28,8 @@ for (const width of [1440, 390])
             onState: (state: string) => (host.dataset.state = state),
             onAnchors: (ids: string[]) => (host.dataset.anchors = JSON.stringify(ids)),
             onOpenThread: (id: string) => (host.dataset.opened = id),
+            onOpenList: () =>
+              (host.dataset.listOpened = String(Number(host.dataset.listOpened ?? 0) + 1)),
           },
         );
         const frame = host.querySelector('iframe')!;
@@ -93,25 +95,23 @@ for (const width of [1440, 390])
           })),
         ),
       );
-      const markers = frame.locator('[data-colab-thread]');
-      await expect(markers).toHaveCount(12);
-      const boxes = await markers.evaluateAll((nodes) =>
-        nodes.map((node) => node.getBoundingClientRect().toJSON()),
-      );
-      for (const [index, first] of boxes.entries()) {
-        expect(first.width).toBe(first.height);
-        for (const second of boxes.slice(index + 1))
-          expect(
-            first.right <= second.left ||
-              second.right <= first.left ||
-              first.bottom <= second.top ||
-              second.bottom <= first.top,
-          ).toBe(true);
-      }
-      for (let ordinal = 1; ordinal <= 12; ordinal++) {
-        await markers.filter({ hasText: new RegExp(`^${ordinal}$`) }).click();
-        await expect(host).toHaveAttribute('data-opened', `collision-${ordinal}`);
-      }
+      // Twelve notes on one line share the right lane as one `+12` marker that opens the list.
+      const markers = frame.locator('.annotation-number');
+      await expect(markers).toHaveCount(1);
+      await expect(markers).toHaveText('+12');
+      // The marker is placed in a later frame than its text, and a layout pass can draw it again:
+      // measure until the settled box shows the `+12` pill, 24 px tall and wider than it is tall.
+      await expect
+        .poll(() =>
+          markers.evaluate((node) => {
+            const { height, width } = node.getBoundingClientRect();
+            return { height, wide: width > 24 };
+          }),
+        )
+        .toEqual({ height: 24, wide: true });
+      await markers.click();
+      await expect(host).toHaveAttribute('data-list-opened', '1');
+      await expect(host).not.toHaveAttribute('data-opened');
       await page.screenshot({
         path: `${captureDirectory()}/annotation-collisions-${width}-${theme}.png`,
       });

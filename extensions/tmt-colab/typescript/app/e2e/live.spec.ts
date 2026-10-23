@@ -1,4 +1,4 @@
-import { showAllPages } from '../test/home-list.js';
+import { backToPageList, showAllPages } from '../test/home-list.js';
 import { pageAction } from '../test/page-actions.js';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -1044,13 +1044,8 @@ async function wire(
   return fixture;
 }
 
-/** Back to the list as the width offers it: the module crumb, or on a phone, where the crumb is
- * clipped for the page title, the module menu's All pages. */
-async function backToList(page: Page) {
-  if ((page.viewportSize()?.width ?? 1440) < 480)
-    await page.locator('.tmt-ui-module-menu a', { hasText: 'All pages' }).click();
-  else await page.getByRole('link', { name: /^Colab · local/ }).click();
-}
+/** Back to the list as the width offers it (the bar has no module crumb to click). */
+const backToList = backToPageList;
 
 async function recoverySdk(context: BrowserContext) {
   await context.route('**/sdk/remote-v1.js*', (route) =>

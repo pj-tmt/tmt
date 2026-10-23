@@ -70,7 +70,10 @@ impl ClaudeObservation {
         }
         if let Some(previous) = &current.key {
             if previous.incarnation != *incarnation {
-                if previous_liveness != RuntimeLiveness::Gone {
+                if previous_liveness != RuntimeLiveness::Gone
+                    && !(previous_liveness == RuntimeLiveness::Alive
+                        && current.last_transition == Some(SessionTransition::Ended))
+                {
                     return None;
                 }
             } else {

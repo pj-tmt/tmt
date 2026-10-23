@@ -126,3 +126,17 @@ pub fn validate_existing_name(value: &str) -> Result<ValidatedName, NameError> {
 
 #[cfg(test)]
 mod tests;
+
+/// One shell word for a command a hint prints: plain when safe, otherwise
+/// single-quoted, so a name or ID pastes back exactly.
+pub fn command_word(value: &str) -> String {
+    if !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-._".contains(&byte))
+    {
+        value.into()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}

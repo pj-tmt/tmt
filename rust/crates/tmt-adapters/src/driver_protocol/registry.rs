@@ -657,6 +657,10 @@ fn beyond(approved: &DriverRecord, current: &DriverRecord) -> Option<String> {
     if !env.is_empty() {
         return Some(format!("it now also reads {}", env.join(", ")));
     }
+    // The launch template is a command line Ops runs; a new or changed one was not approved.
+    if new.launch.is_some() && new.launch != old.launch {
+        return Some("it now opens panes with a command you have not approved".into());
+    }
     None
 }
 
@@ -765,4 +769,40 @@ pub fn remove(global_dir: &Path, name: &str) -> Result<bool, RegistryError> {
     }
     write(global_dir, &document)?;
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn record(launch: Option<&[&str]>) -> DriverRecord {
+        let mut capabilities = json!({"kind": "host", "name": "screen", "version": "test",
+            "protocols": [1], "ops": ["snapshot"], "paneId": {"prefix": "term_"},
+            "target": "w{n}:p{n}", "callerEnv": []});
+        if let Some(launch) = launch {
+            capabilities["launch"] = json!(launch);
+        }
+        serde_json::from_value(json!({
+            "name": "screen", "path": "/tmp/driver", "digest": "test", "protocol": 1,
+            "fingerprint": {"device": 0, "inode": 0, "size": 0, "modifiedNs": 0,
+                "changedNs": 0, "uid": 0, "mode": 0}, "approvedAtMs": 0,
+            "capabilities": capabilities
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_new_or_changed_launch_template_needs_approval_again() {
+        let open = ["screen-open", "{session}", "{command}"];
+        let other = ["screen-open", "--detach", "{session}", "{command}"];
+        // The command line Ops would run was never shown to the user.
+        let added = beyond(&record(None), &record(Some(&open))).unwrap();
+        assert!(added.contains("opens panes with a command you have not approved"));
+        assert!(beyond(&record(Some(&open)), &record(Some(&other))).is_some());
+        // The same template, or none at all, widens nothing.
+        assert_eq!(beyond(&record(Some(&open)), &record(Some(&open))), None);
+        assert_eq!(beyond(&record(Some(&open)), &record(None)), None);
+        assert_eq!(beyond(&record(None), &record(None)), None);
+    }
 }

@@ -92,6 +92,7 @@ describe('durable identity lifecycle', { concurrent: false }, () => {
       }>(await fixture.runJsonCli(['name', name]));
       expect(firstBinding).toEqual({
         bound: true,
+        session: { unbound: null },
         id: created.identity.id,
         name,
         pane: fixture.pane,
@@ -148,7 +149,7 @@ describe('durable identity lifecycle', { concurrent: false }, () => {
             presence: 'offline',
             pane: null,
             command: '',
-            session: { activity: unknownActivity },
+            session: { activity: unknownActivity, unbound: null },
           },
         ],
       });
@@ -163,6 +164,7 @@ describe('durable identity lifecycle', { concurrent: false }, () => {
       }>(await fixture.runJsonCli(['name', equivalentName]));
       expect(rebound).toEqual({
         bound: true,
+        session: { unbound: null },
         id: created.identity.id,
         name,
         pane: restarted.pane,

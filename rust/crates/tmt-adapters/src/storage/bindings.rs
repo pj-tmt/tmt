@@ -22,7 +22,7 @@ const IDENTITY_COLUMNS: &str =
 const BINDING_COLUMNS: &str = "b.id, b.identity_id, b.pane_id, b.server_id, b.socket_path, \
     b.server_pid, b.server_start_time, b.pane_pid, b.runtime_state, b.last_transition, \
     b.runtime_pid, b.runtime_start_identity, b.observed_provider_session_id, \
-    b.launch_owner_pid, b.launch_owner_start_identity, b.transport, b.pane_incarnation";
+    b.launch_owner_pid, b.launch_owner_start_identity, b.transport, b.pane_incarnation, b.runtime_start_refusal";
 
 pub(super) struct BindingRows<'a>(pub(super) &'a Connection);
 
@@ -249,7 +249,7 @@ impl BindingRecords for BindingRows<'_> {
                  RETURNING id, identity_id, pane_id, server_id, socket_path,
                     server_pid, server_start_time, pane_pid, runtime_state, last_transition,
                     runtime_pid, runtime_start_identity, observed_provider_session_id,
-                    launch_owner_pid, launch_owner_start_identity, transport, pane_incarnation",
+                    launch_owner_pid, launch_owner_start_identity, transport, pane_incarnation, runtime_start_refusal",
                 params![
                     id,
                     identity.id,
@@ -474,7 +474,7 @@ fn workspace_projection(
             .query_map(rusqlite::params_from_iter(values), |row| {
                 Ok(tmt_core::workspace::StoredIdentity {
                     entry: entry_row(row)?,
-                    preferences: session::decode_preferences(row, 23)?,
+                    preferences: session::decode_preferences(row, 24)?,
                 })
             })
             .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())

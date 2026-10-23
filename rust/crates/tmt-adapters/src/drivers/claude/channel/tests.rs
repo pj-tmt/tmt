@@ -107,6 +107,7 @@ fn entry(
             pane_pid: 2,
             pane_incarnation: None,
             session: BindingSessionState {
+                start_refusal: None,
                 last_transition: Some(SessionTransition::Started),
                 state: RuntimeState::Running,
                 key: observed.map(|incarnation| ObservedSessionKey {

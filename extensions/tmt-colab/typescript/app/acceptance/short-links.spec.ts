@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { showAllPages } from '../test/home-list.js';
+import { backToPageList, showAllPages } from '../test/home-list.js';
 import { createPage, freePort, openPage, run, selectInRenderer } from './harness/ask.js';
 import {
   openReaderLink,
@@ -53,7 +53,7 @@ test('real Colab keeps public short entries across admission, reload and history
     expect(page.url()).toBe(threadUrl);
     await page.goto(shown.link);
     await expect(proof()).toHaveText('Short route content');
-    await page.getByRole('link', { name: /^Colab · local/ }).click();
+    await backToPageList(page);
     await showAllPages(page);
     await expect(
       page.locator(`[data-page-id="${created.pageId}"]`).getByRole('link'),

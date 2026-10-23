@@ -35,10 +35,10 @@ for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await mount(page);
     await expect(page.locator('.pages > li')).toHaveCount(3);
-    // The desktop text control must reserve its actual width beside the theme action.
+    // The bar's cluster sits at the right edge; the header keeps its own actions clear of it.
     const searchBox = await control(page).boundingBox();
     const themeBox = await page.locator('.tmt-ui-header').getByRole('button').last().boundingBox();
-    expect(searchBox!.x + searchBox!.width).toBeLessThanOrEqual(themeBox!.x);
+    expect(themeBox!.x + themeBox!.width).toBeLessThanOrEqual(searchBox!.x);
     await page.evaluate(() => {
       const seen: string[] = [];
       (window as unknown as { switcherStatuses: string[] }).switcherStatuses = seen;

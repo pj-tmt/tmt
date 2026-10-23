@@ -546,6 +546,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         }),
         ["driver", "ls"] => Invocation::Driver(DriverRequest::List),
         ["driver", "rm"] => Invocation::Driver(DriverRequest::Remove(required(m, "name"))),
+        ["host", "templates"] => Invocation::Host(HostRequest::Templates),
         ["extension", "install"] => {
             Invocation::ExtensionInstall(ExtensionInstallRequest::Install {
                 name: required(m, "name"),

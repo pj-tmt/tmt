@@ -84,14 +84,20 @@ shared drawers and dialogs from the leaf, and the annotation window and thread p
 (`.annotation-popover`) from `style.css`. It knowingly sits below the 3:1 boundary floor of #3959
 (about 1.5:1 on `#fafafa`): a deliberate exception for floating panels (Ben, 2026-10-20), not to be reopened.
 Explicit theme choices are radio menu items.
-Owner page and space-home headers use one shared-height row that starts as Remote's does: the TMT
-mark and the `Colab` wordmark, then `/`, the crumbs and title, then muted original author. The
-display-only `local · <backendName>` identity (`local` when absent) is not a visible element: it
-names the brand link (`Colab · local · <backendName>`) and is its tooltip; an unlinked brand is a
-named group with the same title. Below 480px every Colab header shows the mark only: the wordmark is
-visually hidden and stays in that name. Inside the TMT web shell ([Shell](../../../../design/gui-style.md#shell))
-`ColabHeader` renders into the shell's header slot from whichever route draws it; the rail carries
-the mark, so the header shows the wordmark at every width. The shell's module menu holds All pages,
+Owner page and space-home headers use one shared-height row. Inside the TMT web shell
+([Shell](../../../../design/gui-style.md#shell)) `ColabHeader` renders into the shell's header slot
+from whichever route draws it and draws the title alone, then muted original author: no brand, mark
+or module crumb, because the rail's head carries the brand and the rail names the module (a scoped
+page keeps its project crumb before the title). The display-only `local · <backendName>` identity
+(`local` when absent) is not a visible element: it is in the header's accessible name
+(`Colab · local · <backendName> · <title>`). The shell bar's cluster holds Search (an icon and a
+quiet `⌘K` hint, hidden on coarse pointers) and the Remote presence chip (`Remote · N`, hidden
+below 640px where the count stays in More); both are portaled into the shell's `tools` slot, and
+the header leaves the room the shell measures for them. A standalone header (reader, mounted and
+native screens) still starts with the TMT mark and the `Colab` wordmark, then `/`, and names the
+brand link `Colab · local · <backendName>` (an unlinked brand is a named group with the same title);
+below 480px it shows the mark only, the wordmark visually hidden and kept in that name. The shell's
+module menu holds All pages,
 each project with its counts, New project… and Manage projects…; the space home shows its scope as
 plain text after the title. Author hides below 900px; the title truncates without
 changing its DOM copy. The page header's status slot holds, in order, the needs-you entry
@@ -188,10 +194,15 @@ canvas, sandbox attributes, source limits and CSP remain unchanged.
 apply, in a layer declared before author styles. The column (`min(1280px, 100% - 32px)`), the
 16/8/40 px gaps and `data-width="full"` are defined there and nowhere else in the frame; the
 parent's `.canvas[data-layout] .proposal-inline` rule in `style.css` repeats the column's gutter
-so reading and review bands sit on it. Question
+so reading and review bands sit on it; every band also keeps out of the marker lane below. Question
 blocks keep the frame's own measurement of their passage. The frame's chip marker is out of flow,
 so it adds no blank line between blocks. `PageSnapshot.layout` and `PageView.layout` carry the verified
-`meta.layout` (and `layoutReason` for a canvas); `freeform`, `canvas` and absent bind nothing.
+`meta.layout` (and `layoutReason` for a canvas); `freeform`, `canvas` and absent bind no column. Every
+page, framed or not, gets the frame's 28 px right marker lane (`--colab-lane`) from its first paint:
+the renderer stands a comment's number there, centred on its line, so it never covers text and the
+first thread moves none (on a framed page 4 px after the column's end, beside its text; otherwise at
+the frame's edge); threads on lines closer than one marker share a `+n` pill that posts
+`colab.render.open-list`, and the parent opens the Comments list.
 `router.tsx` binds the renderer from the live view, so a metadata-only change remounts the
 frame, and the About drawer's `PageLayoutSection` names the layout and a canvas's reason. An inline `style`
 with `!important` is the one author declaration the frame cannot override.

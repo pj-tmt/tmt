@@ -4,7 +4,7 @@
 //! the protocol has, the environment `caller` may read.
 
 use crate::wire::Capabilities;
-pub use tmt_host_grammar::{GrammarError, HostGrammar};
+pub use tmt_host_grammar::{GrammarError, HostGrammar, LaunchTemplate};
 
 const ENV_MAX: usize = 4;
 const ENV_NAME_MAX: usize = 64;
@@ -14,6 +14,7 @@ const ENV_NAME_MAX: usize = 64;
 pub struct Grammar {
     host: HostGrammar,
     caller_env: Vec<String>,
+    launch: Option<LaunchTemplate>,
 }
 
 impl Grammar {
@@ -33,9 +34,16 @@ impl Grammar {
                 )));
             }
         }
+        let launch = capabilities
+            .launch
+            .as_deref()
+            .map(LaunchTemplate::new)
+            .transpose()
+            .map_err(|error| GrammarError::new(format!("launch: {error}")))?;
         Ok(Self {
             host,
             caller_env: capabilities.caller_env.clone(),
+            launch,
         })
     }
 
@@ -50,6 +58,11 @@ impl Grammar {
 
     pub fn caller_env(&self) -> &[String] {
         &self.caller_env
+    }
+
+    /// The host's default launch template, when it publishes one.
+    pub fn launch(&self) -> Option<&LaunchTemplate> {
+        self.launch.as_ref()
     }
 
     pub fn pane_id_prefix(&self) -> &str {
@@ -129,6 +142,7 @@ pub(crate) mod tests {
             },
             target: Some("w{n}:p{n}".into()),
             caller_env: vec!["HERDR_PANE_ID".into(), "HERDR_SOCKET_PATH".into()],
+            launch: None,
         }
     }
 
@@ -154,6 +168,15 @@ pub(crate) mod tests {
             |c| c.caller_env = vec!["TMT_IDENTITY".into()],
             |c| c.caller_env = vec!["lower".into()],
             |c| c.caller_env = ["A", "B", "C", "D", "E"].map(String::from).to_vec(),
+            |c| c.launch = Some(vec!["herdr".into()]),
+            |c| c.launch = Some(vec!["herdr".into(), "{session}".into()]),
+            |c| {
+                c.launch = Some(
+                    ["herdr", "--label={session}", "{command}"]
+                        .map(String::from)
+                        .to_vec(),
+                )
+            },
         ] {
             assert!(with(edit).is_err(), "{:?}", {
                 let mut c = herdr_like();
@@ -162,6 +185,37 @@ pub(crate) mod tests {
             });
         }
         assert!(with(|c| c.target = None).is_ok());
+    }
+
+    #[test]
+    fn a_launch_template_is_optional_and_validated_with_the_declaration() {
+        assert_eq!(with(|_| {}).unwrap().launch(), None);
+        let grammar = with(|c| {
+            c.launch = Some(
+                [
+                    "herdr",
+                    "tab",
+                    "create",
+                    "--label",
+                    "{session}",
+                    "--",
+                    "{command}",
+                ]
+                .map(String::from)
+                .to_vec(),
+            )
+        })
+        .unwrap();
+        assert_eq!(grammar.launch().unwrap().argv()[4], "{session}");
+        // A declaration without it decodes, and one with it round-trips through the wire JSON.
+        let mut declared = herdr_like();
+        assert!(!serde_json::to_string(&declared).unwrap().contains("launch"));
+        declared.launch = Some(vec!["x".into(), "{session}".into(), "{command}".into()]);
+        let text = serde_json::to_string(&declared).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Capabilities>(&text).unwrap(),
+            declared
+        );
     }
 
     #[test]

@@ -24,7 +24,7 @@ export function QuickSwitcherControl() {
         icon={
           <>
             <Search />
-            <span>{t.title}</span>
+            <kbd>{command ? '⌘K' : 'Ctrl K'}</kbd>
           </>
         }
         onActivate={(event) => {

@@ -12,6 +12,8 @@ if (process.argv.length !== 3 || !['--write', '--check'].includes(mode))
 // frame at build time.
 const roles = [
   ['surface', 'annotation-highlight'],
+  ['surface', 'annotation-highlight-hover'],
+  ['color', 'annotation-rule'],
   ['surface', 'annotation-action'],
   ['color', 'annotation-on-action'],
   ['surface', 'sheet'],

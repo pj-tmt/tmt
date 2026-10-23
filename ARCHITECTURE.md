@@ -242,7 +242,8 @@ a working directory, active pane or sole identity.
   recheck their captured records before reconciliation. Changed records never
   authorize retirement or detachment; unchanged records retain conclusive stale
   binding cleanup.
-- Lifecycle hooks observe existing bindings; they never create or move identities.
+- Lifecycle hooks complete existing bindings, never create or move identities.
+  Binding-owned refused starts are diagnostic; [session projection](contracts/identity-status-v1.md#session-binding-observation) reads only stored facts.
   Bounded callbacks exit zero; launch hooks retain reviewed externalized-name compatibility. Persistent
   provider configuration changes only through consented `tmt setup`.
 - `tmt-core::endpoint::ProcessIncarnation` (PID plus core's own start token) is the

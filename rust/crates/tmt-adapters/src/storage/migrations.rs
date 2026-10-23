@@ -310,6 +310,10 @@ const MIGRATIONS: &[Migration] = &[
         "retain an inactive resume record per driver",
         "schema/062.sql"
     ),
+    migration!(
+        "record refused runtime starts on their binding",
+        "schema/063.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

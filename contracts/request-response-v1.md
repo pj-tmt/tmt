@@ -810,6 +810,19 @@ retained, so `not_sent` carries one of the two generic reasons.
 | `unreachable`          | `not_sent`    | not sent, the agent could not be reached                       |
 | `refused`              | `not_sent`    | not sent, nothing reached the agent                            |
 
+A delivered message has reason `session_not_bound` when its current binding records
+an unadmitted provider SessionStart newer than its admitted session. Core supplies
+`session not bound · exit the agent in its pane, then run: tmt resume -- <name>`.
+For stored refusal `previous_session_live`, it instead supplies
+`session not bound · the old session is still running; move it with: tmt resume --move -- <name>`.
+The actual recipient name is quoted as one shell word. The text is one line, under
+256 UTF-8 bytes. If the quoted name cannot fit or contains a line separator, it
+instead directs the user to run `tmt resume` after exiting in that pane, or
+`tmt resume --move` in its bound pane for `previous_session_live`; no command
+or name is truncated. This reason never permits replay and takes precedence over a
+previous session's activity, but not over uncertain or failed delivery. Reads use
+stored observations only; missing activity alone does not mean unbound.
+
 ### Send now
 
 `tmt send-now <request-id> [--identity <name>]` (the unique prefix `tmt result` accepts also

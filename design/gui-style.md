@@ -132,7 +132,8 @@ page renders in it.
   outside the rounded row and never its border. The current module's pages nest under
   it as sub-items; the page you are on has the same fill and marker. A count is a
   small box after the label: a plain total in the hover fill, a needs-you count a
-  pill in the waiting colour on its soft fill; `99+` above 99. The number alone is
+  pill in the waiting colour on its soft fill; `99+` above 99; a count of zero draws
+  nothing. The number alone is
   drawn, and the item's accessible name says what it counts. Home sums needs-you
   counts only when every module reports one.
 - **Collapse:** the toggle collapses the rail to 56 px of icons and expands it again,
@@ -147,13 +148,20 @@ page renders in it.
   wide screen its pages nest under the current rail item and share the rail's surface,
   rows and selection marker; on a phone they are a tab strip under the title bar. It has
   no title of its own.
-- **Header:** one continuous sticky row: the host's header (moved into the shell's
-  bar) as `<module> / <page>` with one bottom rule, every segment in the header
-  title's face and size, separators lighter. The TMT mark and word are the rail's
-  head, the one place the brand sits; the bar does not repeat them. Under 480 px the
-  module crumb steps aside (its link stays for assistive technology) so the page
-  title keeps the row. The bar paints the module's name at once and keeps its height
-  and rule while a route loads.
+- **Header:** one continuous sticky row: the host's header (moved into the shell's bar)
+  shows the page title and the page's own actions, with one bottom rule. There is no
+  module crumb and no brand in the bar: the rail's head carries the brand and the current
+  rail item names the module. The header keeps the module in its accessible name
+  (`Colab · <page>`), and the document title keeps it too. While a route loads the bar
+  shows the module's name as its title and keeps its height and rule.
+- **Bar cluster:** the shell owns the right end of the bar. A module fills the **search**
+  slot (Colab: Search pages, an icon with a quiet `⌘K` key hint that a touch screen and a
+  bar under 640 px do not draw; ⌘K opens it from anywhere in the module) and the **chip**
+  slot (Colab: the Remote presence chip, `Remote · N`, not drawn under 640 px, where its
+  count is in the page More menu). Search comes first. An empty slot takes no room, and the
+  header leaves the room the shell measures for the cluster. The four-state connection chip
+  of the [Remote switcher](#remote-switcher) is a design target and not shipped; the bar has
+  no avatar slot until who the avatar is has been decided.
 - **Module content:** the shell adds no padding or width to a module's main area;
   each module keeps its own layout. Shell page styles stay scoped to their own
   pages (Remote: `.tmt-page`), since every module shares the one document. While a
@@ -452,9 +460,16 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   Opening captures the quote without publishing or sending. The dark pill has a
   speech-bubble icon and `Annotate`, with a short thin leader at the focus end.
   Shortcut help is accessible through `aria-keyshortcuts`, without visible hotkey copy.
-- Annotation ranges use flat neutral grey token paint, no underline, rounding or
-  shadow, preserving authored text colour and weight. Round dark badges with white
-  numbers sit at the final text rect; collision lanes keep each target distinct.
+- Annotation ranges use the mint `annotation-highlight` tint and a 1px
+  `annotation-rule` underline, with no rounding or shadow, preserving authored text
+  colour and weight. While the pointer is over one it takes the `-hover` tint and a
+  2px underline, with no outline box. Round number markers stand in the page's right
+  marker lane (28px, reserved on every page from its first paint, so the first thread
+  moves no text), centred on the passage's last line: a 16px circle inside a 24px hit
+  area that covers no text. On a column page the marker stands 4px after the column's
+  end, beside its passage; on a page that spans the frame, at the frame's edge. Markers
+  on lines closer than one hit area share one `+n` pill (16px tall, at least 16px wide,
+  4px inside each end, same 24px hit area) that opens the thread list.
   Creation-order numbering includes every non-deleted thread before view filters.
   Deletion renumbers; resolved threads retain list numbers without page markers.
 - Annotation and thread windows are borderless, square grey panels with an uppercase
@@ -507,8 +522,10 @@ above it and 16px side padding. Recipient chips precede the text; labeled Attach
 the existing creator preference and the square arrow Send share its bottom row,
 aligned to the text edges. The composer retains one editor and draft owner.
 
-Annotation anchors and thread headers share one 22px circle, 12px semibold system
-font and grid-centered number. Header items align vertically with an 8px gap.
+Annotation anchors and thread headers share the annotation action fill, semibold
+system font and grid-centered number: an anchor is a 16px circle with a 10px number
+inside its 24px hit area, a thread header's number a 22px circle with a 12px number.
+Header items align vertically with an 8px gap.
 An anchored window adds no decorative connector line beside the circle.
 
 One message in Chat or a thread: author line (`name AGENT · time` for agents, `name · time` for people), body,

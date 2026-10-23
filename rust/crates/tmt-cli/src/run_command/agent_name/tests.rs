@@ -45,6 +45,7 @@ fn held_by_launch(name: &str) -> BindingEntry {
             pane_pid: 10,
             pane_incarnation: None,
             session: BindingSessionState {
+                start_refusal: None,
                 last_transition: None,
                 state: RuntimeState::Running,
                 key: Some(ObservedSessionKey {

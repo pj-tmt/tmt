@@ -6,6 +6,8 @@
      menu's tab row on a phone. Hosts subtract it from their viewport-high minimums. */
   --tmt-ui-module-menu-row-height: 44px;
   --tmt-ui-shell-lead: 0px;
+  /* The width of the bar's right-hand cluster; mountShell measures it. */
+  --tmt-ui-shell-tools-width: 0px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   grid-template-rows: auto 1fr;
@@ -26,6 +28,39 @@
   box-sizing: border-box;
   min-height: var(--tmt-ui-header-height);
   background: var(--tmt-ui-surface-paper);
+}
+/* The bar's right-hand cluster, a second layer over the bar's right end: a module fills the search
+   slot and the chip slot (an empty slot takes no room). The header leaves the room the shell
+   measured (`--tmt-ui-shell-tools-width`, set by mountShell). */
+.tmt-ui-shell-tools {
+  position: sticky;
+  top: 0;
+  z-index: 51;
+  grid-area: 1 / 2;
+  justify-self: end;
+  align-self: start;
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-header-gap);
+  box-sizing: border-box;
+  height: var(--tmt-ui-header-height);
+  padding-inline-end: var(--tmt-ui-header-padding-inline);
+  pointer-events: none;
+}
+.tmt-ui-shell-tools > * {
+  display: flex;
+  align-items: center;
+  pointer-events: auto;
+}
+.tmt-ui-shell-tools > :empty,
+.tmt-ui-shell-tools:not(:has(> :not(:empty))) {
+  display: none;
+}
+.tmt-ui-shell-bar > .tmt-ui-header {
+  padding-inline-end: max(
+    var(--tmt-ui-header-padding-inline),
+    calc(var(--tmt-ui-shell-tools-width) + var(--tmt-ui-header-gap))
+  );
 }
 /* The rule is drawn over the row's last pixel, where a host header draws its own. */
 .tmt-ui-shell-bar::after {
@@ -64,48 +99,27 @@
   color: var(--tmt-ui-color-secondary);
   font: 400 11px/1.2 var(--tmt-ui-font-body);
 }
-/* Hosts' headers become the bar's sticky row: `<module> / <page>` and the page's actions. */
+/* Hosts' headers become the bar's sticky row: the page's title and its actions. The rail names
+   the module; the brand sits only at the rail's head. */
 .tmt-ui-shell-bar > .tmt-ui-header {
   position: static;
   background: transparent;
   border-bottom: 0;
 }
-/* One breadcrumb, one type: the module and the page share the header title's face and size;
-   separators are lighter. */
-.tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-wordmark,
+/* The title and a title's separators share the header title's face and size; separators are
+   lighter. */
 .tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-title,
-.tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-brand ~ [aria-hidden='true'],
 .tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-heading > [aria-hidden='true'] {
   font: var(--tmt-ui-header-title-weight) var(--tmt-ui-header-title-size) /
     var(--tmt-ui-header-title-line-height) var(--tmt-ui-font-display);
   letter-spacing: normal;
 }
-.tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-brand ~ [aria-hidden='true'],
 .tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-heading > [aria-hidden='true'] {
   color: var(--tmt-ui-color-secondary);
   font-weight: 400;
 }
-/* A narrow phone gives the page title the row: the module crumb (`<module> /`) steps aside, as a
-   standalone header drops its wordmark there; the menu button still opens the rail. */
-@media (max-width: 479px) {
-  /* The module's link stays for assistive technology (it names the connection); only its box goes. */
-  .tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-header > .tmt-ui-brand {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-  .tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-brand ~ [aria-hidden='true'],
-  .tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-heading > [aria-hidden='true']:first-child {
-    display: none;
-  }
-}
-.tmt-ui-shell-bar:has(> .tmt-ui-header:not([data-shell-crumb])) > [data-shell-crumb] {
-  display: none;
-}
-.tmt-ui-shell-bar .tmt-ui-mark {
+/* The placeholder names the module until the module's own header arrives. */
+.tmt-ui-shell-bar:has(> .tmt-ui-header:not([data-shell-placeholder])) > [data-shell-placeholder] {
   display: none;
 }
 .tmt-ui-shell-main {
@@ -428,6 +442,12 @@
   .tmt-ui-shell-bar .tmt-ui-header {
     padding-left: calc(var(--tmt-ui-control-size) + var(--tmt-ui-space-l));
   }
+  /* The block layout has no bar row to share: the cluster rides the bar's right end. */
+  .tmt-ui-shell-tools {
+    position: fixed;
+    top: 0;
+    right: 0;
+  }
   .tmt-ui-rail {
     display: none;
   }
@@ -498,5 +518,11 @@
     height: var(--tmt-ui-tab-indicator-width);
     background: var(--tmt-ui-color-accent);
     content: '';
+  }
+}
+/* A phone-width bar draws no key hint. */
+@media (max-width: 640px) {
+  .tmt-ui-shell-tools kbd {
+    display: none;
   }
 }

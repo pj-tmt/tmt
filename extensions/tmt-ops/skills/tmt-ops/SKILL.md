@@ -978,8 +978,13 @@ filtering and `matchedCount` after filtering. Mutations add `changed`, plus `ite
 and `itemRevision` where applicable. `current` contains `room:{id,name,available,manager}`,
 nullable `checklistId`/`inventoryRevision`, ordered `items` and nullable
 `deletion:{itemId,deletionRevision}`. Items expose `{id,revision,title,body,reference,
-assignee,completion,archived}`; absent optionals are null and assignment is null or
-`{id,label,available}`. Completion is `open` or `complete`.
+assignee,completion,archived,addedBy,addedAtMs,lastChangedBy,lastChangedAtMs}`; absent
+optionals are null and assignment is null or `{id,label,available}`. Completion is `open`
+or `complete`. `addedBy`/`lastChangedBy` are identity UUIDs and the times Unix
+milliseconds; the service fills them from the verified caller and its clock, so no flag
+or request sets them. Add and edit, assign, unassign, complete, reopen, archive and
+restore stamp the item; reorder and delete do not. An item stored before they were
+recorded reads all four as null until its next change, which sets `lastChanged*` only.
 
 Errors retain `{error:{code,message,current?}}`. Only authorized typed conflict/
 deletion data supplies `current`; denial exposes no current projection. Human

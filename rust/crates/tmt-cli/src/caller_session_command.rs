@@ -1,5 +1,7 @@
 //! Optional post-output discovery; environment coordinates never grant authority.
-use crate::provider_hook_command::{Caller, SessionCommit, commit_session, verified_caller};
+use crate::provider_hook_command::{
+    Caller, SessionCommit, commit_session, verified_lifecycle_caller,
+};
 use std::{
     io::Write,
     time::{Duration, Instant},
@@ -99,6 +101,32 @@ fn observe_with(runner: &impl CommandRunner) -> Result<(), &'static str> {
         },
         current_caller,
     )
+}
+
+/// Explicit binding asks for a verifiable session now, without the optional cache.
+/// An invoker in another pane never supplies the target's provider coordinates.
+pub(super) fn complete_binding(binding: &tmt_core::binding::Binding) -> Result<(), &'static str> {
+    let registry = RuntimeRegistry::first_party();
+    let candidates: Vec<_> = registry
+        .harnesses()
+        .filter(|name| {
+            HarnessId::new(name)
+                .ok()
+                .and_then(|id| registry.lifecycle(&id)?.caller_session())
+                .is_some()
+        })
+        .collect();
+    let [provider] = candidates.as_slice() else {
+        return Err("environment");
+    };
+    // An explicit bind is synchronous lifecycle admission, not the optional
+    // post-output discovery attempt. Keep that optional 500 ms budget separate.
+    let allowance = Duration::from_millis(crate::invocation::MAXIMUM_HOOK_WORK_BUDGET_MS);
+    let result = verified_observation(provider, Instant::now() + allowance, Some(binding));
+    if let Err(layer) = result {
+        debug_refusal(layer);
+    }
+    result
 }
 
 /// The caller's environment and the approvals it was read with, once, and
@@ -284,7 +312,7 @@ fn external_host_bindings(
 
 pub fn worker(provider: &str, budget_ms: Option<u64>) -> u8 {
     let deadline = Instant::now() + Duration::from_millis(budget_ms.unwrap_or(0)).min(BUDGET);
-    let result = verified_observation(provider, deadline);
+    let result = verified_observation(provider, deadline, None);
     if let Err(layer) = result {
         // Private supervisor evidence is always captured, never forwarded as
         // default diagnostics. Cache hits retain the original refusing layer.
@@ -295,7 +323,11 @@ pub fn worker(provider: &str, budget_ms: Option<u64>) -> u8 {
     u8::from(result.is_err())
 }
 
-fn verified_observation(provider: &str, deadline: Instant) -> Result<(), &'static str> {
+fn verified_observation(
+    provider: &str,
+    deadline: Instant,
+    expected_binding: Option<&tmt_core::binding::Binding>,
+) -> Result<(), &'static str> {
     let registry = RuntimeRegistry::first_party();
     let harness = HarnessId::new(provider).map_err(|_| "environment")?;
     let lifecycle = registry.lifecycle(&harness).ok_or("environment")?;
@@ -303,7 +335,7 @@ fn verified_observation(provider: &str, deadline: Instant) -> Result<(), &'stati
     let host = HostEvidence::Independent {
         runtime_pid: coordinates.runtime_pid,
     };
-    let Caller::Bound(bound) = verified_caller(
+    let Caller::Bound(bound) = verified_lifecycle_caller(
         provider,
         lifecycle,
         host,
@@ -317,6 +349,9 @@ fn verified_observation(provider: &str, deadline: Instant) -> Result<(), &'stati
         return Err("native-admission");
     };
     let binding = bound.stored.entry.binding.as_ref().ok_or("binding")?;
+    if expected_binding.is_some_and(|expected| binding != expected) {
+        return Err("binding");
+    }
     if !matches!(
         evaluate_binding(
             &bound.stored.entry,
@@ -350,6 +385,28 @@ fn verified_observation(provider: &str, deadline: Instant) -> Result<(), &'stati
     let event = lifecycle
         .caller_session_observation(&coordinates, &environment, deadline)
         .map_err(|error| error.layer())?;
+    if let Some(reason) = crate::provider_hook_command::refused_start(
+        crate::provider_hook_command::StartCandidate {
+            stored: &bound.stored,
+            process: &process,
+            previous,
+            host,
+        },
+        lifecycle,
+        &harness,
+        event.as_ref(),
+        deadline,
+    ) {
+        crate::provider_hook_command::record_start_refusal(
+            &bound.paths,
+            &bound.stored,
+            &bound.snapshot,
+            (provider, event.session(), reason),
+            deadline,
+        )
+        .map_err(|_| "storage")?;
+        return Err("replacement");
+    }
     let next = event
         .propose(&binding.session, &process, previous, host, false)
         .ok_or("replacement")?;
