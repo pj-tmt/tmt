@@ -5,12 +5,6 @@
 .page-operation > p {
   margin: 0;
 }
-.page-operation-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
 .page-operation-titles {
   margin: 0;
   padding-inline-start: 1.25em;

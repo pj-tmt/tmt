@@ -522,6 +522,10 @@ test('archiving from a row confirms, explains restoration, and sends one stateme
   );
   await row.getByRole('button', { name: 'Archive Gamma notes' }).click();
   const dialog = confirmDialog(page, 'Archive “Gamma notes”?');
+  await expect(dialog.locator('footer')).toHaveCSS('border-top-width', '1px');
+  await expect(
+    dialog.locator('footer').getByRole('button', { name: 'Cancel', exact: true }),
+  ).toHaveCSS('border-top-width', '1px');
   await expect(dialog).toContainText(
     'An archived page stays readable, but nobody can edit it. You can restore it from Archived.',
   );

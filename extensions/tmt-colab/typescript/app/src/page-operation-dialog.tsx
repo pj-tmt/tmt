@@ -62,21 +62,11 @@ export function PageOperationDialog({
       onDismiss={() => {
         if (!busy) onCancel();
       }}
-    >
-      <div className="page-operation">
-        <p>{body}</p>
-        {many && (
-          <ul className="page-operation-titles">
-            {titles.slice(0, LISTED).map((title, index) => (
-              <li key={index}>{title}</li>
-            ))}
-            {titles.length > LISTED && <li>{t.moreTitles(titles.length - LISTED)}</li>}
-          </ul>
-        )}
-        <div className="page-operation-actions">
+      actions={
+        <>
           <BrowserAction
             type="button"
-            variant="text"
+            variant="secondary"
             label={t.cancel}
             disabled={busy}
             onActivate={onCancel}
@@ -88,7 +78,19 @@ export function PageOperationDialog({
             busy={busy}
             onActivate={onConfirm}
           />
-        </div>
+        </>
+      }
+    >
+      <div className="page-operation">
+        <p>{body}</p>
+        {many && (
+          <ul className="page-operation-titles">
+            {titles.slice(0, LISTED).map((title, index) => (
+              <li key={index}>{title}</li>
+            ))}
+            {titles.length > LISTED && <li>{t.moreTitles(titles.length - LISTED)}</li>}
+          </ul>
+        )}
       </div>
     </BrowserDialog>
   );

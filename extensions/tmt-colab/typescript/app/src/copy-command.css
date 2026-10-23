@@ -1,0 +1,5 @@
+.copy-command-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+}

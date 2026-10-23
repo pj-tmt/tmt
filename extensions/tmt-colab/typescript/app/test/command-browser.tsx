@@ -3,6 +3,7 @@ import 'virtual:tokens.css';
 import '@tmt/browser-ui/static.css';
 import '../src/style.css';
 import { createRoot } from 'react-dom/client';
+import { ConnectGuide } from '../src/connect-guide.js';
 import { ShareDialog } from '../src/share-dialog.js';
 import type { ManagementPort, ManagementView } from '../src/management.js';
 
@@ -79,7 +80,8 @@ const port: ManagementPort = {
   setPinned: async () => {},
   setProjects: async () => {},
 };
-createRoot(document.getElementById('root')!).render(
+const root = createRoot(document.getElementById('root')!);
+root.render(
   <ShareDialog
     port={port}
     pageId={pageId}
@@ -120,4 +122,14 @@ export function mountLong() {
   const host = document.createElement('div');
   document.body.append(host);
   createRoot(host).render(<LongCommand />);
+}
+
+/** Presentation only: validation/auth remain covered by connect-guide.test.ts. */
+export function mountGuide(remoteLink?: string) {
+  root.render(
+    <ConnectGuide
+      state={{ phase: remoteLink ? 'sign-in' : 'checking', remoteLink }}
+      signIn={() => {}}
+    />,
+  );
 }

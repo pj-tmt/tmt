@@ -736,6 +736,14 @@ or compact controls may also scroll the containing home vertically so every cont
 (`Showing N of M`) comes within a screen of the list's end. Selection and its header checkbox
 operate on the current matching pages, including rows not yet drawn.
 
+`NewPageDialog` adds Close through the shared dialog footer; it offers the literal machine command,
+not a browser-side create operation. `CopyCommand` owns the native copy button and its decorative
+mark, trusted activation, disabled admission and clipboard feedback; denial keeps the command
+selectable. The connection guide uses the same helper. `PageOperationDialog` likewise supplies
+Cancel and its lifecycle action through the shared footer. It only confirms the operation and
+names the first five titles for bulk actions; Home retains statement submission, busy dismissal
+and verified, awaiting or refused outcomes. The shared dialog owns the divider and action layout.
+
 The views are the tabs All, Needs you, Discussion, In progress, Done and Archived, in that order
 (`BrowserTabs variant="flush"`); `list-stage.ts` owns the stage vocabulary (`HOME_STAGES`,
 `DEFAULT_VIEW`, `HomeView`, `pageStage`, `stageCounts`, `takeStage`). `stage` in the route search selects a stage or `all`, `archived`

@@ -1,7 +1,9 @@
+import { Copy } from 'lucide-react';
 import { useState } from 'react';
 import { BrowserCommand } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { text } from './strings.js';
+import './copy-command.css';
 
 /** Clipboard feedback says only what copying did, never that a machine step ran. */
 export function CopyCommand({ command, enabled }: { command: string; enabled: boolean }) {
@@ -24,7 +26,10 @@ export function CopyCommand({ command, enabled }: { command: string; enabled: bo
             }
           }}
         >
-          Copy
+          <span className="copy-command-label">
+            <Copy size={14} aria-hidden="true" />
+            Copy
+          </span>
         </button>
       }
       feedback={feedback}
