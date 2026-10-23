@@ -1769,6 +1769,193 @@ fn a_hooked_agent_that_starts_late_shows_a_neutral_sent_and_never_not_reported()
 }
 
 #[test]
+fn a_history_refresh_cannot_duplicate_a_send_awaiting_its_receipt() {
+    const NOW: u64 = 1_791_600_000_000;
+    const BODY: &str = "Receipt race body";
+    crate::status::with_now_ms(NOW, || {
+        let mut app = fixture();
+        let fake = Fake::new(json!({"requestId":"req-race","status":"sent"}), false);
+        let completed = send(&mut app, &fake, BODY);
+        let _no_acquisition = crate::runner::forbid_commands();
+        let before = draw(&app);
+        assert_eq!(before.matches(BODY).count(), 1, "{before}");
+        let position = before.find(BODY).unwrap();
+        let agent = app.conversation_finals().unwrap();
+        let key = crate::board::home_leads::SentKey {
+            sender: agent.sender,
+            agent: agent.agent,
+        };
+        let history = vec![history_send("req-race", NOW, BODY)];
+        // The selected lane read this after Core stored the request, but the
+        // ordered send completion has not reached the UI yet.
+        app.apply_sent(key.clone(), Ok(history.clone()));
+        let during = draw(&app);
+        assert_eq!(during.matches(BODY).count(), 1, "{during}");
+        assert_eq!(during.find(BODY), Some(position));
+        finish(&mut app, completed);
+        app.apply_sent(key, Ok(history));
+        let after = draw(&app);
+        assert_eq!(after.matches(BODY).count(), 1, "{after}");
+        assert_eq!(after.find(BODY), Some(position));
+        assert!(
+            after.contains("Core delivery wording takes over"),
+            "{after}"
+        );
+    });
+}
+
+fn history_send(request: &str, at_ms: u64, text: &str) -> serde_json::Value {
+    json!({"requestId":request,"preparedAtMs":at_ms,"text":text,"truncated":false,
+        "messageState":{"state":"delivered","reason":{"text":"Core delivery wording takes over"}}})
+}
+
+#[test]
+fn a_slow_send_keeps_old_history_and_incoming_replies_live() {
+    const NOW: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(NOW, || {
+        let mut app = fixture();
+        draw(&app);
+        let agent = app.conversation_finals().unwrap();
+        let key = crate::board::home_leads::SentKey {
+            sender: agent.sender.clone(),
+            agent: agent.agent.clone(),
+        };
+        let old = history_send("req-old", NOW - 60_000, "Retained history");
+        app.apply_sent(key.clone(), Ok(vec![old.clone()]));
+        assert!(draw(&app).contains("Retained history"));
+        let fake = Fake::new(json!({"requestId":"req-slow","status":"sent"}), false);
+        let completed = send(&mut app, &fake, "Local slow send");
+        app.selected_request = crate::board::refresh::SelectedRequest::Ready(None);
+        let _no_acquisition = crate::runner::forbid_commands();
+        let history = vec![old, history_send("req-slow", NOW, "Local slow send")];
+        for _ in 0..3 {
+            app.refresh_sent();
+            app.apply_sent(key.clone(), Ok(history.clone()));
+            let screen = draw(&app);
+            assert!(screen.contains("Retained history"), "{screen}");
+            assert_eq!(screen.matches("Local slow send").count(), 1, "{screen}");
+        }
+        app.apply_finals(
+            agent.clone(),
+            Ok(vec![json!({
+                "recipientId":agent.agent,"requestId":"req-slow",
+                "submittedAtMs":NOW + 1,"response":"Reply during the slow send"
+            })]),
+        );
+        let during = draw(&app);
+        assert!(during.contains("Reply during the slow send"), "{during}");
+        finish(&mut app, completed);
+        app.apply_sent(key, Ok(history));
+        let after = draw(&app);
+        assert!(after.contains("Reply during the slow send"), "{after}");
+        assert_eq!(
+            after.matches("Reply during the slow send").count(),
+            1,
+            "{after}"
+        );
+        assert_eq!(after.matches("Local slow send").count(), 1, "{after}");
+    });
+}
+
+#[test]
+fn history_deferral_ends_on_success_refusal_timeout_and_uncertainty() {
+    const NOW: u64 = 1_791_600_000_000;
+    for code in [
+        None,
+        Some("SEND_REFUSED"),
+        Some("SQUAD_CORE_UNAVAILABLE"),
+        Some("DELIVERY_UNCERTAIN"),
+    ] {
+        crate::status::with_now_ms(NOW, || {
+            let mut app = fixture();
+            let fake = Fake::new(json!({"requestId":"req-outcome","status":"sent"}), false);
+            let mut completed = send(&mut app, &fake, "Local pending body");
+            let _no_acquisition = crate::runner::forbid_commands();
+            draw(&app);
+            let agent = app.conversation_finals().unwrap();
+            let key = crate::board::home_leads::SentKey {
+                sender: agent.sender,
+                agent: agent.agent,
+            };
+            let history = vec![history_send("req-unrelated", NOW, "Unrelated new history")];
+            app.apply_sent(key.clone(), Ok(history.clone()));
+            assert!(!draw(&app).contains("Unrelated new history"));
+            if let Some(code) = code {
+                completed.outcome = Err(SquadError::new(code, "Send completed without a receipt"));
+            }
+            finish(&mut app, completed);
+            app.apply_sent(key.clone(), Ok(history));
+            assert!(!app.awaits_send_receipt(&key));
+            let after = draw(&app);
+            assert!(after.contains("Unrelated new history"), "{code:?}: {after}");
+        });
+    }
+}
+
+#[test]
+fn a_pending_send_never_holds_another_conversations_history() {
+    const NOW: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(NOW, || {
+        let mut app = fixture();
+        let fake = Fake::new(json!({"requestId":"req-first","status":"sent"}), false);
+        let completed = send(&mut app, &fake, "First conversation pending");
+        let _no_acquisition = crate::runner::forbid_commands();
+        draw(&app);
+        let first = app.conversation_finals().unwrap();
+        app.selected = app
+            .rows()
+            .iter()
+            .position(|(_, row)| row["id"] != first.agent)
+            .unwrap();
+        draw(&app);
+        let second = app.conversation_finals().unwrap();
+        assert_ne!(first.agent, second.agent);
+        let key = crate::board::home_leads::SentKey {
+            sender: second.sender,
+            agent: second.agent,
+        };
+        app.apply_sent(
+            key,
+            Ok(vec![history_send(
+                "req-other",
+                NOW,
+                "Other conversation history",
+            )]),
+        );
+        let other = draw(&app);
+        assert!(other.contains("Other conversation history"), "{other}");
+        finish(&mut app, completed);
+    });
+}
+
+#[test]
+fn identical_bodies_with_different_request_ids_remain_distinct() {
+    const NOW: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(NOW, || {
+        let mut app = fixture();
+        let fake = Fake::new(json!({"requestId":"req-live","status":"sent"}), false);
+        let completed = send(&mut app, &fake, "Identical body");
+        finish(&mut app, completed);
+        let _no_acquisition = crate::runner::forbid_commands();
+        draw(&app);
+        let agent = app.conversation_finals().unwrap();
+        let key = crate::board::home_leads::SentKey {
+            sender: agent.sender,
+            agent: agent.agent,
+        };
+        app.apply_sent(
+            key,
+            Ok(vec![
+                history_send("req-live", NOW, "Identical body"),
+                history_send("req-distinct", NOW + 1, "Identical body"),
+            ]),
+        );
+        let screen = draw(&app);
+        assert_eq!(screen.matches("Identical body").count(), 2, "{screen}");
+    });
+}
+
+#[test]
 fn a_restored_send_is_dropped_once_a_live_entry_has_the_same_request() {
     let mut app = fixture();
     let fake = Fake::new(json!({"requestId":"req-live","status":"sent"}), false);

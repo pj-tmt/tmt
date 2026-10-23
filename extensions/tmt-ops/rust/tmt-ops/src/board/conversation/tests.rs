@@ -1858,6 +1858,90 @@ fn first_open_paints_one_centred_loading_mark_then_one_complete_projection() {
     );
 }
 
+#[test]
+fn a_local_send_paints_during_managed_history_acquisition_before_and_after_escape() {
+    use crate::board::app::Effect;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    for retained in [false, true] {
+        let mut app = if retained {
+            settled_workspace()
+        } else {
+            loading_workspace()
+        };
+        workspace_frame(&app);
+        if retained {
+            app.observe_cursor(Some(5));
+        }
+        app.conversation_read().expect("history remains in flight");
+        assert_eq!(
+            app.perform(&crate::action::Action::parse("talk").unwrap()),
+            Effect::None
+        );
+        assert_eq!(
+            app.paste("Local send during history acquisition"),
+            Effect::None
+        );
+        let Effect::Act(request) = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        else {
+            panic!("the message must dispatch");
+        };
+        assert!(
+            app.outgoing_ticket(&request).is_some(),
+            "dispatch owns a local entry"
+        );
+        app.in_flight += 1;
+        for close in [false, true] {
+            if close {
+                app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            }
+            let selected_state = std::mem::discriminant(&app.selected_request);
+            let selected_plan = app.selected_request.conversation().cloned();
+            let words = frame_words(&workspace_frame(&app));
+            assert_eq!(
+                words
+                    .matches("Local send during history acquisition")
+                    .count(),
+                1,
+                "retained={retained}, closed={close}: {words}"
+            );
+            assert!(!words.contains("Loading conversation…"), "{words}");
+            assert!(!words.contains("Nothing sent."), "{words}");
+            let identity = app.conversation.borrow().active.clone().unwrap();
+            let lines = app.conversation.borrow().sessions[&identity]
+                .rendered
+                .as_ref()
+                .unwrap()
+                .mapped
+                .lines
+                .as_ptr();
+            workspace_frame(&app);
+            assert_eq!(
+                lines,
+                app.conversation.borrow().sessions[&identity]
+                    .rendered
+                    .as_ref()
+                    .unwrap()
+                    .mapped
+                    .lines
+                    .as_ptr(),
+                "an unchanged Retained paint reuses its mapped allocation"
+            );
+            assert_eq!(
+                selected_state,
+                std::mem::discriminant(&app.selected_request)
+            );
+            assert_eq!(
+                selected_plan.as_ref(),
+                app.selected_request.conversation(),
+                "painting does not publish or restart a selected read"
+            );
+            if retained {
+                assert!(words.contains("Held response"), "{words}");
+            }
+        }
+    }
+}
+
 const SPINNER_GLYPHS: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 /// A workspace whose conversation is shown, read once, and not due for any read.
