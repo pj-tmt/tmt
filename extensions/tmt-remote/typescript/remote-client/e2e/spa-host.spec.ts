@@ -940,7 +940,29 @@ test.describe('the Ops route on the owner read', () => {
     // The next read, five seconds on, repaints only what changed.
     await expect(rows.nth(0)).toContainText('merge', { timeout: 8000 });
     await page.goto(`${origin}/ops#schedules`);
-    await expect(page.locator('#ops-section .tmt-ui-list-row')).toContainText('Hourly pass');
+    await expect(page.locator('#ops-section .tmt-ui-page-title')).toHaveText(
+      'Keep the rhythm visible.',
+    );
+    const timer = page.locator('#ops-section tbody tr');
+    await expect(timer.locator('td').nth(0)).toContainText('Hourly pass');
+    await expect(timer.locator('td').nth(1)).toHaveText('tmt-core');
+    // The schedule is shown as recorded, in the mono face.
+    await expect(timer.locator('td').nth(2)).toHaveText('cron 35 * * * *');
+    await expect(timer.locator('td').nth(2)).toHaveCSS('font-family', /mono/i);
+    await expect(timer.locator('td').nth(3)).toHaveText('tmt-core-pm');
+    await expect(timer.locator('td').nth(4)).toHaveText('c1');
+    await expect(page.locator('#ops-section .tmt-ui-card-head .tmt-ui-chip')).toHaveText(
+      'Read only',
+    );
+    await expect(page.locator('#ops-section')).toContainText('Schedules are shown as recorded.');
+    // How to manage them: the one command, with a Copy that says what happened.
+    await expect(page.locator('#ops-section')).toContainText(
+      'Use the Ops workspace to manage your timers. This web view does not change schedules.',
+    );
+    await expect(page.locator('#ops-section .tmt-ui-command-text')).toHaveText('tmt ops ui');
+    await page.context().grantPermissions(['clipboard-write'], { origin });
+    await page.getByRole('button', { name: 'Copy tmt ops ui' }).click();
+    await expect(page.locator('#ops-section .tmt-ui-command-feedback')).toHaveText('Copied.');
     await page.goto(`${origin}/ops#settings`);
     await expect(page.locator('#ops-section')).toContainText(
       'The Ops settings page is not in the browser yet.',
@@ -953,7 +975,8 @@ test.describe('the Ops route on the owner read', () => {
     await page.close();
   });
 
-  test('filters, searches, groups and selects agents, and keeps them across a refresh', async () => {
+  /** A board of two squads: core has an agent that needs the person, ux has an idle lead. */
+  const squadBoard = () => {
     const agent = (name: string, squad: string, extra: Record<string, unknown> = {}) => ({
       id: `id-${name}`,
       name,
@@ -964,7 +987,15 @@ test.describe('the Ops route on the owner read', () => {
       model: 'sonnet',
       ...extra,
     });
-    const squads = ['tmt-core', 'tmt-ux'].map((name) => ({ name, layout: 'team' }));
+    const squads = [
+      {
+        name: 'tmt-core',
+        layout: 'team',
+        lead: { id: 'id-tmt-lead', name: 'tmt-lead' },
+        idleAlertMs: 1800000,
+      },
+      { name: 'tmt-ux', layout: 'team' },
+    ];
     const agents = [
       agent('core-1', 'tmt-core', { pending: 'approve the plan', waitingOnYou: 1, task: '#12' }),
       agent('tmt-lead', 'tmt-core', { stateTone: 'working', task: 'review' }),
@@ -972,7 +1003,11 @@ test.describe('the Ops route on the owner read', () => {
       agent('ux-lead', 'tmt-ux', { stateTone: 'dim' }),
       agent('ux-1', 'tmt-ux', { presence: 'offline' }),
     ];
-    const first = { version: 1, state: 'ok', squads, agents, timers: [], truncated: false };
+    return { version: 1, state: 'ok', squads, agents, timers: [], truncated: false };
+  };
+
+  test('filters, searches, groups and selects agents, and keeps them across a refresh', async () => {
+    const first = squadBoard();
     const changed = structuredClone(first);
     Object.assign(changed.agents[1]!, { task: 'merge' });
     const { page } = await openApp('/ops', async (page) => {
@@ -1049,6 +1084,139 @@ test.describe('the Ops route on the owner read', () => {
     await section.getByRole('button', { name: 'tmt-lead' }).click();
     await expect(detail.locator('dd').first()).toHaveText('tmt-lead');
     await expect(rows.first()).toHaveAttribute('data-selected', '');
+    await page.close();
+  });
+
+  test('shows each squad as a card with its people, and opens an agent in a drawer', async () => {
+    const { page } = await openApp('/ops#squads', async (page) => {
+      await stub(page, [squadBoard()]);
+    });
+    const section = page.locator('#ops-section');
+    await expect(section.locator('.tmt-ui-page-title')).toHaveText('Squads, clearly connected.');
+    await expect(section.locator('.tmt-ui-page-subtitle')).toHaveText(
+      'Every team, its lead and the people moving work forward.',
+    );
+    // The same count strip as the agents page.
+    await expect(section.locator('.tmt-ui-stat-value')).toHaveText([
+      '5 agents',
+      '1 working',
+      '1 needs you',
+      '0 blocked',
+      '1 idle',
+      '1 offline',
+      '1 unknown',
+    ]);
+    const cards = section.locator('.ops-squad-card');
+    await expect(cards).toHaveCount(2);
+    // Side by side, equal columns.
+    const boxes = await cards.evaluateAll((nodes) => nodes.map((n) => n.getBoundingClientRect()));
+    expect(boxes[0]!.top).toBe(boxes[1]!.top);
+    expect(boxes[0]!.width).toBe(boxes[1]!.width);
+    await expect(cards.nth(0).locator('.tmt-ui-card-title')).toHaveText('tmt-core');
+    await expect(cards.nth(0).locator('.ops-squad-meta')).toHaveText('Lead tmt-lead · 3 agents');
+    await expect(cards.nth(1).locator('.ops-squad-meta')).toHaveText('2 agents');
+    // The people as an avatar stack, the lead first.
+    await expect(cards.nth(0).locator('.tmt-ui-avatar')).toHaveText(['TL', 'C1', 'C3']);
+    // One row per agent: mark, name, state chip.
+    const members = cards.nth(0).locator('.ops-squad-member');
+    await expect(members.locator('strong')).toHaveText(['tmt-lead', 'core-1', 'core-3']);
+    await expect(members.locator('.tmt-ui-chip')).toHaveText(['Working', 'Needs you', 'Unknown']);
+    await expect(members.first().locator('.tmt-ui-state-mark').first()).toHaveAttribute(
+      'data-shape',
+      'dot',
+    );
+    // The footer: the idle alert and a Read only badge.
+    await expect(cards.nth(0).locator('.ops-squad-bottom')).toContainText(
+      'Idle alert after 30 minutes',
+    );
+    await expect(cards.nth(1).locator('.ops-squad-bottom')).toContainText(
+      'Idle alert not configured',
+    );
+    await expect(cards.nth(0).locator('.ops-squad-bottom .tmt-ui-chip')).toHaveText('Read only');
+    // An agent opens in a read-only drawer; Escape or Close returns to the row that opened it.
+    const drawer = page.locator('dialog.tmt-ui-drawer');
+    await members.first().click();
+    await expect(drawer).toBeVisible();
+    await expect(drawer.locator('h2')).toHaveText('tmt-lead');
+    await expect(drawer.locator('dd')).toHaveText(['tmt-core', 'Lead', 'sonnet']);
+    await expect(drawer).toContainText('review');
+    await expect(drawer).toContainText('This panel does not control an agent.');
+    await page.keyboard.press('Escape');
+    await expect(drawer).toBeHidden();
+    await expect(members.first()).toBeFocused();
+    await members.nth(1).click();
+    await expect(drawer).toContainText('approve the plan');
+    await drawer.getByRole('button', { name: 'Close core-1' }).click();
+    await expect(drawer).toBeHidden();
+    await page.close();
+  });
+
+  test('refreshes an open squad drawer and returns focus to the current member row', async () => {
+    let current = squadBoard();
+    const { page } = await openApp('/ops#squads', async (page) => {
+      await stub(page, [current]);
+      await page.route(`${origin}/r/owner/x/-/ops`, (route) =>
+        route.fulfill({ json: { ...current, observedAtMs: Date.now() } }),
+      );
+    });
+    const row = page.getByRole('button', { name: 'core-1, Needs you', exact: true });
+    await row.click();
+    const drawer = page.getByRole('dialog', { name: 'core-1', exact: true });
+    await expect(drawer).toContainText('approve the plan');
+    current = structuredClone(current);
+    Object.assign(current.agents[0]!, {
+      task: 'The refreshed task',
+      next: 'The refreshed next step',
+      pending: '',
+      waitingOnYou: 0,
+      stateTone: 'working',
+    });
+    await expect(drawer).toContainText('The refreshed task', { timeout: 8000 });
+    await expect(drawer).toContainText('The refreshed next step');
+    await expect(drawer).not.toContainText('approve the plan');
+    await expect(drawer.locator('.ops-drawer-top .tmt-ui-chip').first()).toHaveText('Working');
+    await page.keyboard.press('Escape');
+    await expect(drawer).toBeHidden();
+    await expect(page.getByRole('button', { name: 'core-1, Working', exact: true })).toBeFocused();
+    await page.close();
+  });
+
+  test('reports a removed drawer agent, focuses the page fallback and closes on section departure', async () => {
+    let current = squadBoard();
+    const { page } = await openApp('/ops#squads', async (page) => {
+      await stub(page, [current]);
+      await page.route(`${origin}/r/owner/x/-/ops`, (route) =>
+        route.fulfill({ json: { ...current, observedAtMs: Date.now() } }),
+      );
+    });
+    await page.getByRole('button', { name: 'core-1, Needs you', exact: true }).click();
+    const drawer = page.getByRole('dialog', { name: 'core-1', exact: true });
+    await expect(drawer).toContainText('approve the plan');
+    current = { ...current, agents: current.agents.filter((agent) => agent.name !== 'core-1') };
+    await expect(drawer).toContainText('This agent is no longer on the board.', { timeout: 8000 });
+    await expect(drawer).not.toContainText('approve the plan');
+    await expect(drawer.locator('dd')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('heading', { name: 'Squads, clearly connected.' })).toBeFocused();
+
+    await page.getByRole('button', { name: 'tmt-lead, Working', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'tmt-lead', exact: true })).toBeVisible();
+    // History can change while a modal is open. A detached native dialog must not retain `open`.
+    await page.evaluate(() => {
+      location.hash = 'schedules';
+    });
+    await expect(page.getByRole('heading', { name: 'Keep the rhythm visible.' })).toBeVisible();
+    await page.evaluate(() => {
+      location.hash = 'squads';
+    });
+    await expect(page.locator('dialog.tmt-ui-drawer')).not.toHaveAttribute('open');
+    await page.getByRole('button', { name: 'tmt-lead, Working', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'tmt-lead', exact: true })).toBeVisible();
+    await page
+      .locator('nav.tmt-ui-rail a[data-id="digest"]')
+      .evaluate((node: HTMLAnchorElement) => node.click());
+    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'digest');
+    await expect(page.locator('dialog.tmt-ui-drawer')).toHaveCount(0);
     await page.close();
   });
 

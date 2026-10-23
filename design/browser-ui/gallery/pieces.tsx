@@ -597,6 +597,48 @@ export function OverviewSection() {
           </div>
         )}
       </Pair>
+      <Pair
+        title="Avatar stack, glyph tile, read-only badge, recorded values and a copy command"
+        stacked
+      >
+        {() => (
+          <div style={{ display: 'grid', gap: '1rem', maxWidth: '36rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <span className="tmt-ui-avatar-stack" aria-hidden="true">
+                {['TL', 'C1', 'CO', 'C3'].map((initials) => (
+                  <span key={initials} className="tmt-ui-avatar" data-size="s">
+                    {initials}
+                  </span>
+                ))}
+              </span>
+              <span className="tmt-ui-glyph-tile">
+                <Glyph name="terminal" />
+              </span>
+              <span className="tmt-ui-chip">
+                <Glyph name="lock" />
+                <span className="tmt-ui-chip-label">Read only</span>
+              </span>
+            </div>
+            <table className="tmt-ui-table" data-roomy="">
+              <tbody>
+                <tr>
+                  <td>Project status check</td>
+                  <td className="tmt-ui-table-mono">cron 35 * * * *</td>
+                  <td className="tmt-ui-table-mono tmt-ui-table-quiet">status-check</td>
+                </tr>
+              </tbody>
+            </table>
+            <span className="tmt-ui-command">
+              <code className="tmt-ui-command-text">tmt ops ui</code>
+              <button type="button" className="tmt-ui-command-copy" aria-label="Copy tmt ops ui">
+                <Glyph name="copy" />
+                Copy
+              </button>
+              <span className="tmt-ui-command-feedback" role="status" />
+            </span>
+          </div>
+        )}
+      </Pair>
       <Pair title="Table in a flush card, with a group, a chosen row and state chips" stacked>
         {() => (
           <section className="tmt-ui-card" data-flush="">

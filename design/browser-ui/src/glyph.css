@@ -9,3 +9,20 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+/* A glyph in a small square tile: the mark of a card that has one idea. */
+.tmt-ui-glyph-tile {
+  box-sizing: border-box;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-hover);
+  color: var(--tmt-ui-color-accent-strong);
+}
+.tmt-ui-glyph-tile > .tmt-ui-glyph {
+  width: 1.125rem;
+  height: 1.125rem;
+}
