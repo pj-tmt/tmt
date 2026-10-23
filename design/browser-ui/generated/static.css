@@ -3105,9 +3105,8 @@ svg.tmt-ui-mark {
   border-radius: var(--tmt-ui-radius);
 }
 .tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab[aria-selected='true'] {
-  color: var(--tmt-ui-color-text);
-  background: var(--tmt-ui-surface-hover);
-  border-color: var(--tmt-ui-surface-rule);
+  color: var(--tmt-ui-color-accent-strong);
+  background: var(--tmt-ui-surface-selection);
   font-weight: inherit;
 }
 .tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab:hover:not([aria-selected='true']) {
@@ -3132,6 +3131,10 @@ svg.tmt-ui-mark {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
   font-weight: normal;
+}
+
+.tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab[aria-selected='true'] .tmt-ui-tab-count {
+  color: var(--tmt-ui-color-text);
 }
 
 .tmt-ui-notifications {
