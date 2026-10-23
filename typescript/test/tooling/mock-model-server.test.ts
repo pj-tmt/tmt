@@ -1,4 +1,4 @@
-import { createConnection, createServer } from 'node:net';
+import { createConnection } from 'node:net';
 import { once } from 'node:events';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import {
@@ -294,20 +294,18 @@ describe('bounded loopback model fixture', () => {
     expect(server.snapshot().completedTurns).toBe(0);
   });
 
-  it('closes at its lifetime deadline and close is idempotent with an observable released listener', async () => {
+  it('closes at its lifetime deadline and repeated close preserves the closed snapshot', async () => {
     const server = await start([turn('messages')], { timeoutMs: 30 });
+    // This resolves from server.close's callback; rebinding the freed port races other listeners.
     await server.closed;
-    expect(server.snapshot()).toMatchObject({
+    const closedSnapshot = server.snapshot();
+    expect(closedSnapshot).toMatchObject({
       closed: true,
       failure: { code: 'MOCK_SERVER_DEADLINE' },
     });
     await server.close();
-    const listener = createServer();
-    listener.listen(Number(new URL(server.baseUrl).port), '127.0.0.1');
-    await once(listener, 'listening');
-    await new Promise<void>((resolve, reject) =>
-      listener.close((error) => (error ? reject(error) : resolve()))
-    );
+    await server.close();
+    expect(server.snapshot()).toEqual(closedSnapshot);
   });
 
   it('clones script/census state and refuses invalid script or bounds before opening a socket', async () => {

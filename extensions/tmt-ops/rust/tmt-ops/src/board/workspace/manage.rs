@@ -3,6 +3,7 @@
 use super::{OpsMember, OpsObservation, OpsTarget};
 use crate::board::{
     app::{App, Choice, Compose, Effect, Menu, MenuEntry, Request},
+    command_line::command_line,
     shell::OpsTab,
 };
 use crate::membership::workspace::{Operation, RoomTarget};
@@ -459,15 +460,6 @@ impl Draft {
         .into()
     }
 }
-fn command_line(words: &[&str]) -> String {
-    crate::launch::line(
-        &words
-            .iter()
-            .map(|word| (*word).to_owned())
-            .collect::<Vec<_>>(),
-    )
-}
-
 fn room(app: &App, id: &str) -> Option<RoomTarget> {
     let snapshot = app.workspace_snapshot()?;
     snapshot.roster.squads.iter().find(|squad| {

@@ -349,25 +349,29 @@ for (const [width, theme] of [
     }
     await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
     const panel = page.locator('.tmt-ui-drawer[data-panel="comments"][open]');
-    await expect(panel.getByTestId('annotation-row')).toHaveCount(4);
+    // The Open view lists the three unresolved threads; the folded proposal is in Resolved.
+    await expect(panel.getByTestId('annotation-row')).toHaveCount(3);
     await expect(panel).toContainText('Review the supporting notes.');
-    for (const row of await panel.getByTestId('annotation-row').all())
-      await expect(row).toContainText('Deterministic agent ·');
     await expect(
-      panel.getByTestId('thread-row-status').filter({ hasText: 'Proposal · Approved' }),
+      panel.getByRole('tab').filter({ hasText: /^(Open|Needs you|Resolved|Proposals)$/ }),
+    ).toHaveCount(4);
+    await expect(
+      panel.getByTestId('thread-row-status').filter({ hasText: 'Approved' }),
     ).toHaveCount(1);
+    await expect(
+      panel.getByTestId('annotation-row').filter({ hasText: 'Proposal · Deterministic agent' }),
+    ).toHaveCount(2);
+    await panel.getByRole('tab', { name: 'Resolved', exact: true }).click();
     const folded = panel.locator('.annotation-list-item[data-resolved]');
+    await expect(panel.getByTestId('annotation-row')).toHaveCount(1);
     await expect(folded).toContainText('Confirm the page audience');
     await expect(folded.locator('.proposal-author, .proposal-body, .proposal-actions')).toHaveCount(
       0,
     );
     if (captureDir)
       await page.screenshot({ path: `${captureDir}/mixed-comments-${width}-${theme}.png` });
-    const filter = panel.getByRole('button', { name: 'Proposals only', exact: true });
-    await filter.evaluate((node) => (node as HTMLButtonElement).click());
-    await expect(filter).toHaveAttribute('aria-pressed', 'false');
-    await filter.click();
-    await expect(filter).toHaveAttribute('aria-pressed', 'true');
+    // The Proposals view lists every proposal, resolved or not, and no ordinary thread.
+    await panel.getByRole('tab', { name: 'Proposals', exact: true }).click();
     await expect(panel.getByTestId('annotation-row')).toHaveCount(3);
     await expect(panel).not.toContainText('Review the supporting notes.');
     await expect(header).toHaveAccessibleName('Discussion (2)');
@@ -416,14 +420,14 @@ test('folded proposal keeps agent resolution unseen until its history is opened'
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
   const panel = page.locator('.tmt-ui-drawer[data-panel="comments"][open]');
   const folded = panel.locator('.annotation-list-item[data-resolved]');
-  await expect(folded.getByTestId('thread-row-status')).toHaveText(
-    'Proposal · Resolved by Atlas · New',
-  );
+  // The resolved proposal is not in the Open view; its tab carries the news.
+  await panel.getByRole('tab', { name: '● Resolved · New', exact: true }).click();
+  await expect(folded.getByTestId('thread-row-status')).toHaveText('Resolved by Atlas · New');
   expect(await run(page, 'seenProof')).toBe(0);
-  await panel.getByRole('button', { name: 'Proposals only', exact: true }).click();
+  await panel.getByRole('tab', { name: 'Proposals', exact: true }).click();
   expect(await run(page, 'seenProof')).toBe(0);
   await folded.getByTestId('annotation-row').click();
-  await expect(folded.getByTestId('thread-row-status')).toHaveText('Proposal · Resolved by Atlas');
+  await expect(folded.getByTestId('thread-row-status')).toHaveText('Resolved by Atlas');
   await expect(folded.locator('.proposal-body')).toBeVisible();
   expect(await run(page, 'seenProof')).toBe(1);
   expect((await run(page, 'proof')).sends).toHaveLength(0);

@@ -179,16 +179,16 @@ fn human_executable_uses_only_the_first_executable_tmt_on_path() {
     std::os::unix::fs::symlink(f.core.executable(), second.join("tmt")).unwrap();
     let path = std::env::join_paths([&first, &second]).unwrap();
     assert_eq!(
-        load::display_executable(f.core.executable(), Some(&path)),
+        crate::launch::display_executable(f.core.executable(), Some(&path)),
         "tmt"
     );
     crate::test_support::write_ready_executable(&first.join("tmt"), "#!/bin/sh\nexit 0\n");
     assert_eq!(
-        load::display_executable(f.core.executable(), Some(&path)),
+        crate::launch::display_executable(f.core.executable(), Some(&path)),
         f.core.executable().to_str().unwrap()
     );
     assert_eq!(
-        load::display_executable(f.core.executable(), None),
+        crate::launch::display_executable(f.core.executable(), None),
         f.core.executable().to_str().unwrap()
     );
 }

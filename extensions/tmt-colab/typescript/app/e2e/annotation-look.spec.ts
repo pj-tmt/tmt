@@ -162,13 +162,20 @@ for (const width of [1440, 390])
       const panel = page.getByTestId('comments-panel');
       // The Comments drawer floats too; the shared drawer already draws the same edge.
       await expectRuleEdge(page.locator('.tmt-ui-drawer[open]'), theme);
-      await expect(panel.locator('.annotation-row .annotation-number')).toHaveText([
-        '1',
-        '2',
-        '3',
-        '4',
-        '5',
-      ]);
+      // The numbers are split between the Open and Resolved views (the open thread shows in both).
+      const allNumbers = async () => {
+        const seen = new Set<string>();
+        for (const view of ['Open', 'Resolved']) {
+          await panel.getByRole('tab', { name: view, exact: true }).click();
+          for (const value of await panel
+            .locator('.annotation-row .annotation-number')
+            .allTextContents())
+            seen.add(value);
+        }
+        return [...seen].sort();
+      };
+      expect(await allNumbers()).toEqual(['1', '2', '3', '4', '5']);
+      await panel.getByRole('tab', { name: 'Resolved', exact: true }).click();
       await panel.locator('.annotation-row').filter({ hasText: 'old decision text' }).click();
       const resolved = panel.getByTestId('comment-thread');
       await expect(
@@ -196,12 +203,7 @@ for (const width of [1440, 390])
         path: `${captures}/annotation-resolved-expanded-${width}-${theme}.png`,
       });
       await run(page, 'annotationLookDelete');
-      await expect(panel.locator('.annotation-row .annotation-number')).toHaveText([
-        '1',
-        '2',
-        '3',
-        '4',
-      ]);
+      expect(await allNumbers()).toEqual(['1', '2', '3', '4']);
       await expect(markers).toHaveText(['1', '+2']);
       expect(
         await frame.locator('body').evaluate((body) => {

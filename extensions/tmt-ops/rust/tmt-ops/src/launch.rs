@@ -140,12 +140,34 @@ pub fn shell_word(word: &str) -> String {
         format!("'{}'", word.replace('\'', "'\\''"))
     }
 }
-pub fn line(words: &[String]) -> String {
+pub fn line(words: &[impl AsRef<str>]) -> String {
     words
         .iter()
-        .map(|word| shell_word(word))
+        .map(|word| shell_word(word.as_ref()))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+// Resolve the first executable on PATH on the worker, never during input or paint.
+pub fn display_executable(selected: &std::path::Path, search: Option<&std::ffi::OsStr>) -> String {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let on_path = search.and_then(|search| {
+        std::env::split_paths(search)
+            .map(|directory| directory.join("tmt"))
+            .find(|path| {
+                std::fs::metadata(path)
+                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            })
+    });
+    let same = on_path
+        .and_then(|path| std::fs::metadata(path).ok())
+        .zip(std::fs::metadata(selected).ok())
+        .is_some_and(|(a, b)| a.dev() == b.dev() && a.ino() == b.ino());
+    if same {
+        "tmt".into()
+    } else {
+        selected.to_string_lossy().into_owned()
+    }
 }
 
 #[cfg(test)]

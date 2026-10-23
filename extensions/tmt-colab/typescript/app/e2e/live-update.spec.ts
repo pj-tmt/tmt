@@ -500,6 +500,7 @@ for (const width of [1440, 390]) {
       await resolve.click();
       await expect(dialog).toHaveCount(0);
       await panel(page, 'comments');
+      await page.getByRole('tab', { name: text.threadResolved, exact: true }).click();
       await page.getByTestId('annotation-row').click();
       const details = page.getByTestId('comment-thread');
       await expect(details).toContainText(text.threadResolved);

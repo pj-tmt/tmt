@@ -137,6 +137,7 @@ for (const destination of ['Chat', 'Thread'] as const) {
         if (destination === 'Chat') await open(page, 'Chat');
         else {
           await open(page, 'Comments');
+          await page.getByRole('tab', { name: /Resolved/ }).click();
           await page.getByTestId('annotation-row').filter({ hasText: 'Resolved by Atlas' }).click();
         }
       };
@@ -467,6 +468,7 @@ for (const width of [1440, 390]) {
       await page.screenshot({ path: capturePath(`counts-expired-${width}-${theme}.png`) });
       await page.clock.resume();
       await open(page, 'Comments');
+      await page.getByRole('tab', { name: /Resolved/ }).click();
       await page.getByTestId('annotation-row').filter({ hasText: 'Resolved by Atlas' }).click();
       await expect(page.getByTestId('comment-thread').getByTestId('ask-reply')).toHaveText([
         'Thread reply 201\nSecond reply line',

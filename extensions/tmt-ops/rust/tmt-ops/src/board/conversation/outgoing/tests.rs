@@ -1536,6 +1536,7 @@ fn the_item_cap_folds_only_the_oldest_send_and_keeps_order() {
                 squad: "product".into(),
             },
             started_ms: sequence,
+            talk: true,
             outcome: None,
             lead_in: None,
             reply: None,
@@ -1807,6 +1808,59 @@ fn a_history_refresh_cannot_duplicate_a_send_awaiting_its_receipt() {
 fn history_send(request: &str, at_ms: u64, text: &str) -> serde_json::Value {
     json!({"requestId":request,"preparedAtMs":at_ms,"text":text,"truncated":false,
         "messageState":{"state":"delivered","reason":{"text":"Core delivery wording takes over"}}})
+}
+
+#[test]
+fn unbound_core_reason_text_survives_send_and_history_refresh() {
+    const INITIAL: &str =
+        "session not bound · exit the agent in its pane, then run: tmt resume -- 'worker name'";
+    const UPDATED: &str = "session not bound · the old session is still running; move it with: tmt resume --move -- worker";
+    const REQUEST: &str = "req-unbound-session";
+    let render = |app: &App| {
+        let mut terminal = Terminal::new(TestBackend::new(240, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::conversation::render(frame, app, frame.area()))
+            .unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+    };
+    let mut app = fixture();
+    let fake = Fake::new(
+        json!({"requestId":REQUEST,"status":"sent",
+        "messageState":{"state":"delivered","reason":{"code":"session_not_bound","text":INITIAL}}}),
+        false,
+    );
+    let completed = send(&mut app, &fake, "Keep Core's recovery wording");
+    assert_eq!(
+        completed.outcome.as_ref().unwrap().message_state_label,
+        Some(format!("✓ {INITIAL}"))
+    );
+    finish(&mut app, completed);
+    let before = render(&app);
+    assert!(before.contains(INITIAL), "{before}");
+    let agent = app.conversation_finals().unwrap();
+    let key = crate::board::home_leads::SentKey {
+        sender: agent.sender.clone(),
+        agent: agent.agent.clone(),
+    };
+    let mut history = history_send(
+        REQUEST,
+        crate::status::now_ms(),
+        "Keep Core's recovery wording",
+    );
+    history["messageState"]["reason"] = json!({"code":"session_not_bound","text":UPDATED});
+    app.apply_sent(key, Ok(vec![history]));
+    let after = render(&app);
+    assert!(after.contains(UPDATED), "{after}");
+    assert!(
+        !after.contains(INITIAL),
+        "old Core wording must be replaced: {after}"
+    );
 }
 
 #[test]

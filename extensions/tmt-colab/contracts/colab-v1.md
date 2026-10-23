@@ -1323,8 +1323,10 @@ not. Resolved cards and rows use the ordinary resolved-thread mark, never the
 Open mark. Opening the resolved row discloses retained history without
 reopening the proposal or changing the pending count. This explicit opening
 acknowledges a locally unseen resolution; rendering or filtering does not.
-Comments mixes proposals with ordinary annotations and offers a Proposals only
-filter. Filtering never changes status, sends a request or changes the header
+Comments mixes proposals with ordinary annotations in one list with the views
+Open, Needs you, Resolved and, only when the page has a proposal, Proposals. The
+open thread stays listed in every view. Needs you holds undecided proposals and
+threads with news the person has not seen. Changing the view never changes status, sends a request or changes the header
 count. The one header pending count is computed by `openThreadCount`: unresolved
 proposals without a final decision plus unresolved ordinary annotations. Approved
 or declined proposals are not pending even before resolution; proposal-linked
