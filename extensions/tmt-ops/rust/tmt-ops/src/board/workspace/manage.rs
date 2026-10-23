@@ -20,6 +20,7 @@ pub enum Kind {
     Lead,
     RenameSquad,
     RenameMember,
+    RemoveMember,
     Remove,
     Assign,
 }
@@ -31,7 +32,8 @@ impl Kind {
             Self::Lead => "Set lead",
             Self::RenameSquad => "Rename squad",
             Self::RenameMember => "Rename",
-            Self::Remove => "Remove membership",
+            Self::RemoveMember => "Remove member",
+            Self::Remove => "Leave squad",
             Self::Assign => "Move membership",
         }
     }
@@ -60,7 +62,7 @@ impl Change {
                 } => "Set lead",
                 Operation::Lead { member: None, .. } => "Clear lead",
                 Operation::RenameSquad { .. } => "Rename",
-                Operation::Remove { .. } => "Remove membership",
+                Operation::Remove { .. } => "Leave squad",
                 Operation::Assign {
                     move_member: true, ..
                 } => "Move",
@@ -126,7 +128,7 @@ impl Draft {
             Kind::Lead => &["Lead (@agent; blank clears leadership only)"],
             Kind::RenameSquad => &["New squad name"],
             Kind::RenameMember => &["New agent name"],
-            Kind::Remove => &[],
+            Kind::Remove | Kind::RemoveMember => &[],
             Kind::Assign => &[
                 "Destination squad",
                 "Add or move (add keeps every current membership)",
@@ -215,6 +217,9 @@ impl Draft {
                 }
             }
             Kind::RenameMember => unreachable!("handled above"),
+            Kind::RemoveMember => {
+                return Err("Removal is copy-only until Core stop is available.".into());
+            }
             Kind::Remove => Operation::Remove {
                 room: room()?,
                 member: member()?,
@@ -251,11 +256,29 @@ impl Draft {
             Kind::Lead => format!("Set/clear lead · {name}"),
             Kind::RenameSquad => format!("Rename squad · {name}"),
             Kind::RenameMember => "Rename agent".into(),
-            Kind::Remove => format!("Remove membership · {name}"),
+            Kind::RemoveMember => "Remove member".into(),
+            Kind::Remove => format!("Leave squad · {name}"),
             Kind::Assign => "Add/move membership".into(),
         }
     }
+    pub fn removal_command(&self) -> Option<String> {
+        (self.kind == Kind::RemoveMember)
+            .then_some(self.member.as_ref())
+            .flatten()
+            .filter(|member| !member.name.is_empty() && !member.name.chars().any(char::is_control))
+            .map(|member| command_line(&["tmt", "rm", "--force", "--", &member.name]))
+    }
     pub fn review(&self) -> String {
+        if self.kind == Kind::RemoveMember {
+            let member = self.member.as_ref().expect("admitted selected member");
+            return format!(
+                "Remove {} · ID {}\nStop the agent first, then recheck that this name still belongs to this identity.\nRetirement does not stop the agent or close its window.\nConversation history and notes are kept.\nCore stop is not available. Copy only; nothing runs from this dialog.\nCommand:\n{}",
+                member.name,
+                member.id,
+                self.removal_command()
+                    .unwrap_or_else(|| "Unavailable: name cannot be copied safely.".into()),
+            );
+        }
         let identity = |id: &str| {
             self.identities.get(id).map_or_else(
                 || id.to_owned(),
@@ -272,8 +295,16 @@ impl Draft {
                     name.to_owned()
                 }
             };
+            let envelope = serde_json::json!({
+                "version": 1, "operation": "identity.rename", "input": request.input()
+            });
+            let command = format!(
+                "printf '%s' {} | {}",
+                shell_word(&envelope.to_string()),
+                command_line(&["tmt", "api"])
+            );
             return format!(
-                "{} → {}\nMemberships, history, drafts and timers stay with this agent.\nFails safely if someone renames it first.\nID {}",
+                "{} → {}\nMemberships, history, drafts and timers stay with this agent.\nFails safely if someone renames it first.\nID {}\nWill run:\n{command}",
                 name(&request.expected_name),
                 name(&request.name),
                 request.identity_id,
@@ -343,6 +374,29 @@ impl Draft {
             }) => {
                 lines.push(format!("Member: {}", identity(member)));
                 lines.push(format!("Destination: {}", room(destination)));
+                lines.push("Public commands (guarded destination add before source leave):".into());
+                lines.push(command_line(&[
+                    "tmt",
+                    "ops",
+                    "sq",
+                    "add",
+                    "--squad",
+                    &destination.name,
+                    "--",
+                    member,
+                ]));
+                if *move_member && let Some(source) = source {
+                    lines.push(command_line(&[
+                        "tmt",
+                        "ops",
+                        "sq",
+                        "rm",
+                        "--squad",
+                        &source.name,
+                        "--",
+                        member,
+                    ]));
+                }
                 if *move_member {
                     if let Some(source) = source {
                         lines.push(format!("Remove from source: {}", room(source)));
@@ -395,6 +449,17 @@ impl Draft {
         }
         .into()
     }
+}
+/// Display/copy only: each word is literal, never passed to a shell by Ops.
+fn shell_word(word: &str) -> String {
+    format!("'{}'", word.replace('\'', "'\\''"))
+}
+fn command_line(words: &[&str]) -> String {
+    words
+        .iter()
+        .map(|word| shell_word(word))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 fn room(app: &App, id: &str) -> Option<RoomTarget> {
     let snapshot = app.workspace_snapshot()?;
@@ -514,6 +579,17 @@ impl App {
             return Some(Effect::None);
         }
         match event {
+            Event::Key(key)
+                if !editing
+                    && key.code == KeyCode::Char('c')
+                    && !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                    && draft.kind == Kind::RemoveMember
+                    && draft.stage == Stage::Review =>
+            {
+                Some(self.workspace_copy_removal())
+            }
             Event::Key(key) if editing => {
                 self.update_mentions();
                 let effect = self
@@ -616,11 +692,11 @@ impl App {
                 ));
             }
         }
-        if kind == Kind::RenameMember
+        if matches!(kind, Kind::RenameMember | Kind::RemoveMember)
             && (self.shell.tab != super::super::shell::OpsTab::Agents
                 || self.workspace_scope() != crate::config::OpsKeyScope::Member)
         {
-            return self.say("Select a visible agent in the Agents list to rename it.");
+            return self.say("Select a visible agent in the Agents list for this action.");
         }
         let Some(snapshot) = self.workspace_snapshot() else {
             return self.say("The workspace has not loaded.");
@@ -643,7 +719,11 @@ impl App {
             kind,
             Kind::Add | Kind::Lead | Kind::RenameSquad | Kind::Remove
         );
-        if matches!(kind, Kind::Remove | Kind::Assign | Kind::RenameMember) && member.is_none() {
+        if matches!(
+            kind,
+            Kind::Remove | Kind::Assign | Kind::RenameMember | Kind::RemoveMember
+        ) && member.is_none()
+        {
             return self.say("Select a named member first.");
         }
         let flat = matches!(
@@ -737,7 +817,7 @@ impl App {
                 _ => "Select a visible squad for this operation.".into(),
             });
         }
-        if kind == Kind::RenameMember {
+        if matches!(kind, Kind::RenameMember | Kind::RemoveMember) {
             let member = member.as_mut().expect("selected member checked above");
             // Global presence and squad rows can come from different reads.
             // Freeze the literal name displayed on this exact selected UUID.
@@ -809,6 +889,12 @@ impl App {
                 String::new(),
             );
         }
+        if draft.kind == Kind::RemoveMember {
+            let draft = self.workspace_form.as_mut().unwrap();
+            draft.stage = Stage::Review;
+            draft.invalidate();
+            return Effect::None;
+        }
         let operation = match draft.operation() {
             Ok(operation) => operation,
             Err(error) => {
@@ -846,7 +932,37 @@ impl App {
         });
         self.workspace_form_next()
     }
+    fn workspace_copy_removal(&self) -> Effect {
+        let Some(text) = self
+            .workspace_form
+            .as_ref()
+            .filter(|draft| draft.kind == Kind::RemoveMember && draft.stage == Stage::Review)
+            .and_then(Draft::removal_command)
+        else {
+            return Effect::None;
+        };
+        Effect::Act(Request::Copy {
+            text,
+            program: self.view.as_ref().and_then(|view| view.clipboard.clone()),
+            feedback: crate::board::app::CopyFeedback::Destination,
+        })
+    }
     pub(in crate::board) fn workspace_confirm(&mut self) -> Effect {
+        if self
+            .workspace_form
+            .as_ref()
+            .is_some_and(|draft| draft.kind == Kind::RemoveMember)
+        {
+            return if self
+                .workspace_form
+                .as_ref()
+                .is_some_and(|draft| draft.controls.get()[1].is_some())
+            {
+                self.workspace_copy_removal()
+            } else {
+                Effect::None
+            };
+        }
         let Some(draft) = self
             .workspace_form
             .as_mut()

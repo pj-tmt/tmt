@@ -30,15 +30,15 @@ fn invalid() -> SquadError {
 }
 
 impl Request {
+    pub(super) fn input(&self) -> Value {
+        json!({
+            "identityId": self.identity_id,
+            "expectedName": self.expected_name,
+            "name": self.name,
+        })
+    }
     pub fn apply(&self, core: &Core) -> Result<Outcome, SquadError> {
-        let document = core.api(
-            "identity.rename",
-            json!({
-                "identityId": self.identity_id,
-                "expectedName": self.expected_name,
-                "name": self.name,
-            }),
-        )?;
+        let document = core.api("identity.rename", self.input())?;
         self.decode(&document)
     }
 

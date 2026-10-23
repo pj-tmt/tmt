@@ -41,6 +41,7 @@ pub enum OpsUiAction {
     RemoveMembership,
     MoveMembership,
     RenameMember,
+    RemoveMember,
     ScrollUp,
     ScrollDown,
     ScrollPageUp,
@@ -285,6 +286,13 @@ const SPECS: &[OpsUiSpec] = &[
         7
     ),
     spec!(
+        RemoveMember,
+        "remove-member",
+        "remove",
+        "review a copy-only identity retirement command; stop the agent first",
+        8
+    ),
+    spec!(
         CreateSquad,
         "create-squad",
         "create",
@@ -294,14 +302,14 @@ const SPECS: &[OpsUiSpec] = &[
     spec!(
         RemoveMembership,
         "remove-membership",
-        "remove",
+        "leave squad",
         "confirm removal of this squad membership only",
         8
     ),
     spec!(
         MoveMembership,
         "move-membership",
-        "assign",
+        "move",
         "add or move the selected member to a squad",
         9
     ),
@@ -322,7 +330,8 @@ impl OpsUiAction {
     pub fn acts_on_member(self) -> bool {
         matches!(
             self,
-            Self::RemoveMembership
+            Self::RemoveMember
+                | Self::RemoveMembership
                 | Self::MoveMembership
                 | Self::RenameMember
                 | Self::MonitorDetails

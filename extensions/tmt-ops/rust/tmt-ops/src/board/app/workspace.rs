@@ -590,6 +590,7 @@ impl App {
                         OpsUiAction::AgentsFilter
                             | OpsUiAction::DiscoverAgents
                             | OpsUiAction::RenameMember
+                            | OpsUiAction::RemoveMember
                     )
                 )
             });
@@ -598,7 +599,12 @@ impl App {
             keys.retain(|_, action| action.verb != Verb::Ui(OpsUiAction::UsageControls));
         }
         if self.workspace_selected_member().is_none() {
-            keys.retain(|_, action| action.verb != Verb::Ui(OpsUiAction::RenameMember));
+            keys.retain(|_, action| {
+                !matches!(
+                    action.verb,
+                    Verb::Ui(OpsUiAction::RenameMember | OpsUiAction::RemoveMember)
+                )
+            });
         }
         let squad = self
             .workspace
@@ -1237,6 +1243,7 @@ impl App {
                 return self.workspace_owner_timers(room, owner);
             }
             RenameMember => return self.workspace_begin(Kind::RenameMember),
+            RemoveMember => return self.workspace_begin(Kind::RemoveMember),
             Manage | CreateSquad | RemoveMembership | MoveMembership => {
                 return self.workspace_management(action);
             }

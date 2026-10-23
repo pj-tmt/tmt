@@ -297,7 +297,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("c", "timers"),
             ("R", "member-session"),
             ("t", "talk-measure"),
-            ("n", "create-squad"),
+            ("N", "create-squad"),
             ("u", "usage-controls"),
             ("esc", "clear-scope"),
             ("h", "reveal-hidden"),
@@ -311,7 +311,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("D", "digest"),
             ("p", "pin"),
             ("m", "manage"),
-            ("n", "create-squad"),
+            ("N", "create-squad"),
             ("H", "hide-squad"),
             ("S", "show-squad"),
         ]),
@@ -325,9 +325,10 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("x", "remove-membership"),
             ("m", "move-membership"),
             ("r", "rename-member"),
+            ("d", "remove-member"),
             ("D", "digest"),
         ]),
-        OpsKeyScope::Pool => entries.extend([("m", "manage"), ("n", "create-squad")]),
+        OpsKeyScope::Pool => entries.extend([("m", "manage"), ("N", "create-squad")]),
     }
     if matches!(
         scope,
@@ -1282,7 +1283,7 @@ mod tests {
             .workspace_keys(OpsKeyScope::Squad, None, None)
             .unwrap()
             .bindings;
-        assert_eq!(squad["n"].text, "create-squad");
+        assert_eq!(squad["N"].text, "create-squad");
         assert_eq!(squad["p"].text, "pin");
         let member = config
             .workspace_keys(OpsKeyScope::Member, None, None)
