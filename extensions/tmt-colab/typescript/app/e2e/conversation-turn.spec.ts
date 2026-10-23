@@ -1464,20 +1464,28 @@ for (const surface of ['chat', 'thread'] as const)
       const button = window.getByRole('button', { name: text.askRecheck });
       await expect(button).toHaveCount(1);
       await expect(button).toHaveAccessibleName('Check again');
-      // A countdown that wraps has one text box per line; the control follows the last word.
-      const clock = await clockLine.evaluate((node) => {
-        const range = document.createRange();
-        range.selectNodeContents(node);
-        const rects = [...range.getClientRects()].filter((rect) => rect.width > 0);
-        const last = rects[rects.length - 1];
-        return { x: last.x, y: last.y, width: last.width, height: last.height };
-      });
-      const control = await button.boundingBox();
+      // A countdown that wraps has one text box per line; the control follows the last word. Both are
+      // read in one evaluation: the clock ticks every second and a tick changes its width, so two
+      // separate reads can straddle it.
+      const { clock, control } = await button.evaluate(
+        (node, line) => {
+          const range = document.createRange();
+          range.selectNodeContents(line);
+          const rects = [...range.getClientRects()].filter((rect) => rect.width > 0);
+          const last = rects[rects.length - 1];
+          const box = node.getBoundingClientRect();
+          return {
+            clock: { x: last.x, y: last.y, width: last.width, height: last.height },
+            control: { x: box.x, y: box.y, height: box.height },
+          };
+        },
+        await clockLine.elementHandle(),
+      );
       // The same line as the countdown, and after it.
-      expect(
-        Math.abs(control!.y + control!.height / 2 - (clock.y + clock.height / 2)),
-      ).toBeLessThan(control!.height / 2);
-      expect(control!.x).toBeGreaterThanOrEqual(clock.x + clock.width);
+      expect(Math.abs(control.y + control.height / 2 - (clock.y + clock.height / 2))).toBeLessThan(
+        control.height / 2,
+      );
+      expect(control.x).toBeGreaterThanOrEqual(clock.x + clock.width);
       const captures = process.env.COLAB_ACTIVITY_CAPTURE_DIR;
       if (captures) {
         mkdirSync(captures, { recursive: true });
