@@ -495,8 +495,10 @@ fn version_of(stdout: &[u8]) -> Option<String> {
     let text = std::str::from_utf8(stdout).ok()?.trim();
     let version = text.strip_prefix("tmt ").unwrap_or(text);
     let plain = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+');
-    (!version.is_empty() && version.len() <= 64 && version.chars().all(plain))
-        .then(|| version.to_owned())
+    (version.starts_with(|c: char| c.is_ascii_digit())
+        && version.len() <= 64
+        && version.chars().all(plain))
+    .then(|| version.to_owned())
 }
 
 #[cfg(test)]
