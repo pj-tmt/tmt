@@ -53,6 +53,8 @@ export interface UsageUnavailable {
 
 /** An account window, newest observation wins; windows are never summed. */
 export interface LimitWindow {
+  /** The driver of the source line, as Core reports it; never inferred from a seat's models. */
+  provider: string;
   windowMinutes: number;
   resetsAtMs: number;
   usedPercent: number;

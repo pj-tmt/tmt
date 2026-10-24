@@ -59,6 +59,7 @@ fn one_weekly_window_keeps_the_line_time_and_converts_reset_seconds() {
     assert_eq!(
         limits,
         RateLimits {
+            provider: "codex".into(),
             observed_at_ms: LINE_TIME_MS,
             windows: vec![Window {
                 window_minutes: 10_080,
@@ -177,6 +178,7 @@ fn the_public_document_uses_camel_case_and_rejects_unknown_fields() {
     assert_eq!(
         document,
         json!({
+            "provider": "codex",
             "observedAtMs": LINE_TIME_MS,
             "windows": [{"windowMinutes": 10080, "usedPercent": 78.0, "resetsAtMs": 1_791_948_558_000u64}],
         })
@@ -185,9 +187,31 @@ fn the_public_document_uses_camel_case_and_rejects_unknown_fields() {
         serde_json::from_value::<RateLimits>(document.clone()).unwrap(),
         limits
     );
-    let mut extra = document;
+    let mut extra = document.clone();
     extra["planType"] = json!("prolite");
     assert!(serde_json::from_value::<RateLimits>(extra).is_err());
+    // A stored value from before the field was Codex's, the only source then.
+    let mut stored = document;
+    stored.as_object_mut().unwrap().remove("provider");
+    assert_eq!(
+        serde_json::from_value::<RateLimits>(stored)
+            .unwrap()
+            .provider,
+        "codex"
+    );
+}
+
+#[test]
+fn the_source_lines_plan_and_limit_ids_are_not_an_account_and_are_not_published() {
+    // The line's `limit_id` names a limit family and `plan_type` a tier shared by every account
+    // on that plan, so neither identifies an account (#4802): they stay out of the document.
+    let mut source = line(json!({"primary": weekly()}));
+    source["payload"]["rate_limits"]["plan_type"] = json!("pro");
+    source["payload"]["rate_limits"]["limit_id"] = json!("codex");
+    let document = serde_json::to_value(codex(&source).unwrap()).unwrap();
+    let mut keys = document.as_object().unwrap().keys().collect::<Vec<_>>();
+    keys.sort();
+    assert_eq!(keys, ["observedAtMs", "provider", "windows"]);
 }
 
 #[test]
@@ -198,6 +222,7 @@ fn validity_requires_one_to_two_strictly_ascending_windows() {
         resets_at_ms: 1,
     };
     let limits = |windows| RateLimits {
+        provider: "codex".into(),
         observed_at_ms: 1,
         windows,
     };
@@ -209,6 +234,11 @@ fn validity_requires_one_to_two_strictly_ascending_windows() {
         vec![window(1), window(2), window(3)],
     ] {
         assert!(!limits(windows.clone()).valid(), "{windows:?}");
+    }
+    for provider in ["", "Codex", "co dex", "1codex", &"a".repeat(65)] {
+        let mut named = limits(vec![window(300)]);
+        named.provider = provider.into();
+        assert!(!named.valid(), "{provider:?}");
     }
     let mut stale = limits(vec![window(300)]);
     stale.observed_at_ms = 0;

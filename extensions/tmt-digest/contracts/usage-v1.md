@@ -67,9 +67,11 @@ with Core's usual 15 seconds and 1 MiB per call:
   (`claude-*`), `gpt` (`gpt-*`), `other`, and `unattributed` for totals Core could
   not attribute. `seats` counts identities contributing; `partialSeats` those whose
   coverage is not complete. The family is a presentation label, not a provider claim.
-- `limits[]`: account windows, deduplicated by `(windowMinutes, resetsAtMs)` across
-  seats and buckets; the newest observation wins and windows are never summed. Each
-  has `usedPercent`, `observedAtMs`, `seats` (UUIDs), `stale` (`resetsAtMs` is not
+- `limits[]`: account windows, deduplicated by `(provider, windowMinutes, resetsAtMs)`
+  across seats and buckets; the newest observation wins and windows are never summed.
+  Each has `provider` (the driver of the source line, as Core reports it in
+  `rateLimits.provider`; never inferred, so an observation without a driver id, as from a
+  Core that predates the field, is dropped), `usedPercent`, `observedAtMs`, `seats` (UUIDs), `stale` (`resetsAtMs` is not
   after `observedAtMs` of the report), `elapsedPercent` (share of the window length
   elapsed at the report's `observedAtMs`, clamped to 0–100, two decimals) and
   `paceDeltaPoints` (`usedPercent - elapsedPercent`; negative is under an even pace).

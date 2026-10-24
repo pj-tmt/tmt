@@ -30,6 +30,7 @@
         "complete": true,
         "gap": false,
         "rateLimits": {
+          "provider": "codex",
           "observedAtMs": 10000,
           "windows": [
             {
@@ -62,6 +63,7 @@
         "complete": true,
         "gap": false,
         "rateLimits": {
+          "provider": "codex",
           "observedAtMs": 15000,
           "windows": [
             {
@@ -94,6 +96,7 @@
         "complete": true,
         "gap": false,
         "rateLimits": {
+          "provider": "codex",
           "observedAtMs": 20000,
           "windows": [
             {
@@ -152,6 +155,7 @@
             "complete": true,
             "gap": false,
             "rateLimits": {
+              "provider": "codex",
               "observedAtMs": 15000,
               "windows": [
                 {
@@ -251,6 +255,7 @@
       "complete": true,
       "gap": false,
       "rateLimits": {
+        "provider": "codex",
         "observedAtMs": 20000,
         "windows": [
           {
@@ -318,6 +323,7 @@
             }
           ],
           "rateLimits": {
+            "provider": "codex",
             "observedAtMs": 20000,
             "windows": [
               {

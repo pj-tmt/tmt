@@ -17,8 +17,17 @@ const UNIX_EPOCH_JULIAN_DAY: i64 = 2_440_588;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RateLimits {
+    /// The driver of the source line these windows came from. Consumers use it and never infer
+    /// a provider from a seat's model lines. Every stored value predates the field and came from
+    /// Codex, the only source, so a missing one reads as `codex`.
+    #[serde(default = "codex_provider")]
+    pub provider: String,
     pub observed_at_ms: u64,
     pub windows: Vec<Window>,
+}
+
+fn codex_provider() -> String {
+    tmt_core::driver::descriptor::CODEX.name.into()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -45,7 +54,8 @@ impl Window {
 
 impl RateLimits {
     pub(crate) fn valid(&self) -> bool {
-        self.observed_at_ms > 0
+        tmt_core::binding::session::HarnessId::new(&self.provider).is_ok()
+            && self.observed_at_ms > 0
             && is_valid_js_safe_integer(self.observed_at_ms)
             && (1..=MAX_WINDOWS).contains(&self.windows.len())
             && self.windows.iter().all(Window::valid)
@@ -74,6 +84,7 @@ pub(super) fn codex(entry: &Value) -> Option<RateLimits> {
     }
     windows.sort_by_key(|window| window.window_minutes);
     let parsed = RateLimits {
+        provider: codex_provider(),
         observed_at_ms: timestamp_ms(entry["timestamp"].as_str()?)?,
         windows,
     };

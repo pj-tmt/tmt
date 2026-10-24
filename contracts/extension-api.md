@@ -441,10 +441,17 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   Historical requests are not attributed on initial baseline. At most four
   distinct model IDs are retained per increment; unavailable evidence or the
   existing opaque-state size bound omits attribution while retaining totals.
-- `consumption.rateLimits` is `{observedAtMs,windows}` from the same newest accepted
+- `consumption.rateLimits` is `{provider,observedAtMs,windows}` from the same newest accepted
   Codex source line as the counters. It is absent for Claude, when that line carries
   no limits and when any field is invalid (never partial). `observedAtMs` is that
   line's own time, not the read time, so an idle session reports old limits as old.
+  `provider` is the driver id of that source line (`codex` today; another value appears
+  only when Core gains a real limit source for that driver). Consumers use it and never
+  infer a provider from a seat's model lines; a value stored before the field reads as
+  `codex`. Core publishes no account identifier: the source line carries none (its
+  `limit_id` names a limit family and `plan_type` a plan tier shared by every account on
+  it), so a consumer recognises one account's window only by `(provider, windowMinutes,
+resetsAtMs)`.
   `windows` has one or two `{windowMinutes,usedPercent,resetsAtMs}` entries in
   strictly ascending `windowMinutes`: `usedPercent` (0–100) of the account's
   allowance used in that window and `resetsAtMs` its UTC Unix millisecond reset.
