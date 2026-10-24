@@ -22,6 +22,8 @@ pub(in crate::board) fn reported_case(scene: &str, look: Look) -> App {
     workspace_frame(&app);
     let plan = app.conversation_read().unwrap();
     app.apply_conversation(plan.clone(), plan.test_projection(source, None));
+    // Narrow layouts show one pane; keep the message, rather than the roster, visible.
+    app.focus = 1;
     app
 }
 
