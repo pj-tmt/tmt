@@ -395,7 +395,9 @@ pub fn usage(
             if let Some(found) = point.get("rateLimits").and_then(observed)
                 && limits
                     .as_ref()
-                    .is_none_or(|held| found.observed_at_ms >= held.observed_at_ms)
+                    // The closed seed wins a fetch-time tie: its cache windows
+                    // may already have been pruned at reset since the bucket.
+                    .is_none_or(|held| found.observed_at_ms > held.observed_at_ms)
             {
                 limits = Some(found);
             }

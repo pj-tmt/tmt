@@ -451,6 +451,32 @@ fn an_old_claude_cache_in_the_closed_seed_reports_its_source_not_the_seats_model
 }
 
 #[test]
+fn the_closed_seed_does_not_resurrect_a_reset_cache_window_from_an_older_bucket() {
+    let (mut totals, mut series, ids, labels) = one_seat(None);
+    let fetched = T - 2 * 3_600_000;
+    let weekly = json!({"windowMinutes":10_080,"usedPercent":78.0,"resetsAtMs":AS_OF + DAY});
+    let cache = json!({"provider":"claude","observedAtMs":fetched,"windows":[weekly.clone()]});
+    totals["identities"][0]["latest"] =
+        json!({"driver":"claude","consumption":{"rateLimits":cache.clone()}});
+    let mut earlier = cache;
+    earlier["windows"] = json!([
+        {"windowMinutes":300,"usedPercent":12.5,"resetsAtMs":T - 3_600_000}, weekly
+    ]);
+    series["identities"][0]["windows"][0]["buckets"][0]["rateLimits"] = earlier;
+    let report = Report {
+        as_of_ms: AS_OF,
+        since: "24h",
+        usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
+        exchange: None,
+        warnings: vec![],
+    };
+    let document = model::document(&report).unwrap();
+    assert_eq!(document["limits"].as_array().unwrap().len(), 1);
+    assert_eq!(document["limits"][0]["windowMinutes"], 10_080);
+    assert_eq!(document["limits"][0]["observedAtMs"], fetched);
+}
+
+#[test]
 fn windows_of_different_providers_are_never_merged_even_when_length_and_reset_match() {
     let bucket = |provider: &str, used: f64| {
         json!({

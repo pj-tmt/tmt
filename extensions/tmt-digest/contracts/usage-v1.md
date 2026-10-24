@@ -73,6 +73,8 @@ with Core's usual 15 seconds and 1 MiB per call:
   seed: a Claude cache's original fetch may predate the displayed buckets while its
   windows remain current. It preserves that `observedAtMs`, which can be much older
   than the report; it never refreshes the cache or re-dates the evidence.
+  The closed seed wins a fetch-time tie, so a rollup cannot restore a cache
+  window that the reader already removed at reset.
   Each has `provider` (the driver of the source line, as Core reports it in
   `rateLimits.provider`; never inferred, so an observation without a driver id, as from a
   Core that predates the field, is dropped), `usedPercent`, `observedAtMs`, `seats` (UUIDs), `stale` (`resetsAtMs` is not
