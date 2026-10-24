@@ -11,6 +11,7 @@ Plan digest: 83b829ccfef1
 DESTRUCTIVE: Replace the live Rules for project demo-remote-1. This affects every tenant using its Rules.
 Existing Rules fingerprint: 3885192ce357
 Authorizing plan 83b829ccfef1 allows this replacement.
+Agent talk Rules: /m/{machine}; carrier bound 778680 B; descriptor bound 4096 B; enrollment bound 16384 B
 Extensions and resources:
 colab (declaration de413d45bc3d)
   Admission: colabAdmitted (artifact f055b672317c)

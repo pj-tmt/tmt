@@ -433,6 +433,19 @@ fn resize_reader_agents_and_custom_binding_remove_old_chart_authority() {
                 .all(|hit| hit.target == Target::Controls)
         );
         press(&mut app, KeyCode::Char('2'));
+        assert_eq!(
+            app.workspace.selected,
+            Some(crate::board::workspace::OpsTarget::DigestAll)
+        );
+        let member = app
+            .workspace_rows()
+            .iter()
+            .position(|row| {
+                matches!(&row.target,
+            crate::board::workspace::OpsTarget::Member { identity_id, .. } if identity_id == MEMBER)
+            })
+            .unwrap();
+        app.select(member);
         app.focus = 1;
         assert!(
             !app.workspace_bindings()
@@ -517,6 +530,19 @@ fn chart_shortcuts_do_not_escape_search_composers_or_modal_input() {
         assert!(!app.usage_chart.borrow().focused());
         press(&mut app, KeyCode::Esc);
         press(&mut app, KeyCode::Char('2'));
+        assert_eq!(
+            app.workspace.selected,
+            Some(crate::board::workspace::OpsTarget::DigestAll)
+        );
+        let member = app
+            .workspace_rows()
+            .iter()
+            .position(|row| {
+                matches!(&row.target,
+            crate::board::workspace::OpsTarget::Member { identity_id, .. } if identity_id == MEMBER)
+            })
+            .unwrap();
+        app.select(member);
         press(&mut app, KeyCode::Enter);
         assert!(app.input.is_some());
         press(&mut app, KeyCode::Char('u'));

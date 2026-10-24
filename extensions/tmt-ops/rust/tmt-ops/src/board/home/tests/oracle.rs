@@ -362,6 +362,12 @@ fn captures() -> Value {
                 "agents-state-sorted",
                 "agents-header-hover",
                 "digest",
+                "digest-first-open",
+                "digest-busy-late",
+                "digest-retained-pick",
+                "digest-empty-flow",
+                "digest-unavailable-flow",
+                "digest-no-agents",
                 "digest-allowance",
                 "digest-allowance-tokens",
                 "empty",
@@ -395,7 +401,17 @@ fn captures() -> Value {
             ) {
                 for width in [160, 100, 80, 60] {
                     for height in [36, 8] {
-                        let app = if state == "header-usage" {
+                        let app = if matches!(
+                            state,
+                            "digest-first-open"
+                                | "digest-busy-late"
+                                | "digest-retained-pick"
+                                | "digest-empty-flow"
+                                | "digest-unavailable-flow"
+                                | "digest-no-agents"
+                        ) {
+                            crate::board::digest_dashboard::tests::capture_case(state, look)
+                        } else if state == "header-usage" {
                             metered(look)
                         } else if crate::board::conversation::outgoing::tests::captures::SCENES
                             .contains(&state)

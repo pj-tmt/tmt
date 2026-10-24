@@ -23,10 +23,10 @@ export function SourceEditor({
         spellCheck={false}
       />
       <div className="source-metadata">
-        <span data-testid="source-draft-status">
+        <span data-testid="source-draft-status" data-changed={changed ? '' : undefined}>
           {changed ? text.sourceDraftChanged : text.sourceDraftUnchanged}
         </span>
-        <span>{text.sourceEditorLabel}</span>
+        <span>{text.sourceFormat}</span>
       </div>
     </div>
   );

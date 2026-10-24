@@ -34,8 +34,9 @@ tmt remote deploy firestore --project <project-id> --region <region> --sign-in a
 
 Check the account, project, region, Security rules and Website files in the short summary.
 Add `--details` to see the full plan, fingerprints, extension resources and indexes before
-the question. A target shown without live change evidence still needs your review; a saved
-completed run is not proof that the current project is unchanged.
+the question. Security rules include the native agent-talk namespace and its displayed bounds,
+plus the enabled extensions' policies; deploying them does not connect or admit a peer.
+A target shown without live change evidence still needs your review; a saved completed run is not proof that the current project is unchanged.
 
 ```text
 Deploy these changes to your Firebase project? [y/N]

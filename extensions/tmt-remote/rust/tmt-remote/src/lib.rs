@@ -65,3 +65,7 @@ pub mod wire;
 #[allow(dead_code)]
 #[path = "../tests/support/core.rs"]
 pub(crate) mod core_fixture;
+
+#[cfg(test)]
+#[path = "serve/test_isolation.rs"]
+pub(crate) mod test_isolation;

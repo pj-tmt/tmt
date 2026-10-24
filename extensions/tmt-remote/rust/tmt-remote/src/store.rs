@@ -181,7 +181,7 @@ impl Store {
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 11] = [
+const MIGRATIONS: [(&str, &str); 12] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -301,6 +301,7 @@ const MIGRATIONS: [(&str, &str); 11] = [
      CREATE TABLE cloud_reroute_counters(machine_id TEXT PRIMARY KEY,generation INTEGER NOT NULL CHECK(generation>0));
      CREATE TABLE cloud_owner_projects(project TEXT PRIMARY KEY,config TEXT NOT NULL);
      CREATE TABLE cloud_remotes(name TEXT PRIMARY KEY,owner TEXT NOT NULL UNIQUE,connection TEXT NOT NULL);"),
+    ("cloud_final_binding", "ALTER TABLE cloud_transport ADD COLUMN binding TEXT;"),
 ];
 fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     let port: Option<i64> = connection

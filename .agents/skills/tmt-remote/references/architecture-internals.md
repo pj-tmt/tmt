@@ -286,8 +286,12 @@ each durable outcome. A capacity stop, transient failure or restart resumes that
 changing operation authority or replaying an effect. A fully drained query clears the continuation
 and advances the machine timestamp; the next query uses the normal overlap. Legacy peer-only
 checkpoints seed the first query except the machine UUID, which belongs to enrollment. Inbox completion never updates those peer keys; a quiet peer cannot hold subsequent machine progress back.
-`cloud_command`
-owns the provisional public JSON schema and unchanged target echo. A target may carry only a name;
+Core's message contract (#4831, `contracts/remote-message-v1.md`) owns the versioned schema.
+`cloud_command` admits the local request and preserves the target echo. Its optional reply capability
+is retained with the destination and originator in `cloud_inbox::store`'s existing private outbox
+before publication can be claimed. The association is immutable across repeats and restarts;
+the receipt never enters dispatch payloads, envelopes, answers or audit. Core retains final authority.
+A target may carry only a name;
 `Operations` resolves it with Core's public `identity show --json -- <name>` before adoption, freezes
 the returned UUID/current name, and applies the same recipient grant and UUID-pinned effect check.
 Missing/ambiguous names are durable per-document refusals. Explicit UUID targets never perform a
@@ -340,3 +344,7 @@ Both emulator hosts must be numeric loopback addresses, in an Infra-approved slo
 Firebase Auth plus `ProductionHttp`; Admin installs Rules only. The injected fake Core query keeps
 this proof independent of #4536/#4757; full public CLI talk is #4539/#4540 acceptance. Default tests
 keep this qualifier ignored and cover local ceremony/reopen/revoke with injected provider ports.
+The library and binary test roots share `test_isolation::isolated_case` for native serve,
+factory and two-owner pairing fixtures. It executes before project files or locks open, so sibling
+fixture-publication forks cannot inherit their credential/budget locks; `tmt_invoke` bounds the
+child, captures failures and reaps its process group. The ceremony keeps its assertions and deadlines.

@@ -255,6 +255,11 @@ fn prepared(remote: &str) -> Vec<u8> {
 #[test]
 fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_pairing_on_reopen()
 {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_pairing_on_reopen",
+    ) {
+        return;
+    }
     let core = core_fixture::Core::new();
     std::fs::write(core.root.join("multi"), "").unwrap();
     let wire = Arc::new(Wire::new());
