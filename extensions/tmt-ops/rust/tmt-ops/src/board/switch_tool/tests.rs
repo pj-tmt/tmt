@@ -194,3 +194,73 @@ fn captured_copy_only_review_has_a_current_source_and_copies_without_launching()
         Stage::Result(_)
     ));
 }
+
+#[test]
+fn modal_revision_pending_hides_reopens_and_keeps_one_outcome() {
+    let mut app = form();
+    review(&mut app);
+    key(&mut app, KeyCode::Tab);
+    paint(&app, 150, 43);
+    let Effect::SwitchTool(task) = key(&mut app, KeyCode::Enter) else {
+        panic!()
+    };
+    key(&mut app, KeyCode::Esc);
+    assert!(
+        app.overlay().is_none(),
+        "Esc hides without cancelling the accepted switch"
+    );
+    app.references.agents.get_mut(MEMBER).unwrap().parameters["runningDriver"] = json!("claude");
+    assert_eq!(
+        app.open_switch_tool(),
+        Effect::None,
+        "reopen does not load or dispatch again"
+    );
+    assert_eq!(app.switch_tool.as_ref().unwrap().owner, task.owner);
+    assert_eq!(app.switch_tool.as_ref().unwrap().stage, Stage::Pending);
+    key(&mut app, KeyCode::Esc);
+    app.finished_switch_tool(Completed {
+        task,
+        result: Ok(Outcome::Switched(
+            "worker is running claude in tmux / work".into(),
+        )),
+    });
+    assert!(
+        app.overlay().is_none(),
+        "background completion does not steal focus"
+    );
+    assert_eq!(app.open_switch_tool(), Effect::None);
+    let text = paint(&app, 80, 43);
+    assert!(text.contains("✓ Switched · worker is running claude"));
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(app.switch_tool.is_none());
+}
+
+#[test]
+fn modal_revision_current_tool_cannot_review_and_copy_only_has_no_repeated_hint() {
+    let mut app = form();
+    app.switch_tool.as_mut().unwrap().fields[0] = Editor::from("codex");
+    let text = paint(&app, 150, 43);
+    assert!(text.contains("Switch worker from codex"));
+    assert!(!text.contains("Switch worker from codex to"));
+    assert!(text.contains("codex · current"));
+    assert!(app.switch_tool.as_ref().unwrap().controls.get()[1].is_none());
+    app.switch_tool.as_mut().unwrap().focus = 3;
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.switch_tool.as_ref().unwrap().stage, Stage::Form);
+    let copy = captures::case("switch-tool-copy-only", crate::look::Look::default());
+    let text = paint(&copy, 150, 43);
+    assert!(text.contains("Copy command"));
+    assert!(!text.contains("c copy command"));
+}
+
+#[test]
+fn modal_revision_hide_hint_uses_the_effective_switch_binding() {
+    let configured = crate::board::app::workspace::tests::configured_member(
+        "[bind]\nS=\"help\"\nz=\"switch-tool\"\n",
+        json!({"id":MEMBER,"name":"worker"}),
+    );
+    assert_eq!(
+        configured.switch_tool_reopen_hint(),
+        "z reopens this switch or its result."
+    );
+}

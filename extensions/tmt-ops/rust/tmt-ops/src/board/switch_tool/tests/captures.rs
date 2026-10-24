@@ -12,6 +12,8 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "switch-tool-unknown",
     "switch-tool-stale",
     "switch-tool-load-failed",
+    "switch-tool-hidden-pending",
+    "switch-tool-hidden-result",
 ];
 pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
     let mut app = if scene == "switch-tool-loading" {
@@ -48,7 +50,11 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
     }
     if matches!(
         scene,
-        "switch-tool-review" | "switch-tool-copy-only" | "switch-tool-pending"
+        "switch-tool-review"
+            | "switch-tool-copy-only"
+            | "switch-tool-pending"
+            | "switch-tool-hidden-pending"
+            | "switch-tool-hidden-result"
     ) {
         c.review = Some(
             Review::new(
@@ -59,19 +65,62 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
             )
             .unwrap(),
         );
-        c.stage = if scene == "switch-tool-pending" {
+        c.stage = if matches!(
+            scene,
+            "switch-tool-pending" | "switch-tool-hidden-pending" | "switch-tool-hidden-result"
+        ) {
             Stage::Pending
         } else {
             Stage::Review
         };
     }
     match scene {
-        "switch-tool-success"=>c.stage=Stage::Result("worker is running claude in tmux / work.\nObserved model: opus\nName, UUID, notes and open requests stay.".into()),
-        "switch-tool-refused"=>c.stage=Stage::Result("Host launch changed; review again.".into()),
-        "switch-tool-unknown"=>c.stage=Stage::Result("Switch outcome unknown. No same-UUID running-driver observation arrived within the observation window.\nCheck the old agent and destination before retrying. Nothing was automatically relaunched or closed.".into()),
-        "switch-tool-stale"=>c.stage=Stage::Result("Selected member or session observation changed. Close and review again; nothing launched.".into()),
-        "switch-tool-load-failed"=>c.stage=Stage::Result("Host templates unavailable. Close and reopen to retry.".into()),
-        _=>{},
+        "switch-tool-success" => {
+            c.stage = Stage::result(
+                ResultKind::Switched,
+                "worker is running claude in tmux / work.\nObserved model: opus\nName, UUID, notes and open requests stay.",
+            )
+        }
+        "switch-tool-refused" => {
+            c.stage = Stage::result(ResultKind::Refused, "Host launch changed; review again.")
+        }
+        "switch-tool-unknown" => {
+            c.stage = Stage::result(
+                ResultKind::Unknown,
+                "No same-UUID running-driver observation arrived within the observation window.\nCheck the old agent and destination before retrying. Nothing was automatically relaunched or closed.",
+            )
+        }
+        "switch-tool-stale" => {
+            c.stage = Stage::result(
+                ResultKind::Changed,
+                "Selected member or session observation changed. Close and review again; nothing launched.",
+            )
+        }
+        "switch-tool-load-failed" => {
+            c.stage = Stage::result(
+                ResultKind::Refused,
+                "Host templates unavailable. Close and reopen to retry.",
+            )
+        }
+        _ => {}
+    }
+    if matches!(
+        scene,
+        "switch-tool-hidden-pending" | "switch-tool-hidden-result"
+    ) {
+        let task = Task {
+            owner: c.owner,
+            work: Work::Launch(Box::new(c.review.clone().unwrap())),
+        };
+        key(&mut app, KeyCode::Esc);
+        if scene == "switch-tool-hidden-result" {
+            app.finished_switch_tool(Completed {
+                task,
+                result: Ok(Outcome::Switched(
+                    "worker is running claude in tmux / work.\nObserved model: opus".into(),
+                )),
+            });
+        }
     }
     app
 }
@@ -91,7 +140,12 @@ fn stages_fit_at_80_and_150_and_short_frames_never_admit_launch() {
             for height in [43, 8] {
                 let app = case(scene, crate::look::Look::default());
                 let text = paint(&app, width, height);
-                assert!(text.contains("Switch AI tool"), "{scene} {width}x{height}");
+                if scene.starts_with("switch-tool-hidden-") {
+                    assert!(!text.contains("Switch AI tool"), "{scene}");
+                    assert!(app.overlay().is_none());
+                } else {
+                    assert!(text.contains("Switch AI tool"), "{scene} {width}x{height}");
+                }
                 if height == 8 {
                     assert!(!app.switch_tool.as_ref().unwrap().readable.get());
                 }

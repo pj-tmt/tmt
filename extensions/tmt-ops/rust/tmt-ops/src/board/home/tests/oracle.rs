@@ -863,11 +863,16 @@ fn switch_frames(scenes: &[&str], styles: &mut Styles) -> Vec<Value> {
 }
 
 #[test]
-#[ignore = "read-only correction of the copy-only source fixture; never records frozen bytes"]
-fn dump_switch_copy_only_oracle() {
+#[ignore = "read-only switch revision inspection; never records frozen bytes"]
+fn dump_switch_revision_oracle() {
     let value = crate::status::with_now_ms(1_791_600_000_000, || {
         let mut styles = Styles::default();
-        let frames = switch_frames(&["switch-tool-copy-only"], &mut styles);
+        let scenes = crate::board::switch_tool::tests::captures::SCENES
+            .iter()
+            .copied()
+            .filter(|s| *s != "switch-tool-review")
+            .collect::<Vec<_>>();
+        let frames = switch_frames(&scenes, &mut styles);
         let styles = styles
             .0
             .into_iter()

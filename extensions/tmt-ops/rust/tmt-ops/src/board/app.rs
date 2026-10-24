@@ -3153,7 +3153,7 @@ impl App {
             || self.recovery_shown()
             || self.discovery_shown()
             || self.new_member.is_some()
-            || self.switch_tool.is_some()
+            || self.switch_tool_shown()
             || self.member_session.is_some()
         {
             return self
@@ -3713,7 +3713,7 @@ impl App {
             Some(Overlay::UsageControls)
         } else if self.quota_details.is_some() {
             Some(Overlay::QuotaDetails)
-        } else if self.switch_tool.is_some() {
+        } else if self.switch_tool_shown() {
             Some(Overlay::SwitchTool)
         } else if self.new_member.is_some() {
             Some(Overlay::NewMember)

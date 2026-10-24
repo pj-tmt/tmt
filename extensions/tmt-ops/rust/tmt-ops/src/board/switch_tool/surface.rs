@@ -6,13 +6,13 @@ use tmt_tui::components::{Modal, Placement, strip};
 impl Controller {
     fn lines(&self) -> Vec<String> {
         match &self.stage {
-            Stage::Form if self.loaded.is_none()=>vec!["Loading host templates…".into()],
-            Stage::Form=>vec![format!("Switch {} from {} to",self.source.as_ref().map_or("selected agent",|s|s.name.as_str()),self.source.as_ref().map_or("unknown",Source::driver)),
+            Stage::Form if self.loaded.is_none()=>vec!["◌ Loading · host templates…".into()],
+            Stage::Form=>vec![format!("Switch {} from {}",self.source.as_ref().map_or("selected agent",|s|s.name.as_str()),self.source.as_ref().map_or("unknown",Source::driver)),
                 String::new(),"AI tool".into(),String::new(),String::new(),"Model".into(),String::new(),String::new(),
                 "↑↓ choose an observed tool/model, or type a value. Empty model uses the selected tool's policy.".into()],
             Stage::Review=>self.review.as_ref().map_or_else(Vec::new,Review::lines),
-            Stage::Pending=>vec![format!("Switching {} to {} in {} / {}…",self.source.as_ref().map_or("selected agent",|s|s.name.as_str()),self.fields[0],self.source.as_ref().map_or("—",Source::host),self.source.as_ref().map_or("—",Source::session)),
-                "Waiting for the same UUID to report the requested running tool.".into()],
+            Stage::Pending=>vec![format!("◌ Switching · {} to {} in {} / {}…",self.source.as_ref().map_or("selected agent",|s|s.name.as_str()),self.fields[0],self.source.as_ref().map_or("—",Source::host),self.source.as_ref().map_or("—",Source::session)),
+                "Waiting for the same UUID to report the requested running tool.".into(), "Esc hides · the switch continues.".into()],
             Stage::Result(text)=>text.lines().map(str::to_owned).collect(),
         }
     }
@@ -149,6 +149,10 @@ impl Controller {
                             id: format!("choice-{n}"),
                             text: if value.is_empty() {
                                 " default ".into()
+                            } else if index == 0
+                                && self.source.as_ref().is_some_and(|s| s.driver() == value)
+                            {
+                                format!(" {value} · current ")
                             } else {
                                 format!(" {value} ")
                             },
@@ -219,13 +223,16 @@ impl Controller {
             Stage::Pending => ("", "", 0),
             Stage::Result(_) => ("Close", "", 0),
         };
+        let can_apply = readable
+            && !apply.is_empty()
+            && (self.stage != Stage::Form || self.review_from_fields().is_ok());
         let buttons = [
             super::super::buttons::Button::secondary(cancel)
                 .focused(focus == 0 && (self.stage != Stage::Form || self.focus >= 2))
                 .enabled(!cancel.is_empty()),
             super::super::buttons::Button::primary(apply)
                 .focused(focus == 1)
-                .enabled(readable && !apply.is_empty()),
+                .enabled(can_apply),
         ];
         let n = if apply.is_empty() {
             usize::from(!cancel.is_empty())
@@ -242,9 +249,9 @@ impl Controller {
         );
         self.controls.set([
             hits.first().copied().flatten(),
-            hits.get(1).copied().flatten().filter(|_| readable),
+            hits.get(1).copied().flatten().filter(|_| can_apply),
         ]);
-        if self.stage == Stage::Review {
+        if self.stage == Stage::Review && self.review.as_ref().is_some_and(|r| r.outer.is_some()) {
             let x = hits
                 .iter()
                 .flatten()
@@ -259,6 +266,13 @@ impl Controller {
                     Line::styled("c copy command", look.role(Role::Muted)),
                 );
             }
+        }
+        if self.stage == Stage::Pending {
+            strip::paint_left(
+                frame.buffer_mut(),
+                areas.footer,
+                Line::styled(app.switch_tool_reopen_hint(), look.role(Role::Muted)),
+            );
         }
         self.readable.set(readable);
     }

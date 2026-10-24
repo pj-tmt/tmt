@@ -27,8 +27,30 @@ enum Stage {
     Pending,
     Result(String),
 }
+#[derive(Clone, Copy)]
+enum ResultKind {
+    Switched,
+    Unknown,
+    Refused,
+    Changed,
+    CopyOnly,
+}
+impl Stage {
+    fn result(kind: ResultKind, text: impl Into<String>) -> Self {
+        use tmt_cli_style::mark::Mark;
+        let (mark, word) = match kind {
+            ResultKind::Switched => (Mark::Done, "Switched"),
+            ResultKind::Unknown => (Mark::Decision, "Unknown"),
+            ResultKind::Refused => (Mark::Failed, "Refused"),
+            ResultKind::Changed => (Mark::Failed, "Changed"),
+            ResultKind::CopyOnly => (Mark::Decision, "Copy only"),
+        };
+        Self::Result(format!("{} {word} · {}", mark.symbol(), text.into()))
+    }
+}
 pub(in crate::board) struct Controller {
     owner: u64,
+    shown: bool,
     source: Option<Source>,
     loaded: Option<Loaded>,
     stage: Stage,
@@ -46,6 +68,31 @@ pub(in crate::board) struct Controller {
     choices: RefCell<Vec<(usize, String, Rect)>>,
 }
 impl Controller {
+    fn finish(&mut self, kind: ResultKind, text: impl Into<String>) {
+        self.stage = Stage::result(kind, text);
+        self.focus = 0;
+        self.notice = None;
+        self.scroll
+            .borrow_mut()
+            .step(tmt_tui::components::Step::Top);
+        self.invalidate();
+    }
+    fn review_from_fields(&self) -> Result<Review, String> {
+        let source = self
+            .source
+            .as_ref()
+            .ok_or("Member observation unavailable. Close and reopen.")?;
+        let loaded = self
+            .loaded
+            .as_ref()
+            .ok_or("Host templates unavailable. Close and reopen.")?;
+        Review::new(
+            source,
+            self.fields[0].as_str(),
+            self.fields[1].as_str(),
+            loaded,
+        )
+    }
     pub fn invalidate(&self) {
         self.readable.set(false);
         self.controls.set([None, None]);
@@ -56,8 +103,16 @@ impl Controller {
         if self.focus > 1 {
             return;
         }
-        let options = if self.focus == 0 {
-            self.tools.clone()
+        let options: Vec<String> = if self.focus == 0 {
+            self.tools
+                .iter()
+                .filter(|tool| {
+                    self.source
+                        .as_ref()
+                        .is_none_or(|s| s.driver() != tool.as_str())
+                })
+                .cloned()
+                .collect()
         } else {
             std::iter::once(String::new())
                 .chain(
@@ -85,6 +140,31 @@ impl Controller {
     }
 }
 impl App {
+    fn switch_tool_reopen_hint(&self) -> String {
+        use crate::action::{OpsUiAction, Verb};
+        let bindings = self.bindings();
+        let action = Verb::Ui(OpsUiAction::SwitchTool);
+        let key = bindings
+            .get("S")
+            .filter(|a| a.verb == action)
+            .map(|_| "S")
+            .or_else(|| {
+                bindings
+                    .iter()
+                    .find(|(_, a)| a.verb == action)
+                    .map(|(key, _)| key.as_str())
+            });
+        match key {
+            Some(key) => format!(
+                "{} reopens this switch or its result.",
+                super::view::footer::key_label(key)
+            ),
+            None => "Switch tool on an agent row reopens this switch or its result.".into(),
+        }
+    }
+    pub(in crate::board) fn switch_tool_shown(&self) -> bool {
+        self.switch_tool.as_ref().is_some_and(|c| c.shown)
+    }
     pub(in crate::board) fn open_switch_tool(&mut self) -> Effect {
         if self.workspace_scope() != crate::config::OpsKeyScope::Member
             || self.shell.tab != super::shell::OpsTab::Agents
@@ -97,6 +177,12 @@ impl App {
                 "Select an agent and close the current input or overlay before switching AI tool.",
             );
         }
+        if let Some(c) = &mut self.switch_tool {
+            c.shown = true;
+            c.invalidate();
+            self.menu = None;
+            return Effect::None;
+        }
         let source = Source::from_app(self);
         let (tools, models) = super::tool_choices::observed(&self.references);
         self.switch_tool_generation += 1;
@@ -106,6 +192,7 @@ impl App {
         };
         self.switch_tool = Some(Controller {
             owner: task.owner,
+            shown: true,
             source,
             loaded: None,
             stage: Stage::Form,
@@ -131,13 +218,17 @@ impl App {
                 && c.source.as_ref().is_some_and(|s| !s.still_selected(self))
         });
         if stale && let Some(c) = &mut self.switch_tool {
-            c.stage=Stage::Result("Selected member or session observation changed. Close and review again; nothing launched.".into());
+            c.finish(
+                ResultKind::Changed,
+                "Selected member or session observation changed. Close and review again; nothing launched.",
+            );
             c.review = None;
             c.invalidate();
         }
     }
     pub(in crate::board) fn finished_switch_tool(&mut self, completed: Completed) -> Effect {
         self.switch_tool_changed();
+        let reopen = self.switch_tool_reopen_hint();
         let Some(c) = &mut self.switch_tool else {
             return Effect::None;
         };
@@ -149,13 +240,28 @@ impl App {
             Ok(Outcome::Loaded(loaded)) if c.stage == Stage::Form => c.loaded = Some(*loaded),
             Ok(Outcome::Loaded(_)) => {}
             Ok(Outcome::Switched(text)) => {
-                c.stage = Stage::Result(text);
+                c.finish(ResultKind::Switched, text);
                 refresh = true;
             }
-            Ok(Outcome::Unknown(text)) => c.stage = Stage::Result(text),
-            Err(e) => c.stage = Stage::Result(e.message),
+            Ok(Outcome::Unknown(text)) => c.finish(ResultKind::Unknown, text),
+            Err(e) => c.finish(ResultKind::Refused, e.message),
         }
         c.invalidate();
+        let hidden_notice = if !c.shown {
+            if let Stage::Result(text) = &c.stage {
+                Some(format!(
+                    "{} · {reopen}",
+                    text.lines().next().unwrap_or(text)
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if let Some(text) = hidden_notice {
+            self.set_notice(Some(text), false);
+        }
         if refresh {
             Effect::Refresh
         } else {
@@ -164,7 +270,11 @@ impl App {
     }
     pub(in crate::board) fn switch_tool_event(&mut self, event: &Event) -> Option<Effect> {
         self.switch_tool_changed();
+        let reopen = self.switch_tool_reopen_hint();
         let c = self.switch_tool.as_mut()?;
+        if !c.shown {
+            return None;
+        }
         if matches!(event, Event::Resize(..)) {
             c.invalidate();
             return Some(Effect::None);
@@ -212,8 +322,14 @@ impl App {
             if key.code == KeyCode::Esc {
                 match c.stage {
                     Stage::Pending => {
-                        c.notice =
-                            Some("Switch in progress; check its outcome before retrying.".into())
+                        c.shown = false;
+                        c.invalidate();
+                        let name = c
+                            .source
+                            .as_ref()
+                            .map_or("selected agent", |s| s.name.as_str());
+                        let text = format!("◌ Switching · {name}. {reopen}");
+                        return Some(self.say(&text));
                     }
                     Stage::Review => {
                         c.stage = Stage::Form;
@@ -309,20 +425,7 @@ impl App {
             }
             match c.stage {
                 Stage::Form => {
-                    match c
-                        .source
-                        .as_ref()
-                        .ok_or_else(|| "Member observation unavailable. Close and reopen.".into())
-                        .and_then(|s| {
-                            Review::new(
-                                s,
-                                c.fields[0].as_str(),
-                                c.fields[1].as_str(),
-                                c.loaded.as_ref().ok_or_else(|| {
-                                    "Host templates unavailable. Close and reopen.".to_owned()
-                                })?,
-                            )
-                        }) {
+                    match c.review_from_fields() {
                         Ok(r) => {
                             c.review = Some(r);
                             c.stage = Stage::Review;
@@ -337,9 +440,9 @@ impl App {
                 Stage::Review => {
                     if let Some(review) = c.review.clone() {
                         if review.outer.is_none() {
-                            c.stage = Stage::Result(
-                                "Copy-only command. Nothing ran. Run it in a suitable host pane."
-                                    .into(),
+                            c.finish(
+                                ResultKind::CopyOnly,
+                                "Nothing ran. Run the command in a suitable host pane.",
                             );
                             c.invalidate();
                             return Some(Effect::Act(Request::Copy {

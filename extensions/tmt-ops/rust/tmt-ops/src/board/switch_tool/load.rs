@@ -34,7 +34,7 @@ pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
 }
 fn unknown(detail: &str) -> Outcome {
     Outcome::Unknown(format!(
-        "Switch outcome unknown. {detail}\nCheck the old agent and destination before retrying. Nothing was automatically relaunched or closed."
+        "{detail}\nCheck the old agent and destination before retrying. Nothing was automatically relaunched or closed."
     ))
 }
 pub(super) fn launch(

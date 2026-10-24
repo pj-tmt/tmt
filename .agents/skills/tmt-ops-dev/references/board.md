@@ -97,7 +97,9 @@ argv. Null templates are copy-only; failed reads remain unavailable. Core alone 
 handoff/stop/driver records. The worker observes the same UUID at the destination
 running the requested tool for up to 90 seconds; host exit/pane ID or remembered
 driver is not completion. Unknown/partial outcomes ask for a public-state check
-before retry; no automatic replay or pane closure. `R` stays the Session handoff.
+before retry; no automatic replay or pane closure. Esc hides pending work; `S`
+reopens that same operation or its result until closed, without another launch.
+`R` stays the Session handoff.
 
 `board/member_session` owns the selected member's public host/session projection and
 Session dialog. It reuses the global identity inventory and typed activity. The target
