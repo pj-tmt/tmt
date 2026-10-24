@@ -369,7 +369,7 @@ fn native_pr_handoff_checks_compiled_schema_and_preserves_installation_on_refusa
     );
     assert_eq!(
         tmt_adapters::storage::Storage::application_schema(&database).unwrap(),
-        66
+        67
     );
 }
 

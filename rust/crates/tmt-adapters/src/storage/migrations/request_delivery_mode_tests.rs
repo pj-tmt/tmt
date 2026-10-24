@@ -20,7 +20,7 @@ fn delivery_mode_migration_keeps_every_stored_request_a_request_and_guards_the_c
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 66);
+    assert_eq!(storage.health().unwrap().schema_version, 67);
     storage.close().unwrap();
 
     let oracle = Connection::open(&path).unwrap();

@@ -28,6 +28,28 @@ fn shown(facts: &DeliveryFacts) -> (&'static str, &'static str, bool) {
 }
 
 #[test]
+fn session_learning_recovery_is_bounded_presentation_and_never_delivery_authority() {
+    let mut sent = facts(AttemptStatus::Sent);
+    sent.recipient_start_refusal = Some(StartRefusalReason::SessionNotLearned);
+    sent.recipient_session_recovery =
+        Some("Exit the agent in its pane, then run: tmt run -- Worker codex".into());
+    let view = delivery_view(&sent, 0);
+    assert_eq!(view.reason.code(), "session_not_bound");
+    assert!(view.reason_text.ends_with("tmt run -- Worker codex"));
+    assert!(!view.can_send_now);
+    sent.status = AttemptStatus::Queued;
+    assert_eq!(shown(&sent), ("sent", "waiting_for_delivery", true));
+    sent.status = AttemptStatus::Sent;
+    for invalid in ["x".repeat(257), "unsafe\ncommand".into()] {
+        sent.recipient_session_recovery = Some(invalid);
+        let view = delivery_view(&sent, 0);
+        assert!(view.reason_text.len() <= 256);
+        assert!(!view.reason_text.chars().any(char::is_control));
+        assert!(!view.reason_text.contains("unsafe"));
+    }
+}
+
+#[test]
 fn a_message_not_yet_handed_over_is_sent_and_can_go_now() {
     for status in [
         AttemptStatus::Prepared,

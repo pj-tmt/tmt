@@ -553,7 +553,6 @@ fn supervisor_loss_after_paste_is_uncertain_and_never_replayed() {
 }
 
 #[test]
-#[ignore = "flaky on hosted runners until #4800; see #4767"]
 fn a_hook_recorded_session_resumes_in_a_new_pty_without_tmux() {
     let mut world = World::new();
     let example = std::path::Path::new(env!("CARGO_BIN_EXE_tmt"))
