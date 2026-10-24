@@ -539,7 +539,7 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 Owns listener/restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery)
 and `<dataRoot>/remote/` ([state leaf](#shared-extension-state-layout)).
 Home/Remote/SDK; read-only auto-pair; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
-`cloud_hpke`: bytes; `cloud_keys`: renewals; `cloud_inbox`: carrier.
+`cloud_hpke`: bytes; `cloud_keys`: renewals; `cloud_inbox`: carriers, private reply binding.
 
 [Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
 settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).

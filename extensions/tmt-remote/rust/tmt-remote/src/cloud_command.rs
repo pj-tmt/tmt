@@ -1,4 +1,4 @@
-//! One provisional v1 public-command schema (#4536); Core alignment changes this owner.
+//! Core owns the versioned message schema (#4831); Remote admits the local command.
 use crate::{canonical, error::RemoteError, limits, wire};
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Deserialize, Serialize)]
@@ -14,6 +14,13 @@ pub struct Target {
     pub id: Option<String>,
     pub name: String,
 }
+/// Local reply capability supplied by Core. Never include this value in a cloud envelope.
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Reply {
+    pub request_id: String,
+    pub receipt: String,
+}
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Request {
@@ -26,6 +33,8 @@ pub struct Request {
     pub from: PeerIdentity,
     pub target: Target,
     pub message: String,
+    #[serde(default)]
+    pub reply: Option<Reply>,
 }
 #[derive(Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -68,6 +77,13 @@ impl Request {
             return Err(invalid());
         }
         canonical::uuid(&request.request_id).map_err(|_| invalid())?;
+        if let Some(reply) = &request.reply
+            && (reply.request_id != format!("req_{}", request.request_id)
+                || reply.receipt.is_empty()
+                || reply.receipt.chars().any(char::is_control))
+        {
+            return Err(invalid());
+        }
         canonical::uuid(&request.from.id).map_err(|_| invalid())?;
         if let Some(id) = &request.target.id {
             canonical::uuid(id).map_err(|_| invalid())?;
