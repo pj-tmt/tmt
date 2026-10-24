@@ -441,17 +441,29 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   Historical requests are not attributed on initial baseline. At most four
   distinct model IDs are retained per increment; unavailable evidence or the
   existing opaque-state size bound omits attribution while retaining totals.
-- `consumption.rateLimits` is `{provider,observedAtMs,windows}` from the same newest accepted
-  Codex source line as the counters. It is absent for Claude, when that line carries
-  no limits and when any field is invalid (never partial). `observedAtMs` is that
-  line's own time, not the read time, so an idle session reports old limits as old.
-  `provider` is the driver id of that source line (`codex` today; another value appears
-  only when Core gains a real limit source for that driver). Consumers use it and never
-  infer a provider from a seat's model lines; a value stored before the field reads as
-  `codex`. Core publishes no account identifier: the source line carries none (its
-  `limit_id` names a limit family and `plan_type` a plan tier shared by every account on
-  it), so a consumer recognises one account's window only by `(provider, windowMinutes,
-resetsAtMs)`.
+- `consumption.rateLimits` is `{provider,observedAtMs,windows}` from the driver's
+  allowance source, independently of its token counters. Codex reads the same newest
+  accepted `token_count` line as the counters, unchanged; `observedAtMs` is that line's
+  time. Claude reads only its existing `cachedUsageUtilization` in `~/.claude.json`,
+  or `<CLAUDE_CONFIG_DIR>/.claude.json` when that nonempty variable selects a root.
+  It admits the cache only when its nonempty `accountUuid` equals the same file's
+  `oauthAccount.accountUuid`. Seats sharing a root share its cached windows; another
+  root is never a fallback. This is best-effort, undocumented cached evidence, not
+  proof of every seat's authenticated account. Core neither reads credentials nor
+  refreshes, writes or makes a network request to obtain it. Only selected fields
+  are parsed. `observedAtMs` is `fetchedAtMs`, never read time or file mtime; future
+  fetch times are dropped. `five_hour` and `seven_day` map to 300 and 10,080 minutes;
+  `utilization` is a percentage (0–100, never rescaled), and ISO resets become UTC
+  milliseconds. Missing/null windows are optional; a malformed or partial window
+  rejects the snapshot. Windows at or past reset are dropped individually. Older
+  current windows retain their original age without a one-hour cutoff. No usable
+  windows means no limits. A cache change advances the consumption sequence without
+  adding tokens; an unchanged cache does not. `provider` is fixed by the source (`claude` or `codex`),
+  never inferred from a seat's models; values stored before this field read as
+  `codex`. Core publishes no account identifier; consumers group windows only by
+  `(provider, windowMinutes, resetsAtMs)`, never by a model or plan tier.
+  Codex's `limit_id` names a limit family and `plan_type` a shared plan tier;
+  neither identifies an account.
   `windows` has one or two `{windowMinutes,usedPercent,resetsAtMs}` entries in
   strictly ascending `windowMinutes`: `usedPercent` (0–100) of the account's
   allowance used in that window and `resetsAtMs` its UTC Unix millisecond reset.
@@ -581,9 +593,11 @@ the newest activity is not yet in it. `bucketMs` is
 `availableFromMs` (start of the identity's first rollup bucket with a successful read,
 or null) and `retainedFromMs` (`max(toMs - 30 days, availableFromMs)`; earlier intervals
 are uncovered). A bucket adds `rateLimits` (the public `resume.consumption` shape): the
-newest limits **observed inside the bucket**, absent when no provider line in it carried
-any. Account windows repeat across seats on one account and across buckets, so a reader
-dedupes by `(windowMinutes, resetsAtMs)` and never sums them. A bucket also adds the
+newest limits **observed inside the bucket**, absent when no source timestamp falls
+in it. Cached allowance fetched before every retained bucket is available only in
+`latest.consumption`, preserving its original fetch time. Account windows repeat across seats on one
+account and across buckets, so a reader dedupes by `(provider, windowMinutes, resetsAtMs)`
+and never sums them. A bucket also adds the
 Codex `credits` (the public `consumption.credits` shape), the newest **observed inside the
 bucket** by the same rule as `rateLimits`, and `serviceTier`, the tier id of the newest
 read **that moved tokens** in the bucket (an idle read claims none; a moving read whose
@@ -1062,7 +1076,10 @@ seconds); TMT does not infer a prompt from pane text or a pre-decision hook.
 `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit` and `Stop` clear waiting
 through the existing admitted-event transition. Manual denial emits no installed
 clear event: waiting remains until the next admitted event, without a timer.
-A tool completion cannot reopen an idle turn. Duplicate phases do not renew
+A tool completion cannot reopen an idle turn. A Stop that a Digest checklist blocked ends its
+turn here, and the provider's continuation shows no activity of its own: the Digest idle
+opportunity treats the seat as working until that continuation's own Stop, the next prompt or the
+end of that provider run, without changing the recorded state. Duplicate phases do not renew
 timestamps. These events record the last admitted observation, not a count of
 parallel pending approvals, and never decide or answer a permission request.
 Claude reports waiting; Codex does not report it in this contract. Consumers show

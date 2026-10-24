@@ -19,9 +19,9 @@ pub(in crate::board) use observations::Observations;
 pub(in crate::board) struct Attention {
     pub online: String,
     pub unread: super::unread::Count,
-    pub waiting: String,
+    pub todo: String,
     pub blocked: String,
-    pub waiting_positive: bool,
+    pub todo_positive: bool,
     pub blocked_positive: bool,
     pub complete: bool,
     pub ascii: bool,
@@ -42,8 +42,8 @@ impl Attention {
                 look.role(Role::Muted),
             ),
             Span::styled(
-                if self.ascii { "!" } else { "◆" },
-                look.role(if self.waiting_positive {
+                if self.ascii { "o" } else { "○" },
+                look.role(if self.todo_positive {
                     Role::Waiting
                 } else {
                     Role::Muted
@@ -52,8 +52,12 @@ impl Attention {
             Span::styled(
                 format!(
                     " {}{}  ",
-                    self.waiting,
-                    if words { " need you" } else { "" }
+                    if words {
+                        self.todo.as_str()
+                    } else {
+                        self.todo.split_whitespace().next().unwrap_or("—")
+                    },
+                    ""
                 ),
                 look.role(Role::Muted),
             ),
@@ -284,9 +288,9 @@ mod tests {
         let attention = Attention {
             online: "28".into(),
             unread: Default::default(),
-            waiting: "9".into(),
+            todo: "9 todo".into(),
             blocked: "1".into(),
-            waiting_positive: true,
+            todo_positive: true,
             blocked_positive: true,
             complete: true,
             ascii: false,
@@ -306,7 +310,7 @@ mod tests {
             let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
             assert!(text.contains("OPS / UI"), "{text}");
             assert!(
-                text.contains("online") && text.contains("need you") && text.contains("blocked"),
+                text.contains("online") && text.contains("todo") && text.contains("blocked"),
                 "{text}"
             );
             assert_eq!(control.is_some(), width == 100);
@@ -325,9 +329,9 @@ mod tests {
         Attention {
             online: "28".into(),
             unread: Default::default(),
-            waiting: "9".into(),
+            todo: "9 todo".into(),
             blocked: "1".into(),
-            waiting_positive: true,
+            todo_positive: true,
             blocked_positive: true,
             complete: true,
             ascii: false,
@@ -423,7 +427,7 @@ mod tests {
             (stages[rank], last) = (stages[rank] + 1, rank);
             if rank < 4 {
                 // Counts, the caption and the mark keep their room while any version shows.
-                for word in ["online", "need you", "blocked", "OPS / UI"] {
+                for word in ["online", "todo", "blocked", "OPS / UI"] {
                     assert_eq!(
                         with.contains(word),
                         without.contains(word),
@@ -450,9 +454,9 @@ mod tests {
         let mut attention = Attention {
             online: "28".into(),
             unread: Default::default(),
-            waiting: "9".into(),
+            todo: "9 todo".into(),
             blocked: "1".into(),
-            waiting_positive: true,
+            todo_positive: true,
             blocked_positive: true,
             complete: true,
             ascii: false,
@@ -463,7 +467,7 @@ mod tests {
         for index in [0, 2, 4] {
             assert_eq!(line.spans[index].style, look.role(Role::Muted));
         }
-        attention.waiting_positive = false;
+        attention.todo_positive = false;
         attention.blocked_positive = false;
         assert!(
             attention
@@ -486,7 +490,7 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        assert!(text.contains("online") && text.contains("need you") && text.contains("blocked"));
+        assert!(text.contains("online") && text.contains("todo") && text.contains("blocked"));
     }
 }
 
@@ -499,9 +503,9 @@ mod narrow_tests {
         let attention = Attention {
             online: "≥28".into(),
             unread: Default::default(),
-            waiting: "≥9".into(),
+            todo: "≥9 todo".into(),
             blocked: "≥1".into(),
-            waiting_positive: true,
+            todo_positive: true,
             blocked_positive: true,
             complete: false,
             ascii: false,
@@ -521,7 +525,7 @@ mod narrow_tests {
             .collect::<String>();
         assert!(
             text.contains("online")
-                && text.contains("need you")
+                && text.contains("todo")
                 && text.contains("blocked")
                 && text.contains("totals unknown"),
             "{text}"
@@ -540,9 +544,9 @@ mod unread_tests {
                 total: 50,
                 more: true,
             },
-            waiting: "≥9".into(),
+            todo: "≥9 todo".into(),
             blocked: "≥1".into(),
-            waiting_positive: true,
+            todo_positive: true,
             blocked_positive: true,
             complete: false,
             ascii: false,
@@ -565,7 +569,7 @@ mod unread_tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        for word in ["≥28 online", "≥9 need you", "50+ unread", "≥1 blocked"] {
+        for word in ["≥28 online", "≥9 todo", "50+ unread", "≥1 blocked"] {
             assert!(text.contains(word), "{text}");
         }
     }

@@ -23,7 +23,8 @@ const script = (page: Page, answer: string) =>
   });
 const saves = (page: Page) =>
   page.evaluate(async (fixture) => (await import(fixture)).proof().saves, fixture);
-async function note(page: Page) {
+const note = (page: Page) => page.locator('.reader-note');
+async function info(page: Page) {
   await page.getByLabel('Info', { exact: true }).click();
   return page.locator('.reader-information-panel');
 }
@@ -32,7 +33,12 @@ test('a viewer link is marked read-only, says so, and has no Source control', as
   await mount(page, 'viewer');
   await expect(page.locator('.chip')).toHaveText(text.readerOnly);
   await expect(page.getByTestId('source-toggle')).toHaveCount(0);
-  await expect(await note(page)).toContainText(text.readerNote);
+  await expect(note(page)).toContainText(text.readerNoteTitle);
+  await expect(note(page)).toContainText(text.readerNote);
+  // The note is always in view; Info keeps what is about the page, not about the link.
+  const panel = await info(page);
+  await expect(panel).not.toContainText(text.readerNote);
+  await expect(panel.getByRole('heading')).toHaveText([text.aboutAuthor, text.aboutScripts]);
 });
 
 test('an editor link is marked Can edit, names what a save does, and saves from the Source drawer', async ({
@@ -40,8 +46,9 @@ test('an editor link is marked Can edit, names what a save does, and saves from 
 }) => {
   await mount(page, 'editor');
   await expect(page.locator('.chip')).toHaveText(text.readerCanEdit);
-  await expect(await note(page)).toContainText(text.readerNoteEditor);
-  await expect(page.locator('.reader-information-panel')).not.toContainText('You cannot edit it');
+  await expect(note(page)).toContainText(text.readerNoteTitleEditor);
+  await expect(note(page)).toContainText(text.readerNoteEditor);
+  await expect(note(page)).not.toContainText('You cannot edit it');
   await page.getByTestId('source-toggle').click();
   const area = page.locator('#source-edit');
   const save = page.getByRole('button', { name: text.save, exact: true });

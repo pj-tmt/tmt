@@ -314,6 +314,7 @@ pub enum Choice {
     WorkspaceTarget(super::workspace::OpsTarget),
     /// A click on the Notes chip of a member's header: opens the list.
     MemberNotes,
+    AddToNotes(super::conversation_notes::Seed),
     WorkspaceBegin(super::workspace::manage::Kind),
     WorkspaceRoom {
         kind: super::workspace::manage::Kind,
@@ -1793,6 +1794,7 @@ impl App {
                 self.error = Some(error);
             }
         }
+        self.reconcile_notes_scope();
         self.project_usage(Instant::now());
         self.prune_views();
         if self
@@ -3061,6 +3063,7 @@ impl App {
             }
             Choice::IdleAlert(room) => self.open_idle_alert(Some(room)),
             Choice::Unavailable(reason) => self.say(reason),
+            Choice::AddToNotes(seed) => self.add_to_notes(seed),
             Choice::LinkOpen(url) => self.link_open(url),
             Choice::LinkCopy(url) => self.link_copy(url),
             Choice::LinkShow { url, anchor } => self.link_show(&url, anchor),
@@ -5821,7 +5824,6 @@ mod token_window_tests {
             squads: vec![super::super::home::SquadLine {
                 squad: "product".into(),
                 lead: Some(serde_json::json!({"id":"a"})),
-                counts: Default::default(),
             }],
         });
         let mut input = super::super::rate::tests::input(100);
@@ -5863,7 +5865,6 @@ mod token_window_tests {
             .push(super::super::home::SquadLine {
                 squad: "extra".into(),
                 lead: Some(json!({"id":"a"})),
-                counts: Default::default(),
             });
         view.document["sections"][0]["rows"]
             .as_array_mut()

@@ -345,7 +345,20 @@ fn session(
                     request["code"]
                         .as_str()
                         .ok_or_else(crate::operations::invalid)?,
-                    |event| write_line(&mut stream, &event).map_err(io_error),
+                    |event| {
+                        write_line(&mut stream, &event).map_err(io_error)?;
+                        if event["event"] != "reverse-permission" {
+                            return Ok(None);
+                        }
+                        let answer = read_line(
+                            &mut stream,
+                            &mut buffer,
+                            stop,
+                            Instant::now() + crate::pairing::Timing::CONTRACT.lifetime,
+                        )
+                        .ok_or_else(|| io_error("Join cancelled"))?;
+                        Ok(Some(answer["talk"] == true))
+                    },
                 ),
                 _ => Err(crate::operations::invalid()),
             }

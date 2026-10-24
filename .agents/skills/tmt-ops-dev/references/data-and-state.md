@@ -217,8 +217,9 @@ skill (`extensions/tmt-ops/skills/tmt-ops/SKILL.md`).
 ## Ops state database
 
 `state` (library module `tmt_ops::state`) owns `<dataRoot>/ops/ops.db`, a private SQLite file
-(directory 0700, file 0600) with one table, `documents(kind, key, body)`: the `cron` document
-(key empty) and one `checklist` document per canonical room UUID. Admission, the five-second
+(directory 0700, file 0600) with the table `documents(kind, key, body)`: the `cron` document
+(key empty) and one `checklist` document per canonical room UUID, plus the checklist mutation
+log (`checklist_events`, `checklist_event_floor`, below). Admission, the five-second
 write queue, crash-atomic commits and the refusal of a database written by a newer Ops belong
 to the shared `tmt-extension-state` leaf (Store); `state` adds the slots, the import and the
 archive, and hands callers a `Refusal` (`Busy`, `Newer`, `Failed`) to present under their own
@@ -275,6 +276,19 @@ projects its typed results/errors. The board consumes the same typed service dir
   from errors. Unsupported/corrupt data and unsafe files fail closed without repair. A
   candidate is written inside the database transaction and `before_publish` (the service's
   repeated room/actor/assignment admission) runs before it commits: a refusal discards it.
+- `checklist::events` owns the mutation log. `model::apply` returns an `AppliedChange` (action, item,
+  resulting revision, and the stamp's actor and time) exactly when the change moved something;
+  `Store::update` appends it inside the same transaction that replaces the document
+  (`Database::update`'s `before_commit` receives the transaction), after the admission recheck, so
+  a refused or discarded change leaves neither. `checklist_events.id` is AUTOINCREMENT: a cursor
+  never repeats, even after pruning. The same writer prunes the room to the shorter of 30 days or
+  the newest 1000 events and records the newest id lost in `checklist_event_floor.pruned_through`;
+  the floor's `legacy` flag marks a list that already had a document when the log began (the
+  migration inserts it for every existing document, and the first append inserts it for a
+  document that arrived later, such as a legacy-file import). `Service::events` reads under the
+  list's read admission, creates nothing, and reports `gap` as `pruned` when `pruned_through`
+  is past the cursor, else `legacy` when asked from 0. Titles and bodies are never copied. An
+  Ops that does not know the migration refuses the database (`Newer`), like any appended one.
 - A conversation list (`--member`) is a second key of the same `checklist` kind,
   `<room-uuid>/<member-uuid>` (both canonical UUIDs, so it cannot equal a room key), with an
   optional `memberId` in its document that must equal the key's second half like `roomId` does.

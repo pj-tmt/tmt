@@ -24,6 +24,45 @@ pub trait CloudIdentityQuery: Send + Sync {
         stop: &AtomicBool,
     ) -> Result<(), RemoteError>;
 }
+/// Only a verified, route-bound inbox final reaches the ordinary receipt-bound reply.
+pub trait CloudFinalDelivery: Send + Sync {
+    fn deliver_final(
+        &self,
+        reply: &crate::cloud_command::Reply,
+        response: &str,
+        stop: &AtomicBool,
+    ) -> Result<(), RemoteError>;
+}
+impl CloudFinalDelivery for CoreClient {
+    fn deliver_final(
+        &self,
+        reply: &crate::cloud_command::Reply,
+        response: &str,
+        stop: &AtomicBool,
+    ) -> Result<(), RemoteError> {
+        let answer = self.call(
+            &[
+                "reply",
+                &reply.request_id,
+                "--receipt",
+                &reply.receipt,
+                "--stdin",
+                "--json",
+            ],
+            response.as_bytes(),
+            stop,
+            crate::limits::CORE_CALL,
+            4096,
+        )?;
+        if answer["status"] != "submitted"
+            || answer["requestId"] != reply.request_id
+            || answer["bodyBytes"].as_u64() != Some(response.len() as u64)
+        {
+            return Err(failure("Core reply returned invalid completion evidence."));
+        }
+        Ok(())
+    }
+}
 impl CloudIdentityQuery for CoreClient {
     fn identity_show(
         &self,

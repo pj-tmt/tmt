@@ -414,10 +414,11 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 .find(|(field, _)| *field == Field::State)
                 .map_or(0, |(_, rect)| usize::from(rect.width));
             let (state, state_primary_width) = if let Some(label) = app.activity_label(row) {
-                let (primary, task) = columns::activity_spans(app, row, &label, state_width, false);
+                let (primary, task, todo) =
+                    columns::activity_spans(app, row, &label, state_width, false);
                 let width = primary.iter().map(Span::width).sum();
                 (
-                    Line::from_iter(primary.into_iter().chain(task)),
+                    Line::from_iter(primary.into_iter().chain(task).chain(todo)),
                     Some(width),
                 )
             } else {
@@ -518,7 +519,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                                 let (now, pending) =
                                     crate::board::overview::monitor::squad_now(snapshot, squad);
                                 if pending {
-                                    "Needs you".to_owned()
+                                    "—".into()
                                 } else {
                                     crate::board::workspace::render::safe(&now)
                                 }

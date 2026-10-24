@@ -3,7 +3,10 @@
 use super::*;
 use tmt_core::{
     binding::BindingRecords,
-    request::delivery::{DeliveryFacts, DigestHold, RecipientActivity},
+    request::{
+        delivery::{DeliveryFacts, DigestHold, RecipientActivity, ReturnedAnswer},
+        passthrough::CaptureState,
+    },
 };
 
 pub(super) fn facts(
@@ -76,6 +79,28 @@ pub(super) fn facts(
             .transpose()?
             .flatten(),
         recipient: recipient.map(|id| activity(db, id)).transpose()?.flatten(),
+        answer: answer(db, attempt, now)?,
+    })
+}
+
+/// A submitted reply, else the passthrough capture as it reads at `now`.
+fn answer(
+    db: &Connection,
+    attempt: &RequestAttempt,
+    now: u64,
+) -> Result<ReturnedAnswer, StorageError> {
+    if attempt.response_submitted_at_ms.is_some() {
+        return Ok(ReturnedAnswer::Final);
+    }
+    Ok(match passthrough::capture(db, &attempt.request_id)? {
+        Some(capture) => match capture.state_at(now) {
+            CaptureState::Answered => ReturnedAnswer::Turn,
+            CaptureState::NoAnswer => ReturnedAnswer::NoCapture {
+                bound: capture.bound_at_ms.is_some(),
+            },
+            CaptureState::Pending | CaptureState::Bound => ReturnedAnswer::None,
+        },
+        None => ReturnedAnswer::None,
     })
 }
 
@@ -85,7 +110,7 @@ fn hold(
     request: &str,
 ) -> Result<Option<DigestHold>, StorageError> {
     db.query_row(
-        "SELECT i.created_at_ms, c.state FROM focus_items i
+        "SELECT i.created_at_ms, c.state, c.opportunity, c.confirmed_at_ms FROM focus_items i
          LEFT JOIN focus_checklists c ON c.id = i.checklist_id
          WHERE i.identity_id = ?1 AND i.request_id = ?2 AND i.source = 'incoming'",
         params![identity, request],
@@ -95,6 +120,12 @@ fn hold(
                     since_ms: rows::u64_at(row, 0)?,
                 },
                 Some("claimed") => DigestHold::Claimed,
+                Some("delivered")
+                    if row.get::<_, Option<String>>(2)?.as_deref() == Some("idle")
+                        && row.get::<_, Option<i64>>(3)?.is_none() =>
+                {
+                    DigestHold::Unconfirmed
+                }
                 Some("delivered") => DigestHold::Delivered,
                 Some(_) => DigestHold::Uncertain,
             })

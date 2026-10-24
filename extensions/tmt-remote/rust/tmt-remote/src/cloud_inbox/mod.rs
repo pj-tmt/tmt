@@ -2,6 +2,7 @@
 use crate::{error::RemoteError, limits};
 pub(crate) mod document;
 mod driver;
+pub mod finals;
 mod ingress;
 mod provider;
 mod sender;
@@ -12,7 +13,7 @@ pub(crate) use provider::stamp;
 pub use sender::Sender;
 pub mod rules;
 pub use ingress::Receiver;
-pub(crate) use ingress::Verified;
+pub(crate) use ingress::{Verified, permanent};
 
 /// Refuse an oversized signed envelope before encryption or provider work.
 pub fn check_envelope_size(bytes: usize) -> Result<(), RemoteError> {

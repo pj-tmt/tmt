@@ -256,6 +256,7 @@ fn accepted(id: &str, recipient: &str, receipt: &Value) -> Result<Value, RemoteE
 pub struct Operations {
     core: CoreClient,
     cloud_identity: Arc<dyn crate::core::CloudIdentityQuery>,
+    cloud_final: Arc<dyn crate::core::CloudFinalDelivery>,
     stop: Arc<AtomicBool>,
     input_limit: usize,
     /// Unconfirmed cleanup forbids another write until restart acquires the child-held lease.
@@ -267,6 +268,7 @@ impl Operations {
     pub fn new(core: CoreClient, stop: Arc<AtomicBool>, input_limit: usize) -> Self {
         Self {
             cloud_identity: Arc::new(core.clone()),
+            cloud_final: Arc::new(core.clone()),
             core,
             stop,
             input_limit,
@@ -278,6 +280,10 @@ impl Operations {
     /// Composition port for the public UUID-pinned Core query; never supplied by wire input.
     pub fn with_cloud_identity(mut self, query: Arc<dyn crate::core::CloudIdentityQuery>) -> Self {
         self.cloud_identity = query;
+        self
+    }
+    pub fn with_cloud_final(mut self, delivery: Arc<dyn crate::core::CloudFinalDelivery>) -> Self {
+        self.cloud_final = delivery;
         self
     }
     pub fn with_management(mut self, devices: Arc<crate::devices::Devices>) -> Self {
@@ -302,8 +308,65 @@ impl Operations {
         }
         result
     }
+    /// Local reads for the serving worker; no provider traffic and no new dispatch.
+    pub(crate) fn cloud_final_for(
+        &self,
+        store: &mut Store,
+        grant: &Grant,
+        machine: &str,
+        operation: &str,
+    ) -> Result<Option<crate::cloud_inbox::finals::Final>, RemoteError> {
+        let (tx, now) = store.authorized_at(grant, now_ms)?;
+        let final_id = crate::cloud_inbox::finals::id(operation)?;
+        let attempted: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM cloud_transport WHERE peer_id=?1 AND kind='outbox' AND id=?2 AND attempted=1)",
+            [machine, &final_id], |row| row.get(0),
+        ).map_err(database)?;
+        if attempted {
+            return Ok(None);
+        }
+        let request = crate::cloud_inbox::finals::mapped_request(&tx, grant, operation, now)?;
+        let detail = self.api(
+            json!({"version":1,"operation":"requests.show",
+            "input":{"requestId":request}})
+            .to_string()
+            .as_bytes(),
+        )?;
+        let result = result_state(&request, Ok(detail), false)?;
+        let final_value = if result["state"] == "replied" {
+            let final_value = crate::cloud_inbox::finals::Final {
+                version: 1,
+                operation_id: operation.into(),
+                request_id: request,
+                response: result["message"].as_str().ok_or_else(invalid)?.into(),
+            };
+            final_value.validate()?;
+            Some(final_value)
+        } else {
+            None
+        };
+        tx.commit().map_err(database)?;
+        Ok(final_value)
+    }
     pub(crate) fn append(&self, permit: &MessagePermit) -> Result<Vec<u8>, RemoteError> {
         let operation = permit.message.envelope().operation;
+        if operation == "final" {
+            if !self.retry_safe.load(Ordering::Acquire) {
+                return Err(RemoteError::new(
+                    "REMOTE_CLOSED",
+                    "Core cleanup is unconfirmed; restart the serving owner before another write.",
+                ));
+            }
+            let result =
+                crate::cloud_inbox::finals::deliver(permit, self.cloud_final.as_ref(), &self.stop);
+            if result
+                .as_ref()
+                .is_err_and(|error| error.code == "REMOTE_CORE_UNCERTAIN")
+            {
+                self.retry_safe.store(false, Ordering::Release);
+            }
+            return result;
+        }
         if permit.cloud() && operation == "check" {
             // Core's atomic UUID-pinned query arrives in #4536. Never use the local
             // legacy list/name lookup for cloud delivery while that seam is absent.

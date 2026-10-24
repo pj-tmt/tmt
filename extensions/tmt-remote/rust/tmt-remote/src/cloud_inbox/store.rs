@@ -51,7 +51,12 @@ fn invalid() -> RemoteError {
         "The operation ID already belongs to different cloud bytes.",
     )
 }
-fn validate(peer: &str, id: &str, bytes: &[u8], created_ms: u64) -> Result<(), RemoteError> {
+pub(super) fn validate(
+    peer: &str,
+    id: &str,
+    bytes: &[u8],
+    created_ms: u64,
+) -> Result<(), RemoteError> {
     canonical::uuid(peer).map_err(|_| invalid())?;
     canonical::uuid(id).map_err(|_| invalid())?;
     Checkpoint::new(created_ms)?;

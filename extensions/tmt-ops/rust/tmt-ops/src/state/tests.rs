@@ -157,14 +157,14 @@ fn a_document_over_its_limit_is_refused_and_the_stored_one_stays() {
         .update(
             &slot,
             |_| Ok::<_, String>((Some(b"small".to_vec()), ())),
-            |()| Ok(()),
+            |(), _| Ok(()),
         )
         .map_err(|_| ())
         .unwrap();
     let Err(StateFailure::Refused(refusal)) = database.update(
         &slot,
         |_| Ok::<_, String>((Some(b"far too large".to_vec()), ())),
-        |()| Ok(()),
+        |(), _| Ok(()),
     ) else {
         panic!("an oversized document must be refused");
     };
@@ -183,7 +183,7 @@ fn only_a_newer_history_is_reported_as_newer() {
     let connection = rusqlite::Connection::open(world.root().join("ops.db")).unwrap();
     connection
         .execute(
-            "INSERT INTO _tmt_state_migrations(version, name, sql) VALUES(2, 'later', 'SELECT 1')",
+            "INSERT INTO _tmt_state_migrations(version, name, sql) SELECT MAX(version) + 1, 'later', 'SELECT 1' FROM _tmt_state_migrations",
             [],
         )
         .unwrap();
@@ -199,7 +199,7 @@ fn only_a_newer_history_is_reported_as_newer() {
 
     // History that is not a prefix of this binary's is something else, not "newer".
     connection
-        .execute("DELETE FROM _tmt_state_migrations WHERE version = 2", [])
+        .execute("DELETE FROM _tmt_state_migrations WHERE name = 'later'", [])
         .unwrap();
     connection
         .execute("UPDATE _tmt_state_migrations SET name = 'other'", [])

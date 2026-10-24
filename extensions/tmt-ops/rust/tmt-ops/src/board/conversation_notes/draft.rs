@@ -18,6 +18,7 @@ pub(in crate::board) enum Aim {
 
 #[derive(Debug, Clone)]
 pub(in crate::board) struct Draft {
+    pub seed: Option<Seed>,
     pub aim: Aim,
     /// The note's words, then its link.
     pub fields: [Editor; 2],
@@ -55,6 +56,7 @@ impl Draft {
     fn new(aim: Aim, title: &str, reference: &str) -> Self {
         Self {
             aim,
+            seed: None,
             fields: [editor(title), editor(reference)],
             focus: 0,
             original: [title.to_owned(), reference.to_owned()],
@@ -100,6 +102,20 @@ impl Draft {
         if note.is_empty() && link.is_empty() {
             return Err("Type a note or a link first.");
         }
+        if let Some(seed) = &self.seed {
+            return match seed.kind {
+                NoteKind::Todo if note.is_empty() => Err("Type a title first."),
+                NoteKind::Todo => Ok(Content {
+                    title: note.into(),
+                    reference: None,
+                }),
+                NoteKind::Link if link.is_empty() => Err("Type a link first."),
+                NoteKind::Link => Ok(Content {
+                    title: if note.is_empty() { link } else { note }.into(),
+                    reference: Some(link.into()),
+                }),
+            };
+        }
         Ok(match (note.is_empty(), link.is_empty()) {
             (_, false) => Content {
                 title: if note.is_empty() { link } else { note }.to_owned(),
@@ -114,5 +130,39 @@ impl Draft {
                 reference: None,
             },
         })
+    }
+}
+
+/// An explicit kind for the Add to Notes entry points; ordinary Notes forms retain inference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::board) enum NoteKind {
+    Todo,
+    Link,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::board) struct Seed {
+    pub key: super::Key,
+    pub actor: Option<String>,
+    pub kind: NoteKind,
+    pub title: String,
+    pub reference: String,
+    pub source: crate::board::conversation::note_source::Source,
+}
+
+impl Draft {
+    pub fn seeded(seed: Seed) -> Self {
+        let mut draft = Self::new(Aim::Add, &seed.title, &seed.reference);
+        draft.seed = Some(seed);
+        draft.focus = 1; // Title follows the kind selector.
+        draft
+    }
+
+    pub fn field(&self) -> Option<usize> {
+        if self.seed.is_some() {
+            self.focus.checked_sub(1)
+        } else {
+            Some(self.focus)
+        }
     }
 }

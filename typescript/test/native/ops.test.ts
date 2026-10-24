@@ -3410,7 +3410,7 @@ describe('Ops state database', () => {
       const newer = new Database(database);
       newer
         .prepare(
-          "INSERT INTO _tmt_state_migrations(version, name, sql) VALUES (2, 'later', 'SELECT 1')"
+          "INSERT INTO _tmt_state_migrations(version, name, sql) SELECT MAX(version) + 1, 'later', 'SELECT 1' FROM _tmt_state_migrations"
         )
         .run();
       newer.close();
@@ -4182,6 +4182,107 @@ describe('Squad checklist native commands', () => {
     });
   }, 60_000);
 
+  it('reads the mutation log of a list oldest first, pages it by cursor and logs a no-op as nothing', async () => {
+    await withSandbox(async (sandbox) => {
+      const f = await fixture(sandbox);
+      const cli = (words: string[]) => squad(sandbox, ['checklist', ...words]);
+      const events = (extra: string[] = []) => cli(['events', '--room', f.roomId, ...extra]);
+      // Nothing yet: an empty page from the beginning, and the read created no checklist.
+      expect(await events()).toMatchObject({
+        status: 0,
+        stderr: '',
+        body: {
+          action: 'events',
+          roomId: f.roomId,
+          events: [],
+          nextCursor: 0,
+          more: false,
+          gap: null,
+        },
+      });
+      expect(existsSync(f.directory)).toBe(false);
+
+      expect(
+        (await cli(['create', 'Manually authored', ...f.selected, '--expect-inventory', 'absent']))
+          .status
+      ).toBe(0);
+      expect((await cli(['complete', ...f.selected, '--expect-revision', '1'])).body.changed).toBe(
+        true
+      );
+      // Already complete: nothing moved, so nothing is logged.
+      expect((await cli(['complete', ...f.selected, '--expect-revision', '2'])).body.changed).toBe(
+        false
+      );
+      expect(
+        (await cli(['edit', ...f.selected, '--expect-revision', '2', '--title', 'Renamed'])).status
+      ).toBe(0);
+
+      const all = await events();
+      expect(all.status).toBe(0);
+      type Logged = {
+        id: number;
+        roomId: string;
+        memberId: string | null;
+        checklistId: string;
+        itemId: string | null;
+        actorId: string;
+        atMs: number;
+        action: string;
+        revision: number;
+      };
+      const logged = all.body.events as Logged[];
+      expect(logged.map((event) => [event.action, event.revision])).toEqual([
+        ['add', 1],
+        ['complete', 2],
+        ['edit', 3],
+      ]);
+      expect(logged[0]).toMatchObject({
+        roomId: f.roomId,
+        checklistId,
+        itemId,
+        memberId: null,
+      });
+      expect(new Set(logged.map((event) => event.actorId)).size).toBe(1);
+      expect(logged[0]!.actorId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(logged.every((event, index) => index === 0 || event.id > logged[index - 1]!.id)).toBe(
+        true
+      );
+      expect(
+        logged.every((event, index) => index === 0 || event.atMs >= logged[index - 1]!.atMs)
+      ).toBe(true);
+      // The log carries identities and revisions, never the authored content.
+      expect(JSON.stringify(all.body)).not.toContain('Renamed');
+      expect(all.body).toMatchObject({ nextCursor: logged[2]!.id, more: false, gap: null });
+
+      // A page is bounded; the cursor continues exactly after it.
+      const first = await events(['--limit', '2']);
+      expect(first.body).toMatchObject({ more: true, nextCursor: logged[1]!.id });
+      expect((first.body.events as Logged[]).map((event) => event.action)).toEqual([
+        'add',
+        'complete',
+      ]);
+      const rest = await events(['--after', String(logged[1]!.id)]);
+      expect(rest.body).toMatchObject({ more: false, nextCursor: logged[2]!.id });
+      expect((rest.body.events as Logged[]).map((event) => event.action)).toEqual(['edit']);
+      expect(await events(['--after', String(logged[2]!.id)])).toMatchObject({
+        status: 0,
+        body: { events: [], nextCursor: logged[2]!.id, more: false, gap: null },
+      });
+
+      for (const bad of [
+        ['--limit', '0'],
+        ['--limit', '501'],
+        ['--after', '-1'],
+        ['--after', 'x'],
+      ]) {
+        expect(await events(bad)).toMatchObject({
+          status: 1,
+          body: { error: { code: 'CHECKLIST_INPUT_INVALID' } },
+        });
+      }
+    });
+  });
+
   it('rejects operation inputs and grammar inputs alike with exit 1 without changing bytes', async () => {
     await withSandbox(async (sandbox) => {
       const f = await fixture(sandbox);
@@ -4355,7 +4456,7 @@ describe('Squad checklist native commands', () => {
       const newer = new Database(f.database);
       newer
         .prepare(
-          "INSERT INTO _tmt_state_migrations(version, name, sql) VALUES (2, 'later', 'SELECT 1')"
+          "INSERT INTO _tmt_state_migrations(version, name, sql) SELECT MAX(version) + 1, 'later', 'SELECT 1' FROM _tmt_state_migrations"
         )
         .run();
       newer.close();
@@ -4367,7 +4468,7 @@ describe('Squad checklist native commands', () => {
       expect(refused.body.error.message).toContain('Upgrade Ops');
       expect(storedDocument(f.database, 'checklist', f.roomId)).toEqual(original);
       const restored = new Database(f.database);
-      restored.prepare('DELETE FROM _tmt_state_migrations WHERE version = 2').run();
+      restored.prepare("DELETE FROM _tmt_state_migrations WHERE name = 'later'").run();
       restored.close();
       const beforeRename = parseWholeStdout(
         await runCli(sandbox, ['api'], {
@@ -5930,7 +6031,8 @@ describe('large board responsiveness', () => {
               const header = screen().split('\n')[0];
               if (width >= 100) expect(header).toContain('OPS / UI');
               if (named || width >= 100) expect(header).toContain('online');
-              if (named) expect(header).toContain('need you');
+              if (named) expect(header).toContain('todo');
+              expect(header).not.toContain('need you');
               if (named) expect(header).toContain('blocked');
             },
             { timeout: 10_000, interval: 25 }

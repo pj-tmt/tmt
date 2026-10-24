@@ -33,6 +33,21 @@ impl MessageService {
         self.operations = Some(operations);
         self
     }
+    pub(crate) fn cloud_final_for(
+        &self,
+        grant: &crate::store::Grant,
+        machine: &str,
+        operation: &str,
+    ) -> Result<Option<crate::cloud_inbox::finals::Final>, crate::error::RemoteError> {
+        self.sessions
+            .with_cloud_store(grant, crate::pairing::now_ms()?, |store| {
+                self.operations
+                    .as_ref()
+                    .ok_or_else(crate::cloud_command::upgrade)?
+                    .cloud_final_for(store, grant, machine, operation)
+            })
+            .map(|(value, _)| value)
+    }
     pub fn append(&self, origin: Option<&str>, envelope: &[u8]) -> Result<Vec<u8>, Closed> {
         self.handle(BindingAction::Append, origin, envelope)
     }

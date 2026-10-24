@@ -255,11 +255,6 @@ pub(in crate::board) fn metered(look: crate::look::Look) -> App {
     home.squads = vec![SquadLine {
         squad: "product".into(),
         lead: Some(row),
-        counts: Counts {
-            members: 1,
-            working: 1,
-            ..Default::default()
-        },
     }];
     view.home_rate.insert(
         "product".into(),
@@ -828,6 +823,7 @@ fn captures() -> Value {
                 }
             }
         }
+        frames.extend(add_note_frames(&mut styles));
         // The Notes list overlay: additive scenes.
         for (look_name, look) in looks() {
             for scene in crate::board::conversation_notes::tests::overlay::LIST_SCENES {
@@ -922,6 +918,34 @@ fn captures() -> Value {
                 ));
             }
         }
+        for (look_name, look) in looks() {
+            for scene in crate::board::conversation_notes::tests::captures::SCENES {
+                for (width, height) in [(160, 36), (120, 40), (100, 32)] {
+                    let app = crate::board::conversation_notes::tests::captures::case(scene, look);
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        width,
+                        height,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
+        for (look_name, look) in looks() {
+            for (width, height) in [(160, 36), (120, 40), (100, 32)] {
+                let app = crate::board::recovery::tests::action_needed_case(look);
+                frames.push(capture_frame(
+                    &app,
+                    "action-needed",
+                    look_name,
+                    width,
+                    height,
+                    &mut styles,
+                ));
+            }
+        }
         let styles = styles
             .0
             .into_iter()
@@ -974,6 +998,19 @@ fn dump_switch_revision_oracle() {
     .unwrap();
 }
 
+fn add_note_frames(styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        for scene in crate::board::conversation_notes::tests::overlay::ADD_SCENES {
+            for width in [160, 100, 80, 60] {
+                let app = crate::board::conversation_notes::tests::overlay::add_case(scene, look);
+                frames.push(capture_frame(&app, scene, look_name, width, 36, styles));
+            }
+        }
+    }
+    frames
+}
+
 fn crud_frames(scenes: &[&str], styles: &mut Styles) -> Vec<Value> {
     let mut frames = Vec::new();
     for (look_name, look) in looks() {
@@ -989,6 +1026,27 @@ fn crud_frames(scenes: &[&str], styles: &mut Styles) -> Vec<Value> {
         }
     }
     frames
+}
+
+#[test]
+#[ignore = "exports only the Add to Notes forms to HOME_ORACLE_OUT; never records fixtures"]
+fn dump_add_to_notes_oracle() {
+    let path = std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path");
+    let captured = crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut styles = Styles::default();
+        let frames = add_note_frames(&mut styles);
+        let styles = styles
+            .0
+            .into_iter()
+            .map(|(text, id)| (id, text))
+            .collect::<BTreeMap<_, _>>();
+        json!({"styles": styles, "frames": frames})
+    });
+    fs::write(
+        path,
+        serde_json::to_string_pretty(&captured).unwrap() + "\n",
+    )
+    .unwrap();
 }
 
 #[test]

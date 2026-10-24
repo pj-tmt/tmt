@@ -9,6 +9,7 @@ mod rate_limits;
 pub use attribution::ModelUsage;
 pub(crate) use attribution::valid_service_tier;
 pub use credits::Credits;
+pub(crate) use rate_limits::timestamp_ms;
 pub use rate_limits::{RateLimits, Window as RateWindow};
 pub(crate) const MAX_MODELS: usize = 4;
 use serde::{Deserialize, Serialize};
@@ -91,8 +92,8 @@ pub struct Consumption {
     /// model actually recorded for each accepted request/turn, not launch model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delta_by_model: Option<Vec<ModelUsage>>,
-    /// The account's rate-limit windows on the newest accepted source line.
-    /// Absent when the driver has no source or the line carries none.
+    /// The account's rate-limit windows from the driver's source, with that
+    /// source's own observation time, independently of the token counters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate_limits: Option<RateLimits>,
     /// The Codex credit balance on the newest accepted source line. Absent when
@@ -144,7 +145,7 @@ impl Consumption {
         self.cached_input_tokens = counts.cached;
     }
 
-    fn advance(&mut self, now: u64) -> Option<()> {
+    pub(crate) fn advance(&mut self, now: u64) -> Option<()> {
         if now < self.observed_at_ms {
             return None;
         }

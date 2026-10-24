@@ -200,6 +200,19 @@ commands. No reference defaults or sample records are substituted for machine va
 refusals remain visible, and sample injection stays labelled. The route signal still fences late reads.
 The machine-guidance card links to the existing Modules section; it does not introduce a source read.
 
+## TMT Settings Identities
+
+Identities uses the shared Settings shell menu and inset, with a terminal-reference notice and
+read-only inventory. Only source-supplied rows produce the Name/Lifetime/Provider/Presence table
+and local selected detail. Rows retain live-first then name order; saved/temporary lifetime is
+separate from active/offline presence. Codex and Claude use their product labels; a missing
+provider says Not reported. The public table selection frame and aria-current mark the chosen
+row; selecting it adds no read, mutation, route or persistence. Long names wrap and the detail
+stacks below the table on phone. Without inventory the page says unavailable or empty, preserves
+specific refusal text, and names tmt ls with the shared nonexecuting Copy. Injected samples remain
+labelled in the notice and inventory; the duplicated sample line is hidden on this section.
+Source failure and route-disposal fences remain with the existing page/source owner.
+
 ## Digest presentation
 
 `digest-page` combines per-seat activity with Token usage through its Stacked/Lines and Absolute/Share

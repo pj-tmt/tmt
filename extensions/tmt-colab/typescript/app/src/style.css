@@ -642,9 +642,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comments-panel .ask-preview {
   padding: 12px;
 }
-.pages li > button {
-  margin-top: 12px;
-}
 .management-dialog {
   width: min(560px, calc(100% - 32px));
   max-height: 85vh;
@@ -763,14 +760,16 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   height: auto;
   display: flex;
   width: min(440px, calc(100vw - 24px));
-  overflow: visible;
+  /* The rounded edge clips what is inside it; the window's own menus are top-layer popovers. */
+  overflow: clip;
   padding: 0;
   /* A panel that floats over page content has the one-pixel rule edge every shared drawer and
      dialog already has. Ben chose --tmt-ui-surface-rule over the darker edge role knowingly
      (about 1.5:1, below the 3:1 floor of #3959): a deliberate exception for floating panels. */
   border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-l);
   background: var(--tmt-ui-surface-annotation-panel);
-  box-shadow: none;
+  box-shadow: var(--tmt-ui-shadow-overlay);
 }
 .annotation-popover blockquote {
   margin: 0 0 10px;
@@ -778,38 +777,17 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   border-left: 2px solid var(--c-rule);
   padding-left: 8px;
 }
-.selection-ask {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--tmt-ui-host-action-gap);
-  margin: 0;
-  border: 0;
-  border-radius: 999px;
-  padding: var(--tmt-ui-host-action-padding);
-  background: var(--tmt-ui-surface-annotation-action);
-  color: var(--tmt-ui-color-annotation-on-action);
-  font-weight: 600;
+.selection-control {
+  display: flex;
+  --tmt-ui-host-icon-action-size: 34px;
+  --tmt-ui-header-icon-size: 18px;
 }
-.selection-ask svg {
-  width: 16px;
-  height: 16px;
+/* The Annotate control is the website's: a round accent button with a comment-plus glyph, lifted
+   by the overlay shadow; its name shows as the shared tooltip. */
+.selection-control .tmt-ui-icon-action-control {
+  border-radius: var(--tmt-ui-radius-pill);
+  box-shadow: var(--tmt-ui-shadow-overlay);
 }
-.selection-control[data-leader]::before {
-  content: '';
-  position: absolute;
-  top: var(--annotation-leader-y);
-  width: 24px;
-  height: 1px;
-  background: var(--tmt-ui-color-text);
-  pointer-events: none;
-}
-.selection-control[data-leader='left']::before {
-  right: 100%;
-}
-.selection-control[data-leader='right']::before {
-  left: 100%;
-}
-
 /* The website's row: number bubble, then title, quoted passage and a small line. */
 .annotation-row {
   display: flex;
@@ -1665,6 +1643,66 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .comment-thread[data-layout='discussion'] .annotation-compose .rich-input-field {
   padding: var(--tmt-ui-host-field-padding);
+}
+
+/* The annotation window is the website's: a sans title with its close, the quoted selection under an
+   accent rule, and the field on the field surface with the radius. */
+.annotation-popover .comment-thread .conversation-window-bar {
+  padding: 14px var(--conversation-inset);
+}
+.annotation-popover .comment-thread .conversation-title {
+  min-height: 0;
+  color: var(--tmt-ui-color-text);
+  font: 600 0.9375rem / 1.4 var(--tmt-ui-font-body);
+  letter-spacing: normal;
+  text-transform: none;
+}
+.annotation-popover .annotation-quote {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: var(--conversation-gap) var(--conversation-inset);
+  padding: 4px 12px;
+  border-inline-start: 2px solid var(--tmt-ui-color-accent);
+  color: var(--tmt-ui-color-secondary);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.annotation-popover .annotation-quote q {
+  quotes: none;
+}
+.annotation-popover .annotation-compose .rich-input-field,
+.annotation-popover .annotation-compose .rich-input-surface[data-accessory] {
+  background: var(--tmt-ui-surface-field);
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+}
+.annotation-popover .annotation-compose .rich-input-surface[data-accessory] .rich-input-field {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  /* The surface takes the field's edge and padding, so the composer keeps one height whether or
+     not files are pending. */
+  min-height: calc(5em - 2 * (var(--tmt-ui-host-field-padding) + var(--tmt-ui-field-border-width)));
+}
+/* The padding sits on the field, or on the surface that also holds the pending files, so the
+   files and the text share one left edge. */
+.annotation-popover .annotation-compose .rich-input-field {
+  padding: var(--tmt-ui-host-field-padding);
+}
+.annotation-popover .annotation-compose .rich-input-surface[data-accessory] {
+  padding: var(--tmt-ui-host-field-padding);
+}
+/* Focus keeps the same one-pixel edge, in the focus colour, so the box does not change size. */
+.annotation-popover
+  .annotation-compose
+  .rich-input-surface[data-accessory]:has(.rich-input-field:focus-visible),
+.annotation-popover
+  .annotation-compose
+  .rich-input-field:not(.rich-input-surface .rich-input-field):focus-visible {
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-color-focus);
 }
 /* The reply area is the website's: a four-line field flush with the content column, and one row
    under it with the note at the start and Reply at the end. */

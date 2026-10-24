@@ -1,7 +1,7 @@
 /** Presentation-only scale fixture; no native store, transport or dispatch is opened. */
 import { createRoot, type Root } from 'react-dom/client';
-import { browserUiClasses as ui } from '@tmt/browser-ui/static';
-import { MessageSquare } from 'lucide-react';
+import { BrowserIconAction } from '@tmt/browser-ui/react';
+import { MessageSquarePlus } from 'lucide-react';
 import { ThreadWindow } from '../src/thread-panel.js';
 import { ChatPanel } from '../src/chat-panel.js';
 import { ConversationTurn } from '../src/components/conversation-turn.js';
@@ -104,11 +104,20 @@ export function mount(surface: 'annotation' | 'chat') {
   root = createRoot(host);
   root.render(
     <>
-      {/* Same presentation as the router's selection button; intentionally no action handler. */}
-      <button className={`selection-ask ${ui.action}`} data-testid="scale-annotate">
-        <MessageSquare aria-hidden />
-        Annotate
-      </button>
+      {/* Same presentation as the router's Annotate control; intentionally no action handler. */}
+      <div
+        className="selection-control"
+        data-testid="scale-annotate"
+        style={{ position: 'static' }}
+      >
+        <BrowserIconAction
+          type="button"
+          variant="primary"
+          label="Annotate"
+          icon={<MessageSquarePlus aria-hidden />}
+          onActivate={() => {}}
+        />
+      </div>
       {surface === 'annotation' ? (
         <ThreadWindow
           number={1}

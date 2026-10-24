@@ -249,6 +249,110 @@ impl Sender {
         }
         self.exchange(e.id, &carrier, opener, io).await
     }
+    /// A final is a new request context in the originating machine's own inbox.
+    /// Refresh an unclaimed preparation, claim once; later calls only observe that ID.
+    pub async fn push_final(
+        &self,
+        final_value: &super::finals::Final,
+        grant: &crate::store::Grant,
+        descriptor: &VerifiedDescriptor,
+        now: u64,
+        io: &IoBudget<'_>,
+    ) -> Result<(), RemoteError> {
+        final_value.validate()?;
+        if grant.client_id != self.provider.machine() {
+            return Err(invalid());
+        }
+        let id = super::finals::id(&final_value.operation_id)?;
+        let payload = serde_json::to_vec(final_value).map_err(|_| invalid())?;
+        let old = self
+            .store
+            .lock()
+            .map_err(crate::store::database)?
+            .cloud_final_outgoing(&self.peer, &id, &payload)?;
+        let stored = if let Some(old) = old.filter(|row| row.attempted) {
+            old
+        } else {
+            let window = uuid_v4()?;
+            let session = uuid_v4()?;
+            let envelope = Envelope {
+                kind: "request",
+                id: &id,
+                correlation_id: None,
+                machine_id: self.provider.machine(),
+                window_id: &window,
+                client_id: &self.peer,
+                session_id: &session,
+                sequence: "1",
+                timestamp_ms: now,
+                origin: "cli",
+                operation: "final",
+                payload: &payload,
+            };
+            let signature = canonical::base64url(
+                &self
+                    .key
+                    .sign(&canonical::envelope(&envelope).map_err(|_| invalid())?),
+            );
+            let exact = json!({"version":1,"profile":"local-v1","kind":"request","id":id,
+                "correlationId":null,"machineId":envelope.machine_id,"windowId":window,
+                "clientId":self.peer,"sessionId":session,"sequence":"1","timestampMs":now,
+                "origin":"cli","operation":"final","payload":canonical::base64url(&payload),
+                "signature":signature})
+            .to_string();
+            let (carrier, _) = super::seal_native(
+                exact.as_bytes(),
+                descriptor,
+                now,
+                Peer {
+                    client_id: &self.peer,
+                    authentication_key: &self.key.public(),
+                },
+                |bytes| self.key.sign(bytes),
+            )?;
+            self.store
+                .lock()
+                .map_err(crate::store::database)?
+                .cloud_prepare_final(&self.peer, &id, &payload, &carrier, now)?
+        };
+        if stored.attempted {
+            return match self.provider.get(&self.peer, "inbox", &id, io).await? {
+                Some(doc) if doc.bytes() == stored.carrier => Ok(()),
+                Some(_) => Err(conflict()),
+                None => Err(unconfirmed()),
+            };
+        }
+        let store = self.store.clone();
+        let peer = self.peer.clone();
+        let claimed_id = id.clone();
+        let grant = grant.clone();
+        let operation = final_value.operation_id.clone();
+        let request_id = final_value.request_id.clone();
+        let claimed_carrier = stored.carrier.clone();
+        let claim = Box::new(move || {
+            store
+                .lock()
+                .map_err(|_| crate::sealed_sync::SyncError::Unavailable)?
+                .cloud_claim_final(
+                    &grant,
+                    &peer,
+                    &claimed_id,
+                    &operation,
+                    &request_id,
+                    &claimed_carrier,
+                )
+                .map_err(|_| crate::sealed_sync::SyncError::Denied)
+        });
+        match self
+            .provider
+            .create(&self.peer, "inbox", &id, &stored.carrier, claim, io)
+            .await?
+        {
+            Some(doc) if doc.bytes() == stored.carrier => Ok(()),
+            Some(_) => Err(conflict()),
+            None => Err(unconfirmed()),
+        }
+    }
     fn claim(
         &self,
         id: &str,

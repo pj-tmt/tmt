@@ -105,8 +105,8 @@ workspace's tree, conversation or pending-continuation geometry.
   `normal`), `waiting` (members that owe the user a decision or wait for an
   answer) and `blocked` (members in the `blocked` state). These remain CLI/source
   facts; the Agents Usage band and Measure view own the dashboard aggregate, while the squad tree displays
-  observed membership state. The common shell shows UUID-deduplicated online,
-  waiting and blocked observations on every tab; tab labels have no attention badge.
+  observed membership state. The common shell shows UUID-deduplicated online/blocked observations and the
+  global conversation Notes todo total on every tab; tab labels have no attention badge.
 - `sections`: always a list. Unless the user defined sections, it holds exactly
   one section with `title: null` containing every member except the lead. With
   user sections, members that match none follow in a final `title: null`
@@ -334,7 +334,7 @@ and completion keep `1`/`2` as input.
 The left list's rule carries the Squads / Agents / Pinned chips and the shared search
 field; the totals sit at the bottom right of the list. Squads is the tree: a squad row
 shows its lead-first TEAM strip in STATE, TOK 1h from existing HOUR readings, and its
-now text (a task, or "waiting on you" when a request is pending, never the preview) in MODEL.
+now text when admitted; pending request previews are never disclosed in the tree.
 Agents is the flat list of AGENT, SQUAD, STATE, TOK 1h and MODEL. Unread agents come first, then waiting agents, ordered
 by oldest proven request, then unknown age and name/UUID; no waiting duration is
 shown. Blocked state alone does not imply waiting. A squad selection messages its
@@ -357,8 +357,7 @@ TERM, up to three seconds, no force). Core revalidates and may refuse; nothing i
 retried or freshly launched automatically. Drafts and pending actions block handoff
 with an explanation. In confirmation, `c copy command` copies one shell-quoted
 command line and keeps the board open; Esc cancels without starting anything. Authored sort changes the current
-layer within unread/waiting/other groups. Retired summaries, Recent exchanges and
-the separate Needs you section are absent. Unreported data stays unknown.
+layer within unread/waiting/other groups. Unreported data stays unknown.
 Usage sits above the body panes and shows
 the selected window and total. Independent Range and Time per bar dropdowns use Enter to
 open/pick, arrows to navigate and Esc to close; the current choice is checked.
@@ -504,7 +503,7 @@ count into the field. Search reveals matching children of visible squads tempora
 clearing expands only the selected occurrence's group when needed. Select a squad and use `H` Hide squad (or its Actions entry) to
 hide it from Agents. The `Hidden: N` header's show control (`h` by
 default) reveals hidden squads only for this session. Before reveal, the line
-shows waiting/blocked counts from hidden squads in their state colours. Select a revealed squad and
+shows blocked counts from hidden squads in their state colour. Select a revealed squad and
 use `S` Show squad to remove its saved hide. Common pool cannot be hidden. Pins
 are retained independently, and hidden squads still contribute to global shell
 attention. Explicit Hide moves the selection only after the save succeeds;
@@ -559,6 +558,21 @@ between the note and its link), `e` edits, `d` deletes after Enter confirms, `Sh
 moves an item among its group and Esc closes the list, keeping a form you have not sent.
 A change someone else made first is reported in one line and your words stay in the form.
 A retired member's list reads but takes no writes.
+The conversation Link popover and Selection menu also offer `n Add to Notes`.
+A link starts as Link with its full address and an editable last-segment title;
+a selection starts as Todo with its selected text. Tab chooses Kind, Title or Link;
+Left/Right on Kind switches Todo/Link, Enter saves and Esc keeps the draft. From
+shows the held message's author, kind and time; the item's body keeps its Source
+reference. Multiple or missing message sources say so. Existing unsent Notes drafts
+are preserved, and these source descriptions grant no request or navigation authority.
+
+Member STATE cells append `· N todo` only for known positive counts, when the
+whole suffix fits after the activity and task. Pending, unavailable and zero counts
+add no row suffix; the global header carries the unknown or partial observation.
+Every open, nonarchived todo counts, regardless of who added it or its assignee.
+The selected conversation refreshes every five seconds, other conversations at
+most once per minute, one background read at a time. Acknowledged Notes changes
+update the chip, STATE and header together; held counts remain during refresh.
 `r` reviews Rename for
 the selected visible agent by UUID; compatible explicit bindings keep their meaning.
 Outside an editor or modal, `w` opens saved workspace snapshots on every tab;
@@ -664,7 +678,7 @@ for prerequisites.
 Confirmation identifies one exact pane/socket, identity choice and lifetime.
 Cancel, rescan, changed selection or resize revokes it; enlarge a clipped
 terminal before confirming. Results retain each Bound, Already bound, Not
-applied, Needs you or Unknown outcome across close/rescan. Nothing replays or
+applied, Action needed or Unknown outcome across close/rescan. Nothing replays or
 rolls back automatically. A successful public refresh reveals the returned UUID
 in Agents; uncertainty needs inspection before a new explicit attempt.
 
@@ -877,11 +891,12 @@ or an unavailable member sends nothing and retains the draft.
 ## Home dashboard
 
 The Agents Usage band and Measure view are the shell's dashboard. The flat agent rows and Digest counts follow
-saved hiding and launch scope; shell attention remains global. A complete read
-can say `Nothing needs you`, but a partial/stale read
-shows observed counts and says totals are unknown. The shell keeps online/waiting/
-blocked observations visible across tabs; missing evidence is qualified rather
-than presented as zero. Search, pinning, sorting, expansion,
+saved hiding and launch scope; shell attention remains global. The shell keeps online/blocked observations and the global Notes todo total
+visible across tabs. The todo total deduplicates exact room/member conversations,
+independent of search or viewport; a Common-pool member has no room list.
+Complete totals read `○ N todo`, including `○ 0 todo`; a partially observed total
+reads `○ N todo · partial`. No answer yet reads `○ … todo`, and unavailable
+observations read `○ — todo`, rather than a false zero. Search, pinning, sorting, expansion,
 refresh and reload retain exact room/identity selection. A hidden or removed
 selected target cannot redirect an operation to an adjacent row.
 
@@ -978,6 +993,7 @@ No command accepts an actor override or uses a member filter as assignment.
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ls`                                                   | Optional `--include-archived`, `--completion open\|complete`, `--assignee UUID`; reads create nothing                                                           |
 | `show`                                                 | `--checklist UUID --item UUID`                                                                                                                                  |
+| `events`                                               | Optional `--member`, `--after CURSOR` (default 0), `--limit COUNT` (1 to 500, default 100); reads create nothing                                                |
 | `create TITLE`                                         | `--checklist UUID --item UUID --expect-inventory absent\|POSITIVE`; optional `--body TEXT --reference HTTP(S) --assignee UUID`                                  |
 | `edit`                                                 | `--checklist UUID --item UUID --expect-revision POSITIVE`; at least one `--title TEXT`, `--body TEXT`/`--clear-body`, `--reference HTTP(S)`/`--clear-reference` |
 | `assign`                                               | Item/checklist UUIDs, exact `--expect-revision`, explicit `--assignee UUID`                                                                                     |
@@ -1045,6 +1061,17 @@ milliseconds; the service fills them from the verified caller and its clock, so 
 or request sets them. Add and edit, assign, unassign, complete, reopen, archive and
 restore stamp the item; reorder and delete do not. An item stored before they were
 recorded reads all four as null until its next change, which sets `lastChanged*` only.
+
+`events` returns the list's mutation log, oldest first, as JSON action `events`:
+`roomId`, `events:[{id,roomId,memberId,checklistId,itemId,actorId,atMs,action,revision}]`,
+`nextCursor` (pass it as `--after`; `--after 0` reads from the beginning), `more` and `gap`.
+`action` is add, edit, assign, unassign, complete, reopen, archive, restore, delete or
+reorder, and `revision` is the item's revision after the change: a delete's tombstone
+revision, and for a reorder (`itemId` null) the new inventory revision. A change that moves
+nothing logs nothing, and no title or body is copied. `actorId` and `atMs` are the verified
+caller and the service clock, committed with the change. `gap` is `legacy` when asked from 0
+for a list changed before the log existed, `pruned` when retention removed events after the
+cursor (it keeps the shorter of 30 days or the newest 1000 events per room), else null.
 
 Errors retain `{error:{code,message,current?}}`. Only authorized typed conflict/
 deletion data supplies `current`; denial exposes no current projection. Human
@@ -1286,9 +1313,8 @@ Agents shows one expandable squad tree and Common pool, with explicit room and
 identity targets. Lead badges and member counts include the lead once.
 
 A member's STATE shows core's provider activity first and the squad task state
-second, such as `● working 12m · review`. The first word is `waiting` when a
-request waits on you; otherwise it is core's `working` or `idle` with how long
-that phase has run, or `ended`. Unknown activity has no word: the cell is a
+second, such as `● working 12m · review`. The first word is core's `working` or `idle` with how long
+that phase has run, or `ended`; pending requests never override it. Unknown activity has no word: the cell is a
 muted `?` and then the task state, such as `? idle · member`. When the board's last read failed, or
 is older than its refresh interval (at least 5 s) plus 10 s, the word is `stale`
 with the time of core's last event, such as `? stale 4m ago`; with refresh off,
@@ -1297,8 +1323,9 @@ idle, and the age is never made up when core gives no time. A narrow cell clips
 the task first, then drops the age. Unread replies from an agent replace the
 activity words: the cell is `● N unread` and then the task state, such as
 `● 2 unread · review`, with only the `●` in the unread colour. The working and idle counts follow core
-activity, each agent once, and count a stale agent as unknown. In a squad row each TEAM glyph shows a waiting request (◆) first, otherwise core
-activity (`?` when stale or unknown); a task state never overrides it. Attention and
+activity, each agent once, and count a stale agent as unknown. In a squad row
+each TEAM glyph shows core activity (`?` when stale or unknown); a task state
+never overrides it. Attention and
 presence are scoped observations, and failed observations remain partial/stale
 rather than becoming idle or zero.
 A collapsed squad shows its worst observed state. Display names never provide

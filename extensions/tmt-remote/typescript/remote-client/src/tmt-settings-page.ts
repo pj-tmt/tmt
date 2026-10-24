@@ -1,8 +1,14 @@
-/**
- * TMT's own settings (`/settings`), one section at a time from the module menu: General (theme,
- * then read-only values), Identities, Modules and Drivers & hooks. Everything but the theme is
- * read-only; rows are the shared list rows and every state is a mark and a word.
- */
+/** TMT Settings follows the shell's section menu. General owns browser appearance and Core
+ * guidance; Identities has a read-only table and local detail. Other sections retain their list
+ * rows. SettingsSource owns the records; only the shared browser theme choice is persisted. */
+import { identitiesView, orderedIdentities } from './tmt-settings-identities.js';
+import {
+  element,
+  settingsCard,
+  settingsHead,
+  settingsNotice,
+  settingsReadOnly,
+} from './tmt-settings-parts.js';
 import { commandCopy } from './command-copy.js';
 import { pageLoading } from './page-loading.js';
 import { notAvailable, notInBrowser } from './not-available.js';
@@ -72,14 +78,12 @@ export function settingsRows(
       state: row.value,
     }));
   if (section === 'identities')
-    return [...settings.identities.rows]
-      .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name))
-      .map((row) => ({
-        mark: row.online ? '●' : '○',
-        title: row.name,
-        detail: row.provider ? `${row.lifetime} · ${row.provider}` : row.lifetime,
-        state: row.online ? 'active' : 'offline',
-      }));
+    return orderedIdentities(settings.identities.rows).map((row) => ({
+      mark: row.online ? '●' : '○',
+      title: row.name,
+      detail: row.provider ? `${row.lifetime} · ${row.provider}` : row.lifetime,
+      state: row.online ? 'active' : 'offline',
+    }));
   if (section === 'modules')
     return settings.modules.rows.map((row) => {
       const link = links.get(row.name);
@@ -211,18 +215,6 @@ function themeChoice(): HTMLElement {
   return group;
 }
 
-/** General owns its presentation; the source and theme owner supply the only values. */
-function element<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
 function themePreview(theme: ThemeChoice): HTMLElement {
   const preview = element('span', 'tmt-settings-theme-preview');
   preview.setAttribute('aria-hidden', 'true');
@@ -241,24 +233,10 @@ function themePreview(theme: ThemeChoice): HTMLElement {
   return preview;
 }
 
-function settingsCard(title: string, id: string): HTMLElement {
-  const card = element('section', `${browserUiClasses.card} tmt-settings-card`);
-  card.setAttribute('aria-labelledby', id);
-  const heading = element('h2', browserUiClasses.cardTitle, title);
-  heading.id = id;
-  card.append(heading);
-  return card;
-}
-
 function generalView(settings: TmtSettings): HTMLElement[] {
-  const head = element('div', browserUiClasses.pageHead);
-  head.append(
-    element('h2', browserUiClasses.pageTitle, 'Make TMT feel like yours.'),
-    element(
-      'p',
-      browserUiClasses.pageSubtitle,
-      'A familiar space, with just the right amount of you.',
-    ),
+  const head = settingsHead(
+    'Make TMT feel like yours.',
+    'A familiar space, with just the right amount of you.',
   );
   const appearance = settingsCard('Appearance', 'tmt-settings-appearance-title');
   appearance.append(
@@ -267,9 +245,7 @@ function generalView(settings: TmtSettings): HTMLElement[] {
     element('p', 'tmt-settings-help', 'Saved in this browser only. System follows this device.'),
   );
   const core = settingsCard('Core configuration', 'tmt-settings-core-title');
-  const badge = element('span', `${browserUiClasses.chip} tmt-settings-read-only`);
-  badge.append(createIcon('lock'), element('span', browserUiClasses.chipLabel, 'Read only'));
-  core.append(badge);
+  core.append(settingsReadOnly());
   const rows = settingsRows('general', settings);
   if (rows.length) {
     const list = element('ul', 'tmt-ui-list');
@@ -277,21 +253,12 @@ function generalView(settings: TmtSettings): HTMLElement[] {
     core.append(list);
   }
   if (!rows.length || settings.general.unavailable) {
-    const warning = element('div', 'tmt-settings-warning');
-    warning.setAttribute('role', 'note');
-    const title = element('strong');
-    const mark = createIcon('triangle-alert');
-    title.append(
-      mark,
-      element(
-        'span',
-        undefined,
-        settings.general.unavailable
-          ? 'This browser cannot read Core settings yet.'
-          : 'No settings to show.',
-      ),
+    const warning = settingsNotice(
+      settings.general.unavailable
+        ? 'This browser cannot read Core settings yet.'
+        : 'No settings to show.',
+      'View machine configuration in your terminal.',
     );
-    warning.append(title, element('p', undefined, 'View machine configuration in your terminal.'));
     const reason = settings.general.unavailable;
     if (reason && reason !== notInBrowser('TMT settings', 'tmt config show')) {
       const detail = element('p');
@@ -356,6 +323,7 @@ export function settingsSection(
   links?: ReadonlyMap<string, ModuleLink>,
 ): HTMLElement[] {
   if (section === 'general') return generalView(settings);
+  if (section === 'identities') return identitiesView(settings);
   const rows = settingsRows(section, settings, links);
   const body: HTMLElement[] = [];
   if (rows.length) {
@@ -388,10 +356,19 @@ export function tmtSettingsPage(shell: RemoteShell, source: SettingsSource = set
   const paint = () => {
     if (!live()) return;
     const section = current();
+    if (settings) {
+      note.replaceChildren();
+      note.hidden = !settings.sample || section === 'identities';
+      if (!note.hidden)
+        notAvailable(
+          note,
+          'Sample data: Core has no web read of this machine yet. `tmt ls`, `tmt extension ls` and `tmt driver ls` show the real values.',
+        );
+    }
     const page = document.getElementById('tmt-settings-page');
     if (page) {
       page.dataset.section = section;
-      page.className = `tmt-page tmt-settings${section === 'general' ? ' tmt-ui-page' : ''}`;
+      page.className = `tmt-page tmt-settings${section === 'general' || section === 'identities' ? ' tmt-ui-page' : ''}`;
     }
     shell.setMenu({
       title: 'TMT settings',
@@ -421,11 +398,6 @@ export function tmtSettingsPage(shell: RemoteShell, source: SettingsSource = set
     (next) => {
       if (!live()) return;
       settings = next;
-      // A section that cannot be read says so itself; the note only marks sample values.
-      note.textContent = next.sample
-        ? 'Sample data: Core has no web read of this machine yet. `tmt ls`, `tmt extension ls` and `tmt driver ls` show the real values.'
-        : '';
-      note.hidden = !next.sample;
       paint();
     },
     () => {

@@ -148,6 +148,91 @@ fn status_is_one_json_document_and_only_public_reads() {
 }
 
 #[test]
+fn usage_report_publishes_old_current_claude_cache_limits_alongside_codex() {
+    let fixture = Fixture::new();
+    let second = "10000000-0000-4000-8000-000000000002";
+    let now = u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis(),
+    )
+    .unwrap();
+    let day = 86_400_000;
+    let fetched = now - 2 * day;
+    let reset = now + day;
+    let seat = |id, provider, used| {
+        json!({
+            "id":id,"found":true,
+            "latest":{"driver":provider,"consumption":{"rateLimits":{
+                "provider":provider,"observedAtMs":fetched,"windows":[
+                    {"windowMinutes":10_080,"usedPercent":used,"resetsAtMs":reset}]
+            }}},
+            "windows":[{"windowMs":day,"fromMs":now-day,"toMs":now,"bucketMs":day,
+                "availableFromMs":now-day,"buckets":[{
+                    "fromMs":now-day,"toMs":now,"inputTokens":10,"outputTokens":2,"cachedInputTokens":4,
+                    "coveredMs":day,"complete":true,"gap":false,"discontinuous":false,
+                    "byModel":[{"modelId":"gpt-6.1-sol","inputTokens":10,"outputTokens":2,"cachedInputTokens":4}]
+                }]}]
+        })
+    };
+    fixture.write(
+        "inventory.json",
+        json!({"identities":[{"id":ID,"name":"claude-seat"},{"id":second,"name":"codex-seat"}]}),
+    );
+    // Reuse the existing Core stand-in unchanged. Its two API replies serve
+    // consumption history; its unsupported flow read must not suppress limits.
+    let history = json!({"identities":[seat(ID,"claude",0.5),seat(second,"codex",78.0)]});
+    fixture.write("stats.1.json", history.clone());
+    fixture.write("stats.2.json", history);
+    let before = fs::read(fixture.0.join("stats.1.json")).unwrap();
+    let output = fixture.run_args(&["usage", "report", "--since", "24h", "--json"]);
+    assert!(output.status.success(), "{:?}", output.stderr);
+    assert!(output.stderr.is_empty());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["warnings"].as_array().unwrap().len(), 1);
+    assert_eq!(report["warnings"][0]["section"], "exchange");
+    assert_eq!(report["exchange"], Value::Null);
+    let limits = report["limits"].as_array().unwrap();
+    assert_eq!(limits.len(), 2);
+    let claude = limits
+        .iter()
+        .find(|row| row["provider"] == "claude")
+        .unwrap();
+    let codex = limits
+        .iter()
+        .find(|row| row["provider"] == "codex")
+        .unwrap();
+    assert_eq!(claude["seats"], json!([ID]));
+    assert_eq!(claude["usedPercent"], 0.5);
+    assert_eq!(claude["observedAtMs"], fetched);
+    assert_eq!(claude["resetsAtMs"], reset);
+    assert_eq!(claude["stale"], false);
+    assert_eq!(codex["usedPercent"], 78.0);
+    assert_eq!(codex["seats"], json!([second]));
+    assert_eq!(report["usage"]["seats"][0]["lines"], json!(["gpt"]));
+    assert_eq!(report["limitsUnavailable"], json!([]));
+    assert_eq!(fs::read(fixture.0.join("stats.1.json")).unwrap(), before);
+    assert_eq!(
+        fixture.calls(),
+        [
+            "identity ls --json",
+            "x flow --since 24h --bucket 24h --json",
+            "api",
+            "api"
+        ]
+    );
+    for index in 1..=2 {
+        let request: Value = serde_json::from_slice(
+            &fs::read(fixture.0.join(format!("request.{index}.json"))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(request["operation"], "consumption.history");
+        assert_eq!(request["input"]["identityIds"], json!([ID, second]));
+    }
+}
+
+#[test]
 fn inventory_is_read_once_and_stats_are_batched_sorted_and_bounded() {
     let fixture = Fixture::new();
     let ids: Vec<_> = (0..513)

@@ -33,6 +33,13 @@ const options: TickOptions = {
     load1: 2,
   },
 };
+function freshWatcherState(directory: string, updatedAt: string) {
+  writeFileSync(
+    path.join(directory, 'heartbeat.json'),
+    JSON.stringify({ updatedAt, status: 'ok', coverageGaps: [] })
+  );
+  return directory;
+}
 const run = (id: number, overrides = {}) => ({
   id,
   head_sha: SHA,
@@ -1259,6 +1266,7 @@ else throw Error('Unexpected endpoint');
             env: {
               ...process.env,
               PATH: `${directory}${path.delimiter}${process.env.PATH}`,
+              TMT_CI_WATCH_STATE: freshWatcherState(directory, new Date().toISOString()),
               GH_TOKEN: secret,
               GITHUB_TOKEN: secret,
               FAIL_READ: String(fail),
@@ -1567,6 +1575,7 @@ else if(endpoint.includes('/pulls?')){
             env: {
               ...process.env,
               PATH: `${directory}${path.delimiter}${process.env.PATH}`,
+              TMT_CI_WATCH_STATE: freshWatcherState(directory, new Date().toISOString()),
               VOLUME_COUNT: String(count),
               VOLUME_MODE: mode,
               CLOCK_FILE: clockFile,
@@ -2146,6 +2155,123 @@ describe('PR discovery membership and hydration boundaries', () => {
     api.reviews = (ids) => reviews(ids).map((row) => ({ ...row, headRefOid: 'b'.repeat(40) }));
     expect(() => collectInfraTick(api, options)).toThrow(
       'PR head changed while reading review evidence.'
+    );
+  });
+});
+
+describe('local CI watcher heartbeat (#4872)', () => {
+  const heartbeatPath = '/private/fixture/ci-watch/heartbeat.json';
+  const at = Date.parse(options.until);
+  const collect = (heartbeat: unknown, error?: string) => {
+    const api = fixture();
+    const report = collectInfraTick(api, {
+      ...options,
+      local: { ...options.local, watcherHeartbeat: { path: heartbeatPath, heartbeat, error } },
+    } as TickOptions);
+    return { api, report };
+  };
+  it('keeps a fresh heartbeat quiet without adding API calls', () => {
+    const baselineApi = fixture();
+    const baseline = collectInfraTick(baselineApi, options);
+    const { api, report } = collect({ updatedAt: options.until, status: 'ok', coverageGaps: [] });
+    expect(report.anomalies).toEqual(baseline.anomalies);
+    expect(api.calls).toEqual(baselineApi.calls);
+  });
+  it('uses local observation time for a historical tick API window', () => {
+    const checkedAt = '2026-10-24T13:00:00Z';
+    const report = collectInfraTick(fixture(), {
+      ...options,
+      local: {
+        ...options.local,
+        watcherHeartbeat: {
+          path: heartbeatPath,
+          checkedAt,
+          heartbeat: { updatedAt: checkedAt, status: 'ok' },
+        },
+      },
+    });
+    expect(report.anomalies).toEqual([]);
+  });
+  it.each([
+    [{ updatedAt: 'invalid', status: 'ok' }, 'invalid heartbeat timestamp'],
+    [
+      { updatedAt: new Date(at + 1000).toISOString(), status: 'ok' },
+      'heartbeat timestamp is in the future',
+    ],
+    [{ updatedAt: options.until, status: 'error' }, 'heartbeat status: error'],
+    [
+      { updatedAt: options.until, status: 'ok', coverageGaps: [{}] },
+      'invalid heartbeat coverage gaps',
+    ],
+  ])('keeps malformed, future or error evidence visible as one anomaly', (heartbeat, reason) => {
+    expect(collect(heartbeat).report.anomalies).toEqual([
+      expect.objectContaining({ kind: 'CI failure watcher unhealthy', reason }),
+    ]);
+  });
+  it('reports a two-hour-one-minute stale heartbeat with its last timestamp', () => {
+    const updatedAt = new Date(at - 121 * 60_000).toISOString();
+    const { report } = collect({ updatedAt, status: 'ok' });
+    expect(report.anomalies).toEqual([
+      expect.objectContaining({
+        kind: 'CI failure watcher unhealthy',
+        path: heartbeatPath,
+        updatedAt,
+        reason: 'heartbeat stale',
+      }),
+    ]);
+    expect(report.complete).toBe(true);
+  });
+  it('reports a missing heartbeat without inventing its last timestamp', () => {
+    const { report } = collect(undefined, 'ENOENT');
+    expect(report.anomalies).toEqual([
+      expect.objectContaining({
+        kind: 'CI failure watcher unhealthy',
+        path: heartbeatPath,
+        updatedAt: null,
+        reason: 'heartbeat unavailable: ENOENT',
+      }),
+    ]);
+    expect(renderInfraTick(report)).toContain('CI failure watcher unhealthy');
+  });
+  it('reports a current coverage-gap note even when the heartbeat is fresh', () => {
+    const checkedAt = '2026-10-24T13:00:00Z';
+    const gap = {
+      updatedAt: '2026-10-24T12:59:00Z',
+      message: 'cursor backlog before the 24 h lookback is unknown',
+    };
+    const report = collectInfraTick(fixture(), {
+      ...options,
+      local: {
+        ...options.local,
+        watcherHeartbeat: {
+          path: heartbeatPath,
+          checkedAt,
+          heartbeat: { updatedAt: checkedAt, status: 'ok', coverageGaps: [gap] },
+        },
+      },
+    });
+    expect(report.anomalies).toEqual([
+      expect.objectContaining({
+        kind: 'CI failure watcher coverage gap',
+        updatedAt: checkedAt,
+        coverageGaps: [gap],
+      }),
+    ]);
+    expect(report.complete).toBe(true);
+  });
+  it('keeps REST queue failure incomplete alongside a local heartbeat anomaly', () => {
+    const report = collectInfraTick(
+      fixture({ queue: { totalCount: 1, pageInfo: { hasNextPage: false }, nodes: [] } }),
+      {
+        ...options,
+        local: { ...options.local, watcherHeartbeat: { path: heartbeatPath, error: 'ENOENT' } },
+      } as TickOptions
+    );
+    expect(report.complete).toBe(false);
+    expect(report.anomalies.map((a) => a.kind)).toContain('queue coverage unavailable');
+    expect(report.anomalies.map((a) => a.kind)).toContain('CI failure watcher unhealthy');
+    expect(renderInfraTick(report)).toContain(
+      'INCOMPLETE: queue coverage unavailable; cursor not advanced'
     );
   });
 });

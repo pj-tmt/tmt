@@ -15,9 +15,20 @@ impl Core {
     pub fn new() -> Self {
         let root = PathBuf::from(format!("/tmp/t1055-c-{}", uuid_v4().unwrap()));
         fs::create_dir(&root).unwrap();
-        fs::write(root.join("core.py"),r#"import sys,json,pathlib
+        fs::write(root.join("final"), r#"{"status":"not_submitted"}"#).unwrap();
+        fs::write(root.join("core.py"),r#"import sys,json,pathlib,uuid
 root=pathlib.Path(__file__).parent
 args=sys.argv[1:]
+if args[0]=='reply':
+    assert len(args)==6 and args[2]=='--receipt' and args[4:]==['--stdin','--json']
+    body=sys.stdin.buffer.read()
+    destination=root/('reply-'+args[1])
+    if destination.exists() and destination.read_bytes()!=body:
+        print(json.dumps({'error':{'code':'RESPONSE_CONFLICT','message':'immutable final'}}));sys.exit(5)
+    if not destination.exists():
+        destination.write_bytes(body)
+        with (root/'calls').open('a') as f: f.write(json.dumps({'operation':'reply','requestId':args[1]})+'\n')
+    print(json.dumps({'status':'submitted','requestId':args[1],'bodyBytes':len(body),'submittedAtMs':1}));sys.exit(0)
 if args[0] in ('list','check','identity'):
     with (root/'calls').open('a') as f: f.write(json.dumps({'operation':args[0],'argv':args})+'\n')
 if args[0]=='list':
@@ -58,7 +69,8 @@ elif wire['operation']=='dispatch.create':
         print('broken');sys.exit(0)
     if receipt_file.exists():
         print(json.dumps({'error':{'code':'DUPLICATE_TEST_SEND','message':'second create'}}));sys.exit(1)
-    receipt={'operationId':wire['input']['operationId'],'items':[{'recipientId':wire['input']['recipientIds'][0],'requestId':'req_11111111-1111-4111-8111-111111111111','acceptance':'queued'}]}
+    request_id='req_'+str(uuid.UUID(int=uuid.UUID(wire['input']['operationId']).int ^ 1)) if (root/'multi').exists() else 'req_11111111-1111-4111-8111-111111111111'
+    receipt={'operationId':wire['input']['operationId'],'items':[{'recipientId':wire['input']['recipientIds'][0],'requestId':request_id,'acceptance':'queued'}]}
     receipt_file.write_text(json.dumps(receipt))
     if (root/'lost').exists(): print('broken')
     else:
@@ -73,7 +85,9 @@ elif wire['operation']=='user.identity':
 elif wire['operation']=='identities.status':
     print(json.dumps({'identities':[{'id':id,'found':True,'status':{'state':'stale'}} for id in wire['input']['identityIds']]}))
 elif wire['operation']=='requests.show':
-    detail={'requestId':wire['input']['requestId'],'final':json.loads((root/'final').read_text())}
+    final_path=root/('final-'+wire['input']['requestId'])
+    if not final_path.exists(): final_path=root/'final'
+    detail={'requestId':wire['input']['requestId'],'final':json.loads(final_path.read_text())}
     if (root/'message-state').exists(): detail['messageState']=json.loads((root/'message-state').read_text())
     print(json.dumps(detail))
 elif wire['operation']=='requests.sendNow':

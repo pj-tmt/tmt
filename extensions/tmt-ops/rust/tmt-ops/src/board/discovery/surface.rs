@@ -302,7 +302,7 @@ impl Controller {
                     notes.push(match &attempt.result {
                     Ok(BindReport::Bound{id,name,lifetime,already_bound,..})=>format!("{} {}: {} · UUID {} · {}",Mark::Done.symbol(),if *already_bound{"Already bound"}else{"Bound"},safe(name),id,lifetime),
                     Ok(BindReport::Refused{message,..})=>format!("{} Not applied: {}",Mark::Offline.symbol(),safe(message)),
-                    Ok(BindReport::Partial{message,..})=>format!("{} Needs you: {}. Binding may have changed; check this pane before trying again.",Mark::Warning.symbol(),safe(message)),
+                    Ok(BindReport::Partial{message,..})=>format!("◆ Action needed: {}. Binding may have changed; check this pane before trying again.",safe(message)),
                     Err(error)=>format!("{} Unknown: {}. Check this pane before deciding what to do next.",Mark::Warning.symbol(),safe(&error.message)),
                 });
                     notes.push("Nothing is retried automatically. Binding does not confirm that the agent is ready.".into());

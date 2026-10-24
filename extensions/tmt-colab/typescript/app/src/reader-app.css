@@ -12,16 +12,63 @@
   width: min(360px, calc(100vw - 24px));
   max-height: calc(100dvh - var(--reader-bar-size) - 24px);
   overflow: auto;
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
-  padding: 16px;
-  background: var(--c-sheet);
-  color: var(--c-text);
-  font: 12px/1.5 var(--f-body);
-  box-shadow: none;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  padding: 16px 18px;
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  font: 12px/1.6 var(--tmt-ui-font-body);
+  box-shadow: var(--tmt-ui-shadow-overlay);
+}
+.reader-information-panel h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.reader-information-panel section + section {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 .reader-information-panel p {
   margin: 0 0 12px;
 }
 .reader-information-panel p:last-child {
   margin-bottom: 0;
+}
+
+/* What the link allows, always in view above the page: the website's reader note. */
+.reader-note {
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  width: min(100% - 32px, 844px);
+  margin: 16px auto 0;
+  padding: 16px 18px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+}
+.reader-note > svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  color: var(--tmt-ui-color-link);
+}
+.reader-note p {
+  margin: 0;
+}
+.reader-note-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.reader-note-text {
+  margin-top: 4px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 0.6875rem;
+  line-height: 1.6;
 }

@@ -377,6 +377,11 @@ delivery. They install and launch nothing.
   ([contract](../../../../contracts/extension-api.md#consumption-history)) from that same
   line, with its own timestamp; an invalid object is dropped whole without affecting
   the counters, and it is omitted before attribution when the opaque bound is exceeded.
+  Claude's driver separately reads selected fields from its own config root's usage
+  cache, with same-file account equality and the original fetch time. It never
+  refreshes the cache, reads credentials or changes provider configuration. The
+  [allowance contract](../../../../contracts/extension-api.md#consumption-history)
+  owns age, reset expiry and unavailable-window semantics.
   The same line's `credits` (balance text, never arithmetic) and the newest
   `thread_settings_applied` `service_tier` in the attribution tail are read the same way:
   each is dropped whole when invalid, absent tier means unknown (never `default`), and

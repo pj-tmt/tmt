@@ -8,6 +8,10 @@ with your own inputs; keep the deployment record on that machine.
 Start with TMT, Remote and Colab installed. Remote reads the enabled extensions' installed
 deployment declarations; it does not substitute sample configuration when one is unavailable.
 
+The shared [deployment input contract](../../../../contracts/remote-channel-v1.md#deployment-input-manifest)
+defines explicit resource selection and `--defaults`. Firestore integration is pending
+(#4879); use the currently supported explicit flags below.
+
 Choose an existing Firebase project on the free Spark plan. TMT does not create the project
 or set up paid features. Choose the database region carefully: an existing database's
 location cannot change, and an authorized deployment keeps its recorded region.

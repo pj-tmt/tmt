@@ -337,6 +337,7 @@ selection never substitutes for runtime/archive/browser proof.
 hourly Infra lead tick. Run it manually beside the existing tick before changing
 its cron prompt; the lead compares the two reports after the script lands.
 The script does not judge reviews, attribute causes, arm PRs or publish releases.
+Export the same `TMT_CI_WATCH_STATE` directory for watcher and tick: its local heartbeat adds timestamped anomalies for missing/stale (>2 h)/invalid/error evidence or coverage notes younger than 24 h, without API reads or changes to REST `INCOMPLETE` semantics.
 A new output directory establishes a zero-call bootstrap boundary, not a health
 report. Run the command again for evidence after that boundary:
 
@@ -436,3 +437,49 @@ Only complete reports can explicitly state no anomalies. Known GitHub
 credentials are redacted; posted summaries contain no secrets/raw logs.
 [guide-budgets.json](../../../../typescript/scripts/guide-budgets.json) owns shared
 guide line/byte limits used by the summary and guard. Reports remain input for lead judgement.
+
+## Local CI failure watcher
+
+`typescript/scripts/ci-failure-watch.mjs` is an operator-started observer, not a
+required gate. The Infra lead starts its `ci-watch` window after review; it adds
+no host service or credentials. Example (the map is reviewed from #606):
+
+```sh
+node typescript/scripts/ci-failure-watch.mjs --dry-run --routing-map /tmp/ci-routing.json
+export TMT_CI_WATCH_STATE=/tmp/tmt-ci-watch
+node typescript/scripts/ci-failure-watch.mjs --routing-map /tmp/ci-routing.json --identity tmt-infra-lead
+```
+
+The map has `source:"https://github.com/pj-tmt/tmt/issues/606"` and `rules` containing
+one `workflowPrefix` or `jobPrefix`, a `squad` and its `source` line in #606. Longest
+workflow prefix wins before job prefix; unmapped says so. These are suggestions:
+all messages go only to Infra, who attributes/forwards them. The watcher never
+reads logs or claims a failing test name. It watches failed completed main pushes,
+merge groups, dispatches and schedules; PR authors retain their CI.
+
+Every 60 s, conditional completed/in-progress/queued reads retain ETags and cached
+metadata. A start/restart catches up created-within-24-hour cohorts from its cursor;
+tracked active ids/attempts get one direct read after leaving page one. Unobserved
+older history and overflowing active pages are explicit once-only coverage alerts.
+Steady new runs and observed in-flight reruns target about two minutes; this is
+not all-history coverage. A pass has 800 GET attempts, a 2,500 REST-core floor,
+a 120 s cold-start bound and 20 s per read. Conditional/search/attempt reads count.
+Heartbeat progress continues during catch-up; ordinary steady passes retain the
+60 s interval. Reads or budgets that cannot prove a complete cohort fail closed.
+
+Workflow/job signatures retain six-hour recurrence and re-arm after green on the
+same event. Observed attempts are not replayed. Counts/latest run update locally;
+issue lookup searches the signature before creation and reuses it thereafter.
+At most six `tmt talk` submissions per rolling hour are permitted; bursts fold
+by suggested squad, with excess alerts kept pending. A private exclusive lock
+prevents competing watchers. Persisted issue/delivery intents stop uncertain
+side effects from being blindly repeated; inspect GitHub/TMT and the recorded
+intent before operator repair. A budget-deferred known-unsent alert retries next
+pass. `--dry-run` prints the last 24 h and proposed messages, makes GETs only,
+and never reads/writes live state, creates issues, sends messages or starts a loop.
+
+`heartbeat.json` reports time, status, cursor, read count and pending alerts; stale
+(over two hours), future, malformed or error status is unhealthy. The hourly-tick
+integration reads the same state setting. No deployment/window or cron/prompt
+change is performed by this script. Detection delay is measured from Actions `updated_at`
+to the recorded submission time after merge, not inferred from queue timestamps.

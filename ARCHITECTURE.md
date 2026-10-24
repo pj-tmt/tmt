@@ -251,13 +251,12 @@ a working directory, active pane or sole identity.
 
 ### Saved identity notes
 
-`NotesIdentityId` (a saved identity's canonical UUIDv4) is the capability boundary
-for notebook storage; display names never become paths. `ConfigPaths` is the sole
-layout owner and `tmt-adapters::notes` alone creates
-`<global_dir>/notes/<identity-uuid>/notes.md` with owner-only, no-follow creation.
-The file body, concurrency and retention are ordinary user-filesystem concerns:
-there is no SQLite copy, lock, size policy or secure deletion, and retirement leaves
-notebooks in place.
+`NotesIdentityId` (saved identity's canonical UUIDv4) bounds notebook storage;
+display names never become paths. `ConfigPaths` owns layout; only
+`tmt-adapters::notes` creates `<global_dir>/notes/<identity-uuid>/notes.md`,
+owner-only and no-follow. Bodies, concurrency and retention are user-filesystem
+concerns: no SQLite copy, lock, size policy or secure deletion. Retirement
+preserves notebooks.
 [Compaction reminders](.agents/skills/tmt-core-runtime/references/identity-bindings.md#hooks-setup-and-uninstall) follow the provider-hook owner.
 
 ### Settings and configuration
@@ -298,8 +297,8 @@ for behavior and limits; module rules: [storage and requests reference](.agents/
 
 `tmt-adapters::process` is the one bounded subprocess owner (output caps, monotonic
 deadlines, process-group cleanup, reaping); `process::interactive` owns direct
-terminal children without taking the shared process group. `tmux` uses explicit
-socket/server evidence, bounded budgets and no ambient host fallback; a failed paste
+terminal children without taking the shared process group. `tmux` pins caller or recorded
+sockets, with bounded budgets and no ambient fallback; a failed paste
 or Enter is uncertain and never retried as unsent; [pane cosmetics](.agents/skills/tmt-core-runtime/references/hosts-drivers.md) own only pane-local badge overrides.
 
 The CLI and the `delivery` and `pane_badge` adapters reach a terminal only through
@@ -320,10 +319,13 @@ See the
 
 ### Agent drivers
 
-Each `DriverDescriptor` and adapter feed `drivers::Registry` for detection, setup,
-launch, caller recognition, final foreground argv and typed caller/storage refusal explanations. The descriptor owns each driver's support level, `full`
-(hooks and a runtime) or `basic` (detection and skills), which `tmt ls` publishes as
-`driverSupport`. Detection never starts an agent. Claude owns the prompt-picker plugin source (`drivers/claude/plugins/`, published by the root `.claude-plugin` marketplace and installed by the user) and a read-only check that hints when it is missing; a launch adds no plugin arguments and no persistent provider settings change. Module rules and name ownership:
+`DriverDescriptor` and adapters feed `drivers::Registry` for detection, setup,
+launch, caller recognition, foreground argv, allowance reads and typed refusals.
+Each descriptor sets `full` (hooks/runtime) or `basic` (detection/skills), published
+as `driverSupport` by `tmt ls`. Detection never starts agents. Claude owns
+`drivers/claude/plugins/` prompt-picker plugins (root `.claude-plugin` marketplace;
+user-installed) and a read-only missing-plugin hint. Launch adds no plugin
+arguments or persistent provider settings. Module rules and name ownership:
 [agent drivers](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#agent-drivers).
 
 ### Provider channels
@@ -433,7 +435,7 @@ own module/drawing boundaries and verification.
   authority, acquisition limits and binding effects. Successful public refresh
   selects the returned UUID through the workspace projection.
 - **Checklist.** `checklist_command` uses the existing caller/room admission and
-  versioned room-UUID JSON in `ops.db`. Reads create no files;
+  versioned room-UUID JSON in `ops.db`, with a mutation log committed in the same transaction. Reads create no files;
   failed prepublication preserves bytes; uncertainty remains Unknown after
   readback. The board consumes the same typed service.
 - **Contracts.** The [embedded skill](extensions/tmt-ops/skills/tmt-ops/SKILL.md)
@@ -536,15 +538,15 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 Owns listener/restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery)
 and `<dataRoot>/remote/` ([state leaf](#shared-extension-state-layout)).
 Home/Remote/SDK; read-only auto-pair; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
-`cloud_hpke`: bytes; `cloud_keys`: renewals; `cloud_inbox`: carriers, private reply binding.
+`cloud_hpke`: bytes; `cloud_keys`: renewals; `cloud_inbox`: carriers/finals, private reply binding.
 
 [Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
 settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
-Remote owns authority; UI grants none. Native invite/join and uid routing.
+Remote: authority, native invite/join, uid routes; UI grants none.
 Firestore: Auth/Rules only; Core never uses Remote trust.
 `message`: wire/grants/scope/allowlist/hold/uncertainty/audit; UUID/name checks.
-`talk --remote` → [message v1](contracts/remote-message-v1.md) → Remote
-Local: `transport`/`routes` → `message` → `session`/`operations`; same-ID public Core API dispatch/recovery.
+`talk --remote` → [message v1](contracts/remote-message-v1.md) → Remote.
+`message` → `session`/`operations`: same-ID Core dispatch/recovery; cloud finals → receipt-bound `reply`.
 Door: `remote-v1.js` ([SDK](extensions/tmt-remote/typescript/remote-client/README.md));
 owner-installed [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`; public CLI/SDK/`tmt-extension-objects` elsewhere; never Remote state files.
 
@@ -552,7 +554,7 @@ owner-installed [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`; publ
 Serve: Auth/runtime/factory/tick/joins/flush; v3 opt-in.
 `native_sync`: COUNT/read limits; Colab cursors; no Core/carrier. Emulation never ships.
 [object-backends](.agents/skills/tmt-remote/references/object-backends.md): channels/backends/quotas.
-Deploy: `hosting` hash; owner setup/consent/history; Rules/Hosting fences; EXPECTED+ACTIVE/live ID/readiness.
+Deploy: input manifest/refusal; `hosting` hash; owner setup/consent/history; Rules/Hosting fences; EXPECTED+ACTIVE/live ID/readiness.
 [Modules](.agents/skills/tmt-remote/references/architecture-internals.md);
 [door/discovery](.agents/skills/tmt-remote/references/door-and-discovery.md): lifecycle/status/management.
 [Background](contracts/extension-serve-v1.md).

@@ -745,6 +745,7 @@ impl Session {
     }
 
     pub(super) fn refresh_outgoing(&mut self) {
+        self.outgoing_note_sources = Default::default();
         let mut text = self.before_send.as_ref().map_or_else(String::new, |reply| {
             crate::board::notes::sanitize(&reply.body)
         });
@@ -806,7 +807,16 @@ impl Session {
                     self.compact_separators.insert(before + 1);
                 }
             }
+            let note_start = lines(&text);
             text.push_str(crate::board::notes::sanitize(&entry.ticket.text).trim_end_matches('\n'));
+            self.outgoing_note_sources.range(
+                note_start..lines(&text) + 1,
+                entry
+                    .request()
+                    .map_or(super::note_source::Source::Unavailable, |request| {
+                        super::note_source::Source::request("you", request, entry.started_ms)
+                    }),
+            );
             let message_end = lines(&text);
             if place.status() && entry.reply.is_none() {
                 self.compact_separators.insert(message_end + 1);
@@ -820,21 +830,36 @@ impl Session {
                 push_literal(&mut text, &statuses[index]);
             }
             // A lone send keeps its own answer; a block's answer follows its last send.
-            let own = entry.capture.as_ref().filter(|capture| {
-                place.role == super::answer_order::Role::Single
-                    && !matches!(
-                        capture,
-                        crate::board::row_detail::Capture::Pending
-                            | crate::board::row_detail::Capture::Bound
-                    )
+            let own = entry
+                .capture
+                .as_ref()
+                .filter(|capture| {
+                    place.role == super::answer_order::Role::Single
+                        && !matches!(
+                            capture,
+                            crate::board::row_detail::Capture::Pending
+                                | crate::board::row_detail::Capture::Bound
+                        )
+                })
+                .map(|capture| (entry.request(), capture));
+            let held = place.answers.iter().filter_map(|answered| {
+                let entry = &self.outgoing[*answered];
+                Some((entry.request(), entry.capture.as_ref()?))
             });
-            let held = place
-                .answers
-                .iter()
-                .filter_map(|answered| self.outgoing[*answered].capture.as_ref());
-            for capture in own.into_iter().chain(held) {
+            for (request, capture) in own.into_iter().chain(held) {
                 text.push_str("\n\n");
+                let note_start = lines(&text);
                 text.push_str(&capture.markdown());
+                let note_source =
+                    request.map_or(super::note_source::Source::Unavailable, |request| {
+                        super::note_source::Source::capture(
+                            &self.transcript_context.name,
+                            request,
+                            capture,
+                        )
+                    });
+                self.outgoing_note_sources
+                    .range(note_start..lines(&text) + 1, note_source);
             }
             if let Some(reply) = &entry.reply {
                 text.push_str("\n\n");

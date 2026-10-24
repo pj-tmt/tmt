@@ -643,7 +643,11 @@ fn session(
             io(lane::Job::ReadMarkers(writer));
         }
         let shown = app.conversation_notes_key();
-        if let Some(task) = app.notes.offer(shown.as_ref(), now) {
+        if let Some(task) = app
+            .notes
+            .offer(shown.as_ref(), now)
+            .or_else(|| app.notes.offer_background(shown.as_ref(), now))
+        {
             io(lane::Job::Notes(task));
         }
         // The footer names a waiting reload, so a new one repaints.
@@ -1560,7 +1564,7 @@ pub fn run(
     app.popup = popup;
     app.view_layer = layer;
     app.reload = reload::Watch::start(now_ms);
-    app.notes = conversation_notes::State::reading();
+    app.notes.enable();
     if let Some(resume) = resume {
         app.carry(resume);
         if app.notice.is_none() {

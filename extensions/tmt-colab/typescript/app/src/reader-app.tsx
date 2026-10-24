@@ -9,7 +9,7 @@ import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { ReaderSource, type ReaderEdit } from './reader-source.js';
 import { NoticeCard } from './notice-card.js';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { mountRenderer, type RenderState } from './renderer.js';
 import { text } from './strings.js';
 import { toolbarInset } from './toolbar-inset.js';
@@ -54,6 +54,36 @@ export function ReaderApp({
   const [render, setRender] = useState<RenderState | 'loading'>('loading');
   const host = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLElement>(null);
+  const noteBox = useRef<HTMLElement>(null);
+  /** The note's height with its margins: it sits above the page frame, so a frame that fills the
+   * viewport leaves room for it (`frameLead`), and so does the page's minimum height
+   * (`reader-style.css`). */
+  const [noteSize, setNoteSize] = useState(0);
+  const noteHeight = () => {
+    const box = noteBox.current;
+    if (!box) return 0;
+    const style = getComputedStyle(box);
+    return (
+      box.getBoundingClientRect().height +
+      Number.parseFloat(style.marginTop) +
+      Number.parseFloat(style.marginBottom)
+    );
+  };
+  const ready = state.kind === 'ready';
+  useEffect(() => {
+    const box = noteBox.current;
+    if (!box) {
+      setNoteSize(0);
+      return;
+    }
+    const measure = () => setNoteSize(noteHeight());
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    return () => observer.disconnect();
+    // `noteHeight` only reads the note's box, which `ready` decides is there.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
   const {
     reset: resetPageLinks,
     request: requestPageLink,
@@ -87,6 +117,7 @@ export function ReaderApp({
       },
       onLink: requestPageLink,
       viewportInset: () => toolbarInset(bar.current),
+      frameLead: noteHeight,
     })
       .then((handle) => {
         if (controller.signal.aborted) handle.destroy();
@@ -127,7 +158,9 @@ export function ReaderApp({
           <>
             {state.kind === 'ready' && (
               <>
-                <span className="chip">{mode}</span>
+                <span className="chip" data-mode={canEdit && !shell ? 'edit' : 'read'}>
+                  {mode}
+                </span>
                 <span
                   className={`status ${render === 'ready' ? 'live' : render === 'loading' ? 'waiting' : 'blocked'}`}
                   role="status"
@@ -179,20 +212,38 @@ export function ReaderApp({
               </summary>
               <div className="reader-information-panel">
                 {state.kind === 'ready' && (
-                  <PageAttribution
-                    originalAuthor={state.view.originalAuthor}
-                    publisherAgent={state.view.publisherAgent}
-                  />
+                  <section>
+                    <h3>{text.aboutAuthor}</h3>
+                    <PageAttribution
+                      originalAuthor={state.view.originalAuthor}
+                      publisherAgent={state.view.publisherAgent}
+                    />
+                  </section>
                 )}
-                <p>{accessNote ?? (canEdit && !shell ? text.readerNoteEditor : text.readerNote)}</p>
-                <p>{text.warning}</p>
+                <section>
+                  <h3>{text.aboutScripts}</h3>
+                  <p>{text.warning}</p>
+                </section>
               </div>
             </details>
           </>
         }
       />
-      <main>
+      <main style={{ '--reader-note-size': `${noteSize}px` } as CSSProperties}>
         {notice}
+        {state.kind === 'ready' && (
+          <aside ref={noteBox} className="reader-note" aria-labelledby="reader-note-title">
+            <Info aria-hidden />
+            <div>
+              <p id="reader-note-title" className="reader-note-title">
+                {canEdit && !shell ? text.readerNoteTitleEditor : text.readerNoteTitle}
+              </p>
+              <p className="reader-note-text">
+                {accessNote ?? (canEdit && !shell ? text.readerNoteEditor : text.readerNote)}
+              </p>
+            </div>
+          </aside>
+        )}
         {state.kind === 'ready' && shell ? (
           <ShellNotice pageId={state.pageId} />
         ) : state.kind === 'ready' ? (

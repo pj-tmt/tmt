@@ -382,7 +382,10 @@ for (const theme of ['light', 'dark'] as const)
     expect(actionBox.x).toBeGreaterThan(box.x + box.width);
     expect(actionBox.x + actionBox.width).toBeLessThanOrEqual(390);
     await page.screenshot({ path: capturePath(`selection-finished-390-${theme}.png`) });
-    await expect(action).toHaveAttribute('aria-keyshortcuts', 'c Alt+Enter');
+    await expect(page.getByRole('button', { name: 'Annotate', exact: true })).toHaveAttribute(
+      'aria-keyshortcuts',
+      'c Alt+Enter',
+    );
     await page.keyboard.press('c');
     const input = page.getByRole('combobox', { name: 'Message', exact: true });
     await expect(input).toBeFocused();

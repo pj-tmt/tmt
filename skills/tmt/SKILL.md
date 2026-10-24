@@ -214,7 +214,9 @@ framed like one live message: a request with its full text and its own original
 receipt-bound `tmt reply` line, a final with its full reply body and `tmt result`
 line. Treat each item as an ordinary message; no follow-up read is needed. A paste is
 capped at 32 KiB at an item boundary and the rest waits for the next one. An
-uncertain handoff is never replay permission. Reads and delivery do not acknowledge X.
+uncertain handoff is never replay permission. A checklist typed while you were mid-turn may
+never have become a prompt: its requests, with the same receipts, come again in your next
+Stop-hook checklist unless a prompt already carried them or you answered them. Reads and delivery do not acknowledge X.
 
 An identity with no recorded binding receives through inbox pull. Ordinary
 `talk` waits for its durable reply, using the same 180-second default,
@@ -399,7 +401,7 @@ It does not claim you read every result. A new request or first final committed
 after that snapshot remains unacknowledged. Each repeat takes a new snapshot.
 
 Delivery and final are independent. `messageState` says where the message is
-(`batched`, `delivered`, `working`, `unconfirmed`, `not_sent`); `delivery` is the
+(`batched`, `delivered`, `working`, `answered`, `unconfirmed`, `not_sent`); `delivery` is the
 raw attempt status and stays `queued` after a Digest checklist was delivered.
 `not_submitted` does not mean a task is running; a final may be `retained`, `expired` or `unavailable`. Show exposes exact
 retained prompt `message` and final `response`. Acknowledgment neither cancels
