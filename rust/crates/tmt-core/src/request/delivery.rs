@@ -13,6 +13,9 @@ pub enum DeliveryState {
     Working,
     Unconfirmed,
     NotSent,
+    /// The end of the road: a reply was submitted, or the turn a passthrough started ended with a
+    /// final message. Nothing after it moves the state (#4910).
+    Answered,
 }
 
 impl DeliveryState {
@@ -24,6 +27,7 @@ impl DeliveryState {
             Self::Working => "working",
             Self::Unconfirmed => "unconfirmed",
             Self::NotSent => "not_sent",
+            Self::Answered => "answered",
         }
     }
 }
@@ -40,6 +44,10 @@ pub enum DeliveryReason {
     HandedOver,
     Unreachable,
     Refused,
+    AnsweredByReply,
+    AnsweredByTurn,
+    NoTurnStarted,
+    TurnEndedWithoutAnswer,
 }
 
 impl DeliveryReason {
@@ -54,6 +62,10 @@ impl DeliveryReason {
             Self::HandedOver => "handed_over",
             Self::Unreachable => "unreachable",
             Self::Refused => "refused",
+            Self::AnsweredByReply => "answered_by_reply",
+            Self::AnsweredByTurn => "answered_by_turn",
+            Self::NoTurnStarted => "no_turn_started",
+            Self::TurnEndedWithoutAnswer => "turn_ended_without_answer",
         }
     }
 
@@ -70,6 +82,14 @@ impl DeliveryReason {
             Self::HandedOver => "handed to the agent, delivery unconfirmed, do not resend",
             Self::Unreachable => "not sent, the agent could not be reached",
             Self::Refused => "not sent, nothing reached the agent",
+            Self::AnsweredByReply => "answered",
+            Self::AnsweredByTurn => "answered, the agent's turn ended with this reply",
+            Self::NoTurnStarted => {
+                "no answer captured: no turn started with this text, the agent may have taken it into a running turn"
+            }
+            Self::TurnEndedWithoutAnswer => {
+                "no answer captured: the agent's turn ended without a final message"
+            }
         }
     }
 }
@@ -95,6 +115,21 @@ pub struct RecipientActivity {
     pub since_ms: u64,
 }
 
+/// What came back for the message itself, read from the stored final and the passthrough
+/// capture as they stand at the read (a capture past its window already reads `no_answer`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReturnedAnswer {
+    /// Nothing has come back yet.
+    #[default]
+    None,
+    /// A reply was submitted.
+    Final,
+    /// A passthrough's captured turn ended with a final message.
+    Turn,
+    /// A passthrough's capture ended with no answer; `bound` says a turn did start with its text.
+    NoCapture { bound: bool },
+}
+
 /// Stored facts only; a message's state never comes from pane text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeliveryFacts {
@@ -117,6 +152,7 @@ pub struct DeliveryFacts {
     pub recipient_start_refusal: Option<StartRefusalReason>,
     pub recipient_session_recovery: Option<String>,
     pub recipient_name: Option<String>,
+    pub answer: ReturnedAnswer,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -271,6 +307,21 @@ fn handover(facts: &DeliveryFacts) -> Handover {
 pub fn delivery_view(facts: &DeliveryFacts, now_ms: u64) -> DeliveryView {
     use DeliveryReason as Why;
     use DeliveryState as State;
+    // What came back outranks how the hand-over went: a reply from the inbox answers a message
+    // whose paste never happened, and a turn that ended is not "working" however busy the agent is.
+    match facts.answer {
+        ReturnedAnswer::None => {}
+        ReturnedAnswer::Final => return DeliveryView::of(State::Answered, Why::AnsweredByReply),
+        ReturnedAnswer::Turn => return DeliveryView::of(State::Answered, Why::AnsweredByTurn),
+        ReturnedAnswer::NoCapture { bound } => {
+            let why = if bound {
+                Why::TurnEndedWithoutAnswer
+            } else {
+                Why::NoTurnStarted
+            };
+            return DeliveryView::of(State::Unconfirmed, why);
+        }
+    }
     let waiting_approval = facts
         .recipient
         .is_some_and(|activity| activity.phase == ActivityPhase::Waiting);

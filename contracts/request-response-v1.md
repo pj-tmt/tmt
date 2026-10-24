@@ -780,14 +780,15 @@ client paints the same words and keeps no copy of the rules. The `delivery` fiel
 raw attempt status: a request held by Digest stays `queued` after its checklist is delivered, so read
 `messageState`, not `delivery`, to tell held from handed over:
 
-| `state`       | When                                                                                                                                                             | `canSendNow`                                                       |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `sent`        | Accepted and waiting to be typed, or its Digest checklist is in flight                                                                                           | true unless in flight or the recipient waits on an approval prompt |
-| `batched`     | Held by the recipient's Digest for the next checklist                                                                                                            | true unless the recipient waits on an approval prompt              |
-| `delivered`   | Typed into the recipient's pane (or its checklist was), and no turn has begun on it                                                                              | false                                                              |
-| `working`     | Typed, and the bound session reports a turn begun after the message was prepared (after the hand-over for a pane route)                                          | false                                                              |
-| `unconfirmed` | The hand-over may have reached the pane (`uncertain`), or a Digest checklist typed at an idle opportunity has not been carried by a prompt yet; never resendable | false                                                              |
-| `not_sent`    | Nothing reached the agent: `refused` (a pane route failed for certain) or `unreachable` (an identified recipient had no live pane)                               | true only for `unreachable`                                        |
+| `state`       | When                                                                                                                                                                                                              | `canSendNow`                                                       |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `sent`        | Accepted and waiting to be typed, or its Digest checklist is in flight                                                                                                                                            | true unless in flight or the recipient waits on an approval prompt |
+| `batched`     | Held by the recipient's Digest for the next checklist                                                                                                                                                             | true unless the recipient waits on an approval prompt              |
+| `delivered`   | Typed into the recipient's pane (or its checklist was), and no turn has begun on it                                                                                                                               | false                                                              |
+| `working`     | Typed, and the bound session reports a turn begun after the message was prepared (after the hand-over for a pane route)                                                                                           | false                                                              |
+| `unconfirmed` | The hand-over may have reached the pane (`uncertain`), or a Digest checklist typed at an idle opportunity has not been carried by a prompt yet, or a passthrough's capture ended with no answer; never resendable | false                                                              |
+| `not_sent`    | Nothing reached the agent: `refused` (a pane route failed for certain) or `unreachable` (an identified recipient had no live pane)                                                                                | true only for `unreachable`                                        |
+| `answered`    | A reply was submitted, or the turn a passthrough started ended with a final message. Terminal: nothing moves it, and it outranks every other state                                                                | false                                                              |
 
 `messageState` is `{state, reason:{code, text}, latestMs, remainingMs, canSendNow}`. `reason.text`
 is the one wording for the state, from the table below; a client may add the recipient's name or a
@@ -801,16 +802,20 @@ the recipient is bound to now; it is not liveness evidence. `canSendNow` says wh
 applies to the message; who may ask is that operation's own check. A refusal's cause is not
 retained, so `not_sent` carries one of the two generic reasons.
 
-| `reason.code`          | `state`       | `reason.text`                                                  |
-| ---------------------- | ------------- | -------------------------------------------------------------- |
-| `waiting_for_delivery` | `sent`        | waiting for delivery                                           |
-| `awaiting_approval`    | `sent`        | waiting for the agent's approval prompt to clear               |
-| `held_to_save_usage`   | `batched`     | batched to save usage, sends when the agent finishes this turn |
-| `reached_the_agent`    | `delivered`   | delivered                                                      |
-| `agent_working`        | `working`     | the agent has started on it                                    |
-| `handed_over`          | `unconfirmed` | handed to the agent, delivery unconfirmed, do not resend       |
-| `unreachable`          | `not_sent`    | not sent, the agent could not be reached                       |
-| `refused`              | `not_sent`    | not sent, nothing reached the agent                            |
+| `reason.code`               | `state`       | `reason.text`                                                                                       |
+| --------------------------- | ------------- | --------------------------------------------------------------------------------------------------- |
+| `waiting_for_delivery`      | `sent`        | waiting for delivery                                                                                |
+| `awaiting_approval`         | `sent`        | waiting for the agent's approval prompt to clear                                                    |
+| `held_to_save_usage`        | `batched`     | batched to save usage, sends when the agent finishes this turn                                      |
+| `reached_the_agent`         | `delivered`   | delivered                                                                                           |
+| `agent_working`             | `working`     | the agent has started on it                                                                         |
+| `handed_over`               | `unconfirmed` | handed to the agent, delivery unconfirmed, do not resend                                            |
+| `unreachable`               | `not_sent`    | not sent, the agent could not be reached                                                            |
+| `refused`                   | `not_sent`    | not sent, nothing reached the agent                                                                 |
+| `answered_by_reply`         | `answered`    | answered                                                                                            |
+| `answered_by_turn`          | `answered`    | answered, the agent's turn ended with this reply                                                    |
+| `no_turn_started`           | `unconfirmed` | no answer captured: no turn started with this text, the agent may have taken it into a running turn |
+| `turn_ended_without_answer` | `unconfirmed` | no answer captured: the agent's turn ended without a final message                                  |
 
 A delivered message has reason `session_not_bound` when its current binding records
 an unadmitted provider SessionStart newer than its admitted session. Core supplies

@@ -199,7 +199,7 @@ describe('native exchange attention process contract', () => {
       expect(shown.status).toBe(0);
       expect(shown.stdout).toBe(
         'human-exchange\n' +
-          '  message       delivered\n' +
+          '  message       answered\n' +
           '  urgent        false\n' +
           '  digest kind   fyi\n' +
           '  final         retained\n' +
