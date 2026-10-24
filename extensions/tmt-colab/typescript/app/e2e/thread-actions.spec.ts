@@ -125,7 +125,12 @@ for (const width of [1440, 390])
             'title',
             'Frozen original quote',
           );
-          await expect(window.locator('blockquote')).toHaveCount(0);
+          // The window keeps the quote under its accent rule, as a new annotation's does, so it does
+          // not change height at the first send.
+          await expect(window.locator('blockquote')).toHaveCount(1);
+          await expect(window.locator('blockquote.annotation-quote')).toHaveText(
+            'Frozen original quote',
+          );
           await expect(window.locator('.annotation-anchor-note')).toHaveText(
             'Attached to this sentence',
           );
