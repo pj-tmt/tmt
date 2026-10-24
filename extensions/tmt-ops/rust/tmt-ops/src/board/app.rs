@@ -1521,6 +1521,7 @@ impl App {
 
     pub(super) fn apply_home_leads(&mut self, read: super::home_leads::Read) {
         self.home_leads.replace(read);
+        self.unread_observed();
         self.overview_rows.borrow_mut().clear();
         self.clamp();
     }
@@ -1749,8 +1750,12 @@ impl App {
                 self.usage_document = None;
                 // A refresh can reorder rows; the cursor follows its member.
                 let anchor = (!changed).then(|| self.row_target(self.selected)).flatten();
-                if let Some(home) = &view.home {
-                    self.unread.writer.observed(&home.workspace.read_markers);
+                if let Some(home) = &view.home
+                    && let Some(actor) = view.me_id.as_deref()
+                {
+                    self.unread
+                        .writer
+                        .legacy(actor, &home.workspace.read_markers);
                 }
                 let previous = self.view.replace(view);
                 let previous_squad = std::mem::replace(&mut self.shown, self.current.clone());

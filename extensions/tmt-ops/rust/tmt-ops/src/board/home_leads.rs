@@ -399,6 +399,12 @@ impl State {
             .filter(|page| page.actor == actor)
     }
 
+    pub(super) fn acknowledged(&mut self, completed: &super::unread::publish::Completed) {
+        if let Some(page) = &mut self.unread {
+            page.acknowledged(completed);
+        }
+    }
+
     pub(super) fn results_observed(&self, sender: Option<&str>) -> bool {
         sender.is_some()
             && self.sender.as_deref() == sender
@@ -466,7 +472,10 @@ impl State {
         if admitted && read.failure.is_none() {
             self.results_observed = true;
         }
-        if let Some(unread) = read.unread.take() {
+        if let Some(mut unread) = read.unread.take() {
+            if let Some(held) = &self.unread {
+                unread.retain_acknowledged(held);
+            }
             self.unread = Some(unread);
         }
         if read.failure.is_none() {
