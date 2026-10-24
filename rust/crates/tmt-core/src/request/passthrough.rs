@@ -4,7 +4,8 @@
 //! never by guessing from the recent finals.
 //!
 //! A capture is `pending` from the moment the text is typed, `bound` once a turn started with
-//! that prompt, then `answered` with that turn's final message or `no_answer`. Neither wait is
+//! that prompt (or at once, `folded`, when the text was typed into a turn already running: no
+//! prompt will announce it, and that turn's final message answers it too), then `answered` with that turn's final message or `no_answer`. Neither wait is
 //! open-ended: a capture no turn started for, or whose bound turn never ended, reads and settles
 //! `no_answer` ([`BIND_WINDOW_MS`], [`BOUND_WINDOW_MS`]), and so does one whose turn a later turn
 //! of the same session overtook.
@@ -68,8 +69,27 @@ pub struct PassthroughCapture {
     /// The provider's turn id when it gives one; Claude orders turns by session.
     pub bound_turn: Option<String>,
     pub bound_at_ms: Option<u64>,
+    /// Typed into a turn that was already running, so bound to it when typed (#4912).
+    pub folded: bool,
     pub answer: Option<PassthroughAnswer>,
     pub settled_at_ms: Option<u64>,
+}
+
+/// The turn a recipient's verified binding shows running: the one text typed now would join.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunningTurn {
+    pub session: String,
+    /// The provider's turn id when it gives one; Claude orders turns by session.
+    pub turn: Option<String>,
+    pub since_ms: u64,
+}
+
+impl RunningTurn {
+    /// Whether text typed at `typed_at_ms` went into this turn rather than started it: the turn
+    /// was already running when the send began, so no prompt will ever announce the text.
+    pub fn holds_text_typed_at(&self, typed_at_ms: u64) -> bool {
+        self.since_ms <= typed_at_ms
+    }
 }
 
 impl PassthroughCapture {
@@ -80,6 +100,7 @@ impl PassthroughCapture {
             bound_session: None,
             bound_turn: None,
             bound_at_ms: None,
+            folded: false,
             answer: None,
             settled_at_ms: None,
         }
@@ -126,6 +147,21 @@ pub fn same_prompt(sent: &str, prompt: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_running_turn_holds_only_text_typed_after_it_began() {
+        let turn = RunningTurn {
+            session: "s".into(),
+            turn: None,
+            since_ms: 1_000,
+        };
+        assert!(turn.holds_text_typed_at(1_000));
+        assert!(turn.holds_text_typed_at(5_000));
+        assert!(
+            !turn.holds_text_typed_at(999),
+            "a turn that began after the send may be the text's own"
+        );
+    }
 
     #[test]
     fn a_prompt_matches_the_typed_text_after_the_panes_own_normalisation() {

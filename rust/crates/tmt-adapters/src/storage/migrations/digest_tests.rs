@@ -54,7 +54,7 @@ fn digest_stats_migration_is_atomic_and_seeds_only_retained_successes() {
         .execute_batch("DROP TRIGGER refuse_digest_stats")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 68);
+    assert_eq!(storage.health().unwrap().schema_version, 69);
     assert_eq!(oracle.query_row("SELECT due_through_sequence,delivered_digests FROM digest_counters WHERE identity_id='receiver'",[],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?))).unwrap(),(0,1));
     assert_eq!(
         oracle
@@ -96,7 +96,7 @@ fn checklist_history_migration_preserves_unknown_facts_and_rolls_back_atomically
     assert_eq!(oracle.query_row("SELECT sql FROM sqlite_schema WHERE name='focus_checklists_advances_change_cursor_on_update'", [], |r| r.get::<_, String>(0)).unwrap(), trigger);
     oracle.execute_batch("DROP TRIGGER refuse_history").unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 68);
+    assert_eq!(storage.health().unwrap().schema_version, 69);
     assert_eq!(oracle.query_row("SELECT COUNT(*) FROM focus_checklists WHERE opportunity IS NULL AND sealed_count IS NULL AND settled_at_ms IS NULL AND settlement_sequence IS NULL", [], |r| r.get::<_, i64>(0)).unwrap(), 2);
     storage.close().unwrap();
 }

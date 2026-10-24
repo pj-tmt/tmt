@@ -368,11 +368,18 @@ pub trait RequestRecords {
         &self,
         request_id: &str,
     ) -> Result<Option<passthrough::PassthroughCapture>, Self::Error>;
-    /// Starts the capture of a passthrough whose text has just been typed.
+    /// The turn the recipient's verified binding shows running, if one is.
+    fn running_turn(
+        &self,
+        identity_id: &str,
+    ) -> Result<Option<passthrough::RunningTurn>, Self::Error>;
+    /// Starts the capture of a passthrough whose text has just been typed; `folded_into` is the
+    /// running turn it joined, which it binds to at once.
     fn create_passthrough_capture(
         &mut self,
         request_id: &str,
         delivered_at_ms: u64,
+        folded_into: Option<&passthrough::RunningTurn>,
     ) -> Result<(), Self::Error>;
     fn write_delivery_policy(
         &mut self,

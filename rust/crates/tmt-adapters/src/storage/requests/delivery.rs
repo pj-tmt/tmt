@@ -2,10 +2,13 @@
 //! row read inside the request transaction: no process, pane or file is touched.
 use super::*;
 use tmt_core::{
-    binding::BindingRecords,
+    binding::{
+        BindingRecords,
+        session::activity::{Activity, ActivityPhase},
+    },
     request::{
         delivery::{DeliveryFacts, DigestHold, RecipientActivity, ReturnedAnswer},
-        passthrough::CaptureState,
+        passthrough::{CaptureState, RunningTurn},
     },
 };
 
@@ -94,7 +97,9 @@ fn answer(
     }
     Ok(match passthrough::capture(db, &attempt.request_id)? {
         Some(capture) => match capture.state_at(now) {
-            CaptureState::Answered => ReturnedAnswer::Turn,
+            CaptureState::Answered => ReturnedAnswer::Turn {
+                folded: capture.folded,
+            },
             CaptureState::NoAnswer => ReturnedAnswer::NoCapture {
                 bound: capture.bound_at_ms.is_some(),
             },
@@ -142,6 +147,29 @@ pub(super) fn activity(
     db: &Connection,
     identity: &str,
 ) -> Result<Option<RecipientActivity>, StorageError> {
+    Ok(
+        verified_activity(db, identity)?.map(|activity| RecipientActivity {
+            phase: activity.phase,
+            since_ms: activity.since_ms,
+        }),
+    )
+}
+
+/// The turn that [`activity`] shows running, with the session and turn id it can be bound by.
+pub(super) fn running_turn(
+    db: &Connection,
+    identity: &str,
+) -> Result<Option<RunningTurn>, StorageError> {
+    Ok(verified_activity(db, identity)?
+        .filter(|activity| activity.phase == ActivityPhase::Working)
+        .map(|activity| RunningTurn {
+            session: activity.session.as_str().to_owned(),
+            turn: activity.turn.map(|turn| turn.as_str().to_owned()),
+            since_ms: activity.since_ms,
+        }))
+}
+
+fn verified_activity(db: &Connection, identity: &str) -> Result<Option<Activity>, StorageError> {
     let rows = crate::storage::bindings::BindingRows(db);
     let Some(key) = rows
         .entry_by_id(identity)?
@@ -162,9 +190,6 @@ pub(super) fn activity(
                 .and_then(crate::runtime::driver_state::state_activity)?;
             activity
                 .matches(&remembered.provider_session, &key.incarnation)
-                .then_some(RecipientActivity {
-                    phase: activity.phase,
-                    since_ms: activity.since_ms,
-                })
+                .then_some(activity)
         }))
 }

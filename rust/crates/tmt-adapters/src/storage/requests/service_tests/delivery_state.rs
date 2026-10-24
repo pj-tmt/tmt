@@ -5,6 +5,7 @@ use super::{
     passthrough::{claimed_passthrough, identity as person, mark_user as mark_person},
     support::{Fixture, NOW_MS, service},
 };
+use crate::storage::requests::passthrough::{capture, settle_turn};
 use tmt_core::{
     operation::new_operation_id,
     request::{
@@ -13,7 +14,9 @@ use tmt_core::{
         digest::{
             DeliveryPolicy, DigestOpportunity, DigestPolicyWrite, DigestRejection, DigestState,
         },
+        passthrough::CaptureState,
     },
+    responses::FinalText,
 };
 
 fn view(f: &mut Fixture, id: &str) -> DeliveryView {
@@ -449,4 +452,92 @@ fn a_passthrough_reads_the_outcome_of_its_capture_and_never_working_after_it_end
         ("unconfirmed", "no_turn_started", false)
     );
     f.storage.close().unwrap();
+}
+
+/// One passthrough typed into `agent`'s pane while its bound session's driver last reported
+/// `state` at `since_ms` (`None`: no binding at all). The send began at `NOW_MS`.
+fn typed_while(state: Option<(&str, u64)>) -> Fixture {
+    let mut f = Fixture::new();
+    let ben = person(&mut f, "Ben");
+    mark_person(&f, &ben);
+    let target = f.identity_id.clone();
+    if let Some((state, since_ms)) = state {
+        bind_with_activity(&f, &target, state, since_ms);
+    }
+    claimed_passthrough(&mut f, &target, &ben, "typed", "also do the other thing");
+    service(&mut f)
+        .settle_request_delivery("typed", WakeState::Sent)
+        .unwrap();
+    f
+}
+
+#[test]
+fn a_passthrough_typed_into_a_running_turn_binds_to_it_and_the_turns_end_answers_it() {
+    // The turn ran for five seconds before the send began: no prompt will announce the text.
+    let mut f = typed_while(Some(("working", NOW_MS - 5_000)));
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    let folded = capture(&db, "typed").unwrap().unwrap();
+    assert_eq!(folded.state, CaptureState::Bound);
+    assert!(folded.folded);
+    assert_eq!(folded.bound_session.as_deref(), Some("session"));
+    assert_eq!(
+        folded.bound_turn, None,
+        "the fixture's provider names no turn"
+    );
+    assert_eq!(folded.bound_at_ms, Some(folded.delivered_at_ms));
+
+    let target = f.identity_id.clone();
+    let text = FinalText::new("Both done.").unwrap();
+    assert!(
+        settle_turn(
+            &db,
+            &target,
+            "session",
+            None,
+            Some((&text, "claude")),
+            NOW_MS + 10_000
+        )
+        .unwrap()
+    );
+    let answered = capture(&db, "typed").unwrap().unwrap();
+    assert_eq!(answered.answer.unwrap().text, "Both done.");
+    assert_eq!(
+        shown(&mut f, "typed"),
+        ("answered", "answered_by_folded_turn", false)
+    );
+    f.storage.close().unwrap();
+}
+
+#[test]
+fn a_folded_passthrough_whose_turn_ends_without_a_final_reads_unconfirmed_not_working() {
+    let mut f = typed_while(Some(("working", NOW_MS - 5_000)));
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    let target = f.identity_id.clone();
+    assert!(settle_turn(&db, &target, "session", None, None, NOW_MS + 10_000).unwrap());
+    assert_eq!(
+        shown(&mut f, "typed"),
+        ("unconfirmed", "turn_ended_without_answer", false)
+    );
+    f.storage.close().unwrap();
+}
+
+#[test]
+fn a_passthrough_is_folded_only_into_a_turn_the_verified_binding_shows_running_before_the_send() {
+    for (case, state) in [
+        // The turn began after the send did: it may be this text's own prompt.
+        (
+            "a turn that began after the send",
+            Some(("working", NOW_MS + 5)),
+        ),
+        ("an idle agent", Some(("idle", NOW_MS - 5_000))),
+        ("an unbound agent", None),
+    ] {
+        let mut f = typed_while(state);
+        let db = rusqlite::Connection::open(&f.database).unwrap();
+        let pending = capture(&db, "typed").unwrap().unwrap();
+        assert_eq!(pending.state, CaptureState::Pending, "{case}");
+        assert!(!pending.folded, "{case}");
+        assert_eq!(pending.bound_session, None, "{case}");
+        f.storage.close().unwrap();
+    }
 }

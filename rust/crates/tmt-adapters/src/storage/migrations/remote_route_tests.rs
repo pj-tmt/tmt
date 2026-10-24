@@ -24,6 +24,9 @@ const CHILDREN: [&str; 4] = [
     "focus_items",
 ];
 
+/// Columns later migrations added to those tables: this test is about the schema-65 rebuild.
+const ADDED_LATER: [&str; 1] = ["folded"];
+
 const SEED: &str = "
 INSERT INTO identities (id, name, canonical_name, created_at, updated_at)
   VALUES ('i1', 'Ana', 'ana', 'now', 'now'), ('i2', 'Bo', 'bo', 'now', 'now');
@@ -104,18 +107,49 @@ fn snapshot(db: &Connection) -> Snapshot {
         ),
         children: CHILDREN
             .iter()
-            .map(|table| rows(db, &format!("SELECT * FROM {table} ORDER BY 1, 2")))
+            .map(|table| {
+                let columns = columns_of(db, table).join(", ");
+                rows(db, &format!("SELECT {columns} FROM {table} ORDER BY 1, 2"))
+            })
             .collect(),
         responses: rows(db, "SELECT * FROM request_responses ORDER BY request_id"),
         dependents: text(
             "SELECT name, sql FROM sqlite_schema WHERE tbl_name = 'request_attempts'
              AND type IN ('index', 'trigger') AND sql IS NOT NULL",
         ),
-        child_tables: text(&format!(
-            "SELECT name, sql FROM sqlite_schema WHERE type = 'table' AND name IN ({})",
-            CHILDREN.map(|table| format!("'{table}'")).join(", ")
-        )),
+        child_tables: CHILDREN
+            .iter()
+            .map(|table| {
+                let description = rows(
+                    db,
+                    &format!(
+                        "SELECT name, type, \"notnull\", dflt_value, pk FROM pragma_table_info('{table}')
+                         WHERE name NOT IN ({}) ORDER BY cid",
+                        ADDED_LATER.map(|column| format!("'{column}'")).join(", ")
+                    ),
+                );
+                let references = rows(
+                    db,
+                    &format!("SELECT * FROM pragma_foreign_key_list('{table}') ORDER BY id, seq"),
+                );
+                (table.to_string(), format!("{description:?} {references:?}"))
+            })
+            .collect(),
     }
+}
+
+/// The columns of a child table that existed when schema 65 rebuilt `request_attempts`.
+fn columns_of(db: &Connection, table: &str) -> Vec<String> {
+    rows(
+        db,
+        &format!("SELECT name FROM pragma_table_info('{table}') ORDER BY cid"),
+    )
+    .into_iter()
+    .filter_map(|row| match &row[0] {
+        Value::Text(name) if !ADDED_LATER.contains(&name.as_str()) => Some(name.clone()),
+        _ => None,
+    })
+    .collect()
 }
 
 fn seeded(name: &str) -> (TestDirectory, std::path::PathBuf) {
@@ -142,7 +176,7 @@ fn the_rebuild_keeps_every_row_dependent_row_index_and_trigger() {
     drop(old);
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 68);
+    assert_eq!(storage.health().unwrap().schema_version, 69);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -417,7 +451,7 @@ fn a_failed_rebuild_changes_nothing() {
     // The same database then migrates, and nothing about the failed attempt lingers.
     drop(db);
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 68);
+    assert_eq!(storage.health().unwrap().schema_version, 69);
     storage.close().unwrap();
     assert_eq!(
         snapshot(&Connection::open(&path).unwrap()).attempts,
