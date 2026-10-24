@@ -450,12 +450,12 @@ pub trait RequestRecords {
         limit: u64,
         now_ms: u64,
     ) -> Result<Vec<digest::DigestItem>, Self::Error>;
-    /// Returns the unconfirmed items up to `through` to the held pool, so the claim that
+    /// Returns the unconfirmed items with these sequences to the held pool, so the claim that
     /// follows seals them again. Their checklist keeps its settlement.
     fn release_unconfirmed_digest(
         &mut self,
         identity_id: &str,
-        through: u64,
+        sequences: &[u64],
     ) -> Result<u64, Self::Error>;
     fn digest_checklist(&self, id: &str) -> Result<Option<digest::DigestChecklist>, Self::Error>;
     fn active_digest_checklist(

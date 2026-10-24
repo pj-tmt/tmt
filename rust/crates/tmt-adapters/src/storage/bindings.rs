@@ -316,6 +316,7 @@ impl BindingRecords for BindingRows<'_> {
     }
 
     fn detach_binding(&mut self, id: &str) -> Result<(), Self::Error> {
+        session::end_continuation_of_binding(self.0, id)?;
         self.0
             .execute("DELETE FROM bindings WHERE id = ?", [id])
             .map_err(|error| classify(error, "Detach binding"))?;
@@ -327,6 +328,7 @@ impl BindingRecords for BindingRows<'_> {
         identity: &Identity,
         remove_content: bool,
     ) -> Result<(), Self::Error> {
+        session::end_continuation_of_identity(self.0, &identity.id)?;
         self.0
             .execute("DELETE FROM bindings WHERE identity_id = ?", [&identity.id])
             .map_err(|error| classify(error, "Detach identity binding"))?;

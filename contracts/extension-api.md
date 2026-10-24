@@ -1064,8 +1064,8 @@ through the existing admitted-event transition. Manual denial emits no installed
 clear event: waiting remains until the next admitted event, without a timer.
 A tool completion cannot reopen an idle turn. A Stop that a Digest checklist blocked ends its
 turn here, and the provider's continuation shows no activity of its own: the Digest idle
-opportunity treats the seat as working until that continuation's own Stop or the next prompt,
-without changing the recorded state. Duplicate phases do not renew
+opportunity treats the seat as working until that continuation's own Stop, the next prompt or the
+end of that provider run, without changing the recorded state. Duplicate phases do not renew
 timestamps. These events record the last admitted observation, not a count of
 parallel pending approvals, and never decide or answer a permission request.
 Claude reports waiting; Codex does not report it in this contract. Consumers show

@@ -1904,6 +1904,57 @@ fn a_checklist_typed_into_a_running_turn_is_offered_again_at_the_next_stop() {
     f.storage.close().unwrap();
 }
 
+/// The agent may answer a typed request from its inbox, or see a paste mid-turn, without a prompt
+/// naming it. The next Stop offers only what still waits for an answer.
+#[test]
+fn an_answered_request_is_not_offered_again_at_the_next_stop() {
+    let (mut f, target, _, sender) = start();
+    let answered = held(&mut f, &target, &sender, "req-answered");
+    held(&mut f, &target, &sender, "req-open");
+    type_idle_checklist(&mut f, &target);
+    service(&mut f)
+        .submit_response(SubmitResponse {
+            request_id: "req-answered".into(),
+            proof: ResponseProof::Compact(tmt_core::request::correlation::response_token(
+                "req-answered",
+                &answered.attempt_id,
+                &RequestRoute::Inbox {
+                    recipient_identity_id: target.clone(),
+                },
+            )),
+            body: "done from the inbox".into(),
+        })
+        .unwrap();
+
+    let claimable = service(&mut f)
+        .digest_claimable_items(&target, DigestOpportunity::TurnBoundary, 128)
+        .unwrap();
+    assert_eq!(
+        claimable
+            .iter()
+            .map(|item| item.request_id.as_str())
+            .collect::<Vec<_>>(),
+        ["req-open"]
+    );
+
+    let offered = service(&mut f)
+        .claim_digest_checklist(
+            &target,
+            new_operation_id(),
+            new_operation_id(),
+            DigestOpportunity::TurnBoundary,
+            None,
+        )
+        .unwrap()
+        .expect("the request still waiting is offered");
+    let (items, count) = service(&mut f)
+        .digest_checklist_items(&target, Some(&offered.id), 0, 128)
+        .unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(items[0].request_id, "req-open");
+    f.storage.close().unwrap();
+}
+
 /// A prompt that carries the typed checklist confirms it: the next Stop has nothing to offer.
 #[test]
 fn a_prompt_that_carries_the_typed_checklist_confirms_it() {

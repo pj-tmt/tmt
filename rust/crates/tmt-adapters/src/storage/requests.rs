@@ -339,8 +339,12 @@ impl RequestRecords for RequestRows<'_> {
     ) -> Result<Vec<tmt_core::request::digest::DigestItem>, Self::Error> {
         digest::unconfirmed_items(self.0, id, limit, now)
     }
-    fn release_unconfirmed_digest(&mut self, id: &str, through: u64) -> Result<u64, Self::Error> {
-        digest::release_unconfirmed(self.0, id, through)
+    fn release_unconfirmed_digest(
+        &mut self,
+        id: &str,
+        sequences: &[u64],
+    ) -> Result<u64, Self::Error> {
+        digest::release_unconfirmed(self.0, id, sequences)
     }
     fn digest_checklist(
         &self,

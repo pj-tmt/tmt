@@ -216,7 +216,7 @@ line. Treat each item as an ordinary message; no follow-up read is needed. A pas
 capped at 32 KiB at an item boundary and the rest waits for the next one. An
 uncertain handoff is never replay permission. A checklist typed while you were mid-turn may
 never have become a prompt: its requests, with the same receipts, come again in your next
-Stop-hook checklist unless a prompt already carried them. Reads and delivery do not acknowledge X.
+Stop-hook checklist unless a prompt already carried them or you answered them. Reads and delivery do not acknowledge X.
 
 An identity with no recorded binding receives through inbox pull. Ordinary
 `talk` waits for its durable reply, using the same 180-second default,

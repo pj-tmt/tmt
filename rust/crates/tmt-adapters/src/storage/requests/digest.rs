@@ -326,22 +326,26 @@ pub(super) fn unconfirmed_items(
     .map_err(|e| classify(e, "Read unconfirmed digest items"))
 }
 
-/// Returns the unconfirmed items up to `through` to the held pool. The checklist keeps its
-/// settlement; only the membership moves, so a later claim seals each request again.
+/// Returns the named unconfirmed items to the held pool. The checklist keeps its settlement; only
+/// the membership moves, so a later claim seals each request again.
 pub(super) fn release_unconfirmed(
     db: &Connection,
     identity: &str,
-    through: u64,
+    sequences: &[u64],
 ) -> Result<u64, StorageError> {
-    db.execute(
-        &format!(
-            "UPDATE focus_items SET checklist_id=NULL WHERE identity_id=?1 AND sequence<=?2 AND checklist_id IN
-             (SELECT c.id FROM focus_checklists c WHERE {UNCONFIRMED})"
-        ),
-        params![identity, checked_i64(through, "Digest release watermark")?],
-    )
-    .map(|changed| changed as u64)
-    .map_err(|e| classify(e, "Release unconfirmed digest members"))
+    let mut released = 0;
+    for sequence in sequences {
+        released += db
+            .execute(
+                &format!(
+                    "UPDATE focus_items SET checklist_id=NULL WHERE identity_id=?1 AND sequence=?2 AND checklist_id IN
+                     (SELECT c.id FROM focus_checklists c WHERE {UNCONFIRMED})"
+                ),
+                params![identity, checked_i64(*sequence, "Digest release sequence")?],
+            )
+            .map_err(|e| classify(e, "Release unconfirmed digest members"))? as u64;
+    }
+    Ok(released)
 }
 
 /// Whether a Stop hook handed this identity a checklist and the continuation that follows has not

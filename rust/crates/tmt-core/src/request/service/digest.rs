@@ -21,6 +21,36 @@ fn digest_identity<E>(
     Ok(())
 }
 
+/// How many unconfirmed items one claim looks through, so a pile of closed requests cannot hide
+/// an open one behind the caller's own limit.
+const MAX_UNCONFIRMED_SCAN: u64 = 512;
+
+/// The unconfirmed items worth offering again, oldest first. A request that no longer admits a
+/// first final (answered, withdrawn or expired) has nothing left to ask, so a paste the seat saw
+/// or answered from its inbox is not offered twice. A result or timeout notice names a final the
+/// seat may not have read, so it stays (#4858).
+fn reofferable<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    identity: &str,
+    limit: u64,
+    now: u64,
+) -> Result<Vec<digest::DigestItem>, RequestError<E>> {
+    let mut items = Vec::new();
+    for item in records.digest_unconfirmed_items(identity, MAX_UNCONFIRMED_SCAN, now)? {
+        let open = item.source != digest::DigestSource::Incoming
+            || context(records, &item.request_id, now)?.is_some_and(|context| {
+                responses::first_final_refusal(&context.attempt, now).is_none()
+            });
+        if open {
+            items.push(item);
+        }
+        if items.len() as u64 == limit {
+            break;
+        }
+    }
+    Ok(items)
+}
+
 impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
     /// Uses the same first-final eligibility as reply admission, without renewing
     /// retention or acknowledging attention.
@@ -319,7 +349,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             if opportunity == DigestOpportunity::TurnBoundary {
                 // The provider's own hook output is a different channel from the paste
                 // that may have been lost, so it may offer those items again (#4858).
-                items.extend(records.digest_unconfirmed_items(identity, limit, now)?);
+                items.extend(reofferable(records, identity, limit, now)?);
                 items.sort_by_key(|item| item.sequence);
                 items.truncate(limit as usize);
             }
@@ -361,7 +391,12 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             let bound = claim_bound(records, identity, opportunity, now)?
                 .min(through_limit.unwrap_or(MAX_JS_SAFE_INTEGER));
             if opportunity == DigestOpportunity::TurnBoundary {
-                records.release_unconfirmed_digest(identity, bound)?;
+                let again: Vec<u64> = reofferable(records, identity, MAX_UNCONFIRMED_SCAN, now)?
+                    .into_iter()
+                    .map(|item| item.sequence)
+                    .filter(|sequence| *sequence <= bound)
+                    .collect();
+                records.release_unconfirmed_digest(identity, &again)?;
             }
             let (count, through_sequence) = records.digest_due_inventory(identity, bound, now)?;
             if count == 0 {
