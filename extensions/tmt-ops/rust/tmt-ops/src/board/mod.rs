@@ -638,7 +638,15 @@ fn session(
         if let Some(writer) = app.unread.writer.offer() {
             io(lane::Job::ReadMarkers(writer));
         }
-        let shown = app.conversation_notes_key();
+        let shown = app.conversation_notes_key().or_else(|| {
+            if app.loading() || !app.workspace_selection_visible() {
+                return None;
+            }
+            match app.workspace.selected.as_ref()? {
+                workspace::OpsTarget::Squad(room) => Some(conversation_notes::Key::room(room)),
+                _ => None,
+            }
+        });
         if let Some(task) = app
             .notes
             .offer(shown.as_ref(), now)

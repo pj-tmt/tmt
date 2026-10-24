@@ -525,16 +525,20 @@ cells/styles/hits/oracle diff is approved by the UX primary reviewer. Regenerati
 [TUI parity gate](../../tmt-tui/references/development.md#board-parity-baseline).
 [development.md](development.md#checks) owns commands and isolated captures.
 
-## Conversation todo projection
+## Checklist todo projection
 
-`conversation_notes::State` owns held per-conversation counts and the global
-room/member admission set. The existing quiet Notes lane admits one read at a
+`conversation_notes::State` owns held room and conversation counts and the global
+admission set: each squad room once, alongside its exact room/member conversations.
+Its explicit subject keeps conversation drafts/writes separate from room-list writes.
+The existing quiet lane admits one read at a
 time, selected first at five seconds and other keys at most once per minute.
 Background deliveries contain counts only; full previews remain with the selected
 Notes overlay. The existing write epoch fences late reads. Scope publication and
-Notes delivery update the cached header total, so paint does not scan every
-conversation. `columns::activity_spans` adds the whole todo suffix to the observed
-activity (or the existing unread override), only for a known positive count.
+delivery update the cached header total, so paint does not scan every list.
+An admitted room-modal observation updates its room summary and fences older quiet reads.
+Shared completion counts treat references as attributes, including linked open items.
+`columns::todo_span` adds the whole suffix after the existing state/task, only for
+a known positive count; the state and unread words keep their width first.
 The shared track solver keeps header, row and hit geometry aligned and admits
 MODEL / ALERT only when its whole header fits. Pending/unavailable counts stay
 distinct from known zero in the global header; none adds a row suffix.

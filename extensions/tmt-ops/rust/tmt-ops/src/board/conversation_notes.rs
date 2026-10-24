@@ -1,4 +1,4 @@
-//! The Notes of one conversation (a member's list inside a room), read and written on the lane.
+//! Held room and conversation summaries, with conversation drafts read and written on the lane.
 //! The board keeps only what it paints; the admitted checklist service stays the one owner of the items.
 use crate::checklist::{Applied, Code, Error, Preview, model::Id};
 use std::{
@@ -24,34 +24,65 @@ const FRESH: Duration = Duration::from_secs(5);
 const RETRY: Duration = Duration::from_secs(30);
 const BACKGROUND: Duration = Duration::from_secs(60);
 
-/// A conversation: the room and the member, both canonical UUIDs.
+/// Which list in a room the board reads. Conversation drafts never become room writes.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(in crate::board) enum Subject {
+    Room,
+    Conversation(String),
+}
+
+/// A room or conversation list, keyed only by canonical UUIDs.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(in crate::board) struct Key {
     pub room: String,
-    pub member: String,
+    pub subject: Subject,
 }
 
 impl Key {
-    fn parts(target: &super::workspace::OpsTarget) -> Option<(&str, &str)> {
+    fn parts(target: &super::workspace::OpsTarget) -> Option<(&str, Option<&str>)> {
         match target {
+            super::workspace::OpsTarget::Squad(room) => Some((room, None)),
             super::workspace::OpsTarget::Member {
                 room_id: Some(room),
                 identity_id,
-            } => Some((room, identity_id)),
+            } => Some((room, Some(identity_id))),
             _ => None,
         }
     }
 
     /// A member of a squad has a list in its room; a member of the Common pool has no room.
     pub fn of(target: &super::workspace::OpsTarget) -> Option<Self> {
-        Self::parts(target).map(|(room, member)| Self {
+        let (room, member) = Self::parts(target)?;
+        Some(Self {
             room: room.into(),
-            member: member.into(),
+            subject: Subject::Conversation(member?.into()),
         })
+    }
+
+    pub fn room(room: impl Into<String>) -> Self {
+        Self {
+            room: room.into(),
+            subject: Subject::Room,
+        }
+    }
+
+    pub fn list(target: &super::workspace::OpsTarget) -> Option<Self> {
+        let (room, member) = Self::parts(target)?;
+        Some(Self {
+            room: room.into(),
+            subject: member.map_or(Subject::Room, |member| Subject::Conversation(member.into())),
+        })
+    }
+
+    pub fn member(&self) -> Option<&str> {
+        match &self.subject {
+            Subject::Room => None,
+            Subject::Conversation(member) => Some(member),
+        }
     }
 }
 
-/// What the lane does for one conversation: read its list, or apply one write to it.
+/// A list read or a conversation write; the room modal retains its own write owner.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Work {
     Read,
@@ -114,7 +145,7 @@ pub(in crate::board) struct State {
     read: Option<Key>,
     /// The earliest background retry, so idle loop turns do not rescan the roster.
     background_at: Option<Instant>,
-    /// Global admitted conversations, independent of search and the viewport.
+    /// Global admitted lists, independent of search and the viewport.
     scope: Option<BTreeSet<Key>>,
     total: Option<Total>,
     /// An unsent form outlives the overlay that showed it.
@@ -133,11 +164,11 @@ impl State {
                 && scope
                     .iter()
                     .zip(&admitted)
-                    .all(|(key, (room, member))| key.room == *room && key.member == *member)
+                    .all(|(key, (room, member))| key.room == *room && key.member() == *member)
         }) {
             return;
         }
-        self.reconcile(targets.filter_map(Key::of));
+        self.reconcile(targets.filter_map(Key::list));
     }
 
     pub fn enable(&mut self) {
@@ -186,12 +217,23 @@ impl State {
     }
 
     pub fn row_label(&self, target: &super::workspace::OpsTarget) -> Option<String> {
-        let key = Key::of(target)?;
+        let key = Key::list(target)?;
         match self.summary(&key) {
-            Some(Summary::Counts(counts)) => {
-                (counts.todo > 0).then(|| format!("{} todo", counts.todo))
-            }
+            Some(Summary::Counts(counts)) => (counts.todo > 0).then(|| {
+                format!(
+                    "{}{} todo",
+                    if key.member().is_none() { "○ " } else { "" },
+                    counts.todo
+                )
+            }),
             None | Some(Summary::Pending | Summary::Unavailable(_)) => None,
+        }
+    }
+
+    pub fn room_label(&self, room: &str) -> String {
+        match self.summary(&Key::room(room)) {
+            Some(Summary::Counts(counts)) => format!("Checklist · {} todo", counts.todo),
+            _ => "Checklist".into(),
         }
     }
 
@@ -218,8 +260,13 @@ impl State {
                 } else {
                     FRESH
                 };
-                let at = entry.preview_at.unwrap_or(entry.at);
-                if (entry.preview_at.is_some() || matches!(entry.summary, Summary::Unavailable(_)))
+                let current = key.member().is_none() || entry.preview_at.is_some();
+                let at = if key.member().is_none() {
+                    entry.at
+                } else {
+                    entry.preview_at.unwrap_or(entry.at)
+                };
+                if (current || matches!(entry.summary, Summary::Unavailable(_)))
                     && now.duration_since(at) < wait
                 {
                     return None;
@@ -246,7 +293,11 @@ impl State {
         self.recount();
         Some(Task {
             key: key.clone(),
-            work: Work::Read,
+            work: if key.member().is_some() {
+                Work::Read
+            } else {
+                Work::Counts
+            },
             epoch,
         })
     }
@@ -294,6 +345,7 @@ impl State {
 
     /// The write for the lane, or None while the list is unread or another write is on it.
     pub fn write(&mut self, key: &Key, write: Write) -> Option<Task> {
+        key.member()?;
         let entry = self.lists.get_mut(key).filter(|entry| !entry.writing)?;
         entry.writing = true;
         Some(Task {
@@ -316,6 +368,27 @@ impl State {
         }
         self.recount();
         written
+    }
+
+    /// An admitted room-modal observation supersedes any earlier quiet count read.
+    pub fn observe_room(&mut self, current: &crate::checklist::Current, now: Instant) {
+        if current.member.is_some() {
+            return;
+        }
+        let key = Key::room(current.room.id.as_str());
+        let entry = self.lists.entry(key).or_insert_with(|| Entry {
+            summary: Summary::Pending,
+            preview: None,
+            at: now,
+            preview_at: None,
+            epoch: 0,
+            writing: false,
+        });
+        entry.epoch += 1;
+        entry.at = now;
+        entry.summary = Summary::Counts(Counts::of(&current.items));
+        self.background_at = None;
+        self.recount();
     }
 
     fn adopt(&mut self, completed: Completed, now: Instant) -> Option<Written> {

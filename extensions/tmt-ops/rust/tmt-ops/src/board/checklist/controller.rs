@@ -5,10 +5,56 @@ use crate::checklist::{
     Code,
     model::{Action, Confirmation, Mutation},
 };
-use ratatui::crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{
+    Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use tmt_tui::components::{ListRow, PickerEvent, PickerField, PickerInput};
 
 impl App {
+    /// A count is a control before the row's text can start a selection.
+    pub(in crate::board) fn room_checklist_mouse(&mut self, event: MouseEvent) -> Option<Effect> {
+        if event.kind != MouseEventKind::Down(MouseButton::Left) {
+            return None;
+        }
+        let room =
+            self.workspace_strip_hits
+                .borrow()
+                .iter()
+                .find_map(|(area, choice)| match choice {
+                    crate::board::app::Choice::RoomChecklist(room)
+                        if area.contains((event.column, event.row).into()) =>
+                    {
+                        Some(room.clone())
+                    }
+                    _ => None,
+                })?;
+        Some(self.open_room_checklist(room))
+    }
+
+    pub(in crate::board) fn open_room_checklist(&mut self, room: String) -> Effect {
+        use crate::board::{app::Choice, workspace::OpsTarget};
+        let target = OpsTarget::Squad(room.clone());
+        if self.loading()
+            || self.modal_open()
+            || self.input.is_some()
+            || !self.workspace_rows().iter().any(|row| row.target == target)
+        {
+            return Effect::None;
+        }
+        if self.checklist.as_ref().is_some_and(|c| {
+            c.room.as_ref().map(Id::as_str) != Some(room.as_str()) && c.holds_intent()
+        }) {
+            return self
+                .say("Finish the retained Checklist in its original room before opening another.");
+        }
+        self.choose(Choice::WorkspaceTarget(target.clone()));
+        if self.workspace.selected.as_ref() == Some(&target) && self.workspace_selection_visible() {
+            self.open_checklist()
+        } else {
+            Effect::None
+        }
+    }
+
     pub(in crate::board) fn checklist_shown(&self) -> bool {
         self.checklist.as_ref().is_some_and(|c| c.active)
     }
@@ -50,9 +96,11 @@ impl App {
             row: self.row_target(self.selected),
         };
         // A retained draft belongs to its original room even after the board navigates.
-        if self.checklist.as_ref().is_none_or(|c| {
-            c.room != room && c.draft.is_none() && c.submit.is_none() && c.unknown.is_empty()
-        }) {
+        if self
+            .checklist
+            .as_ref()
+            .is_none_or(|c| c.room != room && !c.holds_intent())
+        {
             self.checklist_generation += 1;
             self.checklist = Some(Controller::new(self.checklist_generation, room));
         }
@@ -96,12 +144,19 @@ impl App {
         Some(effect)
     }
     pub(in crate::board) fn finished_checklist(&mut self, completed: load::Completed) {
-        if let Some(controller) = &mut self.checklist {
-            controller.loaded(completed);
+        if let Some(controller) = &mut self.checklist
+            && controller.loaded(completed)
+            && let Some(current) = controller.current()
+        {
+            self.notes.observe_room(current, std::time::Instant::now());
         }
     }
 }
 impl Controller {
+    fn holds_intent(&self) -> bool {
+        self.draft.is_some() || self.submit.is_some() || !self.unknown.is_empty()
+    }
+
     pub(in crate::board) fn owns_typing(&self) -> bool {
         self.active
             && self.screen == Screen::Form
@@ -116,10 +171,14 @@ impl Controller {
                     self.draft.is_some() && matches!(field, "title" | "body" | "reference")
                 })
     }
-    pub(super) fn loaded(&mut self, completed: load::Completed) {
+    pub(super) fn loaded(&mut self, completed: load::Completed) -> bool {
         if self.pending.as_ref() != Some(&completed.key) {
-            return;
+            return false;
         }
+        let observed = matches!(
+            &completed.outcome,
+            load::Outcome::Read(Ok(_)) | load::Outcome::Apply(Ok(_))
+        ) || matches!(&completed.outcome, load::Outcome::Apply(Err(error)) if error.current.is_some());
         self.pending = None;
         match completed.outcome {
             load::Outcome::Rooms(result) => match result {
@@ -208,6 +267,7 @@ impl Controller {
         }
         self.reconcile();
         self.invalidate();
+        observed
     }
     fn reset_panel(&self, selected: Option<&str>) {
         *self.panel.borrow_mut() = picker_surface::State::new(None, vec![], None);
