@@ -5,11 +5,12 @@ export type { MatrixOptions, MatrixParticipant } from './chart-matrix-model.js';
 
 /**
  * Who talks to whom: sender rows, recipient columns. A cell reads a number, `·` (observed none)
- * or `—` (unavailable); the diagonal is blank. Intensity is a square-root step of the busiest
+ * or `—` (unavailable); the default diagonal is blank. Default intensity is a square-root step of the busiest
  * pair, carried by class names that keep their text readable on both themes.
  */
 export function createMatrix(options: MatrixOptions): HTMLElement {
   const figure = htmlEl('figure', 'tmt-ui-chart');
+  if (options.numeric) figure.dataset.numeric = '';
   figure.append(htmlEl('figcaption', 'tmt-ui-chart-title', options.title));
   if (!options.participants.length) {
     figure.append(htmlEl('p', 'tmt-ui-chart-empty', options.empty ?? 'No agents observed.'));
@@ -18,7 +19,11 @@ export function createMatrix(options: MatrixOptions): HTMLElement {
   const model = matrixModel(options);
   const table = htmlEl('table', 'tmt-ui-chart-matrix');
   const head = htmlEl('tr');
-  const corner = htmlEl('th', 'tmt-ui-chart-matrix-corner', 'from\\to');
+  const corner = htmlEl(
+    'th',
+    'tmt-ui-chart-matrix-corner',
+    options.numeric ? 'From →' : 'from\\to',
+  );
   corner.scope = 'col';
   head.append(corner);
   for (const label of model.columns) {

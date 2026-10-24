@@ -1,5 +1,12 @@
 use std::{fmt, io};
 
+/// Internal provenance only. Both cases retain the same unavailable wire refusal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OwnedReadFailure {
+    Unavailable,
+    Store,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct RemoteError {
     pub code: String,
@@ -8,8 +15,8 @@ pub struct RemoteError {
     pub hint: Option<String>,
     /// Active session cap for a signed eviction refusal.
     pub limit: Option<usize>,
-    /// Fixed operation and numeric HTTP status for deployment preflight failures only.
-    pub provider: Option<DeployProviderDiagnostic>,
+    // These origins are mutually exclusive; keep one typed detail without growing every error.
+    detail: Option<ErrorDetail>,
 }
 impl RemoteError {
     pub fn new(code: &str, message: &str) -> Self {
@@ -18,16 +25,50 @@ impl RemoteError {
             message: message.into(),
             hint: None,
             limit: None,
-            provider: None,
+            detail: None,
         }
+    }
+    pub(crate) fn with_owned_read(mut self, failure: OwnedReadFailure) -> Self {
+        self.detail = Some(ErrorDetail::OwnedRead(failure));
+        self
     }
     pub fn json_value(&self) -> serde_json::Value {
         let mut value =
             serde_json::json!({"error":{"code":self.code,"message":self.json_message()}});
-        if let Some(provider) = self.provider {
-            value["error"]["provider"] = serde_json::json!(provider);
+        match self.detail {
+            Some(ErrorDetail::DeployProvider(provider)) => {
+                value["error"]["provider"] = serde_json::json!(provider)
+            }
+            Some(ErrorDetail::CloudProvider(provider)) => {
+                value["error"]["provider"] = serde_json::json!(provider)
+            }
+            Some(ErrorDetail::CloudDocument(reason)) => {
+                value["error"]["reason"] = serde_json::json!(reason)
+            }
+            _ => {}
         }
         value
+    }
+    pub(crate) fn owned_read(&self) -> Option<OwnedReadFailure> {
+        match self.detail {
+            Some(ErrorDetail::OwnedRead(failure)) => Some(failure),
+            _ => None,
+        }
+    }
+    pub(crate) fn with_deploy_provider(
+        mut self,
+        provider: Option<DeployProviderDiagnostic>,
+    ) -> Self {
+        self.detail = provider.map(ErrorDetail::DeployProvider);
+        self
+    }
+    pub(crate) fn with_cloud_provider(mut self, provider: CloudProviderDiagnostic) -> Self {
+        self.detail = Some(ErrorDetail::CloudProvider(provider));
+        self
+    }
+    pub(crate) fn with_cloud_document(mut self, reason: CloudDocumentReason) -> Self {
+        self.detail = Some(ErrorDetail::CloudDocument(reason));
+        self
     }
     pub fn with_hint(mut self, hint: &str) -> Self {
         self.hint = Some(hint.into());
@@ -110,4 +151,65 @@ impl DeployOperation {
             Self::HostingUpload => "the Hosting upload",
         }
     }
+}
+
+/// Fixed cloud HTTP evidence only; raw provider messages and fields are never retained.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CloudProviderOperation {
+    InboxRead,
+    ResponseRead,
+    InboxQuery,
+    InboxCreate,
+    ResponseCreate,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CloudProviderStatus {
+    Cancelled,
+    Unknown,
+    InvalidArgument,
+    DeadlineExceeded,
+    NotFound,
+    AlreadyExists,
+    PermissionDenied,
+    ResourceExhausted,
+    FailedPrecondition,
+    Aborted,
+    OutOfRange,
+    Unimplemented,
+    Internal,
+    Unavailable,
+    DataLoss,
+    Unauthenticated,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct CloudProviderDiagnostic {
+    pub operation: CloudProviderOperation,
+    pub status: u16,
+    #[serde(rename = "errorStatus", skip_serializing_if = "Option::is_none")]
+    pub error_status: Option<CloudProviderStatus>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ErrorDetail {
+    OwnedRead(OwnedReadFailure),
+    DeployProvider(DeployProviderDiagnostic),
+    CloudProvider(CloudProviderDiagnostic),
+    CloudDocument(CloudDocumentReason),
+}
+
+/// Closed codec stages; contains no provider values, identifiers or ciphertext.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CloudDocumentReason {
+    QueryShape,
+    NameShape,
+    FieldsShape,
+    PeerShape,
+    CreateTime,
+    IndexedTime,
+    TimeDelta,
+    Encoding,
+    Size,
 }

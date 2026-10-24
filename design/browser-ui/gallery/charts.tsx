@@ -28,20 +28,24 @@ function Mount({ build }: { build: () => HTMLElement }) {
   return <div ref={host} />;
 }
 
-const stackBuild = (share: boolean) => () =>
-  createSeriesChart({
+const stackBuild = (share: boolean) => () => {
+  const chart = createSeriesChart({
     title: share ? 'Share of tokens by seat' : 'Tokens by seat',
     kind: share ? 'share' : 'stack',
+    curve: 'monotone',
     x: hours,
-    series: topLayers(seatLayers(11), 7),
+    series: topLayers(seatLayers(11), 6),
   });
+  chart.classList.add('tmt-ui-chart-seats');
+  return chart;
+};
 
 export function ChartsSection() {
   return (
     <Section id="charts">
       <Pair
         title="Stacked and share"
-        note="Eleven seats fold into seven plus Other. Arrow keys, Home and End read each hour."
+        note="Eleven seats fold into six pastel areas plus Other. Arrow keys, Home and End read each hour."
       >
         {() => (
           <>
@@ -129,6 +133,53 @@ export function ChartsSection() {
               })
             }
           />
+        )}
+      </Pair>
+      <Pair
+        title="Activity heatmap and numeric message matrix"
+        note="Mint bars and date columns retain keyboard tips and hollow missing cells; numeric matrices show known zero and a self dash."
+      >
+        {() => (
+          <>
+            <Mount
+              build={() =>
+                createStrips({
+                  title: 'Relative token activity · daily',
+                  layout: 'heatmap',
+                  labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                  rows: strips(6),
+                  slotCount: 7,
+                  slotRange: (at) => `Day ${at + 1}`,
+                  ends: ['oldest', 'latest'],
+                  legend: false,
+                })
+              }
+            />
+            <Mount
+              build={() =>
+                createStrips({
+                  title: 'Relative token activity · 4-hour blocks',
+                  layout: 'heatmap',
+                  labels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'],
+                  rows: strips(6),
+                  slotCount: 6,
+                  slotRange: (at) => `${at * 4}:00–${(at + 1) * 4}:00`,
+                  ends: ['oldest', 'latest'],
+                  legend: false,
+                })
+              }
+            />
+            <Mount
+              build={() =>
+                createMatrix({
+                  title: 'Numeric messages',
+                  participants: people,
+                  value: sentBetween,
+                  numeric: true,
+                })
+              }
+            />
+          </>
         )}
       </Pair>
       <Pair title="Empty states" note="No data is said plainly; nothing is drawn as zero.">

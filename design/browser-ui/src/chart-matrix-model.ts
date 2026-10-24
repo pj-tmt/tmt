@@ -7,6 +7,8 @@ export interface MatrixParticipant {
 
 export interface MatrixOptions {
   title: string;
+  /** Count table presentation: a known zero is 0 and the diagonal is a dash. */
+  numeric?: boolean;
   /** The participants, as senders (rows) and recipients (columns) alike. */
   participants: readonly MatrixParticipant[];
   /** Messages sent `from` to `to`: null or undefined is unavailable, 0 is a known none. */
@@ -43,12 +45,18 @@ export function matrixModel(options: MatrixOptions): MatrixModel {
       let sent: number | null = null;
       const cells = people.map((to): MatrixCell => {
         if (from.id === to.id) {
-          return { text: '', level: 0, self: true, label: `${from.label} to itself` };
+          return {
+            text: options.numeric ? '—' : '',
+            level: 0,
+            self: true,
+            label: `${from.label} to itself`,
+          };
         }
         const count = options.value(from.id, to.id);
         if (count != null) sent = (sent ?? 0) + count;
         return {
-          text: count == null ? '—' : count === 0 ? '·' : compactCount(count),
+          text:
+            count == null ? '—' : count === 0 ? (options.numeric ? '0' : '·') : compactCount(count),
           level: level(count, max) ?? 0,
           self: false,
           label: `${from.label} to ${to.label}: ${count == null ? 'unavailable' : count}`,

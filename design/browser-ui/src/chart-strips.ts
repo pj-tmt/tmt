@@ -21,6 +21,7 @@ export function stripsLegend(): HTMLElement {
  */
 export function createStrips(options: StripsOptions): HTMLElement {
   const figure = htmlEl('figure', 'tmt-ui-chart');
+  if (options.layout) figure.dataset.layout = options.layout;
   figure.append(htmlEl('figcaption', 'tmt-ui-chart-title', options.title));
   if (!options.rows.length) {
     figure.append(htmlEl('p', 'tmt-ui-chart-empty', options.empty ?? 'No agents observed.'));
@@ -32,6 +33,15 @@ export function createStrips(options: StripsOptions): HTMLElement {
   const tip = htmlEl('div', 'tmt-ui-chart-tip');
   tip.hidden = true;
   tip.setAttribute('aria-hidden', 'true');
+  if (options.labels) {
+    const dates = htmlEl('li', 'tmt-ui-chart-strip-row');
+    dates.setAttribute('aria-hidden', 'true');
+    const labels = htmlEl('div', 'tmt-ui-chart-strip tmt-ui-chart-strip-ends');
+    for (const label of options.labels)
+      labels.append(htmlEl('span', 'tmt-ui-chart-strip-date', label));
+    dates.append(htmlEl('span', 'tmt-ui-chart-strip-label'), labels);
+    list.append(dates);
+  }
   const grid: { node: HTMLElement; tip: { seat: string; range: string; value: string } }[][] = [];
   for (const row of stripsModel(options).rows) {
     const item = htmlEl('li', 'tmt-ui-chart-strip-row');
@@ -64,7 +74,7 @@ export function createStrips(options: StripsOptions): HTMLElement {
     htmlEl('span', undefined, options.ends[1]),
   );
   ends.append(htmlEl('span', 'tmt-ui-chart-strip-label'), span);
-  list.append(ends);
+  if (options.layout !== 'heatmap') list.append(ends);
 
   const find = (target: EventTarget | null) => {
     const node = (target as HTMLElement | null)?.closest<HTMLElement>('.tmt-ui-chart-slot');
@@ -94,7 +104,11 @@ export function createStrips(options: StripsOptions): HTMLElement {
     const at = find(event.target);
     if (at) show(at.r, at.c);
   });
-  list.addEventListener('pointerleave', hide);
+  list.addEventListener('pointerleave', () => {
+    const focused = find(document.activeElement);
+    if (focused) show(focused.r, focused.c);
+    else hide();
+  });
   list.addEventListener('focusin', (event) => {
     const at = find(event.target);
     if (at) show(at.r, at.c);

@@ -27,11 +27,12 @@ if args==['identity','list','--json']:
 if args[0]=='check':
     print(json.dumps({'target':args[1],'pane':'%fixture','lines':int(args[-1]),'output':'bounded capture'}));sys.exit(0)
 wire=json.load(sys.stdin)
+receipt_file=root/('receipt-'+wire.get('input',{}).get('operationId','') if (root/'multi').exists() else 'receipt')
 with (root/'calls').open('a') as f: f.write(json.dumps(wire)+'\n')
 if wire['operation']=='storage.root':
     print(json.dumps({'dataRoot':(root/'storage-root').read_text()}));sys.exit(0)
 if wire['operation']=='dispatch.show':
-    if (root/'receipt').exists(): print((root/'receipt').read_text())
+    if receipt_file.exists(): print(receipt_file.read_text())
     else:
         print(json.dumps({'error':{'code':'DISPATCH_NOT_FOUND','message':'absent'}}));sys.exit(1)
 elif wire['operation']=='dispatch.create':
@@ -40,10 +41,10 @@ elif wire['operation']=='dispatch.create':
         with (root/'gate').open() as gate: gate.readline()
     if (root/'fault').exists():
         print('broken');sys.exit(0)
-    if (root/'receipt').exists():
+    if receipt_file.exists():
         print(json.dumps({'error':{'code':'DUPLICATE_TEST_SEND','message':'second create'}}));sys.exit(1)
     receipt={'operationId':wire['input']['operationId'],'items':[{'recipientId':wire['input']['recipientIds'][0],'requestId':'req_11111111-1111-4111-8111-111111111111','acceptance':'queued'}]}
-    (root/'receipt').write_text(json.dumps(receipt))
+    receipt_file.write_text(json.dumps(receipt))
     if (root/'lost').exists(): print('broken')
     else:
         receipt['wake']={'status':'uncertain','paneAttempted':True};print(json.dumps(receipt))

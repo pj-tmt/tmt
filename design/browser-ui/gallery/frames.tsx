@@ -1,3 +1,4 @@
+import { ChartsSection } from './charts.js';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Settings } from 'lucide-react';
@@ -412,6 +413,8 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
           <NoticeSection />
         </main>
       );
+    case 'charts':
+      return <ChartsSection />;
     case 'shell':
       return <ShellFrame params={params} />;
     case 'hosted':

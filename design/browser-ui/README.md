@@ -15,7 +15,7 @@ There is no root entry. `@tmt/browser-ui/static.css` exports checked
 `browserUiClasses` and presentation types without React; `@tmt/browser-ui/shell` exports the
 [Shell](../gui-style.md#shell) model (`shellRail`, `describedMenu`, `shellCount`), its reader
 `loadShellAnswer` and the framework-free `mountShell` renderer, with Lucide icon data
-(`src/shell-icons.ts`, ISC, `src/LICENSE.lucide`); `@tmt/browser-ui/chart` exports the framework-free chart painters and their pure models ([Charts](../gui-style.md#charts)); `@tmt/browser-ui/react`
+(`src/shell-icons.ts`, ISC, `src/LICENSE.lucide`); `@tmt/browser-ui/chart` exports the framework-free chart painters and their pure models ([Charts](../gui-style.md#charts)), including opt-in monotone areas and the six-colour `tmt-ui-chart-seats` palette; `@tmt/browser-ui/react`
 exports `BrandMark`, `BrandLockup`, `BrowserShell` (with `useShellBar`, the header slot, and `useShellTools`, the bar's search and chip slots), `BrowserHeader` (`inShell` draws no brand and keeps the product in its accessible name; `titleVisible={false}` draws no heading, for a page whose hero is its heading, and keeps `<product> · <title>` as the landmark's name), `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
 `BrowserToggle`, `BrowserCheckbox`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserDialog`, `BrowserMenu`, `BrowserTabs`, `BrowserNotifications`, `BrowserChips`, `BrowserChip` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
 lucide-react 1.52.0. React components use built-in icons for controls such as Drawer
@@ -366,14 +366,16 @@ as products do; nothing is redrawn. It shows each demo in a light and a dark col
 `data-theme`, and pins hover/focus by mirroring the leaf's own `:hover`/`:focus-visible` rules
 onto gallery attributes (`gallery/force-states.ts`). The shell, dialog, drawer, open menu and
 notifications render in iframes of the gallery itself (`?frame=<name>&theme=<theme>`), because
-they need a viewport or the top layer; the phone shell is a 390px frame. The gallery loads web
+they need a viewport or the top layer; the phone shell is a 390px frame. `?frame=charts`
+shows the real chart demos without competing overlay frames for keyboard-focus checks. The gallery loads web
 fonts from Google Fonts and supplies Colab's host metrics.
 
-A side outline (wide screens) or a header dropdown lists the sections and follows the scroll;
-the section's name is the page heading's suffix.
+When mounted as a local preview route, a side outline (wide screens) or a header dropdown
+lists the sections and follows the scroll; the section's name is the page heading's suffix.
 
-It is never built or exported: `package.json` exports do not name `gallery/`, and only
-`vite.gallery.config.ts` serves it. `gallery/covered.ts` maps every value export of
+`vite.gallery.config.ts` serves the standalone gallery. The workspace export
+`@tmt/browser-ui/gallery/frames` exposes its frame renderer for local preview hosts; it does not
+add a product route. `gallery/covered.ts` maps every value export of
 `src/react.ts` to its section; `tsc` and `test/gallery.test.ts` fail when an export is missing
 from that map or is not rendered or called in the gallery source.
 

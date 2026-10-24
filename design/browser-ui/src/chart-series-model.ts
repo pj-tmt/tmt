@@ -3,6 +3,7 @@ import {
   compactCount,
   type Layer,
   linePath,
+  monotonePath,
   niceMax,
   stackLayers,
   ticks,
@@ -16,6 +17,8 @@ export interface SeriesChartOptions {
    * series as columns; `line`: each series as a line (a missing observation breaks the line).
    */
   kind: 'stack' | 'share' | 'bars' | 'line';
+  /** Shape-preserving interpolation through observed positions; default is linear. */
+  curve?: 'monotone';
   /** One label per x position, oldest first (the first, middle and last are drawn). */
   x: readonly string[];
   series: readonly Layer[];
@@ -115,7 +118,7 @@ export function seriesModel(options: SeriesChartOptions, width: number): SeriesM
       marks.push({
         kind: 'area',
         style: styleOf(layer, i, options.style),
-        d: areaPath(xs, layer.upper.map(yAt), layer.lower.map(yAt)),
+        d: areaPath(xs, layer.upper.map(yAt), layer.lower.map(yAt), options.curve),
       }),
     );
   } else if (options.kind === 'bars') {
@@ -134,7 +137,11 @@ export function seriesModel(options: SeriesChartOptions, width: number): SeriesM
       let run: [number, number][] = [];
       const flush = () => {
         if (run.length)
-          marks.push({ kind: 'line', style: styleOf(layer, i, options.style), d: linePath(run) });
+          marks.push({
+            kind: 'line',
+            style: styleOf(layer, i, options.style),
+            d: options.curve ? monotonePath(run) : linePath(run),
+          });
         run = [];
       };
       layer.values.forEach((v, at) => {

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import {
   controlBoundaries,
@@ -98,3 +99,75 @@ for (const [frame, params] of frames)
       expect(await textAtSurfaceEdge(page, 'body')).toEqual([]);
       expect((await controlRadii(page, 'body')).off).toEqual([]);
     });
+
+for (const width of [1440, 390])
+  test(`heatmaps use wide short token-radius bars and retain keyboard tips at ${width}`, async ({
+    page,
+  }) => {
+    // Isolate keyboard focus from the full gallery's lazy-loading overlay demonstrations.
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/?frame=charts');
+    const maps = page.locator('.tmt-ui-chart[data-layout="heatmap"]');
+    await expect(maps).toHaveCount(4);
+    for (const map of await maps.all()) {
+      const cell = map.locator('.tmt-ui-chart-slot:not(.tmt-ui-chart-slot-none)').first();
+      await cell.scrollIntoViewIfNeeded();
+      const box = (await cell.boundingBox())!;
+      expect(box.width / box.height).toBeGreaterThanOrEqual(1.9);
+      await expect(cell).toHaveCSS('border-radius', '6px');
+      await cell.focus();
+      await expect(cell).toBeFocused();
+      await cell.dispatchEvent('pointerleave');
+      await expect(map.locator('.tmt-ui-chart-tip')).toBeVisible();
+      await page.keyboard.press('ArrowRight');
+      expect(
+        await map
+          .locator('.tmt-ui-chart-slot')
+          .evaluateAll((nodes) => nodes.some((node) => node === document.activeElement)),
+      ).toBe(true);
+    }
+  });
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`theme roles survive nested theme switches and ${scheme} system preference`, async ({
+    page,
+  }) => {
+    const tokens = JSON.parse(
+      readFileSync(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
+    );
+    await page.emulateMedia({ colorScheme: scheme });
+    await gallery(page, 1440);
+    const roles = Object.entries({
+      color: tokens.browser.color,
+      surface: tokens.browser.surface,
+      shadow: tokens.browser.shadow,
+      'brand-mark': tokens.brand.mark,
+    }).flatMap(([group, values]) =>
+      Object.entries(values as Record<string, { light: string; dark: string }>)
+        .filter(([name]) => !name.startsWith('$'))
+        .map(([name, value]) => ({ name: `--tmt-ui-${group}-${name}`, value })),
+    );
+    const actual = await page.evaluate((roles) => {
+      document.documentElement.removeAttribute('data-theme');
+      const outer = document.createElement('div');
+      outer.dataset.theme = 'light';
+      const inner = document.createElement('div');
+      inner.dataset.theme = 'dark';
+      const last = document.createElement('div');
+      last.dataset.theme = 'light';
+      document.body.append(outer);
+      outer.append(inner);
+      inner.append(last);
+      const values = [document.documentElement, outer, inner, last].map((node) =>
+        roles.map(({ name }) => getComputedStyle(node).getPropertyValue(name).trim().toLowerCase()),
+      );
+      outer.remove();
+      return values;
+    }, roles);
+    expect(actual).toEqual(
+      [scheme, 'light', 'dark', 'light'].map((theme) =>
+        roles.map(({ value }) => value[theme as 'light' | 'dark'].toLowerCase()),
+      ),
+    );
+  });
+}

@@ -24,7 +24,11 @@ pub(crate) fn append(tx: &Transaction<'_>, event: AuditMetadata<'_>) -> Result<(
         || event.resources.len() > 256
         || event.resources.iter().any(|id| !canonical::is_core_id(id))
         || event.digest.len() != 32
-        || event.revision == 0
+        || (event.revision == 0
+            && !(event.decision == "refused"
+                && event.operation == "unsupported"
+                && event.operation_id.is_none()
+                && event.resources.is_empty()))
         || event.revision > 9_007_199_254_740_991
         || event.time > 9_007_199_254_740_991
         || !matches!(

@@ -616,3 +616,32 @@ fn exhausted_project_budget_refuses_binding_without_provider_work_or_reset() {
         13_000
     );
 }
+
+#[test]
+fn serve_without_an_enrolled_cloud_peer_starts_no_inbox_poll_and_spends_no_budget() {
+    if isolated_case(
+        "serve::native_serve_tests::serve_without_an_enrolled_cloud_peer_starts_no_inbox_poll_and_spends_no_budget",
+    ) {
+        return;
+    }
+    let fixture = ServeObjectFixture::new();
+    let layout = selected(&fixture);
+    signed_in(&layout, false);
+    let _peer = Peer::start(&fixture);
+    let http = Arc::new(FakeHttp(Mutex::new(Vec::new())));
+    let mut run =
+        ServeObjectRun::start_native(&fixture, &EXTENSIONS, declaration(), ports(http.clone()));
+    ordinary_page(&run.ready());
+    run.finish();
+    fixture.released();
+    assert!(
+        http.0.lock().unwrap().is_empty(),
+        "unenrolled production serve must not probe /m or refresh Auth"
+    );
+    let budget = NativeBudgetFile::open(&layout, "demo-remote-1", NOW, 60_001).unwrap();
+    assert_eq!(
+        budget.usage().reads,
+        0,
+        "unenrolled cloud transport spends no allowance"
+    );
+}

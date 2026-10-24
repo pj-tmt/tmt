@@ -15,6 +15,19 @@ use ratatui::{
 use tmt_cli_style::Role;
 use unicode_width::UnicodeWidthChar;
 
+// Exact reported messages are fixture data: retain the original Chinese wording
+// and screenshot path so rendering and source-copy regressions use the same input.
+#[cfg(test)]
+pub(in crate::board) mod reported {
+    pub(in crate::board) const QUOTE: &str = r###"> "1. STATE 欄是不是拿掉「Needs you」？"
+拿掉，這沒啥用
+> "2. 標題列要不要顯示總數（○ N todo）？"
+要
+> "3. 是不是只算指派給你的待辦？"
+任何只要在清單的都算"###;
+    pub(in crate::board) const PATH: &str = r###"奇怪為什麼我剛才送給你的訊息在tui chat render出來長這樣 '/var/folders/dd/bs0t1qsx01q5tv2ft5jftw500000gn/T/TemporaryItems/NSIRD_screencaptureui_WKlpZN/Screenshot 2026-10-24 at 10.41.26.png' "###;
+}
+
 /// One logical line before wrapping: a first-line prefix, the indent for
 /// wrapped continuation lines, and styled text.
 struct Block {
@@ -360,12 +373,7 @@ impl Renderer<'_> {
                     .patch(self.look.role(Role::Track)),
             ),
             Event::SoftBreak if !self.preserve_breaks => self.push(" ", self.style()),
-            Event::SoftBreak => {
-                let indent = self.current.as_ref().map_or(0, |block| block.indent);
-                self.start(" ".repeat(indent), indent);
-                self.continue_on_next_source_line();
-            }
-            Event::HardBreak => {
+            Event::SoftBreak | Event::HardBreak => {
                 let indent = self
                     .current
                     .as_ref()
@@ -708,6 +716,94 @@ mod tests {
                 .add_modifier
                 .contains(Modifier::BOLD)
         );
+    }
+
+    #[test]
+    fn reported_quote_soft_breaks_keep_one_gutter_without_accumulating_indent() {
+        for width in [160, 100, 80, 60, 40, 24] {
+            let mapped =
+                render_conversation_with_members(reported::QUOTE, width, Look::default(), None);
+            let rows = text(&mapped.lines);
+            for (index, row) in rows.iter().enumerate() {
+                let body = row
+                    .strip_prefix("▎ ")
+                    .unwrap_or_else(|| panic!("{width}/{index}: {row:?}"));
+                assert!(
+                    !body.starts_with(' '),
+                    "{width}/{index}: accumulated indent in {row:?}"
+                );
+                assert!(
+                    mapped.lines[index].width() <= width,
+                    "{width}/{index}: {row:?}"
+                );
+                assert!(mapped.sources[index] < 6);
+            }
+            if width == 160 {
+                assert_eq!(
+                    rows,
+                    [
+                        r#"▎ "1. STATE 欄是不是拿掉「Needs you」？""#,
+                        "▎ 拿掉，這沒啥用",
+                        r#"▎ "2. 標題列要不要顯示總數（○ N todo）？""#,
+                        "▎ 要",
+                        r#"▎ "3. 是不是只算指派給你的待辦？""#,
+                        "▎ 任何只要在清單的都算",
+                    ]
+                );
+                assert_eq!(mapped.sources, [0, 1, 2, 3, 4, 5]);
+            }
+        }
+    }
+
+    #[test]
+    fn nested_quote_list_soft_and_hard_breaks_share_the_same_hanging_indent() {
+        let soft = "> > - first line with several words
+> >   second line with several words
+> >   third line with several words";
+        let hard = soft.replace('\n', "  \n");
+        for width in [80, 24, 12] {
+            let a = render_conversation_with_members(soft, width, Look::default(), None);
+            let b = render_conversation_with_members(&hard, width, Look::default(), None);
+            assert_eq!(
+                a.lines, b.lines,
+                "soft and hard quote continuations at {width}"
+            );
+            assert_eq!(a.sources, b.sources);
+            assert!(a.lines.iter().all(|line| line.width() <= width));
+        }
+    }
+
+    #[test]
+    fn reported_and_bare_paths_keep_underscores_spaces_and_source_mapping() {
+        for source in [
+            reported::PATH,
+            "/tmp/some_dir/file_name.rs",
+            "src/some_module/file_name.rs",
+        ] {
+            for width in [512, 160, 100, 80, 60, 24] {
+                let mapped = render_conversation_with_members(source, width, Look::default(), None);
+                let rows = text(&mapped.lines);
+                let without_spaces =
+                    |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+                assert_eq!(
+                    without_spaces(&rows.join("")),
+                    without_spaces(source),
+                    "{width}: {rows:?}"
+                );
+                assert!(mapped.lines.iter().all(|line| line.width() <= width));
+                assert!(mapped.sources.iter().all(|source| *source == 0));
+                assert!(
+                    mapped
+                        .lines
+                        .iter()
+                        .flat_map(|line| &line.spans)
+                        .all(|span| !span.style.add_modifier.contains(Modifier::ITALIC))
+                );
+                if width == 512 {
+                    assert_eq!(rows, [source.trim_end()]);
+                }
+            }
+        }
     }
 
     #[test]

@@ -3419,7 +3419,7 @@ var tmt_settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"t
 var ops_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"ops\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Ops · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">Ops</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page ops\">\n      <p id=\"ops-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"ops-section\" class=\"ops-section tmt-ui-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/digest.html?raw
-var digest_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"digest\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Digest · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">Digest</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page usage digest\">\n      <div class=\"digest-head\">\n        <p class=\"digest-subtitle\">Your team's usage, at a glance.</p>\n        <div class=\"digest-controls\">\n          <span id=\"usage-badge\" class=\"tmt-ui-chip\" hidden><span class=\"tmt-ui-chip-label\"></span></span>\n          <p id=\"usage-note\" class=\"usage-note\" role=\"note\" hidden></p>\n          <div class=\"tmt-ui-tabs-header\">\n            <div id=\"usage-ranges\" class=\"tmt-ui-tab-list\" role=\"tablist\" aria-label=\"Range\"></div>\n          </div>\n        </div>\n      </div>\n      <div id=\"usage-panel\" role=\"tabpanel\" aria-label=\"Usage report\">\n        <div id=\"digest-sections\" class=\"digest-sections\" aria-live=\"polite\"></div>\n      </div>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+var digest_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"digest\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link\n      rel=\"icon\"\n      type=\"image/svg+xml\"\n      href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\"\n    />\n    <title>Digest · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n      <div class=\"tmt-ui-shell-content\">\n        <div class=\"tmt-ui-shell-bar\">\n          <header class=\"header tmt-ui-header\">\n            <h1 class=\"header-title tmt-ui-title\">Digest</h1>\n          </header>\n        </div>\n        <div class=\"tmt-ui-shell-main\">\n          <main class=\"tmt-page usage digest\">\n            <div class=\"digest-head\">\n              <div>\n                <h2 class=\"tmt-ui-page-title\">Understand your team’s usage.</h2>\n                <p class=\"tmt-ui-page-subtitle\">\n                  Token usage, allowance and the conversations between seats.\n                </p>\n              </div>\n              <div class=\"digest-controls\">\n                <div class=\"tmt-ui-tabs-header\">\n                  <div\n                    id=\"usage-ranges\"\n                    class=\"tmt-ui-tab-list\"\n                    role=\"tablist\"\n                    aria-label=\"Range\"\n                  ></div>\n                </div>\n              </div>\n            </div>\n            <div class=\"digest-observation\">\n              <span id=\"usage-badge\" class=\"tmt-ui-chip\" hidden\n                ><span class=\"tmt-ui-chip-label\"></span\n              ></span>\n              <p id=\"usage-note\" class=\"usage-note\" role=\"note\" hidden></p>\n            </div>\n            <div id=\"usage-panel\" role=\"tabpanel\" aria-label=\"Usage report\">\n              <div id=\"digest-sections\" class=\"digest-sections\" aria-live=\"polite\"></div>\n            </div>\n          </main>\n        </div>\n      </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../../../design/browser-ui/src/chart-math.ts
 /**
@@ -3512,12 +3512,31 @@ function linePath(points) {
 	return points.map(([x, y], at) => `${at ? "L" : "M"}${round(x)} ${round(y)}`).join("");
 }
 /** SVG path data for the band between an upper and a lower edge over the same x positions. */
-function areaPath(xs, upper, lower) {
+function areaPath(xs, upper, lower, curve) {
 	if (!xs.length) return "";
+	if (curve === "monotone") return `${monotonePath(xs.map((x, i) => [x, upper[i]]))}${monotonePath(xs.map((x, i) => [x, lower[i]]).reverse()).replace(/^M/, "L")}Z`;
 	return `${xs.map((x, at) => `${at ? "L" : "M"}${round(x)} ${round(upper[at])}`).join("")}${xs.map((x, at) => `L${round(x)} ${round(lower[at])}`).reverse().join("")}Z`;
 }
 function round(value) {
 	return Math.round(value * 100) / 100;
+}
+/** Cubic Hermite interpolation with sign-preserving, bounded tangents. Reversing x also works
+* for an area's return edge. Flat or turning points get zero slope, so no segment overshoots. */
+function monotonePath(points) {
+	if (points.length < 3) return linePath(points);
+	const slopes = points.slice(1).map(([x, y], i) => (y - points[i][1]) / (x - points[i][0]));
+	const tangents = points.map((_, i) => {
+		if (!i) return slopes[0];
+		if (i === points.length - 1) return slopes[i - 1];
+		const a = slopes[i - 1], b = slopes[i];
+		return a * b <= 0 ? 0 : 2 * a * b / (a + b);
+	});
+	return points.map(([x, y], i) => {
+		if (!i) return `M${round(x)} ${round(y)}`;
+		const [px, py] = points[i - 1];
+		const dx = (x - px) / 3;
+		return `C${round(px + dx)} ${round(py + dx * tangents[i - 1])} ${round(x - dx)} ${round(y - dx * tangents[i])} ${round(x)} ${round(y)}`;
+	}).join("");
 }
 //#endregion
 //#region ../../../../design/browser-ui/src/chart-dom.ts
@@ -3595,7 +3614,7 @@ function matrixModel(options) {
 			let sent = null;
 			const cells = people.map((to) => {
 				if (from.id === to.id) return {
-					text: "",
+					text: options.numeric ? "—" : "",
 					level: 0,
 					self: true,
 					label: `${from.label} to itself`
@@ -3603,7 +3622,7 @@ function matrixModel(options) {
 				const count = options.value(from.id, to.id);
 				if (count != null) sent = (sent ?? 0) + count;
 				return {
-					text: count == null ? "—" : count === 0 ? "·" : compactCount(count),
+					text: count == null ? "—" : count === 0 ? options.numeric ? "0" : "·" : compactCount(count),
 					level: level(count, max) ?? 0,
 					self: false,
 					label: `${from.label} to ${to.label}: ${count == null ? "unavailable" : count}`
@@ -3621,11 +3640,12 @@ function matrixModel(options) {
 //#region ../../../../design/browser-ui/src/chart-matrix.ts
 /**
 * Who talks to whom: sender rows, recipient columns. A cell reads a number, `·` (observed none)
-* or `—` (unavailable); the diagonal is blank. Intensity is a square-root step of the busiest
+* or `—` (unavailable); the default diagonal is blank. Default intensity is a square-root step of the busiest
 * pair, carried by class names that keep their text readable on both themes.
 */
 function createMatrix(options) {
 	const figure = htmlEl("figure", "tmt-ui-chart");
+	if (options.numeric) figure.dataset.numeric = "";
 	figure.append(htmlEl("figcaption", "tmt-ui-chart-title", options.title));
 	if (!options.participants.length) {
 		figure.append(htmlEl("p", "tmt-ui-chart-empty", options.empty ?? "No agents observed."));
@@ -3634,7 +3654,7 @@ function createMatrix(options) {
 	const model = matrixModel(options);
 	const table = htmlEl("table", "tmt-ui-chart-matrix");
 	const head = htmlEl("tr");
-	const corner = htmlEl("th", "tmt-ui-chart-matrix-corner", "from\\to");
+	const corner = htmlEl("th", "tmt-ui-chart-matrix-corner", options.numeric ? "From →" : "from\\to");
 	corner.scope = "col";
 	head.append(corner);
 	for (const label of model.columns) {
@@ -3725,7 +3745,7 @@ function seriesModel(options, width) {
 	if (stack) stack.layers.forEach((layer, i) => marks.push({
 		kind: "area",
 		style: styleOf(layer, i, options.style),
-		d: areaPath(xs, layer.upper.map(yAt), layer.lower.map(yAt))
+		d: areaPath(xs, layer.upper.map(yAt), layer.lower.map(yAt), options.curve)
 	}));
 	else if (options.kind === "bars") {
 		const bar = Math.max(1, Math.min(24, (inner.right - inner.left) / columns - 2));
@@ -3749,7 +3769,7 @@ function seriesModel(options, width) {
 			if (run.length) marks.push({
 				kind: "line",
 				style: styleOf(layer, i, options.style),
-				d: linePath(run)
+				d: options.curve ? monotonePath(run) : linePath(run)
 			});
 			run = [];
 		};
@@ -3877,6 +3897,7 @@ function createSeriesChart(options) {
 		});
 		tip.replaceChildren(title, ...rows);
 		tip.hidden = false;
+		plot.querySelector(".tmt-ui-chart-cursor")?.removeAttribute("visibility");
 		const x = model.xs[at] ?? 0;
 		const flip = x > model.width / 2;
 		tip.classList.toggle("tmt-ui-chart-tip-left", flip);
@@ -3936,7 +3957,8 @@ function createSeriesChart(options) {
 			x1: 0,
 			x2: 0,
 			y1: model.top,
-			y2: model.bottom
+			y2: model.bottom,
+			visibility: tip.hidden ? "hidden" : "visible"
 		}, "tmt-ui-chart-cursor"));
 		select(active);
 	}
@@ -3956,9 +3978,15 @@ function createSeriesChart(options) {
 	};
 	plot.addEventListener("pointermove", point);
 	plot.addEventListener("pointerdown", point);
-	plot.addEventListener("pointerleave", () => tip.hidden = true);
+	function hideTip() {
+		tip.hidden = true;
+		plot.querySelector(".tmt-ui-chart-cursor")?.setAttribute("visibility", "hidden");
+	}
+	plot.addEventListener("pointerleave", () => {
+		if (document.activeElement !== plot) hideTip();
+	});
 	plot.addEventListener("focus", () => showTip(active));
-	plot.addEventListener("blur", () => tip.hidden = true);
+	plot.addEventListener("blur", hideTip);
 	frame.append(plot, tip);
 	figure.append(frame, readout, legend, dataTable(options.title, first.table.columns, first.table.rows));
 	paintAtWidth(figure, 640, paint);
@@ -4012,6 +4040,7 @@ function stripsLegend() {
 */
 function createStrips(options) {
 	const figure = htmlEl("figure", "tmt-ui-chart");
+	if (options.layout) figure.dataset.layout = options.layout;
 	figure.append(htmlEl("figcaption", "tmt-ui-chart-title", options.title));
 	if (!options.rows.length) {
 		figure.append(htmlEl("p", "tmt-ui-chart-empty", options.empty ?? "No agents observed."));
@@ -4023,6 +4052,14 @@ function createStrips(options) {
 	const tip = htmlEl("div", "tmt-ui-chart-tip");
 	tip.hidden = true;
 	tip.setAttribute("aria-hidden", "true");
+	if (options.labels) {
+		const dates = htmlEl("li", "tmt-ui-chart-strip-row");
+		dates.setAttribute("aria-hidden", "true");
+		const labels = htmlEl("div", "tmt-ui-chart-strip tmt-ui-chart-strip-ends");
+		for (const label of options.labels) labels.append(htmlEl("span", "tmt-ui-chart-strip-date", label));
+		dates.append(htmlEl("span", "tmt-ui-chart-strip-label"), labels);
+		list.append(dates);
+	}
 	const grid = [];
 	for (const row of stripsModel(options).rows) {
 		const item = htmlEl("li", "tmt-ui-chart-strip-row");
@@ -4053,7 +4090,7 @@ function createStrips(options) {
 	const span = htmlEl("div", "tmt-ui-chart-strip-ends");
 	span.append(htmlEl("span", void 0, options.ends[0]), htmlEl("span", void 0, options.ends[1]));
 	ends.append(htmlEl("span", "tmt-ui-chart-strip-label"), span);
-	list.append(ends);
+	if (options.layout !== "heatmap") list.append(ends);
 	const find = (target) => {
 		const node = target?.closest(".tmt-ui-chart-slot");
 		if (!node) return void 0;
@@ -4080,7 +4117,11 @@ function createStrips(options) {
 		const at = find(event.target);
 		if (at) show(at.r, at.c);
 	});
-	list.addEventListener("pointerleave", hide);
+	list.addEventListener("pointerleave", () => {
+		const focused = find(document.activeElement);
+		if (focused) show(focused.r, focused.c);
+		else hide();
+	});
 	list.addEventListener("focusin", (event) => {
 		const at = find(event.target);
 		if (at) show(at.r, at.c);
@@ -4486,43 +4527,52 @@ function ranked(seats) {
 var SLOTS = {
 	"24h": {
 		count: 24,
-		stepMs: 36e5,
-		slot: "hour"
+		stepMs: HOUR,
+		group: 4
 	},
 	"7d": {
 		count: 7,
-		stepMs: 864e5,
-		slot: "day"
+		stepMs: DAY,
+		group: 1
 	},
 	"30d": {
 		count: 30,
-		stepMs: 864e5,
-		slot: "day"
+		stepMs: DAY,
+		group: 5
 	}
 };
 /**
-* One slot per seat across the range, at the resolution the report carries: hourly for 24 h,
-* daily for 7d and 30d. The slots end at the newest bucket; one with no bucket is not observed
-* (null), never zero. Seats come in the ranking's order: most tokens first.
+* Group real hourly/daily reads into four-hour, daily or five-day activity bars. Bins align to
+* the displayed local four-hour clock (daily groups retain report boundaries). A rolling 24h
+* normally has seven clipped bars, with
+* partial first/last bins. No extra observations are invented. If any constituent is missing,
+* the whole bar is hollow; an observed zero remains zero. Incomplete reads remain lower bounds.
 */
 function activity(doc) {
 	const shape = SLOTS[doc.since];
 	if (!shape) return null;
 	const latest = Math.max(...doc.usage.seats.flatMap((seat) => seat.series.map((point) => point.fromMs)));
 	if (!Number.isFinite(latest)) return null;
-	const starts = Array.from({ length: shape.count }, (_, at) => latest - (shape.count - 1 - at) * shape.stepMs);
+	const first = latest - (shape.count - 1) * shape.stepMs;
+	const end = latest + shape.stepMs;
+	const stepMs = shape.stepMs * shape.group;
+	const groupAt = (at) => Math.floor((at - (doc.since === "24h" ? new Date(at).getTimezoneOffset() * 6e4 : 0)) / stepMs);
+	const bins = [];
+	for (let at = first; at < end; at += shape.stepMs) {
+		const bucket = groupAt(at);
+		const previous = bins[bins.length - 1];
+		if (previous && groupAt(previous[0]) === bucket) previous.push(at);
+		else bins.push([at]);
+	}
 	return {
-		starts,
-		slot: shape.slot,
+		starts: bins.map((bin) => bin[0]),
+		ends: bins.map((bin) => bin[bin.length - 1] + shape.stepMs),
 		rows: ranked(doc.usage.seats).map((seat) => {
 			const byStart = new Map(seat.series.map((point) => [point.fromMs, point]));
 			return {
 				id: seat.id,
 				label: seatName(seat),
-				slots: starts.map((at) => {
-					const point = byStart.get(at);
-					return point ? tokensOf(point) : null;
-				})
+				slots: bins.map((bin) => bin.every((at) => byStart.has(at)) ? bin.reduce((sum, at) => sum + tokensOf(byStart.get(at)), 0) : null)
 			};
 		})
 	};
@@ -4618,17 +4668,15 @@ function notAvailable(note, text) {
 //#endregion
 //#region src/digest-page.ts
 /**
-* The Digest web view: the usage report as cards of charts and tables. The arrangement is the
-* team's usage at a glance: provider allowance (meter, weekly history, pace), who burns (tokens
-* over time beside the ranking), activity by seat, then who talks to whom beside the data the
-* read does not carry yet and the method. It depends only on `DigestSource`; the product source
-* says "not in the browser yet" until Core serves the read (#4325), and a sample source is only
-* ever passed in by tests, the gallery and dev.
+* The Digest usage report follows the concept website: provider allowance rows, the token
+* chart and seat legend, activity beside messages, and a coverage/method footer. It depends
+* only on DigestSource; product data comes from the existing owner reads. Samples are injected
+* by tests, the gallery and local development. Range and view state belong to this mounted page.
 */
 /** The terminal Digest's own cadence: the usage read refreshes once a minute. */
 var REFRESH_MS$1 = 6e4;
 /** Distinct series a chart draws; the rest fold into one neutral `Other`. */
-var SERIES_KEPT = 5;
+var SERIES_KEPT = 6;
 /** The neutral palette step of the folded `Other` layer (`tmt-ui-chart-s7`). */
 var OTHER_STEP = 7;
 function el$1(name, className, text) {
@@ -4645,7 +4693,11 @@ function card(id, title, body, options = {}) {
 	const heading = el$1("h2", browserUiClasses.cardTitle, title);
 	heading.id = `${id}-title`;
 	const head = el$1("div", browserUiClasses.cardHead);
-	head.append(heading);
+	if (options.subtitle) {
+		const title = el$1("div", "digest-section-title");
+		title.append(heading, el$1("p", "digest-subtitle", options.subtitle));
+		head.append(title);
+	} else head.append(heading);
 	if (options.actions) head.append(options.actions);
 	node.append(head, ...body);
 	return node;
@@ -4694,6 +4746,16 @@ function tabChoice(label, controls, options, initial, change) {
 		button.type = "button";
 		button.setAttribute("role", "tab");
 		button.setAttribute("aria-controls", controls);
+		button.id = `${controls}-${option.value}`;
+		button.addEventListener("keydown", (event) => {
+			const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+			if (!step) return;
+			event.preventDefault();
+			const index = buttons.findIndex((item) => item.value === option.value);
+			const next = buttons[(index + step + buttons.length) % buttons.length];
+			next.button.click();
+			next.button.focus();
+		});
 		button.addEventListener("click", () => {
 			sync(option.value);
 			change(option.value);
@@ -4704,35 +4766,22 @@ function tabChoice(label, controls, options, initial, change) {
 		};
 	});
 	const sync = (active) => {
-		for (const { button, value } of buttons) button.setAttribute("aria-selected", String(value === active));
+		for (const { button, value } of buttons) {
+			button.setAttribute("aria-selected", String(value === active));
+			button.tabIndex = value === active ? 0 : -1;
+		}
 	};
 	sync(initial);
 	list.append(...buttons.map(({ button }) => button));
 	header.append(list);
 	return header;
 }
-/** One numeric fact as the leaf's status tile: a label over a large value. Inside a card the tiles
-* are bare (`data-bare` on the group); `series` adds a dot in that chart series' colour, `hero` sets
-* the value at the page's first-read size. A tile without a tone draws no dot. */
-function tile(label, value, options = {}) {
+/** One numeric fact inside a provider's history disclosure. */
+function tile(label, value) {
 	const node = el$1("div", browserUiClasses.statusTile);
-	const term = el$1("dt", browserUiClasses.statusTileLabel, label);
-	const figure = el$1("dd", browserUiClasses.statusTileValue);
+	const figure = el$1("dd", browserUiClasses.statusTileValue, value);
 	figure.dataset.numeric = value === "0" ? "zero" : "count";
-	if (options.hero) figure.dataset.size = "hero";
-	if (options.series !== void 0) {
-		const dot = el$1("span", `${browserUiClasses.statusTileDot} tmt-ui-chart-s${options.series}`);
-		dot.setAttribute("aria-hidden", "true");
-		figure.append(dot);
-	}
-	figure.append(value);
-	node.append(term, figure);
-	return node;
-}
-/** A passive label for a state that is not an action: the leaf's chip without a remove control. */
-function passiveChip(text) {
-	const node = el$1("span", browserUiClasses.chip);
-	node.append(el$1("span", browserUiClasses.chipLabel, text));
+	node.append(el$1("dt", browserUiClasses.statusTileLabel, label), figure);
 	return node;
 }
 /** A group of bare tiles for use inside a card. */
@@ -4742,62 +4791,84 @@ function bareTiles(...tiles) {
 	group.append(...tiles);
 	return group;
 }
-function providerCard(view, nowMs) {
-	const resets = view.stale ? "stale" : resetsIn(view.resetsAtMs, nowMs);
+function providerRow(view, nowMs) {
+	const row = el$1("div", "digest-provider");
+	row.id = `digest-provider-${view.line || "account"}`;
+	const label = el$1("div", "digest-provider-label");
+	label.append(el$1("strong", void 0, view.provider), el$1("strong", void 0, `${view.leftPercent}% left${view.stale ? " (stale)" : ""}`));
 	const meter = el$1("div", browserUiClasses.meter);
 	meter.setAttribute("role", "img");
 	meter.setAttribute("aria-label", `${view.leftPercent}% of the weekly allowance left`);
 	const fill = el$1("div", `${browserUiClasses.meterFill} tmt-ui-chart-s${view.style}`);
 	fill.style.setProperty("--tmt-ui-meter-fill", String(Math.max(0, Math.min(100, view.leftPercent))));
 	meter.append(fill);
-	const figure = el$1("div", "digest-provider-figure");
-	figure.append(bareTiles(tile("Allowance left", `${view.leftPercent}%`, {
-		hero: true,
-		series: view.style
-	})), meter);
-	const history = view.chart ? createSeriesChart(view.chart) : el$1("p", "usage-note", "The weekly history is not served yet; this shows the latest window.");
-	const stats = bareTiles(tile("Elapsed", view.elapsedPercent === null ? "—" : `${Math.round(view.elapsedPercent)}%`), tile("Pace", view.paceDeltaPoints === null ? "—" : `${view.paceDeltaPoints > 0 ? "+" : ""}${view.paceDeltaPoints.toFixed(1)} pts`), tile("Resets in", resets));
-	const body = el$1("div", "digest-provider-body");
-	body.append(figure, history);
-	return card(`digest-provider-${view.line || "account"}`, view.provider, [body, stats], {
-		actions: el$1("span", browserUiClasses.cardMeta, `Resets in ${resets}`),
-		className: "digest-provider"
-	});
+	const details = el$1("details", `${browserUiClasses.disclosure} digest-provider-details`);
+	details.id = `${row.id}-history`;
+	const summary = el$1("summary", void 0, "Weekly history and pace");
+	summary.id = `${details.id}-summary`;
+	details.append(summary);
+	details.append(view.chart ? createSeriesChart(view.chart) : el$1("p", "usage-note", "The weekly history is not served yet; this shows the latest window."));
+	details.append(bareTiles(tile("Elapsed", view.elapsedPercent === null ? "—" : `${Math.round(view.elapsedPercent)}%`), tile("Pace", view.paceDeltaPoints === null ? "—" : `${view.paceDeltaPoints > 0 ? "+" : ""}${view.paceDeltaPoints.toFixed(1)} pts`), tile("Resets in", view.stale ? "stale" : resetsIn(view.resetsAtMs, nowMs))));
+	row.append(label, meter, details);
+	return row;
 }
 function allowanceRow(doc) {
 	const views = providers(doc);
-	const node = views.length ? row$1("digest-row-providers", ...views.map((view) => providerCard(view, doc.observedAtMs))) : row$1("digest-row-providers", card("digest-provider-none", "Allowance", [el$1("p", "usage-note", "No weekly window has been observed yet.")]));
+	const intro = el$1("div", "digest-allowance-intro");
+	intro.append(el$1("h2", browserUiClasses.cardTitle, "Allowance"), el$1("p", "digest-subtitle", "Reported by each provider."));
+	const node = el$1("section", `${browserUiClasses.card} digest-card digest-allowance`);
 	node.id = "digest-allowance";
+	intro.querySelector("h2").id = "digest-allowance-title";
+	node.setAttribute("aria-labelledby", "digest-allowance-title");
+	node.dataset.providers = String(views.length);
+	node.append(intro, ...views.map((view) => providerRow(view, doc.observedAtMs)));
+	if (doc.limitsUnavailable.length) node.append(el$1("p", "usage-note", "Some provider allowances are unavailable."));
+	else if (!views.length) node.append(el$1("p", "usage-note", "No weekly window has been observed yet."));
 	return node;
 }
-function tokensCard(doc, scale) {
+function tokensCard(doc, state) {
 	const data = tokenSeries(doc);
-	const body = el$1("div", "digest-card-body");
+	const body = el$1("div", "digest-token-grid tmt-ui-chart-seats");
+	const chart = el$1("div", "digest-token-chart");
+	const rows = rankRows(doc);
+	const total = rows.reduce((sum, row) => sum + row.tokens, 0);
+	chart.append(el$1("p", "digest-total-label", `Total${data.partial || doc.usage.unavailable.length > 0 || rows.some((row) => row.partial) ? " (lower bound)" : ""} · ${doc.since}`), el$1("p", "digest-total", rows.length ? compactCount(total) : "—"));
 	const host = el$1("div");
 	const draw = () => {
+		host.setAttribute("aria-labelledby", `digest-tokens-chart-${state.share ? "share" : "absolute"}`);
 		host.replaceChildren(createSeriesChart({
-			title: scale.share ? "Share of tokens by seat" : "Tokens by seat",
-			kind: scale.share ? "share" : "stack",
+			title: state.share ? "Share of tokens by seat" : "Tokens by seat",
+			kind: state.share ? "share" : "stack",
+			curve: "monotone",
 			x: data.x,
 			series: topLayers(data.layers, SERIES_KEPT),
 			empty: "No token observations in this range."
 		}));
+		const plot = host.querySelector(".tmt-ui-chart-plot");
+		if (plot) plot.id = "digest-token-plot";
 	};
 	draw();
-	body.append(host);
-	if (data.partial) body.append(el$1("p", "usage-note", "Some buckets are incomplete: they are lower bounds, not errors."));
+	chart.append(host);
+	body.append(chart, legendTable(doc, state));
+	if (data.partial) chart.append(el$1("p", "usage-note", "Some buckets are incomplete: they are lower bounds, not errors."));
+	if (doc.usage.unavailable.length) chart.append(el$1("p", "usage-note", "Unavailable seats are not included in this total."));
 	host.id = "digest-tokens-chart";
+	host.setAttribute("role", "tabpanel");
+	host.setAttribute("aria-label", "Token usage scale");
 	const control = tabChoice("Scale", host.id, [{
 		value: "absolute",
 		text: "Absolute"
 	}, {
 		value: "share",
 		text: "Share"
-	}], scale.share ? "share" : "absolute", (value) => {
-		scale.share = value === "share";
+	}], state.share ? "share" : "absolute", (value) => {
+		state.share = value === "share";
 		draw();
 	});
-	return card("digest-tokens", "Token usage", [body], { actions: control });
+	return card("digest-tokens", "Token usage", [body], {
+		actions: control,
+		subtitle: "A shared view, seat by seat."
+	});
 }
 /** A seat's name on one line, the full name on hover, `*` after a partial one. */
 function seatLabel(name, partial) {
@@ -4806,61 +4877,62 @@ function seatLabel(name, partial) {
 	if (partial) node.append(el$1("span", "digest-partial", "*"));
 	return node;
 }
-function rankingCard(doc) {
+function legendTable(doc, state) {
 	const rows = rankRows(doc);
-	const view = ranking(rows);
-	const hue = new Map(topLayers(tokenSeries(doc).layers, SERIES_KEPT).filter((layer) => layer.key !== "other").map((layer, at) => [layer.key, at]));
-	const largest = Math.max(1, ...rows.map((entry) => entry.tokens));
-	const bar = (id, tokens) => {
-		const node = el$1("span", `digest-bar tmt-ui-chart-s${hue.get(id) ?? OTHER_STEP}`);
-		node.style.setProperty("--digest-bar", String(Math.round(tokens / largest * 100)));
-		node.setAttribute("aria-hidden", "true");
-		return node;
-	};
-	if (!rows.length) return card("digest-ranking", `Last ${doc.since} by seat`, [el$1("p", "usage-note", "No seat has token observations in this range.")]);
+	const view = ranking(rows, SERIES_KEPT);
+	const hue = new Map(topLayers(tokenSeries(doc).layers, SERIES_KEPT).filter((layer) => layer.key !== "other").map((layer, at) => [layer.key, at % 7]));
+	function legendSeat(id, name, partial) {
+		const label = el$1("span", "digest-legend-seat");
+		const dot = el$1("span", `tmt-ui-status-tile-dot tmt-ui-chart-s${hue.get(id) ?? OTHER_STEP}`);
+		dot.setAttribute("aria-hidden", "true");
+		label.append(dot, seatLabel(name, partial));
+		return label;
+	}
 	const host = el$1("div", "digest-ranking-table");
 	host.id = "digest-ranking-rows";
 	const draw = (all) => {
 		const lines = (all ? rows : view.top).map((entry) => [
-			seatLabel(entry.name, entry.partial),
-			bar(entry.id, entry.tokens),
+			legendSeat(entry.id, entry.name, entry.partial),
 			compactCount(entry.tokens),
 			`${entry.share}%`
 		]);
 		if (!all && view.other) lines.push([
-			seatLabel(`Other (${view.other.seats} seats)`, false),
-			"",
+			legendSeat("other", `Other (${view.other.seats} seats)`, false),
 			compactCount(view.other.tokens),
 			`${view.other.share}%`
 		]);
 		host.replaceChildren(table([
 			"Seat",
-			"",
 			"Tokens",
 			"Share"
 		], lines));
 	};
-	draw(false);
+	draw(state.allSeats);
 	const body = [host];
 	if (view.partial) body.push(el$1("p", "usage-note", "* Partial: some of this range has no data for the seat."));
 	if (view.other) {
 		const toggle = el$1("button", browserUiClasses.action);
 		toggle.dataset.variant = "text";
 		toggle.type = "button";
+		toggle.id = "digest-ranking-toggle";
 		toggle.setAttribute("aria-controls", host.id);
 		const sync = (all) => {
 			toggle.setAttribute("aria-expanded", String(all));
 			toggle.textContent = all ? `Show top ${view.top.length}` : `Show all ${rows.length} seats`;
 		};
-		sync(false);
+		sync(state.allSeats);
 		toggle.addEventListener("click", () => {
 			const all = toggle.getAttribute("aria-expanded") !== "true";
+			state.allSeats = all;
 			draw(all);
 			sync(all);
 		});
 		body.push(toggle);
 	}
-	return card("digest-ranking", `Last ${doc.since} by seat`, body);
+	const legend = el$1("div", "digest-legend");
+	legend.id = "digest-ranking";
+	legend.append(...body);
+	return legend;
 }
 function activityCard(doc) {
 	const view = activity(doc);
@@ -4874,28 +4946,36 @@ function activityCard(doc) {
 		day: "numeric",
 		month: "short"
 	});
-	const hourly = view.slot === "hour";
+	const hourly = doc.since === "24h";
 	const range = (at) => {
 		const start = view.starts[at];
-		return hourly ? `${clock(start)}–${clock(start + 36e5)}` : day(start);
+		return hourly ? `${clock(start)}–${clock(view.ends[at])}` : `${day(start)}–${day(view.ends[at] - 1)}`;
 	};
 	return card("digest-activity", "Activity by seat", [createStrips({
-		title: hourly ? "Tokens per hour, oldest on the left" : "Tokens per day, oldest on the left",
+		layout: "heatmap",
+		labels: view.starts.map((at) => hourly ? clock(at) : new Date(at).toLocaleDateString("en-GB", {
+			month: "short",
+			day: "numeric"
+		})),
+		title: `Relative token activity · ${hourly ? "4-hour blocks" : doc.since === "7d" ? "daily" : "5-day blocks"}`,
 		rows: view.rows,
 		slotCount: view.starts.length,
 		slotRange: range,
-		ends: hourly ? ["24 h ago", "now"] : [`${view.starts.length} days ago`, "today"],
+		ends: [doc.since + " ago", "now"],
 		legend: false
-	}), el$1("p", "usage-note", "Token flow only. Board row state and age, pane evidence and what each seat waits on are not in the usage read yet.")], { actions: stripsLegend() });
+	}), el$1("p", "usage-note", "Edge blocks cover only the reported window. A block with any missing bucket stays hollow; incomplete buckets are lower bounds.")]);
 }
 function exchangeCard(doc) {
 	const flow = exchange(doc);
-	return card("digest-exchange", "Messages between seats", [flow ? createMatrix({
+	const matrix = flow ? createMatrix({
 		title: `Messages, last ${doc.since}`,
 		participants: flow.participants,
 		value: flow.value,
-		sum: true
-	}) : el$1("p", "usage-note", "Message traffic is not available in this read.")]);
+		numeric: true
+	}) : el$1("p", "usage-note", "Message traffic is not available in this read.");
+	const scroll = matrix.querySelector(".tmt-ui-chart-scroll");
+	if (scroll) scroll.id = "digest-exchange-scroll";
+	return card("digest-exchange", "Messages between seats", [el$1("p", "digest-subtitle", `Talk and reply messages · ${doc.since}`), matrix]);
 }
 /** The sources the usage read does not carry yet, one line each, with the method below. */
 function coverageCard() {
@@ -4909,19 +4989,25 @@ function coverageCard() {
 	for (const [term, source] of gaps) {
 		const line = el$1("div", "digest-gap");
 		const status = el$1("dd");
-		status.append(passiveChip("Not connected"));
-		line.append(el$1("dt", void 0, term), status, el$1("dd", "digest-gap-source", source));
+		status.append(el$1("span", "digest-subtitle", "Not connected"));
+		line.append(el$1("dt", void 0, term === "Machine" ? "Machine load" : term), status);
+		line.title = source;
 		list.append(line);
 	}
 	const method = el$1("details", browserUiClasses.disclosure);
 	method.dataset.divided = "";
 	method.id = "digest-method";
-	method.append(el$1("summary", void 0, "Method & caveats"), ...[
+	const summary = el$1("summary", void 0, "Method & caveats");
+	summary.id = "digest-method-summary";
+	method.append(summary, ...[
 		"Tokens are input plus output as Core reports them; cached input is part of input and is not counted again.",
 		"An incomplete bucket is a lower bound. A seat with no evidence for part of the range is marked partial, never shown as zero.",
 		"Allowance windows are the account percent as the provider reports it, in whole percent; usage on other machines is not seen.",
 		"Message counts include talk and reply only."
 	].map((text) => el$1("p", "usage-note", text)));
+	const command = el$1("div", "digest-method-command");
+	command.append(el$1("span", void 0, "Current data on your machine:"), el$1("code", void 0, "tmt digest usage report"));
+	method.append(command);
 	return card("digest-missing", "Data coverage", [list, method]);
 }
 /** What a report shows, without the read's own clock: a refresh that changed nothing repaints nothing. */
@@ -4945,7 +5031,16 @@ function digestPage(source = digestSource, signal) {
 	let generation = 0;
 	let shown = "";
 	let good;
-	const scale = { share: false };
+	const state = {
+		share: false,
+		allSeats: false
+	};
+	const disclosures = /* @__PURE__ */ new Map();
+	let matrixLeft = 0;
+	function rememberView() {
+		for (const detail of panel.querySelectorAll("details[id]")) disclosures.set(detail.id, detail.hasAttribute("open"));
+		matrixLeft = document.getElementById("digest-exchange-scroll")?.scrollLeft ?? matrixLeft;
+	}
 	const buttons = USAGE_RANGES.map((range) => {
 		const button = el$1("button", browserUiClasses.tab, range);
 		button.type = "button";
@@ -4958,12 +5053,15 @@ function digestPage(source = digestSource, signal) {
 			if (!step) return;
 			event.preventDefault();
 			const range = USAGE_RANGES[(USAGE_RANGES.indexOf(current) + step + USAGE_RANGES.length) % USAGE_RANGES.length];
-			show(range).then(() => buttons[USAGE_RANGES.indexOf(range)].focus());
+			show(range);
+			buttons[USAGE_RANGES.indexOf(range)].focus();
 		});
 		return button;
 	});
 	tabs.replaceChildren(...buttons);
 	function paint(report) {
+		rememberView();
+		const focusId = panel.contains(document.activeElement) ? document.activeElement?.id : void 0;
 		shown = fingerprint(report);
 		good = void 0;
 		badge.hidden = true;
@@ -4975,7 +5073,11 @@ function digestPage(source = digestSource, signal) {
 		good = report;
 		const doc = report.document;
 		const activityBlock = activityCard(doc);
-		panel.replaceChildren(allowanceRow(doc), row$1("digest-row-burn", tokensCard(doc, scale), rankingCard(doc)), ...activityBlock ? [activityBlock] : [], row$1("digest-row-coverage", exchangeCard(doc), coverageCard()));
+		panel.replaceChildren(allowanceRow(doc), tokensCard(doc, state), row$1("digest-row-activity", ...activityBlock ? [activityBlock] : [], exchangeCard(doc)), coverageCard());
+		for (const detail of panel.querySelectorAll("details[id]")) detail.open = disclosures.get(detail.id) ?? false;
+		const scroll = document.getElementById("digest-exchange-scroll");
+		if (scroll) scroll.scrollLeft = matrixLeft;
+		if (focusId) document.getElementById(focusId)?.focus({ preventScroll: true });
 		if (report.sample) badgeLabel.textContent = "Sample data";
 		badge.hidden = !report.sample;
 		ordinaryNote(report);
@@ -5012,6 +5114,7 @@ function digestPage(source = digestSource, signal) {
 			button.setAttribute("aria-selected", String(selected));
 			button.tabIndex = selected ? 0 : -1;
 		}
+		rememberView();
 		panel.replaceChildren(pageLoading());
 		const report = await source.report(range, signal);
 		if (mine !== generation || signal?.aborted) return;

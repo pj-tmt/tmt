@@ -33,6 +33,12 @@
   --color-series-5: var(--tmt-color-series-5);
   --color-series-6: var(--tmt-color-series-6);
   --color-series-7: var(--tmt-color-series-7);
+  --color-seat-1: var(--tmt-color-seat-1);
+  --color-seat-2: var(--tmt-color-seat-2);
+  --color-seat-3: var(--tmt-color-seat-3);
+  --color-seat-4: var(--tmt-color-seat-4);
+  --color-seat-5: var(--tmt-color-seat-5);
+  --color-seat-6: var(--tmt-color-seat-6);
   --color-scrim: var(--tmt-surface-scrim);
   --color-command: var(--tmt-surface-command);
   --color-field: var(--tmt-surface-field);
@@ -96,6 +102,12 @@
   --tmt-color-series-5: #e87ba4;
   --tmt-color-series-6: #008300;
   --tmt-color-series-7: #6250d6;
+  --tmt-color-seat-1: #75e6bd;
+  --tmt-color-seat-2: #65b7de;
+  --tmt-color-seat-3: #aa8cef;
+  --tmt-color-seat-4: #e88fa9;
+  --tmt-color-seat-5: #e8ac73;
+  --tmt-color-seat-6: #dccf6e;
   --tmt-surface-scrim: #0000001f;
   --tmt-surface-command: #f3f7f5;
   --tmt-surface-field: #e9efec;
@@ -142,6 +154,12 @@
   --tmt-color-series-5: #d55181;
   --tmt-color-series-6: #008300;
   --tmt-color-series-7: #9085e9;
+  --tmt-color-seat-1: #75e6bd;
+  --tmt-color-seat-2: #65b7de;
+  --tmt-color-seat-3: #aa8cef;
+  --tmt-color-seat-4: #e88fa9;
+  --tmt-color-seat-5: #e8ac73;
+  --tmt-color-seat-6: #dccf6e;
   --tmt-surface-scrim: #00000052;
   --tmt-surface-command: #1c2a34;
   --tmt-surface-field: #1c2a34;
