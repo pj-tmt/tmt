@@ -337,6 +337,7 @@ selection never substitutes for runtime/archive/browser proof.
 hourly Infra lead tick. Run it manually beside the existing tick before changing
 its cron prompt; the lead compares the two reports after the script lands.
 The script does not judge reviews, attribute causes, arm PRs or publish releases.
+Export the same `TMT_CI_WATCH_STATE` directory for watcher and tick: its local heartbeat adds timestamped anomalies for missing/stale (>2 h)/invalid/error evidence or coverage gaps, without API reads or changes to REST `INCOMPLETE` semantics.
 A new output directory establishes a zero-call bootstrap boundary, not a health
 report. Run the command again for evidence after that boundary:
 
@@ -445,7 +446,8 @@ no host service or credentials. Example (the map is reviewed from #606):
 
 ```sh
 node typescript/scripts/ci-failure-watch.mjs --dry-run --routing-map /tmp/ci-routing.json
-node typescript/scripts/ci-failure-watch.mjs --state /tmp/tmt-ci-watch --routing-map /tmp/ci-routing.json --identity tmt-infra-lead
+export TMT_CI_WATCH_STATE=/tmp/tmt-ci-watch
+node typescript/scripts/ci-failure-watch.mjs --routing-map /tmp/ci-routing.json --identity tmt-infra-lead
 ```
 
 The map has `source:"https://github.com/pj-tmt/tmt/issues/606"` and `rules` containing
@@ -478,6 +480,6 @@ and never reads/writes live state, creates issues, sends messages or starts a lo
 
 `heartbeat.json` reports time, status, cursor, read count and pending alerts; stale
 (over two hours), future, malformed or error status is unhealthy. The hourly-tick
-integration is a separate change. No deployment/window or cron/prompt change is
-performed by this script. Detection delay is measured from Actions `updated_at`
+integration reads the same state setting. No deployment/window or cron/prompt
+change is performed by this script. Detection delay is measured from Actions `updated_at`
 to the recorded submission time after merge, not inferred from queue timestamps.

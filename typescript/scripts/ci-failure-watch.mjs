@@ -198,6 +198,31 @@ export function observeRun(state, run, jobs, routing, now) {
     'WATCH_STATE_LIMIT: signature history full; operator review required'
   );
 }
+export const WATCH_STATE_ENV = 'TMT_CI_WATCH_STATE';
+export function watchHeartbeatPath(directory = process.env[WATCH_STATE_ENV]) {
+  return directory ? path.join(path.resolve(directory), 'heartbeat.json') : null;
+}
+export function readWatchHeartbeat(directory, read = readFileSync) {
+  const file = watchHeartbeatPath(directory);
+  if (!file) return { path: null, error: `${WATCH_STATE_ENV} is not configured` };
+  try {
+    return { path: file, heartbeat: JSON.parse(read(file, 'utf8')) };
+  } catch (error) {
+    return { path: file, error: error.code ?? 'invalid heartbeat JSON' };
+  }
+}
+export function watchHeartbeat(state, now, status, extra = {}) {
+  return {
+    updatedAt: new Date(now).toISOString(),
+    status,
+    cursor: state.cursor,
+    pending: Object.values(state.alerts).filter((alert) => alert.pending).length,
+    coverageGaps: Object.values(state.alerts)
+      .filter((alert) => alert.coverage)
+      .map((alert) => ({ updatedAt: new Date(alert.lastSeen).toISOString(), message: alert.job })),
+    ...extra,
+  };
+}
 export function heartbeatStatus(heartbeat, now) {
   const ageMs = now - Date.parse(heartbeat?.updatedAt);
   return {
@@ -683,12 +708,14 @@ async function main() {
     },
   });
   assert(
-    values['routing-map'] && (values['dry-run'] || (values.state && values.identity)),
-    'Usage: ci-failure-watch.mjs --routing-map FILE [--dry-run | --state DIR --identity NAME [--once]] [--repo OWNER/REPO]'
+    values['routing-map'] &&
+      (values['dry-run'] || ((values.state || process.env[WATCH_STATE_ENV]) && values.identity)),
+    'Usage: ci-failure-watch.mjs --routing-map FILE [--dry-run | --identity NAME [--state DIR | TMT_CI_WATCH_STATE=DIR] [--once]] [--repo OWNER/REPO]'
   );
   assert(/^[\w.-]+\/[\w.-]+$/.test(values.repo), 'WATCH_REPO: invalid repository');
   const routing = validateRouting(JSON.parse(readFileSync(values['routing-map'], 'utf8')));
-  const root = values.state && path.resolve(values.state);
+  const directory = values.state ?? process.env[WATCH_STATE_ENV];
+  const root = directory && path.resolve(directory);
   let lock;
   if (!values['dry-run']) {
     mkdirSync(root, { recursive: true, mode: 0o700 });
@@ -726,11 +753,10 @@ async function main() {
       let lastHeartbeat = 0;
       const progress = () => {
         if (!values['dry-run'] && Date.now() - lastHeartbeat >= WATCH_LIMITS.intervalMs) {
-          atomicJson(path.join(root, 'heartbeat.json'), {
-            updatedAt: new Date().toISOString(),
-            status: 'checking',
-            cursor: state.cursor,
-          });
+          atomicJson(
+            watchHeartbeatPath(root),
+            watchHeartbeat(state, Date.now(), 'checking', { reads: api.calls })
+          );
           lastHeartbeat = Date.now();
         }
       };
@@ -812,14 +838,10 @@ async function main() {
         if (values['dry-run'] || values.once) process.exitCode = 1;
       }
       if (!values['dry-run'])
-        atomicJson(path.join(root, 'heartbeat.json'), {
-          updatedAt: new Date().toISOString(),
-          status,
-          error,
-          cursor: state.cursor,
-          reads: api.calls,
-          pending: Object.values(state.alerts).filter((a) => a.pending).length,
-        });
+        atomicJson(
+          watchHeartbeatPath(root),
+          watchHeartbeat(state, Date.now(), status, { error, reads: api.calls })
+        );
       if (values.once || values['dry-run'] || stopped) break;
       await setTimeout(Math.max(0, WATCH_LIMITS.intervalMs - (Date.now() - now)));
     } while (!stopped);

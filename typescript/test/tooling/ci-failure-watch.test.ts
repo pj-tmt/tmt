@@ -14,6 +14,9 @@ import {
   failureSignature,
   observeRun,
   heartbeatStatus,
+  watchHeartbeatPath,
+  readWatchHeartbeat,
+  watchHeartbeat,
   notificationGroups,
   formatNotification,
   parseGhResponse,
@@ -595,4 +598,46 @@ it('refuses a catch-up response outside its stated created window', () => {
       dryRun: true,
     })
   ).toThrow('outside catch-up');
+});
+
+it('publishes coverage notes in the same heartbeat used during catch-up and completion', () => {
+  const state = newWatchState(now);
+  const result = collectWatchCycle({ state, api: apiFor([]).api, routing, now, initial: true });
+  const heartbeat = watchHeartbeat(result.state, now, 'checking', { reads: 3 });
+  expect(heartbeatStatus(heartbeat, now).healthy).toBe(true);
+  expect(heartbeat.coverageGaps).toContainEqual({
+    updatedAt: iso(now),
+    message: expect.stringContaining('restart coverage excludes'),
+  });
+  expect(watchHeartbeat(result.state, now, 'ok').coverageGaps).toEqual(heartbeat.coverageGaps);
+});
+it('reads only the shared state-directory heartbeat and reports missing or malformed JSON', () => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'ci-watch-heartbeat-'));
+  try {
+    const file = watchHeartbeatPath(directory)!;
+    expect(readWatchHeartbeat(directory)).toEqual({ path: file, error: 'ENOENT' });
+    writeFileSync(file, '{');
+    expect(readWatchHeartbeat(directory)).toEqual({ path: file, error: 'invalid heartbeat JSON' });
+    const heartbeat = { updatedAt: iso(now), status: 'ok', coverageGaps: [] };
+    writeFileSync(file, JSON.stringify(heartbeat));
+    expect(readWatchHeartbeat(directory)).toEqual({ path: file, heartbeat });
+    const moduleUrl = new URL('../../scripts/ci-failure-watch.mjs', import.meta.url).href;
+    const child = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `import { readWatchHeartbeat } from ${JSON.stringify(moduleUrl)}; console.log(JSON.stringify(readWatchHeartbeat()));`,
+      ],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, TMT_CI_WATCH_STATE: directory },
+        timeout: 10_000,
+      }
+    );
+    expect(child.status, child.stderr).toBe(0);
+    expect(JSON.parse(child.stdout)).toEqual({ path: file, heartbeat });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
