@@ -1,7 +1,7 @@
 //! One delivery state per sent message (#4378), read from the same rows the request
 //! history and `x show` read: no pane text and no client-side guess.
 use super::{
-    digest::{held, identity, mark_user, policy, request, start},
+    digest::{held, identity, mark_user, policy, request, start, type_idle_checklist},
     passthrough::{claimed_passthrough, identity as person, mark_user as mark_person},
     support::{Fixture, NOW_MS, service},
 };
@@ -636,4 +636,151 @@ fn a_message_stops_reading_working_when_the_turn_recorded_for_it_ends() {
         ("unconfirmed", "turn_ended_without_reply", false)
     );
     f.storage.close().unwrap();
+}
+
+#[test]
+fn requests_to_a_person_are_in_the_inbox_without_a_digest_hold() {
+    let (mut f, target, _, sender) = start();
+    mark_user(&f, &target, "true");
+    let prepared = service(&mut f)
+        .enqueue_delivery(
+            request(&target, Some(&sender), "to-person"),
+            "attempt-to-person".into(),
+            7,
+            DeliveryPolicy::default(),
+        )
+        .unwrap();
+    assert_eq!(prepared.digest_until_ms, None);
+    assert_eq!(
+        shown(&mut f, "to-person"),
+        ("delivered", "waiting_for_person", false)
+    );
+    let state = view(&mut f, "to-person");
+    assert_eq!(state.reason_text, "waiting for the person");
+    assert_eq!((state.latest_ms, state.remaining_ms), (None, None));
+    assert_eq!(
+        crate::request_history::message_state(&state),
+        serde_json::json!({
+            "state":"delivered", "reason":{"code":"waiting_for_person", "text":"waiting for the person"},
+            "latestMs":null, "remainingMs":null, "canSendNow":false,
+        })
+    );
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM focus_items WHERE request_id='to-person'",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
+    f.storage.close().unwrap();
+}
+
+#[test]
+fn legacy_person_holds_never_enter_a_checklist_and_a_reply_stays_answered() {
+    use tmt_core::request::{RequestRoute, ResponseProof, SubmitResponse, correlation};
+    for sealed in [false, true] {
+        let (mut f, target, _, sender) = start();
+        let prepared = held(&mut f, &target, &sender, "legacy-person");
+        let batch = sealed.then(|| type_idle_checklist(&mut f, &target));
+        if sealed {
+            assert_eq!(
+                service(&mut f)
+                    .digest_claimable_items(&target, DigestOpportunity::TurnBoundary, 128)
+                    .unwrap()
+                    .len(),
+                1,
+                "the legacy idle checklist is eligible for a Stop reoffer before the person mark"
+            );
+        }
+        mark_user(&f, &target, "true");
+        bind_with_activity(&f, &target, "working", NOW_MS);
+        assert_eq!(
+            shown(&mut f, "legacy-person"),
+            ("delivered", "waiting_for_person", false)
+        );
+        for opportunity in [DigestOpportunity::Idle, DigestOpportunity::TurnBoundary] {
+            assert!(
+                service(&mut f)
+                    .digest_claimable_items(&target, opportunity, 128)
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(
+                service(&mut f)
+                    .claim_digest_checklist(
+                        &target,
+                        new_operation_id(),
+                        new_operation_id(),
+                        opportunity,
+                        None
+                    )
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        let selected = batch.as_ref().map(|batch| batch.id.as_str());
+        assert_eq!(
+            service(&mut f)
+                .digest_checklist_items(&target, selected, 0, 128)
+                .unwrap(),
+            (vec![], 0)
+        );
+        service(&mut f)
+            .submit_response(SubmitResponse {
+                request_id: "legacy-person".into(),
+                proof: ResponseProof::Compact(correlation::response_token(
+                    "legacy-person",
+                    &prepared.attempt_id,
+                    &RequestRoute::Inbox {
+                        recipient_identity_id: target.clone(),
+                    },
+                )),
+                body: "The person's answer".into(),
+            })
+            .unwrap();
+        assert_eq!(
+            shown(&mut f, "legacy-person"),
+            ("answered", "answered_by_reply", false)
+        );
+        let page = service(&mut f)
+            .request_history(tmt_core::request::history::HistoryQuery {
+                scope: tmt_core::request::history::HistoryScope::Recipient {
+                    identity_id: target.clone(),
+                    room_id: None,
+                },
+                before: None,
+                limit: 20,
+            })
+            .unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(
+            page.items[0].item.delivery_view.state,
+            DeliveryState::Answered
+        );
+        assert_eq!(
+            crate::request_history::message_state(&page.items[0].item.delivery_view)["reason"]["text"],
+            "answered"
+        );
+        assert_eq!(
+            service(&mut f)
+                .digest_checklist_items(&target, selected, 0, 128)
+                .unwrap(),
+            (vec![], 0)
+        );
+        let db = rusqlite::Connection::open(&f.database).unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT COUNT(*) FROM focus_items WHERE request_id='legacy-person'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1,
+            "legacy reference remains an audit row"
+        );
+        f.storage.close().unwrap();
+    }
 }
