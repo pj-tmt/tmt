@@ -524748,8 +524748,8 @@
         "                                                                           │   ⏎ to message worker",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 2 unread                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume  N notes  d remove  x leave squad  a note  v reader  j host  p pin",
-        " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
+        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes  x leave squad  j host  p pin",
+        " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
       ],
       "styles": [
         "0:9=s0 9:8=s1 17:77=s2 94:1=s1 95:3=s3 98:11=s1 109:2=s2 111:26=s1 137:1=s12 138:22=s1",
@@ -524786,8 +524786,8 @@
         "0:75=s2 75:1=s9 76:1=s2 77:2=s7 79:19=s11 98:61=s7 159:1=s2",
         "0:75=s2 75:1=s9 76:1=s2 77:82=s7 159:1=s2",
         "0:1=s2 1:25=s9 26:31=s2 57:17=s1 74:1=s2 75:1=s9 76:1=s2 77:6=s1 83:2=s2 85:10=s8 95:31=s2 126:33=s1 159:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:13=s1 43:1=s6 44:6=s1 50:1=s6 51:9=s1 60:1=s6 61:7=s1 68:1=s6 69:9=s1 78:1=s6 79:8=s1 87:1=s6 88:9=s1 97:1=s6 98:14=s1 112:1=s6 113:7=s1 120:1=s6 121:9=s1 130:1=s6 131:7=s1 138:1=s6 139:4=s1 143:17=s2",
-        "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:8=s1 80:1=s6 81:11=s1 92:1=s6 93:7=s1 100:1=s6 101:5=s1 106:54=s2"
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:13=s1 43:1=s6 44:6=s1 50:1=s6 51:7=s1 58:1=s6 59:9=s1 68:1=s6 69:8=s1 77:1=s6 78:14=s1 92:1=s6 93:7=s1 100:1=s6 101:4=s1 105:55=s2",
+        "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:9=s1 45:1=s6 46:8=s1 54:1=s6 55:11=s1 66:1=s6 67:7=s1 74:1=s6 75:5=s1 80:80=s2"
       ],
       "state": "unread-chip-hover",
       "look": "tmt",
@@ -524842,8 +524842,8 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 2 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume  N notes  d remove",
-        " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
+        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes  x leave squad  j host",
+        " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
       ],
       "styles": [
         "0:9=s0 9:8=s1 17:17=s2 34:1=s1 35:3=s3 38:11=s1 49:2=s2 51:26=s1 77:1=s12 78:22=s1",
@@ -524880,8 +524880,8 @@
         "0:1=s2 1:2=s7 3:19=s11 22:77=s7 99:1=s2",
         "0:1=s2 1:98=s7 99:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s8 19:47=s2 66:33=s1 99:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:13=s1 43:1=s6 44:6=s1 50:1=s6 51:9=s1 60:1=s6 61:7=s1 68:1=s6 69:9=s1 78:1=s6 79:8=s1 87:1=s6 88:7=s1 95:5=s2",
-        "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:9=s1 71:1=s6 72:8=s1 80:1=s6 81:7=s1 88:1=s6 89:5=s1 94:6=s2"
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:13=s1 43:1=s6 44:6=s1 50:1=s6 51:7=s1 58:1=s6 59:9=s1 68:1=s6 69:8=s1 77:1=s6 78:14=s1 92:1=s6 93:5=s1 98:2=s2",
+        "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:9=s1 45:1=s6 46:8=s1 54:1=s6 55:11=s1 66:1=s6 67:7=s1 74:1=s6 75:5=s1 80:20=s2"
       ],
       "state": "unread-chip-hover",
       "look": "tmt",
@@ -524936,8 +524936,8 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 2 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume",
-        " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
+        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes",
+        " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
       ],
       "styles": [
         "0:9=s0 9:8=s1 17:14=s2 31:26=s1 57:1=s12 58:22=s1",
@@ -524974,8 +524974,8 @@
         "0:1=s2 1:2=s7 3:19=s11 22:57=s7 79:1=s2",
         "0:1=s2 1:78=s7 79:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s8 19:27=s2 46:33=s1 79:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:13=s1 43:1=s6 44:6=s1 50:1=s6 51:9=s1 60:1=s6 61:7=s1 68:1=s6 69:7=s1 76:4=s2",
-        "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:15=s1 51:1=s6 52:9=s1 61:1=s6 62:7=s1 69:1=s6 70:5=s1 75:5=s2"
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:13=s1 43:1=s6 44:6=s1 50:1=s6 51:7=s1 58:1=s6 59:9=s1 68:1=s6 69:6=s1 75:5=s2",
+        "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:9=s1 45:1=s6 46:8=s1 54:1=s6 55:11=s1 66:1=s6 67:7=s1 74:1=s6 75:5=s1"
       ],
       "state": "unread-chip-hover",
       "look": "tmt",
@@ -525030,8 +525030,8 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 2 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename",
-        " Tab panes  w snapshots  / search  ? help  q quit"
+        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move",
+        " Tab panes  w snapshots  / search  c timers  ? help  q quit"
       ],
       "styles": [
         "0:9=s1 9:2=s2 11:26=s1 37:1=s12 38:22=s1",
@@ -525068,8 +525068,8 @@
         "0:1=s2 1:2=s7 3:19=s11 22:37=s7 59:1=s2",
         "0:1=s2 1:58=s7 59:1=s2",
         "0:1=s2 1:6=s1 7:2=s2 9:10=s8 19:7=s2 26:33=s1 59:1=s2",
-        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:13=s1 43:1=s6 44:6=s1 50:1=s6 51:7=s1 58:2=s2",
-        "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:7=s1 43:1=s6 44:5=s1 49:11=s2"
+        "0:1=s2 1:2=s6 3:9=s1 12:2=s6 14:7=s1 21:1=s6 22:7=s1 29:1=s6 30:13=s1 43:1=s6 44:6=s1 50:1=s6 51:5=s1 56:4=s2",
+        "0:1=s2 1:3=s6 4:8=s1 12:1=s6 13:12=s1 25:1=s6 26:9=s1 35:1=s6 36:9=s1 45:1=s6 46:7=s1 53:1=s6 54:5=s1 59:1=s2"
       ],
       "state": "unread-chip-hover",
       "look": "tmt",
@@ -525124,8 +525124,8 @@
         "                                                                           │   ⏎ to message worker",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 2 unread                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume  N notes  d remove  x leave squad  a note  v reader  j host  p pin",
-        " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
+        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes  x leave squad  j host  p pin",
+        " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
       ],
       "styles": [
         "0:9=s26 9:8=s27 17:77=s2 94:1=s27 95:3=s3 98:11=s27 109:2=s2 111:26=s27 137:1=s35 138:22=s27",
@@ -525162,8 +525162,8 @@
         "0:75=s2 75:1=s32 76:1=s2 77:2=s30 79:19=s34 98:61=s30 159:1=s2",
         "0:75=s2 75:1=s32 76:1=s2 77:82=s30 159:1=s2",
         "0:1=s2 1:25=s32 26:31=s2 57:17=s27 74:1=s2 75:1=s32 76:1=s2 77:6=s27 83:2=s2 85:10=s31 95:31=s2 126:33=s27 159:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:13=s27 43:1=s29 44:6=s27 50:1=s29 51:9=s27 60:1=s29 61:7=s27 68:1=s29 69:9=s27 78:1=s29 79:8=s27 87:1=s29 88:9=s27 97:1=s29 98:14=s27 112:1=s29 113:7=s27 120:1=s29 121:9=s27 130:1=s29 131:7=s27 138:1=s29 139:4=s27 143:17=s2",
-        "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:8=s27 80:1=s29 81:11=s27 92:1=s29 93:7=s27 100:1=s29 101:5=s27 106:54=s2"
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:13=s27 43:1=s29 44:6=s27 50:1=s29 51:7=s27 58:1=s29 59:9=s27 68:1=s29 69:8=s27 77:1=s29 78:14=s27 92:1=s29 93:7=s27 100:1=s29 101:4=s27 105:55=s2",
+        "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:9=s27 45:1=s29 46:8=s27 54:1=s29 55:11=s27 66:1=s29 67:7=s27 74:1=s29 75:5=s27 80:80=s2"
       ],
       "state": "unread-chip-hover",
       "look": "tmt-light",
@@ -525218,8 +525218,8 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 2 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume  N notes  d remove",
-        " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
+        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes  x leave squad  j host",
+        " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
       ],
       "styles": [
         "0:9=s26 9:8=s27 17:17=s2 34:1=s27 35:3=s3 38:11=s27 49:2=s2 51:26=s27 77:1=s35 78:22=s27",
@@ -525256,8 +525256,8 @@
         "0:1=s2 1:2=s30 3:19=s34 22:77=s30 99:1=s2",
         "0:1=s2 1:98=s30 99:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s31 19:47=s2 66:33=s27 99:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:13=s27 43:1=s29 44:6=s27 50:1=s29 51:9=s27 60:1=s29 61:7=s27 68:1=s29 69:9=s27 78:1=s29 79:8=s27 87:1=s29 88:7=s27 95:5=s2",
-        "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:9=s27 71:1=s29 72:8=s27 80:1=s29 81:7=s27 88:1=s29 89:5=s27 94:6=s2"
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:13=s27 43:1=s29 44:6=s27 50:1=s29 51:7=s27 58:1=s29 59:9=s27 68:1=s29 69:8=s27 77:1=s29 78:14=s27 92:1=s29 93:5=s27 98:2=s2",
+        "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:9=s27 45:1=s29 46:8=s27 54:1=s29 55:11=s27 66:1=s29 67:7=s27 74:1=s29 75:5=s27 80:20=s2"
       ],
       "state": "unread-chip-hover",
       "look": "tmt-light",
@@ -525312,8 +525312,8 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 2 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume",
-        " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
+        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes",
+        " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
       ],
       "styles": [
         "0:9=s26 9:8=s27 17:14=s2 31:26=s27 57:1=s35 58:22=s27",
@@ -525350,8 +525350,8 @@
         "0:1=s2 1:2=s30 3:19=s34 22:57=s30 79:1=s2",
         "0:1=s2 1:78=s30 79:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s31 19:27=s2 46:33=s27 79:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:13=s27 43:1=s29 44:6=s27 50:1=s29 51:9=s27 60:1=s29 61:7=s27 68:1=s29 69:7=s27 76:4=s2",
-        "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:15=s27 51:1=s29 52:9=s27 61:1=s29 62:7=s27 69:1=s29 70:5=s27 75:5=s2"
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:13=s27 43:1=s29 44:6=s27 50:1=s29 51:7=s27 58:1=s29 59:9=s27 68:1=s29 69:6=s27 75:5=s2",
+        "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:9=s27 45:1=s29 46:8=s27 54:1=s29 55:11=s27 66:1=s29 67:7=s27 74:1=s29 75:5=s27"
       ],
       "state": "unread-chip-hover",
       "look": "tmt-light",
@@ -525406,8 +525406,8 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 2 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename",
-        " Tab panes  w snapshots  / search  ? help  q quit"
+        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move",
+        " Tab panes  w snapshots  / search  c timers  ? help  q quit"
       ],
       "styles": [
         "0:9=s27 9:2=s2 11:26=s27 37:1=s35 38:22=s27",
@@ -525444,8 +525444,8 @@
         "0:1=s2 1:2=s30 3:19=s34 22:37=s30 59:1=s2",
         "0:1=s2 1:58=s30 59:1=s2",
         "0:1=s2 1:6=s27 7:2=s2 9:10=s31 19:7=s2 26:33=s27 59:1=s2",
-        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:13=s27 43:1=s29 44:6=s27 50:1=s29 51:7=s27 58:2=s2",
-        "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:7=s27 43:1=s29 44:5=s27 49:11=s2"
+        "0:1=s2 1:2=s29 3:9=s27 12:2=s29 14:7=s27 21:1=s29 22:7=s27 29:1=s29 30:13=s27 43:1=s29 44:6=s27 50:1=s29 51:5=s27 56:4=s2",
+        "0:1=s2 1:3=s29 4:8=s27 12:1=s29 13:12=s27 25:1=s29 26:9=s27 35:1=s29 36:9=s27 45:1=s29 46:7=s27 53:1=s29 54:5=s27 59:1=s2"
       ],
       "state": "unread-chip-hover",
       "look": "tmt-light",
@@ -525500,8 +525500,8 @@
         "                                                                           │   ⏎ to message worker",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 2 unread                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume  N notes  d remove  x leave squad  a note  v reader  j host  p pin",
-        " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
+        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes  x leave squad  j host  p pin",
+        " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
       ],
       "styles": [
         "0:9=s2 9:8=s49 17:77=s2 94:1=s49 95:3=s50 98:11=s49 109:2=s2 111:26=s49 137:1=s58 138:22=s49",
@@ -525538,8 +525538,8 @@
         "0:75=s2 75:1=s56 76:1=s2 77:2=s54 79:19=s57 98:61=s54 159:1=s2",
         "0:75=s2 75:1=s56 76:1=s2 77:82=s54 159:1=s2",
         "0:1=s2 1:25=s56 26:31=s2 57:17=s49 74:1=s2 75:1=s56 76:1=s2 77:6=s49 83:2=s2 85:1=s100 86:9=s101 95:31=s2 126:33=s49 159:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:13=s49 43:1=s53 44:6=s49 50:1=s53 51:9=s49 60:1=s53 61:7=s49 68:1=s53 69:9=s49 78:1=s53 79:8=s49 87:1=s53 88:9=s49 97:1=s53 98:14=s49 112:1=s53 113:7=s49 120:1=s53 121:9=s49 130:1=s53 131:7=s49 138:1=s53 139:4=s49 143:17=s2",
-        "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:8=s49 80:1=s53 81:11=s49 92:1=s53 93:7=s49 100:1=s53 101:5=s49 106:54=s2"
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:13=s49 43:1=s53 44:6=s49 50:1=s53 51:7=s49 58:1=s53 59:9=s49 68:1=s53 69:8=s49 77:1=s53 78:14=s49 92:1=s53 93:7=s49 100:1=s53 101:4=s49 105:55=s2",
+        "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:9=s49 45:1=s53 46:8=s49 54:1=s53 55:11=s49 66:1=s53 67:7=s49 74:1=s53 75:5=s49 80:80=s2"
       ],
       "state": "unread-chip-hover",
       "look": "terminal",
@@ -525594,8 +525594,8 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 2 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume  N notes  d remove",
-        " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
+        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes  x leave squad  j host",
+        " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
       ],
       "styles": [
         "0:9=s2 9:8=s49 17:17=s2 34:1=s49 35:3=s50 38:11=s49 49:2=s2 51:26=s49 77:1=s58 78:22=s49",
@@ -525632,8 +525632,8 @@
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:1=s100 10:9=s101 19:47=s2 66:33=s49 99:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:13=s49 43:1=s53 44:6=s49 50:1=s53 51:9=s49 60:1=s53 61:7=s49 68:1=s53 69:9=s49 78:1=s53 79:8=s49 87:1=s53 88:7=s49 95:5=s2",
-        "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:9=s49 71:1=s53 72:8=s49 80:1=s53 81:7=s49 88:1=s53 89:5=s49 94:6=s2"
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:13=s49 43:1=s53 44:6=s49 50:1=s53 51:7=s49 58:1=s53 59:9=s49 68:1=s53 69:8=s49 77:1=s53 78:14=s49 92:1=s53 93:5=s49 98:2=s2",
+        "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:9=s49 45:1=s53 46:8=s49 54:1=s53 55:11=s49 66:1=s53 67:7=s49 74:1=s53 75:5=s49 80:20=s2"
       ],
       "state": "unread-chip-hover",
       "look": "terminal",
@@ -525688,8 +525688,8 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 2 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume",
-        " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
+        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes",
+        " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
       ],
       "styles": [
         "0:9=s2 9:8=s49 17:14=s2 31:26=s49 57:1=s58 58:22=s49",
@@ -525726,8 +525726,8 @@
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:1=s100 10:9=s101 19:27=s2 46:33=s49 79:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:13=s49 43:1=s53 44:6=s49 50:1=s53 51:9=s49 60:1=s53 61:7=s49 68:1=s53 69:7=s49 76:4=s2",
-        "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:15=s49 51:1=s53 52:9=s49 61:1=s53 62:7=s49 69:1=s53 70:5=s49 75:5=s2"
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:13=s49 43:1=s53 44:6=s49 50:1=s53 51:7=s49 58:1=s53 59:9=s49 68:1=s53 69:6=s49 75:5=s2",
+        "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:9=s49 45:1=s53 46:8=s49 54:1=s53 55:11=s49 66:1=s53 67:7=s49 74:1=s53 75:5=s49"
       ],
       "state": "unread-chip-hover",
       "look": "terminal",
@@ -525782,8 +525782,8 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 2 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename",
-        " Tab panes  w snapshots  / search  ? help  q quit"
+        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move",
+        " Tab panes  w snapshots  / search  c timers  ? help  q quit"
       ],
       "styles": [
         "0:9=s49 9:2=s2 11:26=s49 37:1=s58 38:22=s49",
@@ -525820,8 +525820,8 @@
         "0:1=s2 1:2=s54 3:19=s57 22:37=s54 59:1=s2",
         "0:1=s2 1:58=s54 59:1=s2",
         "0:1=s2 1:6=s49 7:2=s2 9:1=s100 10:9=s101 19:7=s2 26:33=s49 59:1=s2",
-        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:13=s49 43:1=s53 44:6=s49 50:1=s53 51:7=s49 58:2=s2",
-        "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:7=s49 43:1=s53 44:5=s49 49:11=s2"
+        "0:1=s2 1:2=s53 3:9=s49 12:2=s53 14:7=s49 21:1=s53 22:7=s49 29:1=s53 30:13=s49 43:1=s53 44:6=s49 50:1=s53 51:5=s49 56:4=s2",
+        "0:1=s2 1:3=s53 4:8=s49 12:1=s53 13:12=s49 25:1=s53 26:9=s49 35:1=s53 36:9=s49 45:1=s53 46:7=s49 53:1=s53 54:5=s49 59:1=s2"
       ],
       "state": "unread-chip-hover",
       "look": "terminal",
@@ -525876,8 +525876,8 @@
         "                                                                           │   ⏎ to message worker",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 2 unread                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume  N notes  d remove  x leave squad  a note  v reader  j host  p pin",
-        " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
+        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes  x leave squad  j host  p pin",
+        " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
       ],
       "styles": [
         "0:95=s2 95:3=s51 98:62=s2",
@@ -525914,8 +525914,8 @@
         "0:77=s2 77:2=s54 79:19=s57 98:61=s54 159:1=s2",
         "0:77=s2 77:82=s54 159:1=s2",
         "0:85=s2 85:10=s51 95:65=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:13=s2 43:1=s53 44:6=s2 50:1=s53 51:9=s2 60:1=s53 61:7=s2 68:1=s53 69:9=s2 78:1=s53 79:8=s2 87:1=s53 88:9=s2 97:1=s53 98:14=s2 112:1=s53 113:7=s2 120:1=s53 121:9=s2 130:1=s53 131:7=s2 138:1=s53 139:21=s2",
-        "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:8=s2 80:1=s53 81:11=s2 92:1=s53 93:7=s2 100:1=s53 101:59=s2"
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:13=s2 43:1=s53 44:6=s2 50:1=s53 51:7=s2 58:1=s53 59:9=s2 68:1=s53 69:8=s2 77:1=s53 78:14=s2 92:1=s53 93:7=s2 100:1=s53 101:59=s2",
+        "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:9=s2 45:1=s53 46:8=s2 54:1=s53 55:11=s2 66:1=s53 67:7=s2 74:1=s53 75:85=s2"
       ],
       "state": "unread-chip-hover",
       "look": "NO_COLOR",
@@ -525970,8 +525970,8 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 2 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume  N notes  d remove",
-        " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
+        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes  x leave squad  j host",
+        " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
       ],
       "styles": [
         "0:35=s2 35:3=s51 38:62=s2",
@@ -526008,8 +526008,8 @@
         "0:1=s2 1:2=s54 3:19=s57 22:77=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:9=s2 9:10=s51 19:81=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:13=s2 43:1=s53 44:6=s2 50:1=s53 51:9=s2 60:1=s53 61:7=s2 68:1=s53 69:9=s2 78:1=s53 79:8=s2 87:1=s53 88:12=s2",
-        "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:9=s2 71:1=s53 72:8=s2 80:1=s53 81:7=s2 88:1=s53 89:11=s2"
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:13=s2 43:1=s53 44:6=s2 50:1=s53 51:7=s2 58:1=s53 59:9=s2 68:1=s53 69:8=s2 77:1=s53 78:14=s2 92:1=s53 93:7=s2",
+        "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:9=s2 45:1=s53 46:8=s2 54:1=s53 55:11=s2 66:1=s53 67:7=s2 74:1=s53 75:25=s2"
       ],
       "state": "unread-chip-hover",
       "look": "NO_COLOR",
@@ -526064,8 +526064,8 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 2 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume",
-        " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
+        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes",
+        " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
       ],
       "styles": [
         "0:80=s2",
@@ -526102,8 +526102,8 @@
         "0:1=s2 1:2=s54 3:19=s57 22:57=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:9=s2 9:10=s51 19:61=s2",
-        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:13=s2 43:1=s53 44:6=s2 50:1=s53 51:9=s2 60:1=s53 61:7=s2 68:1=s53 69:11=s2",
-        "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:15=s2 51:1=s53 52:9=s2 61:1=s53 62:7=s2 69:1=s53 70:10=s2"
+        "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:13=s2 43:1=s53 44:6=s2 50:1=s53 51:7=s2 58:1=s53 59:9=s2 68:1=s53 69:11=s2",
+        "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:9=s2 45:1=s53 46:8=s2 54:1=s53 55:11=s2 66:1=s53 67:7=s2 74:1=s53 75:5=s2"
       ],
       "state": "unread-chip-hover",
       "look": "NO_COLOR",
@@ -526158,8 +526158,8 @@
         "   ⏎ to message worker",
         "",
         " worker  ● 2 unread       ⏎ send  Alt+⏎ new line  @ mention",
-        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename",
-        " Tab panes  w snapshots  / search  ? help  q quit"
+        " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move",
+        " Tab panes  w snapshots  / search  c timers  ? help  q quit"
       ],
       "styles": [
         "0:60=s2",
@@ -526197,7 +526197,7 @@
         "0:1=s2 1:58=s54 59:1=s2",
         "0:9=s2 9:10=s51 19:41=s2",
         "0:1=s2 1:2=s53 3:9=s2 12:2=s53 14:7=s2 21:1=s53 22:7=s2 29:1=s53 30:13=s2 43:1=s53 44:6=s2 50:1=s53 51:9=s2",
-        "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:7=s2 43:1=s53 44:16=s2"
+        "0:1=s2 1:3=s53 4:8=s2 12:1=s53 13:12=s2 25:1=s53 26:9=s2 35:1=s53 36:9=s2 45:1=s53 46:7=s2 53:1=s53 54:6=s2"
       ],
       "state": "unread-chip-hover",
       "look": "NO_COLOR",
