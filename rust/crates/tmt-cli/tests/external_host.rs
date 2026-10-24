@@ -25,8 +25,12 @@ mod run_exit;
 mod sampling;
 #[path = "external_host/send_now.rs"]
 mod send_now;
+#[path = "external_host/stop.rs"]
+mod stop;
 #[allow(dead_code)]
 mod support;
+#[path = "external_host/uuid_selectors.rs"]
+mod uuid_selectors;
 
 use serde_json::Value;
 use std::{
@@ -102,6 +106,10 @@ case "$3" in
     if [ -f "$d/capture-answer" ]; then cat "$d/capture-answer"
     else printf '{"ok":{"text":"captured line"}}'; fi ;;
   focus) printf '{"ok":{}}' ;;
+  close)
+    printf '%s\n' "$input" >> "$d/closed"
+    # `close-answer`, when present, replaces the answer.
+    if [ -f "$d/close-answer" ]; then cat "$d/close-answer"; else printf '{"ok":{}}'; fi ;;
   name-agent)
     printf '%s\n' "$input" >> "$d/named"
     # A held call blocks, never honoring its deadline, until the test
@@ -155,6 +163,8 @@ case "$3" in
     fi
     m=$(cat "$d/marker" 2>/dev/null); [ -n "$m" ] || m=null
     a=$(cat "$d/agentname" 2>/dev/null); if [ -n "$a" ]; then a=",\"agentName\":\"$a\""; fi
+    # `opened` holds true or false when the host reports whether tmt opened the pane.
+    o=$(cat "$d/opened" 2>/dev/null); if [ -n "$o" ]; then a="$a,\"openedByTmt\":$o"; fi
     p2=
     if [ -f "$d/two-panes" ]; then
       m2=$(cat "$d/marker-2" 2>/dev/null); [ -n "$m2" ] || m2=null
@@ -220,6 +230,18 @@ impl Fixture {
         fs::write(
             fixture.root.join("driver/capabilities"),
             r#"{"ok":{"protocols":[1],"kind":"host","name":"fake","version":"0.0.0-test","ops":["caller","server","resolve-target","snapshot","publish","clear","input","prompt","capture","focus"],"paneId":{"prefix":"fake-"},"target":"f{n}","callerEnv":["FAKE_PANE_ID"]}}"#,
+        )
+        .unwrap();
+        fixture
+    }
+
+    /// A driver that can also close a pane. What it says about who opened the
+    /// pane is in `opened`: `true`, `false`, or no file at all.
+    fn closing(name: &str) -> Self {
+        let fixture = Self::new(name);
+        fs::write(
+            fixture.root.join("driver/capabilities"),
+            r#"{"ok":{"protocols":[1],"kind":"host","name":"fake","version":"0.0.0-test","ops":["caller","server","resolve-target","snapshot","publish","clear","close"],"paneId":{"prefix":"fake-"},"target":"f{n}","callerEnv":["FAKE_PANE_ID"]}}"#,
         )
         .unwrap();
         fixture
@@ -1144,6 +1166,16 @@ fn run_names_the_agent_it_started_after_the_host_sees_it() {
 /// through a stand-in `claude` on `PATH`.
 #[test]
 fn resume_names_the_agent_it_started() {
+    resume_names_the_agent("resume-names", false);
+}
+
+/// The same resume, selecting the member by its identity UUID.
+#[test]
+fn resume_by_identity_uuid_names_the_agent_it_started() {
+    resume_names_the_agent("resume-names-uuid", true);
+}
+
+fn resume_names_the_agent(label: &str, by_uuid: bool) {
     use tmt_core::{
         binding::{
             BindingRepository,
@@ -1152,7 +1184,7 @@ fn resume_names_the_agent_it_started() {
         identity::IdentityReader,
     };
     register();
-    let fixture = naming("resume-names", &[]);
+    let fixture = naming(label, &[]);
     fixture.approve();
     let bound = fixture.tmt_in(Some("f1"), &["name", "worker", "--save"]);
     assert!(bound.status.success(), "{bound:?}");
@@ -1182,7 +1214,12 @@ fn resume_names_the_agent_it_started() {
     let claude = bin.join("claude");
     fs::write(&claude, format!("#!/bin/sh\n{AGENT}\n")).unwrap();
     fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
-    let mut command = fixture.command_in(Some("f1"), &["resume", "worker"]);
+    let selector = if by_uuid {
+        identity.id.as_str()
+    } else {
+        "worker"
+    };
+    let mut command = fixture.command_in(Some("f1"), &["resume", selector]);
     command.env(
         "PATH",
         format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", bin.display()),

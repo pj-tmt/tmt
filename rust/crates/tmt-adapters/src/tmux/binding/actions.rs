@@ -133,6 +133,31 @@ impl<R: CommandRunner> HostDriver for BindingSession<'_, R> {
             })
     }
 
+    fn close_preflight(&self) -> Result<(), ActionError> {
+        Ok(())
+    }
+
+    fn opened_by_tmt(&mut self, binding: &Binding) -> Result<Option<bool>, HostError> {
+        Ok(Some(self.tmux.pane_opened_by_tmt(
+            &binding.server.socket_path,
+            &binding.pane_id,
+            self.deadline,
+        )?))
+    }
+
+    /// Only the pane tmt opened, once; the tmux layer re-proves the process and the mark and
+    /// never closes a session's only pane.
+    fn close_pane(&mut self, binding: &Binding) -> Result<(), ActionError> {
+        self.tmux
+            .close_opened_pane(
+                &binding.server.socket_path,
+                &binding.pane_id,
+                binding.pane_pid,
+                self.deadline,
+            )
+            .map_err(|error| ActionError::Evidence(error.into()))
+    }
+
     /// tmux recognizes no agents, so it has no agent names.
     fn name_agent(&mut self, _: &Binding, _: &str) -> Result<AgentNaming, HostError> {
         Ok(AgentNaming::NotLinked)

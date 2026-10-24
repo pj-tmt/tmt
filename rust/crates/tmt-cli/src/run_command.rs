@@ -232,6 +232,23 @@ fn launch_failure(error: Failure, request: RunRequest<'_>, effect: LaunchEffect)
     }
 }
 
+/// A resume names its member by display name or by identity UUID, as Ops hands
+/// members off by UUID. The UUID is resolved to the display name once here; an
+/// unknown or retired UUID is `NAME_NOT_FOUND` naming it.
+fn selected_name(
+    storage: &mut Storage,
+    request: RunRequest<'_>,
+) -> Result<Option<String>, Failure> {
+    if request.resume.is_none() || !tmt_core::dispatch::canonical_id(request.name) {
+        return Ok(None);
+    }
+    storage
+        .resolve_identity(request.name)
+        .map_err(storage_failure)?
+        .map(|identity| Some(identity.name))
+        .ok_or_else(|| crate::output::identity_missing(request.name))
+}
+
 fn run_observed(
     request: RunRequest<'_>,
     effect: &mut LaunchEffect,
@@ -289,15 +306,21 @@ fn run_observed(
             "Could not access launch identity state.",
         )
     })?;
-    let pending = run_bound(
-        &mut storage,
-        &paths,
-        &host,
-        &pane,
-        request,
-        &settings,
-        effect,
-    );
+    let pending = selected_name(&mut storage, request).and_then(|selected| {
+        let request = RunRequest {
+            name: selected.as_deref().unwrap_or(request.name),
+            ..request
+        };
+        run_bound(
+            &mut storage,
+            &paths,
+            &host,
+            &pane,
+            request,
+            &settings,
+            effect,
+        )
+    });
     // The child's status remains authoritative after it has actually run.
     // Closing local state cannot turn a successful child into a different exit.
     if storage.close().is_err() {

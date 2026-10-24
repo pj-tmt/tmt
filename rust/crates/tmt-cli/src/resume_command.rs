@@ -7,7 +7,7 @@ use tmt_adapters::{
     config::ConfigPaths,
     storage::{Storage, StorageError},
 };
-use tmt_core::{binding::BindingRepository, identity::IdentityReader, names::normalize_name};
+use tmt_core::{binding::BindingRepository, identity::IdentityReader};
 
 fn storage_failure(error: StorageError) -> Failure {
     Failure::new(
@@ -176,7 +176,7 @@ fn forgotten(name: &str) -> Result<(bool, String), Failure> {
     })?;
     let result = (|| {
         let identity = storage
-            .find_identity(&normalize_name(name))
+            .resolve_identity(name)
             .map_err(storage_failure)?
             .ok_or_else(|| {
                 Failure::new(

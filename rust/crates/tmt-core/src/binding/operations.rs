@@ -1,4 +1,4 @@
-use super::observation::{named_entry, observe, reconcile};
+use super::observation::{named_entry, observe, reconcile, selected_entry};
 use super::*;
 use crate::{
     endpoint::ProcessIncarnation,
@@ -649,8 +649,8 @@ pub fn remove_identity<R: BindingRepository, O: BindingEndpoint>(
     force: bool,
 ) -> Result<BindingEntry, BindingError<R::Error, O::Error>> {
     repository.with_binding_transaction(|records| {
-        let entry =
-            named_entry(records, name)?.ok_or_else(|| BindingError::NameNotFound(name.into()))?;
+        let entry = selected_entry(records, name)?
+            .ok_or_else(|| BindingError::NameNotFound(name.into()))?;
         if entry.identity.lifetime == Lifetime::Saved && !force {
             return Err(BindingError::ConfirmationRequired);
         }
@@ -685,7 +685,7 @@ pub fn rename_identity<R: BindingRepository, O>(
     let name = crate::names::validate_name(new).map_err(BindingError::InvalidName)?;
     repository.with_binding_transaction(|records| {
         let entry =
-            named_entry(records, old)?.ok_or_else(|| BindingError::NameNotFound(old.into()))?;
+            selected_entry(records, old)?.ok_or_else(|| BindingError::NameNotFound(old.into()))?;
         rename_entry(records, entry, &name)
     })
 }

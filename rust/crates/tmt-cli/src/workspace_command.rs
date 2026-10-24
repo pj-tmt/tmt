@@ -21,6 +21,7 @@ pub(crate) fn eligible(invocation: &Invocation) -> bool {
         | Invocation::Reply { .. }
         | Invocation::Answer { .. }
         | Invocation::Check { .. }
+        | Invocation::Stop { .. }
         | Invocation::Focus { .. } => true,
         Invocation::Identity(request) => match request {
             IdentityRequest::Create(_) => true,
