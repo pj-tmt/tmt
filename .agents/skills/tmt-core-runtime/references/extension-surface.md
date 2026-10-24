@@ -47,6 +47,10 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
   Root help includes informational missing-official rows; completion lists installed commands only.
 - Installed-extension prefix refusals recover presentation mode only from the stored
   Core prefix using the diagnostic scanner, and never inspect or execute the extension tail.
+- Direct extension dispatch, completion and Remote message delivery share the child-only
+  `TMT_EXECUTABLE` environment builder, using `core_executable::selected` for the callback.
+  Bounded calls keep the process owner's spawn classification and cleanup; they never
+  mutate the parent environment or insert an environment-launcher child.
 - Completion v1 (`__complete`) runs through the bounded process owner with a one-second
   deadline and 64 KiB bound; shells quote candidates and never evaluate them.
 
