@@ -2,6 +2,8 @@
 use super::*;
 use crate::core::Core;
 use std::{path::PathBuf, time::Duration};
+// Allow cold Python startup; these tests measure outcomes and replay, not frame cost.
+const OBSERVE_BUDGET: Duration = Duration::from_secs(2);
 struct Fixture {
     root: PathBuf,
     core: Core,
@@ -119,7 +121,7 @@ fn different_uuid_or_remembered_only_never_clears_unknown_and_never_replays() {
         let review = f.review();
         std::fs::write(f.root.join(change), "").unwrap();
         assert!(
-            matches!(load::launch(&f.core,&review,Duration::from_millis(300)).unwrap(),Outcome::Unknown(ref text) if text.contains("before retrying"))
+            matches!(load::launch(&f.core,&review,OBSERVE_BUDGET).unwrap(),Outcome::Unknown(ref text) if text.contains("before retrying"))
         );
         assert_eq!(f.launches().lines().count(), 1);
     }
@@ -130,8 +132,9 @@ fn failed_host_reports_uncertainty_with_exact_error_text_and_no_retry() {
     let f = Fixture::new();
     let review = f.review();
     std::fs::write(f.root.join("fail-host"), "").unwrap();
-    assert!(
-        matches!(load::launch(&f.core,&review,Duration::from_millis(300)).unwrap(),Outcome::Unknown(ref text) if text.contains("Exact Core refusal text."))
-    );
+    let Outcome::Unknown(text) = load::launch(&f.core, &review, OBSERVE_BUDGET).unwrap() else {
+        panic!("A refused host cannot prove a completed switch");
+    };
+    assert!(text.contains("Exact Core refusal text."), "{text}");
     assert_eq!(f.launches().lines().count(), 1);
 }
