@@ -195,19 +195,40 @@ retain their role without parsing member names or changing layout.
 nothing. Layout uses terminal cells and degrades side/stack preferences to one
 focused pane when dimensions cannot support a split.
 In Agents member focus, the same selected worker reads [recent pane output](../../../../contracts/extension-api.md#recent-agent-responses)
-after capability discovery, by exact identity UUID. Each session projects at most
-ten provider-final captures, oldest capture first without a timestamp sort. It
-stably merges the exchange and capture heads by their literal times, exchange
-first on ties. Final message blocks use their settled times; capture order stays
-as returned by Core through clock rollback. A capture never absorbs a final,
-even when both contain identical text.
-Neutral `agent · pane output · time` headers use the exchange age wording, including `ago`; a muted `… truncated` caption
-separate these observations from replies. Pending and observed-empty pane reads add no line; unsupported/failed reads remain distinct. A failed read says `Recent pane output unavailable`;
-an empty conversation requires both sources observed empty. Pane text creates no
-request-source, reply, acknowledgment or annotation authority. The existing
-UUID/revision/cancellation fences reject obsolete reads, and the shared viewport
-keeps long captures scrollable without displacing the composer. The flat Agents list keeps its
-question-only presentation and does not acquire or paint these captures.
+after capability discovery, by exact identity UUID. A session starts with one public
+page; deliberate upward scrolling at its oldest loaded answer requests the next
+`before=nextBefore` page on the same selected lane, one read in flight. Core owns
+retention; the client neither expires nor count-prunes answers. Captures keep their
+returned order, including identical text and clock rollback. The transcript merges
+exchange and capture heads by literal times, exchanges first on ties, without
+absorbing a final into a capture.
+
+`recent_responses` admits page metadata and reconciles cursor chains. An ordinary
+latest read splices at one exact held-newest answer record (including provider and
+truncation metadata). Ambiguous/missing alignment (including an unalignable retention cut)
+or an explicit refresh key/action rebuilds only the held window serially and cancellably:
+stop at the first page boundary that covers the held item count or reaches the oldest
+held capture's `endedMs`, keeping `nextBefore` for deliberate older paging. Ordinary
+snapshot, theme and member refresh effects keep the anchored read. Old content stays
+held until the coherent result arrives. Coverage changes update the held history caption
+without re-walking an otherwise aligned chain. Failed reads retain loaded answers and the cursor;
+a failed older page waits for another deliberate scroll or refresh, without a retry
+loop. Actor/member/revision/cursor fences reject obsolete completions.
+
+Neutral `agent · pane output · time` headers use the exchange age wording. A
+truncated answer has `answer truncated · full text in the agent's pane` as its
+last muted line inside the answer gutter. History captions are inset one cell
+and carry a registered state mark. Only the final page can show `older answers not kept` at the top of history;
+Core's supplied time is qualified as `at or before`, including migrated floors.
+`capture.enabled=false` adds `answers are not captured for this agent: run tmt setup`
+while keeping retained answers; absent capture metadata adds no hint and never
+causes setup. Pending/observed-empty, unsupported and failed reads remain distinct.
+A failed latest read says `Recent pane output unavailable`; a failed older page
+names the failure and scroll retry at the older-history boundary. An empty conversation requires both sources
+observed empty. Pane text creates no request-source, reply, acknowledgment or
+annotation authority. The shared anchor/viewport keeps prepended answers readable
+without moving the composer. The flat Agents list keeps its question-only
+presentation and does not acquire or paint these captures.
 
 Unread markers are separate from Core acknowledgments. After a successful draw,
 App admits only the exact actor/member/request submission of an acquired displayed

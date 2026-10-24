@@ -14,11 +14,13 @@ fn settled_final_after_older_pane_text_is_its_own_message_with_exact_lines_and_a
         let key = app.pane_output_read().unwrap();
         app.apply_pane_output(
             key,
-            Observation::Observed(vec![Item {
+            Observation::observed(vec![Item {
                 provider: "codex".into(),
                 text: "Earlier pane first\nEarlier pane second".into(),
                 ended_ms: 1_200_000,
                 truncated: false,
+                original_bytes: 0,
+                session: None,
             }]),
         );
         app.scroll_pane(Pane::Replies, Step::Top);
@@ -80,11 +82,13 @@ fn identical_capture_and_final_remain_two_blocks_with_only_the_final_as_source()
         let key = app.pane_output_read().unwrap();
         app.apply_pane_output(
             key,
-            Observation::Observed(vec![Item {
+            Observation::observed(vec![Item {
                 provider: "codex".into(),
                 text: "Same exact answer\n第二 line".into(),
                 ended_ms: 1_200_000,
                 truncated: false,
+                original_bytes: 0,
+                session: None,
             }]),
         );
         draw(&app, 100, 44);
@@ -273,10 +277,12 @@ fn capture_settled_reply_packet() {
                     let key = app
                         .pane_output_read()
                         .expect("selected member output scope");
-                    app.apply_pane_output(key, Observation::Observed(vec![Item {
+                    app.apply_pane_output(key, Observation::observed(vec![Item {
                         provider: "codex".into(),
                         text: "Earlier pane text.\nA captured bullet list:\n- first item\n- second item".into(),
                         ended_ms: 1_200_000, truncated: false,
+original_bytes: 0,
+session: None,
                     }]));
                     if held {
                         app.scroll_pane(Pane::Replies, Step::Top);

@@ -573,6 +573,8 @@ fn window_item(now: u64) -> crate::board::recent_responses::Item {
         provider: "codex".into(),
         ended_ms: now - 1_007,
         truncated: false,
+        original_bytes: 0,
+        session: None,
     }
 }
 
@@ -581,7 +583,7 @@ fn observe_pane(app: &App, items: Vec<crate::board::recent_responses::Item>) {
     let key = app.pane_output_read().unwrap();
     app.apply_pane_output(
         key,
-        crate::board::recent_responses::Observation::Observed(items),
+        crate::board::recent_responses::Observation::observed(items),
     );
 }
 

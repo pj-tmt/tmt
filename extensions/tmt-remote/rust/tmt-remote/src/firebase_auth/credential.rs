@@ -11,11 +11,50 @@ use std::{
     io::{Read, Write},
     os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::PathBuf,
+    sync::{Mutex, MutexGuard},
 };
 
 pub struct FileStore {
     remote: PathBuf,
     project: String,
+    handle: Mutex<Option<File>>,
+}
+// The cached file description stays with FileStore. A guard releases flock
+// before its mutex, including error paths, even when a fork still has a copy.
+struct CredentialLock<'a> {
+    handle: Option<MutexGuard<'a, Option<File>>>,
+}
+impl std::ops::Deref for CredentialLock<'_> {
+    type Target = File;
+    fn deref(&self) -> &Self::Target {
+        self.handle
+            .as_ref()
+            .expect("credential lock guard is active")
+            .as_ref()
+            .expect("credential lock handle was initialized")
+    }
+}
+impl CredentialLock<'_> {
+    fn release(mut self) -> Result<(), AuthError> {
+        let handle = self.handle.take().expect("credential lock guard is active");
+        handle
+            .as_ref()
+            .expect("credential lock handle was initialized")
+            .unlock()
+            .map_err(|_| unavailable())
+    }
+}
+impl Drop for CredentialLock<'_> {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            // Keep the primary operation error on an early return or unwind.
+            // Normal completion uses release() and reports an unlock failure.
+            let _ = handle
+                .as_ref()
+                .expect("credential lock handle was initialized")
+                .unlock();
+        }
+    }
 }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -44,6 +83,7 @@ impl FileStore {
         Ok(Self {
             remote: layout.directory.clone(),
             project: project.into(),
+            handle: Mutex::new(None),
         })
     }
     fn directory(&self, create: bool) -> Result<Option<tmt_extension_state::Layout>, AuthError> {
@@ -61,18 +101,38 @@ impl FileStore {
     fn path(&self, dir: &tmt_extension_state::Layout) -> PathBuf {
         dir.directory.join(format!("{}.json", self.project))
     }
-    fn lock(&self, dir: &tmt_extension_state::Layout) -> Result<File, AuthError> {
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .mode(0o600)
-            .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
-            .open(dir.directory.join(format!("{}.lock", self.project)))
-            .map_err(|_| invalid())?;
-        admit(&lock, false)?;
-        lock.try_lock().map_err(|_| unavailable())?;
-        Ok(lock)
+    fn lock(&self, dir: &tmt_extension_state::Layout) -> Result<CredentialLock<'_>, AuthError> {
+        let mut handle = self.handle.try_lock().map_err(|_| unavailable())?;
+        let path = dir.directory.join(format!("{}.lock", self.project));
+        if handle.is_none() {
+            *handle = Some(
+                OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .mode(0o600)
+                    .custom_flags(
+                        nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK | nix::libc::O_CLOEXEC,
+                    )
+                    .open(&path)
+                    .map_err(|_| invalid())?,
+            );
+        }
+        let file = handle
+            .as_ref()
+            .expect("credential lock handle was initialized");
+        admit(file, false)?;
+        // A retained descriptor must never lock an old inode after its path is
+        // replaced. Keep the original strict no-symlink/owner/mode admission.
+        let current = fs::symlink_metadata(path).map_err(|_| invalid())?;
+        let opened = file.metadata().map_err(|_| invalid())?;
+        if !current.is_file() || current.dev() != opened.dev() || current.ino() != opened.ino() {
+            return Err(invalid());
+        }
+        file.try_lock().map_err(|_| unavailable())?;
+        Ok(CredentialLock {
+            handle: Some(handle),
+        })
     }
     fn read(&self, dir: &tmt_extension_state::Layout) -> Result<StoreRead, AuthError> {
         let mut file = match OpenOptions::new()
@@ -201,16 +261,18 @@ impl CredentialStore for FileStore {
                 permissions_repaired: false,
             });
         };
-        let _lock = self.lock(&dir)?;
+        let lock = self.lock(&dir)?;
         self.clean_staging(&dir)?;
-        self.read(&dir)
+        let read = self.read(&dir)?;
+        lock.release()?;
+        Ok(read)
     }
     fn replace(&self, expected: Option<&Credential>, next: &Credential) -> Result<(), AuthError> {
         if next.project_id != self.project {
             return Err(invalid());
         }
         let dir = self.directory(true)?.ok_or_else(unavailable)?;
-        let _lock = self.lock(&dir)?;
+        let lock = self.lock(&dir)?;
         if self.read(&dir)?.credential.as_ref() != expected {
             return Err(AuthError::state_changed());
         }
@@ -251,19 +313,21 @@ impl CredentialStore for FileStore {
         fs::rename(&staged.path, self.path(&dir)).map_err(|_| unavailable())?;
         staged.published = true;
         // After rename the new generation may be visible even if dir-sync fails.
-        dir.sync().map_err(|_| unavailable().uncertain())
+        dir.sync().map_err(|_| unavailable().uncertain())?;
+        lock.release().map_err(AuthError::uncertain)
     }
     fn remove(&self, expected: &Credential) -> Result<(), AuthError> {
         let Some(dir) = self.directory(false)? else {
             return Err(AuthError::state_changed());
         };
-        let _lock = self.lock(&dir)?;
+        let lock = self.lock(&dir)?;
         if self.read(&dir)?.credential.as_ref() != Some(expected) {
             return Err(AuthError::state_changed());
         }
         self.clean_staging(&dir)?;
         fs::remove_file(self.path(&dir)).map_err(|_| unavailable())?;
-        dir.sync().map_err(|_| unavailable().uncertain())
+        dir.sync().map_err(|_| unavailable().uncertain())?;
+        lock.release().map_err(AuthError::uncertain)
     }
 }
 struct Staged {
@@ -293,5 +357,160 @@ mod tests {
         );
         assert!(error.to_string().contains("file ownership"));
         assert!(admit_owner(1001, 1001).is_ok());
+    }
+
+    struct PrivateRoot(PathBuf);
+    impl Drop for PrivateRoot {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    fn fixture() -> (PrivateRoot, FileStore, Credential) {
+        let root = PrivateRoot(
+            std::env::temp_dir().join(format!("t4965-{}", crate::store::uuid_v4().unwrap())),
+        );
+        fs::create_dir(&root.0).unwrap();
+        fs::set_permissions(&root.0, fs::Permissions::from_mode(0o700)).unwrap();
+        let layout = Layout::open(&root.0).unwrap();
+        let store = FileStore::new(&layout, "demo-credential-lock").unwrap();
+        let credential = Credential {
+            project_id: "demo-credential-lock".into(),
+            uid: "fixture-uid".into(),
+            refresh_token: "fixture-refresh".into(),
+            created_at_ms: 1,
+            expires_at_ms: 1 + CREDENTIAL_LIFETIME_MS,
+            last_used_at_ms: 1,
+            revoking: false,
+        };
+        store.replace(None, &credential).unwrap();
+        (root, store, credential)
+    }
+    struct HeldCopy(std::process::Child);
+    impl HeldCopy {
+        fn start(file: File) -> Self {
+            use std::{
+                io::{BufRead, BufReader},
+                process::{Command, Stdio},
+            };
+            let mut child = Self(
+                Command::new("/bin/sh")
+                    .args(["-c", "printf 'ready\\n'; IFS= read -r release"])
+                    .env_clear()
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::from(file))
+                    .spawn()
+                    .unwrap(),
+            );
+            let mut ready = String::new();
+            BufReader::new(child.0.stdout.take().unwrap())
+                .read_line(&mut ready)
+                .unwrap();
+            assert_eq!(ready, "ready\n");
+            child
+        }
+        fn release(mut self) {
+            self.0
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(b"release\n")
+                .unwrap();
+            assert!(self.0.wait().unwrap().success());
+        }
+    }
+    impl Drop for HeldCopy {
+        fn drop(&mut self) {
+            if matches!(self.0.try_wait(), Ok(None)) {
+                let _ = self.0.kill();
+            }
+            let _ = self.0.wait();
+        }
+    }
+    #[test]
+    fn credential_release_ends_exclusion_while_a_fork_copy_remains_alive() {
+        if crate::test_isolation::isolated_case(
+            "firebase_auth::credential::tests::credential_release_ends_exclusion_while_a_fork_copy_remains_alive",
+        ) {
+            return;
+        }
+        let (root, store, credential) = fixture();
+        let dir = store.directory(false).unwrap().unwrap();
+        let lock = store.lock(&dir).unwrap();
+        let other = FileStore::new(
+            &Layout::open(root.0.as_path()).unwrap(),
+            "demo-credential-lock",
+        )
+        .unwrap();
+        assert_eq!(
+            other.load().err().unwrap().kind,
+            AuthErrorKind::Unavailable,
+            "a genuine live owner must still exclude another credential owner"
+        );
+        assert_eq!(
+            store.load().err().unwrap().kind,
+            AuthErrorKind::Unavailable,
+            "the retained description must not bypass another operation on the same store"
+        );
+        // Fork while the parent holds exclusion. The child's readiness barrier
+        // proves it holds the duplicate before the parent ends its operation.
+        let mut child = HeldCopy::start(File::try_clone(&lock).unwrap());
+        drop(lock);
+        let reloaded = store.load();
+        let independent = other.load();
+        assert!(
+            child.0.try_wait().unwrap().is_none(),
+            "the duplicate must remain in the child through both acquisition attempts"
+        );
+        child.release();
+        assert_eq!(
+            reloaded.unwrap().credential,
+            Some(credential.clone()),
+            "a fork copy must not extend a completed credential operation"
+        );
+        assert_eq!(
+            independent.unwrap().credential,
+            Some(credential),
+            "standalone command access must resume while the duplicate still lives"
+        );
+    }
+
+    #[test]
+    fn retained_credential_handle_is_close_on_exec() {
+        let (_root, store, _) = fixture();
+        let cached = store.handle.try_lock().unwrap();
+        let file = cached.as_ref().unwrap();
+        let flags = nix::fcntl::fcntl(file, nix::fcntl::FcntlArg::F_GETFD).unwrap();
+        assert_ne!(flags & nix::libc::FD_CLOEXEC, 0);
+    }
+
+    #[test]
+    fn retained_credential_handle_refuses_a_replaced_or_symlinked_lock_path() {
+        for symlink in [false, true] {
+            let (_root, store, credential) = fixture();
+            let dir = store.directory(false).unwrap().unwrap();
+            let path = dir.directory.join("demo-credential-lock.lock");
+            let original = dir.directory.join("original.lock");
+            fs::rename(&path, &original).unwrap();
+            if symlink {
+                std::os::unix::fs::symlink(&original, &path).unwrap();
+            } else {
+                OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .mode(0o600)
+                    .open(&path)
+                    .unwrap();
+            }
+            assert_eq!(
+                store.load().err().unwrap().kind,
+                AuthErrorKind::InvalidCredential
+            );
+            assert_eq!(
+                store.read(&dir).unwrap().credential,
+                Some(credential),
+                "refusing the changed lock path must preserve the credential"
+            );
+        }
     }
 }
