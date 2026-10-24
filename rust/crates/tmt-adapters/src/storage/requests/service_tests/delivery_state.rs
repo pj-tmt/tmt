@@ -40,6 +40,16 @@ fn record_hold(f: &mut Fixture, target: &str, owner: &str, revision: u64, hold: 
 
 /// A bound session of `identity` whose driver last reported `state` at `since_ms`.
 fn bind_with_activity(f: &Fixture, identity: &str, state: &str, since_ms: u64) {
+    bind_driver_with_activity(f, identity, "claude", state, since_ms);
+}
+
+fn bind_driver_with_activity(
+    f: &Fixture,
+    identity: &str,
+    driver: &str,
+    state: &str,
+    since_ms: u64,
+) {
     let db = rusqlite::Connection::open(&f.database).unwrap();
     db.execute(
         "INSERT INTO bindings(id,identity_id,transport,pane_id,server_id,socket_path,server_pid,server_start_time,pane_pid,bound_at,last_verified_at,runtime_state,runtime_pid,runtime_start_identity,observed_provider_session_id,launch_owner_pid,launch_owner_start_identity)
@@ -53,8 +63,8 @@ fn bind_with_activity(f: &Fixture, identity: &str, state: &str, since_ms: u64) {
     }});
     db.execute(
         "INSERT INTO identity_session_preferences(identity_id,remembered_harness,runtime_mode,provider_session_id,driver_state_version,driver_state)
-         VALUES(?1,'claude','default','session',3,?2)",
-        rusqlite::params![identity, activity.to_string()],
+         VALUES(?1,?3,'default','session',3,?2)",
+        rusqlite::params![identity, activity.to_string(), driver],
     )
     .unwrap();
 }
@@ -457,12 +467,16 @@ fn a_passthrough_reads_the_outcome_of_its_capture_and_never_working_after_it_end
 /// One passthrough typed into `agent`'s pane while its bound session's driver last reported
 /// `state` at `since_ms` (`None`: no binding at all). The send began at `NOW_MS`.
 fn typed_while(state: Option<(&str, u64)>) -> Fixture {
+    typed_while_driver("claude", state)
+}
+
+fn typed_while_driver(driver: &str, state: Option<(&str, u64)>) -> Fixture {
     let mut f = Fixture::new();
     let ben = person(&mut f, "Ben");
     mark_person(&f, &ben);
     let target = f.identity_id.clone();
     if let Some((state, since_ms)) = state {
-        bind_with_activity(&f, &target, state, since_ms);
+        bind_driver_with_activity(&f, &target, driver, state, since_ms);
     }
     claimed_passthrough(&mut f, &target, &ben, "typed", "also do the other thing");
     service(&mut f)
@@ -519,6 +533,40 @@ fn a_folded_passthrough_whose_turn_ends_without_a_final_reads_unconfirmed_not_wo
         ("unconfirmed", "turn_ended_without_answer", false)
     );
     f.storage.close().unwrap();
+}
+
+#[test]
+fn a_driver_that_does_not_fold_queued_text_keeps_a_pending_prompt_matched_capture() {
+    // The same running turn that folds a Claude passthrough: Codex is unmeasured, so its text
+    // stays pending and is matched by the prompt of whichever turn runs it.
+    for driver in ["codex", "gemini"] {
+        let mut f = typed_while_driver(driver, Some(("working", NOW_MS - 5_000)));
+        let db = rusqlite::Connection::open(&f.database).unwrap();
+        let pending = capture(&db, "typed").unwrap().unwrap();
+        assert_eq!(pending.state, CaptureState::Pending, "{driver}");
+        assert!(!pending.folded, "{driver}");
+        // The running turn ending settles nothing for it.
+        let target = f.identity_id.clone();
+        let text = FinalText::new("The earlier turn's final.").unwrap();
+        assert!(
+            !settle_turn(
+                &db,
+                &target,
+                "session",
+                None,
+                Some((&text, "claude")),
+                NOW_MS + 10_000
+            )
+            .unwrap(),
+            "{driver}"
+        );
+        assert_eq!(
+            shown(&mut f, "typed"),
+            ("delivered", "reached_the_agent", false),
+            "{driver}"
+        );
+        f.storage.close().unwrap();
+    }
 }
 
 #[test]

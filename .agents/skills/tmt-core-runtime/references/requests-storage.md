@@ -69,6 +69,7 @@ configuration. The owner map is in
   request from that agent to the sender; any other settlement stores nothing. The same send creates a
   `request_passthrough` row (one per passthrough, cascading with the request): `pending`, or `bound` at
   once with `folded = 1` (schema 69) when `RequestRecords::running_turn` shows a verified `Working` turn
+  of a driver whose descriptor declares `folds_queued_text` (Claude only, until another is measured)
   whose `since_ms` is not after the send's start (`RunningTurn::holds_text_typed_at`), since no prompt will
   announce text a running turn takes in. The hook's
   runtime-observation transaction binds a pending row at an admitted turn start (`TurnBoundary::Started`: the

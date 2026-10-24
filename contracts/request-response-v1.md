@@ -632,7 +632,11 @@ and `requests.show` items with `mode: "passthrough"` carry
   `Working` since before the send began; no prompt will announce text it takes in, so the
   capture binds to that turn when the text is typed, and the turn's final message answers it
   together with the message that started the turn (both read `answered`, the folded one with
-  reason `answered_by_folded_turn`). Without that evidence the capture stays `pending`. Core waits for that turn's end for at most six
+  reason `answered_by_folded_turn`). Only a driver that declares `folds_queued_text` folds,
+  and a driver declares it only once measured: `claude` does; `codex` and every other driver
+  keep the capture `pending` and prompt-matched, because `answered` is terminal and a driver
+  that runs queued text as its own next turn would be marked answered by the earlier turn.
+  Without that evidence the capture stays `pending`. Core waits for that turn's end for at most six
   hours; past that, or once a later turn of the same session has started (a turn that is
   not the bound one), it settles `no_answer`, and a read says so before anything writes it.
   The end of a turn that never arrives (a killed agent, a closed pane) therefore cannot

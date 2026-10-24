@@ -64,6 +64,11 @@ pub struct DriverDescriptor {
     pub hooks: Option<HookFormat>,
     pub hue: Hue,
     pub support: Support,
+    /// Whether text typed into the pane while a turn is running is taken into that turn, so the
+    /// turn's final message answers it (#4912). Declared only for a driver where that has been
+    /// measured: a driver that runs queued text as the next turn would have it marked answered by
+    /// the wrong turn. Undeclared drivers keep prompt matching.
+    pub folds_queued_text: bool,
 }
 
 pub static CLAUDE: DriverDescriptor = DriverDescriptor {
@@ -72,6 +77,7 @@ pub static CLAUDE: DriverDescriptor = DriverDescriptor {
     hooks: Some(HookFormat::SessionHooksJson),
     hue: Hue::Magenta,
     support: Support::Full,
+    folds_queued_text: true,
 };
 
 pub static CODEX: DriverDescriptor = DriverDescriptor {
@@ -80,6 +86,7 @@ pub static CODEX: DriverDescriptor = DriverDescriptor {
     hooks: Some(HookFormat::SessionHooksJson),
     hue: Hue::Cyan,
     support: Support::Full,
+    folds_queued_text: false,
 };
 
 pub static GEMINI: DriverDescriptor = DriverDescriptor {
@@ -88,6 +95,7 @@ pub static GEMINI: DriverDescriptor = DriverDescriptor {
     hooks: None,
     hue: Hue::Neutral,
     support: Support::Basic,
+    folds_queued_text: false,
 };
 
 pub static AGY: DriverDescriptor = DriverDescriptor {
@@ -96,6 +104,7 @@ pub static AGY: DriverDescriptor = DriverDescriptor {
     hooks: None,
     hue: Hue::Neutral,
     support: Support::Basic,
+    folds_queued_text: false,
 };
 
 pub static PI: DriverDescriptor = DriverDescriptor {
@@ -104,6 +113,7 @@ pub static PI: DriverDescriptor = DriverDescriptor {
     hooks: None,
     hue: Hue::Neutral,
     support: Support::Basic,
+    folds_queued_text: false,
 };
 
 pub static OPENCODE: DriverDescriptor = DriverDescriptor {
@@ -112,6 +122,7 @@ pub static OPENCODE: DriverDescriptor = DriverDescriptor {
     hooks: None,
     hue: Hue::Neutral,
     support: Support::Basic,
+    folds_queued_text: false,
 };
 
 pub static MUSE: DriverDescriptor = DriverDescriptor {
@@ -120,6 +131,7 @@ pub static MUSE: DriverDescriptor = DriverDescriptor {
     hooks: None,
     hue: Hue::Neutral,
     support: Support::Basic,
+    folds_queued_text: false,
 };
 
 /// Every built-in driver, in detection and `install all` order.
@@ -200,6 +212,18 @@ mod tests {
         assert_eq!(named("codex").unwrap().support, Support::Full);
         for basic in ["gemini", "agy", "pi", "opencode", "muse"] {
             assert_eq!(named(basic).unwrap().support, Support::Basic, "{basic}");
+        }
+    }
+
+    #[test]
+    fn only_a_driver_measured_to_fold_queued_text_declares_it() {
+        for driver in ALL {
+            assert_eq!(
+                driver.folds_queued_text,
+                driver.name == "claude",
+                "{}",
+                driver.name
+            );
         }
     }
 

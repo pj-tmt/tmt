@@ -148,28 +148,39 @@ pub(super) fn activity(
     identity: &str,
 ) -> Result<Option<RecipientActivity>, StorageError> {
     Ok(
-        verified_activity(db, identity)?.map(|activity| RecipientActivity {
+        verified_activity(db, identity)?.map(|(_, activity)| RecipientActivity {
             phase: activity.phase,
             since_ms: activity.since_ms,
         }),
     )
 }
 
-/// The turn that [`activity`] shows running, with the session and turn id it can be bound by.
+/// The turn that [`activity`] shows running, with the session and turn id it can be bound by, when
+/// the recipient's driver folds text typed into a running turn (`folds_queued_text`). For any other
+/// driver the answer is none, so its passthrough keeps prompt matching (#4912).
 pub(super) fn running_turn(
     db: &Connection,
     identity: &str,
 ) -> Result<Option<RunningTurn>, StorageError> {
     Ok(verified_activity(db, identity)?
-        .filter(|activity| activity.phase == ActivityPhase::Working)
-        .map(|activity| RunningTurn {
+        .filter(|(driver, activity)| {
+            activity.phase == ActivityPhase::Working
+                && tmt_core::driver::descriptor::named(driver)
+                    .is_some_and(|descriptor| descriptor.folds_queued_text)
+        })
+        .map(|(_, activity)| RunningTurn {
             session: activity.session.as_str().to_owned(),
             turn: activity.turn.map(|turn| turn.as_str().to_owned()),
             since_ms: activity.since_ms,
         }))
 }
 
-fn verified_activity(db: &Connection, identity: &str) -> Result<Option<Activity>, StorageError> {
+/// The activity of the exact session and process the recipient is bound to, with the driver that
+/// reported it.
+fn verified_activity(
+    db: &Connection,
+    identity: &str,
+) -> Result<Option<(String, Activity)>, StorageError> {
     let rows = crate::storage::bindings::BindingRows(db);
     let Some(key) = rows
         .entry_by_id(identity)?
@@ -190,6 +201,6 @@ fn verified_activity(db: &Connection, identity: &str) -> Result<Option<Activity>
                 .and_then(crate::runtime::driver_state::state_activity)?;
             activity
                 .matches(&remembered.provider_session, &key.incarnation)
-                .then_some(activity)
+                .then(|| (remembered.harness.as_str().to_owned(), activity))
         }))
 }
