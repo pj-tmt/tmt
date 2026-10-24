@@ -731,9 +731,10 @@ fn render_inner(
     })
 }
 
-/// A list's counter counts its selectable rows: a disabled heading is no item, and an empty list
-/// has no counter. The window is the first to the last selectable row painted, numbered among
-/// the selectable rows.
+/// A list's counter counts its choosable rows, those not `disabled`: a heading is no item, nor is
+/// an action disabled for another reason (a row has no heading flag), and a list with no
+/// choosable row in view has no counter. The window is the first to the last choosable row
+/// painted, numbered among the choosable rows.
 fn selectable_position(list: &ListFrame) -> String {
     let selectable: Vec<&str> = list
         .rows
