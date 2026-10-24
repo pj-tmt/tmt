@@ -211,7 +211,11 @@ impl Sender {
             };
             match observed {
                 Some(doc) if doc.bytes() == old.carrier => {
-                    return self.recover(e.id, descriptor, now, io).await;
+                    // A failed recovery control says nothing about the original dispatch's effect.
+                    return self
+                        .recover(e.id, descriptor, now, io)
+                        .await
+                        .map_err(|_| unconfirmed());
                 }
                 Some(_) => return Err(conflict()),
                 None => return Err(unconfirmed()),

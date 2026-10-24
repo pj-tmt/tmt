@@ -324,8 +324,8 @@ atomic name/lifetime check. Changed identities map to `REMOTE_AGENT_STALE`, abse
 `serve`, sharing `native_sync::projects::Projects` with extension sync. `message_cli` admits bounded
 prepared bytes and reaches `Service::send` through the existing owner-only `control::cloud_message`
 exchange. The serving owner alone opens state and composes transport; ordinary control caps remain
-smaller. Missing/invalid answers after submission stay unconfirmed; owner errors read the existing
-outbox claim before reporting a proven refusal. Core preparation, receipts and replay ownership do not move.
+smaller. The Sender distinguishes fresh-write refusals from original-request recovery; the CLI keeps
+missing/invalid owner answers unconfirmed. Core preparation, receipts and replay ownership do not move.
 The [contract activation section](../../../../contracts/remote-channel-v1.md#public-native-agent-activation)
 owns the handoff and uncertainty boundary.
 No enrolled peer means no provider poll. Legacy reciprocal discovery keeps one negative timestamp

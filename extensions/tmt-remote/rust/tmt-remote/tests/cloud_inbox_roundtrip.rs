@@ -103,6 +103,7 @@ struct Wire {
     cancel_after_create: Mutex<Option<Arc<AtomicBool>>>,
     requests: Mutex<Vec<(Operation, String)>>,
     deny_responses: AtomicBool,
+    deny_inbox_creates: AtomicBool,
     fail_queries: AtomicBool,
     lose_response_for: Mutex<Option<String>>,
 }
@@ -145,6 +146,15 @@ impl Http for Wire {
                 Some(row) => (200, row),
                 None => (404, json!({})),
             },
+            Operation::Commit
+                if self.deny_inbox_creates.load(Ordering::SeqCst)
+                    && request.bearer() == Some("peer")
+                    && input["writes"][0]["update"]["name"]
+                        .as_str()
+                        .is_some_and(|name| name.contains("/inbox/")) =>
+            {
+                (403, json!({}))
+            }
             Operation::Commit => {
                 let write = &input["writes"][0];
                 if let Some(name) = write["delete"].as_str() {
@@ -318,6 +328,7 @@ fn sender_restart_recovers_frozen_outcomes_after_lost_create_answer_or_response_
             cancel_after_create: Mutex::new(None),
             requests: Mutex::new(vec![]),
             deny_responses: AtomicBool::new(false),
+            deny_inbox_creates: AtomicBool::new(false),
             fail_queries: AtomicBool::new(false),
             lose_response_for: Mutex::new(
                 lose_response.then(|| format!("{ROOT}/m/{MACHINE}/responses/{ID}")),
@@ -429,6 +440,85 @@ fn sender_restart_recovers_frozen_outcomes_after_lost_create_answer_or_response_
     }
 }
 
+#[test]
+fn sender_distinguishes_fresh_write_denial_from_original_present_recovery_denial() {
+    for recovering in [false, true] {
+        let mut world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+        let wire = Arc::new(Wire::default());
+        let driver = world.driver(provider(wire.clone(), "owner"));
+        *wire.owner.lock().unwrap() = Arc::downgrade(&driver);
+        let sender = Sender::new(
+            provider(wire.clone(), "peer"),
+            Arc::new(Mutex::new(world.sender_store.take().unwrap())),
+            PEER,
+            world.key.clone(),
+        )
+        .unwrap();
+        let stopped = AtomicBool::new(false);
+        let io = IoBudget {
+            deadline: Instant::now() + Duration::from_secs(10),
+            cancelled: &stopped,
+        };
+        let exact = request(&world.key, ID);
+        if recovering {
+            ready(sender.append(&exact, &world.descriptor, NOW, NOW, &io)).unwrap();
+            assert_eq!(world.core.sends(), 1);
+        }
+        drop(sender);
+        let sender = Sender::new(
+            provider(wire.clone(), "peer"),
+            Arc::new(Mutex::new(Store::open(&world.sender_lease).unwrap())),
+            PEER,
+            world.key.clone(),
+        )
+        .unwrap();
+        wire.deny_inbox_creates.store(true, Ordering::SeqCst);
+        wire.requests.lock().unwrap().clear();
+        assert_eq!(
+            ready(sender.append(&exact, &world.descriptor, NOW, NOW, &io))
+                .unwrap_err()
+                .code,
+            if recovering {
+                "REMOTE_CLOUD_UNCONFIRMED"
+            } else {
+                "REMOTE_CLOUD_ACCESS_DENIED"
+            }
+        );
+        assert_eq!(world.core.sends(), usize::from(recovering));
+        assert_eq!(
+            wire.documents
+                .lock()
+                .unwrap()
+                .keys()
+                .filter(|name| name.contains("/inbox/"))
+                .count(),
+            usize::from(recovering),
+            "a denied fresh dispatch or recovery control must not create another carrier"
+        );
+        let requests = wire.requests.lock().unwrap();
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(op, _)| *op == Operation::Commit)
+                .count(),
+            1,
+            "one denied create, never a retry"
+        );
+        if recovering {
+            assert_eq!(
+                requests[0],
+                (Operation::Read, format!("{ROOT}/m/{MACHINE}/inbox/{ID}"))
+            );
+            assert_eq!(requests[1].0, Operation::Commit);
+            assert_eq!(
+                requests.len(),
+                2,
+                "original present before recovery-control refusal"
+            );
+        }
+    }
+}
+
 struct RenamedIdentity;
 impl tmt_remote::core::CloudIdentityQuery for RenamedIdentity {
     fn identity_show(&self, id: &str, name: &str, _: &AtomicBool) -> Result<(), RemoteError> {
@@ -489,6 +579,7 @@ fn prepared_reply_is_private_durable_and_frozen_before_publication() {
         cancel_after_create: Mutex::new(None),
         requests: Mutex::new(vec![]),
         deny_responses: AtomicBool::new(false),
+        deny_inbox_creates: AtomicBool::new(false),
         fail_queries: AtomicBool::new(false),
         lose_response_for: Mutex::new(None),
     });
@@ -618,6 +709,7 @@ fn prepared_core_boundary_delivers_or_refuses_the_uuid_query_without_a_name_fall
             cancel_after_create: Mutex::new(None),
             requests: Mutex::new(vec![]),
             deny_responses: AtomicBool::new(false),
+            deny_inbox_creates: AtomicBool::new(false),
             fail_queries: AtomicBool::new(false),
             lose_response_for: Mutex::new(None),
         });
@@ -743,6 +835,7 @@ fn unreadable_response_after_a_confirmed_request_is_unconfirmed_not_refused() {
         cancel_after_create: Mutex::new(None),
         requests: Mutex::new(vec![]),
         deny_responses: AtomicBool::new(true),
+        deny_inbox_creates: AtomicBool::new(false),
         fail_queries: AtomicBool::new(false),
         lose_response_for: Mutex::new(None),
     });
@@ -779,6 +872,7 @@ fn dense_backlog_over_the_round_cap_drains_after_restart_without_repeating_effec
         cancel_after_create: Mutex::new(None),
         requests: Mutex::new(vec![]),
         deny_responses: AtomicBool::new(false),
+        deny_inbox_creates: AtomicBool::new(false),
         fail_queries: AtomicBool::new(false),
         lose_response_for: Mutex::new(None),
     });
@@ -912,6 +1006,7 @@ fn transient_stop_resumes_after_unconfirmed_prefix_then_durable_poison() {
         cancel_after_create: Mutex::new(None),
         requests: Mutex::new(vec![]),
         deny_responses: AtomicBool::new(false),
+        deny_inbox_creates: AtomicBool::new(false),
         fail_queries: AtomicBool::new(false),
         lose_response_for: Mutex::new(Some(format!("{ROOT}/m/{MACHINE}/responses/{ID}"))),
     });
@@ -1017,6 +1112,7 @@ fn poison_between_good_carriers_is_durable_per_document_and_transient_reads_do_n
         cancel_after_create: Mutex::new(None),
         requests: Mutex::new(vec![]),
         deny_responses: AtomicBool::new(false),
+        deny_inbox_creates: AtomicBool::new(false),
         fail_queries: AtomicBool::new(true),
         lose_response_for: Mutex::new(None),
     });
@@ -1153,6 +1249,7 @@ fn transient_poll_failure_backs_off_until_cancellation_without_a_checkpoint() {
         cancel_after_create: Mutex::new(None),
         requests: Mutex::new(vec![]),
         deny_responses: AtomicBool::new(false),
+        deny_inbox_creates: AtomicBool::new(false),
         fail_queries: AtomicBool::new(true),
         lose_response_for: Mutex::new(None),
     });
@@ -1219,6 +1316,7 @@ fn lost_response_post_does_not_block_later_carriers_or_repeat_after_restart() {
         cancel_after_create: Mutex::new(None),
         requests: Mutex::new(vec![]),
         deny_responses: AtomicBool::new(false),
+        deny_inbox_creates: AtomicBool::new(false),
         fail_queries: AtomicBool::new(false),
         lose_response_for: Mutex::new(Some(response.clone())),
     });
@@ -1345,6 +1443,7 @@ fn response_budget_refusal_before_claim_holds_the_checkpoint_and_retries_without
         cancel_after_create: Mutex::new(None),
         requests: Mutex::new(vec![]),
         deny_responses: AtomicBool::new(false),
+        deny_inbox_creates: AtomicBool::new(false),
         fail_queries: AtomicBool::new(false),
         lose_response_for: Mutex::new(None),
     });
@@ -1457,6 +1556,7 @@ fn unknown_owned_lookup_is_permanent_but_real_store_failure_holds_the_checkpoint
         cancel_after_create: Mutex::new(None),
         requests: Mutex::new(vec![]),
         deny_responses: AtomicBool::new(false),
+        deny_inbox_creates: AtomicBool::new(false),
         fail_queries: AtomicBool::new(false),
         lose_response_for: Mutex::new(None),
     });
@@ -1585,6 +1685,7 @@ fn sender_before_claim_refusal_can_make_its_first_post_without_reading_a_missing
         cancel_after_create: Mutex::new(None),
         requests: Mutex::new(vec![]),
         deny_responses: AtomicBool::new(false),
+        deny_inbox_creates: AtomicBool::new(false),
         fail_queries: AtomicBool::new(false),
         lose_response_for: Mutex::new(None),
     });
@@ -1682,6 +1783,7 @@ fn missing_response_then_owner_reply_within_the_call_returns_the_confirmed_outco
         cancel_after_create: Mutex::new(None),
         requests: Mutex::new(vec![]),
         deny_responses: AtomicBool::new(false),
+        deny_inbox_creates: AtomicBool::new(false),
         fail_queries: AtomicBool::new(false),
         lose_response_for: Mutex::new(None),
     });
@@ -1760,6 +1862,7 @@ fn prepared_name_targets_resolve_once_or_record_a_per_document_refusal() {
             cancel_after_create: Mutex::new(None),
             requests: Mutex::new(vec![]),
             deny_responses: AtomicBool::new(false),
+            deny_inbox_creates: AtomicBool::new(false),
             fail_queries: AtomicBool::new(false),
             lose_response_for: Mutex::new(None),
         });

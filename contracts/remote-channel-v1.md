@@ -2363,9 +2363,12 @@ The private `cloud.message` frame has a named cap derived from the prepared-comm
 control operations keep their smaller cap. Its answer wait covers the existing finite sender call;
 neither the control exchange nor a retry renews the provider budget. A stopped/absent or unsupported
 owner has a typed pre-handoff refusal. Once writing may have submitted the request, EOF, a deadline
-or malformed/mismatched answer returns `unconfirmed`, never a false pre-effect JSON error. Owner-side
-errors also consult the existing durable outbox mutation claim: a claimed or unreadable claim stays
-unconfirmed; an unclaimed request can retain its typed refusal. No second ledger or resend is added.
+or malformed/mismatched answer returns `unconfirmed`, never a false pre-effect JSON error. A well-formed
+typed owner answer passes through unchanged: a definite refusal stays refused and uncertainty stays
+unconfirmed. The Sender owns this classification: a definitive provider refusal of a fresh dispatch
+keeps its typed error; once an original carrier is known present or attempted, failure of its fresh
+recovery-control observation or publication is `REMOTE_CLOUD_UNCONFIRMED`, not proof that the original
+was not sent. The Service adds no blanket claim-based override, second ledger or resend.
 The one-way public proof uses built Core and Remote plus the serving owner/inbox; the composed
 public final in the originating `tmt result` remains #4540 after reciprocal delivery is integrated.
 Real-provider acceptance remains the owner's separately authorized #4539 run.
