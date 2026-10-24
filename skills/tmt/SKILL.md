@@ -398,8 +398,10 @@ current write-transaction snapshot and returns `acknowledgedThrough`, not a coun
 It does not claim you read every result. A new request or first final committed
 after that snapshot remains unacknowledged. Each repeat takes a new snapshot.
 
-Delivery and final are independent. `not_submitted` does not mean a task is
-running; a final may be `retained`, `expired` or `unavailable`. Show exposes exact
+Delivery and final are independent. `messageState` says where the message is
+(`batched`, `delivered`, `working`, `unconfirmed`, `not_sent`); `delivery` is the
+raw attempt status and stays `queued` after a Digest checklist was delivered.
+`not_submitted` does not mean a task is running; a final may be `retained`, `expired` or `unavailable`. Show exposes exact
 retained prompt `message` and final `response`. Acknowledgment neither cancels
 work nor deletes content nor asserts success. Settled means a final was submitted
 and its current revision acknowledged, even if its body later expires.

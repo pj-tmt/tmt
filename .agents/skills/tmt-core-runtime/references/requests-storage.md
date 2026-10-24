@@ -76,7 +76,7 @@ configuration. The owner map is in
   replaced, whose window passed, or that a later `Started` of its session overtook (before binding, so a
   start never overtakes the capture it binds).
 - A message's state (`request::delivery::delivery_view`, pure) is derived at read time inside the
-  history/detail transaction from rows only: `storage/requests/delivery.rs::facts` reads the attempt's
+  history, exchange, incoming and inbox read transactions from rows only: `storage/requests/delivery.rs::facts` reads the attempt's
   route and status, the wake state (an identified recipient's request stays `queued`; its paste is the
   wake), the `focus_items`/`focus_checklists` hold, `focus_policies.max_hold_ms` plus the oldest held
   arrival (the latest send time), and the driver activity of the exact bound session and process (a

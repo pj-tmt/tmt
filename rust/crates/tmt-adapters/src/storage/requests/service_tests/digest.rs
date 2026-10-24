@@ -1734,3 +1734,64 @@ fn the_paste_fits_whole_items_in_order_and_an_oversized_first_item_goes_alone() 
 
 #[path = "digest_history.rs"]
 mod history;
+
+/// A request that Digest holds keeps the raw attempt status `queued` after its checklist is
+/// delivered (#4838). Every exchange view carries `messageState`, which does move on.
+#[test]
+fn every_exchange_view_reads_the_checklist_state_while_the_attempt_stays_queued() {
+    use tmt_core::request::{AttemptStatus, delivery::DeliveryState};
+    let (mut f, target, _, sender) = start();
+    held(&mut f, &target, &sender, "a");
+    let views = |f: &mut Fixture| {
+        let incoming = service(f)
+            .list_incoming(&target, None, None, None)
+            .unwrap()
+            .items
+            .remove(0)
+            .exchange;
+        let shown = service(f).show_exchange(&sender, "a").unwrap().exchange;
+        let listed = service(f)
+            .list_exchanges(&sender, None, None)
+            .unwrap()
+            .items
+            .remove(0);
+        let open = service(f)
+            .open_requests(&target, None, None)
+            .unwrap()
+            .items
+            .remove(0);
+        [
+            incoming.message_state.state,
+            shown.message_state.state,
+            listed.message_state.state,
+            open.message_state.state,
+        ]
+    };
+    assert_eq!(views(&mut f), [DeliveryState::Batched; 4]);
+
+    let (id, token) = (new_operation_id(), new_operation_id());
+    service(&mut f)
+        .claim_digest_checklist(
+            &target,
+            id.clone(),
+            token.clone(),
+            DigestOpportunity::TurnBoundary,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(views(&mut f), [DeliveryState::Sent; 4]);
+
+    assert!(
+        service(&mut f)
+            .settle_digest_checklist(&target, &id, &token, DigestState::Delivered)
+            .unwrap()
+    );
+    assert_eq!(views(&mut f), [DeliveryState::Delivered; 4]);
+    let shown = service(&mut f)
+        .show_exchange(&sender, "a")
+        .unwrap()
+        .exchange;
+    assert_eq!(shown.delivery, AttemptStatus::Queued);
+    f.storage.close().unwrap();
+}
