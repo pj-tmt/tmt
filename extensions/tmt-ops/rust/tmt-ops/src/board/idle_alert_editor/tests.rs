@@ -483,3 +483,47 @@ fn hover_design_scene_paints_the_published_cell_in_header_blue() {
         look.role(tmt_cli_style::Role::Accent).fg.unwrap()
     );
 }
+
+#[test]
+fn invalid_save_keeps_shared_disabled_style_even_when_focused() {
+    use tmt_cli_style::theme::screen::{ChipKind, ChipState};
+    for (_, look) in crate::board::home::tests::oracle::looks() {
+        for focus in [0, 1, 2] {
+            let mut app = captures::case("idle-editor-invalid", look);
+            app.idle_alert_editor.as_mut().unwrap().focus = focus;
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+            terminal
+                .draw(|f| crate::board::view::render(f, &app))
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let start = buffer
+                .content
+                .windows(4)
+                .position(|cells| cells.iter().map(|c| c.symbol()).eq(["S", "a", "v", "e"]))
+                .expect("Save is painted");
+            let expected = tmt_cli_style::theme::screen::chip(
+                &look.theme,
+                ChipKind::Secondary,
+                ChipState::Disabled,
+                look.depth,
+            );
+            for cell in &buffer.content[start..start + 4] {
+                let mut reference = ratatui::buffer::Cell::default();
+                reference.set_style(expected);
+                assert_eq!(cell.fg, reference.fg);
+                assert_eq!(cell.bg, reference.bg);
+                assert_eq!(cell.modifier, reference.modifier);
+            }
+            assert!(
+                !app.idle_alert_editor
+                    .as_ref()
+                    .unwrap()
+                    .hits
+                    .borrow()
+                    .iter()
+                    .any(|(_, c)| matches!(c, Control::Save))
+            );
+        }
+    }
+}
