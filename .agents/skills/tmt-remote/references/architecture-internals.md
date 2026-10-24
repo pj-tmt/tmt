@@ -389,7 +389,10 @@ project/uid/peer/generation/revocation, so stale completion cannot hide newer ch
 stays pending. This state is not a second operation ledger.
 
 `native_sync::Projects` owns one cached Auth/runtime/budget per project, shared with extension sync.
-Only explicit pairing can sign in. A replaced persisted uid changes the native Auth owner while
+Its FileStore retains one lazy CLOEXEC credential-lock description. A nonblocking mutex serializes
+operation guards, which explicitly unlock before releasing the mutex, even if a fork keeps a copy.
+Standalone sign-in/revoke/status still use operation-scoped exclusion; Serving's inherited lease is separate.
+`Projects` signs in only for explicit pairing. A replaced persisted uid changes the native Auth owner while
 keeping the runtime/budget; old extension consumers stop without inheriting membership. The joined
 pairing worker reuses finite inbox reconciliation and stops/flushes before the serve lease is released.
 Machine registration pins the native key and inviter provenance; authorized uid recovery preserves both.

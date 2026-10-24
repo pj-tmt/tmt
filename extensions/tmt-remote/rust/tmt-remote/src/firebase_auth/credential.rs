@@ -421,7 +421,7 @@ mod tests {
     }
     impl Drop for HeldCopy {
         fn drop(&mut self) {
-            if self.0.try_wait().ok().flatten().is_none() {
+            if matches!(self.0.try_wait(), Ok(None)) {
                 let _ = self.0.kill();
             }
             let _ = self.0.wait();
@@ -447,6 +447,11 @@ mod tests {
             AuthErrorKind::Unavailable,
             "a genuine live owner must still exclude another credential owner"
         );
+        assert_eq!(
+            store.load().err().unwrap().kind,
+            AuthErrorKind::Unavailable,
+            "the retained description must not bypass another operation on the same store"
+        );
         // Fork while the parent holds exclusion. The child's readiness barrier
         // proves it holds the duplicate before the parent ends its operation.
         let mut child = HeldCopy::start(File::try_clone(&lock).unwrap());
@@ -468,5 +473,44 @@ mod tests {
             Some(credential),
             "standalone command access must resume while the duplicate still lives"
         );
+    }
+
+    #[test]
+    fn retained_credential_handle_is_close_on_exec() {
+        let (_root, store, _) = fixture();
+        let cached = store.handle.try_lock().unwrap();
+        let file = cached.as_ref().unwrap();
+        let flags = nix::fcntl::fcntl(file, nix::fcntl::FcntlArg::F_GETFD).unwrap();
+        assert_ne!(flags & nix::libc::FD_CLOEXEC, 0);
+    }
+
+    #[test]
+    fn retained_credential_handle_refuses_a_replaced_or_symlinked_lock_path() {
+        for symlink in [false, true] {
+            let (_root, store, credential) = fixture();
+            let dir = store.directory(false).unwrap().unwrap();
+            let path = dir.directory.join("demo-credential-lock.lock");
+            let original = dir.directory.join("original.lock");
+            fs::rename(&path, &original).unwrap();
+            if symlink {
+                std::os::unix::fs::symlink(&original, &path).unwrap();
+            } else {
+                OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .mode(0o600)
+                    .open(&path)
+                    .unwrap();
+            }
+            assert_eq!(
+                store.load().err().unwrap().kind,
+                AuthErrorKind::InvalidCredential
+            );
+            assert_eq!(
+                store.read(&dir).unwrap().credential,
+                Some(credential),
+                "refusing the changed lock path must preserve the credential"
+            );
+        }
     }
 }
