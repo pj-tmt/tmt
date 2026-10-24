@@ -193,6 +193,20 @@ pub(in crate::grammar) fn unbind() -> Command {
     ))
 }
 
+pub(in crate::grammar) fn attach() -> Command {
+    general(spec!(
+        "attach",
+        "Use a built-in-host member's terminal; Ctrl-\\ leaves it running",
+        details = "Passes live output through unchanged. The screen may stay blank until the program draws.\nRequires an interactive terminal; TMT keeps no scrollback.",
+        [
+            "Attach to a member" => "tmt attach worker",
+            "Detach the other viewers" => "tmt attach -d worker",
+        ]
+    ))
+    .arg(operand("target", true).help("Identity name or UUID"))
+    .arg(Arg::new("detach-others").short('d').action(ArgAction::SetTrue).help("Detach the other viewers before using the terminal"))
+}
+
 pub(in crate::grammar) fn discover() -> Command {
     general(spec!("discover","Observe bounded candidate panes without changing state",[
         "Inspect this host's candidate panes"=>"tmt discover --json",

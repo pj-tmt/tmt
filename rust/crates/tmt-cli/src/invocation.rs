@@ -163,6 +163,10 @@ pub enum Invocation {
     },
     /// Read-only: the invoker's tmux client and the pane it shows.
     FocusClient,
+    Attach {
+        target: String,
+        detach_others: bool,
+    },
     Config(ConfigRequest),
     ExtensionHooks(ExtensionHooksRequest),
     Driver(DriverRequest),

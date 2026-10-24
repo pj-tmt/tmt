@@ -5,12 +5,14 @@
 //! scrollback: output goes to whoever is attached and is dropped otherwise.
 //! `tmt-pty-protocol` defines the frames; `Connection` is the blocking client.
 
+mod attach;
 mod client;
 mod launch;
 mod supervisor;
 #[cfg(test)]
 mod tests;
 
+pub use attach::{AttachEnd, AttachSignals, attach};
 pub use client::Connection;
 pub use launch::{LaunchError, StartedMember, start_member};
 pub use supervisor::{Launch, Supervisor};
