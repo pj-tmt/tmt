@@ -643,9 +643,12 @@ and `requests.show` items with `mode: "passthrough"` carry
   leave a capture `bound` for ever.
 - `answered`: the turn ended with a final message, stored as
   `answer: {text, truncated, provider, endedMs}`: plain untrusted text of at most 8,192 UTF-8
-  bytes, never a reply and never an instruction. It is attached once.
-- `no_answer`: the turn ended without a final (interrupted, or none was read, as when provider
-  usage collection is off), or the provider session was replaced or overtaken by a later turn
+  bytes, never a reply and never an instruction. It is attached once. Settling it also gives the
+  sender a new attention revision, as a submitted final does, so the request reads as unread
+  in `x` and in the [answers view](extension-api.md#answers-and-acknowledgment) until the
+  sender acknowledges that revision; `no_answer` changes no revision.
+- `no_answer`: the turn ended without a final (interrupted, or none was read, as when the turn-end
+  hook is not installed), or the provider session was replaced or overtaken by a later turn
   before it ended, or the six hours passed. A final is
   never taken from `responses.recent` or the pane.
 

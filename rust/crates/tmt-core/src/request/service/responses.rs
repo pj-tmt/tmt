@@ -360,8 +360,7 @@ pub(super) fn store_final<E>(
         now,
     )?;
     if let Some(id) = attempt.originator.identity_id() {
-        let revision = reserve_revision(records, id)?;
-        records.set_attention_revision(&response.request_id, revision)?;
+        raise_attention(records, &response.request_id, id)?;
     }
     Ok(response)
 }

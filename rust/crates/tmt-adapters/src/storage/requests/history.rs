@@ -201,18 +201,21 @@ pub(super) fn answers_query(has_cursor: bool) -> String {
             "?2 IS NULL AND ?3 IS NULL".to_owned()
         }
     };
+    // The originator's watermark (`x ackall`) acknowledges every revision through it.
+    let through = "COALESCE((SELECT acknowledged_through FROM request_attention_identities
+                 WHERE identity_id=a.originator_identity_id),0) AS through";
     let finals = cursor("a.response_submitted_at_ms", "a.request_id");
     let turns = cursor("p.settled_at_ms", "p.request_id");
     format!(
         "SELECT * FROM (
-            SELECT {columns}, a.response_submitted_at_ms AS answered_at_ms, 0 AS turn
+            SELECT {columns}, a.response_submitted_at_ms AS answered_at_ms, 0 AS turn, {through}
             FROM request_attempts AS a INDEXED BY request_history_originator_results
             WHERE a.originator_identity_id=?1 AND a.response_submitted_at_ms IS NOT NULL
               AND a.retention_expires_at_ms > ?5 AND {finals}
             ORDER BY a.response_submitted_at_ms DESC, a.request_id DESC LIMIT ?4)
          UNION ALL
          SELECT * FROM (
-            SELECT {columns}, p.settled_at_ms AS answered_at_ms, 1 AS turn
+            SELECT {columns}, p.settled_at_ms AS answered_at_ms, 1 AS turn, {through}
             FROM request_passthrough AS p INDEXED BY request_passthrough_answered
             JOIN request_attempts AS a ON a.request_id=p.request_id
             WHERE p.state='answered' AND a.originator_identity_id=?1
@@ -248,6 +251,10 @@ pub(super) fn list_answers(
             ],
             |row| {
                 let attempt = rows::attempt_row(row)?;
+                let revision = rows::u64_at(row, rows::ATTENTION_REVISION_COLUMN)?;
+                let acknowledged = revision
+                    <= rows::u64_at(row, rows::ATTENTION_ACKNOWLEDGED_COLUMN)?
+                        .max(rows::u64_at(row, rows::ATTEMPT_COLUMN_COUNT + 2)?);
                 Ok(AnsweredRequest {
                     request_id: attempt.request_id,
                     kind: attempt.kind,
@@ -259,6 +266,8 @@ pub(super) fn list_answers(
                     } else {
                         AnswerKind::Turn
                     },
+                    revision,
+                    acknowledged,
                 })
             },
         )

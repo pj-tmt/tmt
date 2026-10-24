@@ -11,7 +11,7 @@ pub mod inbox;
 pub mod notification;
 pub mod passthrough;
 mod service;
-pub use service::RequestService;
+pub use service::{RequestService, raise_attention};
 
 use crate::endpoint::ServerEvidence;
 use std::{error::Error, fmt};
