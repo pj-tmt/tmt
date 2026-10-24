@@ -6,6 +6,8 @@ const crypto = require('node:crypto');
 const SUPPORTED = ['15.29.0'];
 const BYTES = 4 * 1024 * 1024;
 const PAGES = 10;
+// Private helper mirror, pinned to limits::CLOUD_DESCRIPTOR_BYTES by the adapter test.
+const CLOUD_DESCRIPTOR_BYTES = 4096;
 const FILE_SAMPLE_COUNT = 4;
 const FILE_SAMPLE_PATH_BYTES = 128;
 const FILE_SAMPLE_BYTES = 1024;
@@ -169,7 +171,7 @@ function validate(request) {
     const uid = (v) => typeof v === 'string' && v.length > 0 && v.length <= 128 && !['.','..'].includes(v) && !/[\x00-\x1f\x7f/]/.test(v);
     const encoded = (v, max) => typeof v === 'string' && v.length <= Math.ceil(max / 3) * 4 && Buffer.from(v, 'base64').length > 0 && Buffer.from(v, 'base64').length <= max && Buffer.from(v, 'base64').toString('base64') === v;
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(i.machine) || !uid(i.uid) ||
-        !encoded(i.authenticationKey, 32) || Buffer.from(i.authenticationKey, 'base64').length !== 32 || !encoded(i.descriptor, 4096)) fail('provider-rejected');
+        !encoded(i.authenticationKey, 32) || Buffer.from(i.authenticationKey, 'base64').length !== 32 || !encoded(i.descriptor, CLOUD_DESCRIPTOR_BYTES)) fail('provider-rejected');
   }
   if (i.location !== undefined && !/^[a-z0-9-]{1,32}$/.test(i.location)) fail('provider-rejected');
   if (i.provider !== undefined && !['anonymous', 'google.com'].includes(i.provider))

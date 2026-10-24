@@ -10,6 +10,7 @@ struct Emulator {
     clock: Arc<SystemClock>,
     owner: Mutex<Weak<Service>>,
     calls: Mutex<BTreeMap<String, usize>>,
+    probes: Mutex<BTreeMap<String, usize>>,
 }
 impl Jitter for Emulator {
     fn milliseconds(&self, _: u64) -> u64 {
@@ -87,6 +88,7 @@ impl Emulator {
             clock,
             owner: Mutex::new(Weak::new()),
             calls: Mutex::new(BTreeMap::new()),
+            probes: Mutex::new(BTreeMap::new()),
         }
     }
     fn ports(self: &Arc<Self>) -> ProjectPorts {
@@ -114,14 +116,27 @@ impl Emulator {
             token.into(),
             crate::limits::CLOUD_ENROLLMENT_BYTES * 4,
         );
-        self.http
+        let status = self
+            .http
             .send(
                 &request,
                 self.clock.now().monotonic_ms + 20_000,
                 &AtomicBool::new(false),
             )
             .unwrap()
-            .status
+            .status;
+        let kind = if token == "owner" {
+            "fixture-admin"
+        } else {
+            "ordinary-user"
+        };
+        *self
+            .probes
+            .lock()
+            .unwrap()
+            .entry(format!("{kind}/{operation:?}/{status}"))
+            .or_default() += 1;
+        status
     }
     fn seed_owner(&self, service: &Service) {
         let provider = service.provider(&config(), &service.machine, true).unwrap();
@@ -831,7 +846,8 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
         "Rules probes never dispatch a native effect"
     );
     eprintln!(
-        "invitation-only Rules wire calls (direct probes included): {:?}",
-        emulator.calls.lock().unwrap()
+        "invitation-only production calls: {:?}; direct Rules probes: {:?}",
+        emulator.calls.lock().unwrap(),
+        emulator.probes.lock().unwrap()
     );
 }

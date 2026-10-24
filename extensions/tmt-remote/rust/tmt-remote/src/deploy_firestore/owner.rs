@@ -157,6 +157,13 @@ mod tests {
         },
     };
     use std::sync::{Arc, atomic::AtomicUsize};
+    #[test]
+    fn helper_descriptor_bound_matches_the_native_admission_owner() {
+        assert!(HELPER.contains(&format!(
+            "const CLOUD_DESCRIPTOR_BYTES = {};",
+            crate::limits::CLOUD_DESCRIPTOR_BYTES
+        )));
+    }
     struct Signup(AtomicUsize);
     impl Http for Signup {
         fn send(
