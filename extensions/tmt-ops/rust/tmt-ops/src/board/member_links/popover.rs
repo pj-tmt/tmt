@@ -266,6 +266,11 @@ pub(in crate::board) const FILE_SCENES: &[&str] = &[
 ];
 
 #[cfg(test)]
+pub(in crate::board) fn capture_file_hits(app: &App) -> String {
+    format!("{:?}", app.member_links.borrow().hits)
+}
+
+#[cfg(test)]
 pub(in crate::board) fn capture_file_case(
     scene: &str,
     look: crate::look::Look,
@@ -631,6 +636,10 @@ mod tests {
     fn file_chips_copy_the_literal_path_and_full_view_returns_to_copy_only_actions() {
         let path = "/tmp/folder with space/file_name.png";
         let mut app = reader(&format!("See '{path}' now."));
+        assert!(
+            app.member_links.borrow().web_spans().is_empty(),
+            "files never emit OSC 8 links"
+        );
         let hit = app
             .member_links
             .borrow()

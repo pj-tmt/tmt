@@ -701,7 +701,8 @@ fn captures() -> Value {
                     );
                     let mut captured =
                         capture_frame(&app, state, look_name, width, 36, &mut styles);
-                    captured["references"] = json!(format!("{:?}", app.member_links.borrow().hits));
+                    captured["references"] =
+                        json!(crate::board::member_links::popover::capture_file_hits(&app));
                     frames.push(captured);
                 }
             }
