@@ -126,15 +126,29 @@ describe('consented provider setup and bounded hook boundary', () => {
         expect(await setup()).toMatchObject({ changed: false, usage: true });
         expect(fs.readFileSync(settings, 'utf8')).toBe(withUsage);
 
+        // Turning usage off keeps the turn-end hook for the agent's answers and says so before
+        // anything is written; the choice is the setup record's, not the hook's presence.
+        const record = path.join(sandbox.globalDir, 'setup-record.json');
         const opted = await runCli(sandbox, ['setup', name, '--no-usage']);
         expect(opted.stdout).toContain(
-          `Remove TMT-owned ${name} Stop (context usage, consumption, activity and recent responses) hook`
+          'Stop (turn end: activity and chat answers, no usage data) hook'
         );
+        expect(opted.stdout).toContain('No usage data is read or stored.');
+        expect(opted.stdout).not.toContain('Remove TMT-owned');
         expect(await setup('--no-usage')).toMatchObject({
           usage: false,
           diagnostic: `${name}: consumption collection is off; enable it with: tmt setup ${name} --usage`,
         });
-        expect(events()).toEqual(['SessionStart', 'SessionEnd', 'UserPromptSubmit', ...activity]);
+        expect(events()).toEqual([
+          'SessionStart',
+          'SessionEnd',
+          'UserPromptSubmit',
+          ...activity,
+          'Stop',
+        ]);
+        expect(JSON.parse(fs.readFileSync(record, 'utf8')).hooks).toEqual([
+          expect.objectContaining({ driver: name, usage: false }),
+        ]);
         const disabled = fs.readFileSync(settings, 'utf8');
         expect(await setup()).toMatchObject({ changed: false, usage: false });
         expect(fs.readFileSync(settings, 'utf8')).toBe(disabled);
@@ -202,10 +216,20 @@ describe('consented provider setup and bounded hook boundary', () => {
           return JSON.parse(result.stdout);
         };
         await setup('--no-usage');
+        // A record from before choices were retained has no usage field, and its install has no
+        // turn-end hook when usage was off: rebuild that state from today's opt-out.
         const record = path.join(sandbox.globalDir, 'setup-record.json');
         const legacy = JSON.parse(fs.readFileSync(record, 'utf8'));
         delete legacy.hooks[0].usage;
         fs.writeFileSync(record, JSON.stringify(legacy));
+        const settings = path.join(
+          sandbox.home,
+          `.${name}`,
+          name === 'claude' ? 'settings.json' : 'hooks.json'
+        );
+        const installed = JSON.parse(fs.readFileSync(settings, 'utf8'));
+        delete installed.hooks.Stop;
+        fs.writeFileSync(settings, JSON.stringify(installed));
         expect(await setup()).toMatchObject({ changed: false, usage: false });
         expect(await setup('--usage')).toMatchObject({ changed: true, usage: true });
         expect(await setup()).toMatchObject({ changed: false, usage: true });

@@ -939,8 +939,9 @@ Consented `tmt setup` includes the Stop hook by default, exposing `resume.usage`
 the agent's recent answers locally (7 days, up to 1,000, 16 KiB each) for [`responses.recent`](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md#recent-agent-responses):
 these are the agent's own final answers for display, not delivered replies.
 Answers already kept stop appearing when they expire; later collection
-removes them. With `--no-usage` nothing new is collected, so expired responses stay
-on disk until collection runs again. Consumption reports cumulative
+removes them. With `--no-usage` the Stop hook stays for the agent's answers only: no usage,
+consumption or transcript data is read or stored. An install made with `--no-usage` before that
+has no Stop hook until `tmt setup` runs again. Consumption reports cumulative
 completed-request counters; measure changes within an epoch. Cached input
 already belongs to input. Foreground `tmt run`/`resume` observes accepted
 completed-request evidence every five seconds during a turn. Listing never reads
