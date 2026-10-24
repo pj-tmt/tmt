@@ -251,13 +251,12 @@ a working directory, active pane or sole identity.
 
 ### Saved identity notes
 
-`NotesIdentityId` (a saved identity's canonical UUIDv4) is the capability boundary
-for notebook storage; display names never become paths. `ConfigPaths` is the sole
-layout owner and `tmt-adapters::notes` alone creates
-`<global_dir>/notes/<identity-uuid>/notes.md` with owner-only, no-follow creation.
-The file body, concurrency and retention are ordinary user-filesystem concerns:
-there is no SQLite copy, lock, size policy or secure deletion, and retirement leaves
-notebooks in place.
+`NotesIdentityId` (saved identity's canonical UUIDv4) bounds notebook storage;
+display names never become paths. `ConfigPaths` owns layout; only
+`tmt-adapters::notes` creates `<global_dir>/notes/<identity-uuid>/notes.md`,
+owner-only and no-follow. Bodies, concurrency and retention are user-filesystem
+concerns: no SQLite copy, lock, size policy or secure deletion. Retirement
+preserves notebooks.
 [Compaction reminders](.agents/skills/tmt-core-runtime/references/identity-bindings.md#hooks-setup-and-uninstall) follow the provider-hook owner.
 
 ### Settings and configuration
@@ -320,10 +319,13 @@ See the
 
 ### Agent drivers
 
-Each `DriverDescriptor` and adapter feed `drivers::Registry` for detection, setup,
-launch, caller recognition, foreground argv, allowance reads and typed refusals. The descriptor owns each driver's support level, `full`
-(hooks and a runtime) or `basic` (detection and skills), which `tmt ls` publishes as
-`driverSupport`. Detection never starts an agent. Claude owns the prompt-picker plugin source (`drivers/claude/plugins/`, published by the root `.claude-plugin` marketplace and installed by the user) and a read-only check that hints when it is missing; a launch adds no plugin arguments and no persistent provider settings change. Module rules and name ownership:
+`DriverDescriptor` and adapters feed `drivers::Registry` for detection, setup,
+launch, caller recognition, foreground argv, allowance reads and typed refusals.
+Each descriptor sets `full` (hooks/runtime) or `basic` (detection/skills), published
+as `driverSupport` by `tmt ls`. Detection never starts agents. Claude owns
+`drivers/claude/plugins/` prompt-picker plugins (root `.claude-plugin` marketplace;
+user-installed) and a read-only missing-plugin hint. Launch adds no plugin
+arguments or persistent provider settings. Module rules and name ownership:
 [agent drivers](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#agent-drivers).
 
 ### Provider channels
