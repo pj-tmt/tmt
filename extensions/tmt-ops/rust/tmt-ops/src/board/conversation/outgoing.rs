@@ -253,26 +253,6 @@ impl Session {
         self.stale && !self.outgoing.is_empty()
     }
 
-    /// The requests whose answered turn this conversation shows, from live sends and storage.
-    pub(in crate::board) fn answered_turns(&self) -> impl Iterator<Item = &str> {
-        let live = self.outgoing.iter().filter_map(|entry| {
-            matches!(
-                entry.capture,
-                Some(crate::board::row_detail::Capture::Answered { .. })
-            )
-            .then(|| entry.request())
-            .flatten()
-        });
-        let stored = self.restored_sends().filter_map(|send| {
-            matches!(
-                send.capture,
-                Some(crate::board::row_detail::Capture::Answered { .. })
-            )
-            .then_some(send.request.as_str())
-        });
-        live.chain(stored)
-    }
-
     /// Durable sends from storage that this session has no live entry for.
     pub(super) fn restored_sends(&self) -> impl Iterator<Item = &crate::board::row_detail::Sent> {
         self.sent.iter().filter(|send| {
@@ -746,6 +726,7 @@ impl Session {
 
     pub(super) fn refresh_outgoing(&mut self) {
         self.outgoing_note_sources = Default::default();
+        self.capture_body_spans.clear();
         let mut text = self.before_send.as_ref().map_or_else(String::new, |reply| {
             crate::board::notes::sanitize(&reply.body)
         });
@@ -850,6 +831,19 @@ impl Session {
                 text.push_str("\n\n");
                 let note_start = lines(&text);
                 text.push_str(&capture.markdown());
+                if let Some(request) = request
+                    && let crate::board::row_detail::Capture::Answered {
+                        settled_ms: Some(at),
+                        ..
+                    } = capture
+                {
+                    // The capture's label and separating blank line are not its answer body.
+                    self.capture_body_spans.push((
+                        note_start + 2..lines(&text) + 1,
+                        request.into(),
+                        *at,
+                    ));
+                }
                 let note_source =
                     request.map_or(super::note_source::Source::Unavailable, |request| {
                         super::note_source::Source::capture(

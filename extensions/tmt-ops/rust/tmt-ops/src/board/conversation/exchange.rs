@@ -71,6 +71,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
         state.header_hits.clear();
         state.send_now_hit = None;
         state.response_area = None;
+        state.painted_answers.clear();
     }
     let target = surface.target.clone();
     let Some(row) = app
@@ -293,6 +294,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
     for index in offset..offset.saturating_add(shown).min(mapped.lines.len()) {
         session.admit_feedback_clock(app, mapped.sources[index], &mapped.lines[index]);
     }
+    let painted_answers = session.painted_answers(
+        app,
+        id,
+        offset..offset.saturating_add(shown).min(mapped.lines.len()),
+    );
     // The anchor follows the viewport only when something moved it, as in the
     // legacy reader: a steady frame never touches the cursor.
     if switched || rebuilt || previous != offset {
@@ -332,6 +338,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
         );
         send_now_hit = hit;
     }
+    state.painted_answers = painted_answers;
     state.send_now_hit = send_now_hit;
     state.response_area = Some(body);
 }
