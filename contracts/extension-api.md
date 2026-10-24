@@ -932,7 +932,7 @@ release. At most 4 KiB of UTF-8 JSON:
 }
 ```
 
-- `version` is `1`. `uses` has at most 8 entries. The only optional top-level key is `requiresCli` below; other unknown keys and duplicate `feature` values are rejected.
+- `version` is `1`. `uses` has at most 8 entries. The only optional top-level keys are `requiresCli` and `messageProtocols` below; other unknown keys and duplicate `feature` values are rejected.
 - `feature` matches `[a-z][a-z0-9-]{0,31}`. `label` is 1 to 48 printable characters: no control,
   bidirectional-override or line-separator characters, so it is safe on one terminal line (the same rule
   as notice display fields).
@@ -956,6 +956,12 @@ automatic CLI upgrade. This comparison uses ordinary SemVer precedence: `5.0.0-d
 `5.0.0-alpha.N`; release tooling's preparation-version ordering is separate.
 Damaged repair checks the acquired, verified release's minimum before republishing and preserves the
 prefix on refusal; healthy repair remains a no-op.
+
+**Message protocols.** Version 1 may also declare optional `messageProtocols`: one to eight ascending
+integers from 1 to 255, the Core message-protocol versions the extension's `message` command speaks.
+Core reads it only from the installed, verified release (`native_install::message_protocols`), never
+freezes it in the receipt and never runs the extension to probe it. No declaration means none. As with
+`requiresCli`, an older installer rejects the unknown key, so the supporting CLI must publish first.
 
 `extension ls` determines CLI compatibility from the verified installed receipt only. A declared minimum adds
 `cli: {requires, running, compatible}` to that extension's JSON row. An incompatible minimum adds one
