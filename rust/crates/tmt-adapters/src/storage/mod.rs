@@ -12,6 +12,7 @@ mod identities;
 mod identity_hooks;
 mod identity_metadata;
 mod identity_status;
+mod launch_observations;
 mod migrations;
 mod profiles;
 mod requests;

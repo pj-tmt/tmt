@@ -7,6 +7,7 @@
 //! Foreground launch callers use `admit_launched`, not direct owner assignment.
 
 pub mod activity;
+pub mod launch;
 pub mod start;
 pub use start::{StartRefusal, StartRefusalReason};
 

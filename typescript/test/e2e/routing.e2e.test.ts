@@ -94,7 +94,7 @@ describe('global identity and runtime routing', { concurrent: false }, () => {
             target: fixture.paneTarget(all.pane),
             cwd: allWorkspace,
             command: 'node',
-            session: { activity: unknownActivity, unbound: null },
+            session: { activity: unknownActivity, unbound: null, learning: null },
           },
           {
             id: alphaId,
@@ -106,7 +106,7 @@ describe('global identity and runtime routing', { concurrent: false }, () => {
             target: fixture.paneTarget(alpha.pane),
             cwd: alphaWorkspace,
             command: 'node',
-            session: { activity: unknownActivity, unbound: null },
+            session: { activity: unknownActivity, unbound: null, learning: null },
           },
         ],
       });

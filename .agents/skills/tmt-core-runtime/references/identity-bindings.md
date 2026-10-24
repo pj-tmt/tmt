@@ -304,6 +304,15 @@ delivery. They install and launch nothing.
   step. It never guesses a session from cwd, titles, recency or a transcript scan.
 - The channel choice (nullable) is recorded after an admitted fresh launch or explicit resume
   flag; null keeps the driver default; flagless resume does not rewrite it.
+- `session_learning` coordinates the managed launch's single early SessionStart with
+  `run_command::admission`; `launch_observations` holds the intent and pending event
+  in one binding-owned row. A provider launch without a confirmed native owner
+  refuses before spawn or resume-pending (`RUNTIME_CONFLICT`); non-provider
+  commands keep their existing behavior. The session and pending consumption commit together,
+  before optional context work. Its preference fingerprint fences concurrent edits;
+  it grants no authority. End cannot resurrect the pending key. Retention, fixed
+  diagnostics and stored-only recovery projections have one owner in the
+  [session binding contract](../../../../contracts/identity-status-v1.md#managed-launch-session-learning).
 - Activity comes from TMT's own UserPromptSubmit/Stop hooks (Claude runs them synchronously;
   ordering relies on that provider contract) and, for Codex, its first-party turn ID.
   A Codex `Interrupt` with its turn ID also ends that turn as idle, through the same turn-end
@@ -412,7 +421,9 @@ delivery. They install and launch nothing.
   `RuntimeLifecycle::hook_work_duration`). The remaining budget reaches the worker as a typed
   hidden argument and reaches `turn_state`. A failed worker kills its own group; the supervisor
   owns deadline termination. Hooks open only existing compatible storage with a short lock wait,
-  never migrate, and on failure emit no context and at most one fixed stderr line. A hook
+  never migrate, and on failure emit no context and a fixed stderr notice (plus a
+  fixed diagnostic-save failure notice if applicable). Managed-launch diagnostics
+  reserve 200 ms within that same budget, never beyond it. A hook
   supplies observation only: the binding must match fresh server/pane/marker evidence and
   payload session IDs never create bindings or move identities. `verified_caller` gets the
   caller's host from `Host::for_verified_caller` (the one host its locators name, or a nested

@@ -413,7 +413,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
           target: fixture.paneTarget(peer.pane),
           cwd: peer.workspace,
           command: 'node',
-          session: { activity: unknownActivity, unbound: null },
+          session: { activity: unknownActivity, unbound: null, learning: null },
         },
       ]);
       expect(fixture.paneMetadata(peer.pane)).toBe(peerMetadata);
@@ -501,7 +501,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
           target: fixture.paneTarget(restarted.pane),
           cwd: restarted.workspace,
           command: 'node',
-          session: { activity: unknownActivity, unbound: null },
+          session: { activity: unknownActivity, unbound: null, learning: null },
         },
       ]);
     });
@@ -543,7 +543,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
             presence: 'offline',
             pane: null,
             command: '',
-            session: { activity: unknownActivity, unbound: null },
+            session: { activity: unknownActivity, unbound: null, learning: null },
           },
         ],
       });
@@ -635,7 +635,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
           target: fixture.paneTarget(fixture.pane),
           cwd: fixture.workspace,
           command: 'node',
-          session: { activity: unknownActivity, unbound: null },
+          session: { activity: unknownActivity, unbound: null, learning: null },
         });
         expect(fixture.paneMetadata(oldPane.pane)).toBe(oldMarkerBytes);
         expect(fixture.paneMetadata(collidingOldPane.pane)).toBe(collidingOldMarkerBytes);
@@ -772,7 +772,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
           presence: 'offline',
           pane: null,
           command: '',
-          session: { activity: unknownActivity, unbound: null },
+          session: { activity: unknownActivity, unbound: null, learning: null },
         });
         expect(fixture.paneMetadata(fixture.pane)).toBe(healthyMetadata);
         expect(fixture.paneMetadata(affectedPane.pane)).toBe(affectedMetadata);

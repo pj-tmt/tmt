@@ -310,7 +310,7 @@ describe('crash-safe identity publication', { concurrent: false }, () => {
           presence: 'offline',
           pane: null,
           command: '',
-          session: { activity: unknownActivity, unbound: null },
+          session: { activity: unknownActivity, unbound: null, learning: null },
         },
       ]);
       expect(durableCounts(fixture)).toMatchObject({ identities: 1, bindings: 0, profiles: 1 });

@@ -123,7 +123,7 @@ fn session_upgrade_preserves_binding_and_rolls_back_observations_with_history() 
         .execute_batch("DROP TRIGGER reject_session_migration;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 66);
+    assert_eq!(storage.health().unwrap().schema_version, 67);
     let row = oracle.query_row(
         "SELECT id, identity_id, pane_id, bound_at, last_verified_at, runtime_state, last_transition FROM bindings",
         [], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?)),
@@ -180,7 +180,7 @@ fn driver_state_upgrade_keeps_remembered_sessions_without_state() {
     .unwrap();
     old.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 66);
+    assert_eq!(storage.health().unwrap().schema_version, 67);
     storage.close().unwrap();
     let oracle = Connection::open(&path).unwrap();
     let row: (String, Option<String>, Option<i64>, Option<i64>) = oracle
@@ -323,7 +323,7 @@ fn inactive_driver_upgrade_is_atomic_and_keeps_the_current_coordinates() {
         .unwrap();
     oracle.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 66);
+    assert_eq!(storage.health().unwrap().schema_version, 67);
     let preferences = storage.session_preferences("old-id").unwrap();
     assert_eq!(preferences.channel, Some(true));
     assert!(preferences.retained.is_empty());
@@ -377,7 +377,7 @@ fn refused_start_upgrade_rolls_back_its_column_and_cursor_trigger_together() {
         .execute_batch("DROP TRIGGER reject_refusal;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 66);
+    assert_eq!(storage.health().unwrap().schema_version, 67);
     assert_eq!(
         oracle
             .query_row(
@@ -390,4 +390,59 @@ fn refused_start_upgrade_rolls_back_its_column_and_cursor_trigger_together() {
     );
     storage.close().unwrap();
     oracle.close().unwrap();
+}
+
+#[test]
+fn launch_observations_are_binding_owned_and_do_not_admit_a_session() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("early-start.db");
+    Storage::open(&path).unwrap().close().unwrap();
+    let db = Connection::open(&path).unwrap();
+    db.pragma_update(None, "foreign_keys", true).unwrap();
+    db.execute_batch("INSERT INTO identities (id,name,canonical_name,created_at,updated_at)
+        VALUES ('identity','Alpha','alpha','created','updated');
+        INSERT INTO bindings (id,identity_id,transport,pane_id,server_id,socket_path,server_pid,server_start_time,pane_pid,bound_at,last_verified_at)
+        VALUES ('binding','identity','tmux','%3','server','/tmp/private',41,'server-start',51,'bound','verified');").unwrap();
+    let insert = "INSERT INTO launch_observations
+        (binding_id,preferences_fingerprint,owner_pid,owner_start,driver,created_at_ms,expires_at_ms)
+        VALUES ('binding','0000000000000000000000000000000000000000000000000000000000000000',61,'owner-start','claude',100,200)";
+    db.execute(insert, [])
+        .expect("a launch intent has one durable row before the provider starts");
+    assert!(
+        db.execute(insert, []).is_err(),
+        "the same launch cannot have two rows"
+    );
+    db.execute("UPDATE launch_observations SET status='pending',provider_transition='started',provider_pid=71,provider_start='provider-start',provider_session='session',runtime_mode='default',observed_at_ms=110 WHERE binding_id='binding'", []).unwrap();
+    let state: (String, Option<String>) = db
+        .query_row(
+            "SELECT runtime_state,observed_provider_session_id FROM bindings",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(state, ("unknown".into(), None));
+    assert_eq!(
+        db.query_row(
+            "SELECT count(*) FROM identity_session_preferences",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0,
+        "a pending observation grants no remembered session"
+    );
+    assert!(
+        db.execute("UPDATE launch_observations SET provider_pid=NULL", [])
+            .is_err(),
+        "partial process/session evidence is invalid"
+    );
+    db.execute("DELETE FROM bindings WHERE id='binding'", [])
+        .unwrap();
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM launch_observations", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        0,
+        "rebind and retirement cannot retain evidence for a deleted binding"
+    );
 }

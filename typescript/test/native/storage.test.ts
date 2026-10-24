@@ -139,6 +139,7 @@ function expectNativeSchema(
     { version: 64, name: 'index the passthrough turns an originator has had answered' },
     { version: 65, name: 'let a request carry a remote route' },
     { version: 66, name: 'let a final answer a remote request' },
+    { version: 67, name: 'retain early provider starts until exact launch admission' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -156,6 +157,7 @@ function expectNativeSchema(
       'identity_status',
       'identity_session_preferences',
       'identity_resume_records',
+      'launch_observations',
       'office_local_blocks',
       'office_local_worlds',
       'office_local_profiles',
@@ -238,6 +240,29 @@ function expectNativeSchema(
       ],
     ],
     ['identity_status', ['identity_id', 'activity', 'mood', 'updated_at_ms', 'expires_at_ms']],
+    [
+      'launch_observations',
+      [
+        'binding_id',
+        'preferences_fingerprint',
+        'owner_pid',
+        'owner_start',
+        'driver',
+        'created_at_ms',
+        'expires_at_ms',
+        'status',
+        'provider_pid',
+        'provider_transition',
+        'provider_start',
+        'provider_session',
+        'runtime_mode',
+        'driver_state_version',
+        'driver_state',
+        'observed_at_ms',
+        'step',
+        'reason',
+      ],
+    ],
     ['digest_counters', ['identity_id', 'due_through_sequence', 'delivered_digests']],
     [
       'exchange_flow',

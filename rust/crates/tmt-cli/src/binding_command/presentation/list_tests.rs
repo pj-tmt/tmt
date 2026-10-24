@@ -13,6 +13,41 @@ use tmt_core::{
 const CLAUDE: &str = "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f";
 const CODEX: &str = "019a2f4c-1111-2222-3333-444455556666";
 
+#[test]
+fn named_listing_exposes_stored_session_learning_without_changing_its_address() {
+    let row = running_row("codex", CODEX);
+    let before = document(&Report::Named {
+        target: "worker".into(),
+        row: row.presence.clone(),
+        remembered: row.remembered.clone(),
+        learning: None,
+    });
+    let mut after = document(&Report::Named {
+        target: "worker".into(),
+        row: row.presence,
+        remembered: row.remembered,
+        learning: Some(Box::new(crate::session_learning::LearningView {
+            step: "provider_verification",
+            reason: "budget_timeout",
+            next_step: "Exit the agent in its pane, then run: tmt resume -- worker".into(),
+        })),
+    });
+    assert_eq!(after["session"]["unbound"], true);
+    assert_eq!(
+        after["session"]["learning"]["step"],
+        "provider_verification"
+    );
+    assert_eq!(after["session"]["learning"]["reason"], "budget_timeout");
+    assert!(
+        after["session"]["learning"]["nextStep"]
+            .as_str()
+            .unwrap()
+            .contains("tmt resume")
+    );
+    after.as_object_mut().unwrap().remove("session");
+    assert_eq!(after, before);
+}
+
 fn identity(name: &str, lifetime: Lifetime) -> Identity {
     Identity {
         id: format!("id-{name}"),
@@ -92,6 +127,7 @@ fn row(
     let (pane, binding) = live.map_or((None, None), |(pane, binding)| (Some(pane), Some(binding)));
     ListedRow {
         unbound: None,
+        learning: None,
         activity: serde_json::json!({"state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{}}),
         presence: IdentityPresence {
             identity: identity(name, lifetime),
@@ -369,7 +405,7 @@ fn json_rows_gain_address_driver_and_activity() {
         let driver = object.remove("driver").unwrap();
         assert_eq!(
             object.remove("session").unwrap(),
-            serde_json::json!({"activity":{"state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{}}, "unbound":null})
+            serde_json::json!({"activity":{"state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{}}, "unbound":null,"learning":null})
         );
         assert_eq!(row, original.take());
         assert_eq!(
@@ -406,6 +442,7 @@ fn running_document(mut row: ListedRow, runtime: RuntimeState) -> Value {
     let baseline = document(&Report::Listed {
         rows: vec![ListedRow {
             unbound: None,
+            learning: None,
             presence: row.presence.clone(),
             remembered: row.remembered.clone(),
             resume: row.resume.clone(),
@@ -826,6 +863,7 @@ fn support_document(mut row: ListedRow, support: Option<Support>) -> Value {
     let baseline = document(&Report::Listed {
         rows: vec![ListedRow {
             unbound: None,
+            learning: None,
             presence: row.presence.clone(),
             remembered: row.remembered.clone(),
             resume: row.resume.clone(),

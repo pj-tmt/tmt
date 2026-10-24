@@ -553,7 +553,6 @@ fn supervisor_loss_after_paste_is_uncertain_and_never_replayed() {
 }
 
 #[test]
-#[ignore = "flaky on hosted runners until #4800; see #4767"]
 fn a_hook_recorded_session_resumes_in_a_new_pty_without_tmux() {
     let mut world = World::new();
     let example = std::path::Path::new(env!("CARGO_BIN_EXE_tmt"))
@@ -575,6 +574,7 @@ fn a_hook_recorded_session_resumes_in_a_new_pty_without_tmux() {
 printf '%s' "$PPID" > '{root}/alpha.pid'
 printf '%s' "$$" > '{root}/alpha-peer.pid'
 printf '%s\n' "$@" >> '{root}/provider-argv'
+IFS= read -r release_hook
 printf '%s' '{{"hook_event_name":"SessionStart","session_id":"{session}","source":"startup","cwd":"{root}","model":"fixture-model"}}' | '{tmt}' __hook claude > '{root}/hook.out' 2> '{root}/hook.err'
 printf '%s' "$?" > '{root}/hook.status.tmp'
 /bin/mv '{root}/hook.status.tmp' '{root}/hook.status'
@@ -592,12 +592,19 @@ IFS= read -r line
         provider.to_str().unwrap(),
     ]);
     assert!(started.status.success(), "{started:?}");
-    let wait_hook = |world: &World| {
-        let deadline = Instant::now() + Duration::from_secs(10);
+    let wait_hook = |world: &World, deadline: Instant, phase: &str| {
         while !world.root.join("hook.status").is_file() {
             assert!(
                 Instant::now() < deadline,
-                "hook did not publish its exit status"
+                "{phase} hook did not publish its exit status; root={:?}; \
+                 provider argv={:?}; provider pid={:?}; peer pid={:?}; \
+                 hook stdout={:?}; hook stderr={:?}",
+                world.root,
+                fs::read_to_string(world.root.join("provider-argv")),
+                fs::read_to_string(world.root.join("alpha.pid")),
+                fs::read_to_string(world.root.join("alpha-peer.pid")),
+                fs::read_to_string(world.root.join("hook.out")),
+                fs::read_to_string(world.root.join("hook.err"))
             );
             std::thread::sleep(Duration::from_millis(10));
         }
@@ -606,14 +613,114 @@ IFS= read -r line
             "0"
         );
     };
-    wait_hook(&world);
     let deadline = Instant::now() + Duration::from_secs(10);
     let db = rusqlite::Connection::open_with_flags(
         support::state_dir(&world.root).join("tmt.db"),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
     )
     .unwrap();
-    let (identity,pane,recorded):(String,String,String)=db.query_row("SELECT i.id,b.pane_id,b.observed_provider_session_id FROM identities i JOIN bindings b ON b.identity_id=i.id WHERE i.canonical_name='alpha'",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+    #[derive(Debug)]
+    struct LaunchRow {
+        identity: String,
+        pane: String,
+        state: String,
+        process_pid: Option<i64>,
+        process_start: Option<String>,
+        owner_pid: Option<i64>,
+        owner_start: Option<String>,
+        session: Option<String>,
+    }
+    // The fake provider emits one hook only. Hold it until the ordinary launch
+    // has committed ownership, rather than racing that hook with launch's CAS.
+    let wait_launch = |world: &World, previous_pane: Option<&str>, deadline: Instant| loop {
+        let row = db
+            .query_row(
+                "SELECT i.id,b.pane_id,b.runtime_state,b.runtime_pid,b.runtime_start_identity, \
+                 b.launch_owner_pid,b.launch_owner_start_identity,b.observed_provider_session_id \
+                 FROM identities i JOIN bindings b ON b.identity_id=i.id \
+                 WHERE i.canonical_name='alpha'",
+                [],
+                |r| {
+                    Ok(LaunchRow {
+                        identity: r.get(0)?,
+                        pane: r.get(1)?,
+                        state: r.get(2)?,
+                        process_pid: r.get(3)?,
+                        process_start: r.get(4)?,
+                        owner_pid: r.get(5)?,
+                        owner_start: r.get(6)?,
+                        session: r.get(7)?,
+                    })
+                },
+            )
+            .unwrap();
+        let expected_pid = fs::read_to_string(world.root.join("alpha.pid"))
+            .ok()
+            .and_then(|text| text.parse::<u64>().ok());
+        if row.state == "running"
+            && previous_pane.is_none_or(|pane| row.pane != pane)
+            && let (Some(pid), Some(start), Some(owner), Some(owner_start)) = (
+                row.process_pid.map(|pid| u64::try_from(pid).unwrap()),
+                row.process_start.as_deref(),
+                row.owner_pid.map(|pid| u64::try_from(pid).unwrap()),
+                row.owner_start.as_deref(),
+            )
+            && Some(pid) == expected_pid
+            && matches!(
+                observe_runtime_process(&UnixCommandRunner, pid, deadline),
+                Ok(ProcessObservation::Live(process)) if process.start_identity() == start
+            )
+            && matches!(
+                observe_runtime_process(&UnixCommandRunner, owner, deadline),
+                Ok(ProcessObservation::Live(process)) if process.start_identity() == owner_start
+            )
+        {
+            break (row.identity, row.pane, row.session);
+        }
+        assert!(
+            Instant::now() < deadline,
+            "expected exact Running fixture launch; provider pid={expected_pid:?}; last row={row:?}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let release_hook = |world: &World, pane: &str| {
+        let mut terminal =
+            Connection::connect(&support::state_dir(&world.root).join("pty"), pane).unwrap();
+        terminal.input(b"\r").unwrap();
+    };
+    // A zero-exit hook is best-effort; readiness is the committed session, not
+    // the hook's status file. Each query owns a fresh read snapshot.
+    let wait_session = |world: &World, previous_pane: Option<&str>, deadline: Instant| loop {
+        let row: (String, String, Option<String>) = db
+            .query_row(
+                "SELECT i.id,b.pane_id,b.observed_provider_session_id FROM identities i \
+                 JOIN bindings b ON b.identity_id=i.id WHERE i.canonical_name='alpha'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        if row.2.as_deref() == Some(session) && previous_pane.is_none_or(|pane| row.1 != pane) {
+            break (row.0, row.1, row.2.unwrap());
+        }
+        assert!(
+            Instant::now() < deadline,
+            "expected committed session {session}, previous pane {previous_pane:?}, \
+             last row {row:?}; hook diagnostics: {}",
+            fs::read_to_string(world.root.join("hook.err")).unwrap()
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let (identity, pane, before_session) = wait_launch(&world, None, deadline);
+    assert!(
+        before_session.is_none(),
+        "the held hook must cause session recording"
+    );
+    assert!(!world.root.join("hook.status").exists());
+    release_hook(&world, &pane);
+    wait_hook(&world, deadline, "initial");
+    let (recorded_identity, recorded_pane, recorded) = wait_session(&world, None, deadline);
+    assert_eq!(recorded_identity, identity);
+    assert_eq!(recorded_pane, pane);
     assert_eq!(
         recorded,
         session,
@@ -629,6 +736,7 @@ IFS= read -r line
         Connection::connect(&support::state_dir(&world.root).join("pty"), &pane).unwrap();
     terminal.input(b"\r").unwrap();
     drop(terminal);
+    let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         if matches!(
             observe_runtime_process(&UnixCommandRunner, old_program, deadline),
@@ -641,9 +749,18 @@ IFS= read -r line
     }
     fs::remove_file(world.root.join("hook.status")).unwrap();
     let resumed = world.run(&["resume", "--host", "pty", "--no-channel", "alpha"]);
-    assert!(resumed.status.success(), "{resumed:?}");
-    wait_hook(&world);
-    let (after_identity,after_pane,after_session):(String,String,String)=db.query_row("SELECT i.id,b.pane_id,b.observed_provider_session_id FROM identities i JOIN bindings b ON b.identity_id=i.id WHERE i.canonical_name='alpha'",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+    support::with_launch_failure_packet(
+        &support::state_dir(&world.root).join("tmt.db"),
+        &[old_program],
+        || assert!(resumed.status.success(), "{resumed:?}"),
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let (resumed_identity, resumed_pane, _) = wait_launch(&world, Some(&pane), deadline);
+    assert_eq!(resumed_identity, identity);
+    release_hook(&world, &resumed_pane);
+    wait_hook(&world, deadline, "resumed");
+    let (after_identity, after_pane, after_session) = wait_session(&world, Some(&pane), deadline);
+    assert_eq!(after_pane, resumed_pane);
     assert_eq!(after_identity, identity);
     assert_ne!(after_pane, pane);
     assert_eq!(after_session, session);

@@ -29,7 +29,12 @@ enum Report {
     Created(identity::CreatedIdentity),
     /// The identity with its remembered-session projection (JSON only) and, for a pinned
     /// query, its presence.
-    Shown(Identity, Option<serde_json::Value>, Option<&'static str>),
+    Shown(
+        Identity,
+        Option<serde_json::Value>,
+        Option<&'static str>,
+        Option<crate::session_learning::LearningView>,
+    ),
     Listed(Vec<Identity>),
     MetadataApplied(identity_metadata::ApplyMetadataResult),
     MetadataSet {
@@ -165,7 +170,9 @@ fn shown(storage: &Storage, identity: Identity) -> Result<Report, Failure> {
         .map_err(unavailable)?;
     let registry = tmt_adapters::runtime::RuntimeRegistry::first_party();
     let resume = crate::output::resume_document(&preferences, &registry);
-    Ok(Report::Shown(identity, resume, None))
+    let learning = crate::session_learning::identity_view(storage, &identity, &preferences)
+        .map_err(unavailable)?;
+    Ok(Report::Shown(identity, resume, None, learning))
 }
 
 /// A delivery-time check of one UUID against the name its caller last saw. The UUID is never
@@ -203,7 +210,7 @@ fn pinned(storage: &mut Storage, id: &str, expected: &str) -> Result<Report, Fai
         Err(_) => "unknown",
     };
     let mut report = shown(storage, identity)?;
-    if let Report::Shown(_, _, slot) = &mut report {
+    if let Report::Shown(_, _, slot, _) = &mut report {
         *slot = Some(presence);
     }
     Ok(report)
@@ -440,7 +447,7 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                     )?;
                 }
             }
-            Report::Shown(identity, _, presence) => {
+            Report::Shown(identity, _, presence, learning) => {
                 let mut fields = vec![
                     ("lifetime", identity.lifetime.as_str().to_owned()),
                     ("canonical", identity.canonical_name),
@@ -449,7 +456,18 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                 if let Some(presence) = presence {
                     fields.push(("presence", presence.to_owned()));
                 }
-                tmt_cli_style::detail::write(&mut stdout, terminal, &identity.name, &fields)?
+                tmt_cli_style::detail::write(&mut stdout, terminal, &identity.name, &fields)?;
+                if let Some(learning) = learning {
+                    tmt_cli_style::message::warning(
+                        &mut stdout,
+                        terminal,
+                        &format!(
+                            "The provider session was not recorded ({}: {}). Resume may be unavailable.",
+                            learning.step, learning.reason
+                        ),
+                        Some(&learning.next_step),
+                    )?;
+                }
             }
             Report::Listed(identities) if identities.is_empty() => {
                 writeln!(stdout, "No identities found.")?;
@@ -529,13 +547,17 @@ fn document(report: &Report) -> serde_json::Value {
         Report::Created(result) => {
             json!({"identity": identity_document(&result.identity), "created": result.created})
         }
-        Report::Shown(identity, resume, presence) => {
+        Report::Shown(identity, resume, presence, learning) => {
             let mut document = json!({"identity": identity_document(identity)});
             if let Some(presence) = presence {
                 document["identity"]["presence"] = (*presence).into();
             }
             if let Some(resume) = resume {
                 document["resume"] = resume.clone();
+            }
+            if let Some(learning) = learning {
+                document["session"] =
+                    json!({"unbound":true,"learning":crate::session_learning::document(learning)});
             }
             document
         }

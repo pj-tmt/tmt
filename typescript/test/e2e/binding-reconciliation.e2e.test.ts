@@ -197,7 +197,7 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
           presence: 'unknown',
           pane: null,
           command: '',
-          session: { activity: unknownActivity, unbound: null },
+          session: { activity: unknownActivity, unbound: null, learning: null },
         },
       ]);
       const removed = await fixture.runJsonCli<{ error: { code: string } }>([
@@ -307,7 +307,7 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
           presence: 'active',
           pane: fixture.pane,
           command: expect.any(String),
-          session: { activity: unknownActivity, unbound: null },
+          session: { activity: unknownActivity, unbound: null, learning: null },
           target: fixture.paneTarget(fixture.pane),
           cwd: fixture.workspace,
         },
@@ -335,7 +335,7 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
           presence: 'offline',
           pane: null,
           command: '',
-          session: { activity: unknownActivity, unbound: null },
+          session: { activity: unknownActivity, unbound: null, learning: null },
         },
       ]);
       const denied = await fixture.runJsonCli<{ error: { code: string } }>(['rm', 'Alice'], {
