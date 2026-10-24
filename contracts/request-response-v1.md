@@ -1045,7 +1045,12 @@ identity/checklist/attempt token may settle `delivered`, `definitely_unsent` or
 `uncertain`; identical settlement retries are no-ops. Definite non-delivery
 releases the members, uncertainty never does. A lost process after claim leaves
 an active claim discoverable through policy/read output, never an automatic retry
-lease. Ordinary wake and queued-notice paths cannot replay checklist-owned items.
+lease, with one exception: a claim made at a turn boundary that the Stop hook never
+settled, still claimed 10 seconds later (the provider stops a hook long before that),
+is stranded. The next claim settles it `uncertain` and confirmed, so it opens no
+continuation and is never typed again, and returns its items that still admit a first
+final, and any notice, to the held pool to be offered again by request id. An idle
+claim is never taken over. Ordinary wake and queued-notice paths cannot replay checklist-owned items.
 A checklist typed at an idle opportunity settles `delivered` but stays _unconfirmed_ until the
 recipient's next admitted prompt submission names one of its requests: the hook compares the prompt
 text with the checklist's request ids in the transaction that admits the turn start. The typed text
@@ -1053,7 +1058,8 @@ can land in a turn the provider never announced (a background-task wake, a sched
 continuation), where it never becomes a prompt. The next turn-boundary claim returns the
 unconfirmed items to the held pool and seals them again, in sequence order, in that Stop-hook
 checklist, keyed by the same request ids so the receipt reply stays idempotent. A request that no longer admits
-a first final (answered, withdrawn or expired) is not offered again; a result or timeout notice is.
+a first final (answered, withdrawn or expired) is not offered again; a result or timeout notice is. A
+typed checklist with no such item left is confirmed by the claim that skips it, so it is not looked at again.
 An idle opportunity never offers them again and nothing is typed twice. A checklist handed to a Stop hook starts a
 continuation the activity record cannot see: the provider carries on with no new prompt while its
 activity reads idle. Until that continuation's own Stop (`stop_hook_active`), a new prompt, or the end of the provider

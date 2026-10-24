@@ -107,8 +107,12 @@ configuration. The owner map is in
   (`digest_continuation_open`), cleared by the continuation's own Stop, any later prompt or the end of its provider run
   (`end_digest_continuation`, called from `bindings::session::set_state` and binding removal); `digest::idle_entry` refuses an idle opportunity meanwhile. `digest_claimable_items` and
   `claim_digest_checklist` add the unconfirmed items only at a turn-boundary opportunity, skipping
-  an incoming request that no longer admits a first final (`reofferable`), and the claim returns
-  them to the held pool before sealing, so an idle claim never types them twice.
+  an incoming request that no longer admits a first final (`worth_offering`), and the claim returns
+  them to the held pool before sealing, so an idle claim never types them twice; it also confirms
+  (`retire_unconfirmed_digest`) the checklists left with nothing to offer. A turn-boundary claim still
+  `claimed` after `STALE_HOOK_CLAIM_MS` is a Stop hook the provider stopped: the next claim settles it
+  `uncertain` and confirmed (`reap_digest_claim`) and releases its worth-offering items (#4871);
+  `digest_claimable_items` counts them so the hook's fit sees them. An idle claim is never reaped.
 - Originator withdrawal and final submission share the IMMEDIATE transaction. Withdrawal
   metadata stays on the attempt, separate from delivery and the final-submission marker;
   same-reason retries retain the first timestamp. It releases waiters without a recipient
