@@ -1351,11 +1351,12 @@ fn retained_hint_input_timing() {
             {
                 let mut sorted = values.clone();
                 sorted.sort_unstable();
+                let median = (sorted[49] as f64 + sorted[50] as f64) / 2.0;
+                let p95 = sorted[94];
                 println!(
-                    "input rows={rows} key={name} mode={mode} median_ns={} p95_ns={}",
-                    sorted[50], sorted[95]
+                    "input rows={rows} key={name} mode={mode} median_ns={median} p95_ns={p95}"
                 );
-                reports.push(json!({"rows":rows,"key":name,"mode":mode,"samplesNs":values,"medianNs":sorted[50],"p95Ns":sorted[95]}));
+                reports.push(json!({"rows":rows,"key":name,"mode":mode,"samplesNs":values,"medianNs":median,"p95Ns":p95}));
             }
         }
     }
