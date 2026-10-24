@@ -27,7 +27,8 @@ button {
   border: var(--tmt-ui-action-border-width) solid var(--tmt-ui-color-edge);
   box-shadow: none;
   padding: 7px 12px;
-  border-radius: 0;
+  /* The website's controls round at 8px; a plain button that sits in a ruled list or row says so. */
+  border-radius: var(--tmt-ui-radius);
   cursor: pointer;
 }
 /* The shell's rail and module menu, and list-row titles, keep the design system's neutral hover. */
@@ -107,15 +108,6 @@ footer {
   color: var(--c-muted);
   margin: 8px 0 36px;
   font-size: 16px;
-}
-/* The leaf owns list rows; Colab owns the trusted row disclosure. */
-.chip {
-  font: 11px var(--f-mono);
-  border: 1.5px solid var(--c-text);
-  color: var(--c-muted);
-  padding: 4px 8px;
-  border-radius: 0;
-  white-space: nowrap;
 }
 .retention-hint {
   margin: 0;
@@ -307,10 +299,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   }
   .page-header-meta {
     gap: 4px;
-  }
-  .page-header-meta .chip {
-    padding: 3px 5px;
-    font-size: 10px;
   }
 }
 /* The marker lane the render frame reserves at the right edge of every page: page-frame.css declares
@@ -827,6 +815,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   padding: 18px 0;
   border: 0;
   border-bottom: 1px solid var(--c-rule);
+  /* Square: a row of a ruled list, as the website's thread rows are. */
+  border-radius: 0;
   background: transparent;
   color: var(--c-text);
   text-align: left;
@@ -949,7 +939,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   max-height: 100%;
   width: 100%;
   box-shadow: none;
-  border-radius: 0;
   font: var(--tmt-ui-host-field-size) / var(--tmt-ui-host-field-line-height) var(--f-body);
 }
 .conversation-window-bar {
@@ -1038,7 +1027,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comments-panel .conversation-composer:has(> .annotation-compose[data-connection='ended']) {
   position: static;
 }
-/* Pinned flush with the drawer's bottom edge, so it does not shift at the end of the scroll. */
+/* Pinned flush with the panel's bottom edge, so it does not shift at the end of the scroll. */
 .tmt-ui-drawer-body:has(.comments-panel .conversation-composer) {
   padding-bottom: 0;
 }
@@ -1082,6 +1071,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   padding: var(--conversation-gap) var(--conversation-inset);
   border: 0;
   border-bottom: 1px solid var(--c-rule);
+  /* Square: a turn is a row divided by a rule, as the website's thread turns are; a bubble rounds
+     itself. */
   border-radius: 0;
   box-shadow: none;
   background: transparent;
@@ -1304,7 +1295,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comment-thread {
   background: var(--tmt-ui-surface-annotation-panel);
   border: 0;
-  border-radius: 0;
   box-shadow: none;
 }
 .comment-thread [hidden] {
@@ -1434,7 +1424,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .proposal-inline .proposal-card {
   border: 1px solid var(--tmt-ui-surface-rule);
-  border-radius: 0;
   box-shadow: none;
 }
 .proposal-inline :focus-visible {
@@ -1505,6 +1494,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .proposal-card {
   border: 1px solid var(--c-rule);
+  /* A framed card rounds, as every bordered card does on the website. */
+  border-radius: var(--tmt-ui-radius);
   background: var(--c-sheet);
   color: var(--c-text);
   padding: 16px;
@@ -1648,8 +1639,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comment-thread[data-layout='discussion'] .conversation-composer {
   background: var(--tmt-ui-surface-sheet);
 }
-/* The position (n / N) ends the drawer heading, next to Close, as on the website. */
-.tmt-ui-drawer[data-panel='comments'] .tmt-ui-drawer-heading {
+/* The position (n / N) ends the panel heading, next to Close, as on the website. */
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-heading {
   flex: 1;
   justify-content: space-between;
 }
@@ -1813,7 +1804,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .question-group-card {
   background: transparent;
   border: 0;
-  border-radius: 0;
   box-shadow: none;
 }
 /* The group is only a focus anchor after a Send; its actions carry the visible focus. */
@@ -2220,12 +2210,11 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .chat-panel .comment-header-end {
   flex: 0 0 34px;
 }
-/* A drawer's plain buttons take no fill or edge, except where the control owns its look: the list
-   row's rule and the view tab's selection tint (the only tabs in a drawer are Comments'). */
-.tmt-ui-drawer
-  button:not(.tmt-ui-action):not(.annotation-row):not(.tmt-ui-tab):not(
-    [data-testid='ask-send']
-  ):not(.tmt-ui-menu-item):not(.tmt-ui-menu-trigger) {
+/* A drawer's or panel's plain buttons take no fill or edge. `:where()` leaves the reset at the
+   specificity of the global `button` rule above, which it follows, so any control that owns its look
+   (the leaf's actions, tabs and menus, the list row's rule, the send button) wins with its own class
+   and needs no entry here. */
+:where(.tmt-ui-drawer, .tmt-ui-panel) button {
   background: transparent;
   border: 0;
   box-shadow: none;

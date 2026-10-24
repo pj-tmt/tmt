@@ -96,7 +96,7 @@ for (const width of [1440, 390])
         });
         expect(geometry).toMatchObject({
           border: '1px',
-          radius: '0px',
+          radius: '6px',
           shadow: 'none',
           ordered: true,
           markWidth: 16,

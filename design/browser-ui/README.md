@@ -110,7 +110,10 @@ The shell and heading metrics follow the concept website: 232px rail, 45px modul
 rows, 33px sub-items and a 45px brand mark. Body and display text use
 `Inter, -apple-system, system-ui, "Segoe UI", sans-serif`, without bundled fonts or
 external font requests. Rail sub-item text starts 8px beyond the parent's icon
-left edge (Ben direct); its smaller type and separate current-page marker retain hierarchy.
+left edge (Ben direct). Labelled groups render as named nested lists with one extra
+8px indent; unlabelled entries stay flat and counts retain their right edge. The
+selected sub-item uses accent/on-accent fill without a gutter marker, with an
+on-accent focus frame. The parent module keeps its marker.
 
 The optional static `page` class (`tmt-ui-page`) applies shared content insets:
 33px/36px block/inline, 24px/18px through 760px. Hosts opt in on their content
@@ -546,6 +549,35 @@ existing modal live-region relocation with this suspension contract.
 The isolated fake-source fixture is `test/fixtures/notifications.html`. Its
 headless Chromium conformance spec uses the pinned Colab browser runner; no
 product sources or navigation are wired by the fixture.
+
+## Framework-free menu host
+
+`@tmt/browser-ui/menu-host` exports `mountBrowserMenu(container, options)` and its
+item/options/control types. It uses the same controller, menu CSS, native dialog,
+placement, keyboard navigation and visibility contract as `BrowserMenu`.
+Options provide `label`, keyed `items` and `onSelect(key, originalMouseEvent)`;
+optional `triggerText` replaces the default Ellipsis icon trigger, `icon` supplies
+a decorative node, and `description`, `disabled` and `onOpenChange` retain the
+menu contracts above. There are no extra sizes or visual variants. Items may
+supply checked roles, a separator, a disabled reason and passive `content` nodes.
+Keys must be unique. Strings render as text; supplied nodes belong to this
+presentation until update/disposal and must contain no second interactive owner.
+
+The returned `update(options)` retains a surviving focused key and reads current
+checked/disabled values without selecting anything. `open()` is a host request
+for presentation only, and `close()` returns focus to the trigger. `dispose()`
+closes without reclaiming route focus, releases observers/listeners and removes
+only its own nodes. Calls after disposal are inert. Commands, selected values,
+refusals and persistence remain host-owned. A trusted selection closes first and
+then delivers the original event to the callback captured for that selection,
+even if the close notification synchronously changes the host.
+
+One internal controller owns open/present state, typeahead, popup replacement and
+exactly-once visibility for both renderers. `BrowserMenu` retains its React API,
+JSX and original SyntheticEvent callbacks. The shared icon-tooltip binding is
+internal; IconAction's public API, busy fence, activation and presentation are
+unchanged. The gallery's `?frame=menu-host` exercises actual React/native parity,
+updates, replacement and drawer nesting in both themes.
 
 ## Chips
 

@@ -1,4 +1,5 @@
 import { ChartsSection } from './charts.js';
+import { MenuHostFrame } from './menu-host-frame.js';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Settings } from 'lucide-react';
@@ -134,7 +135,8 @@ function ShellHeader() {
 
 function ShellFrame({ params }: { params: URLSearchParams }) {
   const view = useMemo<ShellView>(() => {
-    const place = { origin, href: `${origin}/colab/pages` };
+    const path = params.get('page') === 'project' ? '/colab/p/release' : '/colab/pages';
+    const place = { origin, href: `${origin}${path}` };
     const colab = answer.modules[0]!;
     const menu = params.get('menu') === 'none' ? undefined : describedMenu(colab, place);
     if (menu) menu.groups[0]!.items[0]!.total = 12;
@@ -587,6 +589,8 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
       return <DrawerFrame params={params} />;
     case 'source':
       return <SourceFrame params={params} />;
+    case 'menu-host':
+      return <MenuHostFrame params={params} />;
     case 'menu':
       return <MenuFrame />;
     case 'notifications':

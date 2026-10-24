@@ -139,14 +139,14 @@ for (const [name, size] of [
         expect(b.x, `${right} beside ${left}`).toBeGreaterThan(a.x + a.width - 1);
         expect(Math.abs(b.y - a.y), `${right} on the same row`).toBeLessThan(2);
       };
-      await beside('#digest-provider-claude', '#digest-provider-gpt');
+      await beside('#digest-provider-codex', '#digest-provider-claude');
       await beside('#digest-tokens .digest-token-chart', '#digest-ranking');
       await beside('#digest-activity', '#digest-exchange');
     } else {
       // One column on a phone: each card below the one before.
       const first = (await page.locator('#digest-provider-claude').boundingBox())!;
-      const second = (await page.locator('#digest-provider-gpt').boundingBox())!;
-      expect(Math.abs(second.y - first.y)).toBeLessThan(1);
+      const second = (await page.locator('#digest-provider-codex').boundingBox())!;
+      expect(first.y).toBeGreaterThan(second.y);
     }
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -362,30 +362,72 @@ test('the activity heatmap has short bar cells: 4-hour, daily and 5-day groups, 
   await expect(page.locator('#digest-tokens .digest-total-label')).toContainText('30d');
 });
 
-test('one allowance card holds meter rows and collapsed provider history and pace', async ({
+test('allowance has a current OpenAI window, distinct folded histories, and an explicit Claude row', async ({
   page,
 }) => {
   await open(page);
-  await expect(page.locator('#digest-allowance .digest-provider')).toHaveCount(2);
-  const claude = page.locator('#digest-provider-claude');
-  await expect(claude.locator('.digest-provider-label')).toHaveText('Claude26% left');
-  const details = claude.locator('details');
-  await expect(details).not.toHaveAttribute('open');
-  await details.locator('summary').click();
-  await expect(claude.locator('.tmt-ui-status-tile-label')).toHaveText([
+  const openai = page.locator('#digest-provider-codex');
+  const primary = openai.locator(':scope > .digest-provider');
+  await expect(primary.locator('.digest-provider-label')).toHaveText('OpenAI55% left');
+  await expect(primary.locator('.digest-window-observation')).toBeVisible();
+  await expect(primary).toContainText('Observed 10m ago');
+  await expect(primary).toContainText('Reported by core-1, feat-1');
+  const history = primary.locator('details');
+  await expect(history).not.toHaveAttribute('open');
+  await history.locator('summary').click();
+  await expect(primary.locator('.tmt-ui-status-tile-label')).toHaveText([
     'Elapsed',
     'Pace',
     'Resets in',
   ]);
-  await expect(claude.locator('.tmt-ui-status-tile-value').nth(1)).toHaveText(/pts$/);
-  await expect(claude.locator('.tmt-ui-chart')).toBeVisible();
-  const meter = (await claude.locator('.tmt-ui-meter').boundingBox())!;
-  const fill = (await claude.locator('.tmt-ui-meter-fill').boundingBox())!;
-  expect(Math.abs(fill.width / meter.width - 0.26)).toBeLessThan(0.03);
-  const hues = await page
-    .locator('.tmt-ui-meter-fill')
-    .evaluateAll((nodes) => nodes.map((n) => getComputedStyle(n).backgroundColor));
-  expect(new Set(hues).size).toBe(1);
+  await expect(primary.locator('.tmt-ui-chart')).toBeVisible();
+  const meter = (await primary.locator('.tmt-ui-meter').boundingBox())!;
+  const fill = (await primary.locator('.tmt-ui-meter-fill').boundingBox())!;
+  expect(Math.abs(fill.width / meter.width - 0.55)).toBeLessThan(0.03);
+  const other = openai.locator('.digest-other-windows');
+  await expect(other).not.toHaveAttribute('open');
+  await expect(other.locator(':scope > summary')).toHaveText(
+    'Other OpenAI windows seen this week (2)',
+  );
+  await other.locator(':scope > summary').focus();
+  await page.keyboard.press('Enter');
+  await expect(other).toHaveAttribute('open', '');
+  const windows = other.locator('.digest-provider');
+  await expect(windows).toHaveCount(2);
+  await expect(windows.first()).toContainText('Observed 20m ago');
+  await expect(windows.first()).toContainText('Reported by remote-1, tmt-lead, ux-1');
+  for (const window of await windows.all()) {
+    await expect(window).toContainText('Resets');
+    await window.locator('summary').click();
+    await expect(window.locator('.tmt-ui-chart')).toBeVisible();
+  }
+  const readings = await openai.locator('.tmt-ui-chart-readout').allTextContents();
+  expect(new Set(readings).size).toBe(3);
+  const ids = await page.locator('[id]').evaluateAll((nodes) => nodes.map((node) => node.id));
+  expect(new Set(ids).size).toBe(ids.length);
+  await expect(page.locator('#digest-provider-claude')).toContainText('Claude○ not reported');
+  await expect(page.locator('#digest-provider-claude')).toContainText(
+    'Claude Code does not report its allowance to TMT.',
+  );
+  await expect(page.locator('#digest-provider-claude .tmt-ui-meter')).toHaveCount(0);
+});
+
+test('the same allowance windows and open disclosures survive every usage range', async ({
+  page,
+}) => {
+  await open(page);
+  const allowance = page.locator('#digest-allowance');
+  await allowance.locator('.digest-other-windows > summary').click();
+  const text = await allowance.innerText();
+  const tokens = new Set<string>();
+  for (const range of ['7d', '30d', '24h']) {
+    await page.getByRole('tab', { name: range, exact: true }).click();
+    await expect(allowance.locator('.digest-other-windows')).toHaveAttribute('open', '');
+    expect(await allowance.innerText()).toBe(text);
+    await expect(page.locator('.digest-total-label')).toContainText(range);
+    tokens.add((await page.locator('.digest-total').textContent())!);
+  }
+  expect(tokens.size).toBe(3);
 });
 
 test('a team of 24 lists the top 6, one Other row, a single partial note and Show all', async ({
@@ -432,8 +474,9 @@ test('one provider shares the allowance card with its heading and retains its hi
   page,
 }) => {
   const errors = await open(page, '?one-provider', { width: 1440, height: 900 });
-  const provider = page.locator('#digest-provider-gpt');
+  const provider = page.locator('#digest-provider-codex');
   await expect(page.locator('#digest-allowance .digest-provider')).toHaveCount(1);
+  await expect(page.locator('#digest-provider-claude')).toContainText('○ not reported');
   await expect(provider.locator('.tmt-ui-chart')).toBeHidden();
   await provider.locator('summary').click();
   await expect(provider.locator('.tmt-ui-chart')).toBeVisible();
@@ -461,7 +504,7 @@ for (const [label, query] of [
         expect(errors).toEqual([]);
       });
 
-for (const width of [390, 768, 1440]) {
+for (const width of [320, 390, 768, 1440]) {
   test(`one scroll at ${width}px: nothing makes the page scroll sideways`, async ({ page }) => {
     await open(page, '', { width, height: 900 });
     await expect(page.locator('#digest-sections .digest-card')).toHaveCount(5);
@@ -528,8 +571,10 @@ test('the report refreshes once a minute and repaints only when it changed', asy
   const errors = await open(page, '?refresh', { width: 390, height: 900 });
   const reads = () => page.evaluate(() => window.digestReads);
   await expect(
-    page.locator('#digest-provider-claude .digest-provider-label > strong:last-child'),
-  ).toHaveText('26% left');
+    page.locator(
+      '#digest-provider-codex > .digest-provider .digest-provider-label > strong:last-child',
+    ),
+  ).toHaveText('55% left');
   const matrix = page.locator('#digest-exchange').getByRole('region', { name: /^Messages, last / });
   await matrix.evaluate((node) => {
     node.scrollLeft = 100;
@@ -544,12 +589,17 @@ test('the report refreshes once a minute and repaints only when it changed', asy
   await page.clock.fastForward(60_000);
   await expect.poll(reads).toBe(2);
   await expect(page.locator('#digest-tokens')).toHaveAttribute('data-kept', 'yes');
+  await expect(
+    page.locator('#digest-provider-codex > .digest-provider .digest-window-observation'),
+  ).toHaveText('Observed 12m ago');
   expect(await matrix.evaluate((node) => node.scrollLeft)).toBe(matrixPosition);
   // The third read has less allowance left: the cards repaint, and Share is still the choice.
   await page.clock.fastForward(60_000);
   await expect.poll(reads).toBe(3);
   await expect(
-    page.locator('#digest-provider-claude .digest-provider-label > strong:last-child'),
+    page.locator(
+      '#digest-provider-codex > .digest-provider .digest-provider-label > strong:last-child',
+    ),
   ).toHaveText('10% left');
   await expect(page.getByRole('tab', { name: 'Share' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#digest-tokens .tmt-ui-chart-title')).toHaveText(
@@ -560,7 +610,9 @@ test('the report refreshes once a minute and repaints only when it changed', asy
   await page.clock.fastForward(60_000);
   await expect.poll(reads).toBe(4);
   await expect(
-    page.locator('#digest-provider-claude .digest-provider-label > strong:last-child'),
+    page.locator(
+      '#digest-provider-codex > .digest-provider .digest-provider-label > strong:last-child',
+    ),
   ).toHaveText('10% left');
   await expect(page.locator('#digest-tokens')).toBeVisible();
   await expect(page.locator('#usage-note')).toContainText('Your machine did not answer');
@@ -571,7 +623,9 @@ test('the report refreshes once a minute and repaints only when it changed', asy
   await expect(page.locator('#usage-note')).toContainText('Usage preview');
   await expect(page.locator('#usage-note')).not.toContainText('Showing the last report');
   await expect(
-    page.locator('#digest-provider-claude .digest-provider-label > strong:last-child'),
+    page.locator(
+      '#digest-provider-codex > .digest-provider .digest-provider-label > strong:last-child',
+    ),
   ).toHaveText('10% left');
   // Leaving the route stops the reads.
   await page.evaluate(() => window.digestRoute.abort());
@@ -659,7 +713,7 @@ test('refresh and range changes retain provider and method disclosures, legend e
 }) => {
   await page.clock.install();
   await open(page, '?refresh&seats=24', { width: 1440, height: 900 });
-  const provider = page.locator('#digest-provider-claude-history');
+  const provider = page.locator('#digest-provider-codex > .digest-provider > details');
   const method = page.locator('#digest-method');
   await provider.locator('summary').click();
   await method.locator('summary').click();
@@ -670,9 +724,9 @@ test('refresh and range changes retain provider and method disclosures, legend e
   await expect.poll(() => page.evaluate(() => window.digestReads)).toBe(2);
   await page.clock.fastForward(60_000);
   await expect.poll(() => page.evaluate(() => window.digestReads)).toBe(3);
-  await expect(page.locator('#digest-provider-claude .digest-provider-label')).toContainText(
-    '10% left',
-  );
+  await expect(
+    page.locator('#digest-provider-codex > .digest-provider .digest-provider-label'),
+  ).toContainText('10% left');
   await expect(provider).toHaveAttribute('open', '');
   await expect(method).toHaveAttribute('open', '');
   await expect(provider.locator('summary')).toBeFocused();
@@ -708,9 +762,10 @@ test('unavailable seats make the reported total a lower bound and missing allowa
   await expect(page.locator('.digest-total-label')).toContainText('lower bound');
   await expect(page.locator('#digest-tokens')).toContainText('Unavailable seats are not included');
   await expect(page.locator('#digest-allowance')).toContainText(
-    'Some provider allowances are unavailable.',
+    'Claude Code does not report its allowance to TMT.',
   );
   await expect(page.locator('.digest-provider')).toHaveCount(0);
+  await expect(page.locator('.digest-provider-group')).toHaveCount(2);
   await expect(page.locator('#digest-allowance')).not.toContainText('No weekly window');
 });
 
@@ -781,3 +836,62 @@ for (const [timezoneId, count] of [
     });
   });
 }
+
+for (const scheme of ['light', 'dark'] as const)
+  for (const width of [1440, 390, 320])
+    test(`allowance supports N providers and folded windows at ${width}px ${scheme}`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      const errors = await openShell(page, { width, height: 900 }, '?providers=4');
+      const groups = page.locator('.digest-provider-group');
+      await expect(groups).toHaveCount(4);
+      const boxes = await groups.evaluateAll((nodes) =>
+        nodes.map((node) => ({
+          width: node.getBoundingClientRect().width,
+          x: node.getBoundingClientRect().x,
+          y: node.getBoundingClientRect().y,
+        })),
+      );
+      expect(
+        Math.max(...boxes.map((box) => box.width)) - Math.min(...boxes.map((box) => box.width)),
+      ).toBeLessThan(1);
+      await page.locator('.digest-other-windows > summary').click();
+      await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
+      if (process.env.DIGEST_CAPTURE_DIR)
+        await page.screenshot({
+          fullPage: true,
+          path: path.join(process.env.DIGEST_CAPTURE_DIR, `allowance-four-${scheme}-${width}.png`),
+        });
+      expect(errors).toEqual([]);
+    });
+
+test('an allowance-only failure does not substitute selected-range limits and recovers next refresh', async ({
+  page,
+}) => {
+  await page.clock.install();
+  await open(page, '?refresh&allowance-failure');
+  await expect(page.locator('#digest-provider-codex > .digest-provider')).toBeVisible();
+  await page.clock.fastForward(60_000);
+  await expect.poll(() => page.evaluate(() => window.digestReads)).toBe(2);
+  await expect(page.locator('#digest-tokens')).toBeVisible();
+  await expect(page.locator('#digest-allowance')).toContainText('Allowance could not be read');
+  await expect(page.locator('#digest-allowance .tmt-ui-meter')).toHaveCount(0);
+  await expect(page.locator('#digest-provider-claude')).toContainText('○ not reported');
+  await page.clock.fastForward(60_000);
+  await expect.poll(() => page.evaluate(() => window.digestReads)).toBe(3);
+  await expect(page.locator('#digest-provider-codex > .digest-provider')).toContainText('10% left');
+  await expect(page.locator('#digest-allowance')).not.toContainText('Allowance could not be read');
+});
+
+test('a window disappears when the owner clock reaches its reset even if its observation is unchanged', async ({
+  page,
+}) => {
+  await page.clock.install();
+  await open(page, '?refresh&expiring-window');
+  await expect(page.locator('#digest-provider-codex > .digest-provider')).toContainText('55% left');
+  await page.clock.fastForward(60_000);
+  await expect.poll(() => page.evaluate(() => window.digestReads)).toBe(2);
+  await expect(page.locator('#digest-provider-codex')).toContainText('○ not reported');
+  await expect(page.locator('#digest-provider-codex .tmt-ui-meter')).toHaveCount(0);
+});

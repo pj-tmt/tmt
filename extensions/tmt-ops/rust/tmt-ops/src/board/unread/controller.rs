@@ -121,20 +121,34 @@ impl App {
             if area.width == 0 || area.height == 0 {
                 return None;
             }
-            let reply = self.conversation_reply()?;
-            if !reply.acquired {
-                return None;
-            }
-            let key = reply.key?;
-            if key.kind != Kind::Reply {
-                return None;
-            }
             let actor = self.view.as_ref()?.me_id.as_deref()?;
-            if key.sender != actor {
-                return None;
-            }
             let page = self.home_leads.unread(actor)?;
-            self.admit_seen(actor, &key.lead, page.submitted(&key.lead, &key.request)?)
+            // What the reader holds on screen: the final reply, and the answered turns the
+            // conversation lists. The newest one the answers page holds is what has been read.
+            let reply = self
+                .conversation_reply()
+                .filter(|reply| reply.acquired)
+                .and_then(|reply| {
+                    let key = reply.key?;
+                    (key.kind == Kind::Reply && key.sender == actor)
+                        .then(|| {
+                            page.submitted(&key.lead, &key.request)
+                                .map(|at| (key.lead, at))
+                        })
+                        .flatten()
+                });
+            let turns = self
+                .conversation_turns()
+                .into_iter()
+                .flat_map(|(member, requests)| {
+                    let times: Vec<u64> = requests
+                        .iter()
+                        .filter_map(|request| page.submitted(&member, request))
+                        .collect();
+                    times.into_iter().map(move |at| (member.clone(), at))
+                });
+            let (member, at) = reply.into_iter().chain(turns).max_by_key(|(_, at)| *at)?;
+            self.admit_seen(actor, &member, at)
         })();
         if next != self.unread.displayed {
             if let Some(seen) = &next {

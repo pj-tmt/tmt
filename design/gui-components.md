@@ -29,6 +29,9 @@ header slot its `ColabHeader` portals into, and Remote's served pages through th
 shell reads only Remote's composed module descriptions; each product supplies its own module
 menu and keeps its routing.
 
+Framework-free hosts use the leaf's [`menu-host`](browser-ui/README.md#framework-free-menu-host)
+entry; it shares BrowserMenu's controller and owns transient popup presentation only.
+
 Colab uses `BrowserMenu` for choice/action menus and `BrowserDrawer` for shared
 page drawers. For non-modal side regions the leaf provides `BrowserPanel`; hosts retain their grid,
 breakpoints, content and coordination with modal surfaces. Its opt-in `keepMounted` preserves

@@ -606,3 +606,102 @@ fn moving_onto_an_unread_row_never_marks_it_read() {
     app.unread_drawn();
     assert!(app.unread.writer.offer().is_some());
 }
+
+/// A direct send answered by a captured turn alone: the member's list holds no final reply.
+fn turn_app(settled: u64) -> App {
+    let mut app = board();
+    app.home_leads.test_pages(
+        ACTOR,
+        json!({"items":[],"nextBefore":null}),
+        json!({"items":[{
+            "requestId":"direct", "kind":"request", "sender":{"identityId":ACTOR},
+            "recipientId":MEMBER, "answeredAtMs":settled, "answer":"turn"
+        }],"nextBefore":null}),
+    );
+    app.overview_rows.borrow_mut().clear();
+    app
+}
+
+/// The conversation lists the captured turn of that send, settled at `settled`.
+fn show_turn(app: &mut App, request: &str, settled: u64) {
+    let owner = app.conversation_finals().expect("a conversation owner");
+    app.apply_sent(
+        crate::board::home_leads::SentKey {
+            sender: owner.sender,
+            agent: owner.agent,
+        },
+        Ok(vec![json!({
+            "requestId":request, "preparedAtMs":settled - 5_000, "text":"please check", "truncated":false,
+            "mode":"passthrough",
+            "messageState":{"state":"delivered","reason":{"text":"delivered"}},
+            "passthrough":{"state":"answered","boundAtMs":settled - 4_000,"settledAtMs":settled,
+                "answer":{"text":"the turn output","truncated":false,"provider":"claude","endedMs":settled}}
+        })]),
+    );
+}
+
+const SETTLED: u64 = 1_000_000;
+
+#[test]
+fn a_captured_turn_alone_is_unread_and_reading_it_marks_it_read() {
+    let fixture = Fixture::new();
+    let mut app = turn_app(SETTLED);
+    assert_eq!(
+        app.unread_count(MEMBER).total,
+        1,
+        "the answer is a turn; there is no final reply"
+    );
+    assert!(
+        draw(&app).contains("● 1 unread"),
+        "the indicator shows it\n{}",
+        draw(&app)
+    );
+    press(&mut app, KeyCode::Tab);
+    assert_eq!(app.focused_pane(), Some(Pane::Replies));
+    draw(&app);
+    app.unread_drawn();
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "no capture is shown yet, so nothing is read"
+    );
+    show_turn(&mut app, "direct", SETTLED);
+    assert!(draw(&app).contains("the turn output"));
+    app.unread_drawn();
+    let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
+    assert!(result.is_ok());
+    app.finished_unread(result);
+    assert_eq!(app.unread_count(MEMBER).total, 0);
+    assert_eq!(
+        fixture.config().read_markers().unwrap().get(ACTOR, MEMBER),
+        SETTLED
+    );
+}
+
+#[test]
+fn a_hidden_or_unfocused_turn_marks_nothing_and_a_turn_not_on_the_page_marks_nothing() {
+    let mut app = turn_app(SETTLED);
+    press(&mut app, KeyCode::Tab);
+    draw(&app);
+    show_turn(&mut app, "direct", SETTLED);
+    draw(&app);
+    app.help = true;
+    app.unread_drawn();
+    assert!(app.unread.writer.offer().is_none(), "a modal covers it");
+    app.help = false;
+    press(&mut app, KeyCode::Esc);
+    draw(&app);
+    app.unread_drawn();
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "the reader does not hold focus"
+    );
+    // A capture of a request the answers page does not list is not evidence.
+    let mut other = turn_app(SETTLED);
+    press(&mut other, KeyCode::Tab);
+    draw(&other);
+    show_turn(&mut other, "elsewhere", SETTLED + 500_000);
+    draw(&other);
+    other.unread_drawn();
+    assert!(other.unread.writer.offer().is_none());
+    assert_eq!(other.unread_count(MEMBER).total, 1);
+}

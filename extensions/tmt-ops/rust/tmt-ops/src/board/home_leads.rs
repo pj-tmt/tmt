@@ -9,7 +9,7 @@ use crate::{
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, time::Instant};
 
-const LIMIT: usize = super::unread::RESULTS_LIMIT;
+const LIMIT: usize = 50;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kind {
@@ -348,16 +348,22 @@ impl Fetch {
         };
         read.calls += 1;
         let results = match list(json!({"originatorId":sender.id,"view":"results","limit":LIMIT}))
-            .and_then(|document| {
-                read.unread = super::unread::Page::read(&sender.id, &document);
-                page(document)
-            }) {
+            .and_then(page)
+        {
             Ok(items) => items,
             Err(error) => {
                 read.failure = Some(error.to_string());
                 Vec::new()
             }
         };
+        // What answered the sender's messages, finals and captured turns alike, for the unread
+        // indicator. A failed or malformed page leaves the held one in place.
+        read.calls += 1;
+        read.unread = list(json!({
+            "originatorId":sender.id,"view":"answers","limit":super::unread::ANSWERS_LIMIT
+        }))
+        .ok()
+        .and_then(|document| super::unread::Page::read(&sender.id, &document));
         collect_replies(&mut read.replies, &results, &sender.id);
         let mut histories = BTreeMap::new();
         for lead in &mut read.leads {

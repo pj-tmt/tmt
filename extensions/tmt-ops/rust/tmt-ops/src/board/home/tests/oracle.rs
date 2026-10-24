@@ -391,6 +391,7 @@ fn captures() -> Value {
                 "unread-waiting",
                 "unread-squads",
                 "unread-cleared",
+                "unread-turn",
             ]
             .into_iter()
             .chain(

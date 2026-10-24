@@ -2946,8 +2946,21 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         } else {
             Value::Null
         };
-        app.home_leads
-            .test_results(&actor, json!({"items":items,"nextBefore":next}));
+        if scene == "unread-turn" {
+            // A direct send answered by a captured turn alone: no final reply exists.
+            let turn = json!({
+                "requestId":"unread-turn", "kind":"request", "sender":{"identityId":actor},
+                "recipientId":MEMBER, "answeredAtMs":101, "answer":"turn"
+            });
+            app.home_leads.test_pages(
+                &actor,
+                json!({"items":[],"nextBefore":null}),
+                json!({"items":[turn],"nextBefore":null}),
+            );
+        } else {
+            app.home_leads
+                .test_results(&actor, json!({"items":items,"nextBefore":next}));
+        }
         if scene == "unread-idle" {
             let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
             snapshot.roster.members.get_mut(MEMBER).unwrap().state = Some("idle".into());
@@ -3007,6 +3020,7 @@ fn capture_workspace_packet() {
             "unread-waiting",
             "unread-squads",
             "unread-cleared",
+            "unread-turn",
         ]
     } else {
         &[
