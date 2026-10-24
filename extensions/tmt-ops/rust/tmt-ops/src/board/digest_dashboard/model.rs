@@ -184,20 +184,32 @@ pub(super) fn observation_time(
     now_ms: u64,
     zone: &jiff::tz::TimeZone,
 ) -> String {
-    let Some(at_ms) = at_ms.filter(|at| *at > 0 && *at <= now_ms) else {
-        return "unknown".into();
-    };
-    let Some(at) = i64::try_from(at_ms)
-        .ok()
-        .and_then(|at| jiff::Timestamp::from_millisecond(at).ok())
-    else {
+    let Some(at) = observation(at_ms, now_ms) else {
         return "unknown".into();
     };
     format!(
         "{} ({})",
-        tmt_cli_style::value::relative_time(now_ms - at_ms),
+        tmt_cli_style::value::relative_time(now_ms - at.as_millisecond() as u64),
         at.to_zoned(zone.clone()).strftime("%H:%M")
     )
+}
+
+pub(super) fn observation_clock(
+    at_ms: Option<u64>,
+    now_ms: u64,
+    zone: &jiff::tz::TimeZone,
+) -> String {
+    observation(at_ms, now_ms).map_or_else(
+        || "unknown".into(),
+        |at| at.to_zoned(zone.clone()).strftime("%H:%M").to_string(),
+    )
+}
+
+fn observation(at_ms: Option<u64>, now_ms: u64) -> Option<jiff::Timestamp> {
+    at_ms
+        .filter(|at| *at > 0 && *at <= now_ms)
+        .and_then(|at| i64::try_from(at).ok())
+        .and_then(|at| jiff::Timestamp::from_millisecond(at).ok())
 }
 
 /// What stands behind the cost and share figures of one member, so each can be
@@ -209,7 +221,7 @@ fn valuation_details(member: &crate::labels::digest::Member) -> Vec<String> {
     };
     if let Some(cost) = &savings.cost {
         fields.push(format!(
-            "Cost quote: {} at list price · {} at {} per 1M input tokens · price table {}",
+            "List-price equivalent: {} at list price · {} at {} per 1M input tokens · price table {}",
             usd_text(cost.usd_micros).trim_start_matches("≈ "),
             cost.model_id,
             rate_text(cost.usd_micros_per_million_input_tokens),

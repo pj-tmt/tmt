@@ -251,7 +251,8 @@ Attention keeps priority over a truncated named-layer caption.
 projects the selected member or squad through the shared board components.
 Conversation, editor, drafts, reply reader and Send keep their existing owners. Digest projects the
 Core usage/traffic and supplier-owned Digest status through `digest_dashboard`:
-range summary, TOK-ranked table with read-only `all`, six-level 24-hour activity,
+three reserved rows (Usage, Impact and its dim estimate definition), TOK-ranked
+table with read-only `all`, six-level 24-hour activity,
 Exchanges and details. The existing Digest report/query/scope cache also holds the
 full admitted exchange ranking: shared `exchange_matrix::by_traffic` orders by
 sent plus received, then name and UUID before the shared painter fits at most five
@@ -261,6 +262,17 @@ Wide frames place Exchanges above details; narrower frames
 stack the table and details, with Tab exposing Exchanges. Enter on a real member
 opens its Agents Talk pane; `all` grants no recipient or Digest mutation.
 The canonical roster owns membership and action admission.
+Digest's Impact band reads the saved `workspace.digest_window`, independently of
+the TOK range, and shows context and list-price equivalent with separate member
+coverage. A money field that cannot fit whole stays in Details; it is never
+clipped into a partial amount. Basis opens the existing Details evidence section
+(and reveals hidden Details through its existing preference CAS). The window chip
+and the Actions menu use the existing window choices and CAS. Configure is deferred
+to the delivery-settings panel; no placeholder control is painted. These figures
+do not change `savings_unit` or the Agents TOK display. Missing/stale evidence,
+confirmed zero and incompatible price versions remain distinct; all time means
+collection lifetime, with no percent or extrapolation.
+
 Agents and Digest use the selected squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
 not a second editor or a revival of factory board views. An explicit message
 focuses the selected agent's conversation: a compact Agents tab shows the conversation

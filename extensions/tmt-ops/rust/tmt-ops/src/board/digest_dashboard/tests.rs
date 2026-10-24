@@ -630,10 +630,10 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
                 .collect();
             let text = lines.join("\n");
             assert!(
-                text.contains("Digest · 3 held"),
+                text.contains("Held now: 3"),
                 "the scoped summary must actually paint"
             );
-            assert!(text.contains("Range 1h"));
+            assert!(text.contains("Usage 1h"));
             assert!(
                 text.contains("TOK —"),
                 "TOK demand follows the shared range"
@@ -652,7 +652,7 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
     assert_eq!(app.workspace_rows()[0].target, OpsTarget::DigestAll);
     assert_eq!(super::summary(&app), "Digest · 0 held");
     assert!(
-        paint(&mut app, 100, 36).contains("Digest · 0 held"),
+        paint(&mut app, 100, 36).contains("Held now: 0"),
         "empty scoped search retains only the read-only aggregate"
     );
     app.search.clear();
@@ -756,7 +756,7 @@ fn digest_usage_shows_the_estimate_for_unique_roster_members() {
     let mut app = savings_board();
     press(&mut app, '2');
     let shown = paint(&mut app, 160, 36);
-    assert!(shown.contains("Est. ctx avoided 1d: 18.2k"), "{shown}");
+    assert!(shown.contains("Est. ctx avoided 18.2k"), "{shown}");
 }
 
 #[test]
@@ -858,10 +858,10 @@ fn click_estimate(app: &mut crate::board::app::App) -> crate::board::app::Effect
 }
 
 #[test]
-fn a_click_or_the_key_moves_every_surface_to_the_next_unit() {
+fn a_click_or_the_key_moves_agents_surfaces_to_the_next_unit() {
     use crate::{board::workspace::OpsTarget, config::DigestWindow};
     let _no_commands = crate::runner::forbid_commands();
-    for surface in ["member", "squad", "digest"] {
+    for surface in ["member", "squad"] {
         let mut app = valued_board();
         if surface == "member" {
             app.right_tab = crate::board::shell::RightTab::Measure;
@@ -884,7 +884,7 @@ fn a_click_or_the_key_moves_every_surface_to_the_next_unit() {
             shown.contains(if matches!(surface, "member" | "squad") {
                 "≈1d: 18.2k"
             } else {
-                "Est. ctx avoided 1d: 18.2k"
+                "Est. ctx avoided 18.2k"
             }),
             "{surface}: {shown}"
         );
@@ -920,7 +920,7 @@ fn a_click_or_the_key_moves_every_surface_to_the_next_unit() {
             paint(&mut app, 160, 36).contains(if matches!(surface, "member" | "squad") {
                 "≈1d: 18.2k"
             } else {
-                "Est. ctx avoided 1d: 18.2k"
+                "Est. ctx avoided 18.2k"
             })
         );
         // Lifetime has no percent: a saved percent reads as tokens and the
@@ -968,7 +968,7 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
         "Prices as of 2026-10-14 · table 2026-10-14 · standard-base-input (uncached input, list price) · source: fetched",
         "claude-opus-5-5: $4.00 per 1M input tokens · https://example.test/anthropic-pricing",
         "gpt-6-sol: $2.00 per 1M input tokens",
-        "Cost quote: $12.40 at list price · gpt-6-sol at $2.00 per 1M input tokens · price table 2026-10-14",
+        "List-price equivalent: $12.40 at list price · gpt-6-sol at $2.00 per 1M input tokens · price table 2026-10-14",
         "Share of input: 18% (18.2k of 100k input tokens)",
     ] {
         assert!(
@@ -1106,17 +1106,14 @@ fn a_clipped_or_absent_estimate_has_no_hit() {
         app.workspace_strip_hits
             .borrow()
             .iter()
-            .filter(|(_, choice)| *choice == crate::board::app::Choice::SavingsUnit)
+            .filter(|(_, choice)| *choice == crate::board::app::Choice::DigestWindowMenu)
             .map(|(area, _)| *area)
             .collect::<Vec<_>>()
     };
     let painted = hit(&app);
     assert_eq!(painted.len(), 1);
     // The hit is the caption's own cells, never the whole row.
-    assert_eq!(
-        painted[0].width as usize,
-        "Est. ctx avoided 1d: 18.2k".len()
-    );
+    assert_eq!(painted[0].width as usize, "1d ▾".chars().count() + 2);
     // No hit ever extends past the cells that were painted.
     for width in [24u16, 40, 60, 100, 160] {
         let mut narrow = valued_board();
@@ -1195,7 +1192,7 @@ fn digest_shared_range_does_not_relabel_a_supplier_lifetime_estimate() {
     assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
     select_worker(&mut app);
     let shown = paint(&mut app, 160, 44);
-    assert!(shown.contains("Est. ctx avoided 1d: —"), "{shown}");
+    assert!(shown.contains("Est. ctx avoided —"), "{shown}");
     assert!(
         shown.contains("Supplier context avoided all time: 18.2k"),
         "{shown}"
@@ -1253,9 +1250,12 @@ fn window_choice_uses_the_existing_cas_and_never_relabels_old_evidence() {
     assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
     select_worker(&mut app);
     let shown = paint(&mut app, 160, 36);
-    assert!(shown.contains("Est. ctx avoided 7d: — (0 of 1)"), "{shown}");
     assert!(
-        !shown.contains("Est. ctx avoided 7d: 18.2k"),
+        shown.contains("Est. ctx avoided — (0/1 agents · partial)"),
+        "{shown}"
+    );
+    assert!(
+        !shown.contains("Est. ctx avoided 18.2k"),
         "old-window estimate cannot become a new-window value"
     );
     assert!(
@@ -1546,6 +1546,7 @@ fn digest_details_paints_observation_age_with_the_apps_local_clock() {
 }
 
 mod allowance;
+pub(in crate::board) mod impact;
 mod layout;
 pub(in crate::board) use layout::capture_case;
 
@@ -1738,4 +1739,57 @@ fn the_stopped_tick_notice_is_the_only_waiting_part_of_the_summary_and_outlives_
         paint(&mut app, 100, 36)
     };
     assert!(narrow.contains("! No tick for 10 min"), "{narrow}");
+}
+
+#[test]
+fn impact_window_is_saved_window_at_every_tok_range() {
+    use crate::config::{DigestWindow, TokRange};
+    for window in [DigestWindow::Day, DigestWindow::Week, DigestWindow::AllTime] {
+        for range in TokRange::ALL {
+            let mut app = savings_board();
+            let mut doc = savings_document();
+            doc["members"][0]["savings"]["window"] = serde_json::json!(window.argument());
+            app.labels = crate::labels::Supplied::from_document("digest", &doc, false);
+            let preferences = &mut app
+                .view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .preferences;
+            preferences.digest_window = window;
+            preferences.tok_range = range;
+            let summary = super::metrics::savings(&app, &[MEMBER]);
+            assert_eq!(summary.tokens, Some(18200), "{window:?} / {range:?}");
+        }
+    }
+}
+
+#[test]
+fn impact_has_reserved_rows_and_context_at_narrow_width() {
+    let mut app = savings_board();
+    press(&mut app, '2');
+    let selected = app.workspace.selected.clone();
+    for (width, height) in [(160, 50), (120, 40), (100, 32)] {
+        let shown = paint(&mut app, width, height);
+        let cells: Vec<_> = shown.chars().collect();
+        let lines: Vec<String> = cells
+            .chunks(usize::from(width))
+            .map(|line| line.iter().collect())
+            .collect();
+        let usage = lines
+            .iter()
+            .position(|line| line.contains("Usage 1d"))
+            .expect(&shown);
+        assert!(lines[usage + 1].contains("Impact"), "{shown}");
+        assert!(lines[usage + 1].contains("18.2k"), "{shown}");
+        assert!(
+            lines[usage + 2].contains("Gross context reread estimate"),
+            "{shown}"
+        );
+        assert!(lines[usage + 2].contains("not billed savings."), "{shown}");
+        assert_eq!(app.workspace.selected, selected);
+    }
 }

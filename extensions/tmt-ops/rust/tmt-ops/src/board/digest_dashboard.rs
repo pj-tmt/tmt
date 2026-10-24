@@ -1,9 +1,11 @@
 //! Existing-data Digest view. Acquisition, effects, scrolls and terminal diffing
 //! remain with their existing owners; this module projects already-held values.
 mod allowance;
+mod band;
 mod metrics;
 mod model;
 mod render;
+pub(in crate::board) use render::open_basis;
 mod table;
 
 use crate::board::{

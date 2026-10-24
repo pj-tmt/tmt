@@ -169,7 +169,7 @@ fn the_painted_heading_and_the_digest_range_follow_one_shared_setting() {
     let agents_hit = chip(&app).unwrap();
     app.shell.tab = OpsTab::Digest;
     let digest = paint(&app, 160, 40).join("\n");
-    assert!(digest.contains("Range 6h"), "{digest}");
+    assert!(digest.contains("Usage 6h"), "{digest}");
     let digest_next = app
         .workspace_strip_hits
         .borrow()

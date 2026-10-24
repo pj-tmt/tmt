@@ -1,10 +1,6 @@
 use super::{metrics, model, table};
-use crate::board::{
-    app::{App, Choice},
-    exchange_matrix,
-    usage_report::View,
-};
-use crate::config::{Pane, TokRange};
+use crate::board::{app::App, exchange_matrix, usage_report::View};
+use crate::config::Pane;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -16,7 +12,8 @@ use tmt_tui::components::strip;
 /// Summary and content share the same placement owner as focus and pointer input.
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let _rows = app.workspace_frame_rows();
-    summary(frame, app, area);
+    super::band::paint(frame, app, area);
+    let band_height = super::band::HEIGHT.min(area.height);
     let now = crate::status::now_ms();
     let chart_height = if app.usage_chart.borrow().focused()
         && app.digest_panels().shown(crate::config::DigestPanel::Chart)
@@ -24,7 +21,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         crate::board::overview::chart::host::demand(
             app,
             area.width,
-            area.height.saturating_sub(1),
+            area.height.saturating_sub(band_height),
             now,
         )
     } else {
@@ -33,25 +30,30 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     crate::board::overview::chart::host::render_panel(
         frame,
         app,
-        Rect::new(area.x, area.y.saturating_add(1), area.width, chart_height),
+        Rect::new(
+            area.x,
+            area.y.saturating_add(band_height),
+            area.width,
+            chart_height,
+        ),
         now,
     );
     let allowance_height = super::allowance::height(
         app,
         area.width,
-        area.height.saturating_sub(1 + chart_height),
+        area.height.saturating_sub(band_height + chart_height),
     );
     super::allowance::paint(
         frame,
         app,
         Rect::new(
             area.x,
-            area.y.saturating_add(1 + chart_height),
+            area.y.saturating_add(band_height + chart_height),
             area.width,
             allowance_height,
         ),
     );
-    let top = 1 + chart_height + allowance_height;
+    let top = band_height + chart_height + allowance_height;
     let body = Rect::new(
         area.x,
         area.y.saturating_add(top),
@@ -118,134 +120,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             detail(frame, app, side);
         }
-    }
-}
-fn summary(frame: &mut Frame, app: &App, area: Rect) {
-    if area.is_empty() {
-        return;
-    }
-    let rows = app.workspace_rows();
-    let ids: Vec<_> = rows.iter().filter_map(metrics::id).collect();
-    let mut parts = vec![
-        format!("Range {} ▾", app.tok_range().argument()),
-        format!(
-            "TOK {}",
-            metrics::token_text(metrics::tokens(metrics::report(app), &ids))
-        ),
-        if app.labels.digest().is_none() {
-            "Digest unavailable".into()
-        } else {
-            super::summary(app)
-        },
-    ];
-    // The supplier's own words for its one switch; a click flips it like `d` on `all`.
-    let switch = app
-        .labels
-        .digest()
-        .and_then(|(status, _)| status.global.as_ref())
-        .map(|global| global.text.clone());
-    if let Some(text) = &switch {
-        parts.push(text.clone());
-    }
-    // Before the savings caption: a stopped tick matters more than a metric that gets omitted first.
-    let notice = model::tick_notice(&app.labels);
-    if let Some(text) = &notice {
-        parts.push(text.clone());
-    }
-    if app.loading() {
-        parts.insert(1, "Loading workspace…".into());
-    }
-    match app.usage_report.view_for(app.tok_range()) {
-        View::Loading => parts.insert(1, "Usage loading…".into()),
-        View::Failed(_) => parts.insert(1, "Usage unavailable".into()),
-        View::Report(_) if app.usage_report.refresh_error(app.tok_range()).is_some() => {
-            parts.insert(1, "Usage stale · refresh failed".into())
-        }
-        _ => {}
-    }
-    let savings = metrics::savings(app, &ids);
-    let savings_available = savings.as_ref().is_some_and(|summary| {
-        crate::board::savings::savings_value(
-            summary,
-            if app.tok_range() == TokRange::Day {
-                crate::config::DigestWindow::Day
-            } else {
-                crate::config::DigestWindow::Week
-            },
-            app.savings_unit(),
-        )
-        .0
-        .is_some()
-    });
-    if let Some(savings) = savings {
-        let window = if app.tok_range() == TokRange::Day {
-            crate::config::DigestWindow::Day
-        } else {
-            crate::config::DigestWindow::Week
-        };
-        parts.push(crate::board::savings::savings_caption(
-            &savings,
-            window,
-            app.savings_unit(),
-            usize::from(area.width),
-        ));
-    } else {
-        parts.push("Est. avoided unavailable for this range".into());
-    }
-    // Omit complete trailing metrics, never half an amount.
-    let mut text = String::new();
-    let mut spans: Vec<Span> = Vec::new();
-    for part in parts {
-        let candidate = if text.is_empty() {
-            part.clone()
-        } else {
-            format!("{text} · {part}")
-        };
-        if unicode_width::UnicodeWidthStr::width(candidate.as_str()) > usize::from(area.width) {
-            break;
-        }
-        if switch.as_ref() == Some(&part) {
-            let gap = if text.is_empty() { 0 } else { 3 };
-            let x = area.x + (unicode_width::UnicodeWidthStr::width(text.as_str()) + gap) as u16;
-            let width = (unicode_width::UnicodeWidthStr::width(part.as_str()) as u16)
-                .min(area.right().saturating_sub(x));
-            app.workspace_strip_hits
-                .borrow_mut()
-                .push((Rect::new(x, area.y, width, 1), Choice::DigestSwitch));
-        }
-        if savings_available && part.starts_with("Est.") {
-            let gap = if text.is_empty() { 0 } else { 3 };
-            let x = area.x + (unicode_width::UnicodeWidthStr::width(text.as_str()) + gap) as u16;
-            app.savings_hit(
-                x,
-                area.y,
-                unicode_width::UnicodeWidthStr::width(part.as_str()),
-                area.right().saturating_sub(x),
-            );
-        }
-        if !spans.is_empty() {
-            spans.push(Span::styled(" · ", app.look().role(Role::Text)));
-        }
-        let role = if notice.as_ref() == Some(&part) {
-            Role::Waiting
-        } else {
-            Role::Text
-        };
-        spans.push(Span::styled(part, app.look().role(role)));
-        text = candidate;
-    }
-    strip::paint_left(
-        frame.buffer_mut(),
-        Rect { height: 1, ..area },
-        Line::from(spans),
-    );
-    let chip = format!("Range {} ▾", app.tok_range().argument());
-    let width = unicode_width::UnicodeWidthStr::width(chip.as_str()) as u16;
-    if width <= area.width {
-        app.workspace_strip_hits.borrow_mut().push((
-            Rect::new(area.x, area.y, width, 1),
-            Choice::TokRange(app.tok_range().next()),
-        ));
     }
 }
 fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool) {
@@ -339,7 +213,7 @@ fn detail(frame: &mut Frame, app: &App, area: Rect) {
             });
     }
 }
-fn detail_lines(
+pub(super) fn detail_lines(
     app: &App,
     width: u16,
     now_ms: u64,
@@ -361,14 +235,34 @@ fn detail_lines(
             metrics::token_text(metrics::tokens(report, &ids))
         ),
     ];
+    if app.labels.digest().is_none() {
+        text.push("Digest not available".into());
+        text.push("Install: tmt extension install digest".into());
+    }
+    text.push(format!("Impact · {}", app.digest_window().label()));
+    let summary = metrics::savings(app, &ids);
+    text.extend(
+        super::band::fields(&summary, app.digest_window())
+            .map(|line| line.replacen("List-price equiv.", "List-price equivalent:", 1)),
+    );
+    text.push(super::band::DEFINITION.into());
+    if let Some(start) = crate::board::savings::savings_start(
+        &summary,
+        app.digest_window(),
+        app.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
+        usize::from(width),
+    ) {
+        text.push(start);
+    }
+    text.push("Estimate basis".into());
     let price_column_shown = table::price_column_shown(app);
     if let Some(cost) = metrics::input_price(app, report, &ids) {
         text.push(format!(
-            "Input list-price estimate: {}",
+            "Observed input quote: {}",
             crate::board::savings::usd_text(cost)
         ));
     } else if !price_column_shown {
-        text.push("Input list-price estimate: —".into());
+        text.push("Observed input quote: —".into());
     }
     if !price_column_shown {
         text.push("Input tokens at list price; not a bill.".into());
@@ -452,10 +346,6 @@ fn detail_lines(
             ));
         }
     }
-    if app.labels.digest().is_none() {
-        text.push("Digest not available".into());
-        text.push("Install: tmt extension install digest".into());
-    }
     match app.usage_report.view_for(app.tok_range()) {
         View::Loading => text.push("Usage loading…".into()),
         View::Failed(error) => text.push(format!("Usage unavailable: {error}")),
@@ -529,4 +419,30 @@ pub(in crate::board) fn details_clock_mark(
         .map(|line| line.to_string())
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Open the already-held Details evidence at its wrapped line, not a guessed offset.
+pub(in crate::board) fn open_basis(app: &mut App) -> crate::board::app::Effect {
+    let width = app
+        .conversation
+        .borrow()
+        .pane
+        .map(crate::board::pane_chrome::content_area)
+        .map_or(1, |area| area.width);
+    let lines = detail_lines(app, width, crate::status::now_ms(), app.selected_row());
+    let offset = lines
+        .iter()
+        .position(|line| line.to_string() == "Estimate basis")
+        .unwrap_or(0);
+    app.focus = 0;
+    app.scrolls.restore([(Pane::Replies, offset)]);
+    app.invalidate_frame_geometry();
+    if app.digest_panels().side_shown() {
+        crate::board::app::Effect::None
+    } else {
+        // The existing Details toggle owns revealing a saved hidden pane, including CAS refusal.
+        app.perform(
+            &crate::action::Action::parse("monitor-details").expect("existing Details action"),
+        )
+    }
 }
