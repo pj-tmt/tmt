@@ -1113,6 +1113,21 @@ mod tests {
     }
 
     #[test]
+    fn agents_shortcuts_leave_duplicate_actions_unbound_by_default() {
+        for scope in [
+            OpsKeyScope::Squad,
+            OpsKeyScope::Member,
+            OpsKeyScope::Pool,
+            OpsKeyScope::Reader,
+        ] {
+            let factory = config("").workspace_keys(scope, None, None).unwrap();
+            for key in ["r", "d", "a", "v"] {
+                assert!(!factory.bindings.contains_key(key), "{scope:?}: {key}");
+            }
+        }
+    }
+
+    #[test]
     fn factory_measure_key_is_unique_outside_readers_and_t_is_unbound() {
         for scope in [
             OpsKeyScope::Squad,

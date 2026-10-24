@@ -29,6 +29,84 @@ fn member_actions_with_lead() -> App {
 }
 
 #[test]
+fn agents_shortcuts_keep_authored_keys_without_factory_duplicates() {
+    let mut app = configured_member(
+        "[bind]\nr='copy authored-r'\nd='copy authored-d'\na='copy authored-a'\nv='copy authored-v'\n",
+        json!({"id":MEMBER,"name":"worker"}),
+    );
+    for ch in ['r', 'd', 'a', 'v'] {
+        assert!(matches!(
+            key(&mut app, KeyCode::Char(ch)),
+            Effect::Act(Request::Copy { text, .. }) if text == format!("authored-{ch}")
+        ));
+    }
+}
+
+#[test]
+fn agents_shortcuts_keep_unbound_rename_and_remove_in_actions() {
+    let mut app = configured_member(
+        "[bind]\nr='copy r'\nd='copy d'\n",
+        json!({"id":MEMBER,"name":"worker"}),
+    );
+    paint(&app, 160, 40);
+    app.context_menu();
+    for ui in [OpsUiAction::RenameMember, OpsUiAction::RemoveMember] {
+        let entries: Vec<_> = app.menu.as_ref().unwrap().entries.iter().filter(|entry| {
+            matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::Ui(ui))
+        }).collect();
+        assert_eq!(entries.len(), 1, "{ui:?}");
+        assert!(
+            entries[0].key.is_empty(),
+            "unbound actions invent no shortcut"
+        );
+    }
+}
+
+#[test]
+fn agents_shortcuts_right_click_selects_the_fresh_row_and_opens_actions() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut app = member_actions_with_lead();
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+    paint(&app, 160, 40);
+    let row = app.workspace_rows().iter().position(|row| {
+        matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id != MEMBER)
+    }).unwrap();
+    let expected = app.workspace_rows()[row].target.clone();
+    let hit = app
+        .hits
+        .borrow()
+        .iter()
+        .copied()
+        .find(|hit| hit.row() == Some(row))
+        .unwrap();
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: hit.x,
+            row: hit.y,
+            modifiers: KeyModifiers::NONE,
+        },
+        Instant::now(),
+    );
+    assert_eq!(app.workspace.selected.as_ref(), Some(&expected));
+    assert!(
+        app.menu.is_some(),
+        "right-click opens the existing Actions owner"
+    );
+}
+
+#[test]
+fn agents_shortcuts_keep_tab_hints_out_of_the_whole_footer() {
+    let app = member_actions_with_lead();
+    let text = paint(&app, 160, 40).join("\n");
+    assert!(text.contains("f  Squads"), "{text}");
+    assert!(text.contains("M  Talk   Measure"), "{text}");
+    let footer = crate::board::view::footer::agents_hints(&app, 1000).unwrap();
+    assert!(!footer.contains("M talk/measure"), "{footer}");
+    assert!(!footer.contains("f filter"), "{footer}");
+}
+
+#[test]
 fn member_copy_key_uses_the_selected_row_even_with_conversation_focus() {
     for tab in [OpsTab::Agents] {
         for reader in [false, true] {
