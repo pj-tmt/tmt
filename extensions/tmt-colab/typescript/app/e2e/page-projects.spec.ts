@@ -6,7 +6,8 @@ import { pageAction } from '../test/page-actions.js';
 
 /**
  * The page's own projects (#4116): the current ones are one button of small chips after the title,
- * which opens the list row's picker. With no project, and on a phone, More → Projects… opens it.
+ * which opens the list row's picker. The + remains visible with no projects and on a phone;
+ * More → Projects… remains another entry to the same owner.
  */
 const fixture = '/test/ask-page-browser.tsx';
 const run = (page: Page, method: string, argument?: unknown) =>
@@ -82,7 +83,7 @@ const noOverflow = (page: Page) =>
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const) {
-    test(`two projects show as chips that open the picker, with no trigger of their own at ${width} ${theme}`, async ({
+    test(`project chips share their picker with the visible + at ${width} ${theme}`, async ({
       page,
     }) => {
       const header = await open(page, width, theme);
@@ -94,8 +95,11 @@ for (const width of [1440, 390])
         ]);
         await expect(chips(header)).toHaveAttribute('aria-haspopup', 'menu');
       }
-      // No standalone trigger is shown, so the title keeps its room.
+      // The leaf anchor stays hidden; the admitted + remains visible at either width.
       await expect(header.locator('.page-header-projects-anchor button')).toBeHidden();
+      await expect(
+        header.getByRole('button', { name: 'Add to project', exact: true }),
+      ).toBeVisible();
       expect(await noOverflow(page)).toBe(true);
       await capture(page, `projects-two-chips-${width}-${theme}.png`);
       await openPicker(page, header);
@@ -110,11 +114,14 @@ for (const width of [1440, 390])
       await capture(page, `projects-picker-${width}-${theme}.png`);
     });
 
-    test(`a page in no project shows nothing in the header and still assigns through More at ${width} ${theme}`, async ({
+    test(`a page in no project keeps its + and still assigns through More at ${width} ${theme}`, async ({
       page,
     }) => {
       const header = await open(page, width, theme, { current: [] });
       await expect(chips(header)).toHaveCount(0);
+      await expect(
+        header.getByRole('button', { name: 'Add to project', exact: true }),
+      ).toBeVisible();
       await expect(header.locator('.page-header-project-chip')).toHaveCount(0);
       expect(await noOverflow(page)).toBe(true);
       await capture(page, `projects-none-${width}-${theme}.png`);
@@ -294,6 +301,7 @@ test('a viewer who cannot write projects sees neither chips nor Projects…', as
   await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
   const header = page.locator('.tmt-ui-header:visible');
   await expect(chips(header)).toHaveCount(0);
+  await expect(header.getByRole('button', { name: 'Add to project', exact: true })).toHaveCount(0);
   await expect(header.locator('.page-header-project-chip')).toHaveCount(0);
   await page.getByRole('button', { name: 'More', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: 'Projects…' })).toHaveCount(0);
@@ -383,3 +391,21 @@ test('at 390px More pins and unpins, hides archived/read-only actions, and keeps
   await page.getByRole('button', { name: 'More', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: /^(Pin to top|Unpin)$/ })).toHaveCount(0);
 });
+
+for (const width of [1440, 390])
+  test(`direct Projects entry opens an empty header picker and returns focus at ${width}`, async ({
+    page,
+  }) => {
+    const header = await open(page, width, 'light', { current: [] });
+    const add = header.getByRole('button', { name: 'Add to project', exact: true });
+    await expect(add).toBeVisible();
+    await add.click();
+    await expect(page.getByRole('menuitemcheckbox').first()).toBeVisible();
+    expect(await requests(page)).toEqual([]);
+    await page.keyboard.press('Escape');
+    await expect(add).toBeFocused();
+    await add.click();
+    await page.getByRole('menuitemcheckbox', { name: 'gamma' }).click();
+    expect((await requests(page)).map((request) => request.projects)).toEqual([['gamma']]);
+    expect(await noOverflow(page)).toBe(true);
+  });
