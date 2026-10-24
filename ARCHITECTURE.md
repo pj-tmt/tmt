@@ -552,7 +552,7 @@ owner-installed [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`; publ
 Serve: Auth/runtime/factory/tick/joins/flush; v3 opt-in.
 `native_sync`: COUNT/read limits; Colab cursors; no Core/carrier. Emulation never ships.
 [object-backends](.agents/skills/tmt-remote/references/object-backends.md): channels/backends/quotas.
-Deploy: `hosting` hash; owner setup/consent/history; Rules/Hosting fences; EXPECTED+ACTIVE/live ID/readiness.
+Deploy: input manifest/refusal; `hosting` hash; owner setup/consent/history; Rules/Hosting fences; EXPECTED+ACTIVE/live ID/readiness.
 [Modules](.agents/skills/tmt-remote/references/architecture-internals.md);
 [door/discovery](.agents/skills/tmt-remote/references/door-and-discovery.md): lifecycle/status/management.
 [Background](contracts/extension-serve-v1.md).

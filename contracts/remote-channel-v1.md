@@ -3395,6 +3395,56 @@ Rules/Worker changes, quotas/expiry/index policy and destructive changes. The ow
 authorizes that plan for that target account at deploy time. Existing pairing, start, account login
 or extension installation is not authorization to create or change real account resources.
 
+#### Deployment input manifest
+
+This backend-neutral contract is implemented by Remote's shared input selection and
+refusal model. Backend command integration is separate; the current Firestore command
+below does not yet consume it (#4879). The following requirements govern that integration
+and every later `tmt remote deploy <backend>`.
+
+Each backend owns one ordered input manifest. Each entry names the input and its long
+flag, its kind (`select-existing` or `create-or-adopt`), the value `--defaults` chooses
+(or `none: must be given`), what would be created if absent, a cost note, and the
+permissions needed. Manifest metadata is authored by Remote, never taken from provider
+exception text. The same manifest supplies input admission, help and refusal display;
+backend-specific validators and resource planning stay with the backend.
+
+Before login or any provider call, an omitted required input without `--defaults`
+refuses with `REMOTE_DEPLOY_INPUT_REQUIRED`, **exit 1**, through the standard error
+publisher. There is no interactive missing-input prompt in v1: humans, agents, CI and
+`--json` receive the same refusal. Human output lists each missing flag, the value
+`--defaults` would use and its conditional creation; then one `Needs these permissions`
+block and one `Would create` block for the whole manifest, deduplicated in first-occurrence
+order. A concrete rerun hint preserves already supplied input flags with shell-safe values.
+The final line is:
+`Rerun with the flags above, or add --defaults to use the listed values.`
+
+JSON uses the standard `{"error":{...}}` envelope. `error.code` is the code above;
+`error.message` names only the missing flags. `error.missing` is an array in manifest
+order of `{input,flag,default,creates}`: `flag` includes `--`, `default` is the manifest's
+display string, and `creates` is its conditional creation description or null when
+nothing is created. `error.permissions` and `error.creates` are ordered string arrays
+for the two blocks. No raw provider response, discovered resource identifier or URL
+enters the refusal; the human rerun command may repeat only values the user supplied.
+Unrelated errors retain their existing shape. New flags use `tmt-cli-style` command
+registration; printed rerun commands must parse back to the same flags and values.
+
+`--defaults` fills only omitted inputs. It never replaces an explicit flag and cannot
+fill an entry marked `none: must be given`; those entries still refuse. A default
+requiring provider state remains a typed planning intent, not an invented resource ID.
+The backend planner resolves it, then freezes the actual value into the plan and its
+digest before asking for authorization. This shared input layer performs no provider
+calls or mutations. `--defaults` grants no consent: exact-plan y/N or `--authorize`
+is unchanged; there is no `--yes` implication or new automatic execution path.
+
+Reruns/resumes reuse the recorded inputs, including values chosen by an older default.
+An explicit value that disagrees with the record refuses through the backend's existing
+recorded-input conflict code before provider setup. A new default must never silently
+move an old deployment. Existing record owners supply the saved values and retain their
+schema/admission and conflict mapping; this contract introduces no parallel record.
+The plan states every actual selected value. Agents, CI and `--json` remain plan-only
+without the existing explicit digest authorization.
+
 **Historical cloud-operation provisioning profile:** its [stacked authentication is superseded](#superseded-cloud-authentication-proposal).
 Firestore provisions the admission/token service and its scoped service role, Auth configuration,
 operation admission/permit/inbox/outbox/checkpoint collections, composed Rules, indexes/TTL and only

@@ -175,6 +175,11 @@ The [shipped deployment contract](../../../../contracts/remote-channel-v1.md#nat
 index/Rules fences, owner-only console actions and single-writer limitations. Fake process/HTTP
 tests use a vendored layout stub and canary credentials, never real login or project acceptance.
 
+`deploy_input` owns backend-neutral manifest selection, unresolved planning defaults,
+registered option/help support and fixed missing-input details, with no I/O or persistence.
+`error::RemoteError` publishes that detail through the ordinary error envelope and exit-1
+boundary. The [input contract](../../../../contracts/remote-channel-v1.md#deployment-input-manifest)
+owns semantics; backend integration remains separate from this shared model.
 `deploy_cli` owns argv, short/full preview and terminal-only `progress`; `deploy_command`
 retains captured inputs across consent; pure `deploy_run` owns transitions and persistence.
 Progress notifications do not change effects or records; the joined heartbeat clears before
