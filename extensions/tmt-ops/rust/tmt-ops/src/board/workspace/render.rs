@@ -585,17 +585,6 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     app.workspace_strip_hits
                         .borrow_mut()
                         .push((area, Choice::IdleAlert(room.clone())));
-                    if !app.modal_open() && app.idle_alert_hover.as_ref() == Some(room) {
-                        for y in area.y..area.bottom() {
-                            for x in area.x..area.right() {
-                                let cell = &mut frame.buffer_mut()[(x, y)];
-                                cell.set_style(crate::board::header_sort::hovered(
-                                    cell.style(),
-                                    look,
-                                ));
-                            }
-                        }
-                    }
                 }
                 let displayed = crate::board::view::fit(&model, usize::from(area.width));
                 crate::board::member_links::paint_plain_hits(
@@ -647,6 +636,26 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             Rect::new(body.x, body.bottom() - 1, body.width, 1),
             totals,
         );
+    }
+}
+
+/// Pointer feedback follows selection-word normalization, like meter feedback.
+pub(in crate::board) fn finish_idle_alert_hover(frame: &mut Frame, app: &App) {
+    if app.modal_open() || app.idle_alert_hover.is_none() {
+        return;
+    }
+    let look = app.look();
+    for (area, choice) in app.workspace_strip_hits.borrow().iter() {
+        if !matches!(choice, Choice::IdleAlert(room) if app.idle_alert_hover.as_ref() == Some(room))
+        {
+            continue;
+        }
+        for y in area.y..area.bottom() {
+            for x in area.x..area.right() {
+                let cell = &mut frame.buffer_mut()[(x, y)];
+                cell.set_style(crate::board::header_sort::hovered(cell.style(), look));
+            }
+        }
     }
 }
 

@@ -461,3 +461,25 @@ fn enter_saves_from_after_and_pointer_places_the_shared_caret() {
     };
     assert_eq!(task.save.as_ref().unwrap().2, "130m");
 }
+
+#[test]
+fn hover_design_scene_paints_the_published_cell_in_header_blue() {
+    let look = crate::look::Look::default();
+    let app = captures::case("idle-editor-hover", look);
+    assert_eq!(app.idle_alert_hover.as_deref(), Some(ROOM));
+    assert!(!app.modal_open());
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+    terminal
+        .draw(|f| crate::board::view::render(f, &app))
+        .unwrap();
+    let area = app
+        .workspace_strip_hits
+        .borrow()
+        .iter()
+        .find_map(|(r, c)| matches!(c, Choice::IdleAlert(_)).then_some(*r))
+        .unwrap();
+    assert_eq!(
+        terminal.backend().buffer()[(area.x, area.y)].fg,
+        look.role(tmt_cli_style::Role::Accent).fg.unwrap()
+    );
+}
