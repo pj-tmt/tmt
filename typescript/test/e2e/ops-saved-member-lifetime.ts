@@ -39,8 +39,10 @@ exec ${[cli.executable, ...cli.args].map(word).join(' ')} "$@"
   writeExecutable(
     extension,
     `#!/bin/sh
-printf '{"pid":%s,"pane":"%s"}\\n' "$$" "$TMUX_PANE" > ${word(opsFile + '.tmp')}
-mv ${word(opsFile + '.tmp')} ${word(opsFile)}
+if [ "$1" = ui ]; then
+  printf '{"pid":%s,"pane":"%s"}\\n' "$$" "$TMUX_PANE" > ${word(opsFile + '.tmp')}
+  mv ${word(opsFile + '.tmp')} ${word(opsFile)}
+fi
 export TMT_EXECUTABLE=${word(observer)}
 exec ${word(squad)} "$@"
 `
@@ -140,7 +142,16 @@ IFS= read -r release < ${word(gate)}
         } catch (error) {
           // A failed scenario still owns these exact PIDs; never let fixture
           // deletion race a late launcher write, even when graceful exit fails.
-          for (const pid of collect()) if (!gone([pid])) process.kill(pid, 'SIGKILL');
+          for (const pid of collect()) {
+            if (gone([pid])) continue;
+            try {
+              process.kill(pid, 'SIGKILL');
+            } catch (signal) {
+              if (!(signal instanceof Error && 'code' in signal && signal.code === 'ESRCH')) {
+                throw signal;
+              }
+            }
+          }
           await fixture.waitFor(
             () => gone(collect()),
             2_000,

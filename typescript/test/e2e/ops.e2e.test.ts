@@ -16,7 +16,7 @@ import { publishDigestStep } from './claude-digest-step.js';
 import { readCompleteJsonLines } from './harness.js';
 import { waitForFileContent } from './wait-for-file.js';
 import { storedDocument } from '../support/ops-state.js';
-import { withE2EFixture, type E2EFixture, type MockEvent } from './harness.js';
+import { withE2EFixture, processState, type E2EFixture, type MockEvent } from './harness.js';
 import { savedMemberLifetime } from './ops-saved-member-lifetime.js';
 
 /** Puts the built squad extension and a `tmt` launcher on the fixture PATH. */
@@ -306,7 +306,10 @@ renameSync(output+'.tmp',output);
   });
 
   it('creates one saved member through the public host template and joins the frozen squad', async () => {
+    const owned: number[] = [];
+    let root = '';
     await withE2EFixture(async (fixture) => {
+      root = fixture.root;
       installSquad(fixture);
       expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
       expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
@@ -443,6 +446,7 @@ renameSync(output+'.tmp',output);
         expect(finished, 'cleanup must join the held provider and its Core launcher').toBe(false);
         lifetime.release();
         const pids = await cleanup;
+        owned.push(...pids);
         expect(pids).toContain(launcher.pid);
         expect(pids).toContain(provider.pid);
         for (const pid of pids) expect(fixture.mockProcessIsRunning(pid)).toBe(false);
@@ -461,6 +465,9 @@ renameSync(output+'.tmp',output);
       }
       if (failure) throw failure.error;
     });
+    expect(owned.length).toBeGreaterThanOrEqual(2);
+    for (const pid of owned) expect(processState(pid)).toBe('absent');
+    expect(fs.existsSync(root)).toBe(false);
   });
 
   it('reaches the squad settings from the workspace menu, flips the idle alert with Space and returns to the menu on Esc', async () => {
