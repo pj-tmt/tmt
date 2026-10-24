@@ -409,6 +409,7 @@ talk through the real Remote CLI/control sender; composed public final delivery 
 accounts remain #4539 acceptance. Default tests
 keep this qualifier ignored and cover local ceremony/reopen/revoke with injected provider ports.
 The library and binary test roots share `test_isolation::isolated_case` for native serve,
-factory and two-owner pairing fixtures. It executes before project files or locks open, so sibling
-fixture-publication forks cannot inherit their credential/budget locks; `tmt_invoke` bounds the
-child, captures failures and reaps its process group. The ceremony keeps its assertions and deadlines.
+factory, pairing and immediate serving-lease reacquisition fixtures. It executes before project
+files or locks open, so sibling invocation forks cannot inherit their credential, budget or serving
+locks; `tmt_invoke` bounds the child, captures failures and reaps its process group. Each case keeps
+its assertions and deadlines.

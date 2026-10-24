@@ -1022,6 +1022,11 @@ fn route_batch_refuses_two_live_uids_without_a_provider_write() {
 
 #[test]
 fn invite_gate_is_published_before_the_code_and_removed_when_the_ceremony_ends() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::invite_gate_is_published_before_the_code_and_removed_when_the_ceremony_ends",
+    ) {
+        return;
+    }
     for cleanup_fails in [false, true] {
         let core = core_fixture::Core::new();
         let wire = Arc::new(Wire::new());
@@ -1072,7 +1077,11 @@ fn invite_gate_is_published_before_the_code_and_removed_when_the_ceremony_ends()
             }
             Ok(None)
         });
-        assert_eq!(result.unwrap_err().code, "FIXTURE_CANCEL");
+        let error = result.expect_err("the fixture cancels after observing the published invite");
+        assert_eq!(
+            error.code, "FIXTURE_CANCEL",
+            "invite failed before fixture cancellation (cleanup_fails={cleanup_fails}): {error:?}"
+        );
         assert!(!gate.is_empty());
         assert_eq!(wire.docs.lock().unwrap().contains_key(&gate), cleanup_fails);
         assert!(owner.store().unwrap().grants().unwrap().is_empty());
