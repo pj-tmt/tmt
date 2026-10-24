@@ -1238,7 +1238,10 @@ renameSync(output+'.tmp',output);
         'Enter',
       ]);
       const memberRow = (screen: string) =>
-        screen.split('\n').find((line) => /^[ \t]*[├└][^│\n]*auth-fix\b/.test(line));
+        screen
+          .split('\n')
+          .find((line) => /^[ \t]*[├└][^│\n]*auth-fix\b/.test(line))
+          ?.split('│')[0];
       await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, '1']);
       await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
