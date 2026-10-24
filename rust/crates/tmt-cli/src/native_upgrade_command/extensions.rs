@@ -1,29 +1,32 @@
-//! The parent owns consent; only the newly installed executable plans/applies extensions.
+//! The parent freezes metadata and consent; the new executable owns extension admission.
 use super::*;
 use crate::extension_install_command::upgrade_all::{self, Plan};
 const EXTENSION_BUDGET: Duration = Duration::from_secs(180);
 
-pub(super) fn upgrade(
+pub(super) fn upgrade_frozen(
     executable: &Path,
-    yes: bool,
+    approved: &Plan,
+    consented: bool,
     mode: OutputMode,
     runner: &impl CommandRunner,
 ) -> Vec<Value> {
-    upgrade_with_progress(
+    upgrade_with_plan(
         executable,
         runner,
-        |plan| upgrade_all::ask(plan, yes, mode),
-        |remote_pending| {
-            let mut stderr = tmt_cli_style::stream::stderr();
-            if remote_progress(
-                remote_pending,
-                mode.json,
-                tmt_cli_style::Interaction::detect(mode.json).stderr,
-            ) {
-                let _ = writeln!(stderr, "Upgrading Remote…");
-            }
-        },
+        |_| Ok(consented),
+        |remote_pending| show_remote_progress(remote_pending, mode),
+        Some(approved),
     )
+}
+
+fn show_remote_progress(pending: bool, mode: OutputMode) {
+    if remote_progress(
+        pending,
+        mode.json,
+        tmt_cli_style::Interaction::detect(mode.json).stderr,
+    ) {
+        let _ = writeln!(tmt_cli_style::stream::stderr(), "Upgrading Remote…");
+    }
 }
 
 fn remote_progress(remote_pending: bool, json: bool, stderr_terminal: bool) -> bool {
@@ -38,6 +41,7 @@ fn upgrade_with(
 ) -> Vec<Value> {
     upgrade_with_progress(executable, runner, consent, |_| {})
 }
+#[cfg(test)]
 fn upgrade_with_progress(
     executable: &Path,
     runner: &impl CommandRunner,
@@ -127,7 +131,7 @@ fn upgrade_with_plan(
 
 /// The new executable retains inventory authority. Presentation/error wording
 /// may change across versions; consent covers product, state and exact target.
-fn targets(plan: &Plan) -> BTreeMap<String, (String, Value, Value)> {
+pub(super) fn targets(plan: &Plan) -> BTreeMap<String, (String, Value, Value)> {
     plan.products
         .iter()
         .map(|row| {

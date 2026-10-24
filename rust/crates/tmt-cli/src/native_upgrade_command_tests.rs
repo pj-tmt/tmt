@@ -128,6 +128,10 @@ fn aggregate_report_keeps_cli_and_extension_outcomes_independent() {
                 repeat: "tmt upgrade".into(),
                 ran_from_moved_prefix: false,
                 versions: BTreeMap::new(),
+                extensions: crate::extension_install_command::upgrade_all::Plan {
+                    products: Vec::new(),
+                    pending: Vec::new()
+                },
             },
             None,
             mode
