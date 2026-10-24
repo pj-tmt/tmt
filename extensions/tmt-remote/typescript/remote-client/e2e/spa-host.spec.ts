@@ -698,7 +698,7 @@ test.describe('the app in a browser', () => {
     await page.locator('nav.tmt-ui-rail a[data-id="digest"]').focus();
     await expect(tip).toHaveText('Digest');
     await toggle.click();
-    await expect(page.locator('nav.tmt-ui-rail')).toHaveCSS('width', '220px');
+    await expect(page.locator('nav.tmt-ui-rail')).toHaveCSS('width', '232px');
     await page.close();
   });
 });
@@ -932,7 +932,7 @@ test.describe('the Ops route on the owner read', () => {
     await expect(stats.nth(1)).toHaveAttribute('data-tone', 'working');
     await expect(stats.nth(1).locator('.tmt-ui-stat-number')).toHaveCSS(
       'font-family',
-      /Bricolage Grotesque/,
+      /Inter, -apple-system, system-ui/,
     );
     // Nobody needs the person, so there is no attention banner.
     await expect(page.locator('#ops-section .tmt-ui-banner')).toHaveCount(0);
@@ -1292,27 +1292,28 @@ test.describe('the Digest route on the owner reads', () => {
   }
 
   for (const width of [1440, 390])
-    test(`draws cards, tiles, tabs, meters and chips from the leaf pieces at ${width}`, async () => {
+    test(`draws the website allowance rows, charts, tabs, meters and coverage from the leaf pieces at ${width}`, async () => {
       const { page } = await openApp('/digest', async (page) => {
         await page.setViewportSize({ width, height: 900 });
         await stub(page);
       });
       const cards = page.locator('#digest-sections .tmt-ui-card');
       await expect(cards.first()).toBeVisible();
-      expect(await cards.count()).toBeGreaterThanOrEqual(6);
+      expect(await cards.count()).toBe(5);
       await expect(cards.first()).toHaveCSS('border-radius', '8px');
-      // A provider: the allowance as the hero tile over its meter, then Elapsed, Pace, Resets in.
       const provider = page.locator('.digest-provider').first();
-      const tiles = provider.locator('.tmt-ui-status-tile');
-      await expect(tiles.locator('.tmt-ui-status-tile-label')).toHaveText([
-        'Allowance left',
+      const details = provider.locator('details');
+      await expect(provider.locator('.digest-provider-label')).toContainText('% left');
+      await expect(details).not.toHaveAttribute('open');
+      await details.locator('summary').click();
+      await expect(provider.locator('.tmt-ui-status-tile-label')).toHaveText([
         'Elapsed',
         'Pace',
         'Resets in',
       ]);
-      const hero = tiles.first().locator('.tmt-ui-status-tile-value');
-      await expect(hero).toHaveAttribute('data-size', 'hero');
-      await expect(hero).toHaveCSS('font-family', /Bricolage Grotesque/);
+      const headline = page.locator('.digest-head .tmt-ui-page-title');
+      await expect(headline).toBeVisible();
+      await expect(headline).toHaveCSS('font-family', /Inter, -apple-system, system-ui/);
       await expect(provider.locator('.tmt-ui-meter-fill')).toHaveCSS(
         'background-color',
         /rgb\(\d+, \d+, \d+\)/,
@@ -1336,13 +1337,11 @@ test.describe('the Digest route on the owner reads', () => {
       expect(
         (await page.locator('#digest-tokens .tmt-ui-tab-list').boundingBox())!.width,
       ).toBeGreaterThan(80);
-      // The coverage states are passive chips, padded the same on both sides; the numeric table is
-      // the leaf's and its headings keep their words.
-      const chips = page.locator('#digest-missing .tmt-ui-chip');
-      await expect(chips).toHaveCount(4);
-      await expect(chips.first().locator('.tmt-ui-chip-label')).toHaveCSS('padding-left', '6px');
-      await expect(chips.first().locator('.tmt-ui-chip-label')).toHaveCSS('padding-right', '6px');
-      const heading = page.locator('#digest-ranking-rows .tmt-ui-table[data-numeric] th').nth(2);
+      await expect(page.locator('#digest-missing .digest-gap dd')).toHaveText(
+        Array(4).fill('Not connected'),
+      );
+      await expect(page.locator('.digest-provider details').first()).toHaveAttribute('open', '');
+      const heading = page.locator('#digest-ranking-rows .tmt-ui-table[data-numeric] th').nth(1);
       await expect(heading).toHaveText('Tokens');
       expect((await heading.boundingBox())!.height).toBeLessThan(40);
       // Nothing is a page-local copy any more.

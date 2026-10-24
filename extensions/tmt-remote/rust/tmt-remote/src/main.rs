@@ -1,4 +1,5 @@
 mod activation_cli;
+mod message_cli;
 mod open_cli;
 mod serve;
 mod sync_cli;
@@ -222,6 +223,7 @@ fn grammar() -> Command {
         .arg(tmt_cli_style::version_arg(ArgAction::Version))
         .subcommand_required(true)
         .subcommand(activation_cli::command())
+        .subcommand(message_cli::command())
         .subcommand(open_cli::command(false))
         .subcommand(open_cli::command(true))
         .arg(Arg::new("remote").long("remote").global(true).help("Remote name, owned project id, or local"))
@@ -393,7 +395,7 @@ fn grammar() -> Command {
 fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     let (name, arguments) = matches.subcommand().expect("required subcommand");
     let explicit = matches.get_one::<String>("remote").map(String::as_str);
-    if !(matches!(name, "link" | "deploy" | "sync")
+    if !(matches!(name, "link" | "deploy" | "sync" | "message")
         || name == "status"
             && !arguments.get_flag("objects")
             && !arguments.get_flag("machine")
@@ -403,6 +405,9 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         let root = discovery_root()?;
         let layout = Layout::open(&root)?;
         tmt_remote::remote_selector::local(&layout, explicit, name)?;
+    }
+    if name == "message" {
+        return message_cli::run(explicit);
     }
     if matches!(name, "add" | "ls" | "rm") {
         return remotes_command(name, arguments);

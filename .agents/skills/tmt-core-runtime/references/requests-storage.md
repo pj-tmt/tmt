@@ -175,6 +175,10 @@ owns event cardinality, direction, window rounding, `--bucket` summing
   the same index walk with a per-entry test (no recipient column in the index), so a page
   may visit every retained final of the originator; add a recipient-leading index before
   that cost matters.
+- Schema 64 indexes answered passthrough turns by settle time. The originator answers view cuts
+  finals (schema-47 index) and turns (that index, with a per-entry originator test) to the page
+  and merges the two short lists under one `(answeredAtMs, requestId)` keyset; a request is a
+  final or a turn, never both, so the keyset names one entry.
 - `tmt-adapters::request_text` owns display-control classification shared by label validation
   and preview/notice normalization. Stored request and response bodies remain exact.
 - `tmt-adapters::request_history` admits and encodes the local-owner API without reply proofs

@@ -465,9 +465,18 @@ Comments, Chat, Source, Share and settings panels.
 
 - Opens over the page without moving it, closes with its own `×`, Esc or a backdrop press. Focus moves into it and returns to the opener.
 - One overlay at a time; opening another replaces it.
-- Basis: Radix (Dialog). Shared owner: [BrowserDrawer](browser-ui/README.md#drawer-and-menu), with native modal containment at every width.
+- Shared owner: [BrowserDrawer](browser-ui/README.md#drawer-and-menu), with native HTML dialog containment at every width.
 - Source uses the shared header action slot for primary Save before Close, with a truthful draft explanation, paper-toned bordered monospace editor and lower draft-equality metadata. The owner and editor-link save contracts and real notice states remain unchanged. No equality state claims a confirmed save.
-- Colab shared page drawers (Chat, Source, Agents, Files, Comments, Export and About) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, an opaque rounded surface and one 1 px rule on every edge. Source may be wider; other drawers are at most 440 px. Compact drawers fill the available width between gutters. The scrim covers the visible header and author iframe; the first press only dismisses, with no click-through, and the second press acts. The drawer body contains overscroll; there is no body scroll lock. Neither changes the author frame width.
+- Colab shared page drawers (Chat, Source, Agents, Files, Comments, Export and About) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, an opaque rounded surface and one 1 px rule on every edge. Source may be wider; regular drawers are at most 430 px (viewport minus 18 px), and use viewport minus 12 px through 640 px. Compact drawers fill the available width between gutters. The scrim covers the visible header and author iframe; the first press only dismisses, with no click-through, and the second press acts. The drawer body contains overscroll; there is no body scroll lock. Neither changes the author frame width. The modal scrim dims and blurs the page using the shared scrim role and 3 px overlay blur.
+
+### Non-modal side panel
+
+Use [BrowserPanel](browser-ui/README.md#non-modal-panel) for a side region that must
+leave the page interactive. It shares the Drawer header. The host selects column
+(its own grid), card (761–1179 px) or sheet (through 760 px) mode. Opening focuses
+the heading; Escape inside and Close request dismissal, then return focus to the
+opener. There is no scrim, trap or inert page. The host coordinates it with modal
+drawers and retains content, drafts and breakpoints.
 
 ### BrowserNotifications
 
@@ -672,16 +681,20 @@ intensity step; the painter only maps it to elements, so the model is what is un
   `series-7` (blue, orange, aqua, yellow, magenta, green, violet: the validated data-viz order,
   each stepped for light and dark), separated by a sheet-coloured rule. A chart keeps a few
   series and folds the rest into one `Other`, drawn in a neutral step of the text colour
-  (`tmt-ui-chart-s7`). Intensity (matrix, strips) uses five steps of the text colour; its text
+  (`tmt-ui-chart-s7`). Default matrix intensity uses five steps of the text colour; its text
   meets 4.5:1 on every step in light and dark (a test computes it). Colour is never the only
   carrier: every series is named in a legend (a line chart also shows its value at the selected
   column; a stacked chart leaves values to the hover tip, since a last bucket reads like a total)
   and the data table is always there.
+- The opt-in `tmt-ui-chart-seats` palette uses the website's six pastel `browser.color.seat-*` roles,
+  with 75% area opacity. It scopes chart and legend together, leaving default provider hues intact.
+  `curve: 'monotone'` smooths area edges through the sampled positions without overshoot.
 - Hovering the plot (or focusing it and using the arrows) shows a tip beside the column with the
   time and every series' value; a visually hidden live line says the same to assistive technology.
 - A missing observation is never a zero. A line breaks, a cell reads `—`, a slot stays blank;
-  a known none is `·` and the faintest step. Self is a blank cell in the matrix. The same
-  conventions as the terminal Digest.
+  a known none is `·` and the faintest step. Self is a blank cell in the default matrix.
+  `numeric: true` draws known zero as `0` and self as `—`; unavailable stays `—` with an explicit
+  spoken label. Numeric matrices use borderless, sans-serif counts on quiet mint cells.
 - Keyboard: the plot is one tab stop; Left, Right, Home and End move the readout. Every chart
   also carries a visually hidden data table for assistive technology. A matrix wider than its
   container scrolls inside its own named, keyboard-focusable region; the page never scrolls sideways.
@@ -691,7 +704,10 @@ intensity step; the painter only maps it to elements, so the model is what is un
   seats in that region; it does not silently discard low-traffic participants.
 - Text is repainted at the container's width (ResizeObserver), so type keeps its size at phone
   and desktop widths. Empty data shows one plain sentence, not an empty axis.
-- More series than a chart keeps (five on Digest) fold into one `Other` with `topLayers`.
+- Square strips use the first series hue. `layout: 'heatmap'` uses mint, short rectangular bars
+  in the token radius; optional column `labels` identify their buckets. Missing slots remain
+  hollow, and value tips and keyboard traversal keep the square strips' model.
+- More series than a chart keeps (six on Digest) fold into one `Other` with `topLayers`.
 
 ### Status mark
 
@@ -739,8 +755,8 @@ the card. Resolved proposals fold to a plain one-line row with a resolved mark,
 retained-history disclosure and Reopen. Comments lists the page's threads in
 views `Open`, `Needs you` and `Resolved` (and `Proposals` when the page has one),
 a 1px rule under the view strip, as rows of number, title, quoted passage and
-`N comments · state`, each closed by a 1px rule with 18px of vertical padding; the title keeps the
-body size and the quote and meta take the caption size; the selected view tab uses the shared
+`N comments · state`, each closed by a 1px rule with 18px of vertical padding; the title stays at
+14px (the compact body token) and the quote and meta take the caption size; the selected view tab uses the shared
 selection tint. Each view has an
 empty state; its header count combines unresolved ordinary threads and undecided unresolved
 proposals. Selecting a row opens that thread's Discussion view in the drawer: a status line

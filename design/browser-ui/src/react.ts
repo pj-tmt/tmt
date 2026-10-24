@@ -63,3 +63,6 @@ export type {
   BrowserChipItem,
   BrowserChipOption,
 } from './chips.js';
+
+export { BrowserPanel } from './panel.js';
+export type { BrowserPanelProps, BrowserPanelDismissReason } from './panel.js';

@@ -118,9 +118,8 @@ impl DeployPreflightError {
             Some(provider) => format!("Firebase could not read {} (HTTP {}). Nothing changed in your Firebase project.", provider.operation.label(), provider.status),
             None => "Firebase refused to list the project's current setup. Nothing changed in your Firebase project.".into(),
         };
-        let mut error = crate::error::RemoteError::new(code, &message);
-        error.provider = self.provider;
-        error
+        let error = crate::error::RemoteError::new(code, &message);
+        error.with_deploy_provider(self.provider)
     }
 }
 #[derive(Debug)]
@@ -929,7 +928,6 @@ mod tests {
 
     #[test]
     fn strict_diagnostic_reply_keeps_fixed_codes_and_rejects_untrusted_evidence() {
-        use crate::error::DeployOperation;
         for (code, expected) in [
             ("provider-rejected", "REMOTE_DEPLOY_PROVIDER_REJECTED"),
             ("permission-denied", "REMOTE_DEPLOY_PERMISSION_DENIED"),
@@ -941,7 +939,10 @@ mod tests {
             let failure = parse_reply(&serde_json::to_vec(&raw).unwrap()).unwrap_err();
             let error = preflight_error(failure).remote_error();
             assert_eq!(error.code, expected);
-            assert_eq!(error.provider.unwrap().operation, DeployOperation::Fields);
+            assert_eq!(
+                error.json_value()["error"]["provider"]["operation"],
+                "fields"
+            );
             assert_eq!(error.json_value()["error"]["provider"], raw["provider"]);
         }
         for provider in [

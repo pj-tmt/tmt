@@ -18,14 +18,14 @@ mod user;
 
 use crate::{
     config::{ConfigFiles, ConfigPaths},
+    request_history::ListQuery,
     skill_installation,
     storage::{Storage, StorageError},
 };
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
 use tmt_core::{
-    dispatch::DispatchInput, identity::Identity, identity_hooks::IdentityHook,
-    request::history::HistoryQuery, room::RoomWrite,
+    dispatch::DispatchInput, identity::Identity, identity_hooks::IdentityHook, room::RoomWrite,
 };
 
 // Preserve the canonical message limit even when every byte is JSON-escaped.
@@ -196,7 +196,7 @@ pub enum Request {
     WorkspaceCapture,
     /// Read-only: the durable change cursor.
     ChangeCursor,
-    History(HistoryQuery),
+    History(ListQuery),
     Detail(String),
     /// Types one held or waiting message now; the envelope identity is the caller.
     SendNow {

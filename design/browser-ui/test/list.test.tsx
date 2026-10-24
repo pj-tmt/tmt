@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { staticCss } from './static-css.js';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vite-plus/test';
 import { BrowserList, BrowserListRow } from '../src/react.js';
@@ -35,7 +35,7 @@ it('renders a named semantic list and host-owned navigation, metadata, state and
 });
 
 it('owns symmetric toggle inset and row rhythm independently of the old host padding token', () => {
-  const css = readFileSync(new URL('../generated/static.css', import.meta.url), 'utf8');
+  const css = staticCss;
   expect(css).not.toContain('--tmt-ui-host-toggle-padding');
   expect(css).toContain('padding: var(--tmt-ui-toggle-gap);');
   expect(css).toContain('--tmt-ui-list-padding-block: 10px;');

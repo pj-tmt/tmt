@@ -26,6 +26,11 @@ struct Dispatch {
     originator: Option<String>,
     identity: Option<String>,
     input: Intent,
+    #[serde(default)]
+    #[serde(rename = "requestDigest")]
+    request_digest: Option<String>,
+    #[serde(default, rename = "createdAtMs")]
+    created_at_ms: Option<u64>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -34,6 +39,8 @@ pub(crate) struct Intent {
     pub(crate) recipient_ids: Vec<String>,
     pub(crate) message: String,
     kind: String,
+    #[serde(default)]
+    expected_name: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -165,6 +172,13 @@ fn dispatch(bytes: &[u8]) -> Result<Dispatch, RemoteError> {
 /// the person at this machine. Never both and never neither.
 fn frozen_dispatch(bytes: &[u8]) -> Result<Dispatch, RemoteError> {
     let value: Dispatch = serde_json::from_slice(bytes).map_err(|_| invalid())?;
+    if value
+        .request_digest
+        .as_ref()
+        .is_some_and(|hash| canonical::base64url_bytes(hash, 32).is_err())
+    {
+        return Err(invalid());
+    }
     let attribution = match (&value.originator, &value.identity) {
         (Some(originator), None) => originator == "anonymous",
         (None, Some(identity)) => canonical::is_core_id(identity),
@@ -227,6 +241,7 @@ fn accepted(id: &str, recipient: &str, receipt: &Value) -> Result<Value, RemoteE
 
 pub struct Operations {
     core: CoreClient,
+    cloud_identity: Arc<dyn crate::core::CloudIdentityQuery>,
     stop: Arc<AtomicBool>,
     input_limit: usize,
     /// Unconfirmed cleanup forbids another write until restart acquires the child-held lease.
@@ -237,6 +252,7 @@ pub struct Operations {
 impl Operations {
     pub fn new(core: CoreClient, stop: Arc<AtomicBool>, input_limit: usize) -> Self {
         Self {
+            cloud_identity: Arc::new(core.clone()),
             core,
             stop,
             input_limit,
@@ -244,6 +260,11 @@ impl Operations {
             management: None,
             firestore: Arc::new(crate::readiness::NotConfigured),
         }
+    }
+    /// Composition port for the public UUID-pinned Core query; never supplied by wire input.
+    pub fn with_cloud_identity(mut self, query: Arc<dyn crate::core::CloudIdentityQuery>) -> Self {
+        self.cloud_identity = query;
+        self
     }
     pub fn with_management(mut self, devices: Arc<crate::devices::Devices>) -> Self {
         self.management = Some(devices);
@@ -269,6 +290,14 @@ impl Operations {
     }
     pub(crate) fn append(&self, permit: &MessagePermit) -> Result<Vec<u8>, RemoteError> {
         let operation = permit.message.envelope().operation;
+        if permit.cloud() && operation == "check" {
+            // Core's atomic UUID-pinned query arrives in #4536. Never use the local
+            // legacy list/name lookup for cloud delivery while that seam is absent.
+            return Err(RemoteError::new(
+                "REMOTE_CLOUD_UPGRADE_REQUIRED",
+                "Upgrade Remote and Core to use this cloud operation; pairing is unchanged.",
+            ));
+        }
         if operation.starts_with("remote.") {
             return crate::management::append(
                 permit,
@@ -328,11 +357,30 @@ impl Operations {
                     return Err(invalid());
                 }
                 permits(&permit.grant, &value.input)?;
+                if permit.cloud()
+                    && (value.input.expected_name.is_none() || value.created_at_ms.is_none())
+                {
+                    return Err(crate::cloud_command::upgrade());
+                }
+                if !permit.cloud()
+                    && (value.input.expected_name.is_some() || value.created_at_ms.is_some())
+                {
+                    return Err(invalid());
+                }
+                if value.input.expected_name.as_ref().is_some_and(|name| {
+                    name.is_empty() || name.len() > 128 || name.chars().any(char::is_control)
+                }) {
+                    return Err(invalid());
+                }
                 value.input.message =
                     format!("[remote: {}]\n{}", permit.grant.name, value.input.message);
-                let frozen=json!({"version":1,"operation":"dispatch.create","originator":"anonymous",
+                let mut wire = json!({"version":1,"operation":"dispatch.create","originator":"anonymous",
                     "input":{"operationId":value.input.operation_id,"recipientIds":value.input.recipient_ids,
-                    "message":value.input.message,"kind":"request"}}).to_string().into_bytes();
+                    "message":value.input.message,"kind":"request"}});
+                if let Some(name) = value.input.expected_name {
+                    wire["input"]["expectedName"] = json!(name);
+                }
+                let frozen = wire.to_string().into_bytes();
                 if frozen.len() > self.input_limit {
                     return Err(invalid());
                 }
@@ -726,6 +774,13 @@ impl Operations {
     fn resolve(&self, frozen: &[u8], retry: bool, grant: &Grant) -> Result<Value, RemoteError> {
         let intent = frozen_dispatch(frozen)?.input;
         let id = &intent.operation_id;
+        if let Some(name) = &intent.expected_name
+            && let Err(error) =
+                self.cloud_identity
+                    .identity_show(&intent.recipient_ids[0], name, &self.stop)
+        {
+            return Ok(json!({"state":"refused","operationId":id,"reason":error.code}));
+        }
         let show = json!({"version":1,"operation":"dispatch.show","input":{"operationId":id}});
         match self.api(show.to_string().as_bytes()) {
             Ok(receipt) => accepted(id, &intent.recipient_ids[0], &receipt),
@@ -737,7 +792,17 @@ impl Operations {
                 if !grant.live_at(now_ms()?) {
                     return Err(RemoteError::new("REMOTE_CLOSED", "Device authority ended."));
                 }
-                match self.api(frozen) {
+                let core_wire = if intent.expected_name.is_some() {
+                    let mut value: Value = serde_json::from_slice(frozen).map_err(|_| invalid())?;
+                    value["input"]
+                        .as_object_mut()
+                        .ok_or_else(invalid)?
+                        .remove("expectedName");
+                    serde_json::to_vec(&value).map_err(|_| invalid())?
+                } else {
+                    frozen.to_vec()
+                };
+                match self.api(&core_wire) {
                     Ok(receipt) => accepted(id, &intent.recipient_ids[0], &receipt),
                     Err(_) => Ok(uncertain(id)),
                 }

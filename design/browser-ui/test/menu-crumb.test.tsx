@@ -1,6 +1,6 @@
+import { staticCss } from './static-css.js';
 import { describe, expect, it } from 'vite-plus/test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { readFileSync } from 'node:fs';
 import { BrowserMenu } from '../src/menu.js';
 
 const items = [{ key: 'all', label: 'All pages' }];
@@ -30,7 +30,7 @@ describe('menu crumb trigger', () => {
     expect(html).toContain('tmt-ui-menu-field-label">Sort</span>');
   });
   it('truncates the value and never the chevron', () => {
-    const css = readFileSync(new URL('../generated/static.css', import.meta.url), 'utf8');
+    const css = staticCss;
     expect(css).toContain(".tmt-ui-menu-trigger[data-variant='crumb'] > .tmt-ui-menu-value {");
     expect(css).toMatch(/\.tmt-ui-menu-value \{[^}]*text-overflow: ellipsis/);
     expect(css).toContain('.tmt-ui-menu-trigger > svg {\n  flex: none;');
@@ -39,7 +39,7 @@ describe('menu crumb trigger', () => {
 
 describe('menu item separator', () => {
   it('draws a rule above a separated row only', () => {
-    const css = readFileSync(new URL('../generated/static.css', import.meta.url), 'utf8');
+    const css = staticCss;
     expect(css).toContain(
       '.tmt-ui-menu-item[data-separated] {\n  border-top: var(--tmt-ui-rule-width) solid',
     );

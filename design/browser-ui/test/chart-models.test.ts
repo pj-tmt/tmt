@@ -1,10 +1,12 @@
+import { staticCss } from './static-css.js';
+import { monotonePath } from '../src/chart-math';
 import { expect, it } from 'vite-plus/test';
 import { readFileSync } from 'node:fs';
 import { matrixModel } from '../src/chart-matrix-model';
 import { seriesModel } from '../src/chart-series-model';
 import { stripsModel } from '../src/chart-strips-model';
 
-const css = readFileSync(new URL('../generated/static.css', import.meta.url), 'utf8');
+const css = staticCss;
 const tokens = JSON.parse(
   readFileSync(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
 );
@@ -203,4 +205,41 @@ it('every chart class a painter writes exists in the generated stylesheet', () =
     if (dynamic.test(name)) continue;
     expect(css, name).toContain(`.${name}`);
   }
+});
+
+it('numeric matrices distinguish self, observed zero, nonzero and unavailable', () => {
+  const participants = ['a', 'b', 'c'].map((id) => ({ id, label: id }));
+  const values: Record<string, number | null> = { 'a>b': 0, 'a>c': 7, 'b>c': null };
+  const rows = matrixModel({
+    title: 'Messages',
+    numeric: true,
+    participants,
+    value: (from, to) => values[`${from}>${to}`],
+  }).rows;
+  expect(rows[0]!.cells.map((cell) => cell.text)).toEqual(['—', '0', '7']);
+  expect(rows[1]!.cells[2]!.text).toBe('—');
+  expect(rows[0]!.cells[1]!.label).toBe('a to b: 0');
+  expect(rows[1]!.cells[2]!.label).toBe('b to c: unavailable');
+});
+
+it('monotone areas retain raw values and curve through observed positions', () => {
+  const options = { title: 't', kind: 'stack' as const, curve: 'monotone' as const, x, series };
+  const smooth = seriesModel(options, 640);
+  expect(smooth.marks.every((mark) => mark.d!.includes('C'))).toBe(true);
+  expect(smooth.table).toEqual(seriesModel({ ...options, curve: undefined }, 640).table);
+  const path = monotonePath([
+    [0, 0],
+    [3, 6],
+    [6, 0],
+    [9, 0],
+  ]);
+  expect(path).toContain(' 3 6');
+  expect(path).toContain('C7 0 8 0 9 0');
+  expect(monotonePath([])).toBe('');
+  expect(
+    monotonePath([
+      [0, 1],
+      [1, 2],
+    ]),
+  ).toBe('M0 1L1 2');
 });

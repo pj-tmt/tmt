@@ -181,7 +181,7 @@ impl Store {
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 9] = [
+const MIGRATIONS: [(&str, &str); 10] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -272,6 +272,14 @@ const MIGRATIONS: [(&str, &str); 9] = [
     ("device_last_use", "CREATE TABLE device_last_use(
         client_id TEXT PRIMARY KEY REFERENCES grants(client_id),
         used_at_ms INTEGER NOT NULL CHECK(used_at_ms>=0 AND used_at_ms<=9007199254740991));"),
+    ("cloud_transport", "CREATE TABLE cloud_transport(
+        peer_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK(kind IN ('inbox','outbox','checkpoint')),
+        id TEXT NOT NULL, digest BLOB CHECK(digest IS NULL OR length(digest)=32),
+        carrier BLOB NOT NULL, response BLOB, refusal TEXT CHECK(refusal IS NULL OR (length(refusal) BETWEEN 1 AND 64 AND refusal NOT GLOB '*[^A-Z_]*')), created_ms INTEGER NOT NULL CHECK(created_ms BETWEEN 0 AND 9007199254740991),
+        attempted INTEGER NOT NULL DEFAULT 0 CHECK(attempted IN (0,1)),
+        PRIMARY KEY(peer_id,kind,id)); CREATE INDEX cloud_transport_expiry ON cloud_transport(kind,created_ms);"),
+
 ];
 fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     let port: Option<i64> = connection

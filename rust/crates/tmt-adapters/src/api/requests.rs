@@ -3,33 +3,37 @@
 use super::{DispatchIdentity, Fault, identity_entry, invalid};
 use crate::send_now::{SendNow, untyped_failure};
 use crate::{
-    request_history,
+    request_history::{self, ListQuery},
     request_runtime::wall_time_ms,
     storage::{Storage, StorageError},
 };
 use tmt_core::{
-    request::{
-        RequestError, RequestService,
-        delivery::SendNowRejection,
-        history::{HistoryQuery, HistoryScope},
-    },
+    request::{RequestError, RequestService, delivery::SendNowRejection, history::HistoryScope},
     settings::Settings,
 };
 
-pub(super) fn decode_list(input: &[u8]) -> Result<HistoryQuery, Fault> {
-    request_history::decode_history_query(input).ok_or_else(invalid)
+pub(super) fn decode_list(input: &[u8]) -> Result<ListQuery, Fault> {
+    request_history::decode_list_query(input).ok_or_else(invalid)
 }
 
 pub(super) fn decode_show(input: &[u8]) -> Result<String, Fault> {
     request_history::decode_history_request(input).ok_or_else(invalid)
 }
 
-pub(super) fn list_history(storage: &mut Storage, query: HistoryQuery) -> Result<Vec<u8>, Fault> {
-    let results = matches!(query.scope, HistoryScope::OriginatorResults { .. });
-    RequestService::new(storage, wall_time_ms)
-        .request_history(query)
-        .map(|value| request_history::encode_history_page(&value, results))
-        .map_err(request_error)
+pub(super) fn list_history(storage: &mut Storage, query: ListQuery) -> Result<Vec<u8>, Fault> {
+    let mut service = RequestService::new(storage, wall_time_ms);
+    match query {
+        ListQuery::History(query) => {
+            let results = matches!(query.scope, HistoryScope::OriginatorResults { .. });
+            service
+                .request_history(query)
+                .map(|value| request_history::encode_history_page(&value, results))
+        }
+        ListQuery::Answers(query) => service
+            .request_answers(query)
+            .map(|value| request_history::encode_answers_page(&value)),
+    }
+    .map_err(request_error)
 }
 
 pub(super) fn show_request(storage: &mut Storage, id: String) -> Result<Vec<u8>, Fault> {

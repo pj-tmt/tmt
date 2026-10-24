@@ -3,7 +3,7 @@ import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
-import { tokens } from './tokens.js';
+import { tokens, headerHeight } from './tokens.js';
 
 /** The rail is the only column left of the page on a wide screen. */
 const railWidth = Number.parseFloat(tokens.browser.metric['rail-width']!);
@@ -136,8 +136,9 @@ for (const width of [1440, 390])
       expect((await frame.boundingBox())?.height).toBe(beforePanel?.height);
       expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforePanel);
       if (width === 390) {
-        expect((await comments.boundingBox())?.width).toBe(382);
-        expect((await comments.boundingBox())?.y).toBe(52);
+        // #4641: regular phone drawers retain the approved 12px viewport allowance.
+        expect((await comments.boundingBox())?.width).toBe(378);
+        expect((await comments.boundingBox())?.y).toBe(headerHeight(width) + 4);
       }
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-comments.png` });
       await commentsClose(page, 'list').click();
@@ -300,7 +301,7 @@ for (const width of [1440, 390])
       const gutter = width <= 480 ? 4 : 8;
       expect(edge.x + edge.width).toBe(width - gutter);
       expect(edge.y + edge.height).toBe(900 - gutter);
-      expect(edge.y).toBe((width <= 480 ? 48 : 56) + gutter);
+      expect(edge.y).toBe(headerHeight(width) + gutter);
       await expect(drawer).toHaveCSS('border-right-width', '1px');
       await expect(page.locator('.frame-host:visible')).toHaveCSS('clip-path', 'none');
       const capture = process.env.COLAB_DRAWER_CAPTURE_DIR;
@@ -403,7 +404,7 @@ test('one-row fitting retains full labels, stable content and compact action aut
       ),
     ).toBeVisible();
     await expect(heading).toHaveAttribute('title', title);
-    await expect(header).toHaveCSS('height', width < 480 ? '48px' : '56px');
+    await expect(header).toHaveCSS('height', `${headerHeight(width)}px`);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     expect(await iframe.evaluate((node, saved) => node === saved, frameHandle)).toBe(true);
     expect(await heading.evaluate((node, saved) => node === saved, titleHandle)).toBe(true);

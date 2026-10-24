@@ -103,6 +103,24 @@ pub(super) fn named_entry<R, O>(
         .map_err(BindingError::Repository)
 }
 
+/// The durable selector inside a binding transaction: an active identity UUID
+/// wins over a UUID-shaped name, and an unknown or retired UUID falls back to the
+/// name lookup, which finds nothing. `Storage::resolve_identity` applies the same
+/// rule outside a transaction.
+pub(super) fn selected_entry<R, O>(
+    records: &dyn BindingRecords<Error = R>,
+    selector: &str,
+) -> Result<Option<BindingEntry>, BindingError<R, O>> {
+    if crate::dispatch::canonical_id(selector)
+        && let Some(entry) = records
+            .entry_by_id(selector)
+            .map_err(BindingError::Repository)?
+    {
+        return Ok(Some(entry));
+    }
+    named_entry(records, selector)
+}
+
 pub(super) fn reconcile<R, O>(
     records: &mut dyn BindingRecords<Error = R>,
     entry: BindingEntry,

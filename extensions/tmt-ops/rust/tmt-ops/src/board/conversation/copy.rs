@@ -360,6 +360,41 @@ mod tests {
     }
 
     #[test]
+    fn reported_quote_and_paths_copy_the_original_source_after_real_wrapping() {
+        use crate::{
+            board::markdown::{render_conversation_with_members, reported},
+            look::Look,
+        };
+
+        for source in [
+            reported::QUOTE,
+            reported::PATH,
+            "/tmp/some_dir/file_name.rs",
+            "src/some_module/file_name.rs",
+        ] {
+            for width in [160, 100, 80, 60, 40, 24] {
+                let rendered =
+                    render_conversation_with_members(source, width, Look::default(), None);
+                let rows: Vec<String> = rendered.lines.iter().map(ToString::to_string).collect();
+                let map = Map {
+                    messages: vec![source.to_owned()],
+                    lines: rendered
+                        .sources
+                        .iter()
+                        .map(|&line| Some(At { message: 0, line }))
+                        .collect(),
+                    rows: rows.clone(),
+                };
+                assert_eq!(
+                    passage(&map, &rows, 0, rows.len() - 1),
+                    source,
+                    "width={width}, source={source:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn wrapped_prose_copies_its_unwrapped_source_line() {
         let map = map(
             &["a long paragraph that wraps\nnext line"],

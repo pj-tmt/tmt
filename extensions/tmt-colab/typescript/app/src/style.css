@@ -844,6 +844,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   min-width: 0;
 }
 .annotation-row strong {
+  /* Comments titles keep the 14px compact body scale at every viewport. */
+  font-size: var(--tmt-ui-page-compact-body-size);
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;

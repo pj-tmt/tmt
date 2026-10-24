@@ -136,6 +136,7 @@ function expectNativeSchema(
     { version: 61, name: "record how long a digest rule keeps a member's oldest held message" },
     { version: 62, name: 'retain an inactive resume record per driver' },
     { version: 63, name: 'record refused runtime starts on their binding' },
+    { version: 64, name: 'index the passthrough turns an originator has had answered' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(

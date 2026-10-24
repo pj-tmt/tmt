@@ -526,6 +526,12 @@ fn embedded_shared_css_matches_browser_tokens_fonts_and_header_metrics() {
     for (theme, section) in [("light", light), ("dark", dark)] {
         for group in ["color", "surface"] {
             for (name, token) in tokens["browser"][group].as_object().unwrap() {
+                // Theme-invariant roles inherit from :root; themed roles override them.
+                let section = if token["light"] == token["dark"] {
+                    light
+                } else {
+                    section
+                };
                 assert!(
                     section.contains(&format!(
                         "--tmt-ui-{group}-{name}: {};",

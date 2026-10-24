@@ -11,10 +11,41 @@ use tmt_invoke::{Cleanup, DiscoveryError, FailureKind, InvokeError, Phase, Reque
 
 pub const OUTPUT_LIMIT: usize = 16 * 1024 * 1024;
 
+#[derive(Clone)]
 pub struct CoreClient {
     executable: PathBuf,
 }
+/// Atomic UUID/name observation. The production CLI adapter stays closed until #4536's
+/// argv is agreed; injected fake Core implementations exercise the Remote boundary now.
+pub trait CloudIdentityQuery: Send + Sync {
+    fn identity_show(
+        &self,
+        id: &str,
+        expected_name: &str,
+        stop: &AtomicBool,
+    ) -> Result<(), RemoteError>;
+}
+impl CloudIdentityQuery for CoreClient {
+    fn identity_show(
+        &self,
+        id: &str,
+        expected_name: &str,
+        stop: &AtomicBool,
+    ) -> Result<(), RemoteError> {
+        self.cloud_identity_show(id, expected_name, stop)
+    }
+}
 impl CoreClient {
+    /// No UUID inventory followed by a name-addressed capture is a substitute.
+    pub fn cloud_identity_show(
+        &self,
+        _id: &str,
+        _expected_name: &str,
+        _stop: &AtomicBool,
+    ) -> Result<(), RemoteError> {
+        Err(crate::cloud_command::upgrade())
+    }
+
     pub fn discover() -> Result<Self, RemoteError> {
         let executable = tmt_invoke::invoking_tmt().map_err(|error| match error {
             DiscoveryError::Missing => {

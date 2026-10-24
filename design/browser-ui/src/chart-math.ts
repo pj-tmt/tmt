@@ -128,8 +128,14 @@ export function areaPath(
   xs: readonly number[],
   upper: readonly number[],
   lower: readonly number[],
+  curve?: 'monotone',
 ): string {
   if (!xs.length) return '';
+  if (curve === 'monotone') {
+    const top = monotonePath(xs.map((x, i) => [x, upper[i]!]));
+    const bottom = monotonePath(xs.map((x, i) => [x, lower[i]!] as const).reverse());
+    return `${top}${bottom.replace(/^M/, 'L')}Z`;
+  }
   const top = xs.map((x, at) => `${at ? 'L' : 'M'}${round(x)} ${round(upper[at]!)}`).join('');
   const bottom = xs
     .map((x, at) => `L${round(x)} ${round(lower[at]!)}`)
@@ -140,4 +146,26 @@ export function areaPath(
 
 function round(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/** Cubic Hermite interpolation with sign-preserving, bounded tangents. Reversing x also works
+ * for an area's return edge. Flat or turning points get zero slope, so no segment overshoots. */
+export function monotonePath(points: readonly (readonly [number, number])[]): string {
+  if (points.length < 3) return linePath(points);
+  const slopes = points.slice(1).map(([x, y], i) => (y - points[i]![1]) / (x - points[i]![0]));
+  const tangents = points.map((_, i) => {
+    if (!i) return slopes[0]!;
+    if (i === points.length - 1) return slopes[i - 1]!;
+    const a = slopes[i - 1]!,
+      b = slopes[i]!;
+    return a * b <= 0 ? 0 : (2 * a * b) / (a + b);
+  });
+  return points
+    .map(([x, y], i) => {
+      if (!i) return `M${round(x)} ${round(y)}`;
+      const [px, py] = points[i - 1]!;
+      const dx = (x - px) / 3;
+      return `C${round(px + dx)} ${round(py + dx * tangents[i - 1]!)} ${round(x - dx)} ${round(y - dx * tangents[i]!)} ${round(x)} ${round(y)}`;
+    })
+    .join('');
 }

@@ -818,6 +818,12 @@ shared Codex channel server. If the old agent does not exit, nothing new starts 
 binding stays put. Exit the old agent in its pane, then rerun the exact command
 printed in the error. TMT never force-kills it or falls back to a fresh session.
 
+To end a member's agent without moving it, run `tmt stop <name>`: the same verified
+one-TERM stop, no KILL or retry. The identity, binding and remembered session stay, so
+`tmt resume <name>` brings it back. `--close` also closes the pane, only when its host says
+TMT opened it; a pane you created, or one whose origin is unknown, stays open and the
+command says so. `resume`, `mv`, `rm` and `stop` also take the saved identity UUID.
+
 To switch the agent behind the same identity, run
 `tmt resume <name> --driver claude --model claude-sonnet-5-5` (or `--driver codex`).
 This includes the stop/move path and launches in this command's pane; no extra

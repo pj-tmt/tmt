@@ -1,11 +1,11 @@
+import { staticCss } from './static-css.js';
 import { expect, it } from 'vite-plus/test';
-import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { BrowserAction } from '../src/action.js';
 import { BrowserIconAction } from '../src/icon-action.js';
 import type { BrowserActionVariant } from '../src/static.js';
 
-const css = readFileSync(new URL('../generated/static.css', import.meta.url), 'utf8');
+const css = staticCss;
 const block = (selector: string) => {
   const found = css.split('\n').findIndex((line) => line === `${selector} {`);
   expect(found, selector).toBeGreaterThanOrEqual(0);

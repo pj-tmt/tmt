@@ -134,6 +134,10 @@ pub enum Invocation {
         name: String,
         force: bool,
     },
+    Stop {
+        name: String,
+        close: bool,
+    },
     Rename {
         old: String,
         new: String,

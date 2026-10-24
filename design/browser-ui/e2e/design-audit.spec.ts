@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import {
   controlBoundaries,
@@ -80,7 +81,7 @@ const frames: [string, string][] = [
   ]),
 ];
 for (const [frame, params] of frames)
-  for (const theme of ['light', 'dark'])
+  for (const theme of ['light', 'dark'] as const)
     test(`frame ${frame}${params} (${theme}): the same audits`, async ({ page }) => {
       await page.setViewportSize({ width: frame === 'ui-overlay' ? 560 : 1080, height: 620 });
       await page.goto(`/?frame=${frame}&theme=${theme}${params}`);
@@ -98,3 +99,149 @@ for (const [frame, params] of frames)
       expect(await textAtSurfaceEdge(page, 'body')).toEqual([]);
       expect((await controlRadii(page, 'body')).off).toEqual([]);
     });
+
+for (const width of [1440, 390])
+  test(`heatmaps use wide short token-radius bars and retain keyboard tips at ${width}`, async ({
+    page,
+  }) => {
+    // Isolate keyboard focus from the full gallery's lazy-loading overlay demonstrations.
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/?frame=charts');
+    const maps = page.locator('.tmt-ui-chart[data-layout="heatmap"]');
+    await expect(maps).toHaveCount(4);
+    for (const map of await maps.all()) {
+      const cell = map.locator('.tmt-ui-chart-slot:not(.tmt-ui-chart-slot-none)').first();
+      await cell.scrollIntoViewIfNeeded();
+      const box = (await cell.boundingBox())!;
+      expect(box.width / box.height).toBeGreaterThanOrEqual(1.9);
+      await expect(cell).toHaveCSS('border-radius', '6px');
+      await cell.focus();
+      await expect(cell).toBeFocused();
+      await cell.dispatchEvent('pointerleave');
+      await expect(map.locator('.tmt-ui-chart-tip')).toBeVisible();
+      await page.keyboard.press('ArrowRight');
+      expect(
+        await map
+          .locator('.tmt-ui-chart-slot')
+          .evaluateAll((nodes) => nodes.some((node) => node === document.activeElement)),
+      ).toBe(true);
+    }
+  });
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`theme roles survive nested theme switches and ${scheme} system preference`, async ({
+    page,
+  }) => {
+    const tokens = JSON.parse(
+      readFileSync(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
+    );
+    await page.emulateMedia({ colorScheme: scheme });
+    await gallery(page, 1440);
+    const roles = Object.entries({
+      color: tokens.browser.color,
+      surface: tokens.browser.surface,
+      shadow: tokens.browser.shadow,
+      'brand-mark': tokens.brand.mark,
+    }).flatMap(([group, values]) =>
+      Object.entries(values as Record<string, { light: string; dark: string }>)
+        .filter(([name]) => !name.startsWith('$'))
+        .map(([name, value]) => ({ name: `--tmt-ui-${group}-${name}`, value })),
+    );
+    const actual = await page.evaluate((roles) => {
+      document.documentElement.removeAttribute('data-theme');
+      const outer = document.createElement('div');
+      outer.dataset.theme = 'light';
+      const inner = document.createElement('div');
+      inner.dataset.theme = 'dark';
+      const last = document.createElement('div');
+      last.dataset.theme = 'light';
+      document.body.append(outer);
+      outer.append(inner);
+      inner.append(last);
+      const values = [document.documentElement, outer, inner, last].map((node) =>
+        roles.map(({ name }) => getComputedStyle(node).getPropertyValue(name).trim().toLowerCase()),
+      );
+      outer.remove();
+      return values;
+    }, roles);
+    expect(actual).toEqual(
+      [scheme, 'light', 'dark', 'light'].map((theme) =>
+        roles.map(({ value }) => value[theme as 'light' | 'dark'].toLowerCase()),
+      ),
+    );
+  });
+}
+for (const width of [1586, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`website shell metrics at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 992 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+      const fontRequests: string[] = [];
+      page.on('request', (request) => {
+        if (
+          request.resourceType() === 'font' ||
+          /fonts\.(googleapis|gstatic)\.com/.test(request.url())
+        )
+          fontRequests.push(request.url());
+      });
+      await page.goto('/?frame=shell&theme=' + theme);
+      await expect(page.locator('.tmt-ui-page-title')).toBeVisible();
+      await expect(page.locator('.tmt-ui-header')).toHaveCSS(
+        'height',
+        width === 390 ? '56px' : '62px',
+      );
+      await expect(page.locator('.tmt-ui-page')).toHaveCSS(
+        'padding',
+        width === 390 ? '24px 18px' : '33px 36px',
+      );
+      await expect(page.locator('.tmt-ui-page-title')).toHaveCSS(
+        'font-size',
+        width === 390 ? '29px' : '37px',
+      );
+      await expect(page.locator('.tmt-ui-card-title')).toHaveCSS('font-size', '19px');
+      if (width === 1586) {
+        await expect(page.locator('.tmt-ui-rail')).toHaveCSS('width', '232px');
+        await expect(page.locator('.tmt-ui-rail')).toHaveCSS('padding', '22px 12px 17px');
+        await expect(page.locator('.tmt-ui-rail-item').first()).toHaveCSS('height', '45px');
+        await expect(page.locator('.tmt-ui-rail-sub-item').first()).toHaveCSS('height', '33px');
+        const indent = await page.evaluate(() => {
+          const parent = document.querySelector(
+            '.tmt-ui-rail-item[aria-current="page"] .tmt-ui-shell-icon',
+          )!;
+          const label = document.querySelector('.tmt-ui-rail-sub-item .tmt-ui-module-menu-label')!;
+          return label.getBoundingClientRect().x - parent.getBoundingClientRect().x;
+        });
+        expect(indent).toBeCloseTo(8, 1);
+        const icon = page.locator('.tmt-ui-rail-item').first().locator('svg');
+        const expandedX = (await icon.boundingBox())!.x;
+        await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
+        await expect(page.locator('.tmt-ui-rail')).toHaveCSS('width', '56px');
+        await expect.poll(async () => (await icon.boundingBox())!.x).toBe(expandedX);
+        const railBox = (await page.locator('.tmt-ui-rail').boundingBox())!;
+        const iconBox = (await icon.boundingBox())!;
+        expect(iconBox.x + iconBox.width).toBeLessThan(railBox.x + railBox.width);
+        const badgeInset = await page
+          .locator('.tmt-ui-rail-item .tmt-ui-shell-count')
+          .first()
+          .evaluate((badge) => {
+            const list = badge.closest('ul')!.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(badge);
+            const glyph = range.getBoundingClientRect();
+            return { left: glyph.left - list.left, right: list.right - glyph.right };
+          });
+        expect(badgeInset.left).toBeGreaterThanOrEqual(3);
+        expect(badgeInset.right).toBeGreaterThanOrEqual(3);
+      }
+      expect(fontRequests).toEqual([]);
+    });
+
+test('small avatar initials retain an inset with platform fallback fonts', async ({ page }) => {
+  await page.goto('/#avatar');
+  for (const family of ['Arial, sans-serif', 'Verdana, sans-serif']) {
+    await page.locator('.tmt-ui-avatar').evaluateAll((nodes, font) => {
+      for (const node of nodes) (node as HTMLElement).style.fontFamily = font;
+    }, family);
+    expect(await textAtSurfaceEdge(page, '#avatar')).toEqual([]);
+  }
+});

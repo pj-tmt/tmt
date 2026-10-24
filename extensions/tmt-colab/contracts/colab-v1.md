@@ -1329,7 +1329,8 @@ reopening the proposal or changing the pending count. This explicit opening
 acknowledges a locally unseen resolution; rendering or filtering does not.
 Comments mixes proposals with ordinary annotations in one list with the views
 Open, Needs you, Resolved and, only when the page has a proposal, Proposals (a rule closes the
-view strip and every row). The
+view strip and every row). Row titles stay at 14px (the compact body token); quoted passages
+and metadata use the caption size. The
 open thread stays listed in every view. Needs you holds undecided proposals and
 threads with news the person has not seen. Changing the view never changes status, sends a request or changes the header
 count. The one header pending count is computed by `openThreadCount`: unresolved
