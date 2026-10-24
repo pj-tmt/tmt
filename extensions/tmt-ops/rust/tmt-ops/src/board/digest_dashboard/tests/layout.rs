@@ -786,6 +786,8 @@ fn digest_selected_agent_takes_last_available_slot_without_reordering_cached_tra
 /// Additive evidence uses the same held-report fixture as the rank regressions.
 pub(in crate::board) fn capture_case(state: &str, look: crate::look::Look) -> App {
     let mut app = fixture();
+    // Capture clocks must not inherit the host time zone.
+    app.local_zone = Some(jiff::tz::TimeZone::get("Asia/Tokyo").unwrap());
     app.view.as_mut().unwrap().look = look;
     for style in app
         .view
