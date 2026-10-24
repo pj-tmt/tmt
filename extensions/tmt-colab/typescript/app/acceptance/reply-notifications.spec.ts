@@ -298,8 +298,7 @@ for (const [destination, forceFallback] of [
       const target = destination === 'Answer' ? block : page.locator('.proposal-card:visible');
       if (destination === 'Proposal') {
         await expect(target).toHaveAttribute('data-proposal-id', proposalId!);
-        if (detached)
-          await expect(commentsRegion(page)).toBeVisible();
+        if (detached) await expect(commentsRegion(page)).toBeVisible();
       }
       await expect(target).toBeFocused();
       await expect(target).toHaveAttribute('data-arrived', '');

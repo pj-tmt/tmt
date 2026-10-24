@@ -1,6 +1,6 @@
 /* The non-modal Comments panel beside or over the page (concept 20). The leaf draws the panel and
-   its card and sheet; this file owns the page grid a column sits in, its sticky offset and rule, and
-   the widths panel-mode.ts picks the mode from (e2e/panel-mode.spec.ts holds the two equal). */
+   its card and sheet; this file owns the page grid a column sits in, its sticky offset and rule.
+   panel-mode.ts picks the mode from the viewport width. */
 .workspace {
   --colab-panel-width: 286px;
   --colab-panel-gap: 34px;

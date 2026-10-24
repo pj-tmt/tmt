@@ -59,9 +59,7 @@ for (const detached of [false, true]) {
     await expect(page.getByRole('menu').getByText('Please decide · 1')).toBeVisible();
     await page.getByRole('menuitem', { name: 'Choose release · Agent 1' }).click();
     await expect(page.getByRole('menu')).toHaveCount(0);
-    const target = detached
-      ? commentsRegion(page)
-      : page.locator('[data-inline-proposal]');
+    const target = detached ? commentsRegion(page) : page.locator('[data-inline-proposal]');
     await expect(target).toBeVisible();
     if (!detached)
       await expect

@@ -1408,16 +1408,20 @@ for (const surface of ['chat', 'thread'] as const)
         await run(page, 'conversationMessageState', { state: asked('sendable'), sendNow });
         const action = sendNowButton(window);
         await expect(action).toHaveCount(1);
-        const [text, box] = await Promise.all([status.boundingBox(), action.boundingBox()]);
-        const below = box!.y + box!.height / 2 > text!.y + text!.height;
-        if (below) {
-          wrapped++;
-          // On a line of its own: the action's label starts where the text does.
-          expect(Math.abs(box!.x - text!.x)).toBeLessThanOrEqual(1);
-        } else {
-          // On the text's last line: after it, with the gap.
-          expect(box!.x).toBeGreaterThan(text!.x);
-        }
+        // The two boxes are read at different instants of a layout that just changed width.
+        let below = false;
+        await expect(async () => {
+          const [text, box] = await Promise.all([status.boundingBox(), action.boundingBox()]);
+          below = box!.y + box!.height / 2 > text!.y + text!.height;
+          if (below) {
+            // On a line of its own: the action's label starts where the text does.
+            expect(Math.abs(box!.x - text!.x)).toBeLessThanOrEqual(1);
+          } else {
+            // On the text's last line: after it, with the gap.
+            expect(box!.x).toBeGreaterThan(text!.x);
+          }
+        }).toPass();
+        if (below) wrapped++;
       }
     // The check is not vacuous: at least one of these did wrap.
     expect(wrapped).toBeGreaterThan(0);
@@ -1467,14 +1471,19 @@ for (const surface of ['chat', 'thread'] as const)
         ].map((locator) => locator.boundingBox()),
       );
       if (width === 390) expect(send!.height).toBeGreaterThanOrEqual(44);
-      expect(send!.x).toBeGreaterThanOrEqual(clock.x + clock.width);
+      // Send now follows the countdown's last line; when that line has no room left (a wider system
+      // font fills a 286px column sooner) it starts the next one, flush with the text.
+      const after = send!.x >= clock.x + clock.width;
+      const below = send!.y + send!.height / 2 > clock.y + clock.height;
+      expect(after || below).toBe(true);
       // Check again follows on the same line, or wraps to a later line when this one has no room.
       expect(check!.x >= send!.x + send!.width || check!.y >= send!.y + send!.height / 2).toBe(
         true,
       );
-      expect(Math.abs(send!.y + send!.height / 2 - (clock.y + clock.height / 2))).toBeLessThan(
-        send!.height / 2,
-      );
+      if (after)
+        expect(Math.abs(send!.y + send!.height / 2 - (clock.y + clock.height / 2))).toBeLessThan(
+          send!.height / 2,
+        );
     });
 
 // A batched line runs to several lines in a narrow Chat; the control follows its last word.

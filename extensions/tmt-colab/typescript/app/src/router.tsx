@@ -174,7 +174,7 @@ function PageFloatingActions({
       // A card sits over the page's right edge and a sheet over its bottom; a column is a grid
       // track beside the page, so the host's own box already ends before it.
       const floating = document.querySelector<HTMLElement>(
-        '.tmt-ui-panel[data-mode="card"], .tmt-ui-panel[data-mode="sheet"]',
+        '.tmt-ui-panel:not([hidden])[data-mode="card"], .tmt-ui-panel:not([hidden])[data-mode="sheet"]',
       );
       const over = floating?.getBoundingClientRect();
       const right = Math.min(
@@ -1978,6 +1978,7 @@ function OpenPage({
           )}
         </div>
         <BrowserPanel
+          keepMounted
           focusFallback={environment.focusFallback}
           open={panel === 'comments'}
           mode={panelMode}

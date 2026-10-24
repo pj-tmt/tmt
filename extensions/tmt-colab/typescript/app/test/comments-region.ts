@@ -1,9 +1,9 @@
 import type { Locator, Page } from '@playwright/test';
 
 /** The Comments surface while it is open: the list and a thread's Discussion view share it. It is the
- * non-modal Comments panel (a column, card or sheet by width) and is not rendered while closed;
- * every spec reaches it through here, so a change of container is one edit. */
-const commentsSelector = '.tmt-ui-panel[data-panel="comments"]';
+ * non-modal Comments panel (a column, card or sheet by width); closed, it stays mounted and hidden.
+ * Every spec reaches it through here, so a change of container is one edit. */
+const commentsSelector = '.tmt-ui-panel[data-panel="comments"]:not([hidden])';
 
 export function commentsRegion(page: Page): Locator {
   return page.locator(commentsSelector);

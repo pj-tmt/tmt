@@ -164,7 +164,8 @@ for (const width of [1440, 390])
         'tmt-ui-drawer-body',
       ]);
 
-      // At rest the reply field shows four lines (the website's) and the note shares one row with Reply.
+      // At rest the reply field shows four lines (the website's) and the note and its hint flow as
+      // one line of text beside Reply.
       const line = await lineHeight(field);
       const rest = (await field.boundingBox())!.height;
       expect(Math.abs(rest - 4 * line)).toBeLessThanOrEqual(1);
@@ -172,7 +173,11 @@ for (const width of [1440, 390])
       const hint = composer.locator('.annotation-hint');
       await expect(note).toHaveText('Attached to this sentence');
       const [noteBox, hintBox] = await Promise.all([note.boundingBox(), hint.boundingBox()]);
-      expect(Math.abs(noteBox!.y - hintBox!.y)).toBeLessThanOrEqual(1);
+      // The hint starts on the note's line, or on the next one when the 286px column is too narrow
+      // for both in the font at hand (a wider system font wraps it); it is never a block of its own.
+      // The line box is the paragraph's, not the smaller note text's.
+      const paragraph = await lineHeight(note.locator('xpath=..'));
+      expect(hintBox!.y - noteBox!.y).toBeLessThanOrEqual(paragraph + 1);
       await expect(hint).toHaveText('Posts as a comment.');
 
       await page.screenshot({

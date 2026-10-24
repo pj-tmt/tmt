@@ -323,7 +323,7 @@ The Comments region (the list and a thread's Discussion view) is a non-modal `Br
 drawer: no scrim, focus trap or page inertness, so the page stays readable and keyboard-reachable
 beside or under it, and it shares the single panel slot with the drawers. `src/panel-mode.ts` picks
 its mode from one width pair (column from 1180 px, card from 761 px, sheet below; `e2e/panel-mode.spec.ts`
-holds those equal to the `@media` widths in `src/panel-layout.css`). A column is a track of the page grid:
+holds the mode on both sides of each). A column is a track of the page grid:
 the page narrows by the panel width (286 px, 310 px from 1600 px), the gap (34 px, 42 px) and a 24 px
 right margin, and the panel sticks 20 px under the header with its own scroll and a 1 px left rule. A
 card (330 px, 12 px from the right and bottom, top at the header plus 13 px) and a sheet (7 px insets, up to

@@ -2,8 +2,8 @@ import { useMedia } from './use-media.js';
 
 export type PanelMode = 'column' | 'card' | 'sheet';
 
-/** The viewport widths where a non-modal panel changes layout (concept 20). style.css reads the
- * column width from the same numbers in `@media`, and e2e/panel-mode.spec.ts holds the two equal. */
+/** The viewport widths where a non-modal panel changes layout (concept 20); the leaf's guide names
+ * the same two, and e2e/panel-mode.spec.ts holds the mode on both sides of each. */
 export const PANEL_COLUMN_MIN_WIDTH = 1180;
 export const PANEL_CARD_MIN_WIDTH = 761;
 
