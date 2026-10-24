@@ -128,7 +128,9 @@ wrap commands, and keep the existing clipped-control and default-Cancel rules.
 
 ## Shell, geometry and input
 
-`board::shell` owns Agents and Digest selection. Agents uses one list with three
+`board::shell` owns Agents and Digest selection, with one inactive destination
+anchor kept only for the board session. First ordinary Digest entry selects `all`;
+explicit named-view and exec restores retain their UUID. Agents uses one list with three
 chips (`AgentsFilter`: Squads tree, Agents flat list, Pinned) and one right column
 (`RightTab`: Talk, Measure). The shared FilterBar paints the chips and the
 in-place search field on the left rule and `talk_measure` paints its control on the
@@ -249,7 +251,12 @@ projects the selected member or squad through the shared board components.
 Conversation, editor, drafts, reply reader and Send keep their existing owners. Digest projects the
 Core usage/traffic and supplier-owned Digest status through `digest_dashboard`:
 range summary, TOK-ranked table with read-only `all`, six-level 24-hour activity,
-Exchanges and details. Wide frames place Exchanges above details; narrower frames
+Exchanges and details. The existing Digest report/query/scope cache also holds the
+full admitted exchange ranking: shared `exchange_matrix::by_traffic` orders by
+sent plus received, then name and UUID before the shared painter fits at most five
+and retains an off-list selection in the last slot. Cursor and viewport changes
+reuse those facts. Known-empty traffic and unavailable traffic stay distinct.
+Wide frames place Exchanges above details; narrower frames
 stack the table and details, with Tab exposing Exchanges. Enter on a real member
 opens its Agents Talk pane; `all` grants no recipient or Digest mutation.
 The canonical roster owns membership and action admission.

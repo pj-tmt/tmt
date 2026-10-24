@@ -7,7 +7,7 @@ use ratatui::{
     layout::Rect,
     text::{Line, Span},
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use tmt_cli_style::{Role, theme::screen};
 use tmt_tui::components::strip;
 
@@ -97,15 +97,24 @@ pub(in crate::board) fn by_traffic(
     let Some(traffic) = traffic else {
         return participants;
     };
-    let received = |id: &str| -> u64 {
-        traffic
-            .messages
-            .iter()
-            .filter(|(sender, _)| sender.as_deref() != Some(id))
-            .filter_map(|(_, recipients)| recipients.get(&Some(id.to_owned())))
-            .fold(0u64, |sum, count| sum.saturating_add(*count))
-    };
-    let total = |id: &str| sent(traffic, id).saturating_add(received(id));
+    // Score the held flow once, not once per sort comparison. Missing endpoints
+    // still contribute to a known peer; self messages never count as exchanges.
+    let mut totals: BTreeMap<&str, u64> = BTreeMap::new();
+    for (sender, recipients) in &traffic.messages {
+        for (recipient, count) in recipients {
+            if sender == recipient {
+                continue;
+            }
+            for id in [sender.as_deref(), recipient.as_deref()]
+                .into_iter()
+                .flatten()
+            {
+                let total = totals.entry(id).or_default();
+                *total = total.saturating_add(*count);
+            }
+        }
+    }
+    let total = |id: &str| totals.get(id).copied().unwrap_or(0);
     participants.sort_by(|a, b| {
         total(&b.id)
             .cmp(&total(&a.id))
@@ -394,6 +403,35 @@ mod tests {
         );
         let kept = by_traffic(vec![seat("b", "x"), seat("a", "y")], None);
         assert_eq!(kept[0].id, "b", "without traffic the given order stays");
+    }
+
+    #[test]
+    fn traffic_scores_keep_saturation_unknown_endpoints_and_name_uuid_ties() {
+        let mut traffic = flow(&[("a", "b", u64::MAX), ("b", "c", 1), ("d", "d", u64::MAX)]);
+        traffic
+            .messages
+            .insert(None, [(Some("c".into()), u64::MAX)].into());
+        let ranked = by_traffic(
+            vec![
+                seat("d", "aaa"),
+                seat("b", "same"),
+                seat("a", "same"),
+                seat("c", "zzz"),
+            ],
+            Some(&traffic),
+        );
+        assert_eq!(
+            ranked.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+            ["a", "b", "c", "d"]
+        );
+        let zero = by_traffic(
+            vec![seat("b", "same"), seat("a", "same"), seat("c", "aaa")],
+            Some(&flow(&[])),
+        );
+        assert_eq!(
+            zero.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+            ["c", "a", "b"]
+        );
     }
 
     #[test]

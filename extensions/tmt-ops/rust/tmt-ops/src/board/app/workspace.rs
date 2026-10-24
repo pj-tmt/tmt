@@ -995,7 +995,11 @@ impl App {
                     Agents => '1',
                     _ => '2',
                 };
-                if !self.shell.select_digit(digit, self.workspace_input_owner()) {
+                let owner = self.workspace_input_owner();
+                if !self
+                    .shell
+                    .select_digit(digit, owner, &mut self.workspace.selected)
+                {
                     return Effect::None;
                 }
                 self.usage_chart.get_mut().release_focus();

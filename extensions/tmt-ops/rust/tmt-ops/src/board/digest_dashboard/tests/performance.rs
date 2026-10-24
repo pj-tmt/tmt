@@ -29,6 +29,50 @@ fn key(app: &mut App, code: KeyCode) {
         Effect::None
     ));
 }
+// Both sides of the matched benchmark use this held public-shaped flow. The
+// old fixture had no usage receipt, so it could not measure exchange ranking.
+fn exchange_report(app: &App) -> crate::board::usage_report::Report {
+    use crate::board::usage_report::{
+        Report,
+        model::{Pair, Traffic, Who},
+    };
+    let ids: Vec<_> = app
+        .workspace_snapshot()
+        .unwrap()
+        .roster
+        .members
+        .keys()
+        .cloned()
+        .collect();
+    let who = |id: &str| Who {
+        id: Some(id.to_owned()),
+        name: None,
+        retired: false,
+    };
+    let observed_at_ms = 1_791_600_000_000;
+    let from = observed_at_ms - 3_600_000;
+    let traffic = Traffic::from_pairs(
+        from,
+        observed_at_ms,
+        ids.windows(2).enumerate().map(|(i, pair)| Pair {
+            sender: who(&pair[0]),
+            recipient: who(&pair[1]),
+            kind: "talk".into(),
+            count: i as u64 + 1,
+        }),
+    )
+    .unwrap();
+    Report {
+        since: app.tok_range(),
+        observed_at_ms,
+        window_from_ms: Some(from),
+        seats: vec![],
+        unavailable: vec![],
+        exchange: Some(traffic),
+        warnings: vec![],
+    }
+}
+
 fn checked(rows: usize, action: &str, samples: Vec<crate::board::timing::probe::Sample>) {
     let p95 = report(rows, action, samples);
     let cap = if rows == 150 { 10_000.0 } else { 50_000.0 };
@@ -97,6 +141,12 @@ fn digest_frame_timing() {
                     })
                     .collect(),
             );
+            let exchanges = exchange_report(&app);
+            app.usage_report
+                .apply(crate::board::usage_report::Delivery {
+                    since: app.tok_range(),
+                    result: Ok(exchanges.clone()),
+                });
             key(&mut app, KeyCode::Char('2'));
             let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
             for _ in 0..10 {
@@ -109,6 +159,20 @@ fn digest_frame_timing() {
                     .map(|_| measure(&mut app, &mut terminal, |_, _| {}))
                     .collect(),
             );
+            // Acquisition/fixture cloning is outside the measured UI event.
+            // Each immutable receipt then invalidates the existing projection key.
+            let mut samples = Vec::new();
+            for _ in 0..100 {
+                let next = exchanges.clone();
+                samples.push(measure(&mut app, &mut terminal, |app, _| {
+                    app.usage_report
+                        .apply(crate::board::usage_report::Delivery {
+                            since: app.tok_range(),
+                            result: Ok(next),
+                        });
+                }));
+            }
+            checked(rows, "digest-exchange-refresh", samples);
             let updates = [labels(&id, 3), labels(&id, 4)];
             checked(
                 rows,
@@ -233,6 +297,12 @@ fn digest_full_status_frame_timing() {
             app.select(index);
             let updates = [full_labels(&app, &id, 3), full_labels(&app, &id, 4)];
             app.labels = updates[0].clone();
+            let exchanges = exchange_report(&app);
+            app.usage_report
+                .apply(crate::board::usage_report::Delivery {
+                    since: app.tok_range(),
+                    result: Ok(exchanges.clone()),
+                });
             key(&mut app, KeyCode::Char('2'));
             let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
             for _ in 0..10 {

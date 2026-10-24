@@ -1510,7 +1510,7 @@ pub fn run(
     app.keyboard_enhanced = keyboard_enhanced;
     app.invoker_tmux = invoker_tmux;
     if let Some(tab) = cold_tab {
-        app.shell.tab = tab;
+        app.shell.select(tab, &mut app.workspace.selected);
     }
     let room_id = scope.first().map(|squad| squad.room_id.clone());
     app.workspace_startup = if room_id.is_some() || cold_tab.is_some() {

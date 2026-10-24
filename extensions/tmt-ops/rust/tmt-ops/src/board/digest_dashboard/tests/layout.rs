@@ -102,6 +102,109 @@ fn fixture() -> App {
 fn key(app: &mut App, code: KeyCode) -> Effect {
     app.key(KeyEvent::new(code, KeyModifiers::NONE))
 }
+
+fn painted_matrix(app: &mut App, width: u16) -> String {
+    use ratatui::{Terminal, backend::TestBackend};
+    let mut terminal = Terminal::new(TestBackend::new(width, 40)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(app, frame.area());
+            crate::board::view::render(frame, app);
+        })
+        .unwrap();
+    let area = app.conversation.borrow().pane.unwrap();
+    let buffer = terminal.backend().buffer();
+    (area.y..area.bottom().min(area.y + 9))
+        .map(|y| {
+            (area.x..area.right())
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn digest_matrix_ranks_busy_low_token_agents_before_the_visible_cap() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = fixture();
+    app.workspace.selected = Some(OpsTarget::DigestAll);
+    let rows = app.workspace_rows();
+    let busy = &rows[rows.len() - 1];
+    let peer = &rows[rows.len() - 2];
+    assert!(
+        rows.len() > 7,
+        "both busy agents must start below the first five TOK rows"
+    );
+    let id = |row: &crate::board::workspace::OpsTreeRow| {
+        super::super::metrics::id(row).unwrap().to_owned()
+    };
+    let who = |id| Who {
+        id: Some(id),
+        name: None,
+        retired: false,
+    };
+    let mut report = super::super::metrics::report(&app).unwrap().clone();
+    report.exchange = Some(
+        Traffic::from_pairs(
+            report.window_from_ms.unwrap(),
+            report.observed_at_ms,
+            [Pair {
+                sender: who(id(busy)),
+                recipient: who(id(peer)),
+                kind: "talk".into(),
+                count: 99,
+            }],
+        )
+        .unwrap(),
+    );
+    app.usage_report.apply(Delivery {
+        since: TokRange::Day,
+        result: Ok(report),
+    });
+    app.workspace_reconcile();
+    let shown = painted_matrix(&mut app, 160);
+    assert!(
+        shown.contains(&busy.title),
+        "late busy agent missing: {shown}"
+    );
+    assert!(
+        shown.contains(&peer.title),
+        "late busy peer missing: {shown}"
+    );
+    assert!(
+        shown.contains("99"),
+        "held traffic must actually paint: {shown}"
+    );
+    assert!(!shown.contains("Common pool") && !shown.contains("product"));
+}
+
+#[test]
+fn digest_matrix_empty_flow_is_explicit_and_unavailable_is_not_zero() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = fixture();
+    app.workspace.selected = Some(OpsTarget::DigestAll);
+    let mut report = super::super::metrics::report(&app).unwrap().clone();
+    report.exchange =
+        Some(Traffic::from_pairs(0, report.observed_at_ms, Vec::<Pair>::new()).unwrap());
+    app.usage_report.apply(Delivery {
+        since: TokRange::Day,
+        result: Ok(report.clone()),
+    });
+    let empty = painted_matrix(&mut app, 160);
+    assert!(empty.contains("No exchanges in this range"), "{empty}");
+    report.exchange = None;
+    app.usage_report.apply(Delivery {
+        since: TokRange::Day,
+        result: Ok(report),
+    });
+    let unknown = painted_matrix(&mut app, 160);
+    assert!(!unknown.contains("No exchanges in this range"), "{unknown}");
+    assert!(
+        unknown.contains('—'),
+        "unavailable observations stay unknown: {unknown}"
+    );
+}
 #[test]
 fn table_has_read_only_all_and_stable_ranked_uuids_and_real_member_enters_agents_talk() {
     let _no_commands = crate::runner::forbid_commands();
@@ -139,10 +242,15 @@ fn cursor_and_viewport_changes_reuse_ranked_facts_without_freezing_live_supplier
     app.workspace.selected = Some(OpsTarget::DigestAll);
     app.workspace_reconcile();
     let before = app.workspace_rows();
+    let ranked = super::super::exchange_participants(&app);
     key(&mut app, KeyCode::Down);
     assert_eq!(app.workspace.selected, Some(before[1].target.clone()));
     paint(&mut app, 160, 40);
     assert!(Rc::ptr_eq(&before, &app.workspace_rows()));
+    assert!(Rc::ptr_eq(
+        &ranked,
+        &super::super::exchange_participants(&app)
+    ));
     paint(&mut app, 80, 32);
     assert!(Rc::ptr_eq(&before, &app.workspace_rows()));
     app.labels = supplied(serde_json::json!(9), false);
@@ -177,10 +285,14 @@ fn a_new_usage_receipt_at_the_same_clock_reorders_rows_and_query_scope_range_rec
     app.search = "agent-1".into();
     app.workspace_reconcile();
     let searched = app.workspace_rows();
+    let ranked = super::super::exchange_participants(&app);
+    assert_eq!(ranked.len(), 1);
+    assert_eq!(ranked[0].name, "agent-1");
     assert_eq!(searched.len(), 2);
     assert_eq!(searched[1].title, "agent-1");
     app.workspace.visibility.scope = vec!["not-an-admitted-room".into()];
     assert_eq!(app.workspace_rows().len(), 1, "only read-only all remains");
+    assert!(super::super::exchange_participants(&app).is_empty());
     app.workspace.visibility.scope.clear();
     app.view
         .as_mut()
@@ -646,4 +758,94 @@ fn painted_digest_range_click_uses_the_shared_preferences_save() {
         crate::config::TokRange::Day,
         "only a confirmed save changes the held preference"
     );
+}
+
+#[test]
+fn digest_selected_agent_takes_last_available_slot_without_reordering_cached_traffic() {
+    let mut app = fixture();
+    let ranked = super::super::exchange_participants(&app);
+    let selected = ranked.last().unwrap().id.clone();
+    let row = app
+        .workspace_rows()
+        .iter()
+        .position(|row| super::super::metrics::id(row) == Some(selected.as_str()))
+        .unwrap();
+    app.select(row);
+    for slots in [1, 2, 3, 5] {
+        let visible = crate::board::exchange_matrix::participants(&ranked, Some(&selected), slots);
+        assert_eq!(visible.len(), slots);
+        assert_eq!(visible.last().unwrap().id, selected);
+        assert_eq!(&visible[..slots - 1], &ranked[..slots - 1]);
+    }
+    assert!(std::rc::Rc::ptr_eq(
+        &ranked,
+        &super::super::exchange_participants(&app)
+    ));
+}
+
+/// Additive evidence uses the same held-report fixture as the rank regressions.
+pub(in crate::board) fn capture_case(state: &str, look: crate::look::Look) -> App {
+    let mut app = fixture();
+    app.view.as_mut().unwrap().look = look;
+    for style in app
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .squad_looks
+        .values_mut()
+    {
+        *style = look;
+    }
+    app.shell.tab = OpsTab::Agents;
+    key(&mut app, KeyCode::Char('2'));
+    match state {
+        "digest-first-open" => {}
+        "digest-retained-pick" => {
+            let last = app.workspace_rows().len() - 1;
+            app.select(last);
+            let selected = app.workspace.selected.clone();
+            key(&mut app, KeyCode::Char('1'));
+            key(&mut app, KeyCode::Char('2'));
+            assert_eq!(app.workspace.selected, selected);
+        }
+        "digest-busy-late" | "digest-empty-flow" | "digest-unavailable-flow" => {
+            let mut report = super::super::metrics::report(&app).unwrap().clone();
+            let pairs = if state == "digest-busy-late" {
+                let rows = app.workspace_rows();
+                let who = |row: &crate::board::workspace::OpsTreeRow| Who {
+                    id: Some(super::super::metrics::id(row).unwrap().into()),
+                    name: None,
+                    retired: false,
+                };
+                vec![Pair {
+                    sender: who(&rows[rows.len() - 1]),
+                    recipient: who(&rows[rows.len() - 2]),
+                    kind: "talk".into(),
+                    count: 99,
+                }]
+            } else {
+                vec![]
+            };
+            report.exchange = (state != "digest-unavailable-flow")
+                .then(|| Traffic::from_pairs(100_000_000, 186_400_000, pairs).unwrap());
+            app.usage_report.apply(Delivery {
+                since: TokRange::Day,
+                result: Ok(report),
+            });
+        }
+        "digest-no-agents" => {
+            let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+            snapshot.roster.members.clear();
+            snapshot.roster.squads.clear();
+            snapshot.rows.clear();
+            snapshot.identity_ids = vec![].into();
+            app.workspace_reconcile();
+        }
+        _ => panic!("unknown Digest evidence scene {state}"),
+    }
+    app
 }

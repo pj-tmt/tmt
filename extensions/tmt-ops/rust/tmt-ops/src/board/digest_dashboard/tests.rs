@@ -1522,6 +1522,7 @@ fn digest_details_paints_observation_age_with_the_apps_local_clock() {
 
 mod allowance;
 mod layout;
+pub(in crate::board) use layout::capture_case;
 
 #[test]
 fn legacy_panel_bytes_survive_details_toggle_and_picker_save() {

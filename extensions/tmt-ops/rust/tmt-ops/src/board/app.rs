@@ -2908,7 +2908,8 @@ impl App {
         {
             // The admitted UUID remains the recipient; the existing conversation
             // and draft owners move together to their Agents host.
-            self.shell.tab = super::shell::OpsTab::Agents;
+            self.shell
+                .select(super::shell::OpsTab::Agents, &mut self.workspace.selected);
             self.right_tab = super::shell::RightTab::Talk;
             self.workspace.selected = match &send.target {
                 RowTarget::Workspace(target) => Some(target.clone()),

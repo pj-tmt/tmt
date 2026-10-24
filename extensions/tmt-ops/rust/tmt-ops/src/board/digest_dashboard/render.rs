@@ -275,17 +275,7 @@ fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool) {
     if inside.is_empty() {
         return;
     }
-    let rows = app.workspace_rows();
-    let mut ranked: Vec<_> = rows
-        .iter()
-        .filter_map(|row| {
-            Some(exchange_matrix::ExchangeParticipant {
-                id: metrics::id(row)?.into(),
-                name: row.title.clone(),
-            })
-        })
-        .take(5)
-        .collect();
+    let ranked = super::exchange_participants(app);
     let selected = app
         .workspace
         .selected
@@ -296,32 +286,34 @@ fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool) {
             }
             _ => None,
         });
-    if let Some(id) = selected
-        && !ranked.iter().any(|row| row.id == id)
-        && let Some(row) = rows.iter().find(|row| metrics::id(row) == Some(id))
-    {
-        ranked.push(exchange_matrix::ExchangeParticipant {
-            id: id.into(),
-            name: row.title.clone(),
-        });
-    }
     let report = metrics::report(app);
-    let _cells = exchange_matrix::paint(
-        frame.buffer_mut(),
-        inside,
-        &ranked,
-        selected,
-        report.and_then(|report| report.exchange.as_ref()),
-        app.look(),
-    );
-    if ranked.is_empty() {
+    let empty = if ranked.is_empty() {
+        Some("No agents observed")
+    } else if report
+        .and_then(|report| report.exchange.as_ref())
+        .is_some_and(|traffic| traffic.maximum == 0)
+    {
+        Some("No exchanges in this range")
+    } else {
+        None
+    };
+    if let Some(text) = empty {
         strip::paint_left(
             frame.buffer_mut(),
             Rect {
                 height: 1,
                 ..inside
             },
-            Line::styled("No agents observed", app.look().role(Role::Muted)),
+            Line::styled(text, app.look().role(Role::Muted)),
+        );
+    } else {
+        let _cells = exchange_matrix::paint(
+            frame.buffer_mut(),
+            inside,
+            &ranked,
+            selected,
+            report.and_then(|report| report.exchange.as_ref()),
+            app.look(),
         );
     }
 }
