@@ -71,8 +71,9 @@ or captured settle time, with no per-item show calls. Newer answers and conversa
 without a cutoff stay unread. Only after every eligible item settles does the Config
 owner remove exact held cutoffs under its fresh document lock. Concurrently advanced
 cutoffs, other actors and authored preferences survive. A crash before removal repeats
-idempotently; a failed or conflicting migration keeps the cutoffs and is retried on
-board restart. No separate migration flag or history cache is stored.
+idempotently. A revision conflict adopts current, leaves that answer unread and
+continues migration; real failures keep the cutoffs and retry on board restart.
+No separate migration flag or history cache is stored.
 
 ## Ops path migration
 

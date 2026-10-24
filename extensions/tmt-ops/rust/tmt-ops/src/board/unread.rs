@@ -174,7 +174,15 @@ impl Page {
                 .answers(member)
                 .filter(|answer| !answer.acknowledged)
                 .count(),
-            more: self.next_before.is_some(),
+            more: self.next_before.is_some()
+                && self
+                    .answers(member)
+                    .min_by(|left, right| {
+                        left.answered_at_ms
+                            .cmp(&right.answered_at_ms)
+                            .then_with(|| left.request.cmp(&right.request))
+                    })
+                    .is_some_and(|answer| !answer.acknowledged),
         }
     }
 }

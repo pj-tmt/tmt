@@ -1,8 +1,5 @@
 //! One public answers page per ordered-lane step; no history cache or per-item show.
-use super::{
-    BodyKind, Page,
-    publish::{Completed, Outcome},
-};
+use super::{BodyKind, Page, publish::Completed};
 use crate::{config::Config, core::Core};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -112,14 +109,6 @@ impl Walk {
             .cloned()
             .collect::<Vec<_>>();
         let completed = super::publish::acknowledge(core, &self.actor, &answers)?;
-        if matches!(self.goal, Goal::Legacy(_))
-            && completed
-                .items
-                .iter()
-                .any(|(_, outcome)| matches!(outcome, Outcome::Conflict(_)))
-        {
-            return Ok((completed, Some(self.clone())));
-        }
         let next = if found { None } else { page.next_before };
         if let Some(next) = next {
             if let Some(before) = &self.before {
@@ -149,7 +138,7 @@ impl Walk {
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::Fixture;
+    use super::super::{publish::Outcome, test_support::Fixture};
     use super::*;
     use std::fs;
     const ACTOR: &str = "33333333-3333-4333-8333-333333333333";
@@ -252,24 +241,66 @@ mod tests {
         assert_eq!(acked, json!({"one":1,"two":1}));
     }
     #[test]
-    fn conflict_keeps_legacy_cutoff_and_new_revision_unread() {
+    fn review_legacy_conflict_settles_and_continues_without_acknowledging_current() {
+        use super::super::publish::Writer;
         let fixture = Fixture::new();
-        let walk = legacy(&fixture);
+        let _ = legacy(&fixture);
         pages(&fixture);
         fs::write(
             fixture.0.join("outcomes.json"),
             json!({"equal":{"status":"conflict","current":2}}).to_string(),
         )
         .unwrap();
-        let (completed, next) = walk.step(&fixture.core()).unwrap();
-        assert!(next.is_some());
-        assert!(
-            matches!(completed.items[0].1, Outcome::Conflict(2)),
-            "the UI must adopt current even when migration pauses"
-        );
+        let documents: Value =
+            serde_json::from_slice(&fs::read(fixture.0.join("pages.json")).unwrap()).unwrap();
+        let mut projection = Page::read(ACTOR, &documents[""]).unwrap();
+        let writer = Writer::default();
+        writer.legacy(ACTOR, &fixture.config().read_markers().unwrap());
+        let first = writer.offer().unwrap().publish(&fixture.core()).unwrap();
+        assert!(matches!(first.items[0].1, Outcome::Conflict(2)));
+        projection.acknowledged(&first);
+        let current = projection.answer(MEMBER, "equal").unwrap();
+        assert_eq!(current.revision, 2);
+        assert!(!current.acknowledged);
+        assert_eq!(current.kind, None);
         assert_eq!(
             fixture.config().read_markers().unwrap().get(ACTOR, MEMBER),
             100
+        );
+        writer.settled();
+        assert!(
+            writer.failure().is_none(),
+            "a newer unread revision is not a migration failure"
+        );
+        let next = writer
+            .offer()
+            .expect("migration must continue to the older page");
+        let second = next.publish(&fixture.core()).unwrap();
+        assert_eq!(second.items[0].0.request, "old");
+        writer.settled();
+        assert!(writer.offer().is_none());
+        assert!(writer.failure().is_none());
+        writer.finish(&fixture.core()).unwrap();
+        assert_eq!(
+            fixture.config().read_markers().unwrap().get(ACTOR, MEMBER),
+            0
+        );
+        let acked: Value =
+            serde_json::from_slice(&fs::read(fixture.0.join("acknowledged.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            acked,
+            json!({"old":1}),
+            "the conflicted current revision stays unread"
+        );
+        let calls = fs::read_to_string(fixture.0.join("calls")).unwrap();
+        assert_eq!(
+            calls
+                .lines()
+                .filter(|line| line.contains("requests.list"))
+                .count(),
+            2,
+            "each page is read once, without retrying the conflict"
         );
     }
     #[test]

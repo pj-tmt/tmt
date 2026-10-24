@@ -97,7 +97,8 @@ squad/global counts deduplicate member UUIDs. Only the originator page supplies 
 count, never blended recipient histories or pane output. Core's `acknowledged: false`
 counts as unread for either answer kind, bound to its positive safe `revision`.
 Optional failed/malformed reads retain the previous page for the same actor; actor
-changes discard it. A member's count is `N+ unread` when `nextBefore` is present.
+changes discard it. A member's count is `N+ unread` only when `nextBefore` is present and that
+member's oldest answer on the page is unacknowledged.
 Aggregate `+` is the OR of eligible members' partial flags;
 observed zero renders no unread state, even when older replies are possible.
 

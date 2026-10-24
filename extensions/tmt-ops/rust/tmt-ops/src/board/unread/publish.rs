@@ -254,15 +254,7 @@ impl Writer {
                     pending
                         .failed_walks
                         .retain(|(held, _)| !held.same_goal(&walk));
-                    if matches!(walk.goal, Goal::Legacy(_))
-                        && completed
-                            .items
-                            .iter()
-                            .any(|(_, outcome)| matches!(outcome, Outcome::Conflict(_)))
-                    {
-                        let reason = "Legacy read migration met a newer answer; restart the board to reacquire it.";
-                        pending.failed_walks.push((walk, reason.into()));
-                    } else if let Some(next) = next {
+                    if let Some(next) = next {
                         pending.walks.push_back(next);
                     }
                     pending.ready |= !pending.updates.is_empty() || !pending.walks.is_empty();

@@ -34,7 +34,7 @@ fn core_acknowledgment_owns_the_boundary_and_known_zero_has_no_unread_label() {
     assert_eq!(observed.count("a").label(), None);
     assert_eq!(observed.count("b").label().as_deref(), Some("1+ unread"));
     let unobserved = observed.count("c");
-    assert!(unobserved.more);
+    assert!(!unobserved.more);
     assert_eq!(unobserved.label(), None);
     let mut aggregate = observed.count("b");
     aggregate.add(unobserved);
@@ -226,4 +226,31 @@ fn concurrent_ack_old_batch_adopts_highest_revision() {
         fresh.answer("a", "asked").unwrap().kind,
         Some(BodyKind::Final)
     );
+}
+
+#[test]
+fn review_partial_counts_follow_each_members_oldest_answer() {
+    let items = (0..50)
+        .map(|i| {
+            let mut item = reply(
+                &format!("r{i:02}"),
+                if i % 2 == 0 { "a" } else { "b" },
+                1000 - i,
+            );
+            if i == 48 {
+                item["acknowledged"] = json!(true);
+            }
+            item
+        })
+        .collect();
+    let mut observed = Page::read("you", &page(items, true)).unwrap();
+    assert_eq!(observed.count("a").label().as_deref(), Some("24 unread"));
+    assert_eq!(observed.count("b").label().as_deref(), Some("25+ unread"));
+    assert!(!observed.count("absent").more);
+    let oldest_b = observed.answer("b", "r49").unwrap().clone();
+    observed.acknowledged(&publish::Completed {
+        actor: "you".into(),
+        items: vec![(oldest_b, publish::Outcome::Acknowledged)],
+    });
+    assert_eq!(observed.count("b").label().as_deref(), Some("24 unread"));
 }
