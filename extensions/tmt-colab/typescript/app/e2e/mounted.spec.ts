@@ -656,6 +656,19 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
     await managementBody.evaluate((node) => (node.scrollTop = 0));
     await expect(closeManagement).toBeInViewport({ ratio: 1 });
     const closeAtTop = await closeManagement.boundingBox();
+    // The "Keep on this computer" checkbox is a checkbox beside its label, not a full-width field
+    // that pushes the label out of the dialog.
+    const keepLabel = dialog.locator('.checkbox-label');
+    await keepLabel.scrollIntoViewIfNeeded();
+    const [labelBox, checkBox, bodyBox] = await Promise.all([
+      keepLabel.boundingBox(),
+      keepLabel.locator('input').boundingBox(),
+      managementBody.boundingBox(),
+    ]);
+    expect(checkBox!.width).toBeLessThan(48);
+    expect(labelBox!.x + labelBox!.width).toBeLessThanOrEqual(bodyBox!.x + bodyBox!.width + 1);
+    await expect(keepLabel).toContainText('Keep on this computer until I delete it');
+    await managementBody.evaluate((node) => (node.scrollTop = 0));
     if (scrollCaptures)
       await page.screenshot({ path: `${scrollCaptures}/manage-top-${width}-${theme}.png` });
     await managementBody.evaluate((node) => (node.scrollTop = node.scrollHeight));

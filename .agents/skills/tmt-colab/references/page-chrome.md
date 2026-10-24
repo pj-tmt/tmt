@@ -90,6 +90,7 @@ page content has that one-pixel `--tmt-ui-surface-rule` edge on all four sides, 
 shared drawers and dialogs from the leaf, and the annotation window and thread popover
 (`.annotation-popover`) from `style.css`. It knowingly sits below the 3:1 boundary floor of #3959
 (about 1.5:1 on `#fafafa`): a deliberate exception for floating panels (Ben, 2026-10-20), not to be reopened.
+The Manage page stays a centred modal `dialog`: its Close is disabled and Escape ignored while a change loads, applies or is pending, which `BrowserDrawer` cannot express yet (#4851). It is a rounded sheet of sections, each a 13px heading over a rule, with fields, menus and buttons on the shared field, rule and radius tokens (the `.management-dialog` rules in `style.css`).
 Explicit theme choices are radio menu items.
 Owner page and space-home headers use one shared-height row. Inside the TMT web shell
 ([Shell](../../../../design/gui-style.md#shell)) `ColabHeader` renders into the shell's header slot
