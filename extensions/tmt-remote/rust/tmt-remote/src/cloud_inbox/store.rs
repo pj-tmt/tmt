@@ -256,6 +256,22 @@ impl Store {
         ).map_err(database)?;
         Ok(())
     }
+    /// A sizing hint only: every provider result still traverses the overlap query.
+    /// Cached rows never authorize skipping a timestamp or operation ID.
+    pub(crate) fn cloud_inbox_page_limit(&self, from_ms: u64) -> Result<usize, RemoteError> {
+        Checkpoint::new(from_ms)?;
+        let known: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM (SELECT 1 FROM cloud_transport WHERE kind='inbox' AND created_ms>=?1 LIMIT ?2)",
+            params![from_ms as i64, limits::CLOUD_INBOX_PAGE_DOCUMENTS as i64],
+            |row| row.get(0),
+        ).map_err(database)?;
+        let known = usize::try_from(known).map_err(database)?;
+        Ok(if known < 2 {
+            1
+        } else {
+            (known + 1).min(limits::CLOUD_INBOX_PAGE_DOCUMENTS)
+        })
+    }
     pub(crate) fn cloud_finish_query(&mut self, read_ms: u64) -> Result<(), RemoteError> {
         self.cloud_complete(&[QUERY_CHECKPOINT.into()], read_ms)
     }

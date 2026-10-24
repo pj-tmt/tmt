@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_remote::{
-    canonical::{self, Envelope},
+    canonical,
     cloud_inbox::{InboxDriver, Provider, Sender},
     error::RemoteError,
     firebase_auth::{
@@ -96,6 +96,7 @@ impl NativeBudgetPort for Budget {
         Ok(())
     }
 }
+#[derive(Default)]
 struct Wire {
     documents: Mutex<BTreeMap<String, Value>>,
     owner: Mutex<Weak<InboxDriver>>,
@@ -114,10 +115,6 @@ impl Wire {
 }
 impl Http for Wire {
     fn send(&self, request: &Request, _: u64, _: &dyn Cancellation) -> Result<Response, AuthError> {
-        assert_eq!(
-            request.response_bytes(),
-            tmt_remote::limits::CLOUD_PROVIDER_BYTES
-        );
         let path = request
             .url()
             .strip_prefix("https://firestore.googleapis.com/v1/")
@@ -131,6 +128,11 @@ impl Http for Wire {
         } else {
             serde_json::from_slice(request.body()).unwrap()
         };
+        let page_limit = input["structuredQuery"]["limit"].as_u64().unwrap_or(1) as usize;
+        assert_eq!(
+            request.response_bytes(),
+            tmt_remote::limits::CLOUD_PROVIDER_BYTES * page_limit
+        );
         let (status, answer) = match request.operation() {
             Operation::Read
                 if path.contains("/responses/")
@@ -197,7 +199,7 @@ impl Http for Wire {
                     request.url().ends_with(&format!("/m/{MACHINE}:runQuery")),
                     "machine remains the parent"
                 );
-                assert_eq!(input["structuredQuery"]["limit"], 1);
+                assert!((1..=4).contains(&page_limit));
                 assert_eq!(
                     input["structuredQuery"]["from"],
                     json!([{"collectionId":"inbox","allDescendants":false}])
@@ -232,7 +234,7 @@ impl Http for Wire {
                 });
                 let rows: Vec<_> = ordered
                     .into_iter()
-                    .take(1)
+                    .take(page_limit)
                     .map(|(_, doc)| json!({"document":doc,"readTime":STAMP}))
                     .collect();
                 (
@@ -246,9 +248,14 @@ impl Http for Wire {
             }
             _ => panic!("no Auth/network bootstrap in the fixture"),
         };
+        let body = serde_json::to_vec(&answer).unwrap();
+        assert!(
+            body.len() <= request.response_bytes(),
+            "fixture response exceeded its admitted byte bound"
+        );
         Ok(Response {
             status,
-            body: serde_json::to_vec(&answer).unwrap(),
+            body,
             retry_after_ms: None,
         })
     }
@@ -298,24 +305,9 @@ fn signed_request_as(
     payload: &str,
     sign: impl FnOnce(&[u8]) -> [u8; 64],
 ) -> Vec<u8> {
-    let window = "22222222-2222-4222-8222-222222222222";
-    let session = "55555555-5555-4555-8555-555555555555";
-    let envelope = Envelope {
-        kind: "request",
-        id,
-        correlation_id: None,
-        machine_id: MACHINE,
-        window_id: window,
-        client_id: peer,
-        session_id: session,
-        sequence: "1",
-        timestamp_ms: NOW,
-        origin: "cli",
-        operation,
-        payload: payload.as_bytes(),
-    };
-    json!({"version":1,"profile":"local-v1","kind":"request","id":id,"correlationId":null,"machineId":MACHINE,"windowId":window,"clientId":peer,"sessionId":session,"sequence":"1","timestampMs":NOW,"origin":"cli","operation":operation,"payload":canonical::base64url(payload.as_bytes()),"signature":canonical::base64url(&sign(&canonical::envelope(&envelope).unwrap()))}).to_string().into_bytes()
+    cloud_fixture::signed_request_as(peer, id, operation, payload, NOW, sign)
 }
+
 #[test]
 fn sender_restart_recovers_frozen_outcomes_after_lost_create_answer_or_response_post() {
     for lose_response in [false, true] {
@@ -1827,4 +1819,205 @@ fn prepared_name_targets_resolve_once_or_record_a_per_document_refusal() {
             "duplicates never resolve or dispatch again"
         );
     }
+}
+
+/// Frozen workload: one two-minute active burst (24 five-second rounds), then
+/// 1,438 empty minute polls. This projects modeled guard units, never billing.
+#[test]
+fn polling_cost_for_idle_single_and_burst_keeps_budget_and_effect_bounds() {
+    for messages in [0, 1, 4] {
+        let world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+        std::fs::write(world.core.root.join("multi"), b"per-operation receipts").unwrap();
+        let wire = Arc::new(Wire::default());
+        for index in 0..messages {
+            let id = format!("00000000-0000-4000-8000-{index:012x}");
+            let carrier = tmt_remote::cloud_inbox::seal_native(
+                &request(&world.key, &id),
+                &world.descriptor,
+                NOW,
+                tmt_remote::cloud_hpke::Sender {
+                    client_id: PEER,
+                    authentication_key: &world.key.public(),
+                },
+                |bytes| world.key.sign(bytes),
+            )
+            .unwrap()
+            .0;
+            wire.seed_inbox(&id, &carrier);
+        }
+        let budget = Arc::new(Budget(Mutex::new(NativeUsage::new(NOW))));
+        let runtime = Arc::new(NativeRuntime::new(
+            wire.clone(),
+            Arc::new(ClockPort),
+            Arc::new(ClockPort),
+            budget.clone(),
+        ));
+        let owner = Provider::new(
+            Arc::new(Auth("owner")),
+            runtime,
+            Model::new(4, 4).unwrap(),
+            MACHINE,
+        )
+        .unwrap();
+        let driver = world.driver(owner);
+        let stopped = AtomicBool::new(false);
+        let io = IoBudget {
+            deadline: Instant::now() + Duration::from_secs(20),
+            cancelled: &stopped,
+        };
+        let mut returned = 0;
+        for _ in 0..24 {
+            returned += ready(driver.reconcile(NOW, &io)).unwrap();
+        }
+        assert_eq!(returned, messages * 24);
+        assert_eq!(world.core.sends(), messages);
+        let reads = budget.0.lock().unwrap().reads;
+        let requests = wire.requests.lock().unwrap();
+        let queries = requests
+            .iter()
+            .filter(|(op, _)| *op == Operation::Query)
+            .count();
+        let response_reads = requests
+            .iter()
+            .filter(|(op, path)| *op == Operation::Read && path.contains("/responses/"))
+            .count();
+        let writes = requests
+            .iter()
+            .filter(|(op, _)| *op == Operation::Commit)
+            .count();
+        let (query_ceiling, read_ceiling) = match messages {
+            0 => (24, 72),
+            1 => (48, 220),
+            4 => (49, 522),
+            _ => unreachable!(),
+        };
+        assert!(queries <= query_ceiling, "query calls regressed: {queries}");
+        assert!(reads <= read_ceiling, "guard charges regressed: {reads}");
+        assert_eq!(writes, messages, "only new frozen responses may post");
+        assert!(response_reads <= messages * 24);
+        if messages == 0 {
+            assert_eq!((queries, reads), (24, 72));
+            assert_eq!(response_reads, 0);
+        }
+        println!(
+            "poll-cost-measured {}",
+            json!({
+                "distinctDeliveries": messages, "returnedDocuments": returned,
+                "queryCalls": queries, "responseReads": response_reads,
+                "responseWrites": writes, "activeRoundGuardReads": reads,
+                "idleGuardReadsPerDay": 1440 * 3,
+                "oneBurstThenIdleGuardReadsPerDay": if messages == 0 { 1440 * 3 } else { reads + 1438 * 3 },
+            })
+        );
+    }
+}
+
+#[test]
+fn idle_inbox_keeps_one_query_per_minute_without_effects() {
+    let world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+    let wire = Arc::new(Wire::default());
+    let stopped = Arc::new(AtomicBool::new(false));
+    let clock = Arc::new(BackoffClock {
+        stopped: stopped.clone(),
+        ticks: std::sync::atomic::AtomicU64::new(0),
+        waits: Mutex::new(vec![]),
+    });
+    let driver = world.driver(provider_clock(wire.clone(), "owner", clock.clone()));
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(180),
+        cancelled: &stopped,
+    };
+    assert!(ready(driver.run(&io)).is_err());
+    assert!(stopped.load(Ordering::SeqCst));
+    assert_eq!(*clock.waits.lock().unwrap(), vec![60_000, 60_000]);
+    assert_eq!(
+        wire.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(operation, _)| *operation == Operation::Query)
+            .count(),
+        2
+    );
+    assert_eq!(world.core.sends(), 0);
+}
+
+#[test]
+fn bounded_followup_pages_retain_maximum_carriers_and_a_later_effect() {
+    use std::sync::atomic::AtomicUsize;
+    struct Measured {
+        wire: Arc<Wire>,
+        maximum: AtomicUsize,
+    }
+    impl Http for Measured {
+        fn send(
+            &self,
+            request: &Request,
+            deadline: u64,
+            cancel: &dyn Cancellation,
+        ) -> Result<Response, AuthError> {
+            let response = self.wire.send(request, deadline, cancel)?;
+            if request.operation() == Operation::Query {
+                self.maximum
+                    .fetch_max(response.body.len(), Ordering::SeqCst);
+            }
+            Ok(response)
+        }
+    }
+    let mut world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+    std::fs::write(world.core.root.join("multi"), b"per-operation receipts").unwrap();
+    let wire = Arc::new(Wire::default());
+    for index in 0..7 {
+        let id = format!("00000000-0000-4000-8000-{index:012x}");
+        let carrier = if (2..6).contains(&index) {
+            vec![b'x'; tmt_remote::limits::CLOUD_CARRIER_BYTES]
+        } else {
+            tmt_remote::cloud_inbox::seal_native(
+                &request(&world.key, &id),
+                &world.descriptor,
+                NOW,
+                tmt_remote::cloud_hpke::Sender {
+                    client_id: PEER,
+                    authentication_key: &world.key.public(),
+                },
+                |bytes| world.key.sign(bytes),
+            )
+            .unwrap()
+            .0
+        };
+        wire.seed_inbox(&id, &carrier);
+    }
+    let measured = Arc::new(Measured {
+        wire: wire.clone(),
+        maximum: AtomicUsize::new(0),
+    });
+    let driver = world.driver(provider_clock(
+        measured.clone(),
+        "owner",
+        Arc::new(ClockPort),
+    ));
+    let stopped = AtomicBool::new(false);
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(20),
+        cancelled: &stopped,
+    };
+    assert_eq!(ready(driver.reconcile(NOW, &io)).unwrap(), 7);
+    assert_eq!(
+        world.core.sends(),
+        3,
+        "a maximum-size poison page cannot hide the later valid effect"
+    );
+    assert!(measured.maximum.load(Ordering::SeqCst) > tmt_remote::limits::CLOUD_PROVIDER_BYTES);
+    assert!(
+        measured.maximum.load(Ordering::SeqCst) <= 4 * tmt_remote::limits::CLOUD_PROVIDER_BYTES
+    );
+    drop(driver);
+    world = world.reopen(NOW, Arc::new(CurrentIdentity));
+    let driver = world.driver(provider_clock(measured, "owner", Arc::new(ClockPort)));
+    assert_eq!(ready(driver.reconcile(NOW, &io)).unwrap(), 7);
+    assert_eq!(
+        world.core.sends(),
+        3,
+        "restart keeps all earlier outcomes frozen"
+    );
 }

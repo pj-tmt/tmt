@@ -157,12 +157,19 @@ impl Http for Wire {
                     ) > (time, name)
                 });
             }
+            let limit = q["limit"].as_u64().unwrap() as usize;
+            let page: Vec<_> = rows
+                .into_iter()
+                .take(limit)
+                .map(|document| json!({"document":document,"readTime":stamp}))
+                .collect();
             return response(
                 200,
-                rows.first().map_or_else(
-                    || json!([{"readTime":stamp}]),
-                    |v| json!([{"document":v,"readTime":stamp}]),
-                ),
+                if page.is_empty() {
+                    json!([{"readTime":stamp}])
+                } else {
+                    json!(page)
+                },
             );
         }
         self.commits.lock().unwrap().push(input.clone());
