@@ -18,8 +18,8 @@
   --tmt-foundation-motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
   --tmt-foundation-motion-scale: 0.96;
   --tmt-foundation-motion-rise: 6px;
-  --tmt-foundation-font-display: 'Bricolage Grotesque', system-ui, sans-serif;
-  --tmt-foundation-font-body: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --tmt-foundation-font-display: Inter, -apple-system, system-ui, 'Segoe UI', sans-serif;
+  --tmt-foundation-font-body: Inter, -apple-system, system-ui, 'Segoe UI', sans-serif;
   --tmt-foundation-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --tmt-foundation-background: #f3f6f5;
   --tmt-foundation-foreground: #26393f;

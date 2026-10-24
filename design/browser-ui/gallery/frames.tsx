@@ -159,19 +159,26 @@ function ShellFrame({ params }: { params: URLSearchParams }) {
   return (
     <BrowserShell view={view} select={() => true}>
       <ShellHeader />
-      <div className="gallery-frame-main">
-        <BrowserList label="Pages">
-          <BrowserListRow
-            title={<a href="#pages">Release plan for the remote channel</a>}
-            metadata="ux-4 · 2 minutes ago"
-            state={<span>◆ needs you</span>}
-          />
-          <BrowserListRow
-            title={<a href="#pages">Brand sheet</a>}
-            metadata="tmt-ux-lead · yesterday"
-            state={<span>✓ answered</span>}
-          />
-        </BrowserList>
+      <div className="tmt-ui-page">
+        <header className="tmt-ui-page-head">
+          <h2 className="tmt-ui-page-title">Your pages, in one place.</h2>
+          <p className="tmt-ui-page-subtitle">A shared space for your team’s work.</p>
+        </header>
+        <section className="tmt-ui-card">
+          <h3 className="tmt-ui-card-title">Pages</h3>
+          <BrowserList label="Pages">
+            <BrowserListRow
+              title={<a href="#pages">Release plan for the remote channel</a>}
+              metadata="ux-4 · 2 minutes ago"
+              state={<span>◆ needs you</span>}
+            />
+            <BrowserListRow
+              title={<a href="#pages">Brand sheet</a>}
+              metadata="tmt-ux-lead · yesterday"
+              state={<span>✓ answered</span>}
+            />
+          </BrowserList>
+        </section>
       </div>
     </BrowserShell>
   );

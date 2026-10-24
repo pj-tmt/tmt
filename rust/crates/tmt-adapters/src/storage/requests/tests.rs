@@ -434,3 +434,55 @@ fn retained_request_id_sample_and_overflow_count_use_indexed_ranges() {
     }
     storage.close().unwrap();
 }
+
+#[test]
+fn the_answers_read_walks_both_answer_indexes_without_scanning_attempts() {
+    let directory = TestDirectory::new();
+    let mut storage = Storage::open(directory.path.join("requests.db")).unwrap();
+    for has_cursor in [false, true] {
+        let plan = format!(
+            "EXPLAIN QUERY PLAN {}",
+            super::history::answers_query(has_cursor)
+        );
+        let connection = storage.connection().unwrap();
+        let mut statement = connection.prepare(&plan).unwrap();
+        let details = statement
+            .query_map(
+                rusqlite::params![
+                    "11111111-1111-4111-8111-111111111111",
+                    has_cursor.then_some(7_i64),
+                    has_cursor.then_some("req_1"),
+                    50_i64,
+                    1000_i64
+                ],
+                |row| row.get::<_, String>(3),
+            )
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        for index in [
+            "request_history_originator_results",
+            "request_passthrough_answered",
+        ] {
+            assert!(
+                details.iter().any(|detail| detail.contains(index)),
+                "{index}: {details:?}"
+            );
+        }
+        assert!(
+            !details
+                .iter()
+                .any(|detail| detail.contains("SCAN request_attempts")
+                    || detail.contains("SCAN request_passthrough")),
+            "{details:?}"
+        );
+        // Each side is cut to the page by its index; only the merge of the two short
+        // lists sorts, never a walk of the attempts.
+        for (at, detail) in details.iter().enumerate() {
+            if detail.contains("USE TEMP B-TREE") {
+                assert!(details[at - 1].starts_with("SCAN (subquery"), "{details:?}");
+            }
+        }
+    }
+    storage.close().unwrap();
+}

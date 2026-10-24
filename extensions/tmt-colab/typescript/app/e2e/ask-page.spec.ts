@@ -1,3 +1,4 @@
+import { headerHeight } from './tokens.js';
 import { commentsClose, commentsRegion, openPanel } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
@@ -1107,7 +1108,7 @@ for (const [width, theme] of [
       const box = (await drawer.boundingBox())!;
       const gap = width <= 480 ? 4 : 8;
       expect(box.x + box.width).toBe(width - gap);
-      expect(box.y).toBe((width <= 480 ? 48 : 56) + gap);
+      expect(box.y).toBe(headerHeight(width) + gap);
       expect(box.y + box.height).toBe(900 - gap);
       await expect(drawer).toHaveCSS('border-right-width', '1px');
       expect((await frame.boundingBox())?.width).toBe(before?.width);

@@ -746,8 +746,8 @@ the card. Resolved proposals fold to a plain one-line row with a resolved mark,
 retained-history disclosure and Reopen. Comments lists the page's threads in
 views `Open`, `Needs you` and `Resolved` (and `Proposals` when the page has one),
 a 1px rule under the view strip, as rows of number, title, quoted passage and
-`N comments · state`, each closed by a 1px rule with 18px of vertical padding; the title keeps the
-body size and the quote and meta take the caption size; the selected view tab uses the shared
+`N comments · state`, each closed by a 1px rule with 18px of vertical padding; the title stays at
+14px (the compact body token) and the quote and meta take the caption size; the selected view tab uses the shared
 selection tint. Each view has an
 empty state; its header count combines unresolved ordinary threads and undecided unresolved
 proposals. Selecting a row opens that thread's Discussion view in the drawer: a status line

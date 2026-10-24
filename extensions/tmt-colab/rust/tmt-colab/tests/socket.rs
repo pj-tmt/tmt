@@ -808,7 +808,7 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     assert!(chrome.contains("Referrer-Policy: no-referrer"));
     assert!(chrome.contains("X-Content-Type-Options: nosniff"));
     assert!(chrome.contains("Cache-Control: no-store"));
-    assert!(chrome.contains("--tmt-ui-header-height: 56px"));
+    assert!(chrome.contains("--tmt-ui-header-height: 62px"));
     assert!(chrome.contains(".tmt-ui-header"));
     assert_eq!(
         tmt_colab::assets::anonymous_file("/assets/chrome.css"),

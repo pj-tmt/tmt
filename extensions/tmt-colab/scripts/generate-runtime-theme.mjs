@@ -24,11 +24,9 @@ export const excluded = {
 // Tailwind's own scale names; every one takes the token radius, so every `rounded-*` is that one radius.
 const radii = ['xs', 'sm', 'md', 'lg', 'xl', '2xl', '3xl', '4xl'];
 
-/** The system part of a font stack: the leading quoted web font cannot load in the frame, and the
- * frame would otherwise use it wherever it happens to be installed. */
-function systemStack(name, stack) {
+/** Keep system stacks intact; omit a legacy leading quoted web font that cannot load in the frame. */
+function systemStack(stack) {
   const system = stack.replace(/^\s*"[^"]+"\s*,\s*/, '');
-  if (system === stack) throw new Error(`font.${name} must start with a quoted web font`);
   // Single quotes, the way the repository formatter writes CSS.
   return system.replaceAll('"', "'");
 }
@@ -67,9 +65,9 @@ export function buildTheme(tokens) {
     '--inset-shadow-*: initial;',
     '--drop-shadow-*: initial;',
     '--text-shadow-*: initial;',
-    `--font-sans: ${systemStack('body', font.body.stack)};`,
-    `--font-mono: ${systemStack('mono', font.mono.stack)};`,
-    `--font-display: ${systemStack('display', font.display.stack)};`,
+    `--font-sans: ${systemStack(font.body.stack)};`,
+    `--font-mono: ${systemStack(font.mono.stack)};`,
+    `--font-display: ${systemStack(font.display.stack)};`,
   ];
   const values = (theme) => roles.map((role) => `${variable(role)}: ${role[theme]};`);
   const block = (selector, lines) =>
