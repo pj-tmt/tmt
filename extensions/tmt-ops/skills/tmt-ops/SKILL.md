@@ -541,9 +541,11 @@ order, never the selection or a message.
 In Agents, `n` opens New member on any row; `p` pins/unpins a squad. `N`
 creates a squad on a squad row or the Common pool and opens the member's Notes on a
 member row, `m` manages a squad or assigns a member, and `x` leaves only the
-selected squad membership. On member rows the footer offers `r rename`, `m move`,
-`R resume`, `N notes` and `d remove`, using effective bindings and dropping whole hints at
-narrow widths. `d` is a copy-only retirement review: stop the agent first and
+selected squad membership. On member rows the footer offers `m move`, `R resume`
+and `N notes`, using effective bindings and dropping whole hints at narrow widths.
+Right-click a visible Agents row to select it and open Actions, or open Settings
+(default comma) and choose Actions. With list focus, Rename agent and Remove member are named menu
+entries without default keys. Remove member is a copy-only retirement review: stop the agent first and
 recheck the displayed name before running the copied command. Retirement does
 not stop the agent or close its window. Member `S switch tool` is not
 available yet. `D` opens Digest and `c` opens Timers outside a modal.
@@ -634,9 +636,13 @@ Their Esc back action cannot be rebound. At the base list, Esc clears an active
 launch scope through the effective `clear-scope` binding; otherwise it stays put.
 Esc and Ctrl-C cannot be authored as bindings.
 Default `q` quits the board body, closes or backs out of an overlay, and types in
-an editor; Ctrl-C quits globally. In Member and conversation focus, default `v`
-opens the full response reader; compatible explicit bindings still win.
-Pointer controls use only their current visible rectangles.
+an editor; Ctrl-C quits globally. Rename, remove, annotate and view-reply have no
+default `r`, `d`, `a` or `v` binding; authored bindings can still use those actions.
+The configurable `f` and `M` hints live on their tab strips rather than in the
+footer. A shortcut unavailable in the current scope stays visible and disabled;
+loading, overlays, active search and typing disable the strip controls as well.
+Reader focus keeps mouse tab selection available. Explicitly unbound shortcuts
+show no fabricated key. Pointer controls use only their current visible rectangles.
 
 With Agents tree focus, `s` opens Add agent; configured bindings retain
 precedence. An empty Common pool offers the same visible action. Opening offers

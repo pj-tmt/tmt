@@ -253,6 +253,10 @@ state only, no squad data or durable preference policy.
   accept effective destination actions after the overlay's own back path closes it.
   Esc closes one level and stays at the base list; it is not bindable. Default `q`
   quits the board body, backs out of an overlay and types in an active editor.
+  Right-click on a fresh visible Agents row selects that typed row and opens the
+  existing Actions menu; loading, overlays and invalidated frame hits cannot use it.
+  In list focus, the keyboard path remains Settings (default comma), then Actions; no direct default
+  menu key is added, and member `m` remains move-membership.
   Footer fitting follows `view::footer::hints` below.
   Opaque modals hide the base hints;
   notices/error precedence remains with the existing frame owner. Theme and Token
@@ -383,7 +387,13 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   or annotating never clears pending data. Visible-clock admission belongs to the
   frame registry above, not unpainted request ages or retired continuation rows.
 - `view::footer::hints` uses the effective scoped Config table and typed action
-  ranks, independently of menu ordering. `row_allows` rejects unavailable member
+  ranks, independently of menu ordering. The catalog excludes AgentsFilter and
+  TalkMeasure from all whole-footer paths: their strips own the configured labels.
+  The keycap owner retains a list-scope label while Reader focus makes that shortcut
+  unavailable, without fabricating explicitly unbound keys. Shared button disabled
+  styling and hit admission apply behind overlays/loading/search/editors, as for
+  Snapshots; pointer tab choices can transfer pane focus independently of the key.
+  `row_allows` rejects unavailable member
   actions; `hint_word` names compatible custom actions. Core hints drop from the
   end, retaining the effective Help/quit tail or Help alone at narrow widths.
   The optional note hint stays beside Chat only when it fits without evicting a

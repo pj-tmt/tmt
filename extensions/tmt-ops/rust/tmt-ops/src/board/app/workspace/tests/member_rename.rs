@@ -5,7 +5,10 @@ use crate::board::workspace::{
 };
 
 fn rename(app: &mut App, name: &str) -> Rename {
-    assert_eq!(key(app, KeyCode::Char('r')), Effect::None);
+    assert_eq!(
+        member_menu_action(app, OpsUiAction::RenameMember),
+        Effect::None
+    );
     assert_eq!(
         app.workspace_form.as_ref().unwrap().kind,
         Kind::RenameMember
@@ -22,9 +25,9 @@ fn rename(app: &mut App, name: &str) -> Rename {
     request
 }
 #[test]
-fn only_visible_agents_list_member_has_default_rename_and_hidden_target_cannot_begin() {
+fn rename_has_no_factory_key_and_hidden_target_cannot_begin() {
     let mut app = board();
-    assert_eq!(app.bindings()["r"].text, "rename-member");
+    assert!(!app.bindings().contains_key("r"));
     let tab = OpsTab::Digest;
     app.shell.tab = tab;
     assert!(!app.bindings().contains_key("r"));
@@ -54,7 +57,7 @@ fn rename_freezes_uuid_literal_expected_name_and_requires_visible_review_once() 
         .rows
         .get_mut(&selected)
         .unwrap()["name"] = json!(" Worker ");
-    key(&mut app, KeyCode::Char('r'));
+    member_menu_action(&mut app, OpsUiAction::RenameMember);
     assert_eq!(
         app.workspace_form
             .as_ref()
@@ -171,7 +174,7 @@ fn conflict_actual_name_and_retirement_never_authorize_an_old_review_or_successo
 #[test]
 fn resize_and_stale_pointer_revoke_apply_until_exact_target_is_visible() {
     let mut app = board();
-    key(&mut app, KeyCode::Char('r'));
+    member_menu_action(&mut app, OpsUiAction::RenameMember);
     app.workspace_submit_field("worker-two".into());
     paint(&app, 160, 36);
     let apply = app.workspace_form.as_ref().unwrap().controls.get()[1].unwrap();
@@ -228,7 +231,7 @@ fn initial_enter_and_escape_cancel_without_clicking_through_to_the_member() {
     for close in [KeyCode::Enter, KeyCode::Esc] {
         let mut app = board();
         let selected = app.workspace.selected.clone();
-        key(&mut app, KeyCode::Char('r'));
+        member_menu_action(&mut app, OpsUiAction::RenameMember);
         app.input.as_mut().unwrap().text = "different".into();
         assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
         assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);

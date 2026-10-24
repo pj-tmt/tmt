@@ -246,13 +246,28 @@ pub(in crate::board) fn effective_key(
     verb: crate::action::Verb,
     preferred: &str,
 ) -> Option<String> {
+    configured_key(
+        app,
+        bindings,
+        app.workspace_binding_sources(),
+        verb,
+        preferred,
+    )
+}
+
+pub(in crate::board) fn configured_key(
+    app: &App,
+    bindings: &crate::action::Bindings,
+    sources: Option<&std::collections::BTreeMap<String, String>>,
+    verb: crate::action::Verb,
+    preferred: &str,
+) -> Option<String> {
     bindings
         .iter()
         .find(|(key, action)| {
             action.verb == verb
                 && row_allows(app, action)
-                && app
-                    .workspace_binding_sources()
+                && sources
                     .and_then(|sources| sources.get(*key))
                     .is_some_and(|source| source != "workspace default")
         })
@@ -346,7 +361,8 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
         }
     }
     if let Some(action) = bindings.get("enter").filter(|action| {
-        row_allows(app, action) && !matches!(action.verb, Verb::Ui(Ui::Quit | Ui::Help))
+        row_allows(app, action)
+            && !matches!(action.verb, Verb::Ui(ui) if !ui.footer_hint() || matches!(ui, Ui::Quit | Ui::Help))
     }) {
         let word = hint_word(app, action);
         first.push(("⏎".into(), word));
@@ -434,9 +450,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
     };
     let mut choices = vec![
         (Verb::Ui(Ui::Search), "/", search_word),
-        (Verb::Ui(Ui::TalkMeasure), "M", "talk/measure"),
         (Verb::Ui(Ui::Timers), "c", "timers"),
-        (Verb::Ui(Ui::AgentsFilter), "f", "filter"),
         (Verb::Ui(Ui::SavingsUnit), "$", "unit"),
         (Verb::Ui(Ui::UsageControls), "u", "chart"),
         (Verb::Settings, ",", "settings"),
@@ -537,6 +551,7 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
             }
 
             !matches!(event.as_str(), "click" | "double-click")
+                && !matches!(action.verb, Verb::Ui(ui) if !ui.footer_hint())
                 && !matches!(
                     action.verb,
                     Verb::Ui(

@@ -530,6 +530,11 @@ impl App {
     ) -> Option<crate::board::conversation_notes::Key> {
         crate::board::conversation_notes::Key::of(self.workspace_selected_member()?)
     }
+    /// Base controls cannot activate behind an overlay, loading frame or active editor.
+    pub(in crate::board) fn workspace_strip_enabled(&self) -> bool {
+        !self.loading() && !self.modal_open() && self.input.is_none() && !self.searching
+    }
+
     pub(in crate::board) fn workspace_scope(&self) -> OpsKeyScope {
         if self.workspace_snapshot().is_none() {
             // The generic row surface has no Overview request context.
@@ -542,6 +547,10 @@ impl App {
         if self.focused_pane() == Some(Pane::Replies) {
             return OpsKeyScope::Reader;
         }
+        self.workspace_row_scope()
+    }
+    /// The list's configured scope remains visible while the Reader holds focus.
+    pub(in crate::board) fn workspace_row_scope(&self) -> OpsKeyScope {
         match self.workspace.selected {
             Some(OpsTarget::Squad(_)) => OpsKeyScope::Squad,
             Some(OpsTarget::Member { .. }) => OpsKeyScope::Member,
@@ -658,8 +667,13 @@ impl App {
     pub(in crate::board) fn workspace_binding_sources(
         &self,
     ) -> Option<&std::collections::BTreeMap<String, String>> {
+        self.workspace_binding_sources_for(self.workspace_scope())
+    }
+    pub(in crate::board) fn workspace_binding_sources_for(
+        &self,
+        scope: OpsKeyScope,
+    ) -> Option<&std::collections::BTreeMap<String, String>> {
         let snapshot = self.workspace_snapshot()?;
-        let scope = self.workspace_scope();
         let section = self.workspace.selected.as_ref().filter(|target| {
             snapshot
                 .sections
@@ -756,7 +770,7 @@ impl App {
             crate::config::workspace_defaults(self.workspace_scope()).remove("j")
         }
     }
-    fn workspace_selected_host(&self) -> Option<&str> {
+    pub(in crate::board) fn workspace_selected_host(&self) -> Option<&str> {
         let row = self
             .workspace_message_target()
             .and_then(|target| self.workspace_snapshot()?.rows.get(&target))

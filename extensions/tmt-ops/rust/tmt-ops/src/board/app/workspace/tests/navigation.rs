@@ -223,7 +223,10 @@ fn configured_destination_and_reader_entry_share_the_effective_table() {
 
 #[test]
 fn reader_entry_without_a_response_says_why_without_changing_selection() {
-    let mut app = board();
+    let mut app = configured_member(
+        "[bind]\nv='view-reply'\n",
+        json!({"id":MEMBER,"name":"worker"}),
+    );
     let target = app.workspace.selected.clone();
     assert!(!paint(&app, 160, 36).join("\n").contains("v reader"));
     app.context_menu();
@@ -243,7 +246,10 @@ fn reader_entry_without_a_response_says_why_without_changing_selection() {
 
 #[test]
 fn reader_entry_uses_the_visible_response_without_requiring_retired_row_expansion() {
-    let mut app = board();
+    let mut app = configured_member(
+        "[bind]\nv='view-reply'\n",
+        json!({"id":MEMBER,"name":"worker"}),
+    );
     app.view.as_mut().unwrap().replies = vec![json!({
         "recipientId":MEMBER,"requestId":"req_44444444-4444-4444-8444-444444444444",
         "response":"Actual held response", "submittedAtMs":crate::status::now_ms(),

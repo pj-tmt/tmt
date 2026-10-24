@@ -28,7 +28,7 @@
       "                                                                           │── Exchanges with you ──────────────────────────────────────────────────────────────",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -60,7 +60,7 @@
       " No current recipient observed.",
       "",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -92,7 +92,7 @@
       " No current recipient observed.",
       "",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -123,8 +123,8 @@
       "                                                                           │",
       "                                                                           │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                               ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume  N notes  d remove  x leave squad  a note  v reader  j host  p pin",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes  x leave squad  j host  p pin",
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -155,8 +155,8 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume  N notes  d remove",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes  x leave squad  j host",
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -187,8 +187,8 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes",
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -220,7 +220,7 @@
       "                                                                           │── Exchanges with you ──────────────────────────────────────────────────────────────",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -252,7 +252,7 @@
       "                                               │── Exchanges with you ──────────────────────────────",
       " 1–3 / 3 rows  ·  0 more ↓                     │ No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -284,7 +284,7 @@
       " No current recipient observed.",
       "",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -315,8 +315,8 @@
       "                                                                           │",
       "                                                                           │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                               ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume  N notes  d remove  x leave squad  a note  v reader  j host  p pin",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes  x leave squad  j host  p pin",
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -347,8 +347,8 @@
       "                                               │",
       "                                               │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                     │ worker  ● 0 unread                     ⏎  Alt+⏎  @",
-      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume  N notes  d remove",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes  x leave squad  j host",
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -379,8 +379,8 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes",
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -412,7 +412,7 @@
       " No current recipient observed.",
       "",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -444,7 +444,7 @@
       " No current recipient observed.",
       "",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -476,7 +476,7 @@
       " No current recipient observed.",
       "",
       " ↑↓ select  ←→ fold  ⏎ inspect  i idle alert  n new  N create squad  p pin",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -507,8 +507,8 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume  N notes  d remove  x leave squad  a note  v reader  j host  p pin",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes  x leave squad  j host  p pin",
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -539,8 +539,8 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume  N notes  d remove",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes  x leave squad  j host",
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -571,8 +571,8 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  r rename  m move  R resume",
-      " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  i idle alert  n new  m move  R resume  N notes",
+      " Tab panes  w snapshots  / search  c timers  u chart  , settings  ? help  q quit"
     ]
   }
 ]

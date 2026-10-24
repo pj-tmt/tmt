@@ -172,6 +172,10 @@ pub(super) fn model(app: &App) -> KeyHelp {
                     "scroll the pane under the pointer without moving the selected target; if the wheel scrolls tmux instead, run tmux set -g mouse on",
                 ),
                 (
+                    "right-click row",
+                    "select a visible Agents row and open Actions; the settings menu also offers Actions",
+                ),
+                (
                     "divider drag",
                     "drag a visible separator to resize; hover shows the axis; double-click restores its default",
                 ),
@@ -297,6 +301,27 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 .map(|(index, text)| entry(&format!("parameter-{index}"), "", text))
                 .collect(),
         });
+    }
+    if app.workspace_scope().is_reader() {
+        let bindings = app.bindings();
+        let entries: Vec<_> = crate::action::OpsUiAction::strip_actions()
+            .filter(|ui| {
+                !bindings
+                    .values()
+                    .any(|action| action.verb == crate::action::Verb::Ui(*ui))
+            })
+            .filter_map(|ui| {
+                super::keycap::key(app, ui, "")
+                    .map(|key| entry(ui.spec().name, &key, ui.spec().description))
+            })
+            .collect();
+        if !entries.is_empty() {
+            sections.push(KeyHelpSection {
+                id: "strip-keys".into(),
+                title: "tab strip shortcuts (disabled in this scope)".into(),
+                entries,
+            });
+        }
     }
     if let Some(versions) = &app.versions {
         sections.push(section(

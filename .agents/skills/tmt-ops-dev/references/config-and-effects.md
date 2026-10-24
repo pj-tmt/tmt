@@ -316,8 +316,10 @@ scoped override semantics; CLI configuration remains available for explicit edit
   arguments; bad events, actions or field syntax are configuration errors. Config owns
   the workspace defaults and overlays compatible global, host, then section bindings.
   Dispatch, help and footer consume that same table in the current list or Reader scope.
-  Member `rename-member` defaults to `r` only for a visible Agents list member, including
-  Common pool; the staged form freezes its UUID and literal current name for Core's
+  The workspace has no factory `r`/`d`/`a`/`v` bindings; compatible authored actions
+  retain global/host/section precedence. The typed UI catalog keeps Rename agent and
+  Remove member discoverable as unbound Actions entries for a visible Agents member,
+  including Common pool. The rename form freezes its UUID and literal current name for Core's
   `identity.rename` CAS, with explicit review and no automatic retry.
   Default Enter talks for a member and inspects a squad or the Common pool, on every host;
   double-click inspects; list `j` jumps, while Reader `j/k` scroll. The host table

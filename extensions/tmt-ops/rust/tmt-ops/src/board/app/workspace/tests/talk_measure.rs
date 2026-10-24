@@ -62,7 +62,7 @@ fn measure_hints_and_help_follow_defaults_and_authored_keys() {
         let text = paint(&app, 160, 40).join("\n");
         assert!(text.contains(&format!("{key}  Talk   Measure")), "{text}");
         let hints = crate::board::view::footer::agents_hints(&app, 500).unwrap();
-        assert!(hints.contains(&format!("{key} talk/measure")), "{hints}");
+        assert!(!hints.contains("talk/measure"), "{hints}");
         let help = crate::board::help::model(&app).value();
         let entry = help["sections"][0]["entries"]
             .as_array()

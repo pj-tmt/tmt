@@ -271,7 +271,6 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("c", "timers"),
             ("R", "member-session"),
             ("N", "member-notes"),
-            ("v", "view-reply"),
             ("p", "pin"),
         ]
     } else {
@@ -316,7 +315,6 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("S", "show-squad"),
         ]),
         OpsKeyScope::Member => entries.extend([
-            ("v", "view-reply"),
             ("p", "pin"),
             ("e", "monitor-details"),
             ("enter", "talk"),
@@ -325,8 +323,6 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("x", "remove-membership"),
             ("N", "member-notes"),
             ("m", "move-membership"),
-            ("r", "rename-member"),
-            ("d", "remove-member"),
             ("D", "digest"),
         ]),
         OpsKeyScope::Pool => entries.extend([("m", "manage"), ("N", "create-squad")]),
@@ -339,11 +335,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         entries.push(("s", "discover-agents"));
         entries.push(("f", "agents-filter"));
     }
-    entries.extend([
-        ("w", "workspace-snapshots"),
-        ("y", "copy"),
-        ("a", "annotate lead"),
-    ]);
+    entries.extend([("w", "workspace-snapshots"), ("y", "copy")]);
     entries
         .into_iter()
         .map(|(key, action)| {
@@ -1113,6 +1105,55 @@ mod tests {
     }
 
     #[test]
+    fn agents_shortcuts_authored_actions_keep_global_host_and_section_precedence() {
+        for event in ["r", "d", "a", "v"] {
+            let cfg = config(&format!(
+                "[bind]\n{event}='copy global'\n[bind.tmux]\n{event}='copy host'\n"
+            ));
+            let section: Bindings = [(event.into(), Action::parse("copy section").unwrap())].into();
+            for scope in [
+                OpsKeyScope::Squad,
+                OpsKeyScope::Member,
+                OpsKeyScope::Pool,
+                OpsKeyScope::Reader,
+            ] {
+                assert_eq!(
+                    cfg.workspace_keys(scope, None, None).unwrap().bindings[event].text,
+                    "copy global"
+                );
+                assert_eq!(
+                    cfg.workspace_keys(scope, Some("tmux"), None)
+                        .unwrap()
+                        .bindings[event]
+                        .text,
+                    "copy host"
+                );
+                assert_eq!(
+                    cfg.workspace_keys(scope, Some("tmux"), Some(&section))
+                        .unwrap()
+                        .bindings[event]
+                        .text,
+                    "copy section"
+                );
+            }
+        }
+    }
+    #[test]
+    fn agents_shortcuts_leave_duplicate_actions_unbound_by_default() {
+        for scope in [
+            OpsKeyScope::Squad,
+            OpsKeyScope::Member,
+            OpsKeyScope::Pool,
+            OpsKeyScope::Reader,
+        ] {
+            let factory = config("").workspace_keys(scope, None, None).unwrap();
+            for key in ["r", "d", "a", "v"] {
+                assert!(!factory.bindings.contains_key(key), "{scope:?}: {key}");
+            }
+        }
+    }
+
+    #[test]
     fn factory_measure_key_is_unique_outside_readers_and_t_is_unbound() {
         for scope in [
             OpsKeyScope::Squad,
@@ -1240,11 +1281,7 @@ mod tests {
     fn source_reader_and_destination_defaults_are_unique_and_yield_to_authored_keys() {
         for scope in [OpsKeyScope::Member, OpsKeyScope::Reader] {
             let defaults = defaults(scope);
-            for (event, verb) in [
-                ("1", "agents"),
-                ("2", "digest-dashboard"),
-                ("v", "view-reply"),
-            ] {
+            for (event, verb) in [("1", "agents"), ("2", "digest-dashboard")] {
                 assert_eq!(defaults[event].text, verb);
                 assert_eq!(
                     defaults
@@ -1320,7 +1357,7 @@ mod tests {
             .workspace_keys(OpsKeyScope::Member, None, None)
             .unwrap()
             .bindings;
-        assert_eq!(member["r"].text, "rename-member");
+        assert!(!member.contains_key("r"));
         assert_eq!(member["D"].text, "digest");
         assert_eq!(member["x"].text, "remove-membership");
         assert_eq!(squad["w"].text, "workspace-snapshots");
@@ -1360,10 +1397,10 @@ mod tests {
         );
     }
     #[test]
-    fn rename_default_yields_to_explicit_global_host_and_section_bindings() {
+    fn unbound_rename_accepts_explicit_global_host_and_section_bindings() {
         let config = config("[bind]\nr='talk'\n[bind.tmux]\nr='open'\n");
         let section: Bindings = [("r".into(), Action::parse("copy").unwrap())].into();
-        assert_eq!(defaults(OpsKeyScope::Member)["r"].text, "rename-member");
+        assert!(!defaults(OpsKeyScope::Member).contains_key("r"));
         assert_eq!(
             config
                 .workspace_keys(OpsKeyScope::Member, None, None)
@@ -1970,8 +2007,8 @@ mod tests {
     }
 
     #[test]
-    fn member_defaults_keep_view_reply_and_pin() {
-        assert_eq!(defaults(OpsKeyScope::Member)["v"].text, "view-reply");
+    fn member_defaults_keep_pin_without_a_view_reply_duplicate() {
+        assert!(!defaults(OpsKeyScope::Member).contains_key("v"));
         assert_eq!(defaults(OpsKeyScope::Member)["p"].text, "pin");
     }
 
