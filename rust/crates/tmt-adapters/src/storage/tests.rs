@@ -135,7 +135,7 @@ fn application_schema_observation_reads_wal_and_future_versions_without_migratio
 fn application_schema_observation_refuses_gaps_and_changed_known_migrations() {
     let fixture = Fixture::new();
     let mut storage = Storage::open(&fixture.database).unwrap();
-    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 63);
+    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 64);
     let connection = storage.connection().unwrap();
     connection
         .execute_batch("INSERT INTO _migrations VALUES (65, 'gap', 'now');")
@@ -164,7 +164,7 @@ fn open_enforces_connection_features_and_private_files() {
         storage.health().unwrap(),
         StorageHealth {
             path: fixture.database.clone(),
-            schema_version: 63,
+            schema_version: 64,
             journal_mode: "wal",
             foreign_keys: true,
             busy_timeout_ms: 5000,
@@ -302,7 +302,7 @@ fn concurrent_openers_commit_each_migration_only_once() {
     initial.pragma_update(None, "journal_mode", "WAL").unwrap();
     initial.close().unwrap();
     for result in concurrent_opens(&fixture) {
-        assert_eq!(result.unwrap(), 63);
+        assert_eq!(result.unwrap(), 64);
     }
     assert_complete_history(&fixture);
 }
@@ -312,7 +312,7 @@ fn cold_open_race_initializes_wal_for_every_caller() {
     for _ in 0..4 {
         let fixture = Fixture::new();
         for result in concurrent_opens(&fixture) {
-            assert_eq!(result.unwrap(), 63);
+            assert_eq!(result.unwrap(), 64);
         }
         assert_complete_history(&fixture);
     }
@@ -348,7 +348,7 @@ fn assert_complete_history(fixture: &Fixture) {
     let count: i64 = verification
         .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(count, 63);
+    assert_eq!(count, 64);
     let check: String = verification
         .query_row("PRAGMA integrity_check", [], |row| row.get(0))
         .unwrap();

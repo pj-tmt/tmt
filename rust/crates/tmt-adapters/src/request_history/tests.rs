@@ -357,3 +357,108 @@ fn only_a_passthrough_item_carries_its_capture_with_the_answer_as_untrusted_text
     // Provider session and turn ids are local evidence, not part of the wire.
     assert!(!value["items"][1].to_string().contains("provider-session"));
 }
+
+#[test]
+fn answers_admission_is_originator_scoped_strict_and_bounded() {
+    let decode = |value: Value| decode_list_query(&serde_json::to_vec(&value).unwrap());
+    let Some(ListQuery::Answers(query)) = decode(json!({"originatorId":ID,"view":"answers"}))
+    else {
+        panic!("an answers query");
+    };
+    assert_eq!((query.originator_id.as_str(), query.limit), (ID, 8));
+    assert!(query.before.is_none());
+    let Some(ListQuery::Answers(query)) =
+        decode(json!({"originatorId":ID,"view":"answers","limit":50,
+        "before":{"answeredAtMs":7,"requestId":REQUEST}}))
+    else {
+        panic!("an answers query");
+    };
+    assert_eq!(query.limit, 50);
+    assert_eq!(
+        query.before,
+        Some(AnswerCursor {
+            answered_at_ms: 7,
+            request_id: REQUEST.into()
+        })
+    );
+    // The other views still decode as history, and answers never take their fields.
+    assert!(matches!(
+        decode(json!({"originatorId":ID,"view":"results"})),
+        Some(ListQuery::History(_))
+    ));
+    for invalid in [
+        json!({"view":"answers"}),
+        json!({"originatorId":"name","view":"answers"}),
+        json!({"originatorId":ID,"view":"answers","recipientId":OTHER}),
+        json!({"originatorId":ID,"view":"answers","roomId":ID}),
+        json!({"originatorId":ID,"view":"answers","limit":0}),
+        json!({"originatorId":ID,"view":"answers","limit":51}),
+        json!({"originatorId":ID,"view":"answers","before":{"submittedAtMs":1,"requestId":REQUEST}}),
+        json!({"originatorId":ID,"view":"answers","before":{"preparedAtMs":1,"requestId":REQUEST}}),
+        json!({"originatorId":ID,"view":"answers","before":{"answeredAtMs":0,"requestId":REQUEST}}),
+        json!({"originatorId":ID,"view":"answers","before":{"answeredAtMs":9007199254740992_u64,"requestId":REQUEST}}),
+        json!({"originatorId":ID,"view":"answers","before":{"answeredAtMs":1,"submittedAtMs":1,"requestId":REQUEST}}),
+        json!({"originatorId":ID,"view":"answers","before":{"answeredAtMs":1,"requestId":"nope"}}),
+        json!({"originatorId":ID,"view":"answers","extra":true}),
+    ] {
+        assert!(decode(invalid.clone()).is_none(), "{invalid}");
+    }
+    // Results and history cursors do not accept an answer-time cursor.
+    for scope in [
+        json!({"originatorId":ID,"view":"results"}),
+        json!({"recipientId":ID}),
+    ] {
+        let mut input = scope;
+        input["before"] = json!({"answeredAtMs":1,"requestId":REQUEST});
+        assert!(decode(input.clone()).is_none(), "{input}");
+    }
+    assert!(decode_list_query(&vec![b' '; HISTORY_INPUT_LIMIT + 1]).is_none());
+}
+
+#[test]
+fn an_answers_page_carries_metadata_only_and_one_cursor() {
+    let page = AnswersPage {
+        items: vec![
+            Answer {
+                request_id: REQUEST.into(),
+                kind: RequestKind::Request,
+                originator: Originator::Explicit(ID.into()),
+                recipient_identity_id: Some(OTHER.into()),
+                answered_at_ms: 9,
+                answer: AnswerKind::Turn,
+            },
+            Answer {
+                request_id: "req_44444444-4444-4444-8444-444444444444".into(),
+                kind: RequestKind::Request,
+                originator: Originator::Explicit(ID.into()),
+                recipient_identity_id: None,
+                answered_at_ms: 8,
+                answer: AnswerKind::Final,
+            },
+        ],
+        next_before: Some(AnswerCursor {
+            answered_at_ms: 8,
+            request_id: "req_44444444-4444-4444-8444-444444444444".into(),
+        }),
+    };
+    let value: Value = serde_json::from_slice(&encode_answers_page(&page)).unwrap();
+    assert_eq!(
+        value,
+        json!({
+            "items":[
+                {"requestId":REQUEST,"kind":"request","sender":{"kind":"explicit","identityId":ID},
+                 "recipientId":OTHER,"answeredAtMs":9,"answer":"turn"},
+                {"requestId":"req_44444444-4444-4444-8444-444444444444","kind":"request",
+                 "sender":{"kind":"explicit","identityId":ID},"recipientId":null,
+                 "answeredAtMs":8,"answer":"final"}
+            ],
+            "nextBefore":{"answeredAtMs":8,"requestId":"req_44444444-4444-4444-8444-444444444444"}
+        })
+    );
+    let last: Value = serde_json::from_slice(&encode_answers_page(&AnswersPage {
+        items: vec![],
+        next_before: None,
+    }))
+    .unwrap();
+    assert_eq!(last, json!({"items":[],"nextBefore":null}));
+}

@@ -108,3 +108,51 @@ pub struct HistoryDetail {
     pub item: HistoryItem<String>,
     pub prompt: RequestPrompt,
 }
+
+/// What answered one of an originator's requests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnswerKind {
+    /// The reply submitted with the request's receipt.
+    Final,
+    /// The turn output a passthrough message earned (#4336).
+    Turn,
+}
+
+impl AnswerKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Final => "final",
+            Self::Turn => "turn",
+        }
+    }
+}
+
+/// Where an answers page stops: answers are ordered by when they arrived, newest first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnswerCursor {
+    pub answered_at_ms: u64,
+    pub request_id: String,
+}
+
+/// An originator's answered requests, finals and passthrough turns in one order.
+pub struct AnswersQuery {
+    pub originator_id: String,
+    pub before: Option<AnswerCursor>,
+    pub limit: u64,
+}
+
+/// An answered request without its text: enough to count what is new.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Answer {
+    pub request_id: String,
+    pub kind: RequestKind,
+    pub originator: Originator,
+    pub recipient_identity_id: Option<String>,
+    pub answered_at_ms: u64,
+    pub answer: AnswerKind,
+}
+
+pub struct AnswersPage {
+    pub items: Vec<Answer>,
+    pub next_before: Option<AnswerCursor>,
+}

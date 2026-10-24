@@ -187,6 +187,86 @@ pub(super) fn list_request_history(
         .map_err(|error| classify(error, "Decode request history"))
 }
 
+/// An originator's answered requests: submitted finals and answered passthrough turns, one
+/// list by arrival, newest first. A request is a final or a turn, never both (a passthrough
+/// takes no reply), so the cursor `(answered_at_ms, request_id)` names one entry. Each side
+/// is cut to `limit` by its own index before the two are merged; the turn side tests the
+/// originator on every entry it walks.
+pub(super) fn answers_query(has_cursor: bool) -> String {
+    let columns = rows::qualified_attempt_columns();
+    let cursor = |time: &str, id: &str| {
+        if has_cursor {
+            format!("({time},{id}) < (?2,?3)")
+        } else {
+            "?2 IS NULL AND ?3 IS NULL".to_owned()
+        }
+    };
+    let finals = cursor("a.response_submitted_at_ms", "a.request_id");
+    let turns = cursor("p.settled_at_ms", "p.request_id");
+    format!(
+        "SELECT * FROM (
+            SELECT {columns}, a.response_submitted_at_ms AS answered_at_ms, 0 AS turn
+            FROM request_attempts AS a INDEXED BY request_history_originator_results
+            WHERE a.originator_identity_id=?1 AND a.response_submitted_at_ms IS NOT NULL
+              AND a.retention_expires_at_ms > ?5 AND {finals}
+            ORDER BY a.response_submitted_at_ms DESC, a.request_id DESC LIMIT ?4)
+         UNION ALL
+         SELECT * FROM (
+            SELECT {columns}, p.settled_at_ms AS answered_at_ms, 1 AS turn
+            FROM request_passthrough AS p INDEXED BY request_passthrough_answered
+            JOIN request_attempts AS a ON a.request_id=p.request_id
+            WHERE p.state='answered' AND a.originator_identity_id=?1
+              AND a.response_submitted_at_ms IS NULL
+              AND a.retention_expires_at_ms > ?5 AND {turns}
+            ORDER BY p.settled_at_ms DESC, p.request_id DESC LIMIT ?4)
+         ORDER BY answered_at_ms DESC, request_id DESC LIMIT ?4"
+    )
+}
+
+pub(super) fn list_answers(
+    connection: &Connection,
+    query: &AnswersQuery,
+    limit: u64,
+    now_ms: u64,
+) -> Result<Vec<Answer>, StorageError> {
+    let before = query
+        .before
+        .as_ref()
+        .map(|cursor| checked_i64(cursor.answered_at_ms, "Answers cursor"))
+        .transpose()?;
+    let mut statement = connection
+        .prepare(&answers_query(query.before.is_some()))
+        .map_err(|error| classify(error, "Prepare request answers query"))?;
+    statement
+        .query_map(
+            params![
+                query.originator_id,
+                before,
+                query.before.as_ref().map(|cursor| &cursor.request_id),
+                checked_limit(limit)?,
+                checked_now(now_ms, "Answers retention cutoff")?
+            ],
+            |row| {
+                let attempt = rows::attempt_row(row)?;
+                Ok(Answer {
+                    request_id: attempt.request_id,
+                    kind: attempt.kind,
+                    originator: attempt.originator,
+                    recipient_identity_id: attempt.recipient_identity_id,
+                    answered_at_ms: rows::u64_at(row, rows::ATTEMPT_COLUMN_COUNT)?,
+                    answer: if row.get::<_, i64>(rows::ATTEMPT_COLUMN_COUNT + 1)? == 0 {
+                        AnswerKind::Final
+                    } else {
+                        AnswerKind::Turn
+                    },
+                })
+            },
+        )
+        .map_err(|error| classify(error, "Read request answers"))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| classify(error, "Decode request answers"))
+}
+
 /// Open requests to one recipient, oldest first. This narrows by the same
 /// columns the service's acceptance rule reads; the service decides.
 pub(super) fn list_open_requests(

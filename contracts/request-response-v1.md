@@ -935,7 +935,9 @@ for one originator across rooms and recipients, including acknowledged work.
 It reuses canonical attempts and response metadata; it is independent of X's
 unread attention and revision cursor. Submitted does not mean successful, and
 core does not infer question/blocked categories. Results order and page by final
-submission time with request ID as the tie-breaker, not preparation time.
+submission time with request ID as the tie-breaker, not preparation time. The
+`answers` view lists the same originator's finals together with its answered
+passthrough turns, metadata only, in one order.
 
 The [extension API contract](extension-api.md#other-operation-details) owns the
 input, cursor, JSON fields and preview caps. Expired/unavailable bodies retain

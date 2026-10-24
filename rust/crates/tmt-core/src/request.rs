@@ -473,6 +473,13 @@ pub trait RequestRecords {
         limit: u64,
         now_ms: u64,
     ) -> Result<Vec<history::HistoryRecord>, Self::Error>;
+    /// The originator's answered requests, newest answer first, at most `limit`.
+    fn list_answers(
+        &self,
+        query: &history::AnswersQuery,
+        limit: u64,
+        now_ms: u64,
+    ) -> Result<Vec<history::Answer>, Self::Error>;
     fn find_request_history(
         &self,
         request_id: &str,

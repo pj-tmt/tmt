@@ -47,7 +47,7 @@ independent of storage access.
 | `capabilities`           | `{}`                                                                                                | Protocol range, operations, byte limits and ordinary commands                                                                                                     |
 | `storage.root`           | `{}`                                                                                                | `dataRoot`: absolute selected TMT data directory; no directory creation or storage/config reads                                                                   |
 | `changes.cursor`         | `{}`                                                                                                | `cursor`: an opaque non-negative integer that changes whenever core's durable records change (see below)                                                          |
-| `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`; optional `limit` and `before`  | `items`, `nextBefore`                                                                                                                                             |
+| `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`/`"answers"`; `limit`, `before`  | `items`, `nextBefore`                                                                                                                                             |
 | `requests.show`          | `requestId`                                                                                         | Request detail including retained prompt/final state; a passthrough adds its turn-output capture ([Passthrough](request-response-v1.md#passthrough))              |
 | `requests.sendNow`       | `requestId`; the envelope names the caller (originator or the user)                                 | `status` (`sent`/`already`), `requestId`, `state`; a refusal is a `SEND_NOW_*` or `DELIVERY_*` fault ([Send now](request-response-v1.md#send-now))                |
 | `workspace.capture`      | Empty object                                                                                        | Bounded `attempted`, `published`, `skipped` counts for recorded sockets only (see [Workspace recovery](workspace-v1.md#capture-triggers-and-public-backstop))     |
@@ -844,6 +844,21 @@ bodies. An expired or unavailable final retains its honest submission/expiry
 header with null `responsePreview` and false `previewTruncated`; expired request
 metadata is omitted. The view uses one observation snapshot without housekeeping,
 acknowledgment, retention renewal or other durable row changes.
+
+To count what has answered an originator's messages, call `requests.list` with
+`{"originatorId":"<canonical UUID>","view":"answers"}`; `recipientId` and `roomId` are
+refused. It lists the originator's requests that earned an answer, newest first: a
+submitted final (`answer:"final"`, at its submission time) or a passthrough's captured
+turn in state `answered` (`answer:"turn"`, at its settle time;
+[Passthrough](request-response-v1.md#passthrough)). A request is one or the other. An
+unanswered, refused, pending or `no_answer` request is absent. Items carry metadata
+only, `{requestId, kind, sender, recipientId, answeredAtMs, answer}`, never a prompt,
+reply or captured text; `requests.show` returns those. Limits, snapshot and housekeeping
+follow the results view (default 8, `limit` 1 through 50). One cursor orders both kinds by
+`(answeredAtMs, requestId)` descending: `nextBefore` is null at the end or
+`{answeredAtMs, requestId}`, passed unchanged as `before`; any other cursor field is
+invalid. An older core answers `API_INPUT_INVALID`. The `results` view and reply
+collection are unchanged and never include captured turns.
 
 A submitted final means a reply exists, not that the work succeeded. Core does
 not classify historical replies as question or blocked, or infer those categories
