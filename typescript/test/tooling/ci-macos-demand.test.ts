@@ -7,7 +7,7 @@ import {
   type WorkflowSource,
 } from '../../scripts/ci-macos-demand.mjs';
 const since = '2026-10-21T00:00:00Z';
-const until = '2026-10-22T00:00:00Z';
+const until = '2026-10-21T06:00:00Z';
 const sources: WorkflowSource[] = [
   {
     path: '.github/workflows/ci.yml',
@@ -31,6 +31,7 @@ const run = {
 const job = {
   id: 31,
   run_id: 21,
+  run_attempt: 1,
   name: 'Build macOS',
   labels: ['macos-15'],
   status: 'completed',
@@ -167,8 +168,8 @@ it('splits 1000-result searches at disjoint second boundaries', () => {
   });
   expect(result.runs).toBe(0);
   expect(ranges).toHaveLength(3);
-  expect(ranges[1]).toContain('2026-10-21T00:00:00.000Z..2026-10-21T11:59:59.000Z');
-  expect(ranges[2]).toContain('2026-10-21T12:00:00.000Z..2026-10-21T23:59:59.000Z');
+  expect(ranges[1]).toContain('2026-10-21T00:00:00.000Z..2026-10-21T02:59:59.000Z');
+  expect(ranges[2]).toContain('2026-10-21T03:00:00.000Z..2026-10-21T05:59:59.000Z');
 });
 it('refuses truncated, duplicate, foreign and out-of-window evidence', () => {
   expect(() =>
@@ -185,22 +186,24 @@ it('refuses truncated, duplicate, foreign and out-of-window evidence', () => {
 it('does not count synthetic retained successes with new IDs as fresh executions', () => {
   const successful = { ...job, conclusion: 'success' };
   const override = (changed: boolean) => (path: string) => {
-    const m = /attempts\/(\d+)(\/jobs)?/.exec(path);
-    if (!m) return undefined;
-    const attempt = Number(m[1]);
-    if (!m[2])
-      return { id: 21, run_attempt: attempt, run_started_at: `2026-10-21T0${attempt - 1}:00:00Z` };
-    return {
-      total_count: 1,
-      jobs: [
-        {
+    if (path.includes('/jobs?'))
+      return {
+        total_count: changed ? 2 : 3,
+        jobs: (changed ? [1, 2] : [1, 2, 3]).map((attempt) => ({
           ...successful,
           id: 30 + attempt,
           run_attempt: attempt,
-          ...(changed ? { steps: [{ name: m[1] }] } : {}),
-        },
-      ],
-    };
+          ...(changed ? { steps: [{ name: String(attempt) }] } : {}),
+        })),
+      };
+    const m = /attempts\/(\d+)$/.exec(path);
+    return m
+      ? {
+          id: 21,
+          run_attempt: Number(m[1]),
+          run_started_at: `2026-10-21T0${Number(m[1]) - 1}:00:00Z`,
+        }
+      : undefined;
   };
   const { result } = collect({ runs: [{ ...run, run_attempt: 3 }], override: override(false) });
   expect(result).toMatchObject({ actualExecutions: 1, retainedCopies: 2 });
@@ -221,7 +224,7 @@ describe('REST ledger', () => {
         if (args.at(-1) === '/rate_limit')
           return JSON.stringify({
             resources: {
-              core: { remaining: calls.length === 1 ? 1000 : 995, limit: 5000, reset: 1 },
+              core: { remaining: calls.length === 1 ? 3000 : 2995, limit: 5000, reset: 1 },
             },
           });
         if (!failed) {
@@ -236,17 +239,17 @@ describe('REST ledger', () => {
     expect(() => read('actions/workflows?per_page=100&page=3')).toThrow('budget');
     expect(read.finish()).toMatchObject({
       calls: 5,
-      coreBefore: { remaining: 1000 },
-      coreAfter: { remaining: 995 },
+      coreBefore: { remaining: 3000 },
+      coreAfter: { remaining: 2995 },
     });
     expect(calls.every((args) => args[1] === '--method' && args[2] === 'GET')).toBe(true);
     expect(() => read.finish()).toThrow();
   });
-  it('rejects unsafe endpoints/repositories and caps above 400', () => {
+  it('rejects unsafe endpoints/repositories and caps above 800', () => {
     expect(() => demandReader({ repo: '../repo' })).toThrow();
-    expect(() => demandReader({ maxRequests: 401 })).toThrow();
+    expect(() => demandReader({ maxRequests: 801 })).toThrow();
     const read = demandReader({
-      execute: () => '{"resources":{"core":{"remaining":5,"limit":5000,"reset":1}}}',
+      execute: () => '{"resources":{"core":{"remaining":5000,"limit":5000,"reset":1}}}',
     });
     expect(() => read('graphql')).toThrow('path');
   });
@@ -313,4 +316,110 @@ it('does not invent occupancy for a pending-only group or count self-hosted macO
   expect(result.rows[0]).toMatchObject({ jobs: 1, runnerMinutes: null, durationSamples: 0 });
   expect(result.unclassifiedJobs).toBe(1);
   expect(result.selfHostedJobs).toBe(1);
+});
+
+it('restarts a mid-run 502 at page one with 50 rows and proves exact membership', () => {
+  const jobs = Array.from({ length: 123 }, (_, i) => ({ ...job, id: 1000 + i, run_attempt: 1 }));
+  const paths: string[] = [];
+  const { result } = collect({
+    override: (path) => {
+      if (!path.includes('/jobs?')) return undefined;
+      paths.push(path);
+      const n = Number(/per_page=(\d+)/.exec(path)![1]);
+      const page = Number(/page=(\d+)$/.exec(path)![1]);
+      if (n === 100 && page === 2) throw new Error('HTTP 502');
+      return { total_count: jobs.length, jobs: jobs.slice((page - 1) * n, page * n) };
+    },
+  });
+  expect(result.measurements.map((j) => j.job)).toEqual(jobs.map((j) => j.id));
+  expect(paths).toEqual(
+    [100, 100, 50, 50, 50].map(
+      (n, i) => `actions/runs/21/jobs?filter=all&per_page=${n}&page=${i < 2 ? i + 1 : i - 1}`
+    )
+  );
+});
+it('keeps the attempt-route fixture identities and retained successes on run-wide reads', () => {
+  const first = { ...job, id: 31, run_attempt: 1, conclusion: 'success' };
+  const copy = { ...first, id: 32, run_attempt: 2 };
+  const fresh = {
+    ...job,
+    name: 'Fresh macOS',
+    id: 42,
+    run_attempt: 2,
+    started_at: '2026-10-21T01:01:00Z',
+    completed_at: '2026-10-21T01:03:00Z',
+  };
+  const fixtureRows = [[first], [copy, fresh]];
+  const { result } = collect({
+    runs: [{ ...run, run_attempt: 2 }],
+    override: (path) => {
+      if (/attempts\/\d+\/jobs/.test(path)) throw new Error('attempt-jobs route unavailable');
+      const m = /attempts\/(\d+)$/.exec(path);
+      if (m)
+        return {
+          id: 21,
+          run_attempt: Number(m[1]),
+          run_started_at: `2026-10-21T0${Number(m[1]) - 1}:00:00Z`,
+        };
+      if (path.includes('/jobs?')) return { total_count: 3, jobs: fixtureRows.flat().reverse() };
+      return undefined;
+    },
+  });
+  expect(result.measurements.map((j) => [j.job, j.attempt])).toEqual([
+    [31, 1],
+    [42, 2],
+  ]);
+  expect(result.retainedCopies).toBe(1);
+});
+it('refuses hydration below the shared REST floor without spending data calls', () => {
+  const paths: string[] = [];
+  const read = demandReader({
+    maxRequests: 800,
+    execute: (_cmd, args) => {
+      paths.push(args.at(-1)!);
+      return JSON.stringify({ resources: { core: { remaining: 2499, limit: 5000, reset: 1 } } });
+    },
+  });
+  expect(() => read('actions/workflows?per_page=100&page=1')).toThrow('2500');
+  expect(read.finish().calls).toBe(2);
+  expect(paths).toEqual(['/rate_limit', '/rate_limit']);
+});
+
+it('refuses duplicate or changing fallback membership and names an unreadable run', () => {
+  for (const defect of ['duplicate', 'count', '502']) {
+    expect(() =>
+      collect({
+        override: (path) => {
+          if (!path.includes('/jobs?')) return undefined;
+          if (path.includes('per_page=100')) {
+            if (path.endsWith('page=2')) throw new Error('HTTP 502');
+            return {
+              total_count: 123,
+              jobs: Array.from({ length: 100 }, (_, i) => ({
+                ...job,
+                id: 1000 + i,
+                run_attempt: 1,
+              })),
+            };
+          }
+          if (defect === '502') throw new Error('HTTP 502');
+          return {
+            total_count: defect === 'count' ? 124 : 123,
+            jobs: Array.from({ length: 50 }, (_, i) => ({
+              ...job,
+              id: defect === 'duplicate' ? 1000 : 1000 + i,
+              run_attempt: 1,
+            })),
+          };
+        },
+      })
+    ).toThrow(/Unreadable run 21.*job count 123/);
+  }
+});
+it('rejects a seven-day invocation before any data reads', () => {
+  const f = fixture();
+  expect(() => collectDemand(f.read, { since, until: '2026-10-28T00:00:00Z', sources })).toThrow(
+    'six hours'
+  );
+  expect(f.calls).toEqual([]);
 });

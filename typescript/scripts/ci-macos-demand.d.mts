@@ -59,6 +59,7 @@ export interface DemandReport {
   measurements: {
     run: number;
     job: number;
+    attempt: number;
     name: string;
     workflow: string;
     path: string;

@@ -63,7 +63,7 @@ export function traceWorkflows(sources) {
 /** All attempts, retries and both REST-core snapshots share one hard ceiling. */
 export function demandReader({
   repo = 'pj-tmt/tmt',
-  maxRequests = 400,
+  maxRequests = 800,
   execute = runPackedCommand,
 } = {}) {
   assert.match(
@@ -72,8 +72,8 @@ export function demandReader({
     'invalid repository'
   );
   assert.ok(
-    Number.isInteger(maxRequests) && maxRequests >= 2 && maxRequests <= 400,
-    'REST budget must be 2..400'
+    Number.isInteger(maxRequests) && maxRequests >= 2 && maxRequests <= 800,
+    'REST budget must be 2..800'
   );
   const ledger = [];
   let finished = false;
@@ -81,7 +81,7 @@ export function demandReader({
     assert.ok(!finished, 'reader already finished');
     assert.ok(
       path === '/rate_limit' ||
-        /^(?:contents\/\.github\/workflows\/[\w.-]+\.ya?ml\?ref=[a-f0-9]{40}|actions\/(?:workflows(?:\?per_page=100&page=\d+|\/\d+\/runs\?created=[^&]+&per_page=100&page=\d+)|runs\/\d+\/(?:jobs\?filter=all&per_page=100&page=\d+|attempts\/\d+(?:\/jobs\?per_page=100&page=\d+)?)))$/.test(
+        /^(?:contents\/\.github\/workflows\/[\w.-]+\.ya?ml\?ref=[a-f0-9]{40}|actions\/(?:workflows(?:\?per_page=100&page=\d+|\/\d+\/runs\?created=[^&]+&per_page=100&page=\d+)|runs\/\d+\/(?:jobs\?filter=all&per_page=(?:100|50)&page=\d+|attempts\/\d+)))$/.test(
           path
         ),
       'unapproved REST path'
@@ -127,7 +127,13 @@ export function demandReader({
     return { remaining: core.remaining, limit: core.limit, reset: core.reset };
   };
   const coreBefore = snapshot(get('/rate_limit'));
-  const read = (path) => get(path);
+  const read = (path) => {
+    assert.ok(
+      coreBefore.remaining >= 2500,
+      `REST core remaining ${coreBefore.remaining} below 2500; no data reads`
+    );
+    return get(path);
+  };
   read.requests = () => ledger.length;
   read.remaining = () => maxRequests - 1 - ledger.length;
   read.finish = () => {
@@ -138,26 +144,73 @@ export function demandReader({
   return read;
 }
 
-function pageRows(read, path, key, admit) {
+function pageRows(read, path, key, admit, perPage = 100, expectedTotal) {
   const rows = [];
   const seen = new Set();
-  let total;
-  for (let page = 1; ; page++) {
-    const data = read(`${path}&page=${page}`);
-    assert.ok(
-      Number.isSafeInteger(data.total_count) && data.total_count >= 0 && Array.isArray(data[key]),
-      `invalid ${key} page`
-    );
-    if (total === undefined) total = data.total_count;
-    assert.equal(data.total_count, total, `changing ${key} count`);
-    assert.equal(data[key].length, Math.min(100, total - rows.length), `truncated ${key} evidence`);
-    for (const row of data[key]) {
-      assert.ok(id(row.id) && !seen.has(row.id), `duplicate/invalid ${key} identity`);
-      seen.add(row.id);
-      admit(row);
-      rows.push(row);
+  let total = expectedTotal;
+  try {
+    for (let page = 1; ; page++) {
+      const data = read(`${path}&page=${page}`);
+      assert.ok(
+        Number.isSafeInteger(data.total_count) && data.total_count >= 0 && Array.isArray(data[key]),
+        `invalid ${key} page`
+      );
+      total ??= data.total_count;
+      assert.equal(data.total_count, total, `changing ${key} count`);
+      assert.equal(
+        data[key].length,
+        Math.min(perPage, total - rows.length),
+        `truncated ${key} evidence`
+      );
+      for (const row of data[key]) {
+        assert.ok(id(row.id) && !seen.has(row.id), `duplicate/invalid ${key} identity`);
+        seen.add(row.id);
+        admit(row);
+        rows.push(row);
+      }
+      if (rows.length === total) return rows;
     }
-    if (rows.length === total) return rows;
+  } catch (error) {
+    error.totalCount = total ?? null;
+    throw error;
+  }
+}
+
+// A persistent 100-row 502 discards the partial run and restarts at page one.
+function runJobs(read, run) {
+  const admit = (job) => {
+    assert.equal(job.run_id, run.id, 'foreign job run');
+    assert.ok(
+      id(job.run_attempt) && job.run_attempt <= run.run_attempt,
+      'foreign/missing job attempt'
+    );
+    assert.ok(
+      typeof job.name === 'string' &&
+        Array.isArray(job.labels) &&
+        job.labels.every((label) => typeof label === 'string'),
+      'invalid job metadata'
+    );
+  };
+  let total;
+  try {
+    try {
+      return pageRows(read, `actions/runs/${run.id}/jobs?filter=all&per_page=100`, 'jobs', admit);
+    } catch (error) {
+      total = error.totalCount;
+      if (!/HTTP 502/.test(error.message)) throw error;
+    }
+    return pageRows(
+      read,
+      `actions/runs/${run.id}/jobs?filter=all&per_page=50`,
+      'jobs',
+      admit,
+      50,
+      total ?? undefined
+    );
+  } catch (error) {
+    throw new Error(
+      `Unreadable run ${run.id} (${run.workflow ?? 'fixture'}); job count ${error.totalCount ?? total ?? 'unavailable'}: ${error.message}`
+    );
   }
 }
 
@@ -204,7 +257,7 @@ function actualJobs(read, run) {
   const prior = new Map();
   let retained = 0;
   let previousStart = -Infinity;
-  const ids = new Set();
+  const allJobs = runJobs(read, run);
   for (let attempt = 1; attempt <= run.run_attempt; attempt++) {
     let start;
     if (run.run_attempt > 1) {
@@ -214,23 +267,7 @@ function actualJobs(read, run) {
       assert.ok(Number.isFinite(start) && start > previousStart, 'invalid attempt chronology');
       previousStart = start;
     }
-    const prefix =
-      run.run_attempt === 1
-        ? `actions/runs/${run.id}/jobs?filter=all&per_page=100`
-        : `actions/runs/${run.id}/attempts/${attempt}/jobs?per_page=100`;
-    const jobs = pageRows(read, prefix, 'jobs', (job) => {
-      assert.equal(job.run_id, run.id, 'foreign job run');
-      assert.ok(
-        typeof job.name === 'string' &&
-          Array.isArray(job.labels) &&
-          job.labels.every((label) => typeof label === 'string'),
-        'invalid job metadata'
-      );
-      assert.ok(!ids.has(job.id), 'repeated job across attempts');
-      ids.add(job.id);
-      if (job.run_attempt !== undefined)
-        assert.equal(job.run_attempt, attempt, 'foreign job attempt');
-    });
+    const jobs = allJobs.filter((job) => job.run_attempt === attempt);
     for (const job of jobs) {
       if (job.conclusion === 'skipped') {
         actual.push(job);
@@ -265,8 +302,9 @@ export function collectDemand(read, { since, until, sources, historicalSources }
       Number.isFinite(end) &&
       start < end &&
       start % 1000 === 0 &&
-      end % 1000 === 0,
-    'window must have increasing whole-second UTC boundaries'
+      end % 1000 === 0 &&
+      end - start <= 6 * 3600_000,
+    'window must have increasing whole-second UTC boundaries and span at most six hours'
   );
   const trace = traceWorkflows(sources);
   const workflows = [];
@@ -325,7 +363,7 @@ export function collectDemand(read, { since, until, sources, historicalSources }
     }
   }
   const minimumCalls = runs.reduce(
-    (sum, run) => sum + (run.run_attempt === 1 ? 1 : 2 * run.run_attempt),
+    (sum, run) => sum + (run.run_attempt === 1 ? 1 : 1 + run.run_attempt),
     0
   );
   assert.ok(
@@ -385,6 +423,7 @@ export function collectDemand(read, { since, until, sources, historicalSources }
       measurements.push({
         run: run.id,
         job: job.id,
+        attempt: job.run_attempt,
         name: job.name,
         workflow: run.workflow,
         path: run.path,
@@ -557,7 +596,7 @@ function main() {
       until: { type: 'string' },
       sha: { type: 'string', default: 'HEAD' },
       output: { type: 'string' },
-      'max-requests': { type: 'string', default: '400' },
+      'max-requests': { type: 'string', default: '800' },
     },
   });
   assert.ok(values.output, '--output PREFIX is required (JSON and Markdown)');
@@ -580,7 +619,7 @@ function main() {
     text: runPackedCommand('git', ['show', `${sourceSha}:${path}`], {}),
   }));
   const until = values.until ?? iso(Math.floor(Date.now() / 1000) * 1000);
-  const since = values.since ?? iso(time(until) - 7 * 86400_000);
+  const since = values.since ?? iso(time(until) - 6 * 3600_000);
   const read = demandReader({ repo: values.repo, maxRequests: Number(values['max-requests']) });
   let report;
   try {
