@@ -82,6 +82,7 @@ pub(super) fn facts(
             .transpose()?
             .flatten(),
         recipient: recipient.map(|id| activity(db, id)).transpose()?.flatten(),
+        turn: super::turns::read(db, &attempt.request_id)?,
         answer: answer(db, attempt, now)?,
     })
 }

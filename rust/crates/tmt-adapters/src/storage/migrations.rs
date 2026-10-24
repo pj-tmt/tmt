@@ -50,6 +50,8 @@ mod request_passthrough_tests;
 #[cfg(test)]
 mod request_room_tests;
 #[cfg(test)]
+mod request_turn_tests;
+#[cfg(test)]
 mod rollup_account_tests;
 #[cfg(test)]
 mod room_tests;
@@ -337,6 +339,10 @@ const MIGRATIONS: &[Migration] = &[
     migration!(
         "mark a passthrough folded into a running turn",
         "schema/069.sql"
+    ),
+    migration!(
+        "record the turn that began after a request was handed over",
+        "schema/070.sql"
     ),
 ];
 

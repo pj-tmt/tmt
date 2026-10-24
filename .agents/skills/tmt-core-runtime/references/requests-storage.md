@@ -87,7 +87,12 @@ configuration. The owner map is in
   stored event, no host call), and what came back (`ReturnedAnswer`: a submitted final, or the
   passthrough capture as `state_at` reads it, so a capture past its window already reads
   `no_answer`). A returned answer outranks every other fact: `answered` is terminal, and an ended capture
-  without an answer is `unconfirmed`, never `working` (#4910). The Digest tick writes `maxHoldMs` with every `digest.policy.set` and
+  without an answer is `unconfirmed`, never `working` (#4910). `working` of an inbox request ends with
+  the turn that began after its hand-over: `request_turns` (schema 70, `requests::turns`) records that turn's
+  start when the hook transaction admits a main-session `Started` (for each handed-over request with no
+  final, passthrough or row yet, prepared within `BOUND_WINDOW_MS`) and its end at `Ended`;
+  a closed or idle-without-end turn reads `unconfirmed`/`turn_ended_without_reply`, and a request with no
+  row keeps the activity-only reading bounded to six hours (#4911). The Digest tick writes `maxHoldMs` with every `digest.policy.set` and
   rewrites a policy whose recorded value differs; older policies read null until then.
 - A delivered checklist keeps `confirmed_at_ms` null until later evidence arrives (pre-068 rows are
   confirmed by the migration). One typed at an idle opportunity is confirmed by the hook's

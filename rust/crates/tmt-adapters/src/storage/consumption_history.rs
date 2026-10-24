@@ -408,6 +408,7 @@ impl Storage {
                         super::requests::passthrough::bind(
                             connection, id, session, turn, prompt, now,
                         )?;
+                        super::requests::turns::open(connection, id, now)?;
                         // A prompt that carries a typed Digest checklist confirms it (#4858).
                         super::requests::confirm_digest_by_prompt(connection, id, prompt, now)?;
                         // A new prompt means the continuation a Stop hook started is over.
@@ -419,6 +420,7 @@ impl Storage {
                         if continuation {
                             super::requests::end_digest_continuation(connection, id, now)?;
                         }
+                        super::requests::turns::close(connection, id, now)?;
                         super::requests::passthrough::settle_turn(
                             connection,
                             id,

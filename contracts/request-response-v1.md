@@ -794,8 +794,8 @@ raw attempt status: a request held by Digest stays `queued` after its checklist 
 | `sent`        | Accepted and waiting to be typed, or its Digest checklist is in flight                                                                                                                                            | true unless in flight or the recipient waits on an approval prompt |
 | `batched`     | Held by the recipient's Digest for the next checklist                                                                                                                                                             | true unless the recipient waits on an approval prompt              |
 | `delivered`   | Typed into the recipient's pane (or its checklist was), and no turn has begun on it                                                                                                                               | false                                                              |
-| `working`     | Typed, and the bound session reports a turn begun after the message was prepared (after the hand-over for a pane route)                                                                                           | false                                                              |
-| `unconfirmed` | The hand-over may have reached the pane (`uncertain`), or a Digest checklist typed at an idle opportunity has not been carried by a prompt yet, or a passthrough's capture ended with no answer; never resendable | false                                                              |
+| `working`     | Typed, and the bound session reports a turn begun after the message was prepared (after the hand-over for a pane route); for an inbox request only until that turn ends, and for at most six hours                | false                                                              |
+| `unconfirmed` | The hand-over may have reached the pane (`uncertain`), or a Digest checklist typed at an idle opportunity has not been carried by a prompt yet, or a turn ended with no final answer or a reply; never resendable | false                                                              |
 | `not_sent`    | Nothing reached the agent: `refused` (a pane route failed for certain) or `unreachable` (an identified recipient had no live pane)                                                                                | true only for `unreachable`                                        |
 | `answered`    | A reply was submitted, or the turn a passthrough started ended with a final message. Terminal: nothing moves it, and it outranks every other state                                                                | false                                                              |
 
@@ -826,6 +826,7 @@ retained, so `not_sent` carries one of the two generic reasons.
 | `answered_by_folded_turn`   | `answered`    | answered together with the earlier message: it was typed into the running turn                      |
 | `no_turn_started`           | `unconfirmed` | no answer captured: no turn started with this text, the agent may have taken it into a running turn |
 | `turn_ended_without_answer` | `unconfirmed` | no answer captured: the agent's turn ended without a final message                                  |
+| `turn_ended_without_reply`  | `unconfirmed` | no reply: the agent's turn ended without one                                                        |
 
 A delivered message has reason `session_not_bound` when its current binding records
 an unadmitted provider SessionStart newer than its admitted session. Core supplies

@@ -17,7 +17,7 @@ fn passthrough_capture_rows_are_consistent_wake_readers_and_leave_with_their_req
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 69);
+    assert_eq!(storage.health().unwrap().schema_version, 70);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -108,7 +108,7 @@ fn a_fold_marks_only_a_bound_capture_and_moves_the_change_cursor() {
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 69);
+    assert_eq!(storage.health().unwrap().schema_version, 70);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
