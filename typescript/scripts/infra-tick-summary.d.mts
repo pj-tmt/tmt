@@ -1,3 +1,4 @@
+import type { WatchHeartbeatEvidence } from './ci-failure-watch.mjs';
 export const QUEUE_QUERY: string;
 export const REVIEW_QUERY: string;
 export const COVERAGE: string;
@@ -34,6 +35,7 @@ export interface TickOptions {
   } | null;
   reviewMap: { rules: { prefix: string; source: string; leads: string[] }[] };
   local: {
+    watcherHeartbeat?: WatchHeartbeatEvidence;
     guides: Record<string, string>;
     budgets: { lines: Record<string, number>; bytes: Record<string, number> };
     freeBytes: number;

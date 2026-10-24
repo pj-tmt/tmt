@@ -19,6 +19,7 @@ import { parseArgs } from 'node:util';
 import { restClient } from './merge-queue-metrics.mjs';
 import { readReleaseCatalog } from './release-cut-read.mjs';
 import { runPackedCommand } from './packed-command.mjs';
+import { heartbeatStatus, readWatchHeartbeat } from './ci-failure-watch.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const SHA = /^[a-f0-9]{40}$/;
@@ -467,6 +468,42 @@ function completeReviewConnection(connection, label, tail = false) {
   return true;
 }
 
+function watcherHeartbeatAnomalies(evidence, now) {
+  if (!evidence) return [];
+  // Local watcher health uses observation time, even for a historical API window.
+  now = evidence.checkedAt === undefined ? now : time(evidence.checkedAt);
+  const { path, heartbeat, error } = evidence;
+  const updatedAt = typeof heartbeat?.updatedAt === 'string' ? heartbeat.updatedAt : null;
+  const base = { path, updatedAt, checkedAt: new Date(now).toISOString() };
+  let reason;
+  if (error) reason = `heartbeat unavailable: ${error}`;
+  else {
+    const health = heartbeatStatus(heartbeat, now);
+    if (!Number.isFinite(health.ageMs)) reason = 'invalid heartbeat timestamp';
+    else if (health.ageMs < 0) reason = 'heartbeat timestamp is in the future';
+    else if (health.ageMs > 7200_000) reason = 'heartbeat stale';
+    else if (!health.healthy) reason = `heartbeat status: ${String(heartbeat?.status)}`;
+    const gaps = heartbeat?.coverageGaps;
+    if (
+      gaps !== undefined &&
+      (!Array.isArray(gaps) ||
+        gaps.some(
+          (gap) =>
+            typeof gap?.message !== 'string' ||
+            typeof gap?.updatedAt !== 'string' ||
+            !Number.isFinite(Date.parse(gap.updatedAt))
+        ))
+    )
+      reason = 'invalid heartbeat coverage gaps';
+  }
+  if (reason) return [{ kind: 'CI failure watcher unhealthy', ...base, reason }];
+  if (heartbeat?.coverageGaps?.length)
+    return [
+      { kind: 'CI failure watcher coverage gap', ...base, coverageGaps: heartbeat.coverageGaps },
+    ];
+  return [];
+}
+
 /** Injected evidence ports; a partial collection never becomes an empty healthy report. */
 export function collectInfraTick(
   api,
@@ -500,7 +537,7 @@ export function collectInfraTick(
       assert.ok(time(previous.baselineUntil) <= start, 'Bootstrap boundary cannot move backwards.');
   }
   const root = `repos/${repository}`,
-    anomalies = [];
+    anomalies = watcherHeartbeatAnomalies(local.watcherHeartbeat, end);
   const anomaly = (kind, evidence) => anomalies.push({ kind, ...evidence });
   const createdSince = new Date(day).toISOString();
   const createdWindow = encodeURIComponent(`${createdSince}..${until}`);
@@ -1091,6 +1128,8 @@ export function collectInfraTick(
 function anomalyPriority({ kind }) {
   switch (kind) {
     case 'collection refused':
+    case 'CI failure watcher unhealthy':
+    case 'CI failure watcher coverage gap':
     case 'newly observed failed draft':
     case 'failed draft at initial baseline':
     case 'failed release or post-publication check':
@@ -1197,6 +1236,7 @@ function main() {
     });
   trace({ event: 'invocation', until });
   let since = values.since ?? new Date(Date.parse(until) - 60 * 60_000).toISOString();
+  const watcherHeartbeat = { ...readWatchHeartbeat(), checkedAt: new Date().toISOString() };
   const api = createTickClient({
     repository: values.repo,
     cache: path.join(values.output, 'evidence'),
@@ -1258,6 +1298,7 @@ function main() {
       previous,
       reviewMap,
       local: {
+        watcherHeartbeat,
         budgets: JSON.parse(readFileSync(new URL('./guide-budgets.json', import.meta.url), 'utf8')),
         guides: Object.fromEntries(
           ['ARCHITECTURE.md', 'DEVELOPMENT.md'].map((file) => [
@@ -1308,6 +1349,7 @@ function main() {
       coverage: COVERAGE,
       anomalies: [
         { kind: 'collection refused', message: redactCredentials(error.message), stage, prCount },
+        ...watcherHeartbeatAnomalies(watcherHeartbeat, time(until)),
       ],
       evidence: api.evidence(),
     };
@@ -1316,7 +1358,11 @@ function main() {
       JSON.stringify(report, null, 2) + '\n',
       { mode: 0o600 }
     );
-    const markdown = `${incompleteBanner(report)}\n# Infra tick refused\n\n${COVERAGE}\n\n- collection refused: ${redactCredentials(error.message)}\n- stage: ${stage}; PRs: ${prCount}\n- API calls: ${api.evidence().requests}/80. Cursor unchanged. Qualified terminal job/log evidence is retained. Retry a transient refusal once; after a second refusal stop and split the window with --until or escalate.\n`;
+    const watcherLines = report.anomalies
+      .slice(1)
+      .map((item) => `- ${item.kind}: ${JSON.stringify(item)}\n`)
+      .join('');
+    const markdown = `${incompleteBanner(report)}\n# Infra tick refused\n\n${COVERAGE}\n\n${watcherLines}- collection refused: ${redactCredentials(error.message)}\n- stage: ${stage}; PRs: ${prCount}\n- API calls: ${api.evidence().requests}/80. Cursor unchanged. Qualified terminal job/log evidence is retained. Retry a transient refusal once; after a second refusal stop and split the window with --until or escalate.\n`;
     writeFileSync(path.join(values.output, 'summary.md'), markdown, { mode: 0o600 });
     process.stdout.write(markdown);
     trace({ event: 'refused', requests: api.evidence().requests, complete: false });

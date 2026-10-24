@@ -122,3 +122,28 @@ export function createWatchApi(options?: {
   clock?: () => number;
   progress?: () => void;
 }): WatchApi & { readonly calls: number; readonly ledger: unknown[]; readonly remainingMs: number };
+
+export const WATCH_STATE_ENV: 'TMT_CI_WATCH_STATE';
+export interface WatchHeartbeatEvidence {
+  checkedAt?: string;
+  path: string | null;
+  heartbeat?: unknown;
+  error?: string;
+}
+export function watchHeartbeatPath(directory?: string): string | null;
+export function readWatchHeartbeat(
+  directory?: string,
+  read?: (file: string, encoding: 'utf8') => string
+): WatchHeartbeatEvidence;
+export function watchHeartbeat(
+  state: WatchState,
+  now: number,
+  status: string,
+  extra?: Record<string, unknown>
+): {
+  updatedAt: string;
+  status: string;
+  cursor: string;
+  pending: number;
+  coverageGaps: { updatedAt: string; message: string }[];
+};
