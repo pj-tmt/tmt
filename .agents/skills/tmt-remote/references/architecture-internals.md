@@ -340,7 +340,7 @@ Both emulator hosts must be numeric loopback addresses, in an Infra-approved slo
 Firebase Auth plus `ProductionHttp`; Admin installs Rules only. The injected fake Core query keeps
 this proof independent of #4536/#4757; full public CLI talk is #4539/#4540 acceptance. Default tests
 keep this qualifier ignored and cover local ceremony/reopen/revoke with injected provider ports.
-The library's `test_isolation::isolated_case` owns exact-case process isolation for native serve,
+The library and binary test roots share `test_isolation::isolated_case` for native serve,
 factory and two-owner pairing fixtures. It executes before project files or locks open, so sibling
 fixture-publication forks cannot inherit their credential/budget locks; `tmt_invoke` bounds the
 child, captures failures and reaps its process group. The ceremony keeps its assertions and deadlines.

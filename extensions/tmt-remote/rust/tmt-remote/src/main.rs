@@ -5,6 +5,10 @@ mod pairing_cli;
 mod serve;
 mod sync_cli;
 
+#[cfg(test)]
+#[path = "serve/test_isolation.rs"]
+mod test_isolation;
+
 use clap::{Arg, ArgAction, Command};
 use serde_json::json;
 use std::{
