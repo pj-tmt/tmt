@@ -191,5 +191,49 @@ impl Controller {
             look,
             body,
         );
+        if let Some(map) = &ui.frame {
+            count_items(frame, map.areas.position, &items, map.list.as_ref());
+        }
+    }
+}
+
+/// The list's own counter counts lines, headings included; this one counts the items. An empty
+/// list has none.
+fn count_items(
+    frame: &mut Frame,
+    area: Rect,
+    items: &[Row],
+    list: Option<&tmt_tui::components::ListFrame>,
+) {
+    if area.height == 0 {
+        return;
+    }
+    let style = frame.buffer_mut()[(area.x, area.y)].style();
+    let visible: Vec<usize> = list
+        .map(|list| {
+            list.geometry
+                .iter()
+                .filter(|row| row.visible.height > 0)
+                .filter_map(|row| items.iter().position(|item| item.id.as_str() == row.id))
+                .collect()
+        })
+        .unwrap_or_default();
+    let text = match (visible.iter().min(), visible.iter().max()) {
+        (Some(first), Some(last)) => {
+            let below = items.len() - last - 1;
+            let mut text = format!("{}–{} of {}", first + 1, last + 1, items.len());
+            if below > 0 {
+                text.push_str(&format!(" · {below} more ↓"));
+            }
+            text
+        }
+        _ => String::new(),
+    };
+    let mut cells = text.chars().map(String::from);
+    for x in area.x..area.right() {
+        let symbol = cells.next().unwrap_or_else(|| " ".into());
+        frame.buffer_mut()[(x, area.y)]
+            .set_symbol(&symbol)
+            .set_style(style);
     }
 }

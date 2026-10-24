@@ -782,8 +782,24 @@ fn captures() -> Value {
         // The Notes list overlay: additive scenes.
         for (look_name, look) in looks() {
             for scene in crate::board::conversation_notes::tests::overlay::LIST_SCENES {
-                let app = crate::board::conversation_notes::tests::overlay::list_case(scene, look);
-                frames.push(capture_frame(&app, scene, look_name, 100, 36, &mut styles));
+                // The list also paints where its title, host and author give way.
+                let widths: &[u16] = if *scene == "notes-list" {
+                    &[100, 160, 60]
+                } else {
+                    &[100]
+                };
+                for width in widths {
+                    let app =
+                        crate::board::conversation_notes::tests::overlay::list_case(scene, look);
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        *width,
+                        36,
+                        &mut styles,
+                    ));
+                }
             }
         }
         // One turn that answered three sends, painted under the last of them: additive scenes.

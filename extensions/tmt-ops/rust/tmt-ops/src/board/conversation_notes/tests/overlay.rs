@@ -483,6 +483,17 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
                 ACTOR,
                 MINUTES,
             ),
+            stamped(
+                view(
+                    6,
+                    Some("https://documentation.internal.example.org/notes/overlay"),
+                    Completion::Open,
+                    false,
+                ),
+                "A title long enough to need truncating at the narrow widths of the board",
+                STRANGER,
+                DAYS,
+            ),
             stamped(todo(3), "Answer the lead about the N key", ACTOR, MINUTES),
             stamped(todo(4), "Check a retired member's list", STRANGER, DAYS),
             stamped(done(5), "Read the conversation list contract", ALICE, HOURS),
@@ -506,6 +517,7 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
     match scene {
         "notes-list-retired" => {
             press(&mut app, KeyCode::Down);
+            press(&mut app, KeyCode::Down);
             let (task, _) = write_of(press(&mut app, KeyCode::Enter));
             refused(
                 &mut app,
@@ -518,6 +530,7 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
             );
         }
         "notes-list-conflict" => {
+            press(&mut app, KeyCode::Down);
             press(&mut app, KeyCode::Down);
             press(&mut app, KeyCode::Char('e'));
             type_text(&mut app, " today");
@@ -546,4 +559,19 @@ pub(in crate::board) fn list_case(scene: &str, look: crate::look::Look) -> App {
         _ => {}
     }
     app
+}
+
+#[test]
+fn the_counter_counts_items_not_headings_and_an_empty_list_has_none() {
+    let (app, _) = opened(vec![link(1), todo(2), todo(3), done(4), done(5)]);
+    let screen = paint(&app);
+    assert!(screen.contains("1–5 of 5"), "{screen}");
+    assert!(!screen.contains("of 7"));
+    let (app, _) = opened(vec![]);
+    let screen = paint(&app);
+    assert!(screen.contains("No notes yet"), "{screen}");
+    assert!(
+        !screen.contains("–1 of 1") && !screen.contains("of 0"),
+        "no counter on an empty list\n{screen}"
+    );
 }
