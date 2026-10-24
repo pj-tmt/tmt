@@ -61,7 +61,7 @@ impl Controller {
                 }
             }
             if key.code == KeyCode::Char('r') && key.modifiers == KeyModifiers::CONTROL {
-                return self.scan(self.scope.clone());
+                return self.scan();
             }
         }
         if self.screen == Screen::Form {

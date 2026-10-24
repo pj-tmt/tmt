@@ -41,7 +41,7 @@ fn inventory() -> ScanObservation {
 }
 fn observed(app: &mut App, scan: ScanObservation) {
     let controller = app.discovery.as_mut().unwrap();
-    let task = controller.scan(scope()).unwrap();
+    let task = controller.scan().unwrap();
     controller.loaded(load::Completed {
         task,
         result: Ok(Outcome::Scan(scan)),

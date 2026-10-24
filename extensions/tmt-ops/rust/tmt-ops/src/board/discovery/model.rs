@@ -110,15 +110,16 @@ fn optional_uuid(value: &Value) -> Result<Option<String>, SquadError> {
     }
 }
 /// tmux pane keys are `%N`. Another host's key is in its driver's syntax,
-/// which Core admits; Ops checks only a bounded inert literal (a 16-byte
-/// prefix, a 64-byte suffix and a separator) that `tmt add` gets after `--`.
+/// which Core admits; Ops checks only a bounded inert literal (at most a
+/// 16-byte prefix, its separator included, and a 64-byte suffix) that
+/// `tmt add` gets after `--`.
 fn pane_key(host: &str, pane: &str) -> bool {
     if host == "tmux" {
         return pane
             .strip_prefix('%')
             .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
     }
-    (1..=81).contains(&pane.len()) && pane.bytes().all(|b| b.is_ascii_graphic())
+    (1..=80).contains(&pane.len()) && pane.bytes().all(|b| b.is_ascii_graphic())
 }
 fn digest(value: &Value) -> Result<Option<String>, SquadError> {
     let result = optional(value)?;

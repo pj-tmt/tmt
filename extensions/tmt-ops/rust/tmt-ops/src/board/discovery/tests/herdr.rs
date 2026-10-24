@@ -16,8 +16,8 @@ fn herdr_document() -> Value {
         "candidates":[herdr_row("term_0a9z"),herdr_row("term_1")]})
 }
 fn herdr_controller() -> Controller {
-    let mut c = Controller::new(1, ScanScope::default());
-    let task = c.scan(ScanScope::default()).unwrap();
+    let mut c = Controller::new(1);
+    let task = c.scan().unwrap();
     c.loaded(load::Completed {
         task,
         result: Ok(Outcome::Scan(
@@ -82,8 +82,10 @@ fn a_herdr_row_needs_its_own_ok_source_and_a_bounded_pane_literal() {
     let mut v = document();
     v["candidates"][0]["pane"] = "term_1".into();
     assert!(ScanObservation::decode(&v).is_err());
-    let long = format!("term_{}", "a".repeat(77));
-    assert_eq!(long.len(), 82);
+    // The longest host pane ID: a 16-byte prefix (its separator included)
+    // and a 64-byte suffix.
+    let long = format!("{}_{}", "a".repeat(15), "b".repeat(65));
+    assert_eq!(long.len(), 81);
     for pane in [
         "",
         "term_\u{1b}[0m",
@@ -97,7 +99,7 @@ fn a_herdr_row_needs_its_own_ok_source_and_a_bounded_pane_literal() {
         assert!(ScanObservation::decode(&v).is_err(), "{pane:?}");
     }
     let mut v = herdr_document();
-    v["candidates"][0]["pane"] = long[..81].into();
+    v["candidates"][0]["pane"] = long[..80].into();
     assert!(ScanObservation::decode(&v).is_ok());
     let mut v = herdr_document();
     v["candidates"][0]["display"]["agentName"] = "a".repeat(1025).into();
@@ -158,8 +160,8 @@ fn the_same_pane_text_on_two_hosts_keeps_two_keys() {
 fn a_herdr_bind_passes_the_row_socket_and_pane() {
     let fixture = PublicCommandFixture::new();
     fixture.response(&herdr_document(), 0);
-    let mut c = Controller::new(1, ScanScope::default());
-    let task = c.scan(ScanScope::default()).unwrap();
+    let mut c = Controller::new(1);
+    let task = c.scan().unwrap();
     c.loaded(load::complete(&fixture.core(), task));
     // No host or socket flag: Core selects the caller's host.
     assert_eq!(fixture.arguments(), ["discover", "--json"]);
@@ -325,7 +327,7 @@ fn herdr_partial_and_refused_reports_survive_close_and_rescan_without_replay() {
     );
     c.open();
     assert!(c.reload_blocked());
-    let task = c.scan(ScanScope::default()).unwrap();
+    let task = c.scan().unwrap();
     finished(
         &mut c,
         task,

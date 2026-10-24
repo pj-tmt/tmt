@@ -51,15 +51,9 @@ fn document() -> Value {
         "display":{"title":"#{run-shell:never} $(never)\nnew row\tstill one title","command":"codex","cwd":"/tmp/private","truncated":false},"adoptable":true,"expect":DIGEST
     }]})
 }
-fn scope() -> ScanScope {
-    ScanScope {
-        host: Some("tmux".into()),
-        socket: Some(SOCKET.into()),
-    }
-}
 fn controller() -> Controller {
-    let mut c = Controller::new(1, scope());
-    let task = c.scan(scope()).unwrap();
+    let mut c = Controller::new(1);
+    let task = c.scan().unwrap();
     c.loaded(load::Completed {
         task,
         result: Ok(Outcome::Scan(ScanObservation::decode(&document()).unwrap())),
@@ -139,7 +133,7 @@ fn malformed_digest_source_native_and_duplicate_keys_refuse() {
 }
 #[test]
 fn opening_and_cancel_have_no_command_or_mutation() {
-    let mut c = Controller::new(1, scope());
+    let mut c = Controller::new(1);
     c.open();
     assert!(c.pending.is_none());
     assert_eq!(c.serial, 0);
@@ -163,7 +157,7 @@ fn confirmation_freezes_target_digest_uuid_and_lifetime_once() {
     assert_eq!(selection.selector, AgentSelector::ExistingUuid(UUID.into()));
     assert!(selection.save);
     assert!(c.confirm().is_none());
-    assert!(c.scan(scope()).is_none());
+    assert!(c.scan().is_none());
     c.close();
     c.open();
     assert_eq!(c.pending.as_ref(), Some(&task));
@@ -191,10 +185,10 @@ fn clipped_confirmation_is_effect_free() {
 }
 #[test]
 fn scan_coalesces_obsolete_generations_without_changing_authority() {
-    let mut c = Controller::new(1, scope());
-    let active = c.scan(scope()).unwrap();
+    let mut c = Controller::new(1);
+    let active = c.scan().unwrap();
     for _ in 0..100 {
-        assert!(c.scan(scope()).is_none());
+        assert!(c.scan().is_none());
         assert_eq!(c.pending.as_ref(), Some(&active));
     }
     let next = finished(
@@ -216,13 +210,13 @@ fn scan_coalesces_obsolete_generations_without_changing_authority() {
 }
 #[test]
 fn close_reopen_retains_one_active_scan_until_completion() {
-    let mut c = Controller::new(1, scope());
-    let active = c.scan(scope()).unwrap();
+    let mut c = Controller::new(1);
+    let active = c.scan().unwrap();
     for _ in 0..100 {
         c.close();
         c.open();
         assert_eq!(c.pending.as_ref(), Some(&active));
-        assert!(c.scan(scope()).is_none());
+        assert!(c.scan().is_none());
     }
     c.close();
     finished(
@@ -237,7 +231,7 @@ fn close_reopen_retains_one_active_scan_until_completion() {
 #[test]
 fn missing_anchor_after_rescan_does_not_select_a_neighbor() {
     let mut c = controller();
-    let task = c.scan(scope()).unwrap();
+    let task = c.scan().unwrap();
     let mut v = document();
     v["candidates"][0]["pane"] = "%8".into();
     finished(
@@ -265,7 +259,7 @@ fn partial_and_unknown_reports_survive_close_rescan_without_replay() {
     assert_eq!(c.attempts.len(), 1);
     assert!(c.reload_blocked());
     assert!(c.pending.is_none());
-    let task = c.scan(scope()).unwrap();
+    let task = c.scan().unwrap();
     finished(
         &mut c,
         task,
@@ -545,10 +539,10 @@ fn short_binding_review_keeps_its_subject_and_cancel_visible() {
 }
 #[test]
 fn actual_mouse_scan_select_review_and_cancel_emit_no_binding() {
-    let mut c = Controller::new(1, scope());
+    let mut c = Controller::new(1);
     paint(&c, 160, 36);
     let task = click(&mut c, "scan").unwrap();
-    assert!(matches!(task.job, Job::Scan(_)));
+    assert!(matches!(task.job, Job::Scan));
     finished(
         &mut c,
         task,
@@ -727,13 +721,10 @@ impl Drop for PublicCommandFixture {
 fn public_scan_and_guarded_add_execute_literal_argv_and_preserve_nonzero_receipts() {
     let fixture = PublicCommandFixture::new();
     fixture.response(&document(), 0);
-    let mut c = Controller::new(1, scope());
-    let task = c.scan(scope()).unwrap();
+    let mut c = Controller::new(1);
+    let task = c.scan().unwrap();
     c.loaded(load::complete(&fixture.core(), task));
-    assert_eq!(
-        fixture.arguments(),
-        ["discover", "--host", "tmux", "--socket", SOCKET, "--json"]
-    );
+    assert_eq!(fixture.arguments(), ["discover", "--json"]);
     assert!(c.observation.is_some());
     assert!(c.attempts.is_empty());
     std::fs::remove_file(fixture.0.join("calls")).unwrap();
@@ -769,25 +760,6 @@ fn public_scan_and_guarded_add_execute_literal_argv_and_preserve_nonzero_receipt
         fixture.core().json(&["irrelevant"]).unwrap_err().code,
         "STORAGE_ERROR"
     );
-}
-
-#[test]
-fn scoped_public_scan_rejects_another_socket_without_adoption_authority() {
-    let fixture = PublicCommandFixture::new();
-    fixture.response(&document(), 0);
-    let mut c = Controller::new(
-        1,
-        ScanScope {
-            host: Some("tmux".into()),
-            socket: Some("/tmp/other-server.sock".into()),
-        },
-    );
-    let task = c.scan(c.scope.clone()).unwrap();
-    c.loaded(load::complete(&fixture.core(), task));
-    assert!(c.failure.is_some());
-    assert!(c.observation.is_none());
-    assert!(c.attempts.is_empty());
-    assert!(c.confirm().is_none());
 }
 
 #[test]
@@ -913,8 +885,8 @@ fn capture_fitted_discovery_review() {
 fn the_discovery_window_follows_the_close_rule() {
     // On the candidate list; Esc on a later screen still steps back until PR 6 of #5647.
     let open = || {
-        let mut c = Controller::new(1, scope());
-        let task = c.scan(scope()).unwrap();
+        let mut c = Controller::new(1);
+        let task = c.scan().unwrap();
         c.loaded(load::Completed {
             task,
             result: Ok(Outcome::Scan(ScanObservation::decode(&document()).unwrap())),
