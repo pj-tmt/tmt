@@ -4785,7 +4785,7 @@ impl App {
         if let Some(key) = self.detail_read() {
             return Some(super::refresh::SelectedRead::Message(key));
         }
-        self.pane_output_read()
+        self.pane_output_plan()
             .map(super::refresh::SelectedRead::PaneOutput)
     }
 

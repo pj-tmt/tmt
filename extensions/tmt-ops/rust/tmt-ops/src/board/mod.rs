@@ -198,7 +198,7 @@ pub(in crate::board) enum BoardEvent {
     },
     PaneOutput {
         cancellation: crate::runner::Cancellation,
-        key: conversation::ConversationKey,
+        read: recent_responses::AnswerRead,
         revision: u64,
         observation: recent_responses::Observation,
     },
@@ -871,15 +871,15 @@ fn session(
             }
             Ok(BoardEvent::PaneOutput {
                 cancellation,
-                key,
+                read,
                 revision: read_revision,
                 observation,
             }) => {
                 if !cancellation.cancelled()
                     && read_revision == revision
-                    && app.selected_read() == Some(refresh::SelectedRead::PaneOutput(key.clone()))
+                    && app.selected_read() == Some(refresh::SelectedRead::PaneOutput(read.clone()))
                 {
-                    app.apply_pane_output(key, observation);
+                    app.apply_answer_read(&read, observation);
                     dirty = true;
                 }
                 Effect::None
@@ -1183,6 +1183,7 @@ fn session(
             }
             Effect::Refresh => {
                 revision += 1;
+                app.conversation.borrow_mut().rebuild_pane_output();
                 app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                 let history = app.history_demand();
                 request(

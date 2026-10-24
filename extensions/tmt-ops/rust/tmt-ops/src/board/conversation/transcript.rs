@@ -33,9 +33,21 @@ pub(super) struct Context {
     pub sent_ages: Vec<String>,
     pub reader: String,
     pub member: String,
+    pub dropped_age: Option<String>,
 }
 
 impl State {
+    pub(in crate::board) fn rebuild_pane_output(&mut self) {
+        if let Some(session) = self
+            .active
+            .as_ref()
+            .and_then(|key| self.sessions.get_mut(key))
+        {
+            session.pane_rebuild = true;
+            session.pane_output_fresh = false;
+        }
+    }
+
     pub(in crate::board) fn refresh_pane_output(&mut self) {
         for session in self.sessions.values_mut() {
             session.pane_output_fresh = false;
@@ -63,8 +75,29 @@ impl App {
             .borrow()
             .sessions
             .get(&key)
-            .is_none_or(|session| !session.pane_output_fresh)
+            .is_none_or(|session| !session.pane_output_fresh || session.older_demand)
             .then_some(key)
+    }
+
+    pub(in crate::board) fn pane_output_plan(
+        &self,
+    ) -> Option<crate::board::recent_responses::AnswerRead> {
+        let key = self.pane_output_read()?;
+        let state = self.conversation.borrow();
+        let session = state.sessions.get(&key);
+        let held = session.and_then(|session| match &session.pane_output {
+            Observation::Observed(page) => Some(std::sync::Arc::clone(page)),
+            _ => None,
+        });
+        let before = session
+            .filter(|session| session.pane_output_fresh && session.older_demand)
+            .and_then(|_| held.as_ref()?.next_before);
+        Some(crate::board::recent_responses::AnswerRead {
+            key,
+            before,
+            held,
+            rebuild: session.is_some_and(|session| session.pane_rebuild),
+        })
     }
 
     pub(in crate::board) fn apply_pane_output(
@@ -72,15 +105,43 @@ impl App {
         key: ConversationKey,
         observation: Observation,
     ) {
-        if self.pane_output_read().as_ref() != Some(&key) {
+        let Some(read) = self.pane_output_plan().filter(|read| read.key == key) else {
+            return;
+        };
+        self.apply_answer_read(&read, observation);
+    }
+
+    pub(in crate::board) fn apply_answer_read(
+        &self,
+        read: &crate::board::recent_responses::AnswerRead,
+        observation: Observation,
+    ) {
+        if self.pane_output_plan().as_ref() != Some(read) {
             return;
         }
         let mut state = self.conversation.borrow_mut();
-        let session = state.sessions.entry(key).or_default();
-        if session.pane_output != observation {
+        let session = state.sessions.entry(read.key.clone()).or_default();
+        let failed = matches!(observation, Observation::Unavailable);
+        let same = match (&session.pane_output, &observation) {
+            (Observation::Observed(a), Observation::Observed(b)) => std::sync::Arc::ptr_eq(a, b),
+            (a, b) => a == b,
+        };
+        let changed = !same
+            || session.pane_failed != failed
+            || session.older_failed != (failed && read.before.is_some());
+        if !failed || !matches!(session.pane_output, Observation::Observed(_)) {
             session.pane_output = observation;
-            session.stale = true;
         }
+        session.pane_failed = failed;
+        session.older_failed = failed && read.before.is_some();
+        session.pane_rebuild = false;
+        if read.before.is_some()
+            || failed
+            || !matches!(&session.pane_output, Observation::Observed(page) if page.next_before.is_some())
+        {
+            session.older_demand = false;
+        }
+        session.stale |= changed;
         session.pane_output_fresh = true;
     }
 }
@@ -206,6 +267,12 @@ impl Session {
                 .unwrap_or_else(|| "you".into()),
             exchanges: self.exchanges(app, agent),
             member: id.into(),
+            dropped_age: match &self.pane_output {
+                Observation::Observed(page) => page.coverage.dropped_through_ms.map(|time| {
+                    super::exchange::age_stamp(&crate::requests::age(crate::status::now_ms(), time))
+                }),
+                _ => None,
+            },
         };
         if self.transcript_context != context {
             self.transcript_context = context;
@@ -306,10 +373,14 @@ impl Session {
             sent_ages,
             reader,
             member: _,
+            dropped_age,
         } = &self.transcript_context;
         let sends: Vec<_> = self.restored_sends().collect();
         if self.finals.is_empty()
             && sends.is_empty()
+            && !(*enabled && self.pane_failed)
+            && !matches!(&self.pane_output, Observation::Observed(page)
+                if *enabled && (page.capture == Some(false) || page.coverage.older_dropped && page.next_before.is_none()))
             && (!enabled
                 || (matches!(&self.pane_output, Observation::Pending)
                     || matches!(&self.pane_output, Observation::Observed(items) if items.is_empty()))
@@ -326,6 +397,7 @@ impl Session {
                 final_spans: Vec::new(),
                 copy,
                 note_sources,
+                pane_start: None,
             };
         }
         let mut starts = vec![0];
@@ -398,6 +470,27 @@ impl Session {
             Observation::Observed(items) if *enabled => items.as_slice(),
             _ => &[],
         };
+        // Displayed headers can be identical (same name and age). Anchor their source
+        // identity separately, just as request headers below do, so an older prepend
+        // cannot move a reader onto another answer with the same caption.
+        let pane_anchors = {
+            use std::hash::{Hash, Hasher};
+            let mut occurrences = std::collections::BTreeMap::new();
+            let mut anchors = items
+                .iter()
+                .rev()
+                .map(|item| {
+                    let mut hash = std::hash::DefaultHasher::new();
+                    item.hash(&mut hash);
+                    let key = hash.finish();
+                    let occurrence = occurrences.entry(key).or_insert(0usize);
+                    *occurrence += 1;
+                    format!("pane-answer:{key:016x}:{}", *occurrence)
+                })
+                .collect::<Vec<_>>();
+            anchors.reverse();
+            anchors
+        };
         let note_sources = std::cell::RefCell::new(super::note_source::Map::default());
         let unavailable = note_sources
             .borrow_mut()
@@ -444,6 +537,31 @@ impl Session {
             index
         };
         let captured_outputs = self.captured_outputs(items);
+        let mut pane_start = None;
+        if *enabled && let Observation::Observed(page) = &self.pane_output {
+            if page.next_before.is_none() && page.coverage.older_dropped {
+                let text = dropped_age.as_ref().map_or_else(
+                    || "older answers not kept".into(),
+                    |age| format!("older answers not kept · at or before {age}"),
+                );
+                for line in
+                    markdown::wrap_styled(Line::styled(text, look.role(Role::Muted)), width.max(1))
+                {
+                    append(line, vec![], None);
+                }
+            }
+            if page.capture == Some(false) {
+                for line in markdown::wrap_styled(
+                    Line::styled(
+                        "answers are not captured for this agent: run tmt setup",
+                        look.role(Role::Muted),
+                    ),
+                    width.max(1),
+                ) {
+                    append(line, vec![], None);
+                }
+            }
+        }
         let order = crate::board::recent_responses::merge(&times, items);
         // Sends that follow each other in the transcript, with no final, pane output or exchange
         // between them, may form one message block.
@@ -762,7 +880,7 @@ impl Session {
                         },
                     ));
                     let stamp = output_ages.get(index).map_or("—", String::as_str);
-                    append(
+                    let header = append(
                         Line::styled(
                             super::super::view::fit(
                                 &format!(" {name} · pane output · {stamp}"),
@@ -773,6 +891,8 @@ impl Session {
                         vec![],
                         None,
                     );
+                    pane_start.get_or_insert(header);
+                    header_anchors.insert(header, pane_anchors[index].clone());
                     // Display-only member links never give pane text request-source authority.
                     let body = markdown::render_output_with_members(
                         &sanitize(&item.text),
@@ -787,11 +907,15 @@ impl Session {
                         append(super::super::exchange_view::body(line, look), links, None);
                     }
                     if item.truncated {
-                        append(
-                            Line::styled("… truncated", look.role(Role::Muted)),
-                            vec![],
-                            None,
-                        );
+                        for line in markdown::wrap_styled(
+                            Line::styled(
+                                "answer truncated · full text in the agent's pane",
+                                look.role(Role::Muted),
+                            ),
+                            width.max(1),
+                        ) {
+                            append(line, vec![], None);
+                        }
                     }
                 }
             }
@@ -810,10 +934,17 @@ impl Session {
                 append(Line::styled(note, look.role(Role::Muted)), vec![], None);
             }
         }
-        if matches!(self.pane_output, Observation::Unavailable) {
+        if *enabled && (self.pane_failed || matches!(self.pane_output, Observation::Unavailable)) {
             next_note.set(unavailable);
             append(
-                Line::styled("Recent pane output unavailable", look.role(Role::Muted)),
+                Line::styled(
+                    if self.older_failed {
+                        "Older answers unavailable · scroll up to retry"
+                    } else {
+                        "Recent pane output unavailable"
+                    },
+                    look.role(Role::Muted),
+                ),
                 vec![],
                 None,
             );
@@ -838,6 +969,7 @@ impl Session {
                 messages: copy_messages,
                 rows: copy_rows,
             },
+            pane_start,
         }
     }
 
@@ -868,6 +1000,7 @@ impl Session {
 }
 
 pub(super) struct RenderedTranscript {
+    pub pane_start: Option<usize>,
     pub mapped: Mapped,
     pub anchor_text: String,
     pub response_sources: Option<Vec<Option<usize>>>,

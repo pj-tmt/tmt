@@ -48,7 +48,7 @@ fn capability_is_first_and_missing_or_failed_is_unavailable_not_empty() {
             if operation == "capabilities" {
                 Some(json!({"operations":["responses.recent"]}))
             } else {
-                assert_eq!(input, json!({"identityId":ID,"limit":10}));
+                assert_eq!(input, json!({"identityId":ID,"limit":50}));
                 resource.clone()
             }
         });
@@ -59,29 +59,31 @@ fn capability_is_first_and_missing_or_failed_is_unavailable_not_empty() {
         read_with(ID, |operation, _| Some(if operation == "capabilities" {
             json!({"operations":["responses.recent"]})
         } else {
-            json!({"identityId":ID,"items":[]})
+            json!({"identityId":ID,"items":[],"coverage":{"olderDropped":false}})
         })),
-        Observation::Observed(vec![])
+        Observation::observed(vec![])
     );
 }
 
 #[test]
 fn response_bounds_identity_and_required_metadata_fail_closed_additive_fields_work() {
-    let item = json!({"text":"🦀".repeat(2048),"endedMs":3,"provider":"codex","truncated":true,"future":1});
-    let resource = json!({"identityId":ID,"items":[item],"future":true});
+    let item = json!({"text":"🦀".repeat(4096),"endedMs":3,"provider":"codex","truncated":true,"originalBytes":20000,"future":1});
+    let resource =
+        json!({"identityId":ID,"items":[item],"coverage":{"olderDropped":false},"future":true});
     let parsed = parse(ID, &resource).unwrap();
     assert!(parsed[0].truncated);
-    assert_eq!(parsed[0].text.len(), 8192);
+    assert_eq!(parsed[0].text.len(), 16384);
     assert_eq!(
         parse("22222222-2222-4222-8222-222222222222", &resource),
         None
     );
     for (field, bad) in [
-        ("text", json!("x".repeat(8193))),
+        ("text", json!("x".repeat(16385))),
         ("provider", Value::Null),
         ("endedMs", json!(-1)),
         ("truncated", Value::Null),
         ("sessionId", Value::Null),
+        ("originalBytes", json!(16383)),
     ] {
         let mut changed = resource.clone();
         changed["items"][0][field] = bad;
@@ -90,7 +92,7 @@ fn response_bounds_identity_and_required_metadata_fail_closed_additive_fields_wo
     assert_eq!(
         parse(
             ID,
-            &json!({"identityId":ID,"items":vec![resource["items"][0].clone();11]})
+            &json!({"identityId":ID,"items":vec![resource["items"][0].clone();51],"coverage":{"olderDropped":false}})
         ),
         None
     );
@@ -98,4 +100,39 @@ fn response_bounds_identity_and_required_metadata_fail_closed_additive_fields_wo
         read_with("name", |_, _| panic!("names never reach Core")),
         Observation::Unavailable
     );
+}
+
+#[test]
+fn public_page_keeps_fifty_answers_and_every_coverage_capture_and_cursor_field() {
+    let mut resource = vector()["resource"].clone();
+    resource["items"] = json!(vec![resource["items"][0].clone(); 50]);
+    resource["coverage"] = json!({"olderDropped":true,"droppedThroughMs":42});
+    resource["capture"] = json!({"enabled":false});
+    resource["nextBefore"] = json!(17);
+    let page = parse(ID, &resource).unwrap();
+    assert_eq!(page.len(), 50);
+    assert_eq!(
+        page.coverage,
+        Coverage {
+            older_dropped: true,
+            dropped_through_ms: Some(42)
+        }
+    );
+    assert_eq!(page.capture, Some(false));
+    assert_eq!(page.next_before, Some(17));
+    for field in ["capture", "nextBefore"] {
+        let mut invalid = resource.clone();
+        invalid[field] = Value::Null;
+        assert_eq!(parse(ID, &invalid), None, "{field}");
+    }
+    let mut calls = Vec::new();
+    assert!(
+        page_with(ID, Some(17), &mut |_, input| {
+            calls.push(input);
+            Some(resource.clone())
+        })
+        .is_none(),
+        "same cursor cannot spin"
+    );
+    assert_eq!(calls, [json!({"identityId":ID,"before":17,"limit":50})]);
 }

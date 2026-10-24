@@ -953,6 +953,22 @@ fn captures() -> Value {
                 ));
             }
         }
+        for (look_name, look) in looks() {
+            for scene in crate::board::conversation::tests::answer_paging::SCENES {
+                for width in [160, 100, 80, 60] {
+                    let app =
+                        crate::board::conversation::tests::answer_paging::capture_case(scene, look);
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        width,
+                        36,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
         let styles = styles
             .0
             .into_iter()

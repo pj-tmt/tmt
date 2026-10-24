@@ -79,7 +79,7 @@ fn native_recent_output_observation_and_display() {
     let suffix = "\nNATIVE pane final\r\nlast line\n";
     assert_eq!(
         items[2].text,
-        format!("{}{suffix}", "x".repeat(8192 - suffix.len()))
+        format!("{}{suffix}", "x".repeat(16384 - suffix.len()))
     );
     let baseline = std::env::var("TMT_RECENT_NATIVE_TIME")
         .unwrap()
@@ -98,7 +98,10 @@ fn native_recent_output_observation_and_display() {
     for marker in ["NATIVE", "pane final", "last line"] {
         assert!(screen.contains(marker), "{marker}: {screen}");
     }
-    assert!(screen.contains("… truncated"), "{screen}");
+    assert!(
+        screen.contains("answer truncated · full text in the agent's pane"),
+        "{screen}"
+    );
     app.scroll_pane(Pane::Replies, Step::Top);
     let top = draw(&app, 100, 36);
     assert!(top.contains("pane output"), "{top}");
@@ -134,11 +137,12 @@ fn capture_recent_pane_output_packet() {
                     let observation = if scene == "unavailable" {
                         Observation::Unavailable
                     } else {
-                        Observation::Observed((0..if scene.starts_with("long") {10}else{3}).map(|index|Item {
+                        Observation::observed((0..if scene.starts_with("long") {10}else{3}).map(|index|Item {
                             provider: "codex".into(),
                             text:if scene.starts_with("long") {format!("Capture {index}\n{}\nEnd capture {index}","Line in bounded pane capture\n".repeat(100))} else {format!("Pane capture {index}\n**Marked** text remains pane output.\nNot a submitted reply.")},
                             ended_ms:1_791_599_900_000+index,truncated:index==2,
-                        }).collect())
+                        original_bytes: 0, session: None,
+}).collect())
                     };
                     install(&mut app, observation);
                     app.key(ratatui::crossterm::event::KeyEvent::new(
