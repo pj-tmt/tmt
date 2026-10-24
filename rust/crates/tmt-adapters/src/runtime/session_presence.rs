@@ -100,10 +100,56 @@ pub(crate) fn probe(
     }
 }
 
+/// Direct O(1) lookup for a driver whose transcript lives at a fixed relative
+/// path under `root` keyed by the session UUID (e.g. `<session>/.../transcript.jsonl`).
+pub(crate) fn probe_exact(
+    root: &Path,
+    relative: &Path,
+    session: &ProviderSessionId,
+    deadline: Instant,
+) -> SessionPresence {
+    if uuid::Uuid::parse_str(session.as_str()).is_err() || Instant::now() >= deadline {
+        return SessionPresence::Unknown;
+    }
+    if fs::read_dir(root).is_err() {
+        return SessionPresence::Unknown;
+    }
+    let mut current = root.to_path_buf();
+    let mut components = relative.components().peekable();
+    while let Some(component) = components.next() {
+        if Instant::now() >= deadline {
+            return SessionPresence::Unknown;
+        }
+        current.push(component);
+        let is_last = components.peek().is_none();
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if !is_last => {
+                if !metadata.file_type().is_dir() || fs::read_dir(&current).is_err() {
+                    return SessionPresence::Unknown;
+                }
+            }
+            Ok(metadata) => {
+                if !metadata.file_type().is_file() {
+                    return SessionPresence::Unreadable;
+                }
+                return admit(root, &current);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return SessionPresence::Missing;
+            }
+            Err(error) if is_last && error.kind() == std::io::ErrorKind::PermissionDenied => {
+                return SessionPresence::Unreadable;
+            }
+            Err(_) => return SessionPresence::Unknown,
+        }
+    }
+    SessionPresence::Unknown
+}
+
 /// Only a denied open is evidence of an unreadable file. Any other open error,
 /// or an opened file that then fails the transcript boundary (for example one
 /// rotated between the two opens), may be transient.
-fn admit(root: &Path, path: &Path) -> SessionPresence {
+pub(crate) fn admit(root: &Path, path: &Path) -> SessionPresence {
     let flags = nix::fcntl::OFlag::O_NOFOLLOW | nix::fcntl::OFlag::O_NONBLOCK;
     match fs::File::options()
         .read(true)

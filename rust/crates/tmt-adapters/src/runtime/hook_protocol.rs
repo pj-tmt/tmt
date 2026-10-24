@@ -58,8 +58,12 @@ pub fn encode_event_context(event: &str, context: &str) -> Option<String> {
 }
 
 pub fn command_entry(provider: &str, launcher: &str) -> Value {
+    json!({"hooks":[flat_command_entry(provider, launcher)]})
+}
+
+pub fn flat_command_entry(provider: &str, launcher: &str) -> Value {
     let quoted = format!("'{}'", launcher.replace('\'', "'\\''"));
-    json!({"hooks":[{"type":"command", "command":format!("{quoted} __hook {provider}"), "timeout":HOOK_TIMEOUT_SECONDS}]})
+    json!({"type":"command", "command":format!("{quoted} __hook {provider}"), "timeout":HOOK_TIMEOUT_SECONDS})
 }
 
 /// Decode only the common prompt envelope; provider lifecycle decoding stays separate.

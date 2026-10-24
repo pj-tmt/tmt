@@ -26,8 +26,12 @@ impl SetupPlan {
         const USAGE: &str = "Stop (context usage, consumption, activity and recent responses)";
         const ANSWERS: &str = "Stop (turn end: activity and chat answers, no usage data)";
         let stop = |usage: bool| if usage { USAGE } else { ANSWERS };
-        let lifecycle = ["SessionStart", "SessionEnd", "UserPromptSubmit"]
-            .into_iter()
+        let lifecycle = crate::drivers::Registry::builtin()
+            .find(self.provider)
+            .map(document::lifecycle_events)
+            .unwrap_or(&["SessionStart", "SessionEnd", "UserPromptSubmit"])
+            .iter()
+            .copied()
             .map(str::to_owned)
             .chain(
                 self.activity
@@ -102,6 +106,10 @@ pub const SETTINGS_LIMIT: usize = 1024 * 1024;
 fn hook_entry(provider: &DriverDefinition, launcher: &str) -> Result<serde_json::Value, PlanError> {
     match provider.descriptor.hooks {
         Some(HookFormat::SessionHooksJson) => Ok(crate::runtime::hook_protocol::command_entry(
+            provider.name(),
+            launcher,
+        )),
+        Some(HookFormat::NamedHooksJson) => Ok(crate::runtime::hook_protocol::flat_command_entry(
             provider.name(),
             launcher,
         )),
@@ -206,7 +214,7 @@ pub fn plan_with_choice(
 #[cfg(test)]
 mod preview_tests {
     use super::*;
-    use crate::drivers::{claude, codex};
+    use crate::drivers::{agy, claude, codex};
 
     fn events(
         provider: &DriverDefinition,
@@ -232,6 +240,7 @@ mod preview_tests {
         const ALL: &str = "SessionStart, SessionEnd, UserPromptSubmit, Notification (activity only), PostToolUse (activity only), PostToolUseFailure (activity only) and Stop (context usage, consumption, activity and recent responses) hooks";
         const CODEX_ALL: &str = "SessionStart, SessionEnd, UserPromptSubmit, Interrupt (activity only) and Stop (context usage, consumption, activity and recent responses) hooks";
         const ANSWERS: &str = "Stop (turn end: activity and chat answers, no usage data)";
+        const AGY_ALL: &str = "SessionStart, PreInvocation and Stop (context usage, consumption, activity and recent responses) hooks";
         assert_eq!(
             events(&claude::DRIVER, "{}", false, UsageHook::Default),
             ALL
@@ -241,6 +250,14 @@ mod preview_tests {
             CODEX_ALL
         );
         // Turning usage off keeps the turn-end hook and says what it still does.
+        assert_eq!(
+            events(&agy::DRIVER, "{}", false, UsageHook::Default),
+            AGY_ALL
+        );
+        assert_eq!(
+            events(&agy::DRIVER, "{}", false, UsageHook::Remove),
+            format!("SessionStart, PreInvocation and {ANSWERS} hooks")
+        );
         assert_eq!(
             events(&claude::DRIVER, "{}", false, UsageHook::Remove),
             format!(

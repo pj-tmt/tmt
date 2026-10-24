@@ -167,7 +167,8 @@ fn first_party_drivers_look_only_in_their_own_private_tree() {
     let registry = RuntimeRegistry::first_party();
     let claude = remembered("claude", crate::drivers::claude::MODE_DEFAULT);
     let codex = remembered("codex", crate::drivers::codex::MODE_EMBEDDED);
-    for session in [&claude, &codex] {
+    let agy = remembered("agy", crate::drivers::agy::MODE_DEFAULT);
+    for session in [&claude, &codex, &agy] {
         assert_eq!(
             registry.session_presence(session, &environment),
             SessionPresence::Unknown,
@@ -178,12 +179,18 @@ fn first_party_drivers_look_only_in_their_own_private_tree() {
     fs::create_dir_all(&project).unwrap();
     let day = home.join(".codex/sessions/2026/10/23");
     fs::create_dir_all(&day).unwrap();
+    let brain = home.join(".gemini/antigravity-cli/brain");
+    fs::create_dir_all(&brain).unwrap();
     assert_eq!(
         registry.session_presence(&claude, &environment),
         SessionPresence::Missing
     );
     assert_eq!(
         registry.session_presence(&codex, &environment),
+        SessionPresence::Missing
+    );
+    assert_eq!(
+        registry.session_presence(&agy, &environment),
         SessionPresence::Missing
     );
     // Each driver accepts only its own file name for the session.
@@ -207,12 +214,19 @@ fn first_party_drivers_look_only_in_their_own_private_tree() {
         b"{}\n",
     )
     .unwrap();
+    let agy_logs = brain.join(SESSION).join(".system_generated/logs");
+    fs::create_dir_all(&agy_logs).unwrap();
+    fs::write(agy_logs.join("transcript.jsonl"), b"{}\n").unwrap();
     assert_eq!(
         registry.session_presence(&claude, &environment),
         SessionPresence::Present
     );
     assert_eq!(
         registry.session_presence(&codex, &environment),
+        SessionPresence::Present
+    );
+    assert_eq!(
+        registry.session_presence(&agy, &environment),
         SessionPresence::Present
     );
     let other = remembered("gemini", "default");
