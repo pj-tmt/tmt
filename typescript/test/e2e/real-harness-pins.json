@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "versions": {
+    "claude": "2.1.285 (Claude Code)",
+    "codex": "codex-cli 0.160.0"
+  },
+  "packages": [
+    {
+      "name": "@anthropic-ai/claude-code",
+      "version": "2.1.285",
+      "installDirectory": "@anthropic-ai/claude-code",
+      "url": "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-2.1.285.tgz",
+      "integrity": "sha512-frr0DLmVHSDNjw+hC6ZmXMVQ8yH4nNmVcI4lVFzWt0bdPNZP7clOKsuLcqSdwQabIpe6A3NEc3TJfiBVD8B2Bg=="
+    },
+    {
+      "name": "@anthropic-ai/claude-code-linux-x64",
+      "version": "2.1.285",
+      "installDirectory": "@anthropic-ai/claude-code-linux-x64",
+      "url": "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-2.1.285.tgz",
+      "integrity": "sha512-6qNST8qKemr+rD9zvUEwEq0UtWt0E5Js8bkbjh13/LM62FiGWcN6IqiJPxybJ2FNd+I3liXq6JYNv/vrGnmAow=="
+    },
+    {
+      "name": "@openai/codex",
+      "version": "0.160.0",
+      "installDirectory": "@openai/codex",
+      "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.160.0.tgz",
+      "integrity": "sha512-kEtVGzjRAYAMOwJxN39bGcna7LT3IDQgq64NNJ/dDTfu4OzZaocJcyNb5/gGJ/IVF/Vj7oK7E2m3nmTan7lpjg=="
+    },
+    {
+      "name": "@openai/codex",
+      "version": "0.160.0-linux-x64",
+      "installDirectory": "@openai/codex-linux-x64",
+      "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.160.0-linux-x64.tgz",
+      "integrity": "sha512-KI/73OqGrHmR18s7ya7E1NqV6rT0y3lxr0s8S1qR2m6zU6QRF/HlR529jALLh5vjdUnsRT4Ahoxt0axb4kY99g=="
+    }
+  ]
+}

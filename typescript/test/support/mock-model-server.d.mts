@@ -37,6 +37,8 @@ export interface MockModelSnapshot {
     bodyBytes: number;
     model?: string;
     stream?: boolean;
+    /** Validated UUID only; absent until the selected pinned wire field is present. */
+    sessionId?: string;
     code?: string;
     kind?: 'health' | 'side' | 'turn';
   }[];
@@ -44,6 +46,8 @@ export interface MockModelSnapshot {
 export function startMockModelServer(options: {
   turns: ScriptedTextTurn[];
   sideRequests?: DeclaredSideRequest[];
+  /** Wire locations are candidates until matched against hosted public CLI session evidence. */
+  sessionSource?: 'claude-code-2.1.285' | 'codex-0.160.0';
   limits?: {
     maxRequests?: number;
     maxBodyBytes?: number;
