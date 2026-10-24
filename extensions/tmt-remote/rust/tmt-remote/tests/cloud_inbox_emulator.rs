@@ -581,3 +581,149 @@ fn ordinary_users_deliver_recover_restart_revoke_and_stop_before_budget_io() {
         Value::Null,
     );
 }
+
+/// Receiver-only comparison with the offline 24-round workload. Setup carrier
+/// writes use ordinary peer Auth and are excluded from the receiver's counters.
+#[test]
+#[ignore = "explicit Infra emulator slot; no provider fallback"]
+fn ordinary_user_idle_single_and_burst_poll_costs() {
+    let admin = Admin::new();
+    for messages in [0, 1, 4] {
+        admin.call(
+            "DELETE",
+            &format!("/emulator/v1/projects/{PROJECT}/databases/(default)/documents"),
+            Value::Null,
+        );
+        admin.call("PUT", &format!("/emulator/v1/projects/{PROJECT}:securityRules"), json!({"rules":{"files":[{"name":"firestore.rules","content":tmt_remote::cloud_inbox::rules::artifact()}]}}));
+        admin.seed(
+            &format!("m/{MACHINE}"),
+            json!({"uid":{"stringValue":"owner"}}),
+        );
+        admin.seed(&format!("m/{MACHINE}/peers/peer"), json!({"peer":{"stringValue":PEER},"revoked":{"booleanValue":false},"expiresAt":{"timestampValue":"2035-01-01T00:00:00Z"}}));
+        let clock = Arc::new(SystemClock::default());
+        let now = clock.now().wall_ms;
+        let world = World::new(now, Arc::new(CurrentIdentity));
+        std::fs::write(world.core.root.join("multi"), b"per-operation receipts").unwrap();
+        let stopped = AtomicBool::new(false);
+        let io = IoBudget {
+            deadline: Instant::now() + Duration::from_secs(180),
+            cancelled: &stopped,
+        };
+        let peer = ready(Auth("peer").token(&io)).unwrap().token;
+        let root = format!("projects/{PROJECT}/databases/(default)/documents");
+        for index in 0..messages {
+            let id = format!("00000000-0000-4000-8000-{index:012x}");
+            let payload = json!({"version":1,"operation":"dispatch.create","originator":"anonymous","createdAtMs":now,"input":{"operationId":id,"recipientIds":[TARGET],"expectedName":"target","message":"one offline effect","kind":"request"}}).to_string();
+            let exact =
+                fixture::signed_request_as(PEER, &id, "dispatch.create", &payload, now, |bytes| {
+                    world.key.sign(bytes)
+                });
+            let carrier = tmt_remote::cloud_inbox::seal_native(
+                &exact,
+                &world.descriptor,
+                now,
+                tmt_remote::cloud_hpke::Sender {
+                    client_id: PEER,
+                    authentication_key: &world.key.public(),
+                },
+                |bytes| world.key.sign(bytes),
+            )
+            .unwrap()
+            .0;
+            use base64::{Engine, engine::general_purpose::STANDARD};
+            let name = format!("{root}/m/{MACHINE}/inbox/{id}");
+            let write = json!({"update":{"name":name,"fields":{"peer":{"stringValue":PEER},"carrier":{"bytesValue":STANDARD.encode(carrier)}}},"updateTransforms":[{"fieldPath":"createdAt","setToServerValue":"REQUEST_TIME"}],"currentDocument":{"exists":false}});
+            assert_eq!(
+                admin
+                    .status(
+                        "POST",
+                        &format!("/v1/{root}:commit"),
+                        json!({"writes":[write]}),
+                        &peer
+                    )
+                    .0,
+                200,
+                "ordinary peer creates the setup carrier"
+            );
+        }
+        let http = ProductionHttp::new(
+            &Project::new(PROJECT, "123456", "emulator-key").unwrap(),
+            clock.clone(),
+        )
+        .unwrap();
+        assert!(http.emulator_active());
+        let wire = Arc::new(Wire {
+            http,
+            clock: clock.clone(),
+            owner: Mutex::new(Weak::new()),
+            counts: Mutex::new(vec![]),
+        });
+        let budget = Arc::new(Budget {
+            usage: Mutex::new(NativeUsage::new(now)),
+            refuse: AtomicBool::new(false),
+        });
+        let driver = world.driver(provider(wire.clone(), "owner", budget.clone()));
+        let mut returned = 0;
+        for _ in 0..24 {
+            returned += ready(driver.reconcile(clock.now().wall_ms, &io)).unwrap();
+        }
+        assert!(
+            clock.now().wall_ms - now < 120_000,
+            "cost observation must stay within the retained overlap"
+        );
+        assert_eq!(returned, messages * 24);
+        assert_eq!(world.core.sends(), messages);
+        let calls = wire.counts.lock().unwrap();
+        assert!(calls.iter().all(|(_, status)| *status == 200));
+        let queries = calls
+            .iter()
+            .filter(|(operation, _)| *operation == Operation::Query)
+            .count();
+        let reads = calls
+            .iter()
+            .filter(|(operation, _)| *operation == Operation::Read)
+            .count();
+        let writes = calls
+            .iter()
+            .filter(|(operation, _)| *operation == Operation::Commit)
+            .count();
+        let guard = budget.usage.lock().unwrap().reads;
+        let (query_ceiling, guard_ceiling) = match messages {
+            0 => (24, 72),
+            1 => (48, 220),
+            4 => (49, 522),
+            _ => unreachable!(),
+        };
+        assert!(queries <= query_ceiling && guard <= guard_ceiling);
+        assert_eq!(writes, messages);
+        println!(
+            "cloud poll_cost {}",
+            json!({"distinctDeliveries":messages,"returnedDocuments":returned,"queryCalls":queries,"responseReads":reads,"responseWrites":writes,"activeRoundGuardReads":guard,"modeledGuardReadsPerDay":if messages==0 {4320} else {guard+1438*3}})
+        );
+        drop(calls);
+        let owner = ready(Auth("owner").token(&io)).unwrap().token;
+        let stranger = ready(Auth("stranger").token(&io)).unwrap().token;
+        let query = |collection, limit| json!({"structuredQuery":{"from":[{"collectionId":collection,"allDescendants":false}],"limit":limit}});
+        let path = format!("/v1/{root}/m/{MACHINE}:runQuery");
+        assert_eq!(
+            admin.status("POST", &path, query("inbox", 4), &owner).0,
+            200
+        );
+        assert_eq!(
+            admin.status("POST", &path, query("inbox", 5), &owner).0,
+            403
+        );
+        assert_eq!(admin.status("POST", &path, query("inbox", 4), &peer).0, 403);
+        assert_eq!(
+            admin.status("POST", &path, query("inbox", 4), &stranger).0,
+            403
+        );
+        assert_eq!(
+            admin.status("POST", &path, query("enroll", 2), &owner).0,
+            403
+        );
+        println!(
+            "cloud poll_rules_controls=5 allowed=1 refused=4 (ordinary Auth, excluded from receiver totals)"
+        );
+    }
+}

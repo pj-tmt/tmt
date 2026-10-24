@@ -28,6 +28,8 @@ pub const CLOUD_ENVELOPE_BYTES: usize =
 pub const CLOUD_CHECKPOINT_OVERLAP_MS: u64 = 120_000;
 /// Private machine query continuation, including one timestamp/UUID tie-breaker.
 pub const CLOUD_QUERY_CHECKPOINT_BYTES: usize = 256;
+/// Inbox catch-up batches stay finite; an idle probe still requests one document.
+pub const CLOUD_INBOX_PAGE_DOCUMENTS: usize = 4;
 /// Named adaptive cadence, including jitter; local sealed-document policy is unchanged.
 pub const CLOUD_POLL_MIN_MS: u64 = 5_000;
 pub const CLOUD_POLL_IDLE_MS: u64 = 60_000;

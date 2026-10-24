@@ -273,7 +273,7 @@ its prior admitted keyring on uncertainty. Its named bounds live in `limits`; th
 maintenance callback renews without adding a worker and a failure never stops local pairing.
 `cloud_inbox` is the emulator-only native carrier driver: `document` admits provider fields/createTime;
 `provider` reuses `NativeRuntime` Auth/HTTP/budget; `ingress` alone constructs a verified hand-off into
-`MessageService`; `driver` reconciles one machine query with peer checkpoints; `sender` freezes before
+`MessageService`; `driver` reconciles one machine query with a durable machine continuation; `sender` freezes before
 HTTP and recovers a lost context with a fresh signed ID lookup. `store` uses the authoritative Store
 connection/lease and existing journal effect owner, never a second replay ledger. Permanent carrier
 refusals share that row and the existing audit transaction. Attempted response uncertainty cannot
@@ -286,6 +286,13 @@ each durable outcome. A capacity stop, transient failure or restart resumes that
 changing operation authority or replaying an effect. A fully drained query clears the continuation
 and advances the machine timestamp; the next query uses the normal overlap. Legacy peer-only
 checkpoints seed the first query except the machine UUID, which belongs to enrollment. Inbox completion never updates those peer keys; a quiet peer cannot hold subsequent machine progress back.
+The first query always probes one document. A full page can use bounded follow-up pages, sized by
+`store::cloud_inbox_page_limit` from existing retained rows, without skipping any overlap timestamp
+or ID. `provider` bounds retained response bytes by the admitted page count; `limits` owns the cap.
+Empty idle polls retain their one-minute cadence and one-document reservation. `driver` observes
+an already-attempted response by exact ID after its current grant fence, avoiding another unsent
+commit reservation; ambiguous observations preserve the same frozen uncertainty and progress rules.
+
 Core's message contract (#4831, `contracts/remote-message-v1.md`) owns the versioned schema.
 `cloud_command` admits the local request and preserves the target echo. Its optional reply capability
 is retained with the destination and originator in `cloud_inbox::store`'s existing private outbox
