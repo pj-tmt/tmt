@@ -544,6 +544,19 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
         &owner.io(),
     )
     .unwrap();
+    assert_eq!(
+        emulator.commit(
+            &owner_token,
+            &format!("m/{}", crate::store::uuid_v4().unwrap()),
+            json!({
+                "uid":{"stringValue":owner_provider.uid()},
+                "authenticationKey":{"bytesValue":STANDARD.encode(owner.key.public())},
+                "descriptor":{"bytesValue":STANDARD.encode(descriptor.bytes())}
+            })
+        ),
+        403,
+        "an allowlisted uid cannot create a different native machine"
+    );
     let child_descriptor = child
         .keys
         .advertised(crate::pairing::now_ms().unwrap())
@@ -664,6 +677,68 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
         403,
         "an existing expired gate cannot authorize enrollment"
     );
+    let now = crate::pairing::now_ms().unwrap();
+    let query = json!({"structuredQuery":{
+        "from":[{"collectionId":"invites","allDescendants":false}],
+        "where":{"fieldFilter":{"field":{"fieldPath":"expiresAt"},"op":"LESS_THAN_OR_EQUAL","value":{"timestampValue":crate::cloud_inbox::stamp(now)}}},
+        "orderBy":[{"field":{"fieldPath":"expiresAt"},"direction":"ASCENDING"}],"limit":1
+    }});
+    let query_path = format!("/{owner_path}:runQuery");
+    assert_eq!(
+        emulator.raw(&owner_token, Operation::Query, &query_path, query.clone()),
+        200,
+        "owner's bounded expired-gate query"
+    );
+    assert_eq!(
+        emulator.raw(
+            &stranger_token,
+            Operation::Query,
+            &query_path,
+            query.clone()
+        ),
+        403,
+        "a stranger cannot list gates"
+    );
+    let mut oversized = query.clone();
+    oversized["structuredQuery"]["limit"] = 2.into();
+    assert_eq!(
+        emulator.raw(&owner_token, Operation::Query, &query_path, oversized),
+        403,
+        "owner scans stay bounded to one result"
+    );
+    owner
+        .cleanup_enrollment(&owner_provider, now, &owner.io())
+        .unwrap();
+    assert_eq!(
+        emulator.raw(
+            &owner_token,
+            Operation::Read,
+            &format!("/{owner_path}/invites/{expired}"),
+            Value::Null
+        ),
+        404,
+        "collect the gate left by a crashed ceremony"
+    );
+    assert_eq!(
+        emulator.raw(
+            &owner_token,
+            Operation::Read,
+            &format!("/{owner_path}/invites/{offer}"),
+            Value::Null
+        ),
+        200,
+        "retain the live gate"
+    );
+    let calls = emulator.calls.lock().unwrap().clone();
+    owner
+        .cleanup_enrollment(&owner_provider, now, &owner.io())
+        .unwrap();
+    assert_eq!(
+        *emulator.calls.lock().unwrap(),
+        calls,
+        "the same hourly pass does not repeat provider work"
+    );
+
     let reroute_id = crate::store::uuid_v4().unwrap();
     assert_eq!(
         submit(
