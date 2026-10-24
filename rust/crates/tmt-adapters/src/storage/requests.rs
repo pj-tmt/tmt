@@ -407,7 +407,7 @@ impl RequestRecords for RequestRows<'_> {
         query: &tmt_core::request::history::AnswersQuery,
         limit: u64,
         now_ms: u64,
-    ) -> Result<Vec<tmt_core::request::history::Answer>, Self::Error> {
+    ) -> Result<Vec<tmt_core::request::history::AnsweredRequest>, Self::Error> {
         history::list_answers(self.0, query, limit, now_ms)
     }
 

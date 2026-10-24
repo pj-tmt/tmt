@@ -419,7 +419,7 @@ fn answers_admission_is_originator_scoped_strict_and_bounded() {
 fn an_answers_page_carries_metadata_only_and_one_cursor() {
     let page = AnswersPage {
         items: vec![
-            Answer {
+            AnsweredRequest {
                 request_id: REQUEST.into(),
                 kind: RequestKind::Request,
                 originator: Originator::Explicit(ID.into()),
@@ -427,7 +427,7 @@ fn an_answers_page_carries_metadata_only_and_one_cursor() {
                 answered_at_ms: 9,
                 answer: AnswerKind::Turn,
             },
-            Answer {
+            AnsweredRequest {
                 request_id: "req_44444444-4444-4444-8444-444444444444".into(),
                 kind: RequestKind::Request,
                 originator: Originator::Explicit(ID.into()),

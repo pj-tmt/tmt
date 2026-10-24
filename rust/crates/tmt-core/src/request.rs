@@ -479,7 +479,7 @@ pub trait RequestRecords {
         query: &history::AnswersQuery,
         limit: u64,
         now_ms: u64,
-    ) -> Result<Vec<history::Answer>, Self::Error>;
+    ) -> Result<Vec<history::AnsweredRequest>, Self::Error>;
     fn find_request_history(
         &self,
         request_id: &str,

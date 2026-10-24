@@ -118,17 +118,17 @@ fn application_schema_observation_reads_wal_and_future_versions_without_migratio
     let connection = storage.connection().unwrap();
     // This intentionally contradicts the application record: user_version is
     // not Core's schema owner, and the newest committed history is still in WAL.
-    connection.execute_batch("PRAGMA wal_autocheckpoint = 0; PRAGMA user_version = 1; INSERT INTO _migrations VALUES (64, 'future migration', 'now');").unwrap();
-    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 64);
+    connection.execute_batch("PRAGMA wal_autocheckpoint = 0; PRAGMA user_version = 1; INSERT INTO _migrations VALUES (65, 'future migration', 'now');").unwrap();
+    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 65);
     assert_eq!(
         connection
             .query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))
             .unwrap(),
         1
     );
-    assert_eq!(storage.health().unwrap().schema_version, 64);
+    assert_eq!(storage.health().unwrap().schema_version, 65);
     storage.close().unwrap();
-    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 64);
+    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 65);
 }
 
 #[test]
@@ -138,10 +138,10 @@ fn application_schema_observation_refuses_gaps_and_changed_known_migrations() {
     assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 64);
     let connection = storage.connection().unwrap();
     connection
-        .execute_batch("INSERT INTO _migrations VALUES (65, 'gap', 'now');")
+        .execute_batch("INSERT INTO _migrations VALUES (66, 'gap', 'now');")
         .unwrap();
     assert!(Storage::application_schema(&fixture.database).is_err());
-    connection.execute_batch("DELETE FROM _migrations WHERE version = 65; UPDATE _migrations SET name = 'unverified' WHERE version = 1;").unwrap();
+    connection.execute_batch("DELETE FROM _migrations WHERE version = 66; UPDATE _migrations SET name = 'unverified' WHERE version = 1;").unwrap();
     assert!(Storage::application_schema(&fixture.database).is_err());
     storage.close().unwrap();
 }

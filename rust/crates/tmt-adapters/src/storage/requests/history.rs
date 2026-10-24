@@ -228,7 +228,7 @@ pub(super) fn list_answers(
     query: &AnswersQuery,
     limit: u64,
     now_ms: u64,
-) -> Result<Vec<Answer>, StorageError> {
+) -> Result<Vec<AnsweredRequest>, StorageError> {
     let before = query
         .before
         .as_ref()
@@ -248,7 +248,7 @@ pub(super) fn list_answers(
             ],
             |row| {
                 let attempt = rows::attempt_row(row)?;
-                Ok(Answer {
+                Ok(AnsweredRequest {
                     request_id: attempt.request_id,
                     kind: attempt.kind,
                     originator: attempt.originator,

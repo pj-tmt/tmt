@@ -143,7 +143,7 @@ pub struct AnswersQuery {
 
 /// An answered request without its text: enough to count what is new.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Answer {
+pub struct AnsweredRequest {
     pub request_id: String,
     pub kind: RequestKind,
     pub originator: Originator,
@@ -153,6 +153,6 @@ pub struct Answer {
 }
 
 pub struct AnswersPage {
-    pub items: Vec<Answer>,
+    pub items: Vec<AnsweredRequest>,
     pub next_before: Option<AnswerCursor>,
 }

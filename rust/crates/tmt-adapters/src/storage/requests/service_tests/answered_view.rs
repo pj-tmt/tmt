@@ -4,7 +4,7 @@ use super::passthrough::{claimed_passthrough, identity, mark_user};
 use super::support::{Fixture, NOW_MS, endpoint, prepare_input, request_snapshot, service};
 use tmt_core::request::{
     Originator, RequestError, RequestRoute, ResponseProof, SubmitResponse, WakeState, correlation,
-    history::{Answer, AnswerCursor, AnswerKind, AnswersQuery},
+    history::{AnswerCursor, AnswerKind, AnsweredRequest, AnswersQuery},
 };
 
 fn ask(f: &mut Fixture, id: &str, from: &str) {
@@ -77,7 +77,7 @@ fn query(originator: &str, limit: u64, before: Option<AnswerCursor>) -> AnswersQ
     }
 }
 
-fn shown(answers: &[Answer]) -> Vec<(&str, &str, u64)> {
+fn shown(answers: &[AnsweredRequest]) -> Vec<(&str, &str, u64)> {
     answers
         .iter()
         .map(|a| (a.request_id.as_str(), a.answer.as_str(), a.answered_at_ms))
