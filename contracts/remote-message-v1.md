@@ -44,8 +44,8 @@ fixed uppercase code. Core accepts only `version` 1 and the requested `remote`.
 
 | `state` | Request status | Meaning |
 | --- | --- | --- |
-| `sent` | sent | Delivered to the peer's agent. |
-| `held` | queued | The peer accepted it and delivers it later. |
+| `sent` | sent | Stored in the peer's inbox; not yet delivered to its agent. |
+| `held` | queued | Held for the peer owner's approval. |
 | `refused` | failed | Refused before any effect. |
 | `unavailable` | failed | No route; nothing delivered. |
 | `unconfirmed` | uncertain | The peer may have processed it. |

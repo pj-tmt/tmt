@@ -35,9 +35,9 @@ pub struct RemoteMessage<'a> {
 /// What is known about delivery once the command has ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RemoteMessageOutcome {
-    /// Delivered to the peer's agent.
+    /// Stored in the peer's inbox; not yet delivered to its agent.
     Sent,
-    /// The peer accepted it and delivers it later.
+    /// Held for the peer owner's approval.
     Held,
     /// Refused before any effect.
     Refused { reason: Option<String> },

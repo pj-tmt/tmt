@@ -400,12 +400,12 @@ fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
     } else {
         let text = if held {
             format!(
-                "Queued request {} for {} on {}; the peer delivers it later",
+                "Queued request {} for {} on {}; it waits for the peer owner's approval",
                 report.request_id, report.target_name, report.remote
             )
         } else {
             format!(
-                "Sent request {} to {} on {}",
+                "Sent request {} to {} on {}; it is in the peer's inbox",
                 report.request_id, report.target_name, report.remote
             )
         };

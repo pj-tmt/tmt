@@ -285,8 +285,8 @@ the result for the user without treating submission alone as task success.
 ### Talk to a Remote peer
 
 `tmt talk <target> "message" --remote <peer> --identity <you> --json` sends one request through
-the Remote extension to an agent on a paired peer and returns at once: `sent`, or `queued` when the
-peer holds it. A UUID target needs `--expect-name <name>`. It needs a confirmed sender and an
+the Remote extension to an agent on a paired peer and returns at once: `sent` (stored in the
+peer's inbox) or `queued` (held for the peer owner's approval). A UUID target needs `--expect-name <name>`. It needs a confirmed sender and an
 installed Remote that supports it (`REMOTE_SENDER_REQUIRED`, `REMOTE_UNAVAILABLE`; nothing sent),
 and takes no `--passthrough`, `--urgent`, `--no-preamble`, `--timeout`, `--delay`, `--room` or
 `--kind`. `REMOTE_UNCONFIRMED` means the peer may have it: never resend. The peer's final arrives
