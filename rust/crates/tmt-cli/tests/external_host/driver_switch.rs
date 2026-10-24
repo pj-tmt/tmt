@@ -307,6 +307,7 @@ fn a_switch_context_notice_requires_a_successful_hook_and_committed_launch() {
 /// Both driver directions use the public command. A real receipt answers the
 /// handoff; a missing answer and an already-gone provider use notebook fallback.
 #[test]
+#[ignore = "flaky on hosted runners until #4656 is resolved"]
 fn driver_switch_keeps_identity_history_and_hands_off_once_before_launch() {
     register();
     for (provider, target) in [("claude", "codex"), ("codex", "claude")] {

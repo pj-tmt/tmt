@@ -67,8 +67,12 @@ configuration. The owner map is in
   runs `answer_oldest_open` in the same transaction: the retained original text becomes the first
   final (`store_final`, shared with `submit_response`, no originator hint) of the oldest open
   request from that agent to the sender; any other settlement stores nothing. The same send creates a
-  pending `request_passthrough` row (one per passthrough, cascading with the request). The hook's
-  runtime-observation transaction binds it at an admitted turn start (`TurnBoundary::Started`: the
+  `request_passthrough` row (one per passthrough, cascading with the request): `pending`, or `bound` at
+  once with `folded = 1` (schema 69) when `RequestRecords::running_turn` shows a verified `Working` turn
+  of a driver whose descriptor declares `folds_queued_text` (Claude only, until another is measured)
+  whose `since_ms` is not after the send's start (`RunningTurn::holds_text_typed_at`), since no prompt will
+  announce text a running turn takes in. The hook's
+  runtime-observation transaction binds a pending row at an admitted turn start (`TurnBoundary::Started`: the
   prompt matches the typed text, first in first out) and settles it at the admitted turn end
   (`Ended`: the captured final, else `no_answer`); `PassthroughCapture::state_at` reads a row past its
   bind window (unbound) or `BOUND_WINDOW_MS` (bound) as `no_answer`, so no sweeper exists. The same
@@ -80,10 +84,15 @@ configuration. The owner map is in
   route and status, the wake state (an identified recipient's request stays `queued`; its paste is the
   wake), the `focus_items`/`focus_checklists` hold, `focus_policies.max_hold_ms` plus the oldest held
   arrival (the latest send time), the driver activity of the exact bound session and process (a
-  stored event, no host call), and what came back (`delivery::Answer`: a submitted final, or the
+  stored event, no host call), and what came back (`ReturnedAnswer`: a submitted final, or the
   passthrough capture as `state_at` reads it, so a capture past its window already reads
-  `no_answer`). `Answer` outranks every other fact: `answered` is terminal, and an ended capture
-  without an answer is `unconfirmed`, never `working` (#4910). The Digest tick writes `maxHoldMs` with every `digest.policy.set` and
+  `no_answer`). A returned answer outranks every other fact: `answered` is terminal, and an ended capture
+  without an answer is `unconfirmed`, never `working` (#4910). `working` of an inbox request ends with
+  the turn that began after its hand-over: `request_turns` (schema 70, `requests::turns`) records that turn's
+  start when the hook transaction admits a main-session `Started` (for each handed-over request with no
+  final, passthrough or row yet, prepared within `BOUND_WINDOW_MS`) and its end at `Ended`;
+  a closed or idle-without-end turn reads `unconfirmed`/`turn_ended_without_reply`, and a request with no
+  row keeps the activity-only reading bounded to six hours (#4911). The Digest tick writes `maxHoldMs` with every `digest.policy.set` and
   rewrites a policy whose recorded value differs; older policies read null until then.
 - A delivered checklist keeps `confirmed_at_ms` null until later evidence arrives (pre-068 rows are
   confirmed by the migration). One typed at an idle opportunity is confirmed by the hook's

@@ -2,7 +2,7 @@ import { projectTone } from './projects.js';
 import { BrowserIconAction, BrowserMenu, useShellBar } from '@tmt/browser-ui/react';
 import { Alert, AlertDescription, UiTheme } from '@tmt/browser-ui/ui';
 import '@tmt/browser-ui/ui.css';
-import { Pin, Tag, X } from 'lucide-react';
+import { Pin, Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { rememberPages, rememberedPages } from './quick-switcher-source.js';
@@ -59,21 +59,24 @@ export function PageProjectsMenu({
   toggle,
   create,
   openRequest,
+  onOpenChange,
 }: {
   page: PageSummary;
   names: readonly string[];
   toggle(page: PageSummary, name: string): void;
   create(page: PageSummary): void;
-  /** A new value opens the menu: the `l` shortcut, or Projects… in the page header's More menu. */
+  /** A new value opens the menu: `l`, row Projects… or the page header's admitted request. */
   openRequest?: number;
+  onOpenChange?(open: boolean): void;
 }) {
   const carried = new Set(page.projects ?? []);
   const full = carried.size >= PAGE_LIMIT;
   return (
     <BrowserMenu
       label={t.projectsFor(pageTitle(page))}
-      icon={<Tag />}
+      icon={<Plus />}
       openRequest={openRequest}
+      onOpenChange={onOpenChange}
       items={[
         ...names.map((name) => {
           const blocked = full && !carried.has(name);
@@ -139,6 +142,13 @@ export function PageProjects({
   useEffect(() => setFailure(undefined), [pageId]);
   // The picker opens once its data is here: this counts those openings, not the requests.
   const [opened, setOpened] = useState(0);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const origin = useRef<HTMLElement | null>(null);
+  const addButton = useRef<HTMLButtonElement>(null);
+  function openFromControl(event: React.MouseEvent<HTMLButtonElement>) {
+    origin.current = event.currentTarget;
+    open();
+  }
   // A new transport (a refreshed session) is read through, never a reason to read the list again.
   const latest = useRef(transport);
   latest.current = transport;
@@ -186,6 +196,7 @@ export function PageProjects({
   useEffect(() => {
     if (request === first.current || !port) return;
     first.current = request;
+    if (from) origin.current = document.activeElement as HTMLElement | null;
     // Show what is known at once and refresh behind it; with nothing known, open when the read lands.
     if (known) {
       setOpened((count) => count + 1);
@@ -269,14 +280,13 @@ export function PageProjects({
     <>
       <span className="page-header-projects">
         {projects.length > 0 && (
-          // The chips are the one visible control: they open the picker. With no project, and on a
-          // phone, Projects… in the More menu opens the same picker.
           <button
             type="button"
             className="page-header-chips"
             aria-haspopup="menu"
             aria-label={`${t.projectsFor(pageTitle(page))}: ${projects.join(', ')}`}
-            onClick={open}
+            aria-expanded={pickerOpen}
+            onClick={openFromControl}
           >
             {projects.slice(0, CHIPS).map((name) => (
               <span
@@ -292,19 +302,49 @@ export function PageProjects({
             )}
           </button>
         )}
-        {/* The picker's own trigger is the menu's anchor, never shown: the chips and More open it. */}
-        <span
-          className="page-header-projects-anchor"
-          data-from={from ? 'more' : 'chips'}
-          style={from && { top: from.top, left: from.left, width: from.width, height: from.height }}
-        >
-          <PageProjectsMenu
-            page={page}
-            names={names}
-            openRequest={opened}
-            toggle={(target, name) => void toggle(target, name)}
-            create={() => setCreating(true)}
-          />
+        <span className="page-header-project-add">
+          <button
+            ref={addButton}
+            type="button"
+            className="page-header-add-project"
+            aria-label={t.addToProject}
+            aria-haspopup="menu"
+            aria-expanded={pickerOpen}
+            onClick={openFromControl}
+          >
+            <Plus size={14} aria-hidden="true" />
+          </button>
+          {/* The existing request/read pipeline admits opening; this hidden trigger anchors its menu. */}
+          <span
+            className="page-header-projects-anchor"
+            data-from={from ? 'more' : 'chips'}
+            style={
+              from && { top: from.top, left: from.left, width: from.width, height: from.height }
+            }
+          >
+            <PageProjectsMenu
+              page={page}
+              names={names}
+              openRequest={opened}
+              onOpenChange={(value) => {
+                setPickerOpen(value);
+                if (!value)
+                  queueMicrotask(() => {
+                    // The leaf restores its hidden anchor first. Do not steal focus from a new dialog.
+                    const active = document.activeElement;
+                    if (
+                      active !== document.body &&
+                      !active?.closest('.page-header-projects-anchor')
+                    )
+                      return;
+                    const target = origin.current?.isConnected ? origin.current : addButton.current;
+                    target?.focus({ preventScroll: true });
+                  });
+              }}
+              toggle={(target, name) => void toggle(target, name)}
+              create={() => setCreating(true)}
+            />
+          </span>
         </span>
         {/* A page the owner list does not name, or an archived one, has nothing to pin. */}
         {pinned !== undefined && (

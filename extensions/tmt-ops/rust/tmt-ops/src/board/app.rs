@@ -350,6 +350,8 @@ pub enum Choice {
     ClearSearch,
     Panels,
     Checklist,
+    /// The room UUID of a fresh squad-row count, independent of the previous selection.
+    RoomChecklist(String),
     Action(Action),
     /// Confirms a cron control picked from a menu.
     Cron(super::cronboard::CronRequest),
@@ -3121,6 +3123,7 @@ impl App {
             }
             Choice::Panels => self.open_panels(),
             Choice::Checklist => self.open_checklist(),
+            Choice::RoomChecklist(room) => self.open_room_checklist(room),
             Choice::MemberNotes => self.open_notes(),
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
@@ -4406,6 +4409,9 @@ impl App {
             return effect;
         }
         if let Some(effect) = self.paste_chip_mouse(event) {
+            return effect;
+        }
+        if let Some(effect) = self.room_checklist_mouse(event) {
             return effect;
         }
         if let Some(effect) = self.member_link_mouse(event) {

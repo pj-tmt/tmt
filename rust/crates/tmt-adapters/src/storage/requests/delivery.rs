@@ -2,10 +2,13 @@
 //! row read inside the request transaction: no process, pane or file is touched.
 use super::*;
 use tmt_core::{
-    binding::BindingRecords,
+    binding::{
+        BindingRecords,
+        session::activity::{Activity, ActivityPhase},
+    },
     request::{
         delivery::{DeliveryFacts, DigestHold, RecipientActivity, ReturnedAnswer},
-        passthrough::CaptureState,
+        passthrough::{CaptureState, RunningTurn},
     },
 };
 
@@ -79,6 +82,7 @@ pub(super) fn facts(
             .transpose()?
             .flatten(),
         recipient: recipient.map(|id| activity(db, id)).transpose()?.flatten(),
+        turn: super::turns::read(db, &attempt.request_id)?,
         answer: answer(db, attempt, now)?,
     })
 }
@@ -94,7 +98,9 @@ fn answer(
     }
     Ok(match passthrough::capture(db, &attempt.request_id)? {
         Some(capture) => match capture.state_at(now) {
-            CaptureState::Answered => ReturnedAnswer::Turn,
+            CaptureState::Answered => ReturnedAnswer::Turn {
+                folded: capture.folded,
+            },
             CaptureState::NoAnswer => ReturnedAnswer::NoCapture {
                 bound: capture.bound_at_ms.is_some(),
             },
@@ -142,6 +148,40 @@ pub(super) fn activity(
     db: &Connection,
     identity: &str,
 ) -> Result<Option<RecipientActivity>, StorageError> {
+    Ok(
+        verified_activity(db, identity)?.map(|(_, activity)| RecipientActivity {
+            phase: activity.phase,
+            since_ms: activity.since_ms,
+        }),
+    )
+}
+
+/// The turn that [`activity`] shows running, with the session and turn id it can be bound by, when
+/// the recipient's driver folds text typed into a running turn (`folds_queued_text`). For any other
+/// driver the answer is none, so its passthrough keeps prompt matching (#4912).
+pub(super) fn running_turn(
+    db: &Connection,
+    identity: &str,
+) -> Result<Option<RunningTurn>, StorageError> {
+    Ok(verified_activity(db, identity)?
+        .filter(|(driver, activity)| {
+            activity.phase == ActivityPhase::Working
+                && tmt_core::driver::descriptor::named(driver)
+                    .is_some_and(|descriptor| descriptor.folds_queued_text)
+        })
+        .map(|(_, activity)| RunningTurn {
+            session: activity.session.as_str().to_owned(),
+            turn: activity.turn.map(|turn| turn.as_str().to_owned()),
+            since_ms: activity.since_ms,
+        }))
+}
+
+/// The activity of the exact session and process the recipient is bound to, with the driver that
+/// reported it.
+fn verified_activity(
+    db: &Connection,
+    identity: &str,
+) -> Result<Option<(String, Activity)>, StorageError> {
     let rows = crate::storage::bindings::BindingRows(db);
     let Some(key) = rows
         .entry_by_id(identity)?
@@ -162,9 +202,6 @@ pub(super) fn activity(
                 .and_then(crate::runtime::driver_state::state_activity)?;
             activity
                 .matches(&remembered.provider_session, &key.incarnation)
-                .then_some(RecipientActivity {
-                    phase: activity.phase,
-                    since_ms: activity.since_ms,
-                })
+                .then(|| (remembered.harness.as_str().to_owned(), activity))
         }))
 }

@@ -333,7 +333,7 @@ test('the Archived tab filters archived pages with a tab, not a native checkbox'
   });
   // Rows and the header own selection checkboxes; Archived remains a tab.
   const root = page.locator('#chrome-fixture');
-  const rows = root.locator('ul.pages li');
+  const rows = root.locator('ul.pages > li');
   await expect(root.getByRole('checkbox', { name: 'Select all matching pages' })).toBeVisible();
   await expect(rows.getByRole('checkbox')).toHaveCount(await rows.count());
   await expect(root.getByRole('checkbox')).toHaveCount((await rows.count()) + 1);

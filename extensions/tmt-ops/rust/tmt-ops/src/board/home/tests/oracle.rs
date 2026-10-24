@@ -932,6 +932,17 @@ fn captures() -> Value {
                     ));
                 }
             }
+            for scene in crate::board::conversation_notes::tests::captures::ROOM_SCENES {
+                for (width, height) in [(160, 36), (100, 36), (80, 36), (60, 36)] {
+                    let app =
+                        crate::board::conversation_notes::tests::captures::room_case(scene, look);
+                    let mut captured =
+                        capture_frame(&app, scene, look_name, width, height, &mut styles);
+                    captured["stripHits"] =
+                        json!(format!("{:?}", app.workspace_strip_hits.borrow()));
+                    frames.push(captured);
+                }
+            }
         }
         for (look_name, look) in looks() {
             for (width, height) in [(160, 36), (120, 40), (100, 32)] {

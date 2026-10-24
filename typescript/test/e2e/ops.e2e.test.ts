@@ -1370,7 +1370,8 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
         await fixture.waitForCapture(
           (screen) =>
-            !screen.includes('Checklist') &&
+            !screen.includes('┌ Checklist') &&
+            screen.includes('Checklist · 0 todo') &&
             /^[ \t]*[▸▾] product[ \t]+—[ \t]+0\b/m.test(screen) &&
             screen.includes('0 members'),
           shell.pane

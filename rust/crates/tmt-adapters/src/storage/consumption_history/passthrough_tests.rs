@@ -6,7 +6,7 @@ use super::{tests::fixture, *};
 use crate::storage::ResponseCapture;
 use std::time::Duration;
 use tmt_core::{
-    request::passthrough::{BIND_WINDOW_MS, BOUND_WINDOW_MS, CaptureState},
+    request::passthrough::{BIND_WINDOW_MS, BOUND_WINDOW_MS, CaptureState, RunningTurn},
     responses::FinalText,
 };
 
@@ -472,6 +472,194 @@ fn a_later_turn_of_the_same_session_settles_a_bound_capture_without_an_answer() 
     // The turn that binds a capture does not overtake it.
     started(&mut storage, &path, &id, None, "third job");
     assert_eq!(capture(&storage, "same").state, CaptureState::Bound);
+    storage.close().unwrap();
+}
+
+#[test]
+fn a_text_folded_into_a_running_turn_shares_that_turns_final_with_the_message_that_started_it() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    typed(&storage, &id, "first", "first job", 2_000);
+    started(&mut storage, &path, &id, Some("t1"), "first job");
+    // A second text typed while t1 runs: the send found the turn running, so it bound at once.
+    typed(&storage, &id, "folded", "and the other job", 500);
+    let connection = storage.connection().unwrap();
+    connection
+        .execute(
+            "DELETE FROM request_passthrough WHERE request_id='folded'",
+            [],
+        )
+        .unwrap();
+    super::super::requests::passthrough::start_capture(
+        connection,
+        "folded",
+        now() - 500,
+        Some(&RunningTurn {
+            session: SESSION.into(),
+            turn: Some("t1".into()),
+            since_ms: now() - 2_000,
+        }),
+    )
+    .unwrap();
+    let bound = capture(&storage, "folded");
+    assert_eq!((bound.state, bound.folded), (CaptureState::Bound, true));
+
+    let ended = TurnBoundary::Ended {
+        turn: Some("t1"),
+        continuation: false,
+    };
+    event(
+        &mut storage,
+        &path,
+        &id,
+        SESSION,
+        Some(ended),
+        Some("Both jobs done."),
+        true,
+    );
+    for request in ["first", "folded"] {
+        let settled = capture(&storage, request);
+        assert_eq!(settled.state, CaptureState::Answered, "{request}");
+        assert_eq!(settled.answer.unwrap().text, "Both jobs done.", "{request}");
+    }
+    assert!(capture(&storage, "folded").folded);
+    assert!(!capture(&storage, "first").folded);
+    storage.close().unwrap();
+}
+
+#[test]
+fn a_folded_capture_is_overtaken_like_any_bound_one_when_a_later_turn_starts() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    typed(&storage, &id, "folded", "queued job", 500);
+    let connection = storage.connection().unwrap();
+    connection
+        .execute(
+            "DELETE FROM request_passthrough WHERE request_id='folded'",
+            [],
+        )
+        .unwrap();
+    super::super::requests::passthrough::start_capture(
+        connection,
+        "folded",
+        now() - 500,
+        Some(&RunningTurn {
+            session: SESSION.into(),
+            turn: None,
+            since_ms: now() - 2_000,
+        }),
+    )
+    .unwrap();
+    // The provider queued the text as the next turn instead: that turn starting means the
+    // turn the text was folded into has ended, and no final of it answers this message.
+    started(&mut storage, &path, &id, None, "queued job");
+    let overtaken = capture(&storage, "folded");
+    assert_eq!(overtaken.state, CaptureState::NoAnswer);
+    assert!(overtaken.folded && overtaken.answer.is_none());
+    storage.close().unwrap();
+}
+
+/// A request handed to `agent`'s pane `ago` milliseconds ago: queued, its wake sent.
+fn handed_over(storage: &Storage, agent: &str, request: &str, ago: u64) {
+    let prepared = now() - ago;
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "INSERT INTO request_attempts (
+                attempt_id,request_id,route_kind,recipient_identity_id,wait_active,status,
+                inject_preamble,cadence_reserved,prepared_at_ms,expires_at_ms,retention_expires_at_ms,
+                message_text,message_bytes,message_expires_at_ms,wake_state
+            ) VALUES (?1,?2,'inbox',?3,0,'queued',0,0,?4,?5,?6,'please review',13,?6,'sent')",
+            rusqlite::params![
+                format!("attempt-{request}"),
+                request,
+                agent,
+                prepared as i64,
+                (prepared + 3_600_000) as i64,
+                (prepared + 604_800_000) as i64,
+            ],
+        )
+        .unwrap();
+}
+
+fn turn_of(storage: &Storage, request: &str) -> tmt_core::request::delivery::HandoverTurn {
+    super::super::requests::turns::read(storage.connection().unwrap(), request).unwrap()
+}
+
+fn ended(storage: &mut Storage, path: &std::path::Path, id: &str) {
+    let boundary = TurnBoundary::Ended {
+        turn: None,
+        continuation: false,
+    };
+    event(storage, path, id, SESSION, Some(boundary), None, true);
+}
+
+#[test]
+fn the_first_turn_after_a_hand_over_is_recorded_at_its_start_and_closed_at_its_end() {
+    use tmt_core::request::delivery::HandoverTurn;
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    handed_over(&storage, &id, "waiting", 5_000);
+    // A passthrough has its own capture, and a turn that matches nothing binds nothing.
+    typed(&storage, &id, "typed", "a person's text", 4_000);
+    assert_eq!(turn_of(&storage, "waiting"), HandoverTurn::Unrecorded);
+
+    started(&mut storage, &path, &id, None, "an unrelated prompt");
+    let HandoverTurn::Started { at_ms } = turn_of(&storage, "waiting") else {
+        panic!("the turn that began after the hand-over is recorded");
+    };
+    assert!(at_ms >= now() - 5_000);
+    assert_eq!(turn_of(&storage, "typed"), HandoverTurn::Unrecorded);
+
+    // Another turn start leaves the recorded one alone; its own end closes it.
+    started(&mut storage, &path, &id, None, "another prompt");
+    assert_eq!(
+        turn_of(&storage, "waiting"),
+        HandoverTurn::Started { at_ms }
+    );
+    ended(&mut storage, &path, &id);
+    assert_eq!(turn_of(&storage, "waiting"), HandoverTurn::Ended);
+    storage.close().unwrap();
+}
+
+#[test]
+fn a_message_that_arrived_during_a_turn_waits_for_the_next_one() {
+    use tmt_core::request::delivery::HandoverTurn;
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    started(&mut storage, &path, &id, None, "the running turn");
+    handed_over(&storage, &id, "mid", 0);
+    // The running turn ending closes nothing for a message that has no turn yet.
+    ended(&mut storage, &path, &id);
+    assert_eq!(turn_of(&storage, "mid"), HandoverTurn::Unrecorded);
+    started(&mut storage, &path, &id, None, "the next turn");
+    assert!(matches!(
+        turn_of(&storage, "mid"),
+        HandoverTurn::Started { .. }
+    ));
+    storage.close().unwrap();
+}
+
+#[test]
+fn a_request_already_answered_or_too_old_gets_no_turn() {
+    use tmt_core::request::delivery::HandoverTurn;
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    handed_over(&storage, &id, "old", BOUND_WINDOW_MS + 60_000);
+    handed_over(&storage, &id, "replied", 5_000);
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "INSERT INTO request_responses (request_id,attempt_id,route_kind,route_recipient_identity_id,body,body_bytes,submitted_at_ms,response_expires_at_ms)
+             VALUES ('replied','attempt-replied','inbox',?1,'done',4,?2,?3)",
+            rusqlite::params![id, now() as i64, (now() + 3_600_000) as i64],
+        )
+        .unwrap();
+    started(&mut storage, &path, &id, None, "an unrelated prompt");
+    assert_eq!(turn_of(&storage, "old"), HandoverTurn::Unrecorded);
+    assert_eq!(turn_of(&storage, "replied"), HandoverTurn::Unrecorded);
     storage.close().unwrap();
 }
 

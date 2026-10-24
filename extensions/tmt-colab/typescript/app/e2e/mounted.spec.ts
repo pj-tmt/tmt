@@ -635,7 +635,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   await expect(homeList(page)).toBeVisible();
   await showAllPages(page);
   await page
-    .locator('.pages li')
+    .locator('.pages > li')
     .getByRole('button', { name: /^Actions for/ })
     .click();
   await page.getByRole('menuitem', { name: 'Manage page' }).click();
@@ -1019,7 +1019,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   );
   // A missing-summary refresh removes the last row, but must keep its pending dialog.
   await page.clock.runFor(2000);
-  await expect(page.locator('.pages li')).toHaveCount(0);
+  await expect(page.locator('.pages > li')).toHaveCount(0);
   await expect(dialog.getByRole('alert')).toContainText(
     'Your machine accepted the deletion, but it is not confirmed yet',
   );
@@ -1033,7 +1033,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(page.locator('iframe')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.locator('.pages li')).toHaveCount(0);
+  await expect(page.locator('.pages > li')).toHaveCount(0);
   await expect(page.getByText('No pages in this space yet.', { exact: false })).toContainText(
     'tmt colab page create',
   );

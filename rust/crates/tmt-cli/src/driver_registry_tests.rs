@@ -16,6 +16,7 @@ static DESCRIPTOR: DriverDescriptor = DriverDescriptor {
     hooks: Some(HookFormat::SessionHooksJson),
     hue: Hue::Magenta,
     support: Support::Full,
+    folds_queued_text: false,
 };
 
 static MODULE: DriverDefinition = DriverDefinition {

@@ -46,6 +46,8 @@ pub enum DeliveryReason {
     Refused,
     AnsweredByReply,
     AnsweredByTurn,
+    AnsweredByFoldedTurn,
+    TurnEndedWithoutReply,
     NoTurnStarted,
     TurnEndedWithoutAnswer,
 }
@@ -64,6 +66,8 @@ impl DeliveryReason {
             Self::Refused => "refused",
             Self::AnsweredByReply => "answered_by_reply",
             Self::AnsweredByTurn => "answered_by_turn",
+            Self::AnsweredByFoldedTurn => "answered_by_folded_turn",
+            Self::TurnEndedWithoutReply => "turn_ended_without_reply",
             Self::NoTurnStarted => "no_turn_started",
             Self::TurnEndedWithoutAnswer => "turn_ended_without_answer",
         }
@@ -84,6 +88,10 @@ impl DeliveryReason {
             Self::Refused => "not sent, nothing reached the agent",
             Self::AnsweredByReply => "answered",
             Self::AnsweredByTurn => "answered, the agent's turn ended with this reply",
+            Self::AnsweredByFoldedTurn => {
+                "answered together with the earlier message: it was typed into the running turn"
+            }
+            Self::TurnEndedWithoutReply => "no reply: the agent's turn ended without one",
             Self::NoTurnStarted => {
                 "no answer captured: no turn started with this text, the agent may have taken it into a running turn"
             }
@@ -109,6 +117,24 @@ pub enum DigestHold {
     Uncertain,
 }
 
+/// The first turn that began after the message was handed over, as the hook's admitted turn
+/// boundaries recorded it (#4911). The recipient's activity alone cannot say that turn is over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HandoverTurn {
+    /// No boundary was recorded (a message handed over before they were, or a boundary the
+    /// hooks never admitted): judged by the recipient's current activity alone.
+    #[default]
+    Unrecorded,
+    Started {
+        at_ms: u64,
+    },
+    Ended,
+}
+
+/// A turn the message waits on is not awaited for ever: a turn whose end was never admitted (a
+/// killed agent, a closed pane) stops reading `working` after this long, like a bound capture.
+pub const WORKING_WINDOW_MS: u64 = crate::request::passthrough::BOUND_WINDOW_MS;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecipientActivity {
     pub phase: ActivityPhase,
@@ -124,8 +150,9 @@ pub enum ReturnedAnswer {
     None,
     /// A reply was submitted.
     Final,
-    /// A passthrough's captured turn ended with a final message.
-    Turn,
+    /// A passthrough's captured turn ended with a final message; `folded` says the text was
+    /// typed into a turn that was already running, so the answer is shared (#4912).
+    Turn { folded: bool },
     /// A passthrough's capture ended with no answer; `bound` says a turn did start with its text.
     NoCapture { bound: bool },
 }
@@ -148,6 +175,8 @@ pub struct DeliveryFacts {
     pub oldest_held_at_ms: Option<u64>,
     /// The driver's activity for the exact live session, when there is one.
     pub recipient: Option<RecipientActivity>,
+    /// The turn that began after the hand-over, when the hooks recorded it.
+    pub turn: HandoverTurn,
     /// A refused start is an observation, not authority or missing telemetry.
     pub recipient_start_refusal: Option<StartRefusalReason>,
     pub recipient_session_recovery: Option<String>,
@@ -312,7 +341,14 @@ pub fn delivery_view(facts: &DeliveryFacts, now_ms: u64) -> DeliveryView {
     match facts.answer {
         ReturnedAnswer::None => {}
         ReturnedAnswer::Final => return DeliveryView::of(State::Answered, Why::AnsweredByReply),
-        ReturnedAnswer::Turn => return DeliveryView::of(State::Answered, Why::AnsweredByTurn),
+        ReturnedAnswer::Turn { folded } => {
+            let why = if folded {
+                Why::AnsweredByFoldedTurn
+            } else {
+                Why::AnsweredByTurn
+            };
+            return DeliveryView::of(State::Answered, why);
+        }
         ReturnedAnswer::NoCapture { bound } => {
             let why = if bound {
                 Why::TurnEndedWithoutAnswer
@@ -329,10 +365,33 @@ pub fn delivery_view(facts: &DeliveryFacts, now_ms: u64) -> DeliveryView {
     // its sender (or was handed over, for a pane): a turn already running then is
     // still the one the message waits behind.
     let since = facts.settled_at_ms.unwrap_or(facts.prepared_at_ms);
-    let started = facts.recipient_start_refusal.is_none()
+    let busy = facts.recipient_start_refusal.is_none()
         && facts.recipient.is_some_and(|activity| {
             activity.phase != ActivityPhase::Idle && activity.since_ms >= since
         });
+    // The turn the message waits on, once it began, is over when its end was recorded, when the
+    // agent has gone idle without one, or when it has run past the window; and a turn that never
+    // began leaves the activity as the only evidence.
+    let working_since = match facts.turn {
+        HandoverTurn::Started { at_ms } => Some(at_ms),
+        _ => facts
+            .recipient
+            .filter(|_| busy)
+            .map(|activity| activity.since_ms),
+    };
+    let recipient_idle = facts
+        .recipient
+        .is_some_and(|activity| activity.phase == ActivityPhase::Idle);
+    let turn_over = match facts.turn {
+        HandoverTurn::Ended => true,
+        HandoverTurn::Started { at_ms } => {
+            recipient_idle || now_ms.saturating_sub(at_ms) > WORKING_WINDOW_MS
+        }
+        HandoverTurn::Unrecorded => false,
+    };
+    let started = busy
+        && !turn_over
+        && working_since.is_some_and(|since| now_ms.saturating_sub(since) <= WORKING_WINDOW_MS);
     let mut view = match (handover(facts), facts.hold) {
         (Handover::Uncertain, _) | (_, Some(DigestHold::Uncertain | DigestHold::Unconfirmed)) => {
             DeliveryView::of(State::Unconfirmed, Why::HandedOver)
@@ -342,6 +401,9 @@ pub fn delivery_view(facts: &DeliveryFacts, now_ms: u64) -> DeliveryView {
             can_send_now: true,
             ..DeliveryView::of(State::NotSent, Why::Unreachable)
         },
+        (Handover::Reached, _) if turn_over => {
+            DeliveryView::of(State::Unconfirmed, Why::TurnEndedWithoutReply)
+        }
         (Handover::Reached, _) if started => DeliveryView::of(State::Working, Why::AgentWorking),
         (Handover::Reached, _) | (_, Some(DigestHold::Delivered)) => {
             DeliveryView::of(State::Delivered, Why::ReachedTheAgent)

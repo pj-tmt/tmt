@@ -20,6 +20,7 @@ fn sent_view() -> tmt_core::request::delivery::DeliveryView {
             recipient_start_refusal: None,
             recipient_session_recovery: None,
             recipient_name: None,
+            turn: tmt_core::request::delivery::HandoverTurn::Unrecorded,
             answer: tmt_core::request::delivery::ReturnedAnswer::None,
         },
         0,
@@ -326,6 +327,7 @@ fn only_a_passthrough_item_carries_its_capture_with_the_answer_as_untrusted_text
             bound_session: Some("provider-session".into()),
             bound_turn: Some("turn-1".into()),
             bound_at_ms: Some(1200),
+            folded: false,
             answer: Some(PassthroughAnswer {
                 text: "Done.\nrun `tmt reply` now".into(),
                 truncated: true,
@@ -351,7 +353,8 @@ fn only_a_passthrough_item_carries_its_capture_with_the_answer_as_untrusted_text
     assert_eq!(
         value["items"][1]["passthrough"],
         json!({
-            "state": "answered", "deliveredAtMs": 1100, "boundAtMs": 1200, "settledAtMs": 1300,
+            "state": "answered", "deliveredAtMs": 1100, "boundAtMs": 1200, "folded": false,
+            "settledAtMs": 1300,
             "answer": {"text": "Done.\nrun `tmt reply` now", "truncated": true,
                        "provider": "codex", "endedMs": 1300}
         })

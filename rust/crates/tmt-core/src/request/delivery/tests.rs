@@ -15,6 +15,7 @@ fn facts(status: AttemptStatus) -> DeliveryFacts {
         recipient_start_refusal: None,
         recipient_session_recovery: None,
         recipient_name: None,
+        turn: HandoverTurn::Unrecorded,
         answer: ReturnedAnswer::None,
     }
 }
@@ -148,6 +149,62 @@ fn an_identified_recipient_is_judged_by_its_wake_not_by_its_always_queued_status
     ];
     for (wake, shown_as) in expected {
         assert_eq!(shown(&through_inbox(wake)), shown_as, "{wake:?}");
+    }
+}
+
+#[test]
+fn working_ends_with_the_turn_that_began_after_the_hand_over() {
+    let at = |facts: &DeliveryFacts, now: u64| {
+        let view = delivery_view(facts, now);
+        (view.state.as_str(), view.reason.code())
+    };
+    let mut pasted = through_inbox(WakeState::Sent);
+    // T1 began after the hand-over and is running: the message is being worked on.
+    pasted.turn = HandoverTurn::Started { at_ms: 150 };
+    pasted.recipient = activity(ActivityPhase::Working, 150);
+    assert_eq!(at(&pasted, 200), ("working", "agent_working"));
+    // An approval prompt inside T1 moves the activity's start, not the turn's.
+    pasted.recipient = activity(ActivityPhase::Working, 180);
+    assert_eq!(at(&pasted, 200), ("working", "agent_working"));
+    // T1 ended and T2 is running: the message is not T2's, whatever the agent is busy with.
+    pasted.turn = HandoverTurn::Ended;
+    pasted.recipient = activity(ActivityPhase::Working, 300);
+    assert_eq!(
+        at(&pasted, 400),
+        ("unconfirmed", "turn_ended_without_reply")
+    );
+    pasted.recipient = activity(ActivityPhase::Idle, 300);
+    assert_eq!(
+        at(&pasted, 400),
+        ("unconfirmed", "turn_ended_without_reply")
+    );
+    // The end was never admitted: an idle agent ends the turn all the same, and so does the window.
+    pasted.turn = HandoverTurn::Started { at_ms: 150 };
+    assert_eq!(
+        at(&pasted, 400),
+        ("unconfirmed", "turn_ended_without_reply")
+    );
+    pasted.recipient = activity(ActivityPhase::Working, 150);
+    assert_eq!(
+        at(&pasted, 150 + WORKING_WINDOW_MS + 1),
+        ("unconfirmed", "turn_ended_without_reply")
+    );
+    // Nothing recorded: the activity alone decides, but no turn is awaited for ever.
+    pasted.turn = HandoverTurn::Unrecorded;
+    assert_eq!(at(&pasted, 200), ("working", "agent_working"));
+    assert_eq!(
+        at(&pasted, 150 + WORKING_WINDOW_MS + 1),
+        ("delivered", "reached_the_agent")
+    );
+    // A turn ending says nothing about a message that was never handed over.
+    let mut waiting = through_inbox(WakeState::NotAttempted);
+    waiting.turn = HandoverTurn::Ended;
+    assert_eq!(at(&waiting, 400), ("sent", "waiting_for_delivery"));
+    // A reply outranks the turn, before and after it.
+    for turn in [HandoverTurn::Ended, HandoverTurn::Started { at_ms: 150 }] {
+        pasted.turn = turn;
+        pasted.answer = ReturnedAnswer::Final;
+        assert_eq!(at(&pasted, 400), ("answered", "answered_by_reply"));
     }
 }
 
@@ -381,8 +438,14 @@ fn what_came_back_outranks_how_the_hand_over_went() {
     let mut typed = through_inbox(WakeState::Sent);
     typed.recipient = activity(ActivityPhase::Working, 900);
     assert_eq!(shown(&typed), ("working", "agent_working", false));
-    typed.answer = ReturnedAnswer::Turn;
+    typed.answer = ReturnedAnswer::Turn { folded: false };
     assert_eq!(shown(&typed), ("answered", "answered_by_turn", false));
+    // Typed into that turn while it ran, the same final answers it, and the reason says so.
+    typed.answer = ReturnedAnswer::Turn { folded: true };
+    assert_eq!(
+        shown(&typed),
+        ("answered", "answered_by_folded_turn", false)
+    );
     // No answer was captured: unconfirmed, and never `working`, however busy the agent is now.
     typed.answer = ReturnedAnswer::NoCapture { bound: false };
     assert_eq!(shown(&typed), ("unconfirmed", "no_turn_started", false));

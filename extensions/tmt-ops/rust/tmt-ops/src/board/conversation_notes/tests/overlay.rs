@@ -762,7 +762,7 @@ fn notes_writes_persist_the_exact_source_body_and_url_across_a_fresh_service_rea
     let fixture = Fixture::new();
     let key = Key {
         room: ROOM.into(),
-        member: WORKER.into(),
+        subject: Subject::Conversation(WORKER.into()),
     };
     let source = crate::board::conversation::note_source::Source::Message {
         author: "Worker".into(),

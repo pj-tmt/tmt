@@ -13,6 +13,7 @@ mod notification;
 pub(super) mod passthrough;
 mod reply_batch;
 mod rows;
+pub(super) mod turns;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use tmt_core::request::{
@@ -247,8 +248,19 @@ impl RequestRecords for RequestRows<'_> {
     ) -> Result<Option<tmt_core::request::passthrough::PassthroughCapture>, Self::Error> {
         passthrough::capture(self.0, id)
     }
-    fn create_passthrough_capture(&mut self, id: &str, at: u64) -> Result<(), Self::Error> {
-        passthrough::start_capture(self.0, id, at)
+    fn running_turn(
+        &self,
+        identity_id: &str,
+    ) -> Result<Option<tmt_core::request::passthrough::RunningTurn>, Self::Error> {
+        delivery::running_turn(self.0, identity_id)
+    }
+    fn create_passthrough_capture(
+        &mut self,
+        id: &str,
+        at: u64,
+        folded_into: Option<&tmt_core::request::passthrough::RunningTurn>,
+    ) -> Result<(), Self::Error> {
+        passthrough::start_capture(self.0, id, at, folded_into)
     }
     fn hold_digest_item(
         &mut self,
