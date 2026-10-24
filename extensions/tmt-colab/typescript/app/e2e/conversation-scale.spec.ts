@@ -104,9 +104,10 @@ for (const width of [1440, 390])
           );
           if (surface === 'annotation') {
             await expect(window.locator('.annotation-anchor-note')).toHaveCSS('font-size', '12px');
+            // The annotation window's heading row is the website's taller one.
             await expect(window.locator('.conversation-window-bar')).toHaveCSS(
               'padding',
-              '8px 16px',
+              '14px 16px',
             );
           }
           await page.evaluate(async () => {

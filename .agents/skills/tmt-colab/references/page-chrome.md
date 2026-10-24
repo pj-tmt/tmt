@@ -177,8 +177,8 @@ HTML. Its local fragment-link offsets let the parent scroll the window below the
 header; fallback pages instead scroll to the target internally. Neither layout
 nor anchor reports grant a publication capability. Quote capture/resolution and
 the existing selection channel remain cosmetic and keep working after resize.
-Selection capture waits for pointer/keyboard release; the parent Annotate control follows
-its focus end. With mode off, C annotates a completed selection; otherwise it toggles mode.
+Selection capture waits for pointer/keyboard release; the parent Annotate control (an icon-only round button named
+`Annotate`) sits at the selection's lower right, or beside or under it on a phone. With mode off, C annotates a completed selection; otherwise it toggles mode.
 It stays outside text entry, IME, repeats and modifiers;
 Alt+Enter keeps its explicit annotation action. The parent-only bottom-right toggle clears
 open panels spatially; overlapping anchored windows fit above its reserved bottom strip. Escape closes a nested menu or mention list, then the active drawer, then the retained anchored window, then exits mode, one level per press. Chat and anchored drafts are kept. Busy sends are not collapsed by Escape. In mode, one outline

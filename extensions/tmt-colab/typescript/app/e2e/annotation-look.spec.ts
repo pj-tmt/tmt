@@ -101,11 +101,28 @@ for (const width of [1440, 390])
         selection.removeAllRanges();
         selection.addRange(range);
       });
-      const annotate = page.getByTestId('selection-ask');
-      await expect(annotate).toHaveText('Annotate');
+      // An icon-only round control: its name is the shared tooltip and the accessible name.
+      const annotate = page.getByRole('button', { name: 'Annotate', exact: true });
+      await expect(annotate).toHaveText('');
       await expect(annotate).toHaveAttribute('aria-keyshortcuts', 'c Alt+Enter');
       await expect(annotate.locator('svg')).toBeVisible();
       await expect(annotate.locator('kbd')).toHaveCount(0);
+      const control = (await annotate.boundingBox())!;
+      expect([control.width, control.height]).toEqual([34, 34]);
+      await expect(annotate).toHaveCSS('border-radius', '999px');
+      if (width > 640) {
+        // No connector, and the control hangs from the selection's lower right corner.
+        const frameBox = (await page.locator('#ask-page-fixture iframe').boundingBox())!;
+        const text = await range.evaluate((node) => {
+          const text = node.ownerDocument.createRange();
+          text.selectNodeContents(node);
+          const { x, y, width, height } = text.getBoundingClientRect();
+          return { x, y, width, height };
+        });
+        const selected = { ...text, x: frameBox.x + text.x, y: frameBox.y + text.y };
+        expect(Math.abs(control.y - (selected.y + selected.height))).toBeLessThanOrEqual(8);
+        expect(Math.abs(control.x - (selected.x + selected.width - 6))).toBeLessThanOrEqual(2);
+      }
       await page.screenshot({ path: `${captures}/annotation-affordance-${width}-${theme}.png` });
       await annotate.click();
       const window = page.getByTestId('annotation-window');
@@ -318,7 +335,9 @@ async function sharedComposer(window: Locator, surface: 'annotation' | 'chat') {
     await expect(compose).toHaveCSS('padding', '12px');
   }
   const geometry = await compose.evaluate((node) => {
-    const field = node.querySelector('.rich-input-field')!;
+    // With files pending the box is the surface around the field; otherwise it is the field.
+    const field = (node.querySelector('.rich-input-surface[data-accessory]') ??
+      node.querySelector('.rich-input-field'))!;
     const attach = node.querySelector('.attach-labeled')!;
     const send = node.querySelector(
       '.annotation-status-row > .tmt-ui-icon-action:last-child button, .annotation-status-row > .tmt-ui-action:last-child',
@@ -342,11 +361,14 @@ async function sharedComposer(window: Locator, surface: 'annotation' | 'chat') {
   expect(Math.abs(geometry.right)).toBeLessThanOrEqual(1);
   if (surface === 'annotation') expect(Math.abs(geometry.square)).toBeLessThanOrEqual(1);
   expect(geometry).toMatchObject({
-    border: '0px',
-    background: 'rgba(0, 0, 0, 0)',
+    // The annotation window's field is the website's: the field surface inside a rule edge. Chat's
+    // box is the composer around it.
+    border: surface === 'annotation' ? '1px' : '0px',
     padding: '12px 16px 16px',
     rule: surface === 'annotation' ? '1px' : '0px',
   });
+  if (surface === 'annotation') expect(geometry.background).not.toBe('rgba(0, 0, 0, 0)');
+  else expect(geometry.background).toBe('rgba(0, 0, 0, 0)');
 }
 /**
  * The agent byline is the shared chip's name with no boxed role badge. A turn leads with the shared

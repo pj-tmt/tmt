@@ -73,17 +73,18 @@
   font-weight: 400;
   color: var(--tmt-ui-color-secondary);
 }
-/* The bordered form sits in a line of text. A flex container's baseline is its first
- * baseline-aligned item, so aligning the text items on baseline puts the name on the surrounding
- * text's baseline; the icon and the remove control centre on it instead. No vertical padding and
- * a remove control whose box does not count toward the line keep the chip inside the line height. */
+/* The chip form sits in a line of text, as the website's tags do: a soft accent-tinted fill, no edge.
+ * A flex container's baseline is its first baseline-aligned item, so aligning the text items on
+ * baseline puts the name on the surrounding text's baseline; the icon and the remove control centre
+ * on it instead. No vertical padding and a remove control whose box does not count toward the line
+ * keep the chip inside the line height. */
 .agent-chip[data-variant='chip'] {
   align-items: baseline;
   padding: 0 6px;
-  border: 1px solid var(--tmt-ui-surface-rule);
+  border: 1px solid transparent;
   /* The website's tags and chips round at 5 to 7px. */
   border-radius: var(--tmt-ui-radius-s);
-  background: none;
+  background: color-mix(in srgb, var(--tmt-ui-color-accent) 13%, transparent);
   font-size: var(--tmt-ui-caption-size);
   --tmt-ui-host-icon-action-size: 24px;
   --tmt-ui-header-icon-size: 12px;
@@ -99,7 +100,9 @@
 .agent-chip[data-variant='chip'] > .tmt-ui-icon-action {
   margin-block: -4px;
 }
+/* A name nobody answers to has no fill: the dashed edge says it without colour. */
 .agent-chip[data-variant='chip'][data-state='not-found'] {
   border-style: dashed;
   border-color: var(--tmt-ui-color-edge);
+  background: none;
 }

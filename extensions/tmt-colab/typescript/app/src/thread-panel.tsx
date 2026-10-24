@@ -666,11 +666,11 @@ export function ThreadWindow({
         title={
           <span className="thread-state" title={anchor?.exact}>
             {number !== undefined && <span className="annotation-number">{number}</span>}
-            {thread && <span className="annotation-heading">THREAD</span>}
+            {thread && <span className="annotation-heading">{text.threadHeading}</span>}
             {thread && (shownResolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />)}
             <span>
               {!thread
-                ? 'ANNOTATE THE SELECTION'
+                ? text.annotateSelection
                 : thread.deleted
                   ? text.threadDeleted
                   : shownResolved
@@ -756,6 +756,11 @@ export function ThreadWindow({
                   </span>
                 )}
               </>
+            )}
+            {layout === 'anchored' && anchor && (
+              <blockquote className="annotation-quote" title={anchor.exact}>
+                <q>{anchor.exact}</q>
+              </blockquote>
             )}
             {observationUnavailable && (
               <p role="status" className="annotation-hint">

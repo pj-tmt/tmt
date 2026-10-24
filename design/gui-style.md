@@ -543,12 +543,15 @@ Basis: own.
 
 The small input at a selection or an item: annotation, follow-up, quick reply.
 
-- Colab shows Annotate beside the selection's focus end only after the pointer is
-  released or keyboard selection finishes. C opens the same annotation view; ignore
-  text-entry targets, modifiers, repeat and IME confirmation. Alt+Enter remains available.
-  Opening captures the quote without publishing or sending. The dark pill has a
-  speech-bubble icon and `Annotate`, with a short thin leader at the focus end.
-  Shortcut help is accessible through `aria-keyshortcuts`, without visible hotkey copy.
+- Colab shows Annotate at the selection only after the pointer is released or keyboard
+  selection finishes. C opens the same annotation view; ignore text-entry targets,
+  modifiers, repeat and IME confirmation. Alt+Enter remains available. Opening captures
+  the quote without publishing or sending. The control is a 34px round accent button with
+  a comment-plus icon, named `Annotate` (its accessible name and the shared tooltip), and
+  no connector line. A wide page puts it at the selection's lower right, or above the
+  selection with no room below; a phone keeps it beside or under the selection, clear of
+  the system's selection handles. Shortcut help is accessible through `aria-keyshortcuts`,
+  without visible hotkey copy.
 - Annotation ranges use the mint `annotation-highlight` tint and a 1px
   `annotation-rule` underline, unbroken under descenders (skip-ink off on the highlight), with
   no rounding or shadow, preserving authored text
@@ -565,9 +568,11 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   4px inside each end, same 24px hit area) that opens the thread list.
   Creation-order numbering includes every non-deleted thread before view filters.
   Deletion renumbers; resolved threads retain list numbers without page markers.
-- Annotation and thread windows are borderless, square grey panels with an uppercase
-  monospace label and a large borderless composer. Wide windows sit beside the
-  selection with a leader; mobile retains bottom placement without one. The footer
+- Annotation and thread windows are rounded sheets (the large radius token, a rule edge
+  and the overlay shadow) with a sentence-case title row over a rule, the quoted selection
+  under a 2px accent rule, and a boxed composer on the field surface. Wide windows sit
+  beside, below or above the selection with no connector line; mobile retains bottom
+  placement. The footer
   has muted `Attached to this sentence` and square arrow-only Send, with a complete
   recipient-bearing accessible name. The existing creator-notification preference
   remains a borderless mark-and-label toggle beside it. Resolved windows start collapsed with counts,
@@ -602,7 +607,9 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   and existing ink/accent tokens apply. Basis: own parent chrome with Lexical editing.
 
 Mention chips share an icon and named roles in editors, sent messages and lists
-(a bordered chip rounds at the small radius token, as the website's tags do):
+(a chip in an editor is a soft accent-tinted tag with no visible edge, rounded at the small
+radius token, as the website's tags are; a name that matches no agent keeps a dashed edge
+and no fill):
 agent chips are neutral grey with bold ink; person chips use pale blue and
 blue-grey text. Unknown identity kinds default to agent. Current directory data
 has no person kind: the person variant is tokens and explicit presentation fixtures,
@@ -611,8 +618,9 @@ recipient or sends. Source plaintext, undo and IME remain owned by the shared ed
 
 ### Conversation turn
 
-Chat and annotation windows use the same borderless composer, with a thin rule
-above it and 16px side padding. Recipient chips precede the text; labeled Attach,
+Chat and annotation windows use the same composer, with a thin rule above it and
+16px side padding: Chat's sits borderless in its own box, the annotation window's is a
+boxed field on the field surface. Recipient chips precede the text; labeled Attach,
 the existing creator preference and the square arrow Send share its bottom row,
 aligned to the text edges. The composer retains one editor and draft owner.
 
