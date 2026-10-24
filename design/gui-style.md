@@ -134,7 +134,10 @@ page renders in it.
   Each item is a Lucide icon plus its label; the current item has the selected
   fill, the accent icon and a straight marker (`indicator-width`) in the rail's gutter,
   outside the rounded row and never its border. The current module's pages nest under
-  it as sub-items; the page you are on has the same fill and marker. A count is a
+  it as sub-items; the current sub-item uses accent/on-accent fill without a gutter
+  marker, with an on-accent focus frame. A labelled group is a named nested list
+  whose items add 8 px of indent (Ben direct); unlabelled entries keep their base
+  indent and counts keep the same right edge. A count is a
   small box after the label: a plain total in the hover fill, a needs-you count a
   pill in the waiting colour on its soft fill; `99+` above 99; a count of zero draws
   nothing. The number alone is
@@ -150,7 +153,7 @@ page renders in it.
   with its page count and needs-you count, then New project and Manage projects; Remote:
   each saved remote, Add remote, Remote settings). It replaces header dropdowns. On a
   wide screen its pages nest under the current rail item and share the rail's surface,
-  rows and selection marker; on a phone they are a tab strip under the title bar. It has
+  rows and current-page fill; on a phone they are a tab strip under the title bar. It has
   no title of its own.
 - **Header:** one continuous sticky row: the host's header (moved into the shell's bar)
   shows the page title and the page's own actions, with one bottom rule. There is no
@@ -262,12 +265,12 @@ The space list follows the concept website `/#/colab/pages`: hero with New page,
 pinned-page cards, state strip, project scope, search/sort and the page list. Numbered
 concept 17 is the fallback only for states absent from that website. Actual pins keep owner order, wrap after three
 on wide screens and stack on compact screens; absent pins leave no empty section.
-Projects use neutral token colours and keep every membership. Stage, creator, time and
+Projects keep every membership and use a stable project-name mapping onto the existing blue, violet, amber and green role tints. Row stages use soft-filled role chips with dots; Needs you keeps its real count. Stage, creator, time and
 progress show only available metadata; no missing summary becomes a false zero or stage.
 
 Wide rows separate title, projects, stage, updated, author and access; compact rows stack
 these without horizontal page overflow. Rows with divider rules remain square inside the
-fully bordered rounded list frame. Selection, keyboard actions, incremental rendering and
+fully bordered rounded list frame. Task progress is compact count text, without a repeated bar or comments line. Home is the sole vertical viewport, with the shared page insets and a truthful count/access footer. Successful action feedback remains an unobtrusive live region, while errors stay visible. Selection, keyboard actions, incremental rendering and
 management refusals retain their product owners. The shared flat state tabs show muted numeric
 counts and wrap on compact screens; the hero owns the heading and the shell bar keeps only tools.
 
@@ -461,13 +464,13 @@ and still reaches the host's active menu, drawer or dialog.
 
 ### Overlay
 
-Comments, Chat, Source, Share and settings panels.
+Chat, Source, Share and settings panels (Comments is the non-modal panel below).
 
 - Opens over the page without moving it, closes with its own `×`, Esc or a backdrop press. Focus moves into it and returns to the opener.
 - One overlay at a time; opening another replaces it.
 - Shared owner: [BrowserDrawer](browser-ui/README.md#drawer-and-menu), with native HTML dialog containment at every width.
 - Source uses the shared header action slot for primary Save before Close, with a truthful draft explanation, paper-toned bordered monospace editor and lower draft-equality metadata. The owner and editor-link save contracts and real notice states remain unchanged. No equality state claims a confirmed save.
-- Colab shared page drawers (Chat, Source, Agents, Files, Comments, Export and About) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, an opaque rounded surface and one 1 px rule on every edge. Source may be wider; regular drawers are at most 430 px (viewport minus 18 px), and use viewport minus 12 px through 640 px. Compact drawers fill the available width between gutters. The scrim covers the visible header and author iframe; the first press only dismisses, with no click-through, and the second press acts. The drawer body contains overscroll; there is no body scroll lock. Neither changes the author frame width. The modal scrim dims and blurs the page using the shared scrim role and 3 px overlay blur.
+- Colab shared page drawers (Chat, Source, Agents, Files, Export and About) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, an opaque rounded surface and one 1 px rule on every edge. Source may be wider; regular drawers are at most 430 px (viewport minus 18 px), and use viewport minus 12 px through 640 px. Compact drawers fill the available width between gutters. The scrim covers the visible header and author iframe; the first press only dismisses, with no click-through, and the second press acts. The drawer body contains overscroll; there is no body scroll lock. Neither changes the author frame width. The modal scrim dims and blurs the page using the shared scrim role and 3 px overlay blur.
 
 ### Non-modal side panel
 
@@ -477,6 +480,11 @@ leave the page interactive. It shares the Drawer header. The host selects column
 the heading; Escape inside and Close request dismissal, then return focus to the
 opener. There is no scrim, trap or inert page. The host coordinates it with modal
 drawers and retains content, drafts and breakpoints.
+
+Colab's Comments region is this panel: a column of the page grid from 1180 px (the page narrows
+beside it, 286 px wide with a 34 px gap and a 24 px margin, 310 px and 42 px from 1600 px; it sticks 20 px
+under the header, ruled on its left), a card from 761 px and a sheet below. Escape on the page does
+not close it; `Show in the page` scrolls and leaves it open.
 
 ### BrowserNotifications
 
@@ -585,7 +593,8 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   inside modal Chat. The field grows to a bounded height, then scrolls. Square corners
   and existing ink/accent tokens apply. Basis: own parent chrome with Lexical editing.
 
-Mention chips share an icon and named roles in editors, sent messages and lists:
+Mention chips share an icon and named roles in editors, sent messages and lists
+(a bordered chip rounds at the small radius token, as the website's tags do):
 agent chips are neutral grey with bold ink; person chips use pale blue and
 blue-grey text. Unknown identity kinds default to agent. Current directory data
 has no person kind: the person variant is tokens and explicit presentation fixtures,
@@ -759,7 +768,7 @@ a 1px rule under the view strip, as rows of number, title, quoted passage and
 14px (the compact body token) and the quote and meta take the caption size; the selected view tab uses the shared
 selection tint. Each view has an
 empty state; its header count combines unresolved ordinary threads and undecided unresolved
-proposals. Selecting a row opens that thread's Discussion view in the drawer: a status line
+proposals. Selecting a row opens that thread's Discussion view in the panel: a status line
 (`Needs you`, `Open discussion` or `Resolved by X`) with `All comments`, the title, the quoted
 passage with its number and a `Show in the page` arrow, the turns, the reply composer and a footer
 rule with `Resolve` or `Reopen`. The reply composer is a four-line field flush with the content

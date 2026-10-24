@@ -44,7 +44,7 @@ are outside the tracked-file map. The [layout skill](.agents/skills/tmt-layout/S
 owns moves and the tracked-file guard.
 
 `tmt-gui-lead` owns shared visual tokens and [private browser UI](design/browser-ui/README.md).
-`design/browser-ui`: `./ui`/`./react`: React/Radix/cmdk/CVA, themes/portals, decorative action marks; `./static`/`./shell`/`./chart`: framework-free DOM; hosts own state.
+`design/browser-ui`: `./ui`/`./react`: React/Radix/cmdk/CVA, themes/portals, decorative action marks; `./static`/`./shell`/`./chart`/`./menu-host`: framework-free DOM; hosts own domain state.
 `./ui` uses Radix; BrowserDialog/Drawer use native modality; BrowserPanel is non-modal. Hosts admit closure; see leaf contracts.
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
@@ -310,8 +310,7 @@ or Enter is uncertain and never retried as unsent; [pane cosmetics](.agents/skil
 The CLI and the `delivery` and `pane_badge` adapters reach a terminal only through
 `tmt-adapters::host::Host`; extensions never do (they read `tmt ls --json` and
 `tmt whoami`), and the architecture guard rejects extension code that names the host
-port, the tmux module or core's `binding`, `endpoint` or `host` model. Every host,
-the built-in tmux and external drivers alike, implements `host::driver::HostDriver`,
+port, the tmux module or core's `binding`, `endpoint` or `host` model. Each built-in or external host implements `host::driver::HostDriver`,
 and one binding policy in `host::driver::{status, send, focus, swap_into}` decides which
 evidence makes a binding present and when input is blocked. A host with agent
 names (Herdr) shows the identity's name as the agent's; the host's name is never
@@ -320,7 +319,8 @@ opaque to everything but its host: `HostKind` is pure data, evidence from anothe
 host is `Unknown`, and only `tmt-core/src/host.rs`, `tmt-adapters/src/host.rs` and
 `tmux/` may spell a built-in host's name. Core's delivery policy rewrites ASCII `!` to
 fullwidth `！` in typed text. The built-in host uses this seam in process;
-`tmt-adapters::pty` owns each member and its zero-scrollback VT screen. See the
+`tmt-adapters::pty` owns members, screens and attach; CLI restores terminal modes.
+See the
 [hosts and drivers reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md).
 
 ### Agent drivers
@@ -539,11 +539,11 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 Owns listener/restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery)
 and `<dataRoot>/remote/` ([state leaf](#shared-extension-state-layout)).
 Home/Remote/SDK; read-only auto-pair; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
-`cloud_hpke`: bytes; `cloud_keys`: renewals; `cloud_inbox`: emulation.
+`cloud_hpke`: bytes; `cloud_keys`: renewals; `cloud_inbox`: carrier.
 
 [Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
 settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
-Remote owns authority; UI grants none. Local: keys/grants/signatures/last-use/cleanup.
+Remote owns authority; UI grants none. Native invite/join and uid routing.
 Firestore: Auth/Rules only; Core never uses Remote trust.
 `message`: envelopes/grants/scope/allowlist/hold/uncertainty/audit; names→UUID.
 Proposed (#4533): `talk` → Remote interface → target host → driver.

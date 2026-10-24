@@ -100,6 +100,11 @@ export const shellIconNodes = {
     ['path', { d: 'M12 19h8' }],
     ['path', { d: 'm4 17 6-6-6-6' }],
   ],
+  ellipsis: [
+    ['circle', { cx: '12', cy: '12', r: '1' }],
+    ['circle', { cx: '19', cy: '12', r: '1' }],
+    ['circle', { cx: '5', cy: '12', r: '1' }],
+  ],
   copy: [
     ['rect', { width: '14', height: '14', x: '8', y: '8', rx: '2', ry: '2' }],
     ['path', { d: 'M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2' }],

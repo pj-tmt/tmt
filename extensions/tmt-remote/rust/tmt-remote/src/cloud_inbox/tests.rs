@@ -7,6 +7,179 @@ const PEER: &str = "33333333-3333-4333-8333-333333333333";
 const ID: &str = "44444444-4444-4444-8444-444444444444";
 
 #[test]
+fn inbox_continuation_is_independent_of_the_machine_enrollment_checkpoint() {
+    use super::{document::Cursor, store::Continuation};
+    let root = std::env::temp_dir().join(format!("tmt-cloud-query-scope-{}", uuid_v4().unwrap()));
+    let layout = Layout::open(&root).unwrap();
+    let lease = layout.serve_lock().unwrap();
+    let mut store = Store::open(&lease).unwrap();
+    let machine = store.machine().unwrap().id;
+    store
+        .cloud_progress(&Continuation {
+            from_ms: 0,
+            read_ms: 1_800_000_000_000,
+            cursor: Cursor {
+                created_at: "2027-01-15T08:00:00Z".into(),
+                id: ID.into(),
+            },
+        })
+        .unwrap();
+    // Enrollment uses the legacy peer-keyed API with the machine UUID.
+    store
+        .cloud_complete(std::slice::from_ref(&machine), 1_800_000_000_100)
+        .unwrap();
+    let inbox = store.cloud_query_checkpoint().unwrap().unwrap();
+    assert!(
+        inbox.continuation.is_some(),
+        "enrollment must never clear inbox progress"
+    );
+    assert_eq!(
+        inbox.completed.created_at_ms(),
+        0,
+        "the enrollment scan must not move the inbox scan's floor"
+    );
+    assert_eq!(
+        store.cloud_checkpoint(&machine).unwrap().created_at_ms(),
+        1_800_000_000_100
+    );
+    store.cloud_finish_query(1_800_000_000_000).unwrap();
+    assert!(
+        store
+            .cloud_query_checkpoint()
+            .unwrap()
+            .unwrap()
+            .continuation
+            .is_none()
+    );
+    assert_eq!(
+        store.cloud_checkpoint(&machine).unwrap().created_at_ms(),
+        1_800_000_000_100,
+        "inbox completion must never overwrite the enrollment floor"
+    );
+    store
+        .cloud_complete(std::slice::from_ref(&machine), 1_800_000_000_200)
+        .unwrap();
+    drop(store);
+    let store = Store::open(&lease).unwrap();
+    assert_eq!(
+        store
+            .cloud_query_checkpoint()
+            .unwrap()
+            .unwrap()
+            .completed
+            .created_at_ms(),
+        1_800_000_000_000,
+        "later enrollment progress stays in its own stream across restart"
+    );
+    assert_eq!(
+        store.cloud_checkpoint(&machine).unwrap().created_at_ms(),
+        1_800_000_000_200
+    );
+    drop(store);
+    drop(lease);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn machine_query_continuation_preserves_legacy_rows_and_exact_ties_across_restart() {
+    use super::{document::Cursor, store::Continuation};
+    let root = std::env::temp_dir().join(format!("tmt-cloud-query-{}", uuid_v4().unwrap()));
+    let layout = Layout::open(&root).unwrap();
+    let lease = layout.serve_lock().unwrap();
+    let mut store = Store::open(&lease).unwrap();
+    // Pre-change Stores have only timestamp checkpoints with an empty carrier.
+    store.connection.execute(
+        "INSERT INTO cloud_transport(peer_id,kind,id,carrier,created_ms) VALUES (?1,'checkpoint','',x'',1000)",
+        [PEER],
+    ).unwrap();
+    assert!(store.cloud_query_checkpoint().unwrap().is_none());
+    assert_eq!(store.cloud_checkpoint(PEER).unwrap().created_at_ms(), 1000);
+    let mut progress = Continuation {
+        from_ms: 880,
+        read_ms: 1_800_000_000_001,
+        cursor: Cursor {
+            created_at: "2027-01-15T08:00:00.000123456Z".into(),
+            id: ID.into(),
+        },
+    };
+    store.cloud_progress(&progress).unwrap();
+    progress.from_ms = progress.read_ms + 1;
+    assert!(
+        store.cloud_progress(&progress).is_err(),
+        "invalid progress never replaces the saved cursor"
+    );
+    drop(store);
+    let mut store = Store::open(&lease).unwrap();
+    let checkpoint = store.cloud_query_checkpoint().unwrap().unwrap();
+    assert_eq!(checkpoint.completed.created_at_ms(), 0);
+    let continuation = checkpoint.continuation.unwrap();
+    assert_eq!(continuation.from_ms, 880);
+    assert_eq!(continuation.read_ms, 1_800_000_000_001);
+    assert_eq!(
+        continuation.cursor.created_at,
+        "2027-01-15T08:00:00.000123456Z"
+    );
+    assert_eq!(continuation.cursor.id, ID);
+    assert_eq!(store.cloud_checkpoint(PEER).unwrap().created_at_ms(), 1000);
+
+    // Each provider page has its own snapshot: a later arrival can be newer
+    // than the earliest snapshot retained for the eventual overlap query.
+    store
+        .cloud_progress(&Continuation {
+            from_ms: continuation.from_ms,
+            read_ms: 1_799_999_999_999,
+            cursor: continuation.cursor.clone(),
+        })
+        .unwrap();
+    assert_eq!(
+        store
+            .cloud_query_checkpoint()
+            .unwrap()
+            .unwrap()
+            .continuation
+            .unwrap()
+            .read_ms,
+        1_799_999_999_999
+    );
+    let valid = serde_json::to_value(&continuation).unwrap();
+    for bad in [
+        serde_json::json!({"from_ms":0,"read_ms":1,"cursor":{"created_at":"bad","id":ID}}),
+        serde_json::json!({"from_ms":0,"read_ms":1_800_000_000_001_u64,"cursor":{"created_at":"2027-01-15T08:00:00Z","id":"not-an-id"}}),
+        serde_json::json!({"from_ms":2,"read_ms":1,"cursor":{"created_at":"2027-01-15T08:00:00Z","id":ID}}),
+        serde_json::json!({"from_ms":0,"read_ms":1,"cursor":null,"extra":true}),
+        serde_json::json!({"oversized":"x".repeat(crate::limits::CLOUD_QUERY_CHECKPOINT_BYTES)}),
+    ] {
+        store
+            .connection
+            .execute(
+                "UPDATE cloud_transport SET carrier=?1 WHERE peer_id='inbox-query' AND kind='checkpoint' AND id=''",
+                [serde_json::to_vec(&bad).unwrap()],
+            )
+            .unwrap();
+        assert!(
+            store.cloud_query_checkpoint().is_err(),
+            "malformed local continuation must refuse: {bad}"
+        );
+    }
+    store
+        .connection
+        .execute(
+            "UPDATE cloud_transport SET carrier=?1 WHERE peer_id='inbox-query' AND kind='checkpoint' AND id=''",
+            [serde_json::to_vec(&valid).unwrap()],
+        )
+        .unwrap();
+    store.cloud_finish_query(1_800_000_000_001).unwrap();
+    store.cloud_finish_query(1000).unwrap();
+    assert_eq!(store.cloud_checkpoint(PEER).unwrap().created_at_ms(), 1000);
+    let completed = store.cloud_query_checkpoint().unwrap().unwrap();
+    assert!(completed.continuation.is_none());
+    assert_eq!(completed.completed.created_at_ms(), 1_800_000_000_001);
+    drop(store);
+    drop(lease);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn pre_cloud_store_migrates_without_changing_grants_then_recovers_frozen_bytes() {
     let root = std::env::temp_dir().join(format!("tmt-cloud-inbox-{}", uuid_v4().unwrap()));
     let layout = Layout::open(&root).unwrap();
@@ -31,7 +204,7 @@ fn pre_cloud_store_migrates_without_changing_grants_then_recovers_frozen_bytes()
     // Exact previous schema history, with its existing identity/grant kept in place.
     let machine = store.machine().unwrap();
     let grants = store.grants().unwrap();
-    store.connection.execute_batch("DROP TABLE cloud_transport; DELETE FROM _migrations WHERE version=10 AND name='cloud_transport';").unwrap();
+    store.connection.execute_batch("DROP TABLE cloud_remotes; DROP TABLE cloud_owner_projects; DROP TABLE cloud_reroute_counters; DROP TABLE cloud_peer_routes; DROP TABLE cloud_pair_receipts; DROP TABLE cloud_peers; DROP TABLE cloud_transport; DELETE FROM _migrations WHERE version>=10;").unwrap();
     drop(store);
     let mut store = Store::open(&lease).unwrap();
     assert_eq!(store.machine().unwrap(), machine);

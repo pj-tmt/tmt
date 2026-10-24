@@ -461,10 +461,10 @@ replies to the selected incoming request, and authored bindings retain precedenc
 The active field uses Enter to send and Escape to retain its draft. Its fill is
 the boundary; there is no frame or heading rule. The Talk matrix is hidden until its data ships.
 
-A submitted reply you have not seen shows `● N unread` in STATE and squad team
+A submitted reply, or the captured turn of a message you typed straight to an agent, you have not seen shows `● N unread` in STATE and squad team
 strips, before working/idle/waiting state. Only the unread glyph is blue; NO_COLOR
 keeps the mark and words. The top bar shows your global unread count beside
-waiting. `N+` is a lower bound from the existing 50-result page, not an all-history
+waiting. `N+` is a lower bound from the 50-answer page, not an all-history
 count; zero observed unread never invents an unread state. Opening the agent's
 acquired conversation or successfully jumping with `j` advances your shared read
 marker, and so does clicking `● N unread` in the composer line, the member
@@ -1152,15 +1152,20 @@ Nothing about delivery is stored; the notice is in the lead's inbox.
 The scan is a second duty of the cron clock. A clock must run, with a board open or
 `tmt ops sq cron run` in a pane (`cron clock` shows it); with no clock there is no alert.
 
-The board shows the same facts without a new call. Press `,` with a squad selected and choose
-`Squad settings: <squad>` (last in the menu); Esc returns to the menu. There, Space on
-`idle_alert.enabled` flips it through the same writer as `config set`, and `idle_alert.after` edits
-with Enter. A
-squad row shows `idle alert 30m` (`alert 30m` in a narrow cell) only while the alert is on, and
-`◷ N idle` after its team marks while members are over. An over member shows `◷ idle 32m` in its
-state cell; an excepted member keeps the plain `◌ idle 32m`. `tmt ops sq ls` appends
-`idle alert 30m` to the squad header and `◷ idle 32m` to the over row. A UUID in the notice that
-names a known member opens that member's menu. With the alert off, none of these appear.
+In Agents, the squad row's MODEL / ALERT cell shows `◷ 30m` when enabled or `○ off`
+when disabled; Common pool has no setting. Hover highlights the editable cell. Click it, or
+press `i` on a squad or member, to open `Idle alert · <squad>`. A flat-list member in several
+squads first chooses one. Authored bindings take precedence. Use On/Off chips, type After or
+choose 15m/30m/1h/2h; ↑↓ changes rows and ←→ changes choices. The dialog previews who would
+no longer count as over. Invalid times refuse Save; Esc/Cancel changes nothing. Save uses the
+same settings writer as Settings, After first and then Alert. If only After saves, the dialog
+reports `After saved, Alert not changed` and keeps the draft. Settings remains available through
+`,` → `Squad settings: <squad>`.
+
+`◷ N idle` follows the squad's team marks while members are over. An over member shows
+`◷ idle 32m`; an excepted member keeps the plain `◌ idle 32m`. `tmt ops sq ls` retains its
+`idle alert 30m` squad header and `◷ idle 32m` over row only while enabled. A UUID in the
+notice that names a known member opens that member's menu.
 It reads one roster and one `ls` per enabled squad, at least 60 seconds apart; a squad with
 the alert off costs nothing. A clock's first look, and its first look after a pause of more
 than five minutes (a sleeping machine), only record the time: members are judged a minute

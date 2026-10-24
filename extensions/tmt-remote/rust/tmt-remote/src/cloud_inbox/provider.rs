@@ -73,7 +73,13 @@ impl Provider {
         }
         Ok(format!("{}/m/{}/{stream}/{id}", self.root, self.machine))
     }
-    async fn call(
+    pub(crate) fn root(&self) -> &str {
+        &self.root
+    }
+    pub(crate) fn identity(&self) -> &AuthIdentity {
+        &self.identity
+    }
+    pub(crate) async fn call(
         &self,
         operation: Operation,
         suffix: &str,
@@ -196,7 +202,7 @@ impl Provider {
         &self,
         from_ms: u64,
         limit: usize,
-        after: Option<&Value>,
+        after: Option<&super::document::Cursor>,
         io: &IoBudget<'_>,
     ) -> Result<Page, RemoteError> {
         if limit == 0 || limit > crate::journal::OPERATIONS as usize {
@@ -204,7 +210,10 @@ impl Provider {
         }
         let mut value = json!({"structuredQuery":{"from":[{"collectionId":"inbox","allDescendants":false}],"where":{"fieldFilter":{"field":{"fieldPath":"createdAt"},"op":"GREATER_THAN_OR_EQUAL","value":{"timestampValue":stamp(from_ms)}}},"orderBy":[{"field":{"fieldPath":"createdAt"},"direction":"ASCENDING"},{"field":{"fieldPath":"__name__"},"direction":"ASCENDING"}],"limit":limit}});
         if let Some(after) = after {
-            value["structuredQuery"]["startAt"] = after.clone();
+            value["structuredQuery"]["startAt"] = json!({"values":[
+                {"timestampValue":after.created_at},
+                {"referenceValue":self.name(&self.machine, "inbox", &after.id)?}
+            ],"before":false});
         }
         let response = self
             .call(
@@ -288,7 +297,7 @@ impl Provider {
         io.check().map_err(|_| unavailable())
     }
 }
-fn stamp(ms: u64) -> String {
+pub(crate) fn stamp(ms: u64) -> String {
     format!(
         "{}T{:02}:{:02}:{:02}.{:03}Z",
         crate::calendar::utc_date(ms),

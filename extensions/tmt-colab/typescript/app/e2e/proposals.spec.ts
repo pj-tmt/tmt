@@ -180,6 +180,21 @@ for (const placement of ['missing', 'duplicate'])
     await expect(card.locator('.proposal-author')).toContainText('Detached');
     expect((await run(page, 'proof')).sends).toHaveLength(0);
   });
+// A framed card rounds, as every bordered card does on the website; a ruled row stays square.
+for (const placement of ['inline', 'missing'])
+  test(`a ${placement} proposal card is a rounded frame`, async ({ page }) => {
+    await mount(page, placement);
+    if (placement === 'inline') {
+      await expect(page.locator('.proposal-inline .proposal-card')).toHaveCSS(
+        'border-radius',
+        '8px',
+      );
+      return;
+    }
+    await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
+    await page.locator('[data-testid="annotation-row"]').click();
+    await expect(commentsRegion(page).locator('.proposal-card')).toHaveCSS('border-radius', '8px');
+  });
 test('Follow up retains focus while the renderer replies to its new height', async ({ page }) => {
   await mount(page);
   const inline = page.locator('[data-inline-proposal]');

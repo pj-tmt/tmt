@@ -27,6 +27,8 @@ const destinationKey = (event: ReplyNotification) => {
 /** A click never becomes an unbounded future navigation after its source changes. */
 export const REPLY_REVEAL_WAIT_MS = 5000;
 
+const settledKey = (event: ReplyNotification) => `${event.id}:${event.revision}`;
+
 export function useReplyNotifications({
   pageKey,
   observer,
@@ -53,6 +55,9 @@ export function useReplyNotifications({
     observer,
     mounted: false,
     events: [] as readonly BrowserNotification[],
+    /** Entries a reader showed while it was reading: reading settles them for good, even when the
+     * reader is gone (a closed non-modal panel unmounts at once) before the queue next rechecks. */
+    settled: new Set<string>(),
   });
   const [scope, setScope] = useState(create);
   if (scope.pageKey !== pageKey || scope.observer !== observer) setScope(create());
@@ -157,18 +162,24 @@ export function useReplyNotifications({
   useEffect(() => {
     if (reveal && !matches(reveal.event, reveal.pageKey)) setReveal(undefined);
   }, [projection, blocked, pageKey, reveal, matches]);
+  const reads = useCallback(
+    (
+      reader: { pageKey: string; destination: string; state: ConversationReading },
+      event: ReplyNotification,
+    ) =>
+      reader.destination === destinationKey(event) &&
+      reader.pageKey === pageKey &&
+      reader.state.visible &&
+      (event.destination === 'Answer' || event.destination === 'Proposal'
+        ? !!reader.state.recordKeys?.includes(event.recordKey)
+        : reader.state.atEnd),
+    [pageKey],
+  );
   const alreadyReading = useCallback(
     (event: ReplyNotification) =>
-      [...readers.current.values()].some(
-        (reader) =>
-          reader.destination === destinationKey(event) &&
-          reader.pageKey === pageKey &&
-          reader.state.visible &&
-          (event.destination === 'Answer' || event.destination === 'Proposal'
-            ? reader.state.recordKeys?.includes(event.recordKey)
-            : reader.state.atEnd),
-      ),
-    [pageKey],
+      scope.settled.has(settledKey(event)) ||
+      [...readers.current.values()].some((reader) => reads(reader, event)),
+    [scope, reads],
   );
   const modal = useCallback((id: string, open: boolean) => {
     if (open) modals.current.add(id);
@@ -190,9 +201,13 @@ export function useReplyNotifications({
       if (!state && !previous) return;
       if (state) readers.current.set(id, { pageKey, destination, state });
       else readers.current.delete(id);
+      if (state)
+        for (const event of latest.current.projection.candidates.values())
+          if ([...readers.current.values()].some((reader) => reads(reader, event)))
+            scope.settled.add(settledKey(event));
       setReadingRevision((value) => value + 1);
     },
-    [pageKey],
+    [pageKey, scope, reads],
   );
   const revealed = useCallback(
     (id: string) => setReveal((current) => (current?.request.id === id ? undefined : current)),

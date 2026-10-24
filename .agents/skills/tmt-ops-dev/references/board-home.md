@@ -88,14 +88,16 @@ sooner paints nothing; a job the user did not ask to wait on (`Job::shows_progre
 none, and a result or failure is shown at once. Persistent
 migration and acquisition failures retain their existing footer priority.
 
-`board::unread` projects submitted finals from the existing originator-results
-page, limited to 50 with no continuation fetch just to count. Request IDs deduplicate
-repeated room evidence; squad/global counts deduplicate member UUIDs. Only the
-originator page supplies this count, never blended recipient histories or pane
-output. Optional failed/malformed reads retain the previous page for the same
+`board::unread` projects what answered the user's messages from one page of Core's
+originator `answers` view (a submitted final, or a passthrough's captured turn), limited
+to 50 with no continuation fetch just to count; it is read by the same Leads job that
+reads the results page, which still feeds the reply list. A request is one item, so a
+final and a turn never count twice. Request IDs deduplicate repeated room evidence;
+squad/global counts deduplicate member UUIDs. Only the originator page supplies this
+count, never blended recipient histories or pane output. Optional failed/malformed reads retain the previous page for the same
 actor; actor changes discard it. A member's count is `N+ unread` only when
 `nextBefore` is present and that pair's marker precedes the page's oldest
-`submittedAtMs`. Aggregate `+` is the OR of eligible members' partial flags;
+`answeredAtMs`. Aggregate `+` is the OR of eligible members' partial flags;
 observed zero renders no unread state, even when older replies are possible.
 
 StateCell supplies `● N unread` in place of the glyph and activity words
@@ -439,7 +441,13 @@ identities list as `idle_source`, so no presence is read), `OpsMembershipState::
 `OpsSquad::idle_alert` carry the result, and `activity::Label::idle_over` (only while the label
 reads idle) makes `columns::activity_spans`, `team_strip::line` and the squad team strip paint
 `state_cell::over` (`◷`, `!` under the ASCII glyph set) in the attention colour before the idle word.
-The squad row's MODEL cell names `idle alert 30m` while enabled; nothing is derived in the board.
+The squad row's MODEL / ALERT cell shows `◷ 30m` or `○ off` from that observation;
+`idle_alert_editor` owns its clipped hit, effective `i` entry, scoped chooser and disposable
+form. It uses shared Modal/ChipGroup/Editor/input styles. The action lane loads Config and
+validates both settings before writing changed keys through `set_setting` (After, then enabled).
+A second-write refusal rereads the saved setting, keeps the draft and names the partial result.
+Its threshold preview uses held activity and published over marks; paint/input acquire nothing
+and never dispatch alerts. The catalog supplies Help, Settings and whole footer hints.
 The per-squad settings overlay is reached from the Workspace settings menu (`Choice::SquadSettings`, last
 after a `Choice::Rule`; absent without a selected squad): `Opening::SquadSettings` opens it in that squad's
 context with `Overlay::from_menu`, which keeps a refresh from closing it, returns Esc to the menu, titles it

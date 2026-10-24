@@ -250,6 +250,7 @@ pub(in crate::board) fn render_frame(
             app.conversation_tinted.get(),
         );
     }
+    super::workspace::render::finish_idle_alert_hover(frame, app);
     header::finish_meter_styles(frame, app, summary);
     super::conversation::source::paint(frame, app);
 }

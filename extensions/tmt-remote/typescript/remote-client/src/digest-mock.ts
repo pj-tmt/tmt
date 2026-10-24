@@ -148,26 +148,40 @@ function flow(): FlowPair[] {
 
 const limits: LimitWindow[] = [
   {
+    provider: 'codex',
     windowMinutes: 10080,
     resetsAtMs: MOCK_NOW_MS + 40 * HOUR,
     usedPercent: 74,
-    observedAtMs: MOCK_NOW_MS - 10 * 60_000,
+    observedAtMs: MOCK_NOW_MS - 20 * 60_000,
     elapsedPercent: 76.19,
     paceDeltaPoints: -2.19,
     stale: false,
     seats: [SEATS[0].id, SEATS[2].id, SEATS[4].id],
   },
   {
+    provider: 'codex',
     windowMinutes: 10080,
     resetsAtMs: MOCK_NOW_MS + 100 * HOUR,
     usedPercent: 45,
-    observedAtMs: MOCK_NOW_MS - 20 * 60_000,
+    observedAtMs: MOCK_NOW_MS - 10 * 60_000,
     elapsedPercent: 40.48,
     paceDeltaPoints: 4.52,
     stale: false,
     seats: [SEATS[1].id, SEATS[3].id],
   },
   {
+    provider: 'codex',
+    windowMinutes: 10080,
+    resetsAtMs: MOCK_NOW_MS + 80 * HOUR,
+    usedPercent: 38,
+    observedAtMs: MOCK_NOW_MS - 3 * DAY,
+    elapsedPercent: 52.38,
+    paceDeltaPoints: -14.38,
+    stale: false,
+    seats: [SEATS[2].id],
+  },
+  {
+    provider: 'codex',
     windowMinutes: 300,
     resetsAtMs: MOCK_NOW_MS + 2 * HOUR,
     usedPercent: 30,
@@ -181,10 +195,11 @@ const limits: LimitWindow[] = [
 
 function limitHistory(): LimitHistory[] {
   return [
-    { line: 'claude', left: 26, end: 40 },
-    { line: 'gpt', left: 55, end: 100 },
-  ].map(({ line, left, end }) => ({
-    line,
+    { left: 26, end: 40 },
+    { left: 55, end: 100 },
+    { left: 62, end: 80 },
+  ].map(({ left, end }) => ({
+    provider: 'codex',
     windowMinutes: 10080,
     resetsAtMs: MOCK_NOW_MS + end * HOUR,
     points: Array.from({ length: 8 * 6 }, (_, at) => ({
@@ -203,7 +218,6 @@ export interface MockShape {
 
 export function mockDocument(range: UsageRange, shape: MockShape = {}): UsageDocument {
   const count = shape.seats ?? SEATS.length;
-  const only = (line: string) => !shape.oneProvider || line === 'gpt';
   return {
     version: 1,
     observedAtMs: MOCK_NOW_MS,
@@ -215,14 +229,16 @@ export function mockDocument(range: UsageRange, shape: MockShape = {}): UsageDoc
     limits: shape.oneProvider
       ? limits.filter((limit) => limit.seats.includes(SEATS[1].id))
       : limits,
-    limitsUnavailable: [],
+    limitsUnavailable: [{ line: 'claude', reason: 'no_source' }],
     exchange: { sinceMs: MOCK_NOW_MS - DAY, observedAtMs: MOCK_NOW_MS, pairs: flow() },
-    limitHistory: limitHistory().filter((history) => only(history.line)),
+    limitHistory: limitHistory().filter(
+      (history) => !shape.oneProvider || history.resetsAtMs === MOCK_NOW_MS + 100 * HOUR,
+    ),
   };
 }
 
 export const mockDigestSource: DigestSource = {
   async report(range) {
-    return { range, sample: true, document: mockDocument(range) };
+    return { range, sample: true, document: mockDocument(range), allowance: mockDocument('7d') };
   },
 };

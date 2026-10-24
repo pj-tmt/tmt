@@ -5,7 +5,7 @@
 use super::*;
 use crate::native_install::{
     Affected, CheckError, Product, Unavailable, affected, check_use, cli_required, declared_uses,
-    inspect_product, inspect_product_prefix, uninstall_extension, use_statuses,
+    inspect_product, inspect_product_prefix, message_protocols, uninstall_extension, use_statuses,
 };
 use std::path::Path;
 use tmt_core::native_install::PinAction;
@@ -407,4 +407,90 @@ fn digest_installation_declares_uses_and_is_visible_to_other_extensions() {
     );
     assert!(prefix.join("lib/tmt-digest/releases").exists());
     assert!(inspect_product(Product::Colab, &prefix.join("bin/tmt-colab")).is_ok());
+}
+
+#[test]
+fn a_release_declares_the_message_protocols_it_speaks_and_a_release_without_them_declares_none() {
+    let (_directory, installed) = prefix();
+    let declared = r#"{"version":1,"messageProtocols":[1,3],"uses":[]}"#;
+    let fixture = extension(
+        Product::Remote,
+        "0.1.0-alpha.1",
+        Some((declared, 0o644)),
+        None,
+    );
+    let report = install(Product::Remote, &fixture, &installed).unwrap();
+    inspect_product(Product::Remote, &report.executable).unwrap();
+    assert_eq!(
+        message_protocols(Product::Remote, &installed).unwrap(),
+        [1, 3]
+    );
+    assert!(
+        declared_uses(Product::Remote, &installed)
+            .unwrap()
+            .is_empty()
+    );
+
+    let (_directory, bare) = prefix();
+    remote(&bare, "0.1.0-alpha.1");
+    assert!(
+        message_protocols(Product::Remote, &bare)
+            .unwrap()
+            .is_empty()
+    );
+    let (_directory, missing) = prefix();
+    assert!(message_protocols(Product::Remote, &missing).is_err());
+}
+
+#[test]
+fn message_protocols_are_one_to_eight_ascending_versions_and_nothing_else_is_admitted() {
+    for (name, text) in [
+        ("empty", r#"{"version":1,"messageProtocols":[],"uses":[]}"#),
+        ("zero", r#"{"version":1,"messageProtocols":[0],"uses":[]}"#),
+        (
+            "above 255",
+            r#"{"version":1,"messageProtocols":[256],"uses":[]}"#,
+        ),
+        (
+            "descending",
+            r#"{"version":1,"messageProtocols":[2,1],"uses":[]}"#,
+        ),
+        (
+            "duplicate",
+            r#"{"version":1,"messageProtocols":[1,1],"uses":[]}"#,
+        ),
+        (
+            "a string",
+            r#"{"version":1,"messageProtocols":["1"],"uses":[]}"#,
+        ),
+        (
+            "not a list",
+            r#"{"version":1,"messageProtocols":1,"uses":[]}"#,
+        ),
+        (
+            "nine versions",
+            r#"{"version":1,"messageProtocols":[1,2,3,4,5,6,7,8,9],"uses":[]}"#,
+        ),
+        (
+            "another key",
+            r#"{"version":1,"messageProtocols":[1],"channels":[1],"uses":[]}"#,
+        ),
+    ] {
+        let (_directory, prefix) = prefix();
+        let fixture = extension(Product::Remote, "0.1.0-alpha.1", Some((text, 0o644)), None);
+        assert!(
+            install(Product::Remote, &fixture, &prefix).is_err(),
+            "{name} installed"
+        );
+        assert!(
+            !prefix.join("lib/tmt-remote").exists(),
+            "{name} left a release"
+        );
+    }
+    // The key rides with the other optional one.
+    let (_directory, prefix) = prefix();
+    let both = r#"{"version":1,"requiresCli":">=0.0.1","messageProtocols":[1],"uses":[]}"#;
+    let fixture = extension(Product::Remote, "0.1.0-alpha.1", Some((both, 0o644)), None);
+    install(Product::Remote, &fixture, &prefix).unwrap();
+    assert_eq!(message_protocols(Product::Remote, &prefix).unwrap(), [1]);
 }

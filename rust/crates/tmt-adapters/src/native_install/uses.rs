@@ -17,11 +17,14 @@ use std::{
 pub(super) const FILE: &str = "TMT-USES.json";
 const LIMIT: usize = 4 * 1024;
 const MAXIMUM_USES: usize = 8;
+const MAXIMUM_PROTOCOLS: usize = 8;
 const MINIMUM_PREFIX: &str = ">=";
 
 pub(super) struct Declaration {
     pub uses: Vec<Use>,
     pub requires_cli: Option<Version>,
+    /// Core message-protocol versions the extension's commands speak, ascending.
+    pub message_protocols: Vec<u8>,
 }
 
 /// Receipt-supplied minimum compared with this CLI build, without acquisition.
@@ -260,10 +263,15 @@ pub(super) fn parse(owner: Product, bytes: &[u8]) -> io::Result<Declaration> {
     let object = document
         .as_object()
         .filter(|object| {
-            exactly(object, &["version", "uses"])
-                || exactly(object, &["version", "uses", "requiresCli"])
+            object.contains_key("version")
+                && object.contains_key("uses")
+                && object.keys().all(|key| {
+                    ["version", "uses", "requiresCli", "messageProtocols"].contains(&key.as_str())
+                })
         })
-        .ok_or_else(|| invalid("expected version, uses and optional requiresCli"))?;
+        .ok_or_else(|| {
+            invalid("expected version, uses and optional requiresCli and messageProtocols")
+        })?;
     if object["version"] != 1 {
         return Err(invalid("unsupported version"));
     }
@@ -276,6 +284,11 @@ pub(super) fn parse(owner: Product, bytes: &[u8]) -> io::Result<Declaration> {
                 .ok_or_else(|| invalid("requiresCli must be >=X.Y.Z or >=X.Y.Z-pre"))
         })
         .transpose()?;
+    let message_protocols = object
+        .get("messageProtocols")
+        .map(protocols)
+        .transpose()?
+        .unwrap_or_default();
     let entries = object["uses"]
         .as_array()
         .filter(|entries| entries.len() <= MAXIMUM_USES)
@@ -312,12 +325,45 @@ pub(super) fn parse(owner: Product, bytes: &[u8]) -> io::Result<Declaration> {
             minimum,
         });
     }
-    Ok(Declaration { uses, requires_cli })
+    Ok(Declaration {
+        uses,
+        requires_cli,
+        message_protocols,
+    })
+}
+
+/// One to eight distinct protocol versions in `1..=255`, ascending.
+fn protocols(value: &Value) -> io::Result<Vec<u8>> {
+    let versions = value
+        .as_array()
+        .filter(|versions| (1..=MAXIMUM_PROTOCOLS).contains(&versions.len()))
+        .and_then(|versions| {
+            versions
+                .iter()
+                .map(|version| version.as_u64().and_then(|n| u8::try_from(n).ok()))
+                .collect::<Option<Vec<_>>>()
+        })
+        .filter(|versions| versions.first().is_some_and(|first| *first >= 1))
+        .filter(|versions| versions.windows(2).all(|pair| pair[0] < pair[1]))
+        .ok_or_else(|| {
+            invalid("messageProtocols must list one to eight ascending versions from 1 to 255")
+        })?;
+    Ok(versions)
 }
 
 /// The uses an installed, verified release declares; empty without the file.
 /// An error means the product has no readable managed installation.
 pub fn declared(product: Product, prefix: &Path) -> io::Result<Vec<Use>> {
+    installed_declaration(product, prefix).map(|declaration| declaration.uses)
+}
+
+/// The message-protocol versions an installed, verified release declares, ascending; empty
+/// when it declares none. An error means the product has no readable managed installation.
+pub fn message_protocols(product: Product, prefix: &Path) -> io::Result<Vec<u8>> {
+    installed_declaration(product, prefix).map(|declaration| declaration.message_protocols)
+}
+
+fn installed_declaration(product: Product, prefix: &Path) -> io::Result<Declaration> {
     let installation = inspect_product_prefix(product, prefix)?;
     let release: PathBuf = installation
         .active_executable
@@ -328,9 +374,13 @@ pub fn declared(product: Product, prefix: &Path) -> io::Result<Vec<Use>> {
     match std::fs::symlink_metadata(&file) {
         Ok(_) => {
             let bytes = bounded_file::read_no_follow(&file, LIMIT).map_err(io::Error::other)?;
-            parse(product, &bytes).map(|declaration| declaration.uses)
+            parse(product, &bytes)
         }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Declaration {
+            uses: Vec::new(),
+            requires_cli: None,
+            message_protocols: Vec::new(),
+        }),
         Err(error) => Err(error),
     }
 }

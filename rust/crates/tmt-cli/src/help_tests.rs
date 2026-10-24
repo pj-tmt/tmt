@@ -320,4 +320,6 @@ fn focus_help_describes_directional_swap_and_preserved_focus() {
     }
     assert!(text.contains("keep focus"));
     assert!(text.contains("tmt focus worker --into left"));
+    assert!(text.contains("built-in member attaches to live output"));
+    assert!(text.contains("screen may stay blank until the program draws"));
 }

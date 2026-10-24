@@ -185,7 +185,7 @@ records its checklist purpose (default `fyi`). The pinned recorded owner UUID
 also bypasses. All channel, host and pending-approval guards still apply.
 `tmt send-now <request-id>` sends one held request now (its originator or a
 person only); it skips just the hold and never types a delivered request twice.
-Existing `tmt focus` still switches panes.
+`tmt focus` switches host panes, or attaches to a built-in-host terminal.
 
 For a lead doing a review or other work that benefits from fewer interruptions,
 use the agreed Digest cadence: for example, `5m` for short batches or `20m` for
@@ -792,7 +792,15 @@ startup is confirmed. Closing this terminal leaves it running; `tmt ls`, `talk`,
 `reply`, `check`, `unbind` and `rm` use the same identity and exchange contracts.
 `check` reads only the current screen, with no scrollback. Use
 `--host tmux|herdr|pty` before the name to choose; an unavailable explicit host
-refuses and never falls back. Attach/focus for this host is not yet available.
+refuses and never falls back. `tmt attach <name-or-UUID>` enters a built-in
+member's terminal; plain `tmt focus <name-or-UUID>` does the same. It requires a
+terminal and refuses JSON. The screen may stay blank until the program draws:
+attachment forwards live output without replaying the current screen. Ctrl-\
+detaches and leaves the member running; Ctrl-C goes to the program. `attach -d`
+takes sole use and disconnects other viewers. Terminal sizes above 1000 columns
+or rows are clamped; another viewer's resize never resizes your physical window.
+After a program exits, attachment restores your terminal and prints its resume
+command. A lost connection does not prove the program ended; inspect before retrying.
 If startup is unconfirmed, inspect the named pane before retrying: an agent may
 have started, and the command never resends the launch.
 
@@ -805,9 +813,18 @@ ones, even when empty. `--show` displays the preset without launching and
 `--forget-launch` clears it while retaining the session. Without an associated preset, resume reports that it uses the registered driver.
 Ordinary resume never starts fresh: when nothing is remembered or the driver cannot resume it,
 it fails and says
-`Start fresh with: tmt run <name>`. Starting fresh is the user's call. A resume
-that fails before the provider confirms the session marks it stale; a stale
-session needs `tmt resume --retry <name>` or `tmt resume --forget <name>`. Never
+`Start fresh with: tmt run <name>`. Starting fresh is the user's call. Before it
+launches, resume checks that a Claude or Codex session still has its transcript.
+A session that is gone or expired, or whose file TMT may not read, is refused
+with `RESUME_UNAVAILABLE` and `error.reason` `session_missing` or
+`session_unreadable`; nothing is marked or forgotten. A resume
+that fails before the provider confirms the session marks it stale
+(`session_stale`); a stale session needs `tmt resume --retry <name>` or
+`tmt resume --forget <name>`. `--retry` also tries a session the check refused,
+and `--move` skips the check, as does a resume that replays a wrapper (a launch
+preset whose executable file name is not the driver's own). A wrapper installed
+under the driver's own name, such as `~/bin/claude` that sets `CLAUDE_CONFIG_DIR`,
+is still checked; use `--retry` for it. Never
 combine `--resume` with an explicit command, and never resend a task after a
 failed resume. Codex's opt-in channel resumes the exact selected thread, never
 a fresh substitute. Claude exact resume also creates a fresh channel enrollment

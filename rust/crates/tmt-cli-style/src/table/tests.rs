@@ -117,7 +117,7 @@ fn actions_trail_only_their_rows_and_are_never_truncated() {
         },
     );
     assert!(
-        colored.contains("\u{1b}[38;5;4m↻ tmt resume sol"),
+        colored.contains("\u{1b}[34m↻ tmt resume sol"),
         "{colored:?}"
     );
 }
@@ -148,18 +148,9 @@ fn a_note_trails_its_row_dimmed_in_the_action_slot_and_is_never_truncated() {
     );
     assert!(colored.contains("\u{1b}[2mbasic"), "{colored:?}");
     assert!(
-        !colored.contains("\u{1b}[38;5;4mbasic"),
+        !colored.contains("\u{1b}[34mbasic"),
         "a note is not accent-colored: {colored:?}"
     );
-}
-
-#[test]
-fn colored_rows_end_without_padding() {
-    assert_eq!(
-        without_trailing_padding("a  \u{1b}[34mshell   \u{1b}[39m\u{1b}[0m  "),
-        "a  \u{1b}[34mshell\u{1b}[39m\u{1b}[0m"
-    );
-    assert_eq!(without_trailing_padding("plain   "), "plain");
 }
 
 #[test]
@@ -188,10 +179,6 @@ fn a_colored_first_column_keeps_its_gap_before_text_ending_in_m() {
     assert_eq!(
         plain,
         "  command  ~/.local/bin/tmt\n  skill    ~/.agents/skills/custom\n"
-    );
-    assert_eq!(
-        without_trailing_padding("\u{1b}[2mskill  \u{1b}[0m  ~/tmt-forum  "),
-        "\u{1b}[2mskill  \u{1b}[0m  ~/tmt-forum"
     );
 }
 
@@ -281,14 +268,135 @@ fn styled_cells_follow_the_theme() {
         &table,
         colored(Some((Theme::new(Base::Terminal), Depth::Ansi16))),
     );
-    assert!(
-        sixteen.contains("\u{1b}[38;5;3m") || sixteen.contains("\u{1b}[33m"),
-        "{sixteen:?}"
-    );
+    assert!(sixteen.contains("\u{1b}[33mada"), "{sixteen:?}");
+    assert!(!sixteen.contains("38;5;"), "16 colors only: {sixteen:?}");
     let untouched = render(&table, colored(None));
     assert!(
         untouched.contains("\u{1b}[2m"),
         "no theme: dim stays an effect: {untouched:?}"
     );
     assert!(!untouched.contains("38;2"), "{untouched:?}");
+}
+
+/// One encoding for a token (#4542): a styled cell carries exactly the bytes
+/// `Terminal::paint` writes for it, without a theme and at every depth, so a
+/// mark in a table matches the same mark painted beside it. The color covers
+/// the text only; the column's padding follows it, and a colored last column
+/// ends with its text.
+#[test]
+fn a_styled_cell_is_painted_exactly_as_paint_writes_it() {
+    use crate::{Base, Depth, Role, Theme};
+    let tokens = [
+        Token::Accent,
+        Token::Ok,
+        Token::Warn,
+        Token::Error,
+        Token::Dim,
+        Token::Title,
+        Token::Literal,
+        Token::Driver(None),
+        Token::Driver(Some(Role::Review)),
+    ];
+    let themes = [
+        None,
+        Some((Theme::new(Base::Terminal), Depth::Ansi16)),
+        Some((Theme::default(), Depth::Ansi16)),
+        Some((Theme::default(), Depth::TrueColor)),
+    ];
+    for theme in themes {
+        let terminal = Terminal {
+            color: true,
+            width: None,
+            theme,
+        };
+        for token in tokens {
+            let mut table = Table::new(&[Column::Fixed, Column::Name]).indent(0);
+            table.row([Cell::styled("✓", token), "name".into()]);
+            assert_eq!(
+                render(&table, terminal),
+                format!("{}  name\n", terminal.paint(token, "✓")),
+                "{token:?} under {theme:?}"
+            );
+            let mut table = Table::new(&[Column::Name, Column::Fixed]).indent(0);
+            table
+                .row(["a".into(), Cell::styled("✓", token)])
+                .row(["b".into(), Cell::styled("✓✓", token)]);
+            assert_eq!(
+                render(&table, terminal),
+                format!(
+                    "a  {}\nb  {}\n",
+                    terminal.paint(token, "✓"),
+                    terminal.paint(token, "✓✓")
+                ),
+                "{token:?} under {theme:?}"
+            );
+        }
+    }
+}
+
+/// Reverse video shows where a style ends: it covers the cell's text, the
+/// column padding follows the reset, and the next cell starts unstyled.
+#[test]
+fn a_reversed_cell_covers_its_text_and_not_its_padding() {
+    use crate::{Depth, Theme};
+    let theme = Some((
+        Theme::parse("theme", [("working", "reverse")]).unwrap(),
+        Depth::TrueColor,
+    ));
+    assert!(
+        Token::Ok
+            .themed(theme)
+            .get_effects()
+            .contains(anstyle::Effects::INVERT),
+        "the control must reverse the token"
+    );
+    let terminal = Terminal {
+        color: true,
+        width: None,
+        theme,
+    };
+    let mut table = Table::new(&[Column::Name, Column::Name]).indent(0);
+    table
+        .row([Cell::styled("x", Token::Ok), "after".into()])
+        .row([Cell::styled("long", Token::Ok), "after".into()]);
+    assert_eq!(
+        render(&table, terminal),
+        format!(
+            "{}     after\n{}  after\n",
+            terminal.paint(Token::Ok, "x"),
+            terminal.paint(Token::Ok, "long")
+        )
+    );
+}
+
+/// A cut keeps grapheme clusters whole: a modified or joined emoji is never
+/// split, plain or styled, and wide and combining text cut as before.
+#[test]
+fn a_cut_keeps_each_grapheme_whole() {
+    let colored = Terminal {
+        color: true,
+        width: Some(4),
+        theme: None,
+    };
+    for (text, cut) in [
+        ("👩🏽\u{200d}💻abcde", "👩🏽\u{200d}💻a…"),
+        (
+            "👨\u{200d}👩\u{200d}👧\u{200d}👦abcde",
+            "👨\u{200d}👩\u{200d}👧\u{200d}👦a…",
+        ),
+        ("🇹🇼abcde", "🇹🇼a…"),
+        ("e\u{301}abcde", "e\u{301}ab…"),
+        ("文件abcde", "文…"),
+    ] {
+        let mut table = Table::new(&[Column::Name]).indent(0);
+        table.row([text]);
+        assert_eq!(render(&table, width(4)), format!("{cut}\n"), "{text:?}");
+        let mut table = Table::new(&[Column::Name]).indent(0);
+        table.row([Cell::styled(text, Token::Ok)]);
+        assert_eq!(
+            render(&table, colored),
+            format!("{}\n", colored.paint(Token::Ok, cut)),
+            "{text:?}"
+        );
+    }
 }

@@ -68,7 +68,7 @@ pub(crate) fn state_error(error: StateError) -> RemoteError {
     }
 }
 /// Quote one literal command argument without interpreting shell syntax.
-pub(crate) fn shell_quote(value: &str) -> String {
+pub fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 /// Shared entries keep their typed uncertainty/timeout cause and caller's retry guidance.

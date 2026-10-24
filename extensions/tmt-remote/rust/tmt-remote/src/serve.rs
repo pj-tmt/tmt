@@ -235,7 +235,10 @@ fn background(
         .with_hint("inspect tmt remote status; use tmt remote stop before starting again")
     })
 }
-fn launch_background(port: Option<u16>, stop: &AtomicBool) -> Result<Value, RemoteError> {
+pub(super) fn launch_background(
+    port: Option<u16>,
+    stop: &AtomicBool,
+) -> Result<Value, RemoteError> {
     let mut args: Vec<std::ffi::OsString> = ["serve", "--foreground", "--worker"]
         .into_iter()
         .map(Into::into)
@@ -515,6 +518,7 @@ fn foreground_with_native(
                 None
             }
         };
+        let cloud_ports = native.ports.clone();
         let mut native = if let Some(objects) = &objects {
             match native_factory::ProjectOwner::prepare(
                 objects,
@@ -577,7 +581,7 @@ fn foreground_with_native(
             window_id.clone(),
             door.origin.clone(),
             format!("{}/{}/", machine.route_prefix, mount::MOUNT_SEGMENT),
-            machine_key,
+            machine_key.clone(),
             Arc::clone(&store),
             session::IDLE,
         ));
@@ -597,6 +601,29 @@ fn foreground_with_native(
             MessageService::new(Arc::clone(&sessions), input_limit)
                 .with_operations(Arc::clone(&operations)),
         );
+        let projects = native
+            .as_ref()
+            .map(|owner| owner.projects.clone())
+            .unwrap_or_else(|| {
+                Arc::new(tmt_remote::native_sync::projects::Projects::new(
+                    layout.clone(),
+                    cloud_ports,
+                ))
+            });
+        let cloud = Arc::new(tmt_remote::cloud_pairing::service::Service::new(
+            tmt_remote::cloud_pairing::service::Owner {
+                layout: layout.clone(),
+                store: store.clone(),
+                key: machine_key,
+                machine: machine.id.clone(),
+                keys: cloud_keys.clone(),
+                sessions: sessions.clone(),
+                messages: messages.clone(),
+                projects: projects.clone(),
+                stop: stop.clone(),
+            },
+        ));
+        let cloud_worker = cloud.worker()?;
         let routes = Routes::new(input_limit, machine.route_prefix.clone())?
             .with_pairing(Arc::clone(&pairing))
             .with_sessions(Arc::clone(&sessions))
@@ -630,6 +657,7 @@ fn foreground_with_native(
             control::StatusViews {
                 objects: readiness,
                 layers: firestore,
+                cloud: Some(cloud.clone()),
                 restart: Some(control::RestartView {
                     background: handoff.is_some(),
                     registrations: control::registrations(extensions),
@@ -705,6 +733,9 @@ fn foreground_with_native(
         } else {
             door.run(stop, site as Arc<dyn Handler>)
         };
+        drop(cloud_worker);
+        control.stop();
+        let cloud_finish = projects.stop();
         let native_finish = if let Some(native) = native.take() {
             // This fences native work, joins carrier/provider workers, then
             // joins the minute tick and flushes before its writer/Serving end.
@@ -716,8 +747,8 @@ fn foreground_with_native(
             Ok(())
         };
         drop(native);
+        cloud_finish?;
         // Stopping cancels any pending pairing before state is released.
-        control.stop();
         approval.cancel_pending()?;
         drop(events);
         drop(objects);

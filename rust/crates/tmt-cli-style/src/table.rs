@@ -3,11 +3,14 @@
 //! width, detail columns (paths, previews) give way before names, and every
 //! row stays on one line, truncated with `…`. Without one nothing is cut.
 //!
-//! comfy-table renders, truncates and styles every cell. The one piece of
-//! custom layout is `layout`, which chooses each column's width, because
-//! comfy-table cannot express two of the style's rules: widths shared across
-//! the separate tables of a list's sections, and a priority order in which
-//! detail columns give way completely before names shrink.
+//! comfy-table fits every cell as plain text, one column at a time, and
+//! [`Terminal::paint`] colors the fitted text afterward, so a token is the
+//! same escape sequence in a table and beside it, and its style covers the
+//! text, never the column padding. The one piece of custom layout is
+//! `layout`, which chooses each column's width, because comfy-table cannot
+//! express two of the style's rules: widths shared across the separate tables
+//! of a list's sections, and a priority order in which detail columns give way
+//! completely before names shrink.
 //! `ContentArrangement::Dynamic` distributes the shortfall across columns
 //! instead of prioritizing, and it lays out one table at a time. The computed
 //! widths are handed to comfy-table as absolute column constraints.
@@ -15,9 +18,8 @@
 use crate::{
     grid::{self, Track},
     palette::{Terminal, Token},
-    theme::{Depth, Theme},
 };
-use comfy_table::{Attribute, Color, ColumnConstraint, Row, Width, presets};
+use comfy_table::{ColumnConstraint, Row, Width, presets};
 use std::io::{self, Write};
 use unicode_width::UnicodeWidthStr;
 
@@ -168,38 +170,39 @@ impl Table {
         if self.rows.is_empty() {
             return Ok(());
         }
-        let mut table = comfy_table::Table::new();
-        table
-            .load_style(presets::NOTHING)
-            .set_truncation_indicator("…")
-            .force_no_tty();
-        if terminal.color {
-            table.enforce_styling();
-        }
         let with_actions = widths.len() > self.columns.len();
-        for (cells, action) in self.rows.iter().zip(&self.actions) {
-            let mut row = Row::new();
-            row.max_height(1);
-            for cell in cells {
-                row.add_cell(styled(cell, terminal.theme));
-            }
-            if with_actions {
-                let none = Cell::from("");
-                row.add_cell(styled(action.as_ref().unwrap_or(&none), terminal.theme));
-            }
-            table.add_row(row);
-        }
+        let none = Cell::from("");
+        let rows: Vec<Vec<&Cell>> = self
+            .rows
+            .iter()
+            .zip(&self.actions)
+            .map(|(cells, action)| {
+                let action = with_actions.then(|| action.as_ref().unwrap_or(&none));
+                cells.iter().chain(action).collect()
+            })
+            .collect();
         let last = widths.len() - 1;
-        for (index, column) in table.column_iter_mut().enumerate() {
-            let gap = if index == last { 0 } else { GAP };
-            column.set_padding((0, gap as u16));
-            column.set_constraint(ColumnConstraint::Absolute(Width::Fixed(
-                (widths[index] + gap) as u16,
-            )));
-        }
+        let columns: Vec<Vec<String>> = widths
+            .iter()
+            .enumerate()
+            .map(|(index, width)| {
+                let gap = if index == last { 0 } else { GAP };
+                fitted(rows.iter().map(|row| row[index]), *width, gap)
+            })
+            .collect();
         let indent = " ".repeat(self.indent);
-        for line in table.lines() {
-            let line = without_trailing_padding(&line);
+        for (index, row) in rows.iter().enumerate() {
+            let mut line = String::new();
+            for (cell, column) in row.iter().zip(&columns) {
+                let fitted = &column[index];
+                let text = fitted.trim_end_matches(' ');
+                match cell.token {
+                    Some(token) => line.push_str(&terminal.paint(token, text)),
+                    None => line.push_str(text),
+                }
+                line.push_str(&" ".repeat(fitted.len() - text.len()));
+            }
+            let line = line.trim_end();
             if line.is_empty() {
                 writeln!(output)?;
             } else {
@@ -208,6 +211,31 @@ impl Table {
         }
         Ok(())
     }
+}
+
+/// One column's cells as plain text, each exactly as comfy-table fits it at
+/// `width`: cut with `…` (whole graphemes, at a word boundary where it can)
+/// and padded by `gap`. Color is painted afterward, so it never counts toward
+/// the width and never covers the padding.
+fn fitted<'a>(cells: impl Iterator<Item = &'a Cell>, width: usize, gap: usize) -> Vec<String> {
+    let mut table = comfy_table::Table::new();
+    table
+        .load_style(presets::NOTHING)
+        .set_truncation_indicator("…")
+        .force_no_tty();
+    for cell in cells {
+        let mut row = Row::new();
+        row.max_height(1);
+        row.add_cell(comfy_table::Cell::new(&cell.text));
+        table.add_row(row);
+    }
+    if let Some(column) = table.column_mut(0) {
+        column.set_padding((0, gap as u16));
+        column.set_constraint(ColumnConstraint::Absolute(Width::Fixed(
+            (width + gap) as u16,
+        )));
+    }
+    table.lines().collect()
 }
 
 /// Column widths shared by tables with the same columns and indent: natural
@@ -258,99 +286,6 @@ pub(crate) fn layout(tables: &[&Table], available: Option<u16>) -> Vec<usize> {
         .into_iter()
         .map(|width| width.expect("table columns never step aside"))
         .collect()
-}
-
-/// comfy-table pads a styled cell inside its color span, so padding can sit
-/// before the closing reset codes; drop it there as well as at the end.
-fn without_trailing_padding(line: &str) -> String {
-    let mut end = line.trim_end();
-    let mut resets = Vec::new();
-    while let Some(start) = end.rfind('\u{1b}') {
-        let code = &end[start..];
-        // Only a whole SGR sequence, `ESC [ digits;… m`, is a reset: text that
-        // merely ends in `m` (such as `custom`) keeps its padding.
-        let sgr = code
-            .strip_prefix("\u{1b}[")
-            .and_then(|rest| rest.strip_suffix('m'))
-            .is_some_and(|params| {
-                params
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || byte == b';')
-            });
-        if !sgr {
-            break;
-        }
-        resets.push(code);
-        end = end[..start].trim_end();
-    }
-    resets.reverse();
-    format!("{end}{}", resets.concat())
-}
-
-fn styled(cell: &Cell, theme: Option<(Theme, Depth)>) -> comfy_table::Cell {
-    let mut rendered = comfy_table::Cell::new(&cell.text);
-    let Some(token) = cell.token else {
-        return rendered;
-    };
-    if theme.is_some() {
-        return themed(rendered, token.themed(theme));
-    }
-    if let Some(color) = token.color().map(ansi) {
-        rendered = rendered.fg(color);
-    }
-    match token {
-        Token::Dim | Token::Driver(None) => rendered.add_attribute(Attribute::Dim),
-        Token::Title | Token::Literal => rendered.add_attribute(Attribute::Bold),
-        _ => rendered,
-    }
-}
-
-/// A themed style on a table cell: its color and its effects.
-fn themed(mut rendered: comfy_table::Cell, style: anstyle::Style) -> comfy_table::Cell {
-    match style.get_fg_color() {
-        Some(anstyle::Color::Rgb(anstyle::RgbColor(r, g, b))) => {
-            rendered = rendered.fg(Color::Rgb { r, g, b });
-        }
-        Some(anstyle::Color::Ansi(color)) => rendered = rendered.fg(ansi(color)),
-        Some(anstyle::Color::Ansi256(index)) => rendered = rendered.fg(Color::AnsiValue(index.0)),
-        None => {}
-    }
-    let effects = style.get_effects();
-    for (effect, attribute) in [
-        (anstyle::Effects::BOLD, Attribute::Bold),
-        (anstyle::Effects::DIMMED, Attribute::Dim),
-        (anstyle::Effects::INVERT, Attribute::Reverse),
-    ] {
-        if effects.contains(effect) {
-            rendered = rendered.add_attribute(attribute);
-        }
-    }
-    rendered
-}
-
-/// Themed ANSI colors and unthemed tokens use this one palette map.
-/// All 16 entries use crossterm's names: "dark" names are the standard
-/// entries and plain names are the bright entries.
-fn ansi(color: anstyle::AnsiColor) -> Color {
-    use anstyle::AnsiColor as Ansi;
-    match color {
-        Ansi::Black => Color::Black,
-        Ansi::Red => Color::DarkRed,
-        Ansi::Green => Color::DarkGreen,
-        Ansi::Yellow => Color::DarkYellow,
-        Ansi::Blue => Color::DarkBlue,
-        Ansi::Magenta => Color::DarkMagenta,
-        Ansi::Cyan => Color::DarkCyan,
-        Ansi::White => Color::Grey,
-        Ansi::BrightBlack => Color::DarkGrey,
-        Ansi::BrightRed => Color::Red,
-        Ansi::BrightGreen => Color::Green,
-        Ansi::BrightYellow => Color::Yellow,
-        Ansi::BrightBlue => Color::Blue,
-        Ansi::BrightMagenta => Color::Magenta,
-        Ansi::BrightCyan => Color::Cyan,
-        Ansi::BrightWhite => Color::White,
-    }
 }
 
 #[cfg(test)]

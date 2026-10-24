@@ -1,0 +1,52 @@
+/* The non-modal Comments panel beside or over the page (concept 20). The leaf draws the panel and
+   its card and sheet; this file owns the page grid a column sits in, its sticky offset and rule.
+   panel-mode.ts picks the mode from the viewport width. */
+.workspace {
+  --colab-panel-width: 286px;
+  --colab-panel-gap: 34px;
+  --colab-panel-inset: 23px;
+  /* The column keeps this much clear of the viewport's right edge, as the page margin does on the
+     website; the track is that much wider so the panel keeps the website's 286px of content. */
+  --colab-panel-edge: 24px;
+  /* The column sticks this far under the sticky bar. */
+  --colab-panel-sticky-gap: 20px;
+}
+@media (min-width: 1600px) {
+  .workspace {
+    --colab-panel-width: 310px;
+    --colab-panel-gap: 42px;
+    --colab-panel-inset: 28px;
+  }
+}
+/* While the column is open the workspace is two tracks: the page, then the panel. The bands above the
+   page (link bar, work band) keep the full width. */
+.workspace[data-panel-column] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) calc(var(--colab-panel-width) + var(--colab-panel-edge));
+  column-gap: var(--colab-panel-gap);
+  align-items: start;
+}
+.workspace[data-panel-column] > :not(.canvas, .tmt-ui-panel) {
+  grid-column: 1 / -1;
+}
+.workspace[data-panel-column] > .canvas {
+  grid-column: 1;
+}
+.workspace[data-panel-column] > .tmt-ui-panel[data-mode='column'] {
+  grid-column: 2;
+  position: sticky;
+  top: calc(var(--page-bar-size) + var(--tmt-ui-shell-lead, 0px) + var(--colab-panel-sticky-gap));
+  max-height: calc(
+    100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px) - 2 *
+      var(--colab-panel-sticky-gap)
+  );
+  margin-inline-end: var(--colab-panel-edge);
+  padding-inline-start: var(--colab-panel-inset);
+  border-inline-start: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+/* The ended notice sits first in the panel, as the drawer's notice sat under its header. */
+.panel-notice {
+  flex: none;
+  padding-bottom: var(--tmt-ui-space-s);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}

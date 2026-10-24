@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 import type { ReactElement } from 'react';
 import { BrowserMenu, type BrowserMenuProps } from '../src/menu.js';
+import { createMenuController } from '../src/menu-controller.js';
 
 const hooks = vi.hoisted(() => ({ refs: [] as { current: unknown }[], index: 0 }));
 vi.mock('react', async (original) => ({
   ...(await original<typeof import('react')>()),
   useId: () => 'fixture-menu',
   useRef: (value: unknown) => hooks.refs[hooks.index++] ?? { current: value },
-  useState: () => [true, vi.fn()],
+  useSyncExternalStore: () => ({ open: true, present: true }),
   useLayoutEffect: () => undefined,
   useEffect: () => undefined,
 }));
@@ -66,7 +67,20 @@ describe('Menu description', () => {
     const entry = () => ({ ownerDocument: document, focus: vi.fn() });
     const [first, second] = [entry(), entry()];
     document.activeElement = first;
-    const { dialog } = render({ description: 'Informational' }, [first, second]);
+    const controller = createMenuController({
+      items: () => [
+        { key: 'one', label: 'One' },
+        { key: 'two', label: 'Two' },
+      ],
+      disabled: () => false,
+      hasDescription: () => true,
+      trigger: () => null,
+      surface: () => null,
+      entries: () => [first, second] as unknown as HTMLButtonElement[],
+      selection: () => () => {},
+      onOpenChange: () => {},
+    });
+    controller.open();
     const press = (key: string) => {
       const event = {
         key,
@@ -77,8 +91,9 @@ describe('Menu description', () => {
         metaKey: false,
         nativeEvent: { isComposing: false },
         preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
       };
-      (dialog.props as { onKeyDown(event: unknown): void }).onKeyDown(event);
+      controller.menuKey(event);
       return event;
     };
     expect(press('ArrowDown').preventDefault).toHaveBeenCalled();

@@ -7,6 +7,9 @@
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-sheet);
 }
+.tmt-ui-panel[hidden] {
+  display: none;
+}
 .tmt-ui-panel:not([data-mode='column']) {
   position: fixed;
   z-index: var(--tmt-ui-panel-layer);

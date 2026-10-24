@@ -94,3 +94,132 @@ export function placeIconActionTooltip(anchor: HTMLElement, tooltip: HTMLElement
     viewport?.removeEventListener('scroll', place);
   };
 }
+
+const escapeFocus = new WeakSet<Document>();
+function guardEscapeFocus(document: Document) {
+  escapeFocus.add(document);
+  const clear = () => {
+    escapeFocus.delete(document);
+    document.removeEventListener('keydown', nextKey, true);
+  };
+  const nextKey = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape') clear();
+  };
+  document.addEventListener('keydown', nextKey, true);
+  document.defaultView?.requestAnimationFrame(clear);
+}
+
+/** Internal binding shared by icon renderers; activation and its busy fence stay with the caller. */
+export function bindIconActionTooltip(
+  wrapper: HTMLElement,
+  button: HTMLButtonElement,
+  tooltip: HTMLElement,
+) {
+  const document = button.ownerDocument;
+  const view = document.defaultView!;
+  let hovered = false;
+  let focused = false;
+  let dismissed = false;
+  let disposed = false;
+  let expanded = button.getAttribute('aria-expanded') === 'true';
+  let returnGuard = false;
+  let returnFrame: number | undefined;
+  let release: (() => void) | undefined;
+  let position: (() => void) | undefined;
+  const close = () => {
+    position?.();
+    position = undefined;
+    release?.();
+    release = undefined;
+    document.removeEventListener('keydown', escape, true);
+    if (tooltip.matches(':popover-open')) tooltip.hidePopover();
+  };
+  const dismiss = () => {
+    dismissed = true;
+    close();
+  };
+  const escape = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape' || !tooltip.matches(':popover-open')) return;
+    dismiss();
+    guardEscapeFocus(document);
+  };
+  const paint = () => {
+    const open =
+      !disposed &&
+      (hovered || focused) &&
+      !dismissed &&
+      !expanded &&
+      button.isConnected &&
+      button.getClientRects().length > 0;
+    if (!open) {
+      close();
+      return;
+    }
+    if (tooltip.matches(':popover-open')) return;
+    release = claimIconActionTooltip(document, dismiss);
+    tooltip.showPopover();
+    position = placeIconActionTooltip(button, tooltip);
+    document.addEventListener('keydown', escape, true);
+  };
+  const clearReturnGuard = () => {
+    returnGuard = false;
+    document.removeEventListener('keydown', returnKey, true);
+    if (returnFrame !== undefined) view.cancelAnimationFrame(returnFrame);
+    returnFrame = undefined;
+  };
+  const returnKey = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape') clearReturnGuard();
+  };
+  const refresh = () => {
+    const next = button.getAttribute('aria-expanded') === 'true';
+    if (expanded && !next) {
+      clearReturnGuard();
+      returnGuard = true;
+      document.addEventListener('keydown', returnKey, true);
+      returnFrame = view.requestAnimationFrame(clearReturnGuard);
+    }
+    expanded = next;
+    if (expanded) dismissed = true;
+    paint();
+  };
+  const move = () => {
+    if (!hovered) {
+      hovered = true;
+      dismissed = false;
+    }
+    refresh();
+  };
+  const leave = () => {
+    hovered = false;
+    refresh();
+  };
+  const focus = () => {
+    if (!button.matches(':focus-visible')) return;
+    focused = true;
+    expanded = button.getAttribute('aria-expanded') === 'true';
+    dismissed = expanded || returnGuard || escapeFocus.has(document);
+    paint();
+  };
+  const blur = () => {
+    focused = false;
+    refresh();
+  };
+  wrapper.addEventListener('pointermove', move);
+  wrapper.addEventListener('pointerleave', leave);
+  button.addEventListener('focus', focus);
+  button.addEventListener('blur', blur);
+  return {
+    refresh,
+    dismiss,
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      close();
+      clearReturnGuard();
+      wrapper.removeEventListener('pointermove', move);
+      wrapper.removeEventListener('pointerleave', leave);
+      button.removeEventListener('focus', focus);
+      button.removeEventListener('blur', blur);
+    },
+  };
+}

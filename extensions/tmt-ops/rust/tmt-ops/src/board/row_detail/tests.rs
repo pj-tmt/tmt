@@ -694,8 +694,8 @@ fn finals_arrive_from_storage_alone_when_the_originator_has_no_live_pane() {
             .unwrap()
             .lines()
             .collect::<Vec<_>>(),
-        ["requests.list", "requests.show"],
-        "storage reads only: no notification, inbox or pane call"
+        ["requests.list", "requests.list", "requests.show"],
+        "storage reads only (results, answers, the final): no notification, inbox or pane call"
     );
     std::fs::remove_dir_all(directory).unwrap();
 }

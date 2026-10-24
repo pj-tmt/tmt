@@ -62,7 +62,7 @@ INSERT INTO focus_items (identity_id, request_id, kind, source, created_at_ms)
   VALUES ('i1', 'r-inbox', 'fyi', 'incoming', 2600);
 ";
 
-fn rows(db: &Connection, sql: &str) -> Vec<Vec<Value>> {
+pub(super) fn rows(db: &Connection, sql: &str) -> Vec<Vec<Value>> {
     let mut statement = db.prepare(sql).unwrap();
     let columns = statement.column_count();
     statement
@@ -142,7 +142,7 @@ fn the_rebuild_keeps_every_row_dependent_row_index_and_trigger() {
     drop(old);
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 65);
+    assert_eq!(storage.health().unwrap().schema_version, 66);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -417,7 +417,7 @@ fn a_failed_rebuild_changes_nothing() {
     // The same database then migrates, and nothing about the failed attempt lingers.
     drop(db);
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 65);
+    assert_eq!(storage.health().unwrap().schema_version, 66);
     storage.close().unwrap();
     assert_eq!(
         snapshot(&Connection::open(&path).unwrap()).attempts,

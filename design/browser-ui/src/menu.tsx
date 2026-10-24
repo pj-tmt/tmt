@@ -3,24 +3,18 @@ import {
   useId,
   useLayoutEffect,
   useRef,
-  useState,
+  useSyncExternalStore,
   type ReactNode,
   type MouseEvent,
-  type KeyboardEvent,
 } from 'react';
 import { ChevronDown, Ellipsis } from 'lucide-react';
 import { BrowserIconAction } from './icon-action.js';
-import { admitsOverlayEscape, outsideOverlay, restoreOverlayFocus } from './overlay.js';
-import { claimBrowserPopup, placeBrowserPopup } from './popup.js';
-import { usePresence } from './presence.js';
+import { createMenuController, type MenuEntry } from './menu-controller.js';
 import { browserUiClasses as c, countText } from './static.js';
 import type { BrowserCountTone } from './static.js';
 
-export interface BrowserMenuItem<Key extends string = string> {
-  key: Key;
-  label: string;
+export interface BrowserMenuItem<Key extends string = string> extends MenuEntry<Key> {
   content?: ReactNode;
-  disabled?: boolean;
   disabledReason?: string;
   checked?: boolean;
   role?: 'menuitem' | 'menuitemradio' | 'menuitemcheckbox';
@@ -74,103 +68,36 @@ export function BrowserMenu<Key extends string>({
   const trigger = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const entries = useRef<(HTMLButtonElement | null)[]>([]);
-  const [open, setOpen] = useState(false);
-  const present = usePresence(open, dialog);
-  const first = useRef<'first' | 'last'>('first');
-  const search = useRef({ text: '', at: 0 });
-  const visibility = useRef({ reported: false, callback: onOpenChange });
-  visibility.current.callback = onOpenChange;
-  function report(open: boolean) {
-    if (visibility.current.reported === open) return;
-    visibility.current.reported = open;
-    visibility.current.callback?.(open);
-  }
-  const enabled = items.flatMap((item, index) => (item.disabled ? [] : [index]));
+  const latest = useRef({ items, disabled, description, onSelect, onOpenChange });
+  latest.current = { items, disabled, description, onSelect, onOpenChange };
+  const owner = useRef<ReturnType<
+    typeof createMenuController<Key, MouseEvent<HTMLButtonElement>>
+  > | null>(null);
+  if (!owner.current)
+    owner.current = createMenuController({
+      items: () => latest.current.items,
+      disabled: () => latest.current.disabled,
+      hasDescription: () => Boolean(latest.current.description),
+      trigger: () => trigger.current,
+      surface: () => dialog.current,
+      entries: () => entries.current,
+      selection: () => latest.current.onSelect,
+      onOpenChange: (value) => latest.current.onOpenChange?.(value),
+    });
+  const controller = owner.current;
+  const { open, present } = useSyncExternalStore(
+    controller.subscribe,
+    controller.getSnapshot,
+    controller.getSnapshot,
+  );
   const requested = useRef(openRequest);
   useEffect(() => {
     const fresh = openRequest !== undefined && openRequest !== requested.current;
     requested.current = openRequest;
-    if (!fresh || disabled || (!enabled.length && !description)) return;
-    first.current = 'first';
-    setOpen(true);
-    // Only a new request opens it: the current items and flags are read as they stand.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openRequest]);
-  function close(refocus = true) {
-    dialog.current?.close();
-    report(false);
-    setOpen(false);
-    if (refocus) restoreOverlayFocus(trigger.current);
-  }
-  useLayoutEffect(() => {
-    const node = dialog.current;
-    const anchor = trigger.current;
-    if (!open || !node || !anchor) return;
-    search.current = { text: '', at: 0 };
-    const document = anchor.ownerDocument;
-    const release = claimBrowserPopup(document, () => close(false));
-    node.showModal();
-    report(true);
-    const disposePosition = placeBrowserPopup(anchor, node, () => close(false));
-    const entry = entries.current[first.current === 'last' ? enabled.at(-1)! : enabled[0]];
-    (entry ?? node).focus();
-    return () => {
-      disposePosition();
-      release();
-      node.close();
-      // StrictMode replays effects while the node remains connected. Only a
-      // real removal owes a final transition; ordinary close already reported it.
-      queueMicrotask(() => {
-        if (!node.isConnected) report(false);
-      });
-    };
-    // Visibility owns the lifetime; checked values are read from the host on each render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-  function triggerKey(event: KeyboardEvent<HTMLButtonElement>) {
-    if (
-      !['ArrowDown', 'ArrowUp'].includes(event.key) ||
-      !event.isTrusted ||
-      event.nativeEvent.isComposing
-    )
-      return;
-    event.preventDefault();
-    first.current = event.key === 'ArrowUp' ? 'last' : 'first';
-    setOpen(true);
-  }
-  function menuKey(event: KeyboardEvent<HTMLDialogElement>) {
-    if (event.defaultPrevented) return;
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      if (admitsOverlayEscape(event)) close();
-      return;
-    }
-    if (event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
-    if (event.key === 'Tab') {
-      close();
-      return;
-    }
-    const at = enabled.indexOf(
-      entries.current.findIndex((node) => node === node?.ownerDocument.activeElement),
-    );
-    let next: number | undefined;
-    if (event.key === 'ArrowDown') next = enabled[(at + 1) % enabled.length];
-    else if (event.key === 'ArrowUp') next = enabled[(at - 1 + enabled.length) % enabled.length];
-    else if (event.key === 'Home') next = enabled[0];
-    else if (event.key === 'End') next = enabled.at(-1);
-    else if (event.key.length === 1 && event.key !== ' ') {
-      const now = performance.now();
-      search.current.text =
-        (now - search.current.at > 700 ? '' : search.current.text) + event.key.toLocaleLowerCase();
-      search.current.at = now;
-      next = [...enabled.slice(at + 1), ...enabled.slice(0, at + 1)].find((index) =>
-        items[index].label.toLocaleLowerCase().startsWith(search.current.text),
-      );
-    } else return;
-    event.preventDefault();
-    if (next !== undefined) entries.current[next]?.focus();
-  }
+    if (fresh) controller.open();
+  }, [openRequest, controller]);
+  useLayoutEffect(() => controller.attachSurface(), [open, controller]);
+  useLayoutEffect(() => controller.refresh(), [items, controller]);
   return (
     <span className="tmt-ui-menu">
       {valueLabel !== undefined || triggerText !== undefined ? (
@@ -192,12 +119,11 @@ export function BrowserMenu<Key extends string>({
           aria-haspopup="menu"
           aria-expanded={open}
           aria-controls={open ? id : undefined}
-          disabled={disabled || (!enabled.length && !description)}
-          onKeyDown={triggerKey}
+          disabled={!controller.canOpen()}
+          onKeyDown={controller.triggerKey}
           onClick={(event) => {
             if (event.isTrusted) {
-              first.current = 'first';
-              setOpen(true);
+              controller.open();
             }
           }}
         >
@@ -223,12 +149,11 @@ export function BrowserMenu<Key extends string>({
           hasPopup="menu"
           expanded={open}
           controls={open ? id : undefined}
-          disabled={disabled || (!enabled.length && !description)}
-          onKeyDown={triggerKey}
+          disabled={!controller.canOpen()}
+          onKeyDown={controller.triggerKey}
           onActivate={(event) => {
             if (event.isTrusted) {
-              first.current = 'first';
-              setOpen(true);
+              controller.open();
             }
           }}
         />
@@ -240,35 +165,11 @@ export function BrowserMenu<Key extends string>({
           data-state={open ? 'open' : 'closed'}
           tabIndex={-1}
           aria-label={label}
-          onClose={(event) => {
-            event.stopPropagation();
-            // See BrowserChips: our own close() arrives here after the surface left `open`.
-            if (open && event.currentTarget === dialog.current && !event.currentTarget.open)
-              close();
-          }}
-          onCancel={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            if (event.isTrusted) close();
-          }}
-          onKeyDown={menuKey}
-          onPointerDown={(event) => {
-            if (
-              event.target === event.currentTarget &&
-              outsideOverlay(event.currentTarget, event.clientX, event.clientY)
-            )
-              event.preventDefault();
-          }}
-          onClick={(event) => {
-            if (
-              event.target === event.currentTarget &&
-              outsideOverlay(event.currentTarget, event.clientX, event.clientY)
-            ) {
-              event.preventDefault();
-              event.stopPropagation();
-              if (event.isTrusted) close();
-            }
-          }}
+          onClose={controller.nativeClose}
+          onCancel={controller.cancel}
+          onKeyDown={controller.menuKey}
+          onPointerDown={controller.pointerDown}
+          onClick={controller.surfaceClick}
         >
           <div
             role="menu"
@@ -296,12 +197,8 @@ export function BrowserMenu<Key extends string>({
                   ref={(node) => {
                     entries.current[index] = node;
                   }}
-                  onClick={(event) => {
-                    if (event.isTrusted && !item.disabled) {
-                      close();
-                      onSelect(item.key, event);
-                    }
-                  }}
+                  onFocus={() => controller.focused(item.key)}
+                  onClick={(event) => controller.select(item.key, event)}
                 >
                   <span>{item.content ?? item.label}</span>
                   {item.checked && <span aria-hidden="true">✓</span>}

@@ -1,0 +1,749 @@
+//! Local-owner composition. Control owns terminal interaction; this service owns
+//! pairing policy and provider reconciliation, never Core preparation or state.
+use super::{
+    Candidate, Connection, RouteChange,
+    wire::{self, Invite, Submission},
+};
+use crate::{
+    canonical,
+    cloud_hpke::{Descriptor, Pin, VerifiedDescriptor},
+    cloud_inbox::{InboxDriver, Provider, Receiver, Sender},
+    cloud_keys::CloudKeys,
+    error::RemoteError,
+    firestore_budget::{Model, NATIVE_DEFAULT_MODEL},
+    message::MessageService,
+    native_sync::{complete, projects::Projects},
+    objects::IoBudget,
+    session::DoorSessions,
+    state::{Layout, MachineKey},
+    store::Store,
+};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use serde_json::{Value, json};
+use std::{
+    collections::BTreeMap,
+    future::Future,
+    sync::{
+        Arc, Condvar, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::{self, JoinHandle},
+    time::{Duration, Instant},
+};
+
+fn unavailable() -> RemoteError {
+    RemoteError::new("REMOTE_CLOUD_UNAVAILABLE", "Cloud pairing is unavailable.")
+}
+fn run<T>(
+    future: impl Future<Output = Result<T, RemoteError>>,
+    io: &IoBudget<'_>,
+) -> Result<T, RemoteError> {
+    complete(future, io).map_err(|_| unavailable())?
+}
+pub struct Service {
+    layout: Layout,
+    store: Arc<Mutex<Store>>,
+    key: MachineKey,
+    machine: String,
+    keys: Arc<CloudKeys>,
+    sessions: Arc<DoorSessions>,
+    messages: Arc<MessageService>,
+    pub projects: Arc<Projects>,
+    stop: Arc<AtomicBool>,
+    wake: Arc<(Mutex<bool>, Condvar)>,
+    inviting: AtomicBool,
+    last_error: Mutex<Option<String>>,
+    published: Mutex<BTreeMap<String, Vec<u8>>>,
+    cleanup: Mutex<BTreeMap<String, Instant>>,
+}
+pub struct Owner {
+    pub layout: Layout,
+    pub store: Arc<Mutex<Store>>,
+    pub key: MachineKey,
+    pub machine: String,
+    pub keys: Arc<CloudKeys>,
+    pub sessions: Arc<DoorSessions>,
+    pub messages: Arc<MessageService>,
+    pub projects: Arc<Projects>,
+    pub stop: Arc<AtomicBool>,
+}
+impl Service {
+    pub fn new(owner: Owner) -> Self {
+        let Owner {
+            layout,
+            store,
+            key,
+            machine,
+            keys,
+            sessions,
+            messages,
+            projects,
+            stop,
+        } = owner;
+        Self {
+            layout,
+            store,
+            key,
+            machine,
+            keys,
+            sessions,
+            messages,
+            projects,
+            stop,
+            wake: Arc::new((Mutex::new(false), Condvar::new())),
+            inviting: AtomicBool::new(false),
+            last_error: Mutex::new(None),
+            published: Mutex::new(BTreeMap::new()),
+            cleanup: Mutex::new(BTreeMap::new()),
+        }
+    }
+    fn store(&self) -> Result<std::sync::MutexGuard<'_, Store>, RemoteError> {
+        self.store.lock().map_err(crate::store::database)
+    }
+    fn provider(&self, config: &Value, machine: &str, pair: bool) -> Result<Provider, RemoteError> {
+        let project = self.projects.load(config, pair)?;
+        Provider::new(
+            project.auth.clone(),
+            project.runtime.clone(),
+            Model::new(NATIVE_DEFAULT_MODEL.0, NATIVE_DEFAULT_MODEL.1)
+                .map_err(|_| unavailable())?,
+            machine,
+        )
+    }
+    fn io(&self) -> IoBudget<'_> {
+        IoBudget {
+            deadline: Instant::now() + crate::limits::CLOUD_RECONCILE_CALL,
+            cancelled: &self.stop,
+        }
+    }
+    pub fn status(&self) -> Result<Value, RemoteError> {
+        Ok(
+            json!({"cleanupPending":!self.store()?.cloud_route_changes()?.is_empty(),"error":self.last_error.lock().map_err(crate::store::database)?.clone()}),
+        )
+    }
+    pub fn request_reconcile(&self) {
+        if let Ok(mut pending) = self.wake.0.lock() {
+            *pending = true;
+            self.wake.1.notify_all();
+        }
+    }
+    pub fn idle(&self) -> bool {
+        !self.inviting.load(Ordering::Acquire)
+    }
+    fn register(
+        &self,
+        provider: &Provider,
+        descriptor: &[u8],
+        io: &IoBudget<'_>,
+    ) -> Result<(), RemoteError> {
+        let project = provider.identity().project.clone();
+        let previous = self
+            .published
+            .lock()
+            .map_err(crate::store::database)?
+            .get(&project)
+            .cloned();
+        if previous.as_deref() == Some(descriptor) {
+            return Ok(());
+        }
+        run(
+            provider.register_machine(&self.key.public(), descriptor, io),
+            io,
+        )?;
+        self.published
+            .lock()
+            .map_err(crate::store::database)?
+            .insert(project, descriptor.to_vec());
+        Ok(())
+    }
+    fn descriptor(
+        &self,
+        provider: &Provider,
+        pin: &[u8; 32],
+        previous: &[u8],
+        io: &IoBudget<'_>,
+    ) -> Result<VerifiedDescriptor, RemoteError> {
+        let row = run(provider.machine_metadata(io), io)?.ok_or_else(wire::invalid)?;
+        let fields = row["fields"]
+            .as_object()
+            .filter(|f| f.len() == 3)
+            .ok_or_else(wire::invalid)?;
+        let key = fields.get("authenticationKey").ok_or_else(wire::invalid)?["bytesValue"]
+            .as_str()
+            .and_then(|v| STANDARD.decode(v).ok())
+            .ok_or_else(wire::invalid)?;
+        if key != pin {
+            return Err(RemoteError::new(
+                "REMOTE_CLOUD_MACHINE_CONFLICT",
+                "The machine registration does not match the pinned identity; it was not changed.",
+            ));
+        }
+        let descriptor = fields.get("descriptor").ok_or_else(wire::invalid)?["bytesValue"]
+            .as_str()
+            .and_then(|v| STANDARD.decode(v).ok())
+            .filter(|v| v.len() <= crate::limits::CLOUD_DESCRIPTOR_BYTES)
+            .ok_or_else(wire::invalid)?;
+        let pin_value = Pin {
+            machine_id: provider.machine(),
+            authentication_key: pin,
+        };
+        let old = if previous.is_empty() {
+            None
+        } else {
+            let start = crate::wire::strict_json(previous)
+                .and_then(|v| v["notBeforeMs"].as_u64())
+                .ok_or_else(wire::invalid)?;
+            Some(
+                Descriptor::verify(previous, pin_value, start, None)
+                    .map_err(|e| RemoteError::new(e.code(), &e.to_string()))?,
+            )
+        };
+        Descriptor::verify(
+            &descriptor,
+            pin_value,
+            crate::pairing::now_ms()?,
+            old.as_ref(),
+        )
+        .map_err(|e| RemoteError::new(e.code(), &e.to_string()))
+    }
+    fn flush(&self, provider: &Provider, io: &IoBudget<'_>) -> Result<(), RemoteError> {
+        let mut groups: BTreeMap<String, Vec<RouteChange>> = BTreeMap::new();
+        for row in self
+            .store()?
+            .cloud_route_changes()?
+            .into_iter()
+            .filter(|r| r.project == provider.identity().project)
+        {
+            groups.entry(row.peer.clone()).or_default().push(row);
+        }
+        for rows in groups.values() {
+            run(provider.publish_routes(rows, io), io)?;
+            let store = self.store()?;
+            for row in rows {
+                store.cloud_route_published(row)?;
+            }
+        }
+        Ok(())
+    }
+    pub fn flush_routes(&self) -> Result<(), RemoteError> {
+        let configs = self.store()?.cloud_owner_configs()?;
+        for config in configs {
+            let provider = self.provider(&config, &self.machine, false)?;
+            self.flush(&provider, &self.io())?;
+        }
+        Ok(())
+    }
+    /// Each invocation holds its own offer secret. A guard erases it on every
+    /// return, and no remote submission can manufacture the local confirmation.
+    pub fn invite(
+        &self,
+        remote: Option<&str>,
+        emit: impl FnMut(Value) -> Result<Option<(bool, bool)>, RemoteError>,
+    ) -> Result<(), RemoteError> {
+        let selected = crate::remote_selector::client(&self.layout, remote, None)?;
+        if !matches!(selected.kind, crate::remote_selector::ClientKind::Owned) {
+            return Err(unavailable());
+        }
+        self.invite_selected(&selected.project, selected.public_config, emit)
+    }
+    fn invite_selected(
+        &self,
+        project: &str,
+        config: Value,
+        mut emit: impl FnMut(Value) -> Result<Option<(bool, bool)>, RemoteError>,
+    ) -> Result<(), RemoteError> {
+        if self.inviting.swap(true, Ordering::AcqRel) {
+            return Err(RemoteError::new(
+                "REMOTE_PAIRING_BUSY",
+                "An invite is already open.",
+            ));
+        }
+        struct End<'a>(&'a AtomicBool);
+        impl Drop for End<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::Release);
+            }
+        }
+        let _end = End(&self.inviting);
+        let provider = self.provider(&config, &self.machine, true)?;
+        let now = crate::pairing::now_ms()?;
+        self.keys.maintain(now)?;
+        let descriptor = self.keys.advertised(now)?;
+        self.register(&provider, descriptor.bytes(), &self.io())?;
+        self.store()?.remember_cloud_owner(project, &config)?;
+        let owner_name = std::env::var("USER")
+            .ok()
+            .filter(|v| canonical::device_name(v))
+            .unwrap_or("Owner".into());
+        let invite = Invite::new(
+            project,
+            &self.machine,
+            &self.key.public(),
+            config,
+            &owner_name,
+            now,
+        )?;
+        emit(json!({"event":"invite","code":invite.token()?}))?;
+        let until = Instant::now() + crate::pairing::Timing::CONTRACT.lifetime;
+        let io = IoBudget {
+            deadline: until,
+            cancelled: &self.stop,
+        };
+        loop {
+            emit(json!({"event":"waiting"}))?;
+            if crate::pairing::now_ms()? >= invite.challenge.expires_at_ms {
+                return Err(wire::expired());
+            }
+            if let Some(doc) = run(provider.enrollment_get(&invite.challenge.offer, &io), &io)? {
+                if doc.kind != "join" {
+                    return Err(wire::invalid());
+                }
+                let submission = Submission::read(&doc.body, &invite.challenge.offer)?;
+                let verified = invite.verify(&submission, &doc.uid, crate::pairing::now_ms()?)?;
+                let (matched,talk)=emit(json!({"event":"candidate","name":submission.candidate.name,"words":verified.words().map_err(|_|wire::invalid())?}))?.ok_or_else(wire::invalid)?;
+                if !matched {
+                    return Err(RemoteError::new(
+                        "REMOTE_CLOUD_PAIR_REFUSED",
+                        "The owner declined the connection.",
+                    ));
+                }
+                let mut response_key = invite.response_key(&submission.candidate)?;
+                let receipt = self.store()?.confirm_cloud_peer(
+                    &verified,
+                    &response_key,
+                    crate::pairing::now_ms()?,
+                    talk,
+                );
+                response_key.fill(0);
+                let receipt = receipt?;
+                self.flush(&provider, &io)?;
+                let body=json!({"receipt":canonical::base64url(&receipt.bytes),"proof":canonical::base64url(&receipt.proof)}).to_string();
+                run(
+                    provider.enrollment_create(
+                        &format!("{}-response", invite.challenge.offer),
+                        &doc.uid,
+                        "receipt",
+                        body.as_bytes(),
+                        &io,
+                    ),
+                    &io,
+                )?;
+                let unique = self
+                    .store()?
+                    .active_grants()?
+                    .iter()
+                    .filter(|g| g.name == submission.candidate.name)
+                    .count()
+                    == 1;
+                let hint = if unique {
+                    &submission.candidate.name
+                } else {
+                    &submission.candidate.peer
+                };
+                emit(
+                    json!({"event":"connected","name":submission.candidate.name,"talk":talk,"clientId":submission.candidate.peer,"hintPerson":hint}),
+                )?;
+                self.request_reconcile();
+                return Ok(());
+            }
+            provider.wait(&io, crate::limits::CLOUD_POLL_MIN_MS)?;
+        }
+    }
+    pub fn join(
+        &self,
+        token: &str,
+        mut emit: impl FnMut(Value) -> Result<(), RemoteError>,
+    ) -> Result<(), RemoteError> {
+        let invite = Invite::read(token, crate::pairing::now_ms()?)?;
+        let provider = self.provider(&invite.public_config, &invite.challenge.owner, true)?;
+        self.descriptor(&provider, &invite.challenge.owner_key, &[], &self.io())?;
+        let mut name = if crate::remote_catalog::name_ok(&invite.machine_name) {
+            invite.machine_name.clone()
+        } else {
+            invite.challenge.owner.clone()
+        };
+        let by_owner = self.store()?.cloud_connection(&invite.challenge.owner)?;
+        let by_name = self.store()?.cloud_connection(&name)?;
+        if by_name
+            .as_ref()
+            .is_some_and(|r| r.owner != invite.challenge.owner)
+        {
+            name = invite.challenge.owner.clone();
+        }
+        let old = by_owner.or_else(|| by_name.filter(|r| r.owner == invite.challenge.owner));
+        if let Some(old) = &old {
+            name = old.name.clone();
+        }
+        let submission = if let Some(old) = &old {
+            if old.owner != invite.challenge.owner || old.owner_key != invite.challenge.owner_key {
+                return Err(wire::invalid());
+            }
+            Submission::read(&old.request, &invite.challenge.offer)?
+        } else {
+            let mut nonce = [0; 16];
+            getrandom::fill(&mut nonce).map_err(|_| unavailable())?;
+            let person = std::env::var("USER")
+                .ok()
+                .filter(|v| canonical::device_name(v))
+                .unwrap_or("This machine".into());
+            invite.submit(
+                Candidate {
+                    peer: self.machine.clone(),
+                    public_key: self.key.public(),
+                    uid: provider.uid().into(),
+                    name: person,
+                    nonce,
+                },
+                &self.key,
+            )?
+        };
+        let raw = submission.encode(&invite.challenge.offer)?;
+        let mut connection = Connection {
+            version: 1,
+            name: name.clone(),
+            owner: invite.challenge.owner.clone(),
+            owner_key: invite.challenge.owner_key,
+            config: invite.public_config.clone(),
+            peer: self.machine.clone(),
+            uid: provider.uid().into(),
+            request: raw.clone(),
+            confirmed: false,
+            descriptor: old
+                .as_ref()
+                .map(|r| r.descriptor.clone())
+                .unwrap_or_default(),
+        };
+        if old.is_none() {
+            self.store()?.save_cloud_connection(&connection)?;
+        }
+        emit(
+            json!({"event":"joining","name":invite.machine_name,"words":canonical::fingerprint_words(&self.key.public()).map_err(|_|wire::invalid())?}),
+        )?;
+        let until = Instant::now()
+            + Duration::from_millis(
+                invite
+                    .challenge
+                    .expires_at_ms
+                    .saturating_sub(crate::pairing::now_ms()?),
+            );
+        let io = IoBudget {
+            deadline: until,
+            cancelled: &self.stop,
+        };
+        run(
+            provider.enrollment_create(&invite.challenge.offer, provider.uid(), "join", &raw, &io),
+            &io,
+        )?;
+        loop {
+            if let Some(doc) = run(
+                provider.enrollment_get(&format!("{}-response", invite.challenge.offer), &io),
+                &io,
+            )? {
+                if doc.uid != submission.candidate.uid || doc.kind != "receipt" {
+                    return Err(wire::invalid());
+                }
+                let response = crate::wire::strict_json(&doc.body).ok_or_else(wire::invalid)?;
+                let receipt = canonical::base64url_decode(
+                    response["receipt"].as_str().ok_or_else(wire::invalid)?,
+                )
+                .map_err(|_| wire::invalid())?;
+                let proof = canonical::base64url_bytes(
+                    response["proof"].as_str().ok_or_else(wire::invalid)?,
+                    32,
+                )
+                .map_err(|_| wire::invalid())?;
+                let mut key = invite.response_key(&submission.candidate)?;
+                let verified = crate::crypto::verify_server_proof(&key, &receipt, &proof);
+                key.fill(0);
+                verified.map_err(|_| wire::invalid())?;
+                let receipt = crate::wire::strict_json(&receipt).ok_or_else(wire::invalid)?;
+                if receipt["grant"]["clientId"] != self.machine
+                    || receipt["grant"]["machineId"] != connection.owner
+                    || receipt["machinePublicKey"] != canonical::base64url(&connection.owner_key)
+                    || receipt["grant"]["publicKey"] != canonical::base64url(&self.key.public())
+                {
+                    return Err(wire::invalid());
+                }
+                connection.confirmed = true;
+                self.store()?.save_cloud_connection(&connection)?;
+                let talk = receipt["grant"]["scopes"]
+                    .as_array()
+                    .is_some_and(|v| v.iter().any(|v| v == "talk"));
+                emit(
+                    json!({"event":"connected","name":invite.machine_name,"talk":talk,"remote":name}),
+                )?;
+                return Ok(());
+            }
+            provider.wait(&io, crate::limits::CLOUD_POLL_MIN_MS)?;
+        }
+    }
+    pub fn send(&self, raw: &[u8], explicit: Option<&str>) -> Result<Value, RemoteError> {
+        let request = crate::cloud_command::Request::read(raw)?;
+        let selected = explicit
+            .or(request.remote.as_deref())
+            .ok_or_else(unavailable)?;
+        let mut record = self
+            .store()?
+            .cloud_connection(selected)?
+            .filter(|r| r.confirmed)
+            .ok_or_else(unavailable)?;
+        let provider = self.provider(&record.config, &record.owner, false)?;
+        let io = self.io();
+        let descriptor = self.descriptor(&provider, &record.owner_key, &record.descriptor, &io)?;
+        record.descriptor = descriptor.bytes().to_vec();
+        self.store()?.save_cloud_connection(&record)?;
+        if record.uid != provider.uid() {
+            let generation = self.store()?.next_cloud_reroute_generation(&record.owner)?;
+            let id = crate::store::uuid_v4()?;
+            let reroute = super::Reroute {
+                machine_id: record.owner.clone(),
+                owner_key: record.owner_key,
+                peer: record.peer.clone(),
+                uid: provider.uid().into(),
+                generation,
+                timestamp_ms: crate::pairing::now_ms()?,
+            };
+            let body = wire::route_request(&reroute, &self.key)?;
+            run(
+                provider.enrollment_create(&id, provider.uid(), "reroute", &body, &io),
+                &io,
+            )?;
+            loop {
+                if let Some(doc) =
+                    run(provider.enrollment_get(&format!("{id}-response"), &io), &io)?
+                {
+                    if doc.kind != "route-response" || doc.uid != provider.uid() {
+                        return Err(wire::invalid());
+                    }
+                    let signature = canonical::base64url_bytes(
+                        std::str::from_utf8(&doc.body).map_err(|_| wire::invalid())?,
+                        64,
+                    )
+                    .map_err(|_| wire::invalid())?;
+                    crate::crypto::verify_signature(
+                        &record.owner_key,
+                        &canonical::framed(&[b"tmt-cloud-route-response-v1", id.as_bytes(), &body])
+                            .map_err(|_| wire::invalid())?,
+                        &signature,
+                    )
+                    .map_err(|_| wire::invalid())?;
+                    break;
+                }
+                provider.wait(&io, crate::limits::CLOUD_POLL_MIN_MS)?;
+            }
+            record.uid = provider.uid().into();
+            self.store()?.save_cloud_connection(&record)?;
+        }
+        let sender = Sender::new(provider, self.store.clone(), &record.peer, self.key.clone())?;
+        serde_json::to_value(run(
+            sender.prepared(raw, &descriptor, selected, crate::pairing::now_ms()?, &io),
+            &io,
+        )?)
+        .map_err(|_| unavailable())
+    }
+    pub fn reconcile(&self) -> Result<(), RemoteError> {
+        let configs = self.store()?.cloud_owner_configs()?;
+        for config in configs {
+            let provider = self.provider(&config, &self.machine, false)?;
+            let io = self.io();
+            let now = crate::pairing::now_ms()?;
+            self.keys.maintain(now)?;
+            let descriptor = self.keys.advertised(now)?;
+            self.register(&provider, descriptor.bytes(), &io)?;
+            self.flush(&provider, &io)?;
+            self.cleanup_enrollment(&provider, now, &io)?;
+            let checkpoint = self
+                .store()?
+                .cloud_checkpoint(&self.machine)?
+                .query_from_ms();
+            let mut cursor = None;
+            let mut newest = checkpoint;
+            for _ in 0..crate::journal::OPERATIONS {
+                let Some(doc) = run(
+                    provider.enrollment_next(checkpoint, cursor.as_ref(), &io),
+                    &io,
+                )?
+                else {
+                    break;
+                };
+                match doc.kind.as_str() {
+                    "join" => {
+                        if let Ok(submission) = Submission::read(&doc.body, &doc.id) {
+                            let recovered = {
+                                self.store()?.recover_cloud_join(
+                                    &doc.id,
+                                    &submission,
+                                    &doc.uid,
+                                    now,
+                                )
+                            };
+                            let recovered = match recovered {
+                                Ok(receipt) => Some(receipt),
+                                Err(error) if error.code == "REMOTE_CLOUD_PAIR_INVALID" => None,
+                                Err(error) => return Err(error),
+                            };
+                            if let Some(receipt) = recovered {
+                                let body=json!({"receipt":canonical::base64url(&receipt.bytes),"proof":canonical::base64url(&receipt.proof)}).to_string();
+                                run(
+                                    provider.enrollment_create(
+                                        &format!("{}-response", doc.id),
+                                        &doc.uid,
+                                        "receipt",
+                                        body.as_bytes(),
+                                        &io,
+                                    ),
+                                    &io,
+                                )?;
+                            }
+                        }
+                    }
+                    "reroute" => self.process_reroute(&provider, &doc, now, &io)?,
+                    _ => {}
+                }
+                newest = newest.max(doc.created_ms);
+                cursor = Some(doc.cursor);
+            }
+            self.store()?
+                .cloud_complete(std::slice::from_ref(&self.machine), newest)?;
+            let driver = InboxDriver::new(
+                Receiver::new(
+                    self.sessions.clone(),
+                    self.keys.clone(),
+                    self.messages.clone(),
+                ),
+                self.sessions.clone(),
+                provider,
+            );
+            run(driver.reconcile(now, &io), &io)?;
+        }
+        self.projects.checkpoint()
+    }
+    fn cleanup_enrollment(
+        &self,
+        provider: &Provider,
+        now: u64,
+        io: &IoBudget<'_>,
+    ) -> Result<(), RemoteError> {
+        let project = &provider.identity().project;
+        let due = self
+            .cleanup
+            .lock()
+            .map_err(crate::store::database)?
+            .get(project)
+            .is_none_or(|last| last.elapsed() >= crate::limits::CLOUD_ENROLLMENT_CLEANUP);
+        if !due {
+            return Ok(());
+        }
+        let cutoff = now.saturating_sub(crate::limits::CLOUD_ENROLLMENT_RETENTION_MS);
+        for _ in 0..crate::journal::OPERATIONS {
+            let Some(doc) = run(provider.enrollment_next(0, None, io), io)? else {
+                break;
+            };
+            if doc.created_ms >= cutoff {
+                break;
+            }
+            run(provider.enrollment_delete(&doc.id, io), io)?;
+        }
+        self.store()?.prune_cloud_receipts(now)?;
+        self.cleanup
+            .lock()
+            .map_err(crate::store::database)?
+            .insert(project.clone(), Instant::now());
+        Ok(())
+    }
+    fn process_reroute(
+        &self,
+        provider: &Provider,
+        doc: &super::EnrollmentDocument,
+        now: u64,
+        io: &IoBudget<'_>,
+    ) -> Result<(), RemoteError> {
+        let value = crate::wire::strict_json(&doc.body).unwrap_or(Value::Null);
+        let peer = value["peer"].as_str().unwrap_or("");
+        let grant = self.store()?.grant(peer)?;
+        let Some(grant) = grant else {
+            return Ok(());
+        };
+        let Ok(proof) = wire::read_route(&doc.body, &doc.uid, &grant.public_key, doc.created_ms)
+        else {
+            return Ok(());
+        };
+        let outcome = self
+            .store()?
+            .apply_cloud_reroute(&provider.identity().project, &proof, now);
+        match outcome {
+            Ok(()) => {}
+            Err(error) if error.code == "REMOTE_CLOUD_PAIR_INVALID" => return Ok(()),
+            Err(error) => return Err(error),
+        }
+        self.flush(provider, io)?;
+        let bytes =
+            canonical::framed(&[b"tmt-cloud-route-response-v1", doc.id.as_bytes(), &doc.body])
+                .map_err(|_| wire::invalid())?;
+        let signature = canonical::base64url(&self.key.sign(&bytes));
+        run(
+            provider.enrollment_create(
+                &format!("{}-response", doc.id),
+                &doc.uid,
+                "route-response",
+                signature.as_bytes(),
+                io,
+            ),
+            io,
+        )
+    }
+    pub fn worker(self: &Arc<Self>) -> Result<Worker, RemoteError> {
+        let service = self.clone();
+        let wake = self.wake.clone();
+        let stop = self.stop.clone();
+        let flag = stop.clone();
+        let join = thread::Builder::new()
+            .name("remote-native-pairing".into())
+            .spawn(move || {
+                while !flag.load(Ordering::Acquire) && !service.stop.load(Ordering::Acquire) {
+                    let outcome = service.reconcile();
+                    if let Ok(mut status) = service.last_error.lock() {
+                        *status = outcome.err().map(|e| e.code);
+                    }
+                    let guard = wake.0.lock().unwrap_or_else(|e| e.into_inner());
+                    if flag.load(Ordering::Acquire) {
+                        break;
+                    }
+                    let (mut pending, _) = wake
+                        .1
+                        .wait_timeout_while(
+                            guard,
+                            Duration::from_millis(crate::limits::CLOUD_POLL_IDLE_MS),
+                            |pending| !*pending && !flag.load(Ordering::Acquire),
+                        )
+                        .unwrap_or_else(|e| e.into_inner());
+                    *pending = false;
+                }
+            })?;
+        Ok(Worker {
+            stop,
+            wake: self.wake.clone(),
+            join: Some(join),
+        })
+    }
+}
+pub struct Worker {
+    stop: Arc<AtomicBool>,
+    wake: Arc<(Mutex<bool>, Condvar)>,
+    join: Option<JoinHandle<()>>,
+}
+impl Drop for Worker {
+    fn drop(&mut self) {
+        let guard = self.wake.0.lock().unwrap_or_else(|e| e.into_inner());
+        self.stop.store(true, Ordering::Release);
+        self.wake.1.notify_all();
+        drop(guard);
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "service_tests.rs"]
+mod tests;

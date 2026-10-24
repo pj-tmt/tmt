@@ -1,4 +1,5 @@
 import { ChartsSection } from './charts.js';
+import { MenuHostFrame } from './menu-host-frame.js';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Settings } from 'lucide-react';
@@ -134,7 +135,8 @@ function ShellHeader() {
 
 function ShellFrame({ params }: { params: URLSearchParams }) {
   const view = useMemo<ShellView>(() => {
-    const place = { origin, href: `${origin}/colab/pages` };
+    const path = params.get('page') === 'project' ? '/colab/p/release' : '/colab/pages';
+    const place = { origin, href: `${origin}${path}` };
     const colab = answer.modules[0]!;
     const menu = params.get('menu') === 'none' ? undefined : describedMenu(colab, place);
     if (menu) menu.groups[0]!.items[0]!.total = 12;
@@ -427,9 +429,43 @@ function NotificationsFrame() {
   );
 }
 
+function PanelReply({ send }: { send(): Promise<void> }) {
+  const [draft, setDraft] = useState('');
+  const [status, setStatus] = useState<'idle' | 'pending' | 'failed'>('idle');
+  return (
+    <>
+      <BrowserField
+        controlId="panel-persistent-reply"
+        label="Reply draft"
+        renderControl={(props) => (
+          <textarea {...props} value={draft} onChange={(event) => setDraft(event.target.value)} />
+        )}
+      />
+      <BrowserAction
+        type="button"
+        label="Send reply"
+        variant="primary"
+        busy={status === 'pending'}
+        onActivate={async () => {
+          setStatus('pending');
+          try {
+            await send();
+            setStatus('idle');
+          } catch {
+            setStatus('failed');
+          }
+        }}
+      />
+      <p role="status">{status === 'failed' ? 'Reply failed. Your draft is retained.' : status}</p>
+    </>
+  );
+}
+
 function PanelFrame({ params }: { params: URLSearchParams }) {
   const [open, setOpen] = useState(params.get('open') !== 'false');
   const hostClose = params.get('host-close');
+  const keepMounted = params.get('keep-mounted') === 'true';
+  const failReply = useRef<(() => void) | null>(null);
   const [width, setWidth] = useState(window.innerWidth);
   const [refusals, setRefusals] = useState(0);
   const [pageActions, setPageActions] = useState(0);
@@ -462,6 +498,14 @@ function PanelFrame({ params }: { params: URLSearchParams }) {
             if (hostClose === 'close' || hostClose === 'unmount') setOpen(false);
           }}
         />
+        {keepMounted && (
+          <BrowserAction
+            type="button"
+            label="Fail pending reply"
+            variant="secondary"
+            onActivate={() => failReply.current?.()}
+          />
+        )}
         <p id="page-action-status">Page actions {pageActions}</p>
         <p role="status">{refusals ? `Dismissal refused ${refusals}` : ''}</p>
       </div>
@@ -469,6 +513,7 @@ function PanelFrame({ params }: { params: URLSearchParams }) {
         {(open || hostClose !== 'unmount') && (
           <BrowserPanel
             open={open}
+            keepMounted={keepMounted}
             title="Discussion"
             caption="1 / 2"
             mode={mode}
@@ -488,6 +533,18 @@ function PanelFrame({ params }: { params: URLSearchParams }) {
               label="Remove opener"
               onActivate={() => setShowOpener(false)}
             />
+            {keepMounted && (
+              <PanelReply
+                send={() =>
+                  new Promise<void>((_, reject) => {
+                    failReply.current = () => {
+                      failReply.current = null;
+                      reject(new Error('Fixture reply failure'));
+                    };
+                  })
+                }
+              />
+            )}
             <p>Navigation feedback</p>
             <blockquote>The page decides its shape.</blockquote>
             <BrowserField
@@ -532,6 +589,8 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
       return <DrawerFrame params={params} />;
     case 'source':
       return <SourceFrame params={params} />;
+    case 'menu-host':
+      return <MenuHostFrame params={params} />;
     case 'menu':
       return <MenuFrame />;
     case 'notifications':

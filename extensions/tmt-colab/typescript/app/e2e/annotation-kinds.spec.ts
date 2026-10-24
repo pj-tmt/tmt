@@ -22,7 +22,8 @@ for (const width of [1440, 390])
         const variant = await chip.getAttribute('data-variant');
         // The bordered form is the light frame; the inline form has none. Neither has a fill.
         await expect(chip).toHaveCSS('border-top-width', variant === 'chip' ? '1px' : '0px');
-        await expect(chip).toHaveCSS('border-radius', '0px');
+        // The bordered form rounds at the small radius token (the website's chips: 5 to 7px).
+        await expect(chip).toHaveCSS('border-radius', variant === 'chip' ? '6px' : '0px');
         await expect(chip).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
         await expect(chip.locator('svg')).toBeVisible();
         const contrast = await chip.evaluate((node) => {

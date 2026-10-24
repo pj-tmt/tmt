@@ -100,7 +100,7 @@ function EditingLifetime<Edit extends RichInputEdit>(props: RichInputProps<Edit>
     if (
       completed &&
       props.autoFocus &&
-      editor.getRootElement()?.closest('dialog[open]') &&
+      editor.getRootElement()?.closest('dialog[open], .tmt-ui-panel') &&
       document.activeElement === document.body
     )
       editor.focus();

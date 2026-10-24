@@ -126,6 +126,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(presence::check())
     .subcommand(presence::focus())
     .subcommand(presence::stop())
+    .subcommand(presence::attach())
     .subcommand(presence::whoami())
     .subcommand(presence::unbind())
     .subcommand(installation::extension())
