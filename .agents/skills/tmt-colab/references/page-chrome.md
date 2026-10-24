@@ -18,6 +18,13 @@ field (`Unknown author` when absent) and the independently optional latest publi
 About this page (Page information for read-only readers). These are escaped publisher-provided display labels, never identity,
 permissions or Ask recipient selection. Long captions truncate with the full label in the tooltip and attribution panel.
 
+The reader (`reader-app.tsx`) shows its mode as a pill and its state as plain text in the header. What the link allows is a
+note card above the page document ("You can read this shared page." or "You can edit this page.", then the access note),
+always in view; the renderer's `frameLead` option (the note's height, read live) takes that room from a frame that fills the
+viewport without moving where a revealed element lands (`viewportInset` stays the toolbar), and the page's minimum height
+leaves it through `--reader-note-size`, which the app measures, so a short page does not scroll. Info keeps what is about the page, under the About drawer's section headings: the attribution and the
+page-scripts warning. The page document owns its own title and head; the reader adds none.
+
 The mounted app also supplies a display-only Remote session snapshot through the existing
 Header status slot. It reads the admitted SDK device list, up to 20 pages of 50 rows,
 on mount, visible-tab return and opening the details. One read owns all pages; a
