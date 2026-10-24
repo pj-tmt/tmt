@@ -351,16 +351,21 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
         403,
         "peer cannot write route"
     );
-    assert_eq!(
-        sender.send(&prepared(&remote), Some(&remote)).unwrap()["state"],
-        "refused"
+    std::fs::write(
+        core.root.join("storage-root"),
+        core.root.join("sender").to_str().unwrap(),
+    )
+    .unwrap();
+    let control = message_control(&sender, &sender_lease);
+    public_message(
+        &core,
+        "refused",
+        &core.root.join("public-refused.json"),
+        &remote,
     );
     assert_eq!(core.sends(), 0);
     owner.store().unwrap().talk(&sender.machine, true).unwrap();
-    assert_eq!(
-        sender.send(&prepared(&remote), Some(&remote)).unwrap()["state"],
-        "sent"
-    );
+    public_message(&core, "sent", &core.root.join("public-sent.json"), &remote);
     assert_eq!(core.sends(), 1);
     owner
         .store()
@@ -371,10 +376,7 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
             [&sender.machine],
         )
         .unwrap();
-    assert_eq!(
-        sender.send(&prepared(&remote), Some(&remote)).unwrap()["state"],
-        "held"
-    );
+    public_message(&core, "held", &core.root.join("public-held.json"), &remote);
     assert_eq!(core.sends(), 1, "held work does not dispatch");
     owner
         .store()
@@ -385,9 +387,11 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
             [&sender.machine],
         )
         .unwrap();
-    assert_eq!(
-        sender.send(&prepared(&remote), Some(&remote)).unwrap()["state"],
-        "refused"
+    public_message(
+        &core,
+        "refused",
+        &core.root.join("public-refused.json"),
+        &remote,
     );
     assert_eq!(
         core.sends(),
@@ -403,6 +407,15 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
             [&sender.machine],
         )
         .unwrap();
+
+    control.stop();
+    assert!(
+        !sender
+            .layout
+            .directory
+            .join(crate::control::SOCKET)
+            .exists()
+    );
 
     let owner_id = owner.machine.clone();
     let sender_key = sender.key.public();
