@@ -191,8 +191,7 @@ impl State {
             Some(Summary::Counts(counts)) => {
                 (counts.todo > 0).then(|| format!("{} todo", counts.todo))
             }
-            Some(Summary::Unavailable(_)) => Some("— todo".into()),
-            None | Some(Summary::Pending) => Some("… todo".into()),
+            None | Some(Summary::Pending | Summary::Unavailable(_)) => None,
         }
     }
 

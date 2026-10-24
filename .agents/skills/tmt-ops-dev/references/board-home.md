@@ -534,6 +534,7 @@ Background deliveries contain counts only; full previews remain with the selecte
 Notes overlay. The existing write epoch fences late reads. Scope publication and
 Notes delivery update the cached header total, so paint does not scan every
 conversation. `columns::activity_spans` adds the whole todo suffix to the observed
-activity (or the existing unread override), and the shared track solver keeps
-header, row and hit geometry aligned. Pending/unavailable counts stay distinct
-from known zero.
+activity (or the existing unread override), only for a known positive count.
+The shared track solver keeps header, row and hit geometry aligned and admits
+MODEL / ALERT only when its whole header fits. Pending/unavailable counts stay
+distinct from known zero in the global header; none adds a row suffix.

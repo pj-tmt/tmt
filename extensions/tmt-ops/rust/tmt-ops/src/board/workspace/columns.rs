@@ -120,11 +120,11 @@ impl AgentsField {
     fn minimum(self) -> u16 {
         match self {
             Self::Agent => 25,
-            Self::State => 21,
+            Self::State => 18,
             Self::Session => 20,
             Self::Tokens => 7,
             Self::Cron => 4,
-            Self::Model => 12,
+            Self::Model => 13,
         }
     }
     fn gap(self) -> u16 {

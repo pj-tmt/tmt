@@ -3641,9 +3641,7 @@ fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
                 // A cell too narrow for the whole task drops it; it is never painted for "working".
                 let tail = match state {
                     "idle" => " · idle",
-                    "offline" => " · offline",
-                    "waiting" => " · waiting",
-                    "blocked" => " · blocked",
+                    "offline" | "waiting" | "blocked" => "",
                     "working" => "",
                     _ => unreachable!(),
                 };
@@ -3668,11 +3666,11 @@ fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
                         look.role(match role {
                             Some(role) if in_task => role,
                             _ if selected => Role::Text,
-                            _ if x == 54 => {
+                            _ if x == 51 => {
                                 assert_eq!(terminal.backend().buffer()[(x, hit.y)].symbol(), "—");
                                 Role::Dim
                             }
-                            _ if x >= 58 => Role::Muted,
+                            _ if x >= 55 => Role::Muted,
                             _ => Role::Text,
                         })
                         .fg
@@ -5517,9 +5515,11 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
         let look = crate::look::Look::default();
         let mut app = disagreeing_board(waiting, look);
         let tree = painted_member_row(&app, 160, 36);
-        // The wider state track retains the whole task.
-        let kept = "● working · blocked";
-        assert!(tree.contains(kept), "tree: {tree}");
+        // The 18-cell track drops the whole blocked task; the wider focus retains it.
+        assert!(
+            tree.contains("● working") && !tree.contains("· blocked"),
+            "tree: {tree}"
+        );
         assert!(!tree.contains("· bl…"), "tree: {tree}");
         assert!(
             paint(&app, 160, 36).join("\n").contains(words),
@@ -5776,11 +5776,14 @@ fn unread_replies_replace_the_activity_words_and_keep_the_task() {
         };
         let mut app = disagreeing_board(false, look);
         let before = painted_member_row(&app, 160, 36);
-        assert!(before.contains("● working · blocked"), "{before}");
+        assert!(
+            before.contains("● working") && !before.contains("· b"),
+            "{before}"
+        );
         with_unread_replies(&mut app);
         let tree = painted_member_row(&app, 160, 36);
         assert!(
-            tree.contains("● 2 unread · blocked"),
+            tree.contains("● 2 unread") && !tree.contains("· b"),
             "{depth:?} tree: {tree}"
         );
         assert!(!tree.contains("working"), "{depth:?} tree: {tree}");
@@ -5872,16 +5875,19 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
             tree.contains(&format!("{glyph} {shown}")),
             "{word} tree: {tree}"
         );
-        if word == "waiting" {
-            assert!(tree.contains("· waiting"), "{word} tree: {tree}");
-        } else {
-            assert!(!tree.contains(&format!("· {word}")), "{word} tree: {tree}");
-        }
+        assert!(!tree.contains(&format!("· {word}")), "{word} tree: {tree}");
 
         with_unread_replies(&mut app);
         let unread = format!("● 2 unread · {word}");
         let tree = painted_member_row(&app, 160, 36);
-        assert!(tree.contains(&unread), "{word} tree: {tree}");
+        if word == "idle" {
+            assert!(tree.contains(&unread), "{word} tree: {tree}");
+        } else {
+            assert!(
+                tree.contains("● 2 unread") && !tree.contains(&format!("· {word}")),
+                "{word} tree: {tree}"
+            );
+        }
         assert!(
             paint(&app, 160, 36).join("\n").contains(&unread),
             "{word} member focus"

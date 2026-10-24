@@ -558,8 +558,9 @@ between the note and its link), `e` edits, `d` deletes after Enter confirms, `Sh
 moves an item among its group and Esc closes the list, keeping a form you have not sent.
 A change someone else made first is reported in one line and your words stay in the form.
 A retired member's list reads but takes no writes.
-Member STATE cells append `· N todo` for known positive counts, `· … todo` before
-a first answer and `· — todo` when unavailable; a known zero adds no suffix.
+Member STATE cells append `· N todo` only for known positive counts, when the
+whole suffix fits after the activity and task. Pending, unavailable and zero counts
+add no row suffix; the global header carries the unknown or partial observation.
 Every open, nonarchived todo counts, regardless of who added it or its assignee.
 The selected conversation refreshes every five seconds, other conversations at
 most once per minute, one background read at a time. Acknowledged Notes changes

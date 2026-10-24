@@ -545,6 +545,43 @@ mod header {
     }
 
     #[test]
+    fn rows_show_only_known_positive_todos_and_keep_the_model_alert_header_whole() {
+        let mut app = board();
+        let key = select_member(&mut app);
+        for result in [
+            None,
+            Some(Err("unavailable".into())),
+            Some(Ok(Counts::default())),
+            Some(Ok(Counts {
+                todo: 2,
+                ..Counts::default()
+            })),
+        ] {
+            let positive = matches!(&result, Some(Ok(counts)) if counts.todo > 0);
+            if let Some(result) = result {
+                answer(&mut app, &key, result);
+            }
+            let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let rows: Vec<_> = terminal
+                .backend()
+                .buffer()
+                .content
+                .chunks(160)
+                .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                .collect();
+            let member = rows.iter().find(|line| line.contains("└ worker")).unwrap();
+            assert_eq!(member.contains("todo"), positive, "{member}");
+            assert!(
+                rows.iter().any(|line| line.contains("MODEL / ALERT")),
+                "{rows:#?}"
+            );
+        }
+    }
+
+    #[test]
     fn todo_counts_reach_the_global_header_and_member_state_together() {
         let mut app = board();
         let key = select_member(&mut app);
