@@ -841,10 +841,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 (AgentsField::Agent, 0, 25),
-                (AgentsField::State, 26, 21),
-                (AgentsField::Tokens, 48, 7),
-                (AgentsField::Cron, 58, 4),
-                (AgentsField::Model, 63, 12),
+                (AgentsField::State, 26, 18),
+                (AgentsField::Tokens, 45, 7),
+                (AgentsField::Cron, 55, 4),
+                (AgentsField::Model, 60, 15),
             ]
         );
         for width in 0..=160 {
@@ -862,7 +862,7 @@ mod tests {
             );
             assert_eq!(
                 slots.iter().any(|(field, _)| *field == AgentsField::Model),
-                width >= 75
+                width >= 73
             );
             for (field, slot) in &slots {
                 if matches!(
@@ -878,7 +878,7 @@ mod tests {
             }
         }
         assert_eq!(AgentsField::Cron.caption(Default::default()), "◷");
-        let narrow = layout.slots(Rect::new(0, 0, 74, 1));
+        let narrow = layout.slots(Rect::new(0, 0, 72, 1));
         assert!(!narrow.iter().any(|(field, _)| *field == AgentsField::Model));
         assert!(
             narrow
