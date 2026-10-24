@@ -136,7 +136,8 @@ for (const width of [1440, 390])
       expect((await frame.boundingBox())?.height).toBe(beforePanel?.height);
       expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforePanel);
       if (width === 390) {
-        expect((await comments.boundingBox())?.width).toBe(382);
+        // #4641: regular phone drawers retain the approved 12px viewport allowance.
+        expect((await comments.boundingBox())?.width).toBe(378);
         expect((await comments.boundingBox())?.y).toBe(headerHeight(width) + 4);
       }
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-comments.png` });

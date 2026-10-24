@@ -22,6 +22,12 @@ if args[0] in ('list','check','identity'):
     with (root/'calls').open('a') as f: f.write(json.dumps({'operation':args[0],'argv':args})+'\n')
 if args[0]=='list':
     print((root/'agents').read_text());sys.exit(0)
+if args[:4]==['identity','show','--json','--']:
+    rows=[r for r in json.loads((root/'identities').read_text())['identities'] if r['name']==args[4] and not r.get('retired',False)]
+    if len(rows)!=1:
+        code='NAME_NOT_FOUND' if not rows else 'NAME_AMBIGUOUS'
+        print(json.dumps({'error':{'code':code,'message':'name refused'}}));sys.exit(1)
+    print(json.dumps({'identity':rows[0]}));sys.exit(0)
 if args==['identity','list','--json']:
     print((root/'identities').read_text());sys.exit(0)
 if args[0]=='check':

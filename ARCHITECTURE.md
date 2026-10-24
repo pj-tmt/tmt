@@ -45,7 +45,7 @@ owns moves and the tracked-file guard.
 
 `tmt-gui-lead` owns shared visual tokens and [private browser UI](design/browser-ui/README.md).
 `design/browser-ui`: `./ui`/`./react`: React/Radix/cmdk/CVA, themes/portals, decorative action marks; `./static`/`./shell`/`./chart`: framework-free DOM; hosts own state.
-Layers retain Radix focus/dismiss ownership and host close admission; layer integration contracts live in the linked leaf README.
+`./ui` uses Radix; BrowserDialog/Drawer use native modality; BrowserPanel is non-modal. Hosts admit closure; see leaf contracts.
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
@@ -539,13 +539,13 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 Owns listener/restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery)
 and `<dataRoot>/remote/` ([state leaf](#shared-extension-state-layout)).
 Home/Remote/SDK; read-only auto-pair; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
-`cloud_hpke`: bytes; `cloud_keys`: renewals; `cloud_inbox`: emulator transport.
+`cloud_hpke`: bytes; `cloud_keys`: renewals; `cloud_inbox`: emulation.
 
 [Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
 settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
 Remote owns authority; UI grants none. Local: keys/grants/signatures/last-use/cleanup.
 Firestore: Auth/Rules only; Core never uses Remote trust.
-`message`: local envelopes/grants/scope/allowlist/hold/uncertainty/audit.
+`message`: envelopes/grants/scope/allowlist/hold/uncertainty/audit; names→UUID.
 Proposed (#4533): `talk` → Remote interface → target host → driver.
 Local: `transport`/`routes` → `message` → `session`/`operations`; same-ID public Core API dispatch/recovery.
 Door: `remote-v1.js` ([SDK](extensions/tmt-remote/typescript/remote-client/README.md));

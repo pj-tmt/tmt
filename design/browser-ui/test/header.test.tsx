@@ -1,3 +1,4 @@
+import { staticCss } from './static-css.js';
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vite-plus/test';
@@ -64,7 +65,7 @@ it('draws no heading when the title is hidden, and keeps the landmark named', ()
 });
 
 it('keeps linked and plain labels neutral and removes the section divider', () => {
-  const css = readFileSync(new URL('../generated/static.css', import.meta.url), 'utf8');
+  const css = staticCss;
   const block = (selector: string) => {
     expect(css).toContain(`${selector} {`);
     return css.slice(css.indexOf(`${selector} {`)).split('}')[0];

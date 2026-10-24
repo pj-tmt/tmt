@@ -43,7 +43,7 @@
   --tmt-foundation-input: #d4dfdb;
   --tmt-foundation-indicator: #798d92;
   --tmt-foundation-ring: #147f67;
-  --tmt-foundation-scrim: #0000001f;
+  --tmt-foundation-scrim: #12332942;
   --tmt-foundation-shadow-overlay: 0 18px 60px #1b3d2c1c;
   color-scheme: light;
 }
@@ -71,7 +71,7 @@
     --tmt-foundation-input: #283a46;
     --tmt-foundation-indicator: #728b9a;
     --tmt-foundation-ring: #78edc8;
-    --tmt-foundation-scrim: #00000052;
+    --tmt-foundation-scrim: #030a11ae;
     --tmt-foundation-shadow-overlay: 0 18px 60px #02080e50;
     color-scheme: dark;
   }
@@ -99,7 +99,7 @@
   --tmt-foundation-input: #d4dfdb;
   --tmt-foundation-indicator: #798d92;
   --tmt-foundation-ring: #147f67;
-  --tmt-foundation-scrim: #0000001f;
+  --tmt-foundation-scrim: #12332942;
   --tmt-foundation-shadow-overlay: 0 18px 60px #1b3d2c1c;
   color-scheme: light;
 }
@@ -126,7 +126,7 @@
   --tmt-foundation-input: #283a46;
   --tmt-foundation-indicator: #728b9a;
   --tmt-foundation-ring: #78edc8;
-  --tmt-foundation-scrim: #00000052;
+  --tmt-foundation-scrim: #030a11ae;
   --tmt-foundation-shadow-overlay: 0 18px 60px #02080e50;
   color-scheme: dark;
 }
