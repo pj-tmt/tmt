@@ -1,5 +1,4 @@
-/* The page's projects after its title: one button of small chips that opens the picker. With no
-   project, and on a phone, More → Projects… opens it; the picker's own trigger is only its anchor. */
+/* Chips and the always-present + use the same admitted picker; More remains another entry. */
 .page-header-projects {
   position: relative;
   display: inline-flex;
@@ -8,7 +7,8 @@
   gap: 6px;
   min-width: 0;
 }
-.page-header-project-chip {
+.page-header-project-chip,
+.page-header-add-project {
   display: inline-flex;
   align-items: center;
   box-sizing: border-box;
@@ -51,12 +51,12 @@
 .page-header-projects-anchor[data-from='more'] {
   position: fixed;
 }
-.page-header-projects-anchor[data-from='more'] :is(.tmt-ui-menu, .tmt-ui-icon-action) {
+.page-header-projects-anchor :is(.tmt-ui-menu, .tmt-ui-icon-action) {
   display: block;
   width: 100%;
   height: 100%;
 }
-.page-header-projects-anchor[data-from='more'] .tmt-ui-icon-action-control {
+.page-header-projects-anchor .tmt-ui-icon-action-control {
   width: 100%;
   height: 100%;
 }
@@ -113,4 +113,20 @@
   border-color: transparent;
   background: color-mix(in srgb, var(--project-ink) 13%, transparent);
   color: var(--project-ink);
+}
+
+.page-header-project-add {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.page-header-add-project {
+  position: relative;
+  z-index: 1;
+  justify-content: center;
+  width: 26px;
+  padding: 0;
+}
+.page-header-add-project:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
 }

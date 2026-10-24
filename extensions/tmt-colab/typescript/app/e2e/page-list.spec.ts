@@ -578,7 +578,12 @@ test('an archived row offers Restore and Delete while keeping archive unavailabl
   const row = rows(page).filter({ hasText: 'Archived spec' });
   await expect(row.getByRole('button', { name: /^Archive / })).toHaveCount(0);
   await row.getByRole('button', { name: 'Actions for Archived spec' }).click();
-  await expect(page.getByRole('menuitem')).toHaveText(['Manage page', 'Restore…', 'Delete…']);
+  await expect(page.getByRole('menuitem')).toHaveText([
+    'Manage page',
+    'Projects…',
+    'Restore…',
+    'Delete…',
+  ]);
   await page.getByRole('menuitem', { name: 'Delete…' }).click();
   await confirmDialog(page, 'Delete “Archived spec”?')
     .getByRole('button', { name: 'Delete page' })

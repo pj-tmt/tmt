@@ -69,8 +69,11 @@ observations return focus to More on close), Files (count; while the page holds 
 one), Source, Export page, a rule, then Manage page, Theme: Light/Dark/System and About this page.
 The page's own projects (`page-projects.tsx`) follow the title: the first three as small chips
 and a count of the rest (hidden under 640px), then the list row's picker (`PageProjectsMenu`: up to
-eight projects, New project… names one and puts this page in it). The chips, the trigger and
-Projects… open the same menu. The chips come from the list the space home last loaded, so arriving
+eight projects, New project… names one and puts this page in it). The always-visible writer-only `+` chip (Add to project), the assigned chips and More → Projects…
+open the same menu. List rows put the real `+` picker immediately after their project tags, revealed
+on hover/focus and always visible on touch; their ⋯ → Projects… and `l` use its existing open request.
+Opening observes the catalog; choosing a project or creating one is the write. Long project and
+Access text uses an ellipsis with the full text available on hover. The chips come from the list the space home last loaded, so arriving
 from the list reads nothing extra. A page opened by a link has no list yet: it reads `spaceHome(signal)`
 once on open (#4130), and leaving the page aborts that read through the signal, so no read outlives
 the page. The owner list is also read when the picker opens and after each write. A viewer who cannot

@@ -139,9 +139,11 @@ function PageListActions({
   page,
   operate,
   manage,
+  projects,
 }: {
   page: PageSummary;
   manage(): void;
+  projects(): void;
   operate(operation: PageOperation, page: PageSummary): void;
 }) {
   const port = rootRoute.useRouteContext().transport.management;
@@ -158,6 +160,7 @@ function PageListActions({
         port
           ? [
               { key: 'manage', label: text.managePage },
+              { key: 'projects', label: text.projectsItem },
               page.archived
                 ? { key: 'restore', label: t.restoreItem }
                 : { key: 'archive', label: t.archiveItem },
@@ -168,14 +171,16 @@ function PageListActions({
       onSelect={(key) =>
         key === 'manage'
           ? manage()
-          : operate(
-              key === 'archive'
-                ? 'page.archive'
-                : key === 'restore'
-                  ? 'page.unarchive'
-                  : 'page.delete',
-              page,
-            )
+          : key === 'projects'
+            ? projects()
+            : operate(
+                key === 'archive'
+                  ? 'page.archive'
+                  : key === 'restore'
+                    ? 'page.unarchive'
+                    : 'page.delete',
+                page,
+              )
       }
     />
   );
@@ -742,25 +747,41 @@ export function Home() {
                       ) : undefined
                     }
                     projects={
-                      p.projects?.length ? (
-                        <ul className="page-projects" aria-label={t.projects}>
-                          {p.projects.map((name) => (
-                            <li key={name}>
-                              <button
-                                type="button"
-                                className="page-project"
-                                data-project-tone={projectTone(name)}
-                                aria-pressed={filter.projects.includes(name)}
-                                onClick={(event) => {
-                                  if (event.isTrusted) replaceDraft(toggleProject(edit, name));
-                                }}
-                              >
-                                {name}
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null
+                      <ul className="page-projects" aria-label={t.projects}>
+                        {p.projects?.map((name) => (
+                          <li key={name}>
+                            <button
+                              type="button"
+                              className="page-project"
+                              title={name}
+                              data-project-tone={projectTone(name)}
+                              aria-pressed={filter.projects.includes(name)}
+                              onClick={(event) => {
+                                if (event.isTrusted) replaceDraft(toggleProject(edit, name));
+                              }}
+                            >
+                              <span>{name}</span>
+                            </button>
+                          </li>
+                        ))}
+                        {port && (
+                          <li className="page-project-entry">
+                            <span className="page-project-entry-anchor">
+                              <PageProjectsMenu
+                                page={p}
+                                openRequest={
+                                  projectsRequest?.pageId === p.id
+                                    ? projectsRequest.count
+                                    : undefined
+                                }
+                                names={projectNames}
+                                toggle={(page, name) => void toggleOnPage(page, name)}
+                                create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
+                              />
+                            </span>
+                          </li>
+                        )}
+                      </ul>
                     }
                     actions={
                       port ? (
@@ -771,15 +792,6 @@ export function Home() {
                               page={p}
                               busy={pinning === p.id}
                               toggle={() => void togglePin(p)}
-                            />
-                            <PageProjectsMenu
-                              page={p}
-                              openRequest={
-                                projectsRequest?.pageId === p.id ? projectsRequest.count : undefined
-                              }
-                              names={projectNames}
-                              toggle={(page, name) => void toggleOnPage(page, name)}
-                              create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
                             />
                             <PageArchiveAction
                               page={p}
@@ -794,6 +806,12 @@ export function Home() {
                           <PageListActions
                             page={p}
                             manage={() => setManagedPage({ id: p.id, title: p.title })}
+                            projects={() =>
+                              setProjectsRequest((previous) => ({
+                                pageId: p.id,
+                                count: (previous?.count ?? 0) + 1,
+                              }))
+                            }
                             operate={(kind, page) => setOperation({ kind, pages: [page] })}
                           />
                         </>
