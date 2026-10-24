@@ -5,7 +5,7 @@
 
 use crate::names::ecmascript_space;
 use std::sync::OnceLock;
-pub use tmt_host_grammar::{HostGrammar, HostName};
+pub use tmt_host_grammar::{HostGrammar, HostName, has_pane_id_shape};
 
 /// A caller-relative side for a terminal host action; layout remains host-owned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

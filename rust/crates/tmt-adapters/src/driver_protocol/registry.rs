@@ -754,6 +754,73 @@ pub fn current_first_party(
     resolve_first_party(global_dir, record, tmt, runner).ok()
 }
 
+/// The host drivers one command may run, read once without writing, locking
+/// or probing ([`admitted_read_only`]).
+#[derive(Debug, Clone, Default)]
+pub struct Admitted {
+    pub records: Vec<DriverRecord>,
+    /// Approved hosts that this command must not run, with the reason.
+    pub gaps: Vec<Gap>,
+    /// Why the registry could not be read; then no host is known.
+    pub unreadable: Option<String>,
+}
+
+/// An approved host driver that cannot run as approved. Its declared caller
+/// variables still say which host a caller is in; they grant nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Gap {
+    pub name: String,
+    pub caller_env: Vec<String>,
+    /// A stable token: `driver_approval_outdated` or `driver_not_shipped`.
+    pub reason: &'static str,
+}
+
+/// The approved host drivers as they stand, for a command that must not
+/// change approvals (discovery and guarded add). A path approval is used as
+/// recorded; each call still checks its executable. A first-party approval
+/// is used only while the running release ships exactly the approved file;
+/// otherwise it is a gap, and no `capabilities` probe adopts the new one.
+pub fn admitted_read_only(global_dir: &Path, tmt: Option<&Path>) -> Admitted {
+    let records = match read(global_dir) {
+        Ok(records) => records,
+        Err(error) => {
+            return Admitted {
+                unreadable: Some(error.to_string()),
+                ..Admitted::default()
+            };
+        }
+    };
+    let mut admitted = Admitted::default();
+    for record in records {
+        let Some(host) = record.capabilities.host() else {
+            continue;
+        };
+        let reason = match record.source {
+            DriverSource::Path => None,
+            DriverSource::FirstParty => match tmt.map(|tmt| {
+                crate::native_install::active_companion(tmt, &first_party_file(&record.name))
+            }) {
+                Some(Ok(Some(companion)))
+                    if companion.sha256 == record.digest && companion.path == record.path =>
+                {
+                    None
+                }
+                Some(Ok(Some(_))) => Some("driver_approval_outdated"),
+                _ => Some("driver_not_shipped"),
+            },
+        };
+        match reason {
+            None => admitted.records.push(record),
+            Some(reason) => admitted.gaps.push(Gap {
+                caller_env: host.caller_env.clone(),
+                name: record.name,
+                reason,
+            }),
+        }
+    }
+    admitted
+}
+
 /// Removes an approval; whether there was one. Removing a first-party
 /// driver is remembered, so it is not approved again automatically.
 pub fn remove(global_dir: &Path, name: &str) -> Result<bool, RegistryError> {

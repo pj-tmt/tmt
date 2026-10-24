@@ -13,6 +13,8 @@ channels and the driver protocol. The owner map is in
   are read-only: no marker initialization or ambient fallback; an explicitly
   empty pane scope reads only server evidence. Default caller
   snapshots and explicit binding discovery retain their existing adoption rules.
+  Discovery of an external host's panes uses only its driver's `server` and
+  `snapshot` (all panes, or one).
 
 - A running-command handle separates launch from wait but keeps the original deadline and
   cleanup; an abandoned handle stops and reaps its child. There is no second runner.

@@ -472,13 +472,19 @@ a remembered version number.
 
 `tmt discover [--host HOST] [--socket PATH] --json` returns a bounded, read-only
 candidate inventory. It does not initialize server metadata, reconcile bindings,
-create identities or install/launch anything. This slice supports tmux; Herdr
-and other hosts report `unsupported`. Unknown, stale, hook-only, conflicting and
-permission/offline observations remain explicit data. A truncated scan supplies
+create identities or install/launch anything. It covers tmux and every approved
+host driver that lists panes (Herdr included); a host without a usable approved
+driver reports `unsupported` with its reason. In such a host's pane, a scan
+without flags reports that instead of falling back to tmux; in tmux inside such
+a host, it scans tmux and reports that host beside it. Unknown, stale,
+hook-only, conflicting and permission/offline observations remain explicit data.
+A row's `display.agentName` is the host's untrusted name for the agent: never
+an identity name or a suggestion for one. A truncated scan supplies
 no adoption expectations. Titles, argv hints and names are untrusted text to
 render inert; a runtime hint proves neither readiness nor identity.
 
-Select one native-verified candidate explicitly using its `pane` and `expect`:
+Select one native-verified candidate explicitly using its `pane` (a tmux `%N`
+or a driver's pane ID such as `term_7`) and `expect`:
 `add <pane> <new-name> --expect <digest>` creates a new temporary identity
 (`-s` saves it); `add <pane> --identity <uuid> --expect <digest>` links that exact
 existing UUID. The forms are mutually exclusive, and guarded name mode refuses
@@ -486,6 +492,7 @@ an existing canonical name even if offline. Pass the same `--socket` when scan
 selected one. Changed or unknown native/ownership evidence refuses before binding
 effects. A fresh expectation for the same UUID/target is `already_bound`;
 failures after admission report `partial` and never claim host rollback or replay.
+On a host with agent names, a bound result names the agent as `add` does.
 The [discovery contract](https://github.com/pj-tmt/tmt/blob/main/contracts/discovery-v1.md)
 owns the public JSON, limits and per-item outcomes.
 

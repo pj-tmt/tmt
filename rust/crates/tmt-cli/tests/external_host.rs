@@ -7,6 +7,8 @@
 // This fixture uses only the shared private command environment.
 #[path = "external_host/caller_session.rs"]
 mod caller_session;
+#[path = "external_host/discovery.rs"]
+mod discovery;
 #[path = "external_host/driver_switch.rs"]
 mod driver_switch;
 #[path = "external_host/hand_resume.rs"]
@@ -73,7 +75,11 @@ marker="$d/marker"
 case "$input" in *'"paneId":"fake-2"'*) marker="$d/marker-2" ;; esac
 case "$3" in
   capabilities) cat "$d/capabilities" ;;
-  server) cat "$d/server" ;;
+  server)
+    printf 'server %s\n' "$input" >> "$d/inventory"
+    # With `server-default`, a request with no socket gets that other server.
+    case "$input" in *'"socket":null'*) if [ -f "$d/server-default" ]; then cat "$d/server-default"; exit 0; fi ;; esac
+    cat "$d/server" ;;
   publish)
     printf '%s' "$input" | sed -n 's/.*"marker":\({[^}]*}\).*/\1/p' > "$marker"
     printf '{"ok":{}}' ;;
@@ -145,6 +151,7 @@ case "$3" in
       *) printf '{"ok":{"paneId":null}}' ;;
     esac ;;
   snapshot)
+    printf 'snapshot %s\n' "$input" >> "$d/inventory"
     if [ -f "$d/unreachable" ]; then printf '{"error":{"code":"unavailable","message":"server offline"}}'; exit 0; fi
     if [ -f "$d/absent" ]; then printf '{"ok":{"panes":[]}}'; exit 0; fi
     # A sampling fixture logs each snapshot with its caller and requested
@@ -165,16 +172,30 @@ case "$3" in
       echo "pid=$$ ppid=$PPID caller=$r $v panes=${p:-null}" >> "$d/snapshots"
       if [ "$v" = denied ]; then printf '{"error":{"code":"failed","message":"gated"}}'; exit 0; fi
     fi
+    # Discovery switches: `slow-snapshot` answers late, `big-snapshot` too
+    # much; `target` moves the pane; after `swap-after` snapshots the pane's
+    # shell is `pid-swapped`.
+    if [ -f "$d/slow-snapshot" ]; then sleep 3; fi
+    if [ -f "$d/big-snapshot" ]; then printf '{"ok":{"panes":[{"id":"fake-1","cwd":"'; head -c 1100000 /dev/zero | tr '\0' a; printf '"}]}}'; exit 0; fi
+    n=$(( $(cat "$d/snapshot-count" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$d/snapshot-count"
+    pid=$(cat "$d/pid")
+    if [ -f "$d/swap-after" ] && [ "$n" -gt "$(cat "$d/swap-after")" ]; then pid=$(cat "$d/pid-swapped"); fi
+    t=$(cat "$d/target" 2>/dev/null); [ -n "$t" ] || t=f1
     m=$(cat "$d/marker" 2>/dev/null); [ -n "$m" ] || m=null
     a=$(cat "$d/agentname" 2>/dev/null); if [ -n "$a" ]; then a=",\"agentName\":\"$a\""; fi
     # `opened` holds true or false when the host reports whether tmt opened the pane.
     o=$(cat "$d/opened" 2>/dev/null); if [ -n "$o" ]; then a="$a,\"openedByTmt\":$o"; fi
+    # Only the panes asked about, as the protocol requires.
+    p1=$(printf '{"id":"fake-1","target":"%s","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s%s}' "$t" "$pid" "$m" "$a")
+    case "$input" in *'"panes":["fake-2"]'*) p1= ;; esac
     p2=
     if [ -f "$d/two-panes" ]; then
       m2=$(cat "$d/marker-2" 2>/dev/null); [ -n "$m2" ] || m2=null
-      p2=$(printf ',{"id":"fake-2","target":"f2","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s}' "$(cat "$d/pid-2")" "$m2")
+      p2=$(printf '{"id":"fake-2","target":"f2","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s}' "$(cat "$d/pid-2")" "$m2")
+      case "$input" in *'"panes":["fake-1"]'*) p2= ;; esac
     fi
-    printf '{"ok":{"panes":[{"id":"fake-1","target":"f1","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s%s}%s]}}' "$(cat "$d/pid")" "$m" "$a" "$p2" ;;
+    if [ -n "$p1" ] && [ -n "$p2" ]; then p1="$p1,"; fi
+    printf '{"ok":{"panes":[%s%s]}}' "$p1" "$p2" ;;
   *) printf '{"error":{"code":"unsupported","message":"no %s"}}' "$3" ;;
 esac
 "#;

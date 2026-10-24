@@ -682,6 +682,66 @@ printf '%s' '{"ok":{"protocols":[1],"kind":"host","name":"herdr","version":"0.0.
         );
     }
 
+    /// The Herdr driver, leaving `probed` beside itself whenever it runs.
+    const HERDR_DRIVER_PROBED: &[u8] = br#"#!/bin/sh
+touch "$(dirname "$0")/probed"
+printf '%s' '{"ok":{"protocols":[1],"kind":"host","name":"herdr","version":"0.0.0-test","ops":["snapshot"],"paneId":{"prefix":"term_"},"target":"w{n}:p{n}","callerEnv":["HERDR_PANE_ID"]}}'
+"#;
+
+    #[test]
+    fn a_read_only_admission_uses_the_shipped_driver_only_as_approved() {
+        let (directory, active, release) = shipping(HERDR_DRIVER_PROBED);
+        let path = fs::canonicalize(&release).unwrap().join(DRIVER);
+        let global = directory.path.join("global");
+        let shipped = record(
+            &path,
+            &crate::native_install::artifact::digest(HERDR_DRIVER_PROBED),
+        );
+        registry_with(&global, &shipped);
+        let admitted = registry::admitted_read_only(&global, Some(&active));
+        assert_eq!(admitted.records, std::slice::from_ref(&shipped));
+        assert!(admitted.gaps.is_empty() && admitted.unreadable.is_none());
+        // Approved in an earlier release: a gap, never adopted. Nothing runs
+        // the new driver, and the registry is neither written nor locked.
+        let older = record(
+            &path,
+            &crate::native_install::artifact::digest(b"older driver"),
+        );
+        registry_with(&global, &older);
+        let before = registry_bytes(&global);
+        let admitted = registry::admitted_read_only(&global, Some(&active));
+        assert!(admitted.records.is_empty());
+        assert_eq!(
+            admitted.gaps,
+            [registry::Gap {
+                name: "herdr".into(),
+                caller_env: Vec::new(),
+                reason: "driver_approval_outdated",
+            }]
+        );
+        assert_eq!(registry_bytes(&global), before);
+        assert!(!global.join("drivers.lock").exists());
+        assert!(!release.join("probed").exists());
+        // A release that ships none, or a tmt that is not a managed
+        // installation: not shipped.
+        let (_directory, layout, old) = published_layout();
+        let four_files = layout
+            .root
+            .join("releases")
+            .join(old.id.to_string())
+            .join("tmt");
+        for tmt in [Some(four_files.as_path()), None] {
+            let admitted = registry::admitted_read_only(&global, tmt);
+            assert_eq!(admitted.gaps[0].reason, "driver_not_shipped");
+            assert!(admitted.records.is_empty());
+        }
+        // An unreadable registry is no answer, not "no drivers".
+        fs::write(global.join(registry::REGISTRY_FILE), b"{").unwrap();
+        let admitted = registry::admitted_read_only(&global, Some(&active));
+        assert!(admitted.unreadable.is_some());
+        assert!(admitted.records.is_empty() && admitted.gaps.is_empty());
+    }
+
     #[test]
     fn a_release_without_a_usable_driver_approves_nothing() {
         let (directory, layout, old) = published_layout();

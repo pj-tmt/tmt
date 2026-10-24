@@ -119,15 +119,27 @@ impl CallerEnvironment {
     /// The current environment, with the caller variables that `records`
     /// declare.
     pub fn approved(records: &[crate::driver_protocol::registry::DriverRecord]) -> Self {
-        let mut driver_env: BTreeMap<String, OsString> = records
-            .iter()
-            .flat_map(|record| {
-                record
-                    .capabilities
-                    .host()
-                    .into_iter()
-                    .flat_map(|value| value.caller_env.iter())
-            })
+        Self::declared(records.iter().flat_map(|record| {
+            record
+                .capabilities
+                .host()
+                .into_iter()
+                .flat_map(|value| value.caller_env.iter())
+        }))
+    }
+
+    /// The current environment, with the caller variables of a command's
+    /// admitted drivers and of its gaps: a gap's variables still say which
+    /// host the caller is in, though its driver never runs.
+    pub fn admitted(admitted: &crate::driver_protocol::registry::Admitted) -> Self {
+        let mut environment = Self::approved(&admitted.records);
+        let gaps = Self::declared(admitted.gaps.iter().flat_map(|gap| gap.caller_env.iter()));
+        environment.driver_env.extend(gaps.driver_env);
+        environment
+    }
+
+    fn declared<'a>(names: impl Iterator<Item = &'a String>) -> Self {
+        let mut driver_env: BTreeMap<String, OsString> = names
             .filter_map(|name| {
                 let value = std::env::var_os(name).filter(|value| !value.is_empty())?;
                 Some((name.clone(), value))
@@ -187,6 +199,90 @@ impl CallerEnvironment {
             (true, [record]) => NamedHost::Nested(record),
             _ => NamedHost::Ambiguous,
         }
+    }
+}
+
+/// Why implicit selection cannot choose the caller's host for a command that
+/// read its drivers once ([`CallerEnvironment::unselectable`]).
+#[derive(Debug, PartialEq, Eq)]
+pub enum Unselectable<'a> {
+    /// The locators name a host whose approval is a gap, and no tmux: without
+    /// running that driver, no pane is proven to be the caller's. With tmux,
+    /// tmux stays selectable ([`CallerEnvironment::gap_beside_tmux`]).
+    Gap(&'a crate::driver_protocol::registry::Gap),
+    /// The locators name more than one external host, listed by name;
+    /// registry order never chooses.
+    Ambiguous(Vec<&'a str>),
+    /// No variable is known to name a host.
+    RegistryUnreadable,
+}
+
+impl CallerEnvironment {
+    /// Whether implicit selection must refuse before any driver or tmux call,
+    /// and why. `None` keeps the ordinary caller selection. It runs nothing.
+    pub fn unselectable<'a>(
+        &self,
+        admitted: &'a crate::driver_protocol::registry::Admitted,
+    ) -> Option<Unselectable<'a>> {
+        if admitted.unreadable.is_some() {
+            return Some(Unselectable::RegistryUnreadable);
+        }
+        let (hosts, gaps) = self.named_hosts(admitted);
+        match (hosts.len(), gaps.as_slice()) {
+            (0 | 1, []) => None,
+            (1, [_]) if self.names_tmux() => None,
+            (1, [gap]) => Some(Unselectable::Gap(gap)),
+            _ => Some(Unselectable::Ambiguous(hosts)),
+        }
+    }
+
+    /// The gap host the locators name beside tmux, and no other host: tmux
+    /// stays the caller's host, and the gap is reported as a source of its
+    /// own. It runs nothing.
+    pub fn gap_beside_tmux<'a>(
+        &self,
+        admitted: &'a crate::driver_protocol::registry::Admitted,
+    ) -> Option<&'a crate::driver_protocol::registry::Gap> {
+        if admitted.unreadable.is_some() || !self.names_tmux() {
+            return None;
+        }
+        match self.named_hosts(admitted) {
+            (hosts, gaps) if hosts.len() == 1 => gaps.first().copied(),
+            _ => None,
+        }
+    }
+
+    /// The external hosts the locators name, sorted by name, and the gaps
+    /// among them.
+    fn named_hosts<'a>(
+        &self,
+        admitted: &'a crate::driver_protocol::registry::Admitted,
+    ) -> (Vec<&'a str>, Vec<&'a crate::driver_protocol::registry::Gap>) {
+        let names = |declared: &[String]| {
+            declared
+                .iter()
+                .any(|name| self.driver_env.contains_key(name))
+        };
+        let gaps: Vec<_> = admitted
+            .gaps
+            .iter()
+            .filter(|gap| names(&gap.caller_env))
+            .collect();
+        let mut hosts: Vec<&str> = admitted
+            .records
+            .iter()
+            .filter(|record| {
+                record
+                    .capabilities
+                    .host()
+                    .is_some_and(|host| names(&host.caller_env))
+            })
+            .map(|record| record.name.as_str())
+            .chain(gaps.iter().map(|gap| gap.name.as_str()))
+            .collect();
+        hosts.sort_unstable();
+        hosts.dedup();
+        (hosts, gaps)
     }
 }
 
@@ -505,27 +601,42 @@ impl<R: CommandRunner + Clone> Host<R> {
     }
 
     /// The caller's host, external ones included: the nearest verified pane
-    /// wins. Without a verified external pane the host is tmux.
+    /// wins. Without a verified external pane the host is tmux. An ordinary
+    /// command keeps tmux even when a selection read fails to clean up.
     pub fn for_caller_with_drivers(
         environment: &CallerEnvironment,
         runner: R,
         records: Vec<crate::driver_protocol::registry::DriverRecord>,
     ) -> Self {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        Self::for_caller_within(environment, runner.clone(), records.clone(), deadline)
+            .unwrap_or_else(|_| Self::of(HostKind::Tmux, runner).with_drivers(records))
+    }
+
+    /// [`Host::for_caller_with_drivers`] for discovery, spending at most
+    /// until `deadline` on finding the caller's pane. Doubt keeps tmux; only
+    /// a failed cleanup is an error, and it chooses no host.
+    pub fn for_caller_within(
+        environment: &CallerEnvironment,
+        runner: R,
+        records: Vec<crate::driver_protocol::registry::DriverRecord>,
+        deadline: Instant,
+    ) -> Result<Self, HostError> {
         let builtin = Self::of(HostKind::Tmux, runner.clone());
         if environment.driver_env.is_empty()
             || (records.is_empty() && !environment.driver_env.contains_key(pty::PANE_ENV))
         {
-            return builtin.with_drivers(records);
+            return Ok(builtin.with_drivers(records));
         }
         let probe = builtin.with_drivers(records.clone());
-        match probe.nearest_external(environment) {
+        Ok(match probe.nearest_external(environment, deadline)? {
             Some(caller) => {
                 let host = Self::of(HostKind::External(caller.host), runner).with_drivers(records);
                 host.external.set_caller(caller);
                 host
             }
             None => probe,
-        }
+        })
     }
 
     /// A hook or discovery caller's host: the one host its locators name,
@@ -592,6 +703,43 @@ impl<R: CommandRunner + Clone> Host<R> {
         }
     }
 
+    /// An explicitly selected host, with the drivers a command read once.
+    pub fn for_host(
+        host: HostKind,
+        runner: R,
+        records: Vec<crate::driver_protocol::registry::DriverRecord>,
+    ) -> Self {
+        Self::of(host, runner).with_drivers(records)
+    }
+
+    /// [`Host::for_host`] for a scan with no socket: on an external host, the
+    /// caller's own verified pane of that host names its server, found by
+    /// that host's driver alone until `deadline`. Without one, or in doubt,
+    /// the driver's default server serves. Only a failed cleanup is an error.
+    pub fn for_selected_host(
+        host: HostKind,
+        environment: &CallerEnvironment,
+        runner: R,
+        records: Vec<crate::driver_protocol::registry::DriverRecord>,
+        deadline: Instant,
+    ) -> Result<Self, HostError> {
+        let HostKind::External(name) = host else {
+            return Ok(Self::for_host(host, runner, records));
+        };
+        let own = records
+            .iter()
+            .filter(|record| record.name == name.as_str())
+            .cloned()
+            .collect();
+        let probe = Self::for_host(host, runner.clone(), own);
+        let caller = probe.external.callers(environment, None, deadline)?.found;
+        let selected = Self::for_host(host, runner, records);
+        if let Some(caller) = caller.into_iter().find(|caller| caller.host == name) {
+            selected.external.set_caller(caller);
+        }
+        Ok(selected)
+    }
+
     pub fn for_server_with(server: &ServerEvidence, runner: R) -> Self {
         let mut host = Self::of(server.host, runner);
         match server.host {
@@ -635,20 +783,37 @@ impl<R: CommandRunner + Clone> Host<R> {
 }
 
 impl<R: CommandRunner> Host<R> {
-    /// First-run inventory never initializes host metadata or invokes external drivers.
+    /// First-run inventory never initializes host metadata or records a server.
     pub fn discover(
         &self,
         socket: Option<&str>,
         pane: Option<&str>,
         deadline: Instant,
-    ) -> Result<Option<DiscoveryObservation>, HostError> {
+    ) -> Result<DiscoveryObservation, HostError> {
         match self.primary {
             HostKind::Tmux => self
                 .tmux
                 .discover(socket, pane, deadline)
-                .map(Some)
                 .map_err(HostError::from),
-            HostKind::External(_) => Ok(None),
+            HostKind::External(host) => self.external.discover(host, socket, pane, deadline),
+        }
+    }
+
+    /// Before a guarded bind's transaction: records TMT's UUID for the
+    /// server of `fence` and resolves this handle to it, only once the host
+    /// still names that socket and core sees that very server process. tmux
+    /// keeps its own server ID and records nothing here.
+    pub fn resolve_fenced_server<I: HostServerIds>(
+        &self,
+        fence: &tmt_core::discovery::DiscoveryTarget,
+        ids: &mut I,
+    ) -> Result<Option<String>, HostError> {
+        match self.primary {
+            HostKind::Tmux => Ok(None),
+            HostKind::External(host) => self
+                .external
+                .resolve_fenced_server(host, fence, ids, Instant::now() + Duration::from_secs(3))
+                .map(Some),
         }
     }
 
@@ -684,18 +849,21 @@ impl<R: CommandRunner> Host<R> {
     /// The nearest verified external pane of the caller. With tmux variables
     /// too (tmux in a Herdr pane, or the reverse), one pinned ancestry orders
     /// both panes ([`Host::nearest_nested_external`]). Failures prove
-    /// nothing and keep tmux.
-    fn nearest_external(&self, environment: &CallerEnvironment) -> Option<ExternalCaller> {
-        let deadline = Instant::now() + Duration::from_secs(1);
+    /// nothing and keep tmux; only a failed cleanup is an error.
+    fn nearest_external(
+        &self,
+        environment: &CallerEnvironment,
+        deadline: Instant,
+    ) -> Result<Option<ExternalCaller>, HostError> {
         if environment.names_tmux() {
             return self.nearest_nested_external(environment, deadline);
         }
-        self.external
-            .callers(environment, None, deadline)
-            .ok()?
+        Ok(self
+            .external
+            .callers(environment, None, deadline)?
             .found
             .into_iter()
-            .next()
+            .next())
     }
 
     /// The server a caller's environment selects on this handle's host, for
@@ -1133,6 +1301,7 @@ pub struct BindingSession<'a, R> {
 
 impl<R: CommandRunner> BindingSession<'_, R> {
     pub fn with_discovery_target(mut self, target: tmt_core::discovery::DiscoveryTarget) -> Self {
+        self.external = self.external.with_discovery_target(target.clone());
         self.tmux = self.tmux.with_discovery_target(target);
         self
     }
@@ -1249,7 +1418,7 @@ impl<R: CommandRunner> tmt_core::binding::GuardedBindingEndpoint for BindingSess
     ) -> Result<Option<tmt_core::discovery::DiscoveryTarget>, Self::Error> {
         match self.primary {
             HostKind::Tmux => self.tmux.discovery_target(pane).map_err(HostError::from),
-            HostKind::External(_) => Ok(None),
+            HostKind::External(host) => self.external.discovery_target(host, pane),
         }
     }
 }

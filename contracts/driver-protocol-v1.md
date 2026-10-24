@@ -12,7 +12,8 @@ and guides link here instead of repeating it.
 - **Host drivers:** the format, the crate, the approval registry and the
   client that runs one driver call exist. Core uses an approved driver for its
   host: it finds the caller's pane through `caller` and explicit targets
-  through `resolve-target`, lists bindings through `snapshot`, keeps markers
+  through `resolve-target`, lists bindings through `snapshot`, discovers
+  candidate panes through `server` and `snapshot`, keeps markers
   with `publish` and `clear`, records the server through `server`, and
   delivers, reads and focuses through `prompt`, `input`, `capture` and
   `focus`, and closes a pane it opened through `close`. Users approve, list and remove drivers with

@@ -31,8 +31,9 @@ struct State {
     /// Every `ps` and `tmux` call, and the native link reads asked for.
     calls: Vec<String>,
     native_links: usize,
-    /// A `ps` read (`"link"` or `"observe"`) whose child could not be
-    /// cleaned up.
+    /// A read whose child could not be cleaned up: a pinned `ps` read
+    /// (`"link"` or `"observe"`), the PID-only `ps` read (`"pid"`), or the
+    /// driver's `caller` call (`"caller"`), which runs first.
     unclean: Option<&'static str>,
 }
 
@@ -176,6 +177,11 @@ impl World {
     /// A PID-only `ps -o pid=,ppid= -p <pid>` row, as an ordinary command
     /// caller's single-host read asks for.
     fn pid_only(&self, args: &[String]) -> Result<CommandOutput, CommandError> {
+        if self.0.borrow().unclean == Some("pid") {
+            let mut error = exit(1);
+            error.cleanup_error = Some(std::io::Error::other("ps survived"));
+            return Err(error);
+        }
         let pid: u64 = args.last().and_then(|pid| pid.parse().ok()).unwrap();
         let parent = self.0.borrow().processes.get(&pid).map(|link| link.0);
         let parent = parent.ok_or_else(|| exit(1))?;
@@ -236,6 +242,18 @@ impl CommandRunner for World {
         }
         if ps && let Some(result) = self.ps(&args) {
             return result;
+        }
+        if let Some(op) = args
+            .iter()
+            .find(|arg| ["caller", "server", "snapshot"].contains(&arg.as_str()))
+        {
+            self.edit(|state| state.calls.push(format!("driver {op}")));
+        }
+        if self.0.borrow().unclean == Some("caller") && args.iter().any(|arg| arg == "caller") {
+            let _ = HostRunner.execute(request);
+            let mut error = exit(1);
+            error.cleanup_error = Some(std::io::Error::other("driver survived"));
+            return Err(error);
         }
         HostRunner.execute(request)
     }
@@ -702,10 +720,12 @@ fn a_changed_process_up_to_the_external_pane_keeps_tmux() {
             let host = crate::host::Host::of(HostKind::Tmux, herdr_in_tmux()).with_drivers(records);
             assert!(
                 host.nearest_nested_external(environment, Instant::now() + Duration::from_secs(1))
+                    .unwrap()
                     .is_some()
             );
             assert_eq!(
-                host.nearest_nested_external(environment, Instant::now()),
+                host.nearest_nested_external(environment, Instant::now())
+                    .unwrap(),
                 None
             );
         },
@@ -816,4 +836,52 @@ fn an_ordinary_command_named_by_one_host_or_none_reads_no_pinned_chain() {
     let host = crate::host::Host::for_caller_with_drivers(&caller, world.clone(), Vec::new());
     assert_eq!(host.primary, HostKind::Tmux);
     assert_eq!(world.calls(), Vec::<String>::new());
+}
+
+/// Discovery's selection (#4063): a read that fails to clean up, plain or
+/// nested, is an error that chooses no host, and no inventory or tmux scan
+/// follows it. The same world without the fault admits the fake host; an
+/// ordinary command keeps its fallback to tmux (#3920).
+#[test]
+fn a_failed_cleanup_in_discovery_selection_chooses_no_host() {
+    let select = |world: &World, env: TmuxEnv| {
+        with_caller(
+            Pane::Shell(30),
+            env,
+            CALLER,
+            false,
+            |environment, records| {
+                let deadline = Instant::now() + Duration::from_secs(1);
+                crate::host::Host::for_caller_within(environment, world.clone(), records, deadline)
+                    .map(|host| host.primary)
+            },
+        )
+    };
+    for (env, read) in [
+        (TmuxEnv::Absent, "caller"),
+        (TmuxEnv::Absent, "pid"),
+        (TmuxEnv::Full, "caller"),
+        (TmuxEnv::Full, "link"),
+        (TmuxEnv::Full, "observe"),
+    ] {
+        assert_eq!(select(&herdr_in_tmux(), env).unwrap(), herdr(), "{read}");
+        let world = herdr_in_tmux().unclean(read);
+        let result = select(&world, env);
+        assert!(
+            matches!(&result, Err(error) if error.cleanup_failed()),
+            "{read}: {result:?}"
+        );
+        let calls = world.calls();
+        assert!(
+            !calls.iter().any(|call| call == "driver server"
+                || call == "driver snapshot"
+                || call.starts_with("tmux list-panes")),
+            "{read}: {calls:?}"
+        );
+        assert_eq!(
+            ordinary(&herdr_in_tmux().unclean(read), Pane::Shell(30), env),
+            HostKind::Tmux,
+            "{read}"
+        );
+    }
 }

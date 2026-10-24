@@ -719,13 +719,24 @@ pub(super) fn agent_name_warning(
     message::warning(output, terminal, &what, Some(&fix))
 }
 
+/// Adds the agent-name member, or its warning, to a bind's JSON document.
+pub(super) fn add_agent_name(document: &mut Value, outcome: &super::AgentNameOutcome) {
+    let (member, warning) = agent_name_json(outcome);
+    if let Some(member) = member {
+        document["agentName"] = member;
+    }
+    if let Some(warning) = warning {
+        document["warnings"] = json!([warning]);
+    }
+}
+
 /// The JSON of a bind or rename that asked the host for the agent name: the
 /// `agentName` member for a definite answer, or one `warnings` entry when
 /// there was no agent yet or the outcome is unknown. `set`: the host confirmed
 /// it. `not_linked`: the host has no agent names. `refused`: the host said no,
 /// and the agent keeps its earlier name. An unknown outcome is never reported
 /// as `set` or `refused`.
-pub(super) fn agent_name_json(outcome: &super::AgentNameOutcome) -> (Option<Value>, Option<Value>) {
+fn agent_name_json(outcome: &super::AgentNameOutcome) -> (Option<Value>, Option<Value>) {
     use tmt_adapters::host::{AgentNameRefusal, AgentNaming};
     let name = &outcome.name;
     let error = match &outcome.result {
