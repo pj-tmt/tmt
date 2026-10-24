@@ -100,7 +100,7 @@ fn paint_shell(buffer: &mut ratatui::buffer::Buffer, app: &App, area: Rect, now:
     );
     if let Some(area) = control {
         let label_text = label.to_string();
-        let enabled = !app.loading() && !app.modal_open() && app.input.is_none() && !app.searching;
+        let enabled = app.workspace_strip_enabled();
         let painted = crate::board::buttons::paint(
             app,
             buffer,
@@ -116,7 +116,11 @@ fn paint_shell(buffer: &mut ratatui::buffer::Buffer, app: &App, area: Rect, now:
                 strip::paint_left(
                     buffer,
                     Rect::new(rect.x + 1, rect.y, rect.width - 2, 1),
-                    Line::from(crate::board::keycap::span(key, false, app.look())),
+                    Line::from(crate::board::keycap::control_span(
+                        app,
+                        key,
+                        OpsUiAction::WorkspaceSnapshots,
+                    )),
                 );
             }
             if enabled {

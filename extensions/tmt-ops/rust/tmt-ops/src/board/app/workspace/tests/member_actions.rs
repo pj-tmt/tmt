@@ -28,6 +28,27 @@ fn member_actions_with_lead() -> App {
     app
 }
 
+fn member_actions_with_authored_note() -> App {
+    let mut app = member_actions_with_lead();
+    let path = std::env::temp_dir().join(format!(
+        "ops-authored-note-{}.toml",
+        crate::id::new_v4().unwrap()
+    ));
+    std::fs::write(&path, "[bind]\na='annotate lead'\n").unwrap();
+    let config = Config::read(path.clone()).unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .configure(&config)
+        .unwrap();
+    std::fs::remove_file(path).unwrap();
+    app
+}
+
 #[test]
 fn agents_shortcuts_keep_authored_keys_without_factory_duplicates() {
     let mut app = configured_member(
@@ -110,7 +131,7 @@ fn agents_shortcuts_keep_tab_hints_out_of_the_whole_footer() {
 fn member_copy_key_uses_the_selected_row_even_with_conversation_focus() {
     for tab in [OpsTab::Agents] {
         for reader in [false, true] {
-            let mut app = member_actions_with_lead();
+            let mut app = member_actions_with_authored_note();
             app.shell.tab = tab;
             app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
             paint(&app, 160, 36);
@@ -141,7 +162,7 @@ fn member_copy_key_uses_the_selected_row_even_with_conversation_focus() {
 
 #[test]
 fn explicit_member_note_goes_to_the_lead_instead_of_answering_a_pending_request() {
-    let mut app = member_actions_with_lead();
+    let mut app = member_actions_with_authored_note();
     app.perform(&Action::parse("annotate lead").unwrap());
     assert!(app.menu.is_none());
     assert_eq!(
@@ -175,7 +196,7 @@ fn member_note_without_an_observed_lead_never_falls_back_to_member_talk() {
 fn member_note_placeholder_names_the_lead_and_keeps_the_subject_in_the_send_owner() {
     for tab in [OpsTab::Agents] {
         for width in [160, 60] {
-            let mut app = member_actions_with_lead();
+            let mut app = member_actions_with_authored_note();
             app.shell.tab = tab;
             app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
             app.perform(&Action::parse("annotate lead").unwrap());
@@ -205,7 +226,7 @@ fn authored_member_keys_keep_their_meaning_and_hidden_rows_grant_no_action() {
         );
         assert!(app.input.is_none());
     }
-    let mut app = member_actions_with_lead();
+    let mut app = member_actions_with_authored_note();
     app.search = "no-visible-match".into();
     app.workspace_reconcile();
     assert!(!app.workspace_selection_visible());
@@ -221,8 +242,8 @@ fn authored_member_keys_keep_their_meaning_and_hidden_rows_grant_no_action() {
 }
 
 #[test]
-fn member_factory_scan_moves_to_s_and_actions_include_copy_and_note() {
-    let mut app = member_actions_with_lead();
+fn member_authored_note_keeps_help_footer_and_actions() {
+    let mut app = member_actions_with_authored_note();
     let footer = paint(&app, 160, 36).join("\n");
     assert!(footer.contains("y copy"), "{footer}");
     assert!(footer.contains("a note"), "{footer}");
@@ -267,7 +288,7 @@ fn reference_inventory(app: &mut App) {
 #[test]
 fn workspace_member_squad_and_note_inputs_share_fuzzy_completion_without_retargeting() {
     for surface in ["member", "squad", "note"] {
-        let mut app = member_actions_with_lead();
+        let mut app = member_actions_with_authored_note();
         reference_inventory(&mut app);
         if surface == "squad" {
             app.shell.tab = OpsTab::Agents;
@@ -312,7 +333,7 @@ fn capture_member_actions_packet() {
     ] {
         for width in [160, 100, 60] {
             for scene in ["copy", "note", "pool", "completion"] {
-                let mut app = member_actions_with_lead();
+                let mut app = member_actions_with_authored_note();
                 reference_inventory(&mut app);
                 let look = crate::look::Look {
                     theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse(base).unwrap()),
@@ -389,4 +410,219 @@ fn capture_member_actions_packet() {
         }
     }
     std::fs::write(output, serde_json::to_vec_pretty(&frames).unwrap()).unwrap();
+}
+
+#[test]
+fn agents_shortcuts_right_click_rejects_stale_loading_overlay_and_empty_hits() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    for state in ["stale", "loading", "overlay", "empty", "search"] {
+        let mut app = member_actions_with_lead();
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+        paint(&app, 160, 40);
+        let hit = app
+            .hits
+            .borrow()
+            .iter()
+            .copied()
+            .find(|hit| hit.row().is_some())
+            .unwrap();
+        let selected = app.workspace.selected.clone();
+        let mut event = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: hit.x,
+            row: hit.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        match state {
+            "stale" => app.invalidate_frame_geometry(),
+            "loading" => app.current = Some("new-loading-view".into()),
+            "overlay" => app.help = true,
+            "empty" => {
+                event.column = 159;
+                event.row = 39;
+            }
+            "search" => app.searching = true,
+            _ => unreachable!(),
+        }
+        assert_eq!(app.mouse(event, Instant::now()), Effect::None, "{state}");
+        assert_eq!(app.workspace.selected, selected, "{state}");
+        assert!(app.menu.is_none(), "{state}");
+    }
+}
+
+#[test]
+fn agents_shortcuts_keyboard_settings_reaches_named_unbound_member_actions() {
+    let mut app = board();
+    key(&mut app, KeyCode::Char(','));
+    let actions = app
+        .menu
+        .as_ref()
+        .unwrap()
+        .entries
+        .iter()
+        .position(|entry| entry.label == "Actions")
+        .unwrap();
+    app.menu.as_mut().unwrap().selected = actions;
+    key(&mut app, KeyCode::Enter);
+    let entries = &app.menu.as_ref().unwrap().entries;
+    for ui in [OpsUiAction::RenameMember, OpsUiAction::RemoveMember] {
+        let entry = entries.iter().find(|entry| matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::Ui(ui))).unwrap();
+        assert_eq!(entry.label, ui.menu_label().unwrap());
+        assert!(entry.key.is_empty());
+    }
+    app.menu = None;
+    key(&mut app, KeyCode::Char('m'));
+    assert_eq!(app.workspace_form.as_ref().unwrap().kind, Kind::Assign);
+}
+
+#[test]
+fn agents_shortcuts_strip_labels_remain_disabled_and_have_no_click_targets() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    for state in ["loading", "overlay", "search", "input"] {
+        let mut app = configured_member(
+            "[bind]\nf='copy'\nF='agents-filter'\nM='copy'\nt='talk-measure'\n",
+            json!({"id":MEMBER,"name":"worker"}),
+        );
+        paint(&app, 160, 40);
+        let target = app
+            .workspace_strip_hits
+            .borrow()
+            .iter()
+            .find_map(|(area, choice)| matches!(choice, Choice::RightTab(_)).then_some(*area))
+            .unwrap();
+        match state {
+            "loading" => app.current = Some("new-loading-view".into()),
+            "overlay" => app.help = true,
+            "search" => app.searching = true,
+            "input" => {
+                key(&mut app, KeyCode::Enter);
+                assert!(app.input.is_some());
+            }
+            _ => unreachable!(),
+        }
+        let text = paint(&app, 160, 40).join("\n");
+        assert_eq!(
+            crate::board::keycap::key(&app, OpsUiAction::AgentsFilter, "f").as_deref(),
+            Some("F"),
+            "{state}"
+        );
+        assert_eq!(
+            crate::board::keycap::key(&app, OpsUiAction::TalkMeasure, "M").as_deref(),
+            Some("t"),
+            "{state}"
+        );
+        if state != "overlay" {
+            assert!(text.contains("F  Squads"), "{state}: {text}");
+            assert!(text.contains("t  Talk"), "{state}: {text}");
+        }
+        let disabled =
+            crate::board::keycap::control_span(&app, "w", OpsUiAction::WorkspaceSnapshots).style;
+        for (key, ui) in [
+            ("F", OpsUiAction::AgentsFilter),
+            ("t", OpsUiAction::TalkMeasure),
+        ] {
+            assert_eq!(
+                crate::board::keycap::control_span(&app, key, ui).style,
+                disabled,
+                "{state}"
+            );
+        }
+        assert!(
+            !app.workspace_strip_hits
+                .borrow()
+                .iter()
+                .any(|(_, choice)| matches!(choice, Choice::RightTab(_) | Choice::AgentsFilter(_))),
+            "{state}"
+        );
+        let tab = app.right_tab;
+        let filter = app.workspace.filter;
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: target.x,
+                row: target.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            Instant::now(),
+        );
+        assert_eq!(app.right_tab, tab, "{state}");
+        assert_eq!(app.workspace.filter, filter, "{state}");
+    }
+}
+
+#[test]
+fn agents_shortcuts_reader_keeps_configured_labels_and_unbound_controls_honest() {
+    for (config, expected) in [
+        ("", Some(("f", "M"))),
+        (
+            "[bind]\nf='help'\nM='copy'\nF='agents-filter'\nt='talk-measure'\n",
+            Some(("F", "t")),
+        ),
+        ("[bind]\nf='help'\nM='copy'\n", None),
+    ] {
+        let mut app = configured_member(config, json!({"id":MEMBER,"name":"worker"}));
+        paint(&app, 160, 40);
+        app.focus = app
+            .focus_panes()
+            .iter()
+            .position(|pane| *pane == Pane::Replies)
+            .unwrap();
+        assert!(app.workspace_scope().is_reader());
+        let text = paint(&app, 160, 40).join("\n");
+        let f = crate::board::keycap::key(&app, OpsUiAction::AgentsFilter, "f");
+        let m = crate::board::keycap::key(&app, OpsUiAction::TalkMeasure, "M");
+        assert_eq!(f.as_deref(), expected.map(|keys| keys.0));
+        assert_eq!(m.as_deref(), expected.map(|keys| keys.1));
+        if let Some((f, m)) = expected {
+            assert!(text.contains(&format!("{f}  Squads")), "{text}");
+            assert!(text.contains(&format!("{m}  Talk")), "{text}");
+            let help = crate::board::help::model(&app);
+            for key in [f, m] {
+                assert!(
+                    help.sections
+                        .iter()
+                        .any(|section| section.entries.iter().any(|entry| entry.keys == key)),
+                    "{key}"
+                );
+            }
+        }
+        let before = app.workspace.filter;
+        app.perform(&Action::parse("agents-filter").unwrap());
+        assert_eq!(
+            app.workspace.filter, before,
+            "Reader filter shortcut remains ineligible"
+        );
+    }
+}
+
+#[test]
+fn agents_shortcuts_named_menu_choices_enter_the_existing_frozen_uuid_reviews() {
+    for (ui, kind) in [
+        (OpsUiAction::RenameMember, Kind::RenameMember),
+        (OpsUiAction::RemoveMember, Kind::RemoveMember),
+    ] {
+        let mut app = board();
+        app.context_menu();
+        let choice = app
+            .menu
+            .as_ref()
+            .unwrap()
+            .entries
+            .iter()
+            .find_map(|entry| {
+                matches!(&entry.choice,Choice::Action(action) if action.verb==Verb::Ui(ui))
+                    .then(|| entry.choice.clone())
+            })
+            .unwrap();
+        app.menu = None;
+        app.choose(choice);
+        assert_eq!(app.workspace_form.as_ref().unwrap().kind, kind);
+        assert_eq!(
+            app.workspace.selected,
+            Some(OpsTarget::Member {
+                room_id: Some(ROOM.into()),
+                identity_id: MEMBER.into()
+            })
+        );
+    }
 }

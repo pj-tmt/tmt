@@ -343,6 +343,30 @@ impl OpsUiAction {
             .find(|spec| spec.action == self)
             .expect("every UI action has a catalog entry")
     }
+    /// Strip controls already carry their configured key beside the control.
+    pub fn footer_hint(self) -> bool {
+        !matches!(self, Self::AgentsFilter | Self::TalkMeasure)
+    }
+    pub fn strip_actions() -> impl Iterator<Item = Self> {
+        SPECS
+            .iter()
+            .map(|spec| spec.action)
+            .filter(|action| !action.footer_hint())
+    }
+    pub fn menu_label(self) -> Option<&'static str> {
+        match self {
+            Self::RenameMember => Some("Rename agent"),
+            Self::RemoveMember => Some("Remove member"),
+            _ => None,
+        }
+    }
+    /// These member actions remain discoverable without a keyboard binding.
+    pub fn menu_actions() -> impl Iterator<Item = Self> {
+        SPECS
+            .iter()
+            .map(|spec| spec.action)
+            .filter(|action| action.menu_label().is_some())
+    }
     pub fn acts_on_member(self) -> bool {
         matches!(
             self,

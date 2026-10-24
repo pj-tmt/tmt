@@ -2560,10 +2560,26 @@ impl App {
             })
             .map(|(key, action)| MenuEntry {
                 key,
-                label: action.text.clone(),
+                label: match action.verb {
+                    Verb::Ui(ui) => ui.menu_label().unwrap_or(&action.text).to_owned(),
+                    _ => action.text.clone(),
+                },
                 choice: Choice::Action(action),
             })
             .collect();
+        if self.shell.tab == super::shell::OpsTab::Agents
+            && self.workspace_selected_member().is_some()
+        {
+            for ui in crate::action::OpsUiAction::menu_actions() {
+                if !entries.iter().any(|entry| matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::Ui(ui))) {
+                    entries.push(MenuEntry {
+                        key: String::new(),
+                        label: ui.menu_label().expect("catalog menu action").into(),
+                        choice: Choice::Action(Action::parse(ui.spec().name).expect("catalog action")),
+                    });
+                }
+            }
+        }
         if self.selected_row().is_some_and(|row| row["id"].is_string())
             && self.view.as_ref().and_then(|view| view.me_id.as_ref()).is_some()
             && !entries.iter().any(|entry| matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::UpdateStatus))
@@ -4593,7 +4609,14 @@ impl App {
             self.focus = 0;
             return self.workspace_action(action);
         }
-        if event.kind != MouseEventKind::Down(MouseButton::Left) {
+        let right_click = event.kind == MouseEventKind::Down(MouseButton::Right);
+        if event.kind != MouseEventKind::Down(MouseButton::Left)
+            && !(right_click
+                && self.shell.tab == super::shell::OpsTab::Agents
+                && !self.loading()
+                && !self.modal_open()
+                && !self.searching)
+        {
             return Effect::None;
         }
         self.focus_at(event.column, event.row);
@@ -4608,6 +4631,10 @@ impl App {
         self.set_notice(None, false);
         let row = hit.row().unwrap();
         self.select(row);
+        if right_click {
+            self.last_click = None;
+            return self.context_menu();
+        }
         let double = self.last_click.is_some_and(|(previous, at)| {
             previous == row && now.duration_since(at) <= DOUBLE_CLICK
         });
