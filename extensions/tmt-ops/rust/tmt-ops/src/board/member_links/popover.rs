@@ -663,6 +663,18 @@ mod tests {
         app.choose(show);
         let full = app.menu.as_ref().unwrap();
         assert_eq!(full.title, "Full path");
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let shown = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(shown.contains("Enter copies · Esc back"), "{shown}");
         assert_eq!(
             full.entries
                 .iter()
