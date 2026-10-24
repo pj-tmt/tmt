@@ -295,9 +295,12 @@ A target may carry only a name;
 `Operations` resolves it with Core's public `identity show --json -- <name>` before adoption, freezes
 the returned UUID/current name, and applies the same recipient grant and UUID-pinned effect check.
 Missing/ambiguous names are durable per-document refusals. Explicit UUID targets never perform a
-name lookup, and adopted targets never resolve again. The production UUID query remains refused
-until Core's seam is agreed. Native pairing composes it in `serve`, sharing
-`native_sync::projects::Projects` with extension sync; public Core delivery activation remains gated.
+name lookup, and adopted targets never resolve again. The UUID-pinned check uses public
+`identity show --json --expect-name=<expected-name> -- <uuid>`; Core owns normalization and the
+atomic name/lifetime check. Changed identities map to `REMOTE_AGENT_STALE`, absent UUIDs to
+`REMOTE_AGENT_NOT_FOUND`; offline/unknown presence is not a refusal. Native pairing composes it in
+`serve`, sharing `native_sync::projects::Projects` with extension sync; public Core delivery activation
+remains gated.
 No enrolled peer means no provider poll. The contract owns all bounds.
 
 `tests/cloud_hpke.rs` pins RFC 9180 A.3.1; `tests/fixtures/cloud-hpke-reference.mjs` independently

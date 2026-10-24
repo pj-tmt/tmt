@@ -540,7 +540,7 @@ Home/Remote/SDK; read-only auto-pair; no companions/skills; [release gates](.age
 settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
 Remote owns authority; UI grants none. Native invite/join and uid routing.
 Firestore: Auth/Rules only; Core never uses Remote trust.
-`message`: envelopes/grants/scope/allowlist/hold/uncertainty/audit; names→UUID.
+`message`: wire/grants/scope/allowlist/hold/uncertainty/audit; UUID/name checks.
 `talk --remote` → [message v1](contracts/remote-message-v1.md) → Remote
 Local: `transport`/`routes` → `message` → `session`/`operations`; same-ID public Core API dispatch/recovery.
 Door: `remote-v1.js` ([SDK](extensions/tmt-remote/typescript/remote-client/README.md));

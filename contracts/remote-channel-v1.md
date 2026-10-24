@@ -2335,10 +2335,13 @@ A repeat must retain the exact prepared bytes, including creation time, sender a
 A changed creation time conflicts with its frozen outbox row. The existing maintenance pass prunes
 sender outbox rows only past RECOVERY plus clock skew; it adds no tombstone ledger or context secret.
 Nonzero exit carries a JSON error code. Explicit/default/local selection never silently changes
-backend. Core's side is `talk --remote`. Until the real UUID-pinned
-`identity show` exists, production cloud delivery refuses with `REMOTE_CLOUD_UPGRADE_REQUIRED`;
-tests inject the fake public Core boundary. Never fall back to name-addressed `check`. Expected name is
-retained with frozen native intent and checked before a Core effect; it is not a caller-chosen role.
+backend. Core's side is `talk --remote`. Before effect, Remote calls Core's public
+`identity show --json --expect-name=<expected-name> -- <uuid>` through the bounded subprocess owner.
+Core atomically checks the pinned UUID's current name and lifetime; active, offline and unknown
+presence all permit that identity check. `IDENTITY_CHANGED` (exit 5) maps to the durable
+`REMOTE_AGENT_STALE` refusal and `NAME_NOT_FOUND` to `REMOTE_AGENT_NOT_FOUND`. Invalid success evidence
+refuses with `REMOTE_CORE_UNAVAILABLE`. Never fall back to name-addressed `check`. Expected name is
+retained with frozen native intent; it is not a caller-chosen role.
 Full public `talk` acceptance belongs to #4539/#4540 after the Core #4536 seam and Remote #4757
 activation. Pairing qualification injects the fake public Core boundary; it does not open that gate.
 Real-provider acceptance remains separate.

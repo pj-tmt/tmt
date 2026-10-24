@@ -572,7 +572,25 @@ fn prepared_reply_is_private_durable_and_frozen_before_publication() {
 #[test]
 fn prepared_core_boundary_delivers_or_refuses_the_uuid_query_without_a_name_fallback() {
     use tmt_remote::{cloud_command::State, core::CoreClient};
-    let cases: Vec<(
+    let public_cores: Vec<_> = [
+        json!({"id":TARGET,"name":"target"}),
+        json!({"id":TARGET,"name":"renamed"}),
+        json!({"id":TARGET,"name":"target","retired":true}),
+        json!(null),
+    ]
+    .into_iter()
+    .map(|row| {
+        let core = cloud_fixture::core_fixture::Core::new();
+        let rows = if row.is_null() { vec![] } else { vec![row] };
+        std::fs::write(
+            core.root.join("identities"),
+            json!({"identities":rows}).to_string(),
+        )
+        .unwrap();
+        core
+    })
+    .collect();
+    let mut cases: Vec<(
         Arc<dyn tmt_remote::core::CloudIdentityQuery>,
         State,
         Option<&str>,
@@ -583,12 +601,23 @@ fn prepared_core_boundary_delivers_or_refuses_the_uuid_query_without_a_name_fall
             State::Refused,
             Some("REMOTE_AGENT_STALE"),
         ),
-        (
-            Arc::new(CoreClient::at("/never-invoked-cloud-identity".into()).unwrap()),
-            State::Refused,
-            Some("REMOTE_CLOUD_UPGRADE_REQUIRED"),
-        ),
     ];
+    for (core, state, reason) in [
+        (&public_cores[0], State::Sent, None),
+        (&public_cores[1], State::Refused, Some("REMOTE_AGENT_STALE")),
+        (&public_cores[2], State::Refused, Some("REMOTE_AGENT_STALE")),
+        (
+            &public_cores[3],
+            State::Refused,
+            Some("REMOTE_AGENT_NOT_FOUND"),
+        ),
+    ] {
+        cases.push((
+            Arc::new(CoreClient::at(core.root.join("tmt")).unwrap()),
+            state,
+            reason,
+        ));
+    }
     for (identity, state, reason) in cases {
         let mut world = cloud_fixture::World::new(NOW, identity);
         let wire = Arc::new(Wire {
@@ -690,6 +719,25 @@ fn prepared_core_boundary_delivers_or_refuses_the_uuid_query_without_a_name_fall
         assert!(
             world.core.calls().iter().all(|c| c["operation"] != "check"),
             "never use a name-addressed capture as a UUID query"
+        );
+    }
+    for core in &public_cores {
+        let calls = core.calls();
+        assert!(
+            !calls.is_empty(),
+            "the real CoreClient must invoke the public process"
+        );
+        assert!(
+            calls.iter().all(|call| call["argv"]
+                == json!([
+                    "identity",
+                    "show",
+                    "--json",
+                    "--expect-name=target",
+                    "--",
+                    TARGET
+                ])),
+            "UUID checks must never fall back to name lookup or capture: {calls:?}"
         );
     }
 }

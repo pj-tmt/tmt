@@ -15,8 +15,7 @@ pub const OUTPUT_LIMIT: usize = 16 * 1024 * 1024;
 pub struct CoreClient {
     executable: PathBuf,
 }
-/// Atomic UUID/name observation. The production CLI adapter stays closed until #4536's
-/// argv is agreed; injected fake Core implementations exercise the Remote boundary now.
+/// Atomic UUID/name observation through Core's public command boundary.
 pub trait CloudIdentityQuery: Send + Sync {
     fn identity_show(
         &self,
@@ -39,11 +38,50 @@ impl CoreClient {
     /// No UUID inventory followed by a name-addressed capture is a substitute.
     pub fn cloud_identity_show(
         &self,
-        _id: &str,
-        _expected_name: &str,
-        _stop: &AtomicBool,
+        id: &str,
+        expected_name: &str,
+        stop: &AtomicBool,
     ) -> Result<(), RemoteError> {
-        Err(crate::cloud_command::upgrade())
+        // An equals-form value cannot become an option even when the name starts with '-'.
+        let expected = format!("--expect-name={expected_name}");
+        let answer = self
+            .call(
+                &["identity", "show", "--json", &expected, "--", id],
+                &[],
+                stop,
+                crate::limits::CORE_CALL,
+                OUTPUT_LIMIT,
+            )
+            .map_err(|error| match error.code.as_str() {
+                "IDENTITY_CHANGED" => {
+                    RemoteError::new("REMOTE_AGENT_STALE", "The recipient identity changed.")
+                }
+                "NAME_NOT_FOUND" => RemoteError::new(
+                    "REMOTE_AGENT_NOT_FOUND",
+                    "The recipient identity was not found.",
+                ),
+                _ => error,
+            })?;
+        let identity = &answer["identity"];
+        // Core owns normalization and the atomic expected-name check. Presence is evidence,
+        // not authority: an offline identity still has its name.
+        if identity["id"].as_str() == Some(id)
+            && crate::canonical::is_core_id(id)
+            && identity["name"].as_str().is_some_and(|name| {
+                !name.is_empty() && name.len() <= 128 && !name.chars().any(char::is_control)
+            })
+            && identity["retired"] != true
+            && matches!(
+                identity["presence"].as_str(),
+                Some("active" | "offline" | "unknown")
+            )
+        {
+            Ok(())
+        } else {
+            Err(failure(
+                "Core identity show returned invalid identity evidence.",
+            ))
+        }
     }
 
     /// Core alone resolves its name syntax and excludes retired identities. The returned
