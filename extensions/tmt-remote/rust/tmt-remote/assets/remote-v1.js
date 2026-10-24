@@ -5517,10 +5517,40 @@ function readOnlyBadge() {
 	return chip;
 }
 /** The line under every Ops page: what the page is and that it keeps itself current. */
-function pageFoot() {
+function pageFoot(text = "Read-only · Refreshes while visible") {
 	const foot = el("p", "ops-foot");
-	foot.append(mark("dot", "working"), "Read-only · Refreshes while visible");
+	foot.append(mark("dot", "working"), text);
 	return foot;
+}
+/** A card that says what the terminal does for this page: a terminal tile, a title and a sentence,
+* then the one command that opens the Ops workspace with a Copy button that says what happened.
+* `hero` centres it as the page's whole point. */
+function terminalCard(options) {
+	const card = el("section", browserUiClasses.card);
+	if (options.hero) card.dataset.hero = "";
+	card.setAttribute("aria-labelledby", options.id);
+	const tile = el("span", browserUiClasses.glyphTile);
+	tile.append(createIcon("terminal"));
+	const title = el("h3", browserUiClasses.cardTitle, options.title);
+	title.id = options.id;
+	const command = el("span", browserUiClasses.command);
+	const copy = el("button", browserUiClasses.commandCopy);
+	copy.type = "button";
+	copy.setAttribute("aria-label", "Copy tmt ops ui");
+	copy.append(createIcon("copy"), "Copy");
+	const feedback = el("span", browserUiClasses.commandFeedback);
+	feedback.setAttribute("role", "status");
+	copy.addEventListener("click", async () => {
+		try {
+			await navigator.clipboard.writeText("tmt ops ui");
+			feedback.textContent = "Copied.";
+		} catch {
+			feedback.textContent = "Copy failed. Select the command and copy it manually.";
+		}
+	});
+	command.append(el("code", browserUiClasses.commandText, "tmt ops ui"), copy, feedback);
+	card.append(tile, title, el("p", void 0, options.text), command);
+	return card;
 }
 var keyOf = (agent) => `${agent.squad}/${agent.name}`;
 /** The agents by squad in the order the pages draw them: squads as the board lists them (then any
@@ -5826,6 +5856,36 @@ function agentsView() {
 	};
 }
 //#endregion
+//#region src/ops-settings.ts
+/** The Ops settings page. The board's settings have no browser read, so the page says where they
+* are (the terminal workspace, one command to copy) and points at the Ops views that are here. */
+function settingsView(href) {
+	const page = el("div", "ops-settings-page");
+	const keep = el("section", `${browserUiClasses.card} ops-settings-keep`);
+	keep.setAttribute("aria-labelledby", "ops-keep-title");
+	const text = el("div");
+	const title = el("h3", browserUiClasses.cardTitle, "Keep a clear view of your team");
+	title.id = "ops-keep-title";
+	text.append(title, el("p", "ops-settings-note", "Agents, squads and timers are available as read-only web views."));
+	const links = el("div", "ops-settings-links");
+	const link = (section, label, next) => {
+		const anchor = el("a", browserUiClasses.action);
+		anchor.href = href(section);
+		anchor.append(el("span", browserUiClasses.actionLabel, label));
+		if (next) anchor.append(createIcon("chevron-right"));
+		return anchor;
+	};
+	links.append(link("agents", "View agents", true), link("squads", "View squads"));
+	keep.append(text, links);
+	page.append(pageHead("Ops settings", "Manage your workspace from the terminal."), terminalCard({
+		id: "ops-settings-title",
+		title: "The right controls, in your terminal.",
+		text: "Ops settings are not available in the browser yet. Open the terminal workspace to view and manage them.",
+		hero: true
+	}), keep, pageFoot("CLI-managed settings"));
+	return page;
+}
+//#endregion
 //#region src/ops-drawer.ts
 /** The agent's details in a drawer: what the squads page opens for a member. Read-only. */
 function agentDrawer(focus) {
@@ -5970,34 +6030,6 @@ function squadsView() {
 //#endregion
 //#region src/ops-timers.ts
 /** The timers page: the schedules as the board records them, and how to manage them. */
-/** The one command that shows the timers, with a Copy button that says what happened. */
-function managePanel() {
-	const card = el("section", browserUiClasses.card);
-	card.setAttribute("aria-labelledby", "ops-manage-title");
-	const tile = el("span", browserUiClasses.glyphTile);
-	tile.append(createIcon("terminal"));
-	const title = el("h3", browserUiClasses.cardTitle, "Manage in the terminal");
-	title.id = "ops-manage-title";
-	const text = el("p", void 0, "Use the Ops workspace to manage your timers. This web view does not change schedules.");
-	const command = el("span", browserUiClasses.command);
-	const copy = el("button", browserUiClasses.commandCopy);
-	copy.type = "button";
-	copy.setAttribute("aria-label", "Copy tmt ops ui");
-	copy.append(createIcon("copy"), "Copy");
-	const feedback = el("span", browserUiClasses.commandFeedback);
-	feedback.setAttribute("role", "status");
-	copy.addEventListener("click", async () => {
-		try {
-			await navigator.clipboard.writeText("tmt ops ui");
-			feedback.textContent = "Copied.";
-		} catch {
-			feedback.textContent = "Copy failed. Select the command and copy it manually.";
-		}
-	});
-	command.append(el("code", browserUiClasses.commandText, "tmt ops ui"), copy, feedback);
-	card.append(tile, title, text, command);
-	return card;
-}
 function timersView() {
 	const page = el("div", "ops-timers-page");
 	const grid = el("div", "ops-grid");
@@ -6009,7 +6041,11 @@ function timersView() {
 	head.append(title, readOnlyBadge());
 	const body = el("div");
 	card.append(head, body);
-	grid.append(card, managePanel());
+	grid.append(card, terminalCard({
+		id: "ops-manage-title",
+		title: "Manage in the terminal",
+		text: "Use the Ops workspace to manage your timers. This web view does not change schedules."
+	}));
 	page.append(pageHead("Keep the rhythm visible.", "A simple view of the schedules that keep your team moving."), grid, pageFoot());
 	return {
 		node: page,
@@ -6090,6 +6126,7 @@ function opsPage(shell, source = opsSource) {
 		squads: squadsView(),
 		schedules: timersView()
 	};
+	let settings;
 	const paint = () => {
 		const section = current();
 		if (section !== "squads") views.squads.close();
@@ -6109,8 +6146,10 @@ function opsPage(shell, source = opsSource) {
 		});
 		if (title) title.textContent = SECTIONS$1.find((item) => item.id === section).label;
 		if (!board) main.replaceChildren(pageLoading());
-		else if (section === "settings") main.replaceChildren(sentence(notInBrowser("The Ops settings page", "tmt ops ui")));
-		else {
+		else if (section === "settings") {
+			settings ??= settingsView(href);
+			if (settings.parentElement !== main) main.replaceChildren(settings);
+		} else {
 			const view = views[section];
 			if (view.node.parentElement !== main) main.replaceChildren(view.node);
 			view.update(board);

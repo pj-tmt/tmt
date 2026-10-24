@@ -151,10 +151,46 @@ export function readOnlyBadge(): HTMLSpanElement {
 }
 
 /** The line under every Ops page: what the page is and that it keeps itself current. */
-export function pageFoot(): HTMLElement {
+export function pageFoot(text = 'Read-only · Refreshes while visible'): HTMLElement {
   const foot = el('p', 'ops-foot');
-  foot.append(mark('dot', 'working'), 'Read-only · Refreshes while visible');
+  foot.append(mark('dot', 'working'), text);
   return foot;
+}
+
+/** A card that says what the terminal does for this page: a terminal tile, a title and a sentence,
+ * then the one command that opens the Ops workspace with a Copy button that says what happened.
+ * `hero` centres it as the page's whole point. */
+export function terminalCard(options: {
+  id: string;
+  title: string;
+  text: string;
+  hero?: boolean;
+}): HTMLElement {
+  const card = el('section', browserUiClasses.card);
+  if (options.hero) card.dataset.hero = '';
+  card.setAttribute('aria-labelledby', options.id);
+  const tile = el('span', browserUiClasses.glyphTile);
+  tile.append(createIcon('terminal'));
+  const title = el('h3', browserUiClasses.cardTitle, options.title);
+  title.id = options.id;
+  const command = el('span', browserUiClasses.command);
+  const copy = el('button', browserUiClasses.commandCopy);
+  copy.type = 'button';
+  copy.setAttribute('aria-label', 'Copy tmt ops ui');
+  copy.append(createIcon('copy'), 'Copy');
+  const feedback = el('span', browserUiClasses.commandFeedback);
+  feedback.setAttribute('role', 'status');
+  copy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText('tmt ops ui');
+      feedback.textContent = 'Copied.';
+    } catch {
+      feedback.textContent = 'Copy failed. Select the command and copy it manually.';
+    }
+  });
+  command.append(el('code', browserUiClasses.commandText, 'tmt ops ui'), copy, feedback);
+  card.append(tile, title, el('p', undefined, options.text), command);
+  return card;
 }
 
 export const keyOf = (agent: OpsAgent): string => `${agent.squad}/${agent.name}`;

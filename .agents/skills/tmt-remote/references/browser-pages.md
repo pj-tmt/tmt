@@ -118,7 +118,9 @@ changed and gives each reason one sentence with what to do; Digest uses the same
 
 `ops-page.ts` owns the section menu and that read lifetime; `ops-agents.ts`,
 `ops-squads.ts` and `ops-timers.ts` render the observed board through shared
-`ops-parts.ts` presentation helpers. Squads shows member cards and delegates its
+`ops-parts.ts` presentation helpers. Ops settings (`ops-settings.ts`) has no browser read: it
+says where the settings are, with the terminal card (`terminalCard`, also Timers' way to manage
+them) and links to the Agents and Squads views. Squads shows member cards and delegates its
 read-only detail dialog to `ops-drawer.ts`. A refresh updates an open detail view;
 an absent agent is reported without retaining stale facts. Dismissal resolves the
 current member button after refresh, with the Squads heading as its focus fallback.
