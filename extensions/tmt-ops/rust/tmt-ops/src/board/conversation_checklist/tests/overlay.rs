@@ -35,7 +35,7 @@ fn read_with(items: Vec<ItemView>) -> (App, Key) {
         .position(|row| matches!(row.target, OpsTarget::Member { .. }))
         .expect("the fixture has a member");
     app.select(index);
-    let key = app.conversation_notes_key().expect("a squad member");
+    let key = app.conversation_checklist_key().expect("a squad member");
     app.notes = State::reading();
     let now = Instant::now();
     let task = app.notes.offer(Some(&key), now).unwrap();
@@ -121,13 +121,107 @@ fn paint(app: &App) -> String {
 }
 
 #[test]
-fn n_is_notes_on_a_member_and_still_creates_a_squad_on_a_squad_row() {
+fn n_is_checklist_on_a_member_and_still_creates_a_squad_on_a_squad_row() {
     let (mut app, _) = read_with(vec![todo(1)]);
-    assert_eq!(app.bindings()["N"].text, "member-notes");
-    assert!(paint(&app).contains("N notes"), "the footer names the verb");
+    assert_eq!(app.bindings()["N"].text, "member-checklist");
+    assert!(
+        paint(&app).contains("N checklist"),
+        "the footer names the verb"
+    );
     app.select(0);
     assert_eq!(app.bindings()["N"].text, "create-squad");
-    assert!(!paint(&app).contains("N notes"));
+    assert!(!paint(&app).contains("N checklist"));
+}
+
+#[test]
+fn checklist_captions_keep_the_held_member_when_the_selection_changes() {
+    for form in [false, true] {
+        let (mut app, key) = read_with(vec![]);
+        if form {
+            app.add_to_notes(note_seed(&app, NoteKind::Todo));
+        } else {
+            press(&mut app, KeyCode::Char('N'));
+            press(&mut app, KeyCode::Char('a'));
+        }
+        app.select(0);
+        assert_ne!(app.conversation_checklist_key().as_ref(), Some(&key));
+        let screen = paint(&app);
+        let title = if form {
+            "Add to checklist · worker"
+        } else {
+            "Checklist · worker · 0 items"
+        };
+        assert!(screen.contains(title), "{screen}");
+        assert!(screen.contains("Title ›"), "{screen}");
+        assert!(screen.contains("Tab title/link"), "{screen}");
+        assert!(!screen.contains("Note ›"), "{screen}");
+        assert_eq!(app.notes_overlay.as_ref().unwrap().key, key);
+    }
+}
+
+#[test]
+fn an_unread_caption_uses_the_frozen_roster_then_an_explicit_uuid_fallback() {
+    let (mut app, key) = read_with(vec![]);
+    app.notes = State::reading();
+    press(&mut app, KeyCode::Char('N'));
+    app.select(0);
+    let screen = paint(&app);
+    assert!(screen.contains("Checklist · worker"), "{screen}");
+    assert!(screen.contains("Reading the checklist…"), "{screen}");
+    let target = OpsTarget::Member {
+        room_id: Some(key.room.clone()),
+        identity_id: key.member().unwrap().into(),
+    };
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .remove(&target);
+    let screen = paint(&app);
+    assert!(screen.contains("Checklist · member 22222222"), "{screen}");
+    assert!(!screen.contains("Checklist · product"), "{screen}");
+}
+
+#[test]
+fn checklist_captions_escape_held_names_and_fit_long_unicode_names() {
+    // Unicode and markup punctuation exercise held user data, not translated UI copy.
+    for name in [
+        "worker <&\" 界",
+        "worker\nnext\u{1b}[31m",
+        &"界".repeat(140),
+    ] {
+        let (mut app, key) = opened(vec![]);
+        app.notes
+            .lists
+            .get_mut(&key)
+            .unwrap()
+            .preview
+            .as_mut()
+            .unwrap()
+            .current
+            .member
+            .as_mut()
+            .unwrap()
+            .name = Some(name.into());
+        let screen = paint(&app);
+        assert!(screen.contains("Checklist · "), "{screen}");
+        if name.chars().count() < 40 {
+            assert!(
+                screen.contains(&crate::board::notes::single_line(name)),
+                "{screen}"
+            );
+        }
+        let overlay = app.notes_overlay.as_ref().unwrap();
+        assert!(
+            overlay.ui.borrow().frame.is_some(),
+            "the escaped title admits a modal"
+        );
+        assert_eq!(overlay.key, key);
+    }
 }
 
 #[test]
@@ -157,7 +251,7 @@ fn clicking_the_chip_opens_the_list_for_the_selected_member() {
 fn the_list_shows_links_then_todos_with_who_and_when_and_esc_closes_it() {
     let (mut app, _) = opened(vec![todo(1), link(2), done(3)]);
     let screen = paint(&app);
-    assert!(screen.contains("Notes · worker · 3 items"), "{screen}");
+    assert!(screen.contains("Checklist · worker · 3 items"), "{screen}");
     let (links, todos) = (screen.find("Links · 1"), screen.find("Todo · 2"));
     assert!(links.is_some() && todos > links, "{screen}");
     assert!(screen.contains("↗ item 2"), "{screen}");
@@ -572,7 +666,7 @@ fn the_counter_counts_items_not_headings_and_an_empty_list_has_none() {
     assert!(!screen.contains("of 7"));
     let (app, _) = opened(vec![]);
     let screen = paint(&app);
-    assert!(screen.contains("No notes yet"), "{screen}");
+    assert!(screen.contains("No items yet"), "{screen}");
     assert!(
         !screen.contains("–1 of 1") && !screen.contains("of 0"),
         "no counter on an empty list\n{screen}"
@@ -581,7 +675,7 @@ fn the_counter_counts_items_not_headings_and_an_empty_list_has_none() {
 
 fn note_seed(app: &App, kind: NoteKind) -> Seed {
     Seed {
-        key: app.conversation_notes_key().unwrap(),
+        key: app.conversation_checklist_key().unwrap(),
         actor: app.view.as_ref().and_then(|view| view.me_id.clone()),
         kind,
         title: "review_the_build".into(),
@@ -602,12 +696,12 @@ fn add_to_notes_prefills_an_editable_link_and_freezes_the_source_in_the_write() 
     let body = seed.source.body();
     app.add_to_notes(seed);
     let screen = paint(&app);
-    assert!(screen.contains("Add to Notes · worker"), "{screen}");
+    assert!(screen.contains("Add to checklist · worker"), "{screen}");
     assert!(screen.contains("Kind   Todo   Link "), "{screen}");
     assert!(screen.contains("Title › review_the_build▏"), "{screen}");
     assert!(screen.contains("From   worker · final"), "{screen}");
     assert!(
-        !screen.contains("No notes yet"),
+        !screen.contains("No items yet"),
         "the add form contains no list"
     );
     type_text(&mut app, " today");
@@ -734,7 +828,7 @@ fn existing_drafts_are_preserved_and_esc_keeps_a_prefilled_source() {
     app.add_to_notes(next);
     assert_eq!(app.notes.draft(&key).unwrap().text(0), first.title);
     assert_eq!(app.notes.draft(&key).unwrap().seed.as_ref(), Some(&first));
-    assert!(paint(&app).contains("Your existing Notes draft is kept"));
+    assert!(paint(&app).contains("Your existing checklist draft is kept"));
 }
 
 #[test]
@@ -752,7 +846,7 @@ fn loading_and_a_replaced_conversation_never_submit_a_seed_to_another_member() {
     app.notes = State::reading();
     app.add_to_notes(seed.clone());
     assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
-    assert!(paint(&app).contains("The Notes have not been read yet"));
+    assert!(paint(&app).contains("The checklist has not been read yet"));
     assert!(!app.notes.draft(&seed.key).unwrap().sent());
 }
 
@@ -893,12 +987,12 @@ fn add_forms_show_their_kind_and_source_at_every_width_and_keep_low_height_maps_
                         .collect::<String>();
                     if height == 36 {
                         assert!(
-                            text.contains("Add to Notes"),
+                            text.contains("Add to checklist"),
                             "{scene} {look:?} {width}: {text}"
                         );
                         assert!(text.contains("Kind "), "{scene} {look:?} {width}: {text}");
                         assert!(text.contains("From "), "{scene} {look:?} {width}: {text}");
-                        assert!(!text.contains("No notes yet"), "the add form has no list");
+                        assert!(!text.contains("No items yet"), "the add form has no list");
                     }
                     let frame = app.notes_overlay.as_ref().unwrap().ui.borrow();
                     assert!(

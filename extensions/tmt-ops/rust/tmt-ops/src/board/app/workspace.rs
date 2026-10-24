@@ -28,7 +28,7 @@ impl Drop for FrameRows<'_> {
 }
 
 impl App {
-    /// Membership publication, not a frame or cursor turn, updates Notes admission.
+    /// Membership publication, not a frame or cursor turn, updates checklist admission.
     pub(in crate::board) fn reconcile_notes_scope(&mut self) {
         let Some(home) = self.view.as_ref().and_then(|view| view.home.as_ref()) else {
             return;
@@ -533,10 +533,10 @@ impl App {
     }
     /// The conversation on screen: the selected member in its squad's room. A member of the
     /// Common pool has no room, so no list.
-    pub(in crate::board) fn conversation_notes_key(
+    pub(in crate::board) fn conversation_checklist_key(
         &self,
-    ) -> Option<crate::board::conversation_notes::Key> {
-        crate::board::conversation_notes::Key::of(self.workspace_selected_member()?)
+    ) -> Option<crate::board::conversation_checklist::Key> {
+        crate::board::conversation_checklist::Key::of(self.workspace_selected_member()?)
     }
     /// Base controls cannot activate behind an overlay, loading frame or active editor.
     pub(in crate::board) fn workspace_strip_enabled(&self) -> bool {

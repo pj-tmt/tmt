@@ -1,4 +1,4 @@
-//! The unsent form of one conversation's Notes: a new note, or an edit of one item. It belongs to
+//! The unsent form of one conversation's checklist: a new note, or an edit of one item. It belongs to
 //! the conversation, not to the overlay, so closing the overlay keeps it.
 use crate::checklist::{Preview, model::Id};
 use tmt_tui::components::Editor;
@@ -133,7 +133,7 @@ impl Draft {
     }
 }
 
-/// An explicit kind for the Add to Notes entry points; ordinary Notes forms retain inference.
+/// An explicit kind for the Add to checklist entry points; ordinary checklist forms retain inference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::board) enum NoteKind {
     Todo,

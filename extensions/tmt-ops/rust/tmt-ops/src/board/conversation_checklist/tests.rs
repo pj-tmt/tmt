@@ -148,20 +148,20 @@ fn references_are_attributes_of_open_and_completed_items_and_archived_counts_now
 #[test]
 fn the_chip_reads_pending_empty_counts_and_unavailable() {
     let counts = |links, todo, done| Some(Summary::Counts(Counts { links, todo, done }));
-    assert_eq!(chip(None), "≡ Notes");
-    assert_eq!(chip(Some(&Summary::Pending)), "≡ Notes");
-    assert_eq!(chip(counts(0, 0, 0).as_ref()), "≡ Notes · empty");
+    assert_eq!(chip(None), "≡ Checklist");
+    assert_eq!(chip(Some(&Summary::Pending)), "≡ Checklist");
+    assert_eq!(chip(counts(0, 0, 0).as_ref()), "≡ Checklist · empty");
     assert_eq!(
         chip(counts(3, 2, 1).as_ref()),
-        "≡ Notes · 3 links · 2 todo · 1 done"
+        "≡ Checklist · 3 links · 2 todo · 1 done"
     );
     assert_eq!(
         chip(counts(1, 1, 0).as_ref()),
-        "≡ Notes · 1 link · 1 todo · 0 done"
+        "≡ Checklist · 1 link · 1 todo · 0 done"
     );
     assert_eq!(
         chip(Some(&Summary::Unavailable("no".into()))),
-        "≡ Notes · unavailable"
+        "≡ Checklist · unavailable"
     );
 }
 
@@ -451,7 +451,7 @@ pub(in crate::board) fn capture_case(
         })
         .expect("the fixture has a member");
     app.select(index);
-    let key = app.conversation_notes_key().expect("a squad member");
+    let key = app.conversation_checklist_key().expect("a squad member");
     if scene == "notes-unavailable" {
         app.notes = State::reading();
         let keys = app
@@ -543,7 +543,7 @@ mod header {
             .position(|row| matches!(row.target, OpsTarget::Member { .. }))
             .expect("the fixture has a member");
         app.select(index);
-        app.conversation_notes_key()
+        app.conversation_checklist_key()
             .expect("a squad member has a conversation")
     }
     fn screen(app: &App) -> String {
@@ -702,7 +702,7 @@ mod header {
         let text = screen(&app);
         assert!(text.lines().next().unwrap().contains("○ 1 todo"), "{text}");
         assert!(
-            text.contains("≡ Notes · 0 links · 1 todo · 1 done"),
+            text.contains("≡ Checklist · 0 links · 1 todo · 1 done"),
             "{text}"
         );
         assert!(
@@ -719,7 +719,7 @@ mod header {
         let key = select_member(&mut app);
         let text = screen(&app);
         assert!(
-            text.contains("≡ Notes"),
+            text.contains("≡ Checklist"),
             "the chip stands before the first read answers\n{text}"
         );
         assert!(
@@ -738,7 +738,7 @@ mod header {
         );
         let text = screen(&app);
         assert!(
-            text.contains("≡ Notes · 3 links · 5 todo · 1 done"),
+            text.contains("≡ Checklist · 3 links · 5 todo · 1 done"),
             "{text}"
         );
     }
@@ -748,18 +748,18 @@ mod header {
         let mut app = board();
         let key = select_member(&mut app);
         answer(&mut app, &key, Ok(Counts::default()));
-        assert!(screen(&app).contains("≡ Notes · empty"));
+        assert!(screen(&app).contains("≡ Checklist · empty"));
 
         let mut app = board();
         let key = select_member(&mut app);
         answer(&mut app, &key, Err("no recorded user".into()));
-        assert!(screen(&app).contains("≡ Notes · unavailable"));
+        assert!(screen(&app).contains("≡ Checklist · unavailable"));
 
         let mut app = board();
         let last = app.workspace_rows().len() - 1;
         app.select(0);
         assert_eq!(
-            app.conversation_notes_key(),
+            app.conversation_checklist_key(),
             None,
             "a squad row shows no member conversation: {:?}",
             app.workspace_rows()[last].target

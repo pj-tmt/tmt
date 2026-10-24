@@ -3259,7 +3259,7 @@ fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() 
                             depth,
                         };
                         let mut app = board();
-                        crate::board::conversation_notes::tests::admit_empty(&mut app);
+                        crate::board::conversation_checklist::tests::admit_empty(&mut app);
                         app.view.as_mut().unwrap().look = look;
                         let snapshot =
                             &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
@@ -3586,7 +3586,7 @@ fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
         ] {
             for selected in [false, true] {
                 let mut app = board();
-                crate::board::conversation_notes::tests::admit_empty(&mut app);
+                crate::board::conversation_checklist::tests::admit_empty(&mut app);
                 app.view.as_mut().unwrap().look = look;
                 let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
                 snapshot.squad_looks.clear();
@@ -4118,9 +4118,9 @@ fn nondefault_layer_caption_changes_only_the_header_and_never_overlaps_attention
                     depth,
                 };
                 let mut default = capture_case("agents", look);
-                crate::board::conversation_notes::tests::admit_empty(&mut default);
+                crate::board::conversation_checklist::tests::admit_empty(&mut default);
                 let mut named = capture_case("agents", look);
-                crate::board::conversation_notes::tests::admit_empty(&mut named);
+                crate::board::conversation_checklist::tests::admit_empty(&mut named);
                 named.view_layer = crate::board::ViewLayer::parse("popup").unwrap();
                 let draw = |app: &App| {
                     let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
@@ -5485,7 +5485,7 @@ fn a_zero_width_state_cell_paints_nothing_and_records_no_area() {
 /// or without a request waiting on the user.
 fn disagreeing_board(waiting: bool, look: crate::look::Look) -> App {
     let mut app = board();
-    crate::board::conversation_notes::tests::admit_empty(&mut app);
+    crate::board::conversation_checklist::tests::admit_empty(&mut app);
     app.view.as_mut().unwrap().look = look;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     snapshot.squad_looks.clear();
@@ -5649,7 +5649,7 @@ fn overview_state_is_as_wide_as_the_widest_cell_of_the_list() {
                 Some(_) => disagreeing_board(false, look),
             };
             app.view.as_mut().unwrap().look = look;
-            crate::board::conversation_notes::tests::admit_empty(&mut app);
+            crate::board::conversation_checklist::tests::admit_empty(&mut app);
             if let Some(task) = task.filter(|task| *task != "blocked") {
                 let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
                 snapshot.roster.squads[0]

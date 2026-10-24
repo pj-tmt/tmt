@@ -66,9 +66,9 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
                 member_ordinal += 1;
             }
             let result = match scene {
-                "todo-unavailable" => Err("Conversation Notes unavailable.".into()),
+                "todo-unavailable" => Err("Conversation checklist unavailable.".into()),
                 _ if task.key.member().is_none() => Ok(Counts::default()),
-                "todo-partial" if ordinal == 1 => Err("Conversation Notes unavailable.".into()),
+                "todo-partial" if ordinal == 1 => Err("Conversation checklist unavailable.".into()),
                 "todo-zero" => Ok(Counts::default()),
                 _ => Ok(Counts {
                     todo: ordinal + 1,
@@ -86,7 +86,7 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
         }
     }
     if scene == "todo-done" {
-        let selected = app.conversation_notes_key().unwrap();
+        let selected = app.conversation_checklist_key().unwrap();
         let task = app.notes.offer(Some(&selected), now).unwrap();
         app.notes.finished(
             reading(
