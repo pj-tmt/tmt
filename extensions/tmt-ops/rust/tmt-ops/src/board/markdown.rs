@@ -216,15 +216,16 @@ impl Renderer<'_> {
         while self.next_file < self.files.len()
             && self.files[self.next_file].range.start < range.end
         {
-            let file = self.files[self.next_file].clone();
-            if at < file.range.start {
-                self.prose(&self.source[at..file.range.start]);
+            let start = self.files[self.next_file].range.start;
+            let end = self.files[self.next_file].range.end;
+            if at < start {
+                self.prose(&self.source[at..start]);
             }
-            if file.range.start >= range.start {
-                self.push_file(file.clone());
+            if start >= range.start {
+                self.push_file(self.files[self.next_file].clone());
             }
-            at = at.max(file.range.end);
-            if file.range.end > range.end {
+            at = at.max(end);
+            if end > range.end {
                 break;
             }
             self.next_file += 1;
@@ -1087,6 +1088,39 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn many_inline_fragments_in_one_filename_keep_one_atomic_reference() {
+        use super::super::member_links::Target;
+        // Lexical references do not stat a path: even a long synthetic filename
+        // must keep its source bytes while its many Markdown events are consumed.
+        let path = format!("/tmp/{}.txt", "a*b*".repeat(512));
+        let token = format!("'{path}'");
+        let source = format!("before {token} after");
+        let mapped = render_conversation_with_members(&source, 80, Look::default(), None);
+        let links: Vec<_> = mapped.mentions.iter().flatten().collect();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].target, Target::File(path));
+        assert_eq!(
+            &source[links[0].source.as_ref().unwrap().source.clone()],
+            token
+        );
+        assert_eq!(
+            mapped
+                .lines
+                .iter()
+                .map(ToString::to_string)
+                .collect::<String>()
+                .matches('⧉')
+                .count(),
+            1
+        );
+        assert!(
+            !style_of(&mapped.lines, "after")
+                .add_modifier
+                .contains(Modifier::ITALIC)
+        );
     }
 
     #[test]
