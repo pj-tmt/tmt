@@ -1206,7 +1206,7 @@ fn pending_hint_retires_on_search_edits_and_commit_but_not_cancel_or_unrelated_k
             "typed" => KeyCode::Char('d'),
             "commit" => KeyCode::Enter,
             "cancel" => KeyCode::Esc,
-            _ => KeyCode::Left,
+            _ => KeyCode::F(12),
         };
         if action == "pasted" {
             input(Some(&mut state), &mut app, None, |app| app.paste("d"));
@@ -1303,6 +1303,126 @@ fn pointer_selection_retires_a_pending_hint_but_hover_keeps_it() {
             }
         );
     }
+}
+
+#[test]
+fn pending_hint_does_not_restore_a_tab_after_navigation_before_the_first_roster() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let scratch = Scratch::new();
+    let mut hint = saved();
+    hint.shell = OpsTab::Digest;
+    hint.selected = Some(OpsTarget::DigestAll);
+    write(&scratch.file(), &hint);
+    let mut state = Session::load(scratch.file(), false, false);
+    let mut app = board();
+    app.view = None;
+    app.shell.tab = OpsTab::Digest;
+    app.workspace.selected = None;
+    assert!(!state.tick(&mut app, Instant::now()).0);
+    input(
+        Some(&mut state),
+        &mut app,
+        Some(KeyCode::Char('1')),
+        |app| app.key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE)),
+    );
+    assert_eq!(app.shell.tab, OpsTab::Agents);
+    assert_eq!(app.workspace.selected, None, "isolate the tab change");
+    app.view = board().view;
+    state.tick(&mut app, Instant::now());
+    assert_eq!(
+        app.shell.tab,
+        OpsTab::Agents,
+        "late hint must not reopen Digest"
+    );
+    assert!(state.hint.is_none());
+}
+
+#[test]
+fn pending_hint_does_not_restore_squad_or_pool_expansion_after_navigation() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut failures = Vec::new();
+    for pool in [false, true] {
+        for expanded in [false, true] {
+            let result = std::panic::catch_unwind(|| {
+                let scratch = Scratch::new();
+                let mut app = board();
+                app.workspace.filter = crate::board::workspace::AgentsFilter::All;
+                app.workspace.selected = Some(if pool {
+                    OpsTarget::Pool
+                } else {
+                    OpsTarget::Squad(ROOM.into())
+                });
+                app.workspace.pool_expanded = expanded;
+                if expanded {
+                    app.workspace.expanded.insert(ROOM.into());
+                } else {
+                    app.workspace.expanded.remove(ROOM);
+                }
+                app.workspace_reconcile();
+                let hint = ViewState::capture(&app).unwrap();
+                write(&scratch.file(), &hint);
+                let mut state = Session::load(scratch.file(), false, false);
+                app.view
+                    .as_mut()
+                    .unwrap()
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .roster
+                    .observation = OpsObservation::Partial;
+                assert!(!state.tick(&mut app, Instant::now()).0);
+                let key = if expanded {
+                    KeyCode::Left
+                } else {
+                    KeyCode::Right
+                };
+                input(Some(&mut state), &mut app, Some(key), |app| {
+                    app.key(KeyEvent::new(key, KeyModifiers::NONE))
+                });
+                assert_eq!(
+                    app.workspace.selected, hint.selected,
+                    "isolate expansion from selection"
+                );
+                assert_eq!(
+                    if pool {
+                        app.workspace.pool_expanded
+                    } else {
+                        app.workspace.expanded.contains(ROOM)
+                    },
+                    !expanded
+                );
+                app.view
+                    .as_mut()
+                    .unwrap()
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .roster
+                    .observation = OpsObservation::Complete;
+                state.tick(&mut app, Instant::now());
+                assert_eq!(
+                    if pool {
+                        app.workspace.pool_expanded
+                    } else {
+                        app.workspace.expanded.contains(ROOM)
+                    },
+                    !expanded,
+                    "late hint must not undo expansion input"
+                );
+                assert!(state.hint.is_none());
+            });
+            eprintln!(
+                "expansion pool={pool} initially_expanded={expanded}: {}",
+                if result.is_ok() { "PASS" } else { "FAIL" }
+            );
+            if result.is_err() {
+                failures.push((pool, expanded));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "expansion overwritten: {failures:?}");
 }
 
 #[test]

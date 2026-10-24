@@ -363,8 +363,9 @@ hints without restoring a selection from another destination. Invalid authored
 startup preferences are ignored with a notice; the original bytes are retained.
 The global Ops Config editor exposes this preference as `startup tab`.
 The first fresh Complete roster applies a pending hint; partial/failed views neither apply
-nor overwrite it. Before that restore, an admitted selection move, search text change or
-search commit retires the pending hint through `view_state::Session`; the person's
+nor overwrite it. Before that restore, an admitted selection move, tab change, squad or
+Common pool expansion change, search text change or search commit retires the pending
+hint through `view_state::Session`; the person's
 navigation wins. Keyboard, paste and pointer input share that decision; worker snapshots,
 paint and hover never retire a hint. No input preserves the ordinary delayed restore.
 Complete-proven removal uses the ordinary cold default; an existing hidden target

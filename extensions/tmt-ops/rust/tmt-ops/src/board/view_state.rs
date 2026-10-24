@@ -460,12 +460,18 @@ impl Session {
         if self.hint.is_none() {
             return apply(app);
         }
-        // Only bounded identity/query values are held, never acquired rows.
+        // Hold only navigation values, never acquired rows.
         let selected = app.workspace.selected.clone();
+        let tab = app.shell.tab;
+        let expanded = app.workspace.expanded.clone();
+        let pool_expanded = app.workspace.pool_expanded;
         let query = app.search.to_string();
         let committing = app.searching && key == Some(ratatui::crossterm::event::KeyCode::Enter);
         let outcome = apply(app);
         if app.workspace.selected != selected
+            || app.shell.tab != tab
+            || app.workspace.expanded != expanded
+            || app.workspace.pool_expanded != pool_expanded
             || app.search.as_str() != query.as_str()
             || committing && !app.searching
         {
