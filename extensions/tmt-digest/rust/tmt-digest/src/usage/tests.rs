@@ -426,6 +426,31 @@ fn every_limit_names_the_provider_of_its_source() {
 }
 
 #[test]
+fn an_old_claude_cache_in_the_closed_seed_reports_its_source_not_the_seats_model() {
+    let (mut totals, series, ids, labels) = one_seat(None);
+    // No series bucket contains this fetch; it predates the requested window.
+    // The seat's tokens are attributed to gpt-6.1-sol by one_seat.
+    totals["identities"][0]["latest"] = json!({"driver":"claude", "consumption": {
+        "rateLimits": {"provider":"claude", "observedAtMs":T - 2 * DAY, "windows":[
+            {"windowMinutes":10_080,"usedPercent":0.5,"resetsAtMs":AS_OF + DAY}]}
+    }});
+    let report = Report {
+        as_of_ms: AS_OF,
+        since: "24h",
+        usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
+        exchange: None,
+        warnings: vec![],
+    };
+    let document = model::document(&report).unwrap();
+    assert_eq!(document["usage"]["seats"][0]["lines"], json!(["gpt"]));
+    assert_eq!(document["limits"][0]["provider"], "claude");
+    assert_eq!(document["limits"][0]["usedPercent"], 0.5);
+    assert_eq!(document["limits"][0]["observedAtMs"], T - 2 * DAY);
+    assert_eq!(document["limits"][0]["stale"], false);
+    assert_eq!(document["limitsUnavailable"], json!([]));
+}
+
+#[test]
 fn windows_of_different_providers_are_never_merged_even_when_length_and_reset_match() {
     let bucket = |provider: &str, used: f64| {
         json!({
@@ -443,8 +468,8 @@ fn windows_of_different_providers_are_never_merged_even_when_length_and_reset_ma
         };
         json!({"identities": [seat(A, first), seat(B, second)]})
     };
-    let totals = document(bucket("codex", 10.0), bucket("other", 20.0));
-    let series = document(bucket("codex", 10.0), bucket("other", 20.0));
+    let totals = document(bucket("codex", 10.0), bucket("claude", 20.0));
+    let series = document(bucket("codex", 10.0), bucket("claude", 20.0));
     let ids = vec![A.to_owned(), B.to_owned()];
     let labels = BTreeMap::from([A, B].map(|id| {
         (
@@ -469,8 +494,8 @@ fn windows_of_different_providers_are_never_merged_even_when_length_and_reset_ma
     let by = |provider: &str| rows.iter().find(|row| row["provider"] == provider).unwrap();
     assert_eq!(by("codex")["usedPercent"], 10.0);
     assert_eq!(by("codex")["seats"], json!([A]));
-    assert_eq!(by("other")["usedPercent"], 20.0);
-    assert_eq!(by("other")["seats"], json!([B]));
+    assert_eq!(by("claude")["usedPercent"], 20.0);
+    assert_eq!(by("claude")["seats"], json!([B]));
 }
 
 #[test]

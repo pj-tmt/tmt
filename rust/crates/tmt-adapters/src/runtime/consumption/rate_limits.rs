@@ -1,7 +1,6 @@
-//! Provider rate-limit windows read from the same Codex `token_count` line as
-//! the counters. They describe the account, not the session, and age with the
-//! line: `observed_at_ms` is the line's own timestamp, never the read time, so
-//! an idle session reports old limits as old.
+//! Provider-neutral account windows. Codex reads its `token_count` line here;
+//! Claude's driver owns its separate cache reader. Both keep the source's own
+//! timestamp, never the read time, so old evidence remains visibly old.
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::{Date, Month};
@@ -92,7 +91,7 @@ pub(super) fn codex(entry: &Value) -> Option<RateLimits> {
 }
 
 /// `YYYY-MM-DDTHH:MM:SS[.fraction]Z`, the only form the rollout writes.
-pub(super) fn timestamp_ms(text: &str) -> Option<u64> {
+pub(crate) fn timestamp_ms(text: &str) -> Option<u64> {
     let bytes = text.as_bytes();
     if bytes.len() < 20
         || (bytes[4], bytes[7], bytes[10], bytes[13], bytes[16]) != (b'-', b'-', b'T', b':', b':')
