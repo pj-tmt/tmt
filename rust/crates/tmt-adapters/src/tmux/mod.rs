@@ -284,7 +284,7 @@ pub struct Tmux<R = UnixCommandRunner> {
 
 enum ServerSelection {
     Ambient,
-    Caller(Result<Option<String>, String>),
+    Caller(Result<String, String>),
     Recorded(String),
 }
 
@@ -308,14 +308,13 @@ impl<R: CommandRunner> Tmux<R> {
         self
     }
 
-    /// Capture scheduling evidence without consulting the process environment later.
+    /// Retain supplied scheduling evidence; absence keeps tmux's default selection.
     pub(crate) fn with_caller(mut self, environment: &CallerEnvironment) -> Self {
-        self.server = ServerSelection::Caller(
-            environment
-                .selected_server_socket()
-                .map(|socket| socket.map(str::to_owned))
-                .map_err(|error| error.to_string()),
-        );
+        self.server = match environment.selected_server_socket() {
+            Ok(Some(socket)) => ServerSelection::Caller(Ok(socket.into())),
+            Ok(None) => ServerSelection::Ambient,
+            Err(error) => ServerSelection::Caller(Err(error.to_string())),
+        };
         self
     }
 
@@ -347,16 +346,15 @@ impl<R: CommandRunner> Tmux<R> {
             ));
         }
         // An operation carrying a recipient/workspace locator owns that selection.
-        // Otherwise the handle's captured caller must not inherit another TMUX.
+        // A captured socket must not inherit another TMUX; absence keeps default selection.
         let selection = if args.first().is_some_and(|arg| arg == "-S" || arg == "-L") {
             Vec::new()
         } else {
             match &self.server {
                 ServerSelection::Ambient => Vec::new(),
-                ServerSelection::Caller(Ok(Some(socket))) | ServerSelection::Recorded(socket) => {
+                ServerSelection::Caller(Ok(socket)) | ServerSelection::Recorded(socket) => {
                     vec!["-S".to_owned(), socket.clone()]
                 }
-                ServerSelection::Caller(Ok(None)) => vec!["-L".into(), "default".into()],
                 ServerSelection::Caller(Err(reason)) => {
                     return Err(TmuxError::refusal(reason.clone()));
                 }

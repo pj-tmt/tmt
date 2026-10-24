@@ -1210,7 +1210,7 @@ fn malformed_captured_caller_sockets_never_reach_a_server() {
 }
 
 #[test]
-fn an_absent_captured_caller_socket_selects_the_default_explicitly() {
+fn an_absent_captured_caller_socket_keeps_default_selection() {
     for tmux in [None, Some("".into())] {
         let runner = CallerRunner::default();
         runner.0.push_output(b"%9\n".to_vec(), vec![]);
@@ -1227,8 +1227,8 @@ fn an_absent_captured_caller_socket_selects_the_default_explicitly() {
             Some("%9")
         );
         assert_eq!(
-            &runner.0.calls.borrow()[0].args[..4],
-            ["-u", "-L", "default", "display-message"]
+            &runner.0.calls.borrow()[0].args[..2],
+            ["-u", "display-message"]
         );
     }
 }

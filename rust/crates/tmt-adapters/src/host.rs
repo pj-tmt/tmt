@@ -549,7 +549,7 @@ impl Host {
 
     /// The host a caller-scoped command runs in: the host whose pane shell is
     /// the caller's nearest ancestor. Its captured tmux locator selects the
-    /// server; without one, tmux's default server is selected explicitly.
+    /// server; without one, tmux keeps its ordinary default selection.
     pub fn for_caller(environment: &CallerEnvironment) -> Self {
         Self::for_caller_with_drivers(environment, UnixCommandRunner, external::approved())
     }
