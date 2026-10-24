@@ -56,15 +56,21 @@ pub(in crate::board) fn capture_case(scene: &str, look: Look) -> App {
         let older = app.pane_output_plan().unwrap();
         app.apply_answer_read(&older, Observation::Unavailable);
     }
+    if matches!(scene, "answer-truncated" | "answer-page-failed") {
+        app.scroll_pane(Pane::Replies, Step::Bottom);
+    }
     app
 }
 
 #[test]
-fn narrow_oracle_scenes_show_the_answer_state_in_the_focused_chat() {
+fn every_oracle_scene_shows_its_answer_state_at_all_capture_widths() {
     let _no_commands = crate::runner::forbid_commands();
-    for scene in SCENES {
+    for (scene, width) in SCENES
+        .into_iter()
+        .flat_map(|scene| [160, 100, 80, 60].map(|width| (scene, width)))
+    {
         let mut app = capture_case(scene, Look::default());
-        let mut terminal = Terminal::new(TestBackend::new(60, 36)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
         terminal
             .draw(|frame| {
                 crate::board::view::prepare(&mut app, frame.area());
@@ -87,7 +93,7 @@ fn narrow_oracle_scenes_show_the_answer_state_in_the_focused_chat() {
             "answer-page-failed" => "Older answers unavailable",
             _ => "Retained answer 0",
         };
-        assert!(text.contains(expected), "{scene}: {text}");
+        assert!(text.contains(expected), "{scene} at {width}: {text}");
     }
 }
 
