@@ -71,6 +71,25 @@ pub fn grammar() -> Command {
                 )
                 .arg(option("assignee", "UUID", "Filter an exact assignee UUID")),
         )
+        .subcommand(
+            room(build(specs::CHECKLIST_EVENTS))
+                .arg(
+                    option(
+                        "after",
+                        "CURSOR",
+                        "Last event id already seen; 0 reads from the beginning",
+                    )
+                    .allow_negative_numbers(true),
+                )
+                .arg(
+                    option(
+                        "limit",
+                        "COUNT",
+                        "At most this many events, 1 to 500 (default 100)",
+                    )
+                    .allow_negative_numbers(true),
+                ),
+        )
         .subcommand(item(build(specs::CHECKLIST_SHOW)))
         .subcommand(
             item(build(specs::CHECKLIST_CREATE))
@@ -182,6 +201,7 @@ pub struct ChecklistCommand {
 }
 enum Operation {
     List(Filter),
+    Events { after: u64, limit: u64 },
     Show { item_id: Id },
     Apply(Action),
 }
@@ -212,6 +232,25 @@ fn positive(matches: &ArgMatches, name: &str) -> Result<u64, Error> {
         .ok()
         .filter(|revision| *revision > 0)
         .ok_or_else(|| invalid("Revisions must be positive decimal integers within u64."))
+}
+/// How many events a read returns when `--limit` is absent.
+const DEFAULT_PAGE: u64 = 100;
+/// A decimal count in `min..=max`, or `default` when the flag is absent.
+fn count(matches: &ArgMatches, name: &str, default: u64, min: u64, max: u64) -> Result<u64, Error> {
+    let Some(value) = text(matches, name) else {
+        return Ok(default);
+    };
+    value
+        .bytes()
+        .all(|byte| byte.is_ascii_digit())
+        .then(|| value.parse::<u64>().ok())
+        .flatten()
+        .filter(|number| (min..=max).contains(number))
+        .ok_or_else(|| {
+            invalid(&format!(
+                "--{name} must be a decimal integer from {min} to {max}."
+            ))
+        })
 }
 fn optional_id(matches: &ArgMatches, name: &str) -> Result<Option<Id>, Error> {
     text(matches, name).map(Id::parse).transpose()
@@ -246,6 +285,18 @@ pub fn parse(parent: &ArgMatches) -> Result<ChecklistCommand, Error> {
                 }),
                 assignee: optional_id(flags, "assignee")?,
             }),
+        });
+    }
+    if name == "events" {
+        return Ok(ChecklistCommand {
+            room_id,
+            member,
+            checklist_id: None,
+            action: "events",
+            operation: Operation::Events {
+                after: count(flags, "after", 0, 0, u64::MAX)?,
+                limit: count(flags, "limit", DEFAULT_PAGE, 1, checklist::events::MAX_PAGE)?,
+            },
         });
     }
     let checklist_id = optional_id(flags, "checklist")?;
@@ -386,6 +437,14 @@ fn execute(
                 json!({"action":action,"current":current(&listed.current),"totalCount":listed.total_count,"matchedCount":listed.current.items.len()}),
             )
         }
+        Operation::Events { after, limit } => {
+            let page = service.events(after, limit)?;
+            Ok(json!({"action":action,"roomId":service.room_id().as_str(),
+                "events":page.events.iter().map(|event| json!({"id":event.id,"roomId":event.room_id,"memberId":event.member_id,
+                    "checklistId":event.checklist_id,"itemId":event.item_id,"actorId":event.actor_id,"atMs":event.at_ms,
+                    "action":event.action,"revision":event.revision})).collect::<Vec<_>>(),
+                "nextCursor":page.next_cursor,"more":page.more,"gap":page.gap.map(checklist::events::Gap::as_str)}))
+        }
         Operation::Show { item_id } => {
             let checklist_id =
                 checklist_id.ok_or_else(|| invalid("A checklist UUID is required."))?;
@@ -496,6 +555,9 @@ fn display(value: &Value) -> String {
 pub fn text_output(document: &Value, terminal: Terminal) -> String {
     if document.get("error").is_some() {
         return String::new();
+    }
+    if document["action"] == "events" {
+        return events_output(document, terminal);
     }
     let view = &document["current"];
     let mut out = Vec::new();
@@ -608,6 +670,54 @@ pub fn text_output(document: &Value, terminal: Terminal) -> String {
             );
         }
     }
+    String::from_utf8(out).expect("checklist output is UTF-8")
+}
+
+fn events_output(document: &Value, terminal: Terminal) -> String {
+    let mut out = Vec::new();
+    let mut rows = Table::new(&[
+        Column::Fixed,
+        Column::Fixed,
+        Column::Fixed,
+        Column::Detail,
+        Column::Fixed,
+    ]);
+    for event in document["events"].as_array().into_iter().flatten() {
+        rows.row([
+            Cell::from(display(&event["id"])),
+            Cell::from(display(&event["action"])),
+            Cell::from(format!("r{}", display(&event["revision"]))),
+            Cell::from(display(&event["itemId"])),
+            Cell::styled(
+                format!(
+                    "{} at {}",
+                    display(&event["actorId"]),
+                    display(&event["atMs"])
+                ),
+                Token::Dim,
+            ),
+        ]);
+    }
+    let note = match document["gap"].as_str() {
+        Some("legacy") => Some("Changes made before the log existed are not listed.".to_owned()),
+        Some("pruned") => Some("Retention removed events after this cursor.".to_owned()),
+        _ if document["more"] == true => Some(format!(
+            "More events follow; ask again with --after {}.",
+            display(&document["nextCursor"])
+        )),
+        _ if document["events"].as_array().is_some_and(Vec::is_empty) => {
+            Some("No events after this cursor.".to_owned())
+        }
+        _ => None,
+    };
+    let _ = Section {
+        title: &format!("CHECKLIST EVENTS {}", display(&document["roomId"])),
+        count: document["events"].as_array().map(Vec::len),
+        rows,
+        note: note.as_deref(),
+        hint: None,
+    }
+    .write(&mut out, terminal);
     String::from_utf8(out).expect("checklist output is UTF-8")
 }
 

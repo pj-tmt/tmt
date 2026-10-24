@@ -625,3 +625,45 @@ fn title_only_create_normalizes_empty_optional_body_before_publication() {
 }
 
 mod conversation;
+
+#[test]
+fn the_log_names_the_admitted_caller_and_reading_it_changes_nothing() {
+    let f = Fixture::new();
+    let service = f.service();
+    // An absent store reads empty and creates nothing.
+    let page = service.events(0, 100).unwrap();
+    assert!(page.events.is_empty() && page.gap.is_none());
+    assert!(!f.root.join("ops").exists());
+
+    service
+        .apply(&create(ITEM, InventoryExpectation::Absent, None))
+        .unwrap();
+    f.manager()
+        .apply(&mutate(ITEM, 1, Mutation::Complete))
+        .unwrap();
+    let before = f.bytes();
+    let page = service.events(0, 100).unwrap();
+    assert_eq!(
+        page.events
+            .iter()
+            .map(|e| (e.action.as_str(), e.actor_id.as_str(), e.revision))
+            .collect::<Vec<_>>(),
+        [("add", WORKER, 1), ("complete", LEAD, 2)]
+    );
+    assert_eq!(f.bytes(), before);
+    assert_eq!(f.model()["requests"], json!(["unchanged request"]));
+
+    // A conversation list logs under its own key, naming its member.
+    let notes = f.conversation(WORKER);
+    notes
+        .apply(&conversation_create(
+            &notes,
+            OTHER,
+            InventoryExpectation::Absent,
+        ))
+        .unwrap();
+    let own = notes.events(0, 100).unwrap();
+    assert_eq!(own.events.len(), 1);
+    assert_eq!(own.events[0].member_id.as_deref(), Some(WORKER));
+    assert_eq!(service.events(0, 100).unwrap().events.len(), 2);
+}

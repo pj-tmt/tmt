@@ -433,7 +433,7 @@ own module/drawing boundaries and verification.
   authority, acquisition limits and binding effects. Successful public refresh
   selects the returned UUID through the workspace projection.
 - **Checklist.** `checklist_command` uses the existing caller/room admission and
-  versioned room-UUID JSON in `ops.db`. Reads create no files;
+  versioned room-UUID JSON in `ops.db`, with a mutation log committed in the same transaction. Reads create no files;
   failed prepublication preserves bytes; uncertainty remains Unknown after
   readback. The board consumes the same typed service.
 - **Contracts.** The [embedded skill](extensions/tmt-ops/skills/tmt-ops/SKILL.md)

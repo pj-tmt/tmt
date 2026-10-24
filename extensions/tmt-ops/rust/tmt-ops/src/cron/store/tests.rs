@@ -479,9 +479,15 @@ fn a_newer_database_and_an_unsafe_database_path_refuse_without_changing_anything
     store.update(|jobs| jobs.insert(job("product"))).unwrap();
     let before = f.stored();
     // A newer Ops appended a migration this binary does not know.
+    let known: i64 = f
+        .database()
+        .query_row("SELECT COUNT(*) FROM _tmt_state_migrations", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
     f.database()
         .execute(
-            "INSERT INTO _tmt_state_migrations(version, name, sql) VALUES(2, 'later', 'SELECT 1')",
+            "INSERT INTO _tmt_state_migrations(version, name, sql) SELECT MAX(version) + 1, 'later', 'SELECT 1' FROM _tmt_state_migrations",
             [],
         )
         .unwrap();
@@ -501,7 +507,8 @@ fn a_newer_database_and_an_unsafe_database_path_refuse_without_changing_anything
             row.get(0)
         })
         .unwrap();
-    assert_eq!(versions, 2);
+    // Refusing it recorded and removed nothing.
+    assert_eq!(versions, known + 1);
 
     // A link in place of the database is never followed.
     let foreign = f.0.join("foreign");

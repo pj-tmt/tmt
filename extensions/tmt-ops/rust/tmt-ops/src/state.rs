@@ -33,10 +33,39 @@ const NAME: &str = "ops.db";
 const FILES: &[&str] = &[NAME];
 /// The one step a busy refusal offers; Ops never retries a change on its own.
 pub const BUSY_RETRY: &str = "Run the same command again.";
-const MIGRATIONS: &[Migration<'static>] = &[Migration {
-    name: "documents",
-    sql: "CREATE TABLE documents(kind TEXT NOT NULL, key TEXT NOT NULL, body BLOB NOT NULL, PRIMARY KEY(kind, key)) WITHOUT ROWID;",
-}];
+const MIGRATIONS: &[Migration<'static>] = &[
+    Migration {
+        name: "documents",
+        sql: "CREATE TABLE documents(kind TEXT NOT NULL, key TEXT NOT NULL, body BLOB NOT NULL, PRIMARY KEY(kind, key)) WITHOUT ROWID;",
+    },
+    // The checklist mutation log (#4882). `checklist_key` is the document's slot key. `id` never
+    // repeats (AUTOINCREMENT), so it is a cursor that survives pruning. The floor says what a
+    // list lost: `legacy` for mutations made before the log existed (every list that already
+    // has a document), `pruned_through` for the newest id retention removed.
+    Migration {
+        name: "checklist_events",
+        sql: "CREATE TABLE checklist_events(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                checklist_key TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                member_id TEXT,
+                checklist_id TEXT NOT NULL,
+                item_id TEXT,
+                actor_id TEXT NOT NULL,
+                at_ms INTEGER NOT NULL,
+                action TEXT NOT NULL CHECK(action IN ('add','edit','assign','unassign','complete','reopen','archive','restore','delete','reorder')),
+                revision INTEGER NOT NULL
+            );
+            CREATE INDEX checklist_events_by_list ON checklist_events(checklist_key, id);
+            CREATE INDEX checklist_events_by_room ON checklist_events(room_id, id);
+            CREATE TABLE checklist_event_floor(
+                checklist_key TEXT PRIMARY KEY,
+                legacy INTEGER NOT NULL CHECK(legacy IN (0, 1)),
+                pruned_through INTEGER NOT NULL DEFAULT 0
+            ) WITHOUT ROWID;
+            INSERT INTO checklist_event_floor(checklist_key, legacy) SELECT key, 1 FROM documents WHERE kind = 'checklist';",
+    },
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cause {
@@ -206,16 +235,24 @@ impl Database {
         slot: &Slot,
         decode: impl FnOnce(Option<&[u8]>) -> Result<T, E>,
     ) -> Result<T, StateFailure<E>> {
-        let stored = self
+        let mut stored = self
             .store
             .read(|transaction| select(transaction, slot))
             .map_err(sql_refusal)?;
-        if stored.is_none() && exists(&slot.legacy)? {
-            return self.update(
-                slot,
-                |bytes| decode(bytes).map(|value| (None, value)),
-                |_| Ok(()),
-            );
+        if stored.is_none() {
+            if exists(&slot.legacy)? {
+                return self.update(
+                    slot,
+                    |bytes| decode(bytes).map(|value| (None, value)),
+                    |_, _| Ok(()),
+                );
+            }
+            // Another process may have imported the file and archived it after the snapshot
+            // above: it commits the row before the rename, so a second look finds it.
+            stored = self
+                .store
+                .read(|transaction| select(transaction, slot))
+                .map_err(sql_refusal)?;
         }
         let value = decode(stored.as_deref()).map_err(StateFailure::Change)?;
         if stored.is_some() {
@@ -224,14 +261,23 @@ impl Database {
         Ok(value)
     }
 
+    /// Read through one query-only snapshot, for rows that live beside the documents.
+    pub fn snapshot<T>(
+        &mut self,
+        read: impl FnOnce(&Transaction<'_>) -> rusqlite::Result<T>,
+    ) -> Result<T, Refusal> {
+        self.store.read(read).map_err(sql_refusal)
+    }
+
     /// Replace the slot's document. `change` sees the current bytes (or the legacy file's
     /// on first use) and returns the new bytes, `None` for no change, and its result.
-    /// `before_commit` then runs inside the transaction: its refusal rolls the change back.
+    /// `before_commit` then runs inside the transaction, with the transaction: its refusal
+    /// rolls the change back, and what it writes commits with the document or not at all.
     pub fn update<T, E>(
         &mut self,
         slot: &Slot,
         change: impl FnOnce(Option<&[u8]>) -> Result<(Option<Vec<u8>>, T), E>,
-        before_commit: impl FnOnce(&T) -> Result<(), E>,
+        before_commit: impl FnOnce(&T, &Transaction<'_>) -> Result<(), E>,
     ) -> Result<T, StateFailure<E>> {
         let outcome = self.store.write(|transaction| {
             let stored = select(transaction, slot)?;
@@ -257,7 +303,7 @@ impl Database {
                     params![slot.kind, slot.key, bytes],
                 )?;
             }
-            before_commit(&value).map_err(Step::Change)?;
+            before_commit(&value, transaction).map_err(Step::Change)?;
             Ok(value)
         });
         let value = match outcome {

@@ -50,6 +50,13 @@ pub const CHECKLIST_LS: &CommandSpec = spec!(
     ["Read an exact room" => "tmt ops squad checklist ls --room 44444444-4444-4444-8444-444444444444"]
 );
 
+pub const CHECKLIST_EVENTS: &CommandSpec = spec!(
+    "events", "Read what changed in a checklist, oldest first",
+    details = "One row per applied change: who, when, what and the resulting revision, never a title or body. --after takes the last event id already seen (0 reads from the beginning); `nextCursor` is the id to pass next. `gap` says history before the cursor may be missing: `legacy` for changes made before the log existed, `pruned` for events retention removed (30 days or the newest 1000 per room).",
+    ["Read the log from the beginning" => "tmt ops squad checklist events --room 44444444-4444-4444-8444-444444444444",
+     "Continue after the last event seen" => "tmt ops squad checklist events --room 44444444-4444-4444-8444-444444444444 --after 12"]
+);
+
 pub const CHECKLIST_SHOW: &CommandSpec = spec!(
     "show", "Show one exact checklist item",
     ["Inspect one item" => "tmt ops squad checklist show --room 44444444-4444-4444-8444-444444444444 --checklist 55555555-5555-4555-8555-555555555555 --item 66666666-6666-4666-8666-666666666666"]
