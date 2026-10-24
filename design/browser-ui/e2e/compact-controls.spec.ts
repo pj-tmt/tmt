@@ -36,7 +36,23 @@ for (const width of [1440, 390])
       }
       const action = page.getByRole('button', { name: 'New page', exact: true });
       const box = await action.boundingBox();
-      expect(box!.width).toBeCloseTo(width === 390 ? 96.78125 : 111.609375, 1);
+      // Natural text width follows the platform system font, as on the website.
+      // Assert the adjacent mark/label geometry rather than one machine's glyph widths.
+      const layout = await action.evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        const mark = node.querySelector('.tmt-ui-action-mark')!.getBoundingClientRect();
+        const label = node.querySelector('.tmt-ui-action-label')!.getBoundingClientRect();
+        return {
+          left: mark.left - box.left,
+          gap: label.left - mark.right,
+          right: box.right - label.right,
+          mark: mark.width,
+        };
+      });
+      expect(layout.mark).toBe(17);
+      expect(layout.gap).toBeCloseTo(8, 1);
+      expect(layout.left).toBeCloseTo(width === 390 ? 11 : 14, 1);
+      expect(layout.right).toBeCloseTo(width === 390 ? 11 : 14, 1);
       expect(box!.height).toBe(width === 390 ? 35 : 37);
       const frames = await focusFrames(page, '#compact-controls');
       expect(frames.clipped).toEqual([]);
