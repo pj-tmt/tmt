@@ -112,7 +112,7 @@ function guardEscapeFocus(document: Document) {
 /** Internal binding shared by icon renderers; activation and its busy fence stay with the caller. */
 export function bindIconActionTooltip(
   wrapper: HTMLElement,
-  button: HTMLButtonElement,
+  button: HTMLElement,
   tooltip: HTMLElement,
 ) {
   const document = button.ownerDocument;

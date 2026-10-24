@@ -1353,5 +1353,6 @@ mod through_the_driver {
         );
     }
 
+    mod discovery;
     mod nested;
 }

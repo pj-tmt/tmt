@@ -100,6 +100,9 @@ pub struct DiscoveryCandidate {
     pub title: String,
     pub command: String,
     pub cwd: String,
+    /// The host's untrusted agent name: display only, never evidence and
+    /// never copied into an identity.
+    pub agent_name: Option<String>,
     pub fence: Option<DiscoveryTarget>,
     /// Stored evidence only; fresh verification is required to call it known.
     pub identity: Option<BindingEntry>,
@@ -107,6 +110,16 @@ pub struct DiscoveryCandidate {
     pub reason: Option<&'static str>,
     pub duplicate: bool,
     pub text_truncated: bool,
+}
+
+/// `value` cut to [`MAX_DISPLAY_BYTES`] on a character boundary, and whether
+/// it was cut.
+pub fn display_text(value: &str) -> (String, bool) {
+    let mut end = value.len().min(MAX_DISPLAY_BYTES);
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    (value[..end].into(), end != value.len())
 }
 
 impl DiscoveryCandidate {

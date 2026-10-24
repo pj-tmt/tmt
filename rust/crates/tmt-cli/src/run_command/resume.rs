@@ -94,6 +94,49 @@ fn resume_failure(code: &'static str, message: String, name: &str) -> Failure {
     )
 }
 
+/// A session that is gone, unreadable or stale can still hand its identity's
+/// notes and open requests to a fresh session of the same driver.
+fn session_failure(message: String, name: &str) -> Failure {
+    Failure::new(
+        "RESUME_UNAVAILABLE",
+        format!(
+            "{message} Start fresh from its notes: tmt resume --new -- {}",
+            crate::output::shell_word(name)
+        ),
+        1,
+    )
+}
+
+/// `--new` keeps the identity and starts the remembered session's driver, else
+/// the preferred one, with a fresh session. The remembered record stays until
+/// the new session's start hook replaces it, so a failed launch keeps it.
+fn fresh_command(
+    registry: &mut RuntimeRegistry,
+    name: &str,
+    preferences: &SessionPreferences,
+) -> Result<Launch, Failure> {
+    let command = preferences
+        .remembered
+        .as_ref()
+        .map(|session| &session.harness)
+        .or(preferences.preferred_harness.as_ref())
+        .and_then(|harness| registry.relaunch(harness))
+        .ok_or_else(|| {
+            Failure::new(
+                "RESUME_UNAVAILABLE",
+                format!(
+                    "{name} has no remembered driver to start fresh. Launch a command with: tmt run -- {} <command>",
+                    crate::output::shell_word(name)
+                ),
+                1,
+            )
+        })?;
+    Ok(Launch {
+        command,
+        resumed: None,
+    })
+}
+
 /// A session the provider no longer keeps, or keeps where TMT may not read it,
 /// is refused before launch. `Unknown` and `Present` resume as before (#4062).
 fn unrecoverable(
@@ -117,7 +160,7 @@ fn unrecoverable(
         ),
         SessionPresence::Present | SessionPresence::Unknown => return None,
     };
-    Some(resume_failure("RESUME_UNAVAILABLE", message, name).with_reason(reason))
+    Some(session_failure(message, name).with_reason(reason))
 }
 
 /// Only the driver's own executable is known to keep its sessions in the
@@ -197,6 +240,9 @@ fn select_command_in(
             resumed: None,
         });
     };
+    if resume.fresh {
+        return fresh_command(registry, name, preferences);
+    }
     if let Some(driver) = resume.driver {
         let harness = tmt_core::binding::session::HarnessId::new(driver).map_err(|_| {
             Failure::new(
@@ -267,8 +313,7 @@ fn select_command_in(
             ).suggestion(format!("To try the selected driver's session once more, run: {retry}"))
             .with_reason("session_stale"));
         }
-        return Err(resume_failure(
-            "RESUME_UNAVAILABLE",
+        return Err(session_failure(
             format!(
                 "{name}'s remembered {harness} session looked gone when it was last resumed. Forget it with: tmt resume --forget {name}; try it once more with: tmt resume --retry {name}."
             ),
@@ -426,6 +471,16 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         "{message} Start fresh with: tmt run {name}",
         &[""],
         &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "{message} Start fresh from its notes: tmt resume --new -- {}",
+        &[""],
+        &[("{}", "worker")],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "{name} has no remembered driver to start fresh. Launch a command with: tmt run -- {} <command>",
+        &[""],
+        &[("{}", "worker"), ("<command>", "claude")],
     ),
     crate::cli_style_tests::HintSpec::core(
         "{name}'s remembered {harness} session is gone or expired: {harness} no longer keeps its transcript. If it still exists elsewhere, try it once more with: tmt resume --retry {name}.",
@@ -709,6 +764,7 @@ mod presence_tests {
                     driver: None,
                     retry,
                     move_running,
+                    fresh: false,
                 }),
                 save: false,
                 options: &Default::default(),
@@ -747,7 +803,7 @@ mod presence_tests {
         assert!(message.contains("gone or expired"), "{message}");
         assert!(message.contains("tmt resume --retry Ann"), "{message}");
         assert!(
-            message.ends_with("Start fresh with: tmt run Ann"),
+            message.ends_with("Start fresh from its notes: tmt resume --new -- Ann"),
             "{message}"
         );
         // A stale mark does not hide the more exact reason.
@@ -840,5 +896,154 @@ mod presence_tests {
             refusal(select_with(&home, false, false, false, Some(&other))).1,
             "session_missing"
         );
+    }
+
+    fn select_fresh(home: &Home, preferences: &SessionPreferences) -> Result<Launch, Failure> {
+        select_command_in(
+            &mut RuntimeRegistry::first_party(),
+            RunRequest {
+                name: "Ann",
+                command: &[],
+                resume: Some(super::super::Resume {
+                    driver: None,
+                    retry: false,
+                    move_running: false,
+                    fresh: true,
+                }),
+                save: false,
+                options: &Default::default(),
+                channel: crate::invocation::ChannelMode::Default,
+            },
+            preferences,
+            None,
+            Some(&home.environment()),
+        )
+    }
+
+    fn fresh(result: Result<Launch, Failure>) {
+        let launch = result.expect("--new launches the driver fresh");
+        assert!(launch.resumed.is_none());
+        assert_eq!(launch.command.executable, OsString::from("claude"));
+        assert!(
+            !launch.command.args.iter().any(|arg| arg == "--resume"),
+            "{:?}",
+            launch.command.args
+        );
+    }
+
+    #[test]
+    fn new_starts_the_remembered_driver_fresh_without_the_probe_or_stale_check() {
+        // The caller's tree exists and lacks the session file: gone.
+        let home = Home::new("fresh");
+        fresh(select_fresh(&home, &preferences(false)));
+        fresh(select_fresh(&home, &preferences(true)));
+    }
+
+    #[test]
+    fn new_without_a_remembered_session_uses_the_preferred_driver() {
+        let home = Home::new("fresh-none");
+        let mut preferences = preferences(false);
+        preferences.remembered = None;
+        fresh(select_fresh(&home, &preferences));
+        preferences.preferred_harness = None;
+        let (code, _, message) = refusal(select_fresh(&home, &preferences));
+        assert_eq!(code, "RESUME_UNAVAILABLE");
+        assert!(message.contains("no remembered driver"), "{message}");
+        assert!(message.contains("tmt run -- Ann <command>"), "{message}");
+    }
+
+    #[test]
+    fn a_gone_unreadable_or_stale_session_offers_a_fresh_start_from_the_notes() {
+        let home = Home::new("offer");
+        let (_, _, missing) = refusal(select(&home, false, false));
+        fs::write(home.session_file(), b"{}\n").unwrap();
+        let (_, _, stale) = refusal(select(&home, false, true));
+        fs::set_permissions(home.session_file(), fs::Permissions::from_mode(0o000)).unwrap();
+        let (_, _, unreadable) = refusal(select(&home, false, false));
+        for message in [missing, stale, unreadable] {
+            assert!(
+                message.ends_with("Start fresh from its notes: tmt resume --new -- Ann"),
+                "{message}"
+            );
+        }
+    }
+
+    /// A printed hint must parse back to the same identity, whatever its name.
+    fn parsed_hint(hint: &str) -> crate::invocation::Invocation {
+        let argv = tmt_cli_style::Example {
+            command: Box::leak(hint.to_owned().into_boxed_str()),
+            note: "printed hint",
+        }
+        .argv()
+        .unwrap();
+        crate::parser::parse(&argv[1..].iter().map(OsString::from).collect::<Vec<_>>())
+            .unwrap_or_else(|error| panic!("{hint}: {}", error.message))
+            .invocation
+    }
+
+    #[test]
+    fn the_fresh_start_hints_quote_the_name_and_parse() {
+        let name = "-Saved agent";
+        let failure = session_failure("Gone.".into(), name);
+        let hint = failure
+            .message
+            .split("Start fresh from its notes: ")
+            .nth(1)
+            .unwrap();
+        assert_eq!(hint, "tmt resume --new -- '-Saved agent'");
+        match parsed_hint(hint) {
+            crate::invocation::Invocation::Resume {
+                fresh,
+                name: Some(parsed),
+                ..
+            } => {
+                assert!(fresh);
+                assert_eq!(parsed, name);
+            }
+            other => panic!("{hint}: {other:?}"),
+        }
+        let mut preferences = preferences(false);
+        preferences.remembered = None;
+        preferences.preferred_harness = None;
+        let home = Home::new("fresh-hint");
+        let refused = select_command_in(
+            &mut RuntimeRegistry::first_party(),
+            RunRequest {
+                name,
+                command: &[],
+                resume: Some(super::super::Resume {
+                    driver: None,
+                    retry: false,
+                    move_running: false,
+                    fresh: true,
+                }),
+                save: false,
+                options: &Default::default(),
+                channel: crate::invocation::ChannelMode::Default,
+            },
+            &preferences,
+            None,
+            Some(&home.environment()),
+        )
+        .err()
+        .unwrap();
+        let hint = refused
+            .message
+            .split("Launch a command with: ")
+            .nth(1)
+            .unwrap()
+            .replace("<command>", "claude");
+        assert_eq!(hint, "tmt run -- '-Saved agent' claude");
+        match parsed_hint(&hint) {
+            crate::invocation::Invocation::Run {
+                name: parsed,
+                command,
+                ..
+            } => {
+                assert_eq!(parsed, name);
+                assert_eq!(command, [OsString::from("claude")]);
+            }
+            other => panic!("{hint}: {other:?}"),
+        }
     }
 }

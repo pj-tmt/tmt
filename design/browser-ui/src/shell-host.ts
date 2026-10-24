@@ -10,6 +10,8 @@ import {
   type ShellMenu,
   type ShellModule,
   type ShellTools,
+  type ShellCommonControls,
+  type ShellTopBar,
 } from './shell.js';
 import { createBusyMark } from './static.js';
 
@@ -21,6 +23,8 @@ import { createBusyMark } from './static.js';
 
 /** What a route module receives: its part of the one shell. */
 export interface ShellSlot {
+  /** Adopt the root's common bar; only this route's action slot is exposed. */
+  setTopBar(): ShellTopBar;
   /** The content area; the module owns its children until it unmounts. */
   readonly main: HTMLElement;
   /** The header slot (`.tmt-ui-shell-bar`); the module renders its one header here. */
@@ -66,6 +70,8 @@ export interface ShellRoute {
 }
 
 export interface ShellHost {
+  /** Common controls belong to the app root, not its route modules. */
+  setCommonControls(options: ShellCommonControls | undefined): void;
   navigate(href: string, options?: { replace?: boolean }): void;
   /** Read the composed shell again (after the page reopened its session) and repaint the rail. */
   redescribe(): Promise<ShellAnswer | undefined>;
@@ -176,6 +182,7 @@ export function startShellHost(
   let settled = false;
   const listeners: ((answer: ShellAnswer | undefined) => void)[] = [];
   let generation = 0;
+  let disposed = false;
 
   const place = () => ({
     origin: window.location.origin,
@@ -207,6 +214,10 @@ export function startShellHost(
     main,
     bar,
     tools: controls.tools,
+    setTopBar: () =>
+      current?.generation === mine
+        ? controls.setTopBar()
+        : { actions: document.createElement('div') },
     basePath: route.paths.at(-1)!,
     answer: () => answer,
     setMenu(next, handler) {
@@ -254,11 +265,13 @@ export function startShellHost(
   }
 
   async function show() {
+    if (disposed) return;
     const route = matchRoute(routes, window.location.pathname);
     if (!route) return elsewhere();
     remember(undefined);
     if (current?.route === route) return paint();
     current?.release?.();
+    controls.clearTopBar();
     const mine = ++generation;
     current = { route, generation: mine };
     menu = undefined;
@@ -285,12 +298,12 @@ export function startShellHost(
         answer,
         () => new Promise((resolve) => (settled ? resolve(answer) : listeners.push(resolve))),
       );
-      if (current.generation !== mine) return;
+      if (current?.generation !== mine) return;
       const release = await module.mount(slot(route, mine));
-      if (current.generation !== mine) return release?.();
+      if (current?.generation !== mine) return release?.();
       current.release = release ?? undefined;
     } catch (error) {
-      if (current.generation !== mine) return;
+      if (current?.generation !== mine) return;
       main.replaceChildren();
       options.failed?.(main, route, error);
     }
@@ -298,6 +311,7 @@ export function startShellHost(
 
   /** Same-origin URL this app owns: change the history entry and show its route. */
   function go(href: string, { replace = false } = {}): boolean {
+    if (disposed) return false;
     const url = linkTo(href);
     if (url.origin !== window.location.origin || !matchRoute(routes, url.pathname)) return false;
     // A fragment on the same page is the page's own (a module section): the browser moves it and
@@ -340,9 +354,11 @@ export function startShellHost(
   window.addEventListener('popstate', popstate);
   void show();
   return {
+    setCommonControls: controls.setCommonControls,
     navigate: (href, options) => void go(href, options),
     redescribe: () =>
       new Promise((resolve) => {
+        if (disposed) return resolve(undefined);
         asked = false;
         settled = false;
         listeners.push(resolve);
@@ -350,10 +366,15 @@ export function startShellHost(
       }),
     route: (pathname) => matchRoute(routes, pathname),
     dispose() {
+      if (disposed) return;
+      disposed = true;
+      ++generation;
       loading.remove();
       document.removeEventListener('click', click);
       window.removeEventListener('popstate', popstate);
       current?.release?.();
+      current = undefined;
+      for (const listener of listeners.splice(0)) listener(undefined);
       controls.dispose();
     },
   };

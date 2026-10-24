@@ -122,7 +122,37 @@ wrapper and retain width limits, layout and scrolling. Page titles are 37px/720
 
 ## Controlled input contracts
 
-Header has one h1. Optional `leading`, `headingPrefix` and `headingSuffix` slots place
+### Shared top bar
+
+The shell offers an opt-in shared top bar through the existing `./shell`, `./shell-host`
+and `./react` entries. The root installs `ShellControls.setCommonControls({ openSearch, remote })`;
+`ShellHost` delegates that setter, and `BrowserShell` accepts `commonControls`. These bindings
+belong to the root, never a route module. A route calls `ShellSlot.setTopBar()` and receives
+only `readonly actions: HTMLElement`; React's `BrowserTopBar({ actions })` portals into that
+same renderer. Common controls follow module actions in the order Theme, Search, Remote.
+No title or avatar is drawn in this bar; the host's content supplies its real `h1`.
+
+`openSearch(opener)` connects the one existing product switcher and its focus return. The
+root supplies module/section navigation entries; the leaf reads no page or provider data and
+creates no second search surface. The platform shortcut admits a trusted, fresh Command/Ctrl+K
+outside an editor; untrusted, composing, repeated or modified requests do nothing. Product
+switcher bridges and module-bar adoption are separate owning changes, not shipped by the leaf.
+
+Remote is `{ kind: 'confirmed', liveSessions, href }` or `{ kind: 'unconfirmed', href }`.
+The admitted projection counts live sessions, never devices or pages. Positive counts draw a
+badge; confirmed zero and unconfirmed draw only the rail's Remote glyph, with distinct truthful
+accessible names. The root retains acquisition, freshness and the existing target. Invalid
+counts are rejected before replacing the projection. Updates preserve
+the native link and its focus. Theme reuses the existing browser preference and menu owner;
+System follows the device and blocked storage still applies the current choice.
+
+The root must install common bindings before adopting the new bar. Route departure clears
+the action slot and transient common UI; root disposal releases listeners and pending route
+loads cannot install a new header. Legacy header/tools slots remain for existing consumers
+until their owning adoption removes them. Gallery `?frame=topbar&renderer=react|native|hosted`
+exercises the real renderer and adapter with demonstration root bindings, not product data.
+
+The legacy BrowserHeader has one h1. Optional `leading`, `headingPrefix` and `headingSuffix` slots place
 host-owned attribution before the brand, a separator before the title and a crumb or control
 after it; none supplies state or changes the default layout. A suffix turns the heading into
 one row in the header's title font: the title shrinks (ellipsis) before the suffix does, and a

@@ -52,7 +52,7 @@ pub(in crate::grammar) fn add() -> Command {
             .long("socket")
             .value_name("PATH")
             .requires("expect")
-            .help("Exact discovered tmux socket"),
+            .help("Exact discovered host socket"),
     )
 }
 

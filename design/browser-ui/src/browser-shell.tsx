@@ -13,7 +13,10 @@ import {
   type ShellMenu,
   type ShellTools,
   type ShellView,
+  type ShellCommonControls,
+  type ShellTopBar,
 } from './shell.js';
+import { createPortal } from 'react-dom';
 import type { ShellSlot } from './shell-host.js';
 
 export interface BrowserShellProps {
@@ -21,6 +24,25 @@ export interface BrowserShellProps {
   /** Take over a plain click on a rail or menu item; return true when handled. */
   select?(id: string, href: string): boolean;
   children: ReactNode;
+  /** Root-owned Search opener and admitted Remote display projection. */
+  commonControls?: ShellCommonControls;
+}
+
+const TopBar = createContext<(() => ShellTopBar) | null>(null);
+
+export interface BrowserTopBarProps {
+  actions?: ReactNode;
+}
+
+/** Route actions portal into the one native shell renderer; common controls stay root-owned. */
+export function BrowserTopBar({ actions }: BrowserTopBarProps) {
+  const adopt = useContext(TopBar);
+  const [slot, setSlot] = useState<ShellTopBar | null>(null);
+  useLayoutEffect(() => {
+    if (!adopt) throw new Error('BrowserTopBar requires a shell');
+    setSlot(adopt());
+  }, [adopt]);
+  return slot ? createPortal(actions, slot.actions) : null;
 }
 
 const ShellBar = createContext<HTMLElement | null>(null);
@@ -34,7 +56,7 @@ const ShellToolsContext = createContext<ShellTools | null>(null);
 export const useShellTools = () => useContext(ShellToolsContext);
 
 /** React hosts inside the one TMT web shell; the rail and menu use the shared static renderer. */
-export function BrowserShell({ view, select, children }: BrowserShellProps) {
+export function BrowserShell({ view, select, children, commonControls }: BrowserShellProps) {
   const root = useRef<HTMLDivElement>(null);
   const controls = useRef<ShellControls | null>(null);
   const [bar, setBar] = useState<HTMLDivElement | null>(null);
@@ -42,11 +64,14 @@ export function BrowserShell({ view, select, children }: BrowserShellProps) {
   const [chip, setChip] = useState<HTMLDivElement | null>(null);
   const tools = useMemo(() => (search && chip ? { search, chip } : null), [search, chip]);
   const latest = useRef(select);
+  const common = useRef(commonControls);
+  common.current = commonControls;
   latest.current = select;
   useLayoutEffect(() => {
     controls.current = mountShell(root.current!, view, (id, href) =>
       Boolean(latest.current?.(id, href)),
     );
+    controls.current.setCommonControls(common.current);
     return () => {
       controls.current?.dispose();
       controls.current = null;
@@ -57,6 +82,10 @@ export function BrowserShell({ view, select, children }: BrowserShellProps) {
   useLayoutEffect(() => {
     controls.current?.update(view);
   }, [view]);
+  useLayoutEffect(() => {
+    controls.current?.setCommonControls(commonControls);
+  }, [commonControls]);
+  const adopt = useMemo(() => () => controls.current!.setTopBar(), []);
   return (
     <div ref={root} className="tmt-ui-shell">
       <div className="tmt-ui-shell-content">
@@ -70,7 +99,7 @@ export function BrowserShell({ view, select, children }: BrowserShellProps) {
               so a host header portals into them from its first mount and is never remounted. */}
           <ShellBar value={bar}>
             <ShellToolsContext.Provider value={tools}>
-              {bar && tools ? children : null}
+              <TopBar.Provider value={adopt}>{bar && tools ? children : null}</TopBar.Provider>
             </ShellToolsContext.Provider>
           </ShellBar>
         </div>
@@ -96,7 +125,9 @@ export function HostedShell({ slot, menu, select, children }: HostedShellProps) 
   }, [slot, menu]);
   return (
     <ShellBar value={slot.bar}>
-      <ShellToolsContext.Provider value={slot.tools}>{children}</ShellToolsContext.Provider>
+      <ShellToolsContext.Provider value={slot.tools}>
+        <TopBar.Provider value={slot.setTopBar}>{children}</TopBar.Provider>
+      </ShellToolsContext.Provider>
     </ShellBar>
   );
 }

@@ -59,13 +59,7 @@ impl HostGrammar {
         }
         // A prefix ends in `_` or `-` and a suffix has neither, so a pane ID
         // has exactly one prefix: two different prefixes never share an ID.
-        if !(2..=PREFIX_MAX).contains(&prefix.len())
-            || !prefix.starts_with(|c: char| c.is_ascii_lowercase())
-            || !prefix.ends_with(['_', '-'])
-            || !prefix
-                .chars()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
-        {
+        if !valid_prefix(prefix) {
             return Err(GrammarError::new(
                 "paneId.prefix must be 2-16 of [a-z0-9_-], start with a letter and end in _ or -",
             ));
@@ -86,12 +80,7 @@ impl HostGrammar {
     }
 
     pub fn is_pane_id(&self, value: &str) -> bool {
-        value.strip_prefix(&self.prefix).is_some_and(|suffix| {
-            (1..=SUFFIX_MAX).contains(&suffix.len())
-                && suffix
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase())
-        })
+        value.strip_prefix(&self.prefix).is_some_and(valid_suffix)
     }
 
     pub fn is_target(&self, value: &str) -> bool {
@@ -177,6 +166,31 @@ impl fmt::Display for HostName {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         output.write_str(self.as_str())
     }
+}
+
+fn valid_prefix(prefix: &str) -> bool {
+    (2..=PREFIX_MAX).contains(&prefix.len())
+        && prefix.starts_with(|c: char| c.is_ascii_lowercase())
+        && prefix.ends_with(['_', '-'])
+        && prefix
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+}
+
+fn valid_suffix(suffix: &str) -> bool {
+    (1..=SUFFIX_MAX).contains(&suffix.len())
+        && suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase())
+}
+
+/// Whether some declarable host syntax could read `value` as a pane ID: a
+/// valid prefix, then a valid suffix. It says nothing about which host, or
+/// whether one is approved.
+pub fn has_pane_id_shape(value: &str) -> bool {
+    value
+        .rfind(['_', '-'])
+        .is_some_and(|end| valid_prefix(&value[..=end]) && valid_suffix(&value[end + 1..]))
 }
 
 /// Whether `name` is a valid host name, the token stored with a binding.
@@ -347,5 +361,22 @@ mod tests {
             names.map(|name| name.to_string()),
             ["al", "alpha", "alpha-2", "zeta"]
         );
+    }
+
+    #[test]
+    fn a_pane_id_shape_is_any_declarable_prefix_then_a_suffix() {
+        for id in ["term_7", "fake-1", "a_b-c_1z", "x-0"] {
+            assert!(has_pane_id_shape(id), "{id}");
+            let end = id.rfind(['_', '-']).unwrap();
+            let grammar = HostGrammar::new("other", &id[..=end], None).unwrap();
+            assert!(grammar.is_pane_id(id), "{id}");
+        }
+        for id in [
+            "%3", "term_", "_7", "7_7", "Term_7", "term_7_", "term_A", "w3:p5", "",
+        ] {
+            assert!(!has_pane_id_shape(id), "{id}");
+        }
+        assert!(!has_pane_id_shape(&format!("ab_{}", "1".repeat(65))));
+        assert!(!has_pane_id_shape(&format!("{}_1", "a".repeat(16))));
     }
 }

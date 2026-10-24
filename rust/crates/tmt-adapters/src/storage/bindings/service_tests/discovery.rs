@@ -439,6 +439,7 @@ fn read_only_discovery_preserves_rows_and_distinguishes_known_stale_hook_only_an
         title: "raw title".into(),
         command: "agent".into(),
         cwd: "/tmp".into(),
+        agent_name: None,
         fence: Some(fence),
         identity: None,
         state: "unknown",
