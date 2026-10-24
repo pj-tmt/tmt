@@ -4,10 +4,7 @@ use crate::board::{
     usage_report::{Report, View},
     workspace::{OpsTarget, OpsTreeRow},
 };
-use crate::{
-    config::{DigestWindow, TokRange},
-    labels::digest::SavingsSummary,
-};
+use crate::labels::digest::SavingsSummary;
 
 pub(super) use crate::board::usage_report::valuation::{input_price, tokens};
 
@@ -101,17 +98,9 @@ pub(super) fn busiest(report: &Report, id: &str) -> Option<BusiestHour> {
         complete: point.complete,
     })
 }
-pub(super) fn savings(app: &App, ids: &[&str]) -> Option<SavingsSummary> {
-    let window = match app.tok_range() {
-        TokRange::Day => DigestWindow::Day,
-        TokRange::Week => DigestWindow::Week,
-        _ => return None,
-    };
-    Some(crate::labels::digest::summarize_savings(
-        app.labels.digest(),
-        ids.iter().copied(),
-        window,
-    ))
+pub(super) fn savings(app: &App, ids: &[&str]) -> SavingsSummary {
+    let window = app.digest_window();
+    crate::labels::digest::summarize_savings(app.labels.digest(), ids.iter().copied(), window)
 }
 pub(super) fn held(app: &App, ids: &[&str]) -> Option<u64> {
     let (status, false) = app.labels.digest()? else {

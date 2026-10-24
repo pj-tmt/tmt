@@ -331,6 +331,8 @@ pub enum Choice {
     Heading,
     WorkspaceLayout(crate::config::OpsLayout),
     DigestWindow(crate::config::DigestWindow),
+    DigestWindowMenu,
+    DigestBasis,
     /// The shared saved TOK range for Agents and Digest.
     TokRange(crate::config::TokRange),
     /// A click on an Agents column header: sort by it, or reverse it.
@@ -2643,6 +2645,18 @@ impl App {
                 choice: Choice::Action(Action::parse("quota-details").expect("quota action")),
             });
         }
+        if self.shell.tab == super::shell::OpsTab::Digest {
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: "Estimate window…".into(),
+                choice: Choice::DigestWindowMenu,
+            });
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: "Estimate basis…".into(),
+                choice: Choice::DigestBasis,
+            });
+        }
         // The estimate answers a click and an authored key; the menu is the
         // discoverable path for everyone else, only beside a painted figure.
         if self.savings_visible()
@@ -3102,6 +3116,8 @@ impl App {
             Choice::Rule | Choice::Heading => Effect::None,
             Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
             Choice::DigestWindow(window) => self.select_digest_window(window),
+            Choice::DigestWindowMenu => self.digest_window_menu(),
+            Choice::DigestBasis => super::digest_dashboard::open_basis(self),
             Choice::TokRange(range) => self.select_tok_range(range),
             Choice::SortBy(header) => self.sort_by_header(header),
             Choice::ExchangeCell { sender, recipient } => {
