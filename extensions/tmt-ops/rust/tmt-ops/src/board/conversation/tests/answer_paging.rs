@@ -387,3 +387,40 @@ fn capture_and_coverage_captions_keep_data_and_never_create_request_authority() 
     assert!(!text.contains("older answers not kept"));
     assert!(!text.contains("answers are not captured"));
 }
+
+#[test]
+fn a_non_explicit_refresh_keeps_the_anchored_answer_read() {
+    let mut app = workspace_fixture();
+    draw(&app, 100, 24);
+    let initial = app.pane_output_plan().unwrap();
+    let held = page(0, 1000, None);
+    app.apply_answer_read(&initial, Observation::Observed(Arc::clone(&held)));
+    draw(&app, 100, 24);
+    assert!(app.pane_output_plan().is_none());
+
+    // The Effect::Refresh handler uses this boundary for theme/member/settings
+    // updates too. No explicit user refresh action has run.
+    app.prepare_snapshot_refresh();
+    let latest = app.pane_output_plan().unwrap();
+    assert!(
+        !latest.rebuild,
+        "an ordinary refresh must align at the held newest answer"
+    );
+    assert_eq!(latest.before, None);
+    assert!(Arc::ptr_eq(latest.held.as_ref().unwrap(), &held));
+}
+
+#[test]
+fn the_explicit_refresh_action_requests_a_bounded_answer_rebuild() {
+    let mut app = workspace_fixture();
+    draw(&app, 100, 24);
+    let initial = app.pane_output_plan().unwrap();
+    app.apply_answer_read(&initial, Observation::Observed(page(50, 100, Some(50))));
+    draw(&app, 100, 24);
+    let effect = app.perform(&crate::action::Action::parse("refresh").unwrap());
+    assert_eq!(effect, crate::board::app::Effect::Refresh);
+    app.prepare_snapshot_refresh();
+    let latest = app.pane_output_plan().unwrap();
+    assert!(latest.rebuild);
+    assert_eq!(latest.before, None);
+}

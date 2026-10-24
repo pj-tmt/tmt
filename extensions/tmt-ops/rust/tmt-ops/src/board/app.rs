@@ -1592,6 +1592,12 @@ impl App {
         changed
     }
 
+    /// Ordinary refresh effects align answers; only the explicit action requests a rebuild.
+    pub(in crate::board) fn prepare_snapshot_refresh(&mut self) {
+        self.conversation.borrow_mut().refresh_pane_output();
+        self.selected_request = super::refresh::SelectedRequest::AwaitingSnapshot;
+    }
+
     pub fn apply(&mut self, mut snapshot: Snapshot) {
         self.digest_rows.get_mut().clear();
         self.overview_rows.borrow_mut().clear();
@@ -2463,6 +2469,7 @@ impl App {
                 return Effect::None;
             }
             Verb::Refresh => {
+                self.conversation.borrow_mut().rebuild_pane_output();
                 self.set_notice(Some("Refreshing…".into()), false);
                 return Effect::Refresh;
             }

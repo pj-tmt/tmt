@@ -205,9 +205,12 @@ absorbing a final into a capture.
 
 `recent_responses` admits page metadata and reconciles cursor chains. An ordinary
 latest read splices at one exact held-newest answer record (including provider and
-truncation metadata); ambiguous/missing alignment (including an unalignable retention cut) or explicit
-refresh rebuilds the bounded chain serially and cancellably. Old content stays held
-until the coherent result arrives. Coverage changes update the held history caption
+truncation metadata). Ambiguous/missing alignment (including an unalignable retention cut)
+or an explicit refresh key/action rebuilds only the held window serially and cancellably:
+stop at the first page boundary that covers the held item count or reaches the oldest
+held capture's `endedMs`, keeping `nextBefore` for deliberate older paging. Ordinary
+snapshot, theme and member refresh effects keep the anchored read. Old content stays
+held until the coherent result arrives. Coverage changes update the held history caption
 without re-walking an otherwise aligned chain. Failed reads retain loaded answers and the cursor;
 a failed older page waits for another deliberate scroll or refresh, without a retry
 loop. Actor/member/revision/cursor fences reject obsolete completions.

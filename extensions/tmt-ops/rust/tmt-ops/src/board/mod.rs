@@ -1183,8 +1183,7 @@ fn session(
             }
             Effect::Refresh => {
                 revision += 1;
-                app.conversation.borrow_mut().rebuild_pane_output();
-                app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
+                app.prepare_snapshot_refresh();
                 let history = app.history_demand();
                 request(
                     app.current.clone(),

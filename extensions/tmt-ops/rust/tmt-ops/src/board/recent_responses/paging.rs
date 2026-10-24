@@ -69,7 +69,7 @@ impl AnswerRead {
         }
         let mut pages = vec![first];
         let held = self.held.as_ref();
-        let align = !self.rebuild && held.is_some_and(|held| !held.is_empty());
+        let mut align = !self.rebuild && held.is_some_and(|held| !held.is_empty());
         loop {
             let page = pages.last()?;
             if align {
@@ -110,11 +110,23 @@ impl AnswerRead {
                     return Some(Arc::new(result));
                 }
                 if matches.len() > 1 {
-                    // Indistinguishable anchor turns cannot establish a splice boundary.
-                    break;
+                    // Indistinguishable turns require a rebuild, not a later splice.
+                    align = false;
                 }
-            } else if held.is_none() && !self.rebuild {
-                return Some(Arc::new(pages.pop()?));
+            }
+            // A missing/ambiguous anchor or explicit refresh rebuilds only the
+            // held window. Preserve the returned cursor for deliberate paging.
+            let covered = held.is_none_or(|held| {
+                pages.iter().map(|page| page.len()).sum::<usize>() >= held.len()
+                    || page
+                        .first()
+                        .zip(held.first())
+                        .is_some_and(|(oldest, held_oldest)| {
+                            oldest.ended_ms <= held_oldest.ended_ms
+                        })
+            });
+            if covered {
+                return Some(Arc::new(join(pages)));
             }
             let Some(before) = page.next_before else {
                 return Some(Arc::new(join(pages)));
@@ -124,16 +136,6 @@ impl AnswerRead {
             }
             pages.push(page_with(&self.key.1, Some(before), call)?);
         }
-        // An ambiguous/missing anchor (including a retention cut) or explicit refresh rebuilds
-        // the chain. Core's public maximum is 1,000 answers, 50 per page. The bound
-        // refuses an invalid resource; it never evicts a held answer locally.
-        while let Some(before) = pages.last()?.next_before {
-            if pages.len() == 20 {
-                return None;
-            }
-            pages.push(page_with(&self.key.1, Some(before), call)?);
-        }
-        Some(Arc::new(join(pages)))
     }
 }
 
@@ -213,6 +215,19 @@ mod tests {
         page
     }
 
+    // Build held history through the same deliberate older-page requests as a user.
+    fn held_history(count: usize, calls: &mut Vec<Value>) -> Arc<Page> {
+        let mut page = observed(serve(&request(None, None, false), count, calls));
+        while let Some(before) = page.next_before {
+            page = observed(serve(
+                &request(Some(page), Some(before), false),
+                count,
+                calls,
+            ));
+        }
+        page
+    }
+
     #[test]
     fn every_retained_answer_is_reachable_with_exact_server_cursors_and_no_eager_read() {
         let mut calls = Vec::new();
@@ -236,9 +251,73 @@ mod tests {
     }
 
     #[test]
+    fn one_page_held_and_a_missing_anchor_rebuilds_only_one_page() {
+        let mut calls = Vec::new();
+        let held = observed(serve(&request(None, None, false), 1000, &mut calls));
+        let mut rewritten = (*held).clone();
+        rewritten.items[0].ended_ms = 0;
+        let anchor = rewritten.items.last_mut().unwrap();
+        anchor.text = "an answer replaced by Core".into();
+        anchor.original_bytes = anchor.text.len() as u64;
+        calls.clear();
+        let rebuilt = observed(serve(
+            &request(Some(Arc::new(rewritten)), None, false),
+            1000,
+            &mut calls,
+        ));
+        assert_eq!(
+            calls.len(),
+            1,
+            "a missing anchor cannot eagerly page all history"
+        );
+        assert_eq!(rebuilt.len(), 50);
+        assert_eq!(rebuilt.next_before, Some(950));
+        assert_eq!(rebuilt[0].text, "answer 950");
+        let older = observed(serve(
+            &request(Some(rebuilt), Some(950), false),
+            1000,
+            &mut calls,
+        ));
+        assert_eq!(calls.len(), 2, "the next page needs deliberate demand");
+        assert_eq!(older.len(), 100);
+        assert_eq!(older.next_before, Some(900));
+    }
+
+    #[test]
+    fn a_rebuild_stops_at_the_oldest_held_end_time_before_the_item_limit() {
+        let held = held_history(200, &mut Vec::new());
+        let mut calls = 0;
+        let rebuilt = request(Some(held), None, true).read_with(|operation, _| {
+            if operation == "capabilities" {
+                return Some(json!({"operations":["responses.recent"]}));
+            }
+            calls += 1;
+            let mut value = resource(1000, 1000);
+            // Core preserves capture order even when the observed clock rolls back.
+            value["items"].as_array_mut().unwrap().last_mut().unwrap()["endedMs"] = json!(900);
+            Some(value)
+        });
+        let rebuilt = observed(rebuilt);
+        assert_eq!(calls, 1);
+        assert_eq!(rebuilt.len(), 50);
+        assert_eq!(rebuilt[0].text, "answer 950");
+        assert_eq!(rebuilt[0].ended_ms, 900);
+        assert_eq!(rebuilt.next_before, Some(950));
+    }
+
+    #[test]
+    fn explicit_refresh_without_held_history_reads_only_the_newest_page() {
+        let mut calls = Vec::new();
+        let page = observed(serve(&request(None, None, true), 1000, &mut calls));
+        assert_eq!(calls.len(), 1);
+        assert_eq!(page.len(), 50);
+        assert_eq!(page.next_before, Some(950));
+    }
+
+    #[test]
     fn normal_refresh_splices_new_turns_without_rewalking_twenty_loaded_pages() {
         let mut calls = Vec::new();
-        let held = observed(serve(&request(None, None, true), 1000, &mut calls));
+        let held = held_history(1000, &mut calls);
         calls.clear();
         let refreshed = observed(serve(&request(Some(held), None, false), 1001, &mut calls));
         assert_eq!(calls.len(), 1, "the held newest turn is the splice anchor");
@@ -261,9 +340,9 @@ mod tests {
     }
 
     #[test]
-    fn explicit_refresh_and_an_unalignable_rewrite_rebuild_the_chain() {
+    fn explicit_refresh_and_an_unalignable_rewrite_rebuild_the_held_chain() {
         let mut calls = Vec::new();
-        let held = observed(serve(&request(None, None, true), 120, &mut calls));
+        let held = held_history(120, &mut calls);
         calls.clear();
         let full = observed(serve(
             &request(Some(Arc::clone(&held)), None, true),
@@ -333,11 +412,26 @@ mod tests {
             })
         });
         let page = observed(result);
+        assert_eq!(reads.len(), 1, "do not search beyond the held window");
+        assert_eq!(page.len(), 50);
+        assert_eq!(
+            page[0].provider, "claude",
+            "the other provider is not an anchor"
+        );
+        assert_eq!(page.next_before, Some(1));
+        let older = request(Some(page), Some(1), false).read_with(|operation, input| {
+            if operation == "capabilities" {
+                return Some(json!({"operations":["responses.recent"]}));
+            }
+            reads.push(input);
+            Some(json!({"identityId":ID,"items":[old],"coverage":{"olderDropped":false}}))
+        });
+        let older = observed(older);
         assert_eq!(reads.len(), 2);
         assert_eq!(reads[1]["before"], 1);
-        assert_eq!(page.len(), 51);
-        assert_eq!(page[0].provider, "codex");
-        assert_eq!(page[1].provider, "claude");
+        assert_eq!(older.len(), 51);
+        assert_eq!(older[0].provider, "codex");
+        assert_eq!(older[1].provider, "claude");
     }
 
     #[test]
