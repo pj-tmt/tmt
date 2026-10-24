@@ -1,14 +1,17 @@
-.notice-card > .tmt-ui-notice {
+.notice-card > .tmt-ui-notice,
+.guidance-main > .guidance-card {
   width: min(680px, calc(100% - 48px));
   margin: clamp(44px, 11vh, 104px) auto 64px;
   font-size: var(--tmt-ui-host-notice-body-size);
   line-height: var(--tmt-ui-host-notice-body-line-height);
 }
-.notice-card > .tmt-ui-notice .tmt-ui-notice-body p:last-child {
+.notice-card > .tmt-ui-notice .tmt-ui-notice-body p:last-child,
+.guidance-main > .guidance-card .tmt-ui-notice-body p:last-child {
   margin-bottom: 0;
 }
 @media (max-width: 600px) {
-  .notice-card > .tmt-ui-notice {
+  .notice-card > .tmt-ui-notice,
+  .guidance-main > .guidance-card {
     width: calc(100% - 40px);
     margin-top: 48px;
   }

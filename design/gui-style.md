@@ -380,7 +380,7 @@ An opaque, shadow-free sheet with the shared thin edge and the control radius.
 - **Notice card:** the body of every state screen (opening, failed, ended,
   deleted, choose). Mark, eyebrow, title, one or two lines of text, actions
   inside the card. The mark carries the state role. Shipped as
-  `NoticeCard` (`notice-card.tsx`), which owns its centered width and outer margins; that placement does not apply to inline shared notices.
+  `NoticeCard` (`notice-card.tsx`), which owns its centered width and outer margins alongside the native guidance state-card host; that placement does not apply to inline shared notices.
 - **Item card:** a page in the page list: icon, title, short ID, audience tag,
   expiry, actions row.
 - **Group card:** `tmt-ui-card`, one subject per card (a Digest provider, a chart): a head
