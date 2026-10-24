@@ -1028,3 +1028,334 @@ fn saved_range_agents_chart_restarts_through_the_selected_layer_writer() {
         );
     }
 }
+
+fn late_hint_after_navigation(paint: bool, explicit: bool, query: &str) {
+    use crate::board::{BoardEvent, app::WorkspaceStartup, lane, workspace::AgentsFilter};
+    use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use std::cell::Cell;
+    use std::sync::{atomic::AtomicUsize, mpsc::channel};
+    let scratch = Scratch::new();
+    let mut prior = board();
+    prior.workspace.filter = AgentsFilter::All;
+    prior.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    prior.search = query.into();
+    prior.workspace_reconcile();
+    write(&scratch.file(), &ViewState::capture(&prior).unwrap());
+    let mut state = Session::load(scratch.file(), false, explicit);
+    let mut app = board();
+    app.workspace.filter = AgentsFilter::All;
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    if explicit {
+        app.workspace.visibility.scope = [ROOM.into()].into();
+        app.workspace_startup = Some(WorkspaceStartup {
+            room_id: Some(ROOM.into()),
+            tab: None,
+        });
+    }
+    app.workspace_reconcile();
+    app.view.as_mut().unwrap().refresh = None;
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .observation = OpsObservation::Partial;
+    assert!(!state.tick(&mut app, Instant::now()).0);
+    let (sender, input) = channel();
+    let codes = [KeyCode::Home, KeyCode::Right, KeyCode::Char('/')]
+        .into_iter()
+        .chain("worker".chars().map(KeyCode::Char))
+        .chain([KeyCode::Enter, KeyCode::End]);
+    for code in codes {
+        sender
+            .send(BoardEvent::Input(Event::Key(KeyEvent::new(
+                code,
+                KeyModifiers::NONE,
+            ))))
+            .unwrap();
+    }
+    let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
+    snapshot.view = Ok(board().view.take().unwrap());
+    snapshot.view.as_mut().unwrap().refresh = None;
+    sender
+        .send(BoardEvent::Snapshot {
+            cancellation: crate::runner::Cancellation::default(),
+            snapshot: Box::new(snapshot),
+        })
+        .unwrap();
+    sender.send(BoardEvent::InputClosed).unwrap();
+    let expected = Some(OpsTarget::Member {
+        room_id: Some(ROOM.into()),
+        identity_id: MEMBER.into(),
+    });
+    let selected_before_complete = Cell::new(false);
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(200, 50)).unwrap();
+    crate::board::session(
+        &mut app,
+        &AtomicUsize::new(0),
+        &input,
+        |_, _, _, _| {},
+        |_, _| {},
+        |_| {},
+        |job| match job {
+            lane::Job::ViewState(writer) => writer.publish(Instant::now(), false),
+            other => panic!("unexpected job: {other:?}"),
+        },
+        |_| {},
+        |_| {},
+        || Ok(()),
+        || Ok(()),
+        Some(&mut state),
+        |app| {
+            if app.search.as_str() == "worker"
+                && !app.searching
+                && app.workspace.selected == expected
+            {
+                selected_before_complete.set(true);
+                crate::board::app::workspace::tests::assert_list_input_owner(app);
+                assert_eq!(
+                    app.bindings()["end"].verb,
+                    crate::action::Verb::Ui(crate::action::OpsUiAction::Last)
+                );
+            }
+            if paint {
+                terminal
+                    .draw(|frame| {
+                        crate::board::view::prepare(app, frame.area());
+                        crate::board::view::render(frame, app);
+                    })
+                    .unwrap();
+            }
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert!(
+        selected_before_complete.get(),
+        "End must select before the complete publication"
+    );
+    assert_eq!(
+        app.workspace.selected, expected,
+        "paint={paint} explicit={explicit} query={query:?}"
+    );
+    crate::board::app::workspace::tests::assert_list_input_owner(&app);
+    assert_eq!(
+        app.bindings()["end"].verb,
+        crate::action::Verb::Ui(crate::action::OpsUiAction::Last)
+    );
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let text = (0..50)
+        .map(|y| {
+            (0..200)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("to message worker"), "{text}");
+    assert!(!text.contains("── Board"), "{text}");
+}
+
+#[test]
+fn explicit_navigation_wins_over_a_delayed_initial_hint_in_all_eight_variants() {
+    let mut failures = Vec::new();
+    for paint in [false, true] {
+        for explicit in [false, true] {
+            for query in ["", "work"] {
+                let result =
+                    std::panic::catch_unwind(|| late_hint_after_navigation(paint, explicit, query));
+                eprintln!(
+                    "late hint paint={paint} explicit={explicit} query={query:?}: {}",
+                    if result.is_ok() { "PASS" } else { "FAIL" }
+                );
+                if result.is_err() {
+                    failures.push((paint, explicit, query));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "navigation overwritten: {failures:?}");
+}
+
+#[test]
+fn pending_hint_retires_on_search_edits_and_commit_but_not_cancel_or_unrelated_keys() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    for action in ["typed", "pasted", "commit", "cancel", "unrelated"] {
+        let scratch = Scratch::new();
+        write(&scratch.file(), &saved());
+        let mut state = Session::load(scratch.file(), false, false);
+        let mut app = board();
+        app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+        app.workspace_reconcile();
+        app.searching = action != "unrelated";
+        if matches!(action, "typed" | "pasted" | "commit") {
+            app.search = "pro".into();
+            app.workspace_reconcile();
+        }
+        let selected = app.workspace.selected.clone();
+        let code = match action {
+            "typed" => KeyCode::Char('d'),
+            "commit" => KeyCode::Enter,
+            "cancel" => KeyCode::Esc,
+            _ => KeyCode::Left,
+        };
+        if action == "pasted" {
+            input(Some(&mut state), &mut app, None, |app| app.paste("d"));
+        } else {
+            input(Some(&mut state), &mut app, Some(code), |app| {
+                app.key(KeyEvent::new(code, KeyModifiers::NONE))
+            });
+        }
+        assert_eq!(
+            app.workspace.selected, selected,
+            "{action}: isolate search from selection movement"
+        );
+        assert_eq!(
+            state.hint.is_none(),
+            matches!(action, "typed" | "pasted" | "commit"),
+            "{action}"
+        );
+        if app.searching {
+            input(Some(&mut state), &mut app, Some(KeyCode::Enter), |app| {
+                app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+            });
+        }
+        state.tick(&mut app, Instant::now());
+        if matches!(action, "typed" | "pasted" | "commit") {
+            assert_eq!(
+                app.workspace.selected, selected,
+                "{action}: no late replacement"
+            );
+        } else {
+            assert_eq!(
+                app.workspace.selected,
+                saved().selected,
+                "{action}: ordinary hint still restores"
+            );
+        }
+    }
+}
+
+#[test]
+fn pointer_selection_retires_a_pending_hint_but_hover_keeps_it() {
+    use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    for kind in [
+        MouseEventKind::Moved,
+        MouseEventKind::Down(MouseButton::Left),
+    ] {
+        let scratch = Scratch::new();
+        let mut hint = saved();
+        hint.selected = Some(OpsTarget::Squad(ROOM.into()));
+        write(&scratch.file(), &hint);
+        let mut state = Session::load(scratch.file(), false, false);
+        let mut app = board();
+        app.workspace.selected = hint.selected.clone();
+        app.workspace_reconcile();
+        let target = OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        };
+        let index = app
+            .workspace_rows()
+            .iter()
+            .position(|r| r.target == target)
+            .unwrap();
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let hit = *app
+            .hits
+            .borrow()
+            .iter()
+            .find(|hit| hit.row() == Some(index))
+            .unwrap();
+        let event = MouseEvent {
+            kind,
+            column: hit.x + hit.width / 2,
+            row: hit.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        input(Some(&mut state), &mut app, None, |app| {
+            app.mouse(event, Instant::now())
+        });
+        let selected = kind == MouseEventKind::Down(MouseButton::Left);
+        assert_eq!(state.hint.is_none(), selected);
+        assert_eq!(
+            app.workspace.selected,
+            if selected {
+                Some(target)
+            } else {
+                hint.selected
+            }
+        );
+    }
+}
+
+#[test]
+#[ignore = "release-only per-key Session input cost; writes task-owned samples, never frozen fixtures"]
+fn retained_hint_input_timing() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    assert!(!cfg!(debug_assertions), "run with --release");
+    let output = std::env::var("TMT_VIEW_INPUT_SAMPLES").expect("task-owned sample path");
+    let scratch = Scratch::new();
+    let mut reports = Vec::new();
+    for rows in [150, 1_000, 10_000] {
+        let mut app = crate::board::app::workspace::tests::populated_board(36, rows);
+        let target = app.workspace.selected.clone();
+        let hint = ViewState::capture(&app).unwrap();
+        let mut state = Session::load(scratch.file(), true, false);
+        for (name, key) in [
+            ("row-down", KeyCode::Down),
+            ("row-end", KeyCode::End),
+            ("search-character", KeyCode::Char('x')),
+            ("search-commit", KeyCode::Enter),
+        ] {
+            let mut samples = [Vec::new(), Vec::new(), Vec::new()];
+            for _ in 0..100 {
+                for (mode, values) in samples.iter_mut().enumerate() {
+                    app.workspace.selected = target.clone();
+                    app.search.clear();
+                    app.searching = name.starts_with("search-");
+                    app.workspace_reconcile();
+                    state.hint = (mode == 2).then(|| hint.clone());
+                    let event = KeyEvent::new(key, KeyModifiers::NONE);
+                    let start = Instant::now();
+                    let effect = if mode == 0 {
+                        app.key(event)
+                    } else {
+                        input(Some(&mut state), &mut app, Some(key), |app| app.key(event))
+                    };
+                    values.push(start.elapsed().as_nanos() as u64);
+                    assert_eq!(effect, crate::board::app::Effect::None);
+                }
+            }
+            for (mode, values) in ["direct-app", "no-hint", "pending-hint"]
+                .into_iter()
+                .zip(samples)
+            {
+                let mut sorted = values.clone();
+                sorted.sort_unstable();
+                println!(
+                    "input rows={rows} key={name} mode={mode} median_ns={} p95_ns={}",
+                    sorted[50], sorted[95]
+                );
+                reports.push(json!({"rows":rows,"key":name,"mode":mode,"samplesNs":values,"medianNs":sorted[50],"p95Ns":sorted[95]}));
+            }
+        }
+    }
+    fs::write(output, serde_json::to_vec_pretty(&reports).unwrap()).unwrap();
+}

@@ -437,7 +437,43 @@ pub(super) struct Session {
     writer: Writer,
 }
 
+/// The session observes admitted input only; worker publications and paint never enter here.
+pub(super) fn input<T>(
+    state: Option<&mut Session>,
+    app: &mut App,
+    key: Option<ratatui::crossterm::event::KeyCode>,
+    apply: impl FnOnce(&mut App) -> T,
+) -> T {
+    match state {
+        Some(state) => state.input(app, key, apply),
+        None => apply(app),
+    }
+}
+
 impl Session {
+    fn input<T>(
+        &mut self,
+        app: &mut App,
+        key: Option<ratatui::crossterm::event::KeyCode>,
+        apply: impl FnOnce(&mut App) -> T,
+    ) -> T {
+        if self.hint.is_none() {
+            return apply(app);
+        }
+        // Only bounded identity/query values are held, never acquired rows.
+        let selected = app.workspace.selected.clone();
+        let query = app.search.to_string();
+        let committing = app.searching && key == Some(ratatui::crossterm::event::KeyCode::Enter);
+        let outcome = apply(app);
+        if app.workspace.selected != selected
+            || app.search.as_str() != query.as_str()
+            || committing && !app.searching
+        {
+            self.hint = None;
+        }
+        outcome
+    }
+
     pub fn open(
         path: PathBuf,
         exec_resume: bool,

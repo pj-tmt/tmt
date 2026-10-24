@@ -5982,3 +5982,10 @@ fn agents_group_glyphs_use_core_activity_and_room_attention_instead_of_task_stat
     }
 }
 pub(in crate::board) mod review_modal;
+
+pub(in crate::board) fn assert_list_input_owner(app: &App) {
+    assert_eq!(
+        app.workspace_input_owner(),
+        crate::board::shell::OpsInputOwner::List
+    );
+}

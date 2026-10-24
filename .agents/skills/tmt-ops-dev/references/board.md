@@ -362,9 +362,13 @@ also accepts `1` and `2`, and the retired `overview` opens Agents. An explicit d
 hints without restoring a selection from another destination. Invalid authored
 startup preferences are ignored with a notice; the original bytes are retained.
 The global Ops Config editor exposes this preference as `startup tab`.
-The first fresh Complete roster applies it; partial/failed views neither apply
-nor overwrite it. Complete-proven removal uses the ordinary cold default; an
-existing hidden target remains hidden and refuses actions. Changed projections
+The first fresh Complete roster applies a pending hint; partial/failed views neither apply
+nor overwrite it. Before that restore, an admitted selection move, search text change or
+search commit retires the pending hint through `view_state::Session`; the person's
+navigation wins. Keyboard, paste and pointer input share that decision; worker snapshots,
+paint and hover never retire a hint. No input preserves the ordinary delayed restore.
+Complete-proven removal uses the ordinary cold default; an existing hidden target
+remains hidden and refuses actions. Changed projections
 coalesce on the existing worker at two-second intervals, with one exit flush
 after terminal restoration; pane-kill keeps the last published hint. Active
 search drafts do not publish; only committed search is retained. Composer drafts,
