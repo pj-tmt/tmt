@@ -564,18 +564,6 @@ fn record_split_squad_tab_snapshots() {
     .unwrap();
 }
 
-/// Task-owned evidence only; frozen fixtures are never written by this capture.
-#[test]
-#[ignore = "read-only cron inspection before fixture approval"]
-fn dump_split_squad_tab_snapshots() {
-    let path = std::env::var("SQUAD_CRON_SNAPSHOTS_OUT").expect("task-owned output path");
-    std::fs::write(
-        path,
-        serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
-    )
-    .unwrap();
-}
-
 /// Current workspace jobs with store-assigned c-ids in the actual room UUID.
 fn many_jobs(count: usize) -> App {
     let mut app = squad_tab();
