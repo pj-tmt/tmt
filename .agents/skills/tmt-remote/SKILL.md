@@ -16,6 +16,7 @@ with Colab; [tmt-colab](../tmt-colab/SKILL.md) links here for it.
 ## Read what you are changing
 
 - [references/firestore-owner-runbook.md](references/firestore-owner-runbook.md): owner steps for the first Firestore deployment and recovery from a stopped run.
+- [references/firestore-collaborator-runbook.md](references/firestore-collaborator-runbook.md): install, pair once, control each direction and read agent replies.
 - [references/architecture-internals.md](references/architecture-internals.md): module
   owners, the rules that are easy to get wrong (one opener, authority in the
   transaction, revoke fence, serve lease, pre-auth refusals, mount trust) and the shared

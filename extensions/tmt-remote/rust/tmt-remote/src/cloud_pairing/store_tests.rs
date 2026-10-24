@@ -5,6 +5,116 @@ use crate::{
 };
 use ed25519_dalek::Signer;
 
+#[test]
+fn reciprocal_join_persists_default_off_grant_and_never_resets_later_policy() {
+    let root = std::env::temp_dir().join(format!("tmt-reciprocal-{}", uuid_v4().unwrap()));
+    let layout = Layout::open(&root).unwrap();
+    let serving = layout.serve_lock().unwrap();
+    let mut store = Store::open(&serving).unwrap();
+    let machine = store.machine().unwrap();
+    let (challenge, _, _) = tests::fixture();
+    let connection = Connection {
+        version: 1,
+        name: "paired".into(),
+        owner: challenge.owner.clone(),
+        owner_key: challenge.owner_key,
+        config: serde_json::json!({"projectId":challenge.project}),
+        peer: machine.id,
+        uid: "local-uid".into(),
+        request: vec![],
+        confirmed: true,
+        descriptor: vec![],
+        reroute_token: None,
+    };
+    let grant = crate::store::Grant {
+        client_id: connection.owner.clone(),
+        public_key: connection.owner_key,
+        kind: "cli".into(),
+        origin: "cli".into(),
+        name: "Owner".into(),
+        agents: "all".into(),
+        scopes: crate::store::DEFAULT_SCOPES.map(str::to_owned).into(),
+        mode: "direct".into(),
+        issued_at_ms: 1,
+        expires_at_ms: None,
+        revision: 1,
+        disabled: false,
+    };
+    let local_key = [7; 32];
+    let confirmed = store
+        .confirm_reciprocal(
+            &connection,
+            "owner-uid",
+            &grant,
+            &local_key,
+            false,
+            &[11; 32],
+        )
+        .unwrap();
+    assert!(!confirmed.permits_scope("talk"));
+    let route = store.cloud_route_changes().unwrap().pop().unwrap();
+    assert_eq!(route.peer, connection.owner);
+    assert_eq!(route.uid, "owner-uid");
+    assert!(!route.revoked);
+    assert_eq!(
+        store.cloud_owner_configs().unwrap(),
+        vec![connection.config.clone()]
+    );
+    store.talk(&connection.owner, true).unwrap();
+    drop(store);
+    let mut store = Store::open(&serving).unwrap();
+    let current = store
+        .confirm_reciprocal(
+            &connection,
+            "owner-uid",
+            &grant,
+            &local_key,
+            false,
+            &[11; 32],
+        )
+        .unwrap();
+    assert!(current.permits_scope("talk"));
+    store.revoke(&connection.owner).unwrap();
+    let revoked = store
+        .confirm_reciprocal(
+            &connection,
+            "owner-uid",
+            &grant,
+            &local_key,
+            true,
+            &[11; 32],
+        )
+        .unwrap();
+    assert!(
+        revoked.disabled,
+        "an identical join observation never restores revoked permission"
+    );
+    assert!(
+        store
+            .cloud_route_changes()
+            .unwrap()
+            .iter()
+            .all(|route| route.revoked)
+    );
+    let mut substituted = grant;
+    substituted.public_key = [0; 32];
+    assert!(
+        store
+            .confirm_reciprocal(
+                &connection,
+                "owner-uid",
+                &substituted,
+                &local_key,
+                false,
+                &[11; 32]
+            )
+            .is_err()
+    );
+    drop(store);
+    drop(serving);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 fn world() -> (std::path::PathBuf, crate::state::Serving, VerifiedCandidate) {
     let root = std::env::temp_dir().join(format!("tmt-cloud-pair-{}", uuid_v4().unwrap()));
     let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
@@ -19,6 +129,80 @@ fn world() -> (std::path::PathBuf, crate::state::Serving, VerifiedCandidate) {
         .unwrap();
     drop(store);
     (root, serving, candidate)
+}
+
+#[test]
+fn owner_confirmation_commits_reverse_capability_with_the_grant_and_keeps_it_after_receipt_expiry()
+{
+    let (root, serving, candidate) = world();
+    let mut store = Store::open(&serving).unwrap();
+    let record = Connection {
+        version: 1,
+        name: "reverse".into(),
+        owner: candidate.candidate.peer.clone(),
+        owner_key: candidate.candidate.public_key,
+        config: serde_json::json!({"projectId":candidate.challenge.project}),
+        peer: candidate.challenge.owner.clone(),
+        uid: "owner-uid".into(),
+        request: vec![],
+        confirmed: true,
+        descriptor: vec![],
+        reroute_token: None,
+    };
+    store.connection.execute_batch("CREATE TRIGGER refuse_connection BEFORE INSERT ON cloud_remotes BEGIN SELECT RAISE(FAIL,'fixture refuses connection'); END;").unwrap();
+    assert!(
+        store
+            .confirm_cloud_peer(&candidate, &[8; 32], 1, true, Some(record.clone()))
+            .is_err()
+    );
+    assert!(store.grants().unwrap().is_empty());
+    assert!(store.cloud_route_changes().unwrap().is_empty());
+    let receipts: i64 = store
+        .connection
+        .query_row("SELECT COUNT(*) FROM cloud_pair_receipts", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(receipts, 0);
+    store
+        .connection
+        .execute_batch("DROP TRIGGER refuse_connection;")
+        .unwrap();
+    store
+        .confirm_cloud_peer(&candidate, &[8; 32], 1, true, Some(record.clone()))
+        .unwrap();
+    let expected = super::wire::reverse_reroute_token(
+        &[8; 32],
+        candidate.challenge(),
+        &candidate.candidate.peer,
+    )
+    .unwrap();
+    let saved = store.cloud_connection(&record.owner).unwrap().unwrap();
+    assert_eq!(saved.reroute_token, Some(expected));
+    assert!(saved.request.is_empty());
+    store
+        .prune_cloud_receipts(candidate.challenge.expires_at_ms)
+        .unwrap();
+    drop(store);
+    let store = Store::open(&serving).unwrap();
+    assert_eq!(
+        store
+            .cloud_connection(&record.owner)
+            .unwrap()
+            .unwrap()
+            .reroute_token,
+        Some(expected)
+    );
+    assert!(
+        store
+            .grant(&record.owner)
+            .unwrap()
+            .unwrap()
+            .permits_scope("talk")
+    );
+    drop(store);
+    drop(serving);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -70,7 +254,7 @@ fn schema_twelve_peer_and_original_receipt_survive_the_token_migration_without_n
     let mut store = Store::open(&serving).unwrap();
     let key = response_key(&[4; 16], &candidate.challenge, &candidate.candidate).unwrap();
     let receipt = store
-        .confirm_cloud_peer(&candidate, &key, 1, false)
+        .confirm_cloud_peer(&candidate, &key, 1, false, None)
         .unwrap();
     let mut legacy: serde_json::Value = serde_json::from_slice(&receipt.bytes).unwrap();
     legacy.as_object_mut().unwrap().remove("rerouteToken");
@@ -102,7 +286,7 @@ fn schema_twelve_peer_and_original_receipt_survive_the_token_migration_without_n
         "migration cannot mint a capability for an old peer"
     );
     let original = store
-        .confirm_cloud_peer(&candidate, &key, 2, false)
+        .confirm_cloud_peer(&candidate, &key, 2, false, None)
         .unwrap();
     assert_eq!(original.bytes, bytes);
     assert_eq!(original.proof, proof);
@@ -118,7 +302,7 @@ fn confirmed_receipt_carries_a_private_reroute_capability_bound_by_its_proof() {
     let mut store = Store::open(&serving).unwrap();
     let key = response_key(&[4; 16], &candidate.challenge, &candidate.candidate).unwrap();
     let receipt = store
-        .confirm_cloud_peer(&candidate, &key, 1, false)
+        .confirm_cloud_peer(&candidate, &key, 1, false, None)
         .unwrap();
     let value: serde_json::Value = serde_json::from_slice(&receipt.bytes).unwrap();
     let token = crate::canonical::base64url_bytes(
@@ -140,7 +324,7 @@ fn confirmed_receipt_carries_a_private_reroute_capability_bound_by_its_proof() {
     let mut store = Store::open(&serving).unwrap();
     assert_eq!(
         store
-            .confirm_cloud_peer(&candidate, &key, 2, false)
+            .confirm_cloud_peer(&candidate, &key, 2, false, None)
             .unwrap(),
         receipt
     );
@@ -155,7 +339,7 @@ fn confirmed_receipt_and_read_only_peer_reopen_and_lost_join_keeps_original_rece
     let mut store = Store::open(&serving).unwrap();
     let key = response_key(&[4; 16], &candidate.challenge, &candidate.candidate).unwrap();
     let receipt = store
-        .confirm_cloud_peer(&candidate, &key, 1, false)
+        .confirm_cloud_peer(&candidate, &key, 1, false, None)
         .unwrap();
     crypto::verify_server_proof(&key, &receipt.bytes, &receipt.proof).unwrap();
     let grant = store.grant(&candidate.candidate.peer).unwrap().unwrap();
@@ -169,7 +353,7 @@ fn confirmed_receipt_and_read_only_peer_reopen_and_lost_join_keeps_original_rece
     let mut store = Store::open(&serving).unwrap();
     assert_eq!(
         store
-            .confirm_cloud_peer(&candidate, &key, 2, false)
+            .confirm_cloud_peer(&candidate, &key, 2, false, None)
             .unwrap(),
         receipt
     );
@@ -183,7 +367,13 @@ fn confirmed_receipt_and_read_only_peer_reopen_and_lost_join_keeps_original_rece
     assert_eq!(store.cloud_route_changes().unwrap().len(), 1);
     assert!(
         store
-            .confirm_cloud_peer(&candidate, &key, candidate.challenge.expires_at_ms, false)
+            .confirm_cloud_peer(
+                &candidate,
+                &key,
+                candidate.challenge.expires_at_ms,
+                false,
+                None
+            )
             .is_err()
     );
     assert_eq!(store.grants().unwrap().len(), 1);
@@ -197,7 +387,7 @@ fn signed_uid_change_keeps_permissions_and_revokes_every_old_route_across_restar
     let (root, serving, candidate) = world();
     let mut store = Store::open(&serving).unwrap();
     store
-        .confirm_cloud_peer(&candidate, &[8; 32], 1, false)
+        .confirm_cloud_peer(&candidate, &[8; 32], 1, false, None)
         .unwrap();
     store.talk(&candidate.candidate.peer, true).unwrap();
     let before = store.grant(&candidate.candidate.peer).unwrap().unwrap();
@@ -291,7 +481,7 @@ fn stale_publication_ack_cannot_hide_a_new_route_or_revocation() {
     let (root, serving, candidate) = world();
     let mut store = Store::open(&serving).unwrap();
     store
-        .confirm_cloud_peer(&candidate, &[8; 32], 1, false)
+        .confirm_cloud_peer(&candidate, &[8; 32], 1, false, None)
         .unwrap();
     let old = store.cloud_route_changes().unwrap().remove(0);
     store.revoke(&candidate.candidate.peer).unwrap();
@@ -313,7 +503,7 @@ fn confirmation_failure_rolls_back_the_grant_and_routing_together() {
     store.connection.execute_batch("CREATE TRIGGER refuse_route BEFORE INSERT ON cloud_peer_routes BEGIN SELECT RAISE(ABORT,'fixture route failure'); END;").unwrap();
     assert!(
         store
-            .confirm_cloud_peer(&candidate, &[8; 32], 1, false)
+            .confirm_cloud_peer(&candidate, &[8; 32], 1, false, None)
             .is_err()
     );
     assert!(store.grants().unwrap().is_empty());
@@ -323,7 +513,7 @@ fn confirmation_failure_rolls_back_the_grant_and_routing_together() {
         .execute_batch("DROP TRIGGER refuse_route")
         .unwrap();
     store
-        .confirm_cloud_peer(&candidate, &[8; 32], 1, false)
+        .confirm_cloud_peer(&candidate, &[8; 32], 1, false, None)
         .unwrap();
     assert_eq!(store.grants().unwrap().len(), 1);
     drop(store);
@@ -350,7 +540,7 @@ fn lost_join_after_code_erasure_reads_only_the_exact_confirmed_receipt() {
     );
     assert!(store.grants().unwrap().is_empty());
     let receipt = store
-        .confirm_cloud_peer(&candidate, &[8; 32], 1, false)
+        .confirm_cloud_peer(&candidate, &[8; 32], 1, false, None)
         .unwrap();
     drop(store);
     let store = Store::open(&serving).unwrap();
@@ -398,7 +588,7 @@ fn current_expiry_owner_pin_and_native_key_are_rechecked_before_route_swap() {
     let (root, serving, candidate) = world();
     let mut store = Store::open(&serving).unwrap();
     store
-        .confirm_cloud_peer(&candidate, &[8; 32], 1, false)
+        .confirm_cloud_peer(&candidate, &[8; 32], 1, false, None)
         .unwrap();
     let before = store.cloud_route_changes().unwrap();
     let (request, key) = tests::reroute_fixture(2, "new-uid");
@@ -467,7 +657,7 @@ fn additive_migration_preserves_schema_nine_identity_key_and_sending_policy() {
     let (root, serving, candidate) = world();
     let mut store = Store::open(&serving).unwrap();
     store
-        .confirm_cloud_peer(&candidate, &[8; 32], 1, false)
+        .confirm_cloud_peer(&candidate, &[8; 32], 1, false, None)
         .unwrap();
     let before = store
         .talk(&candidate.candidate.peer, true)
@@ -503,7 +693,9 @@ fn one_ceremony_can_enable_talk_and_receipt_cleanup_never_changes_trust() {
     let (root, serving, candidate) = world();
     let mut store = Store::open(&serving).unwrap();
     let key = response_key(&[4; 16], &candidate.challenge, &candidate.candidate).unwrap();
-    let receipt = store.confirm_cloud_peer(&candidate, &key, 1, true).unwrap();
+    let receipt = store
+        .confirm_cloud_peer(&candidate, &key, 1, true, None)
+        .unwrap();
     let grant = store.grant(&candidate.candidate.peer).unwrap().unwrap();
     assert!(grant.permits_scope("talk"));
     let decoded: serde_json::Value = serde_json::from_slice(&receipt.bytes).unwrap();
@@ -552,7 +744,7 @@ fn person_management_requires_a_unique_name_and_accepts_an_exact_client_id() {
     let mut store = Store::open(&serving).unwrap();
     let key = response_key(&[4; 16], &candidate.challenge, &candidate.candidate).unwrap();
     store
-        .confirm_cloud_peer(&candidate, &key, 1, false)
+        .confirm_cloud_peer(&candidate, &key, 1, false, None)
         .unwrap();
     let peer = candidate.candidate.peer.clone();
     let name = candidate.candidate.name.clone();

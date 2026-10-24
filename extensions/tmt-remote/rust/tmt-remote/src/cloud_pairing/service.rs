@@ -134,6 +134,7 @@ impl Service {
         &self,
         provider: &Provider,
         descriptor: &[u8],
+        inviting_owner: Option<&str>,
         io: &IoBudget<'_>,
     ) -> Result<(), RemoteError> {
         let project = provider.identity().project.clone();
@@ -146,8 +147,16 @@ impl Service {
         if previous.as_deref() == Some(descriptor) {
             return Ok(());
         }
+        let existing = run(provider.machine_metadata(io), io)?;
+        let inviting_owner = if let Some(row) = &existing {
+            Self::machine_fields(provider, &self.key.public(), row)?
+                .get("invitingOwner")
+                .and_then(|value| value["stringValue"].as_str())
+        } else {
+            inviting_owner
+        };
         run(
-            provider.register_machine(&self.key.public(), descriptor, None, io),
+            provider.register_machine(&self.key.public(), descriptor, inviting_owner, io),
             io,
         )?;
         self.published
@@ -164,9 +173,27 @@ impl Service {
         io: &IoBudget<'_>,
     ) -> Result<VerifiedDescriptor, RemoteError> {
         let row = run(provider.machine_metadata(io), io)?.ok_or_else(wire::invalid)?;
+        self.verify_descriptor(provider, pin, previous, &row)
+    }
+    fn machine_fields<'a>(
+        provider: &Provider,
+        pin: &[u8; 32],
+        row: &'a Value,
+    ) -> Result<&'a serde_json::Map<String, Value>, RemoteError> {
         let fields = row["fields"]
             .as_object()
-            .filter(|f| f.len() == 3)
+            .filter(|f| {
+                (f.len() == 3
+                    || (f.len() == 4
+                        && f.get("invitingOwner").is_some_and(|value| {
+                            value["stringValue"].as_str().is_some_and(|id| {
+                                canonical::is_core_id(id) && id != provider.machine()
+                            })
+                        })))
+                    && f.get("uid").is_some_and(|value| {
+                        value["stringValue"].as_str().is_some_and(super::uid_ok)
+                    })
+            })
             .ok_or_else(wire::invalid)?;
         let key = fields.get("authenticationKey").ok_or_else(wire::invalid)?["bytesValue"]
             .as_str()
@@ -178,6 +205,16 @@ impl Service {
                 "The machine registration does not match the pinned identity; it was not changed.",
             ));
         }
+        Ok(fields)
+    }
+    fn verify_descriptor(
+        &self,
+        provider: &Provider,
+        pin: &[u8; 32],
+        previous: &[u8],
+        row: &Value,
+    ) -> Result<VerifiedDescriptor, RemoteError> {
+        let fields = Self::machine_fields(provider, pin, row)?;
         let descriptor = fields.get("descriptor").ok_or_else(wire::invalid)?["bytesValue"]
             .as_str()
             .and_then(|v| STANDARD.decode(v).ok())
@@ -206,7 +243,12 @@ impl Service {
         )
         .map_err(|e| RemoteError::new(e.code(), &e.to_string()))
     }
-    fn flush(&self, provider: &Provider, io: &IoBudget<'_>) -> Result<(), RemoteError> {
+    fn flush(
+        &self,
+        provider: &Provider,
+        config: &Value,
+        io: &IoBudget<'_>,
+    ) -> Result<(), RemoteError> {
         let mut groups: BTreeMap<String, Vec<RouteChange>> = BTreeMap::new();
         for row in self
             .store()?
@@ -217,7 +259,26 @@ impl Service {
             groups.entry(row.peer.clone()).or_default().push(row);
         }
         for rows in groups.values() {
-            run(provider.publish_routes(rows, None, io), io)?;
+            // Only a pending route adopted from a verified newer reroute can
+            // move an invited child's uid. Preserve original-owner provenance.
+            let child =
+                if let Some(live) = rows.iter().find(|row| !row.revoked && row.generation > 1) {
+                    let peer = self.provider(config, &live.peer, false)?;
+                    if let Some(metadata) = run(peer.machine_metadata(io), io)? {
+                        let grant = self.store()?.grant(&live.peer)?.ok_or_else(wire::invalid)?;
+                        let fields = Self::machine_fields(&peer, &grant.public_key, &metadata)?;
+                        (fields
+                            .get("invitingOwner")
+                            .is_some_and(|value| value["stringValue"] == self.machine)
+                            && fields["uid"]["stringValue"] != live.uid)
+                            .then_some(live.peer.as_str())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+            run(provider.publish_routes(rows, child, io), io)?;
             let store = self.store()?;
             for row in rows {
                 store.cloud_route_published(row)?;
@@ -229,7 +290,7 @@ impl Service {
         let configs = self.store()?.cloud_owner_configs()?;
         for config in configs {
             let provider = self.provider(&config, &self.machine, false)?;
-            self.flush(&provider, &self.io())?;
+            self.flush(&provider, &config, &self.io())?;
         }
         Ok(())
     }
@@ -269,7 +330,7 @@ impl Service {
         let now = crate::pairing::now_ms()?;
         self.keys.maintain(now)?;
         let descriptor = self.keys.advertised(now)?;
-        self.register(&provider, descriptor.bytes(), &self.io())?;
+        self.register(&provider, descriptor.bytes(), None, &self.io())?;
         self.store()?.remember_cloud_owner(project, &config)?;
         let owner_name = std::env::var("USER")
             .ok()
@@ -311,16 +372,34 @@ impl Service {
                             "The owner declined the connection.",
                         ));
                     }
+                    let candidate = verified.candidate();
+                    let reciprocal = Connection {
+                        version: 1,
+                        name: self.connection_name(&candidate.peer, &candidate.name)?,
+                        owner: candidate.peer.clone(),
+                        owner_key: candidate.public_key,
+                        config: invite.public_config.clone(),
+                        peer: self.machine.clone(),
+                        uid: provider.uid().into(),
+                        request: Vec::new(),
+                        confirmed: true,
+                        descriptor: Vec::new(),
+                        reroute_token: None,
+                    };
+                    let confirmed_at = crate::pairing::now_ms()?;
+                    let mut store = self.store()?;
                     let mut response_key = invite.response_key(&submission.candidate)?;
-                    let receipt = self.store()?.confirm_cloud_peer(
+                    let receipt = store.confirm_cloud_peer(
                         &verified,
                         &response_key,
-                        crate::pairing::now_ms()?,
+                        confirmed_at,
                         talk,
+                        Some(reciprocal),
                     );
                     response_key.fill(0);
+                    drop(store);
                     let receipt = receipt?;
-                    self.flush(&provider, &io)?;
+                    self.flush(&provider, &invite.public_config, &io)?;
                     let body=json!({"receipt":canonical::base64url(&receipt.bytes),"proof":canonical::base64url(&receipt.proof)}).to_string();
                     run(
                         provider.enrollment_create(
@@ -345,8 +424,14 @@ impl Service {
                     } else {
                         &submission.candidate.peer
                     };
+                    let reverse_reference = self
+                        .store()?
+                        .cloud_connection(&submission.candidate.peer)?
+                        .ok_or_else(wire::invalid)?
+                        .name;
                     emit(
-                        json!({"event":"connected","name":submission.candidate.name,"talk":talk,"clientId":submission.candidate.peer,"hintPerson":hint}),
+                        json!({"event":"connected","name":submission.candidate.name,"talk":talk,"clientId":submission.candidate.peer,"hintPerson":hint,
+                            "remote":reverse_reference}),
                     )?;
                     self.request_reconcile();
                     return Ok(());
@@ -368,7 +453,7 @@ impl Service {
     pub fn join(
         &self,
         token: &str,
-        mut emit: impl FnMut(Value) -> Result<(), RemoteError>,
+        mut emit: impl FnMut(Value) -> Result<Option<bool>, RemoteError>,
     ) -> Result<(), RemoteError> {
         let invite = Invite::read(token, crate::pairing::now_ms()?)?;
         let provider = self.provider(&invite.public_config, &invite.challenge.owner, true)?;
@@ -480,36 +565,92 @@ impl Service {
                 )
                 .map_err(|_| wire::invalid())?;
                 let mut key = invite.response_key(&submission.candidate)?;
-                let verified = crate::crypto::verify_server_proof(&key, &receipt, &proof);
-                key.fill(0);
-                verified.map_err(|_| wire::invalid())?;
-                let receipt = crate::wire::strict_json(&receipt).ok_or_else(wire::invalid)?;
-                if receipt["grant"]["clientId"] != self.machine
-                    || receipt["grant"]["machineId"] != connection.owner
-                    || receipt["machinePublicKey"] != canonical::base64url(&connection.owner_key)
-                    || receipt["grant"]["publicKey"] != canonical::base64url(&self.key.public())
-                {
-                    return Err(wire::invalid());
-                }
-                connection.reroute_token = Some(
-                    canonical::base64url_bytes(
-                        receipt["rerouteToken"]
+                let accepted: Result<Value, RemoteError> = (|| {
+                    crate::crypto::verify_server_proof(&key, &receipt, &proof)
+                        .map_err(|_| wire::invalid())?;
+                    let receipt = crate::wire::strict_json(&receipt).ok_or_else(wire::invalid)?;
+                    if receipt["grant"]["clientId"] != self.machine
+                        || receipt["grant"]["machineId"] != connection.owner
+                        || receipt["machinePublicKey"]
+                            != canonical::base64url(&connection.owner_key)
+                        || receipt["grant"]["publicKey"] != canonical::base64url(&self.key.public())
+                    {
+                        return Err(wire::invalid());
+                    }
+                    connection.reroute_token = Some(
+                        canonical::base64url_bytes(
+                            receipt["rerouteToken"]
+                                .as_str()
+                                .ok_or_else(wire::missing_reroute_token)?,
+                            32,
+                        )
+                        .map_err(|_| wire::invalid())?
+                        .try_into()
+                        .map_err(|_| wire::invalid())?,
+                    );
+                    connection.confirmed = true;
+                    let reciprocal_missing = {
+                        let store = self.store()?;
+                        store.grant(&connection.owner)?.is_none()
+                    };
+                    if reciprocal_missing {
+                        let reverse_talk =
+                            emit(json!({"event":"reverse-permission","name":invite.machine_name}))?
+                                .unwrap_or(false);
+                        let row =
+                            run(provider.machine_metadata(&io), &io)?.ok_or_else(wire::invalid)?;
+                        let fields = Self::machine_fields(&provider, &connection.owner_key, &row)?;
+                        let owner_uid = fields["uid"]["stringValue"]
                             .as_str()
-                            .ok_or_else(wire::missing_reroute_token)?,
-                        32,
-                    )
-                    .map_err(|_| wire::invalid())?
-                    .try_into()
-                    .map_err(|_| wire::invalid())?,
-                );
-                connection.confirmed = true;
-                self.store()?.save_cloud_connection(&connection)?;
+                            .ok_or_else(wire::invalid)?;
+                        let grant = crate::store::Grant {
+                            client_id: connection.owner.clone(),
+                            public_key: connection.owner_key,
+                            kind: "cli".into(),
+                            origin: "cli".into(),
+                            name: invite.machine_name.clone(),
+                            agents: "all".into(),
+                            scopes: crate::store::DEFAULT_SCOPES.map(str::to_owned).into(),
+                            mode: "direct".into(),
+                            issued_at_ms: crate::pairing::now_ms()?,
+                            expires_at_ms: None,
+                            revision: 1,
+                            disabled: false,
+                        };
+                        let mut reverse_token =
+                            wire::reverse_reroute_token(&key, &invite.challenge, &self.machine)?;
+                        let confirmation = (|| {
+                            self.store()?.confirm_reciprocal(
+                                &connection,
+                                owner_uid,
+                                &grant,
+                                &self.key.public(),
+                                reverse_talk,
+                                &reverse_token,
+                            )
+                        })();
+                        reverse_token.fill(0);
+                        confirmation?;
+                    } else {
+                        self.store()?.save_cloud_connection(&connection)?;
+                    }
+                    Ok(receipt)
+                })();
+                key.fill(0);
+                let receipt = accepted?;
+                let local = self.provider(&connection.config, &self.machine, false)?;
+                let now = crate::pairing::now_ms()?;
+                self.keys.maintain(now)?;
+                let descriptor = self.keys.advertised(now)?;
+                self.register(&local, descriptor.bytes(), Some(&connection.owner), &io)?;
+                self.flush(&local, &connection.config, &io)?;
                 let talk = receipt["grant"]["scopes"]
                     .as_array()
                     .is_some_and(|v| v.iter().any(|v| v == "talk"));
                 emit(
                     json!({"event":"connected","name":invite.machine_name,"talk":talk,"remote":name}),
                 )?;
+                self.request_reconcile();
                 return Ok(());
             }
             provider.wait(&io, crate::limits::CLOUD_POLL_MIN_MS)?;
@@ -530,6 +671,20 @@ impl Service {
         let descriptor = self.descriptor(&provider, &record.owner_key, &record.descriptor, &io)?;
         record.descriptor = descriptor.bytes().to_vec();
         self.store()?.save_cloud_connection(&record)?;
+        self.reroute(&mut record, &provider, &io)?;
+        let sender = Sender::new(provider, self.store.clone(), &record.peer, self.key.clone())?;
+        serde_json::to_value(run(
+            sender.prepared(raw, &descriptor, selected, crate::pairing::now_ms()?, &io),
+            &io,
+        )?)
+        .map_err(|_| unavailable())
+    }
+    fn reroute(
+        &self,
+        record: &mut Connection,
+        provider: &Provider,
+        io: &IoBudget<'_>,
+    ) -> Result<(), RemoteError> {
         if record.uid != provider.uid() {
             let generation = self.store()?.next_cloud_reroute_generation(&record.owner)?;
             let id = crate::store::uuid_v4()?;
@@ -555,13 +710,12 @@ impl Service {
                             .as_ref()
                             .ok_or_else(wire::missing_reroute_token)?,
                     }),
-                    &io,
+                    io,
                 ),
-                &io,
+                io,
             )?;
             loop {
-                if let Some(doc) =
-                    run(provider.enrollment_get(&format!("{id}-response"), &io), &io)?
+                if let Some(doc) = run(provider.enrollment_get(&format!("{id}-response"), io), io)?
                 {
                     if doc.kind != "route-response" || doc.uid != provider.uid() {
                         return Err(wire::invalid());
@@ -580,28 +734,47 @@ impl Service {
                     .map_err(|_| wire::invalid())?;
                     break;
                 }
-                provider.wait(&io, crate::limits::CLOUD_POLL_MIN_MS)?;
+                provider.wait(io, crate::limits::CLOUD_POLL_MIN_MS)?;
             }
             record.uid = provider.uid().into();
-            self.store()?.save_cloud_connection(&record)?;
+            self.store()?.save_cloud_connection(record)?;
         }
-        let sender = Sender::new(provider, self.store.clone(), &record.peer, self.key.clone())?;
-        serde_json::to_value(run(
-            sender.prepared(raw, &descriptor, selected, crate::pairing::now_ms()?, &io),
-            &io,
-        )?)
-        .map_err(|_| unavailable())
+        Ok(())
     }
     pub fn reconcile(&self) -> Result<(), RemoteError> {
+        let mut final_refusal = None;
         let configs = self.store()?.cloud_owner_configs()?;
         for config in configs {
             let provider = self.provider(&config, &self.machine, false)?;
             let io = self.io();
+            let connections = self.store()?.cloud_connections()?;
+            let inviting_owner = connections
+                .iter()
+                .find(|record| {
+                    record.confirmed
+                        && !record.request.is_empty()
+                        && record.config["projectId"] == config["projectId"]
+                })
+                .map(|record| record.owner.clone());
+            for mut record in connections.into_iter().filter(|record| {
+                record.confirmed
+                    && !record.request.is_empty()
+                    && record.config["projectId"] == config["projectId"]
+                    && record.uid != provider.uid()
+            }) {
+                let inviter = self.provider(&record.config, &record.owner, false)?;
+                self.reroute(&mut record, &inviter, &io)?;
+            }
             let now = crate::pairing::now_ms()?;
             self.keys.maintain(now)?;
             let descriptor = self.keys.advertised(now)?;
-            self.register(&provider, descriptor.bytes(), &io)?;
-            self.flush(&provider, &io)?;
+            self.register(
+                &provider,
+                descriptor.bytes(),
+                inviting_owner.as_deref(),
+                &io,
+            )?;
+            self.flush(&provider, &config, &io)?;
             self.cleanup_enrollment(&provider, now, &io)?;
             let checkpoint = self
                 .store()?
@@ -649,7 +822,7 @@ impl Service {
                             }
                         }
                     }
-                    "reroute" => self.process_reroute(&provider, &doc, now, &io)?,
+                    "reroute" => self.process_reroute(&provider, &config, &doc, now, &io)?,
                     _ => {}
                 }
                 newest = newest.max(doc.created_ms);
@@ -667,8 +840,149 @@ impl Service {
                 provider,
             );
             run(driver.reconcile(now, &io), &io)?;
+            self.discover_reciprocal_peers(&config, &io)?;
+            match self.push_finals(&config, &io) {
+                Err(error) if crate::cloud_inbox::permanent(&error.code) => {
+                    final_refusal.get_or_insert(error);
+                }
+                Err(error) => return Err(error),
+                Ok(()) => {}
+            }
         }
-        self.projects.checkpoint()
+        self.projects.checkpoint()?;
+        final_refusal.map_or(Ok(()), Err)
+    }
+    fn connection_name(&self, peer: &str, display: &str) -> Result<String, RemoteError> {
+        if let Some(record) = self.store()?.cloud_connection(peer)? {
+            return Ok(record.name);
+        }
+        let name = if crate::remote_catalog::name_ok(display) {
+            display
+        } else {
+            peer
+        };
+        if self.store()?.cloud_connection(name)?.is_some() {
+            Ok(peer.into())
+        } else {
+            Ok(name.into())
+        }
+    }
+    fn discover_reciprocal_peers(
+        &self,
+        config: &Value,
+        io: &IoBudget<'_>,
+    ) -> Result<(), RemoteError> {
+        let project = config["projectId"].as_str().ok_or_else(wire::invalid)?;
+        let grants = self.store()?.cloud_project_peers(project)?;
+        for grant in grants {
+            if !grant.live_at(crate::pairing::now_ms()?)
+                || self.store()?.cloud_connection(&grant.client_id)?.is_some()
+            {
+                continue;
+            }
+            let provider = self.provider(config, &grant.client_id, false)?;
+            let Some(row) = run(provider.machine_metadata(io), io)? else {
+                continue;
+            };
+            let descriptor = self.verify_descriptor(&provider, &grant.public_key, &[], &row)?;
+            let mut name = if crate::remote_catalog::name_ok(&grant.name) {
+                grant.name.clone()
+            } else {
+                grant.client_id.clone()
+            };
+            if self.store()?.cloud_connection(&name)?.is_some() {
+                name = grant.client_id.clone();
+            }
+            self.store()?.save_cloud_connection(&Connection {
+                version: 1,
+                name,
+                owner: grant.client_id.clone(),
+                owner_key: grant.public_key,
+                config: config.clone(),
+                peer: self.machine.clone(),
+                uid: provider.uid().into(),
+                request: Vec::new(),
+                confirmed: true,
+                descriptor: descriptor.bytes().to_vec(),
+                reroute_token: None,
+            })?;
+        }
+        Ok(())
+    }
+    /// Only local Core reads discover completion. A ready final then uses the
+    /// reverse inbox and the same Auth/runtime/budget/claim owner as a dispatch.
+    fn push_finals(&self, config: &Value, io: &IoBudget<'_>) -> Result<(), RemoteError> {
+        let project = config["projectId"].as_str().ok_or_else(wire::invalid)?;
+        let mut refusal = None;
+        let grants = self.store()?.cloud_project_peers(project)?;
+        for grant in grants {
+            if !grant.live_at(crate::pairing::now_ms()?) || !grant.permits_scope("results.read") {
+                continue;
+            }
+            let operations = self.store()?.cloud_accepted_dispatches(&grant.client_id)?;
+            for operation in operations {
+                io.check().map_err(|_| unavailable())?;
+                let outcome: Result<(), RemoteError> = (|| {
+                    let Some(final_value) =
+                        self.messages
+                            .cloud_final_for(&grant, &self.machine, &operation)?
+                    else {
+                        return Ok(());
+                    };
+                    let provider = self.provider(config, &grant.client_id, false)?;
+                    let previous = self.store()?.cloud_connection(&grant.client_id)?;
+                    let descriptor = self.descriptor(
+                        &provider,
+                        &grant.public_key,
+                        previous
+                            .as_ref()
+                            .map_or(&[], |record| record.descriptor.as_slice()),
+                        io,
+                    )?;
+                    let mut record = previous.unwrap_or(Connection {
+                        version: 1,
+                        name: grant.client_id.clone(),
+                        owner: grant.client_id.clone(),
+                        owner_key: grant.public_key,
+                        config: config.clone(),
+                        peer: self.machine.clone(),
+                        uid: provider.uid().into(),
+                        request: Vec::new(),
+                        confirmed: true,
+                        descriptor: Vec::new(),
+                        reroute_token: None,
+                    });
+                    record.descriptor = descriptor.bytes().to_vec();
+                    self.store()?.save_cloud_connection(&record)?;
+                    self.reroute(&mut record, &provider, io)?;
+                    let sender = Sender::new(
+                        provider,
+                        self.store.clone(),
+                        &self.machine,
+                        self.key.clone(),
+                    )?;
+                    run(
+                        sender.push_final(
+                            &final_value,
+                            &grant,
+                            &descriptor,
+                            crate::pairing::now_ms()?,
+                            io,
+                        ),
+                        io,
+                    )?;
+                    Ok(())
+                })();
+                match outcome {
+                    Err(error) if crate::cloud_inbox::permanent(&error.code) => {
+                        refusal.get_or_insert(error);
+                    }
+                    Err(error) => return Err(error),
+                    Ok(()) => {}
+                }
+            }
+        }
+        refusal.map_or(Ok(()), Err)
     }
     fn cleanup_enrollment(
         &self,
@@ -706,6 +1020,7 @@ impl Service {
     fn process_reroute(
         &self,
         provider: &Provider,
+        config: &Value,
         doc: &super::EnrollmentDocument,
         now: u64,
         io: &IoBudget<'_>,
@@ -728,7 +1043,7 @@ impl Service {
             Err(error) if error.code == "REMOTE_CLOUD_PAIR_INVALID" => return Ok(()),
             Err(error) => return Err(error),
         }
-        self.flush(provider, io)?;
+        self.flush(provider, config, io)?;
         let bytes =
             canonical::framed(&[b"tmt-cloud-route-response-v1", doc.id.as_bytes(), &doc.body])
                 .map_err(|_| wire::invalid())?;

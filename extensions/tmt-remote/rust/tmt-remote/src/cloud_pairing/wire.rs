@@ -208,6 +208,24 @@ pub(super) fn reroute_token(
     Ok(crypto::mac(response_key, &context))
 }
 
+/// Reciprocal recovery uses the same authenticated key with an explicit
+/// direction part and reversed owner/peer roles; the forward profile stays fixed.
+pub(super) fn reverse_reroute_token(
+    response_key: &[u8; 32],
+    challenge: &Challenge,
+    joiner: &str,
+) -> Result<[u8; 32], RemoteError> {
+    let context = canonical::framed(&[
+        b"tmt-cloud-reroute-token-v1",
+        b"reverse",
+        challenge.project.as_bytes(),
+        joiner.as_bytes(),
+        challenge.owner.as_bytes(),
+    ])
+    .map_err(|_| invalid())?;
+    Ok(crypto::mac(response_key, &context))
+}
+
 pub struct Submission {
     pub candidate: Candidate,
     pub mac: [u8; 32],
@@ -304,6 +322,29 @@ pub fn read_route(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reciprocal_capability_has_an_independent_vector_and_cannot_cross_directions() {
+        use sha2::{Digest, Sha256};
+        let (challenge, candidate, _) = super::super::tests::fixture();
+        let key = [8; 32];
+        let forward = reroute_token(&key, &challenge, &candidate.peer).unwrap();
+        let reverse = reverse_reroute_token(&key, &challenge, &candidate.peer).unwrap();
+        // Independent Python hmac/hashlib with u32-BE LP and UTF-8 parts.
+        assert_eq!(
+            canonical::base64url(&reverse),
+            "QYPC_Ji4XugZCjdJy2Vf5w6Xcw933Z1dF9X1cXG974U"
+        );
+        let forward_hash = Sha256::digest(forward);
+        let reverse_hash = Sha256::digest(reverse);
+        assert_ne!(Sha256::digest(forward), reverse_hash);
+        assert_ne!(Sha256::digest(reverse), forward_hash);
+        let mut swapped = challenge.clone();
+        swapped.owner = candidate.peer.clone();
+        assert_ne!(
+            reverse,
+            reroute_token(&key, &swapped, &challenge.owner).unwrap()
+        );
+    }
     #[test]
     fn capabilities_use_distinct_domains_and_fixed_independent_vectors() {
         let (challenge, candidate, _) = super::super::tests::fixture();

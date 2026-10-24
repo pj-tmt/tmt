@@ -1341,21 +1341,21 @@ to both attach and supervised-start use.
 Payloads for core API operations are the existing API envelope, decoded without rewriting input.
 Remote narrows supported operations/authority before core calls.
 
-| Logical operation                                                                               | Scope and public core mapping                                                                                                                                                                                                      |
-| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `capabilities`                                                                                  | Signed paired discovery of supported subset, fixed suite and core bounds.                                                                                                                                                          |
-| `agents.list`                                                                                   | `agents.read`; `tmt ls --json` projected to permitted UUID/name/presence, delivery status and optional runtime/activity evidence below, without pane address/cwd/process/profile.                                                  |
-| `identities.status`                                                                             | `status.read`; input restricted to permitted UUIDs. Self-report is not readiness or completion.                                                                                                                                    |
-| `check`                                                                                         | `check.read`; one permitted agent, the bounded capture `tmt check --json` returns locally. Read-only; it never writes to a pane.                                                                                                   |
+| Logical operation                                                                               | Scope and public core mapping                                                                                                                                                                                                                             |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capabilities`                                                                                  | Signed paired discovery of supported subset, fixed suite and core bounds.                                                                                                                                                                                 |
+| `agents.list`                                                                                   | `agents.read`; `tmt ls --json` projected to permitted UUID/name/presence, delivery status and optional runtime/activity evidence below, without pane address/cwd/process/profile.                                                                         |
+| `identities.status`                                                                             | `status.read`; input restricted to permitted UUIDs. Self-report is not readiness or completion.                                                                                                                                                           |
+| `check`                                                                                         | `check.read`; one permitted agent, the bounded capture `tmt check --json` returns locally. Read-only; it never writes to a pane.                                                                                                                          |
 | `dispatch.create`                                                                               | `talk`; one permitted direct request recipient, core originator per Identity attribution (below) plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
-| `dispatch.show`, `operation.show`                                                               | `talk`; only journal-owned operation IDs; core immutable receipt or remote held state.                                                                                                                                             |
-| `requests.show`, `result`                                                                       | `results.read`; any request the local `tmt result` can read, through the public API or `tmt result --json`.                                                                                                                        |
-| `requests.sendNow`                                                                              | `talk`; the owner's own browser only, for a request this device sent ([Send now](#send-now)). Core runs `requests.sendNow` for the person.                                                                                         |
-| `requests.list`, global `changes.cursor`, `references.resolve`, `rooms.roster`                  | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                               |
-| `notes.read`, `rooms.write`, `rooms.retire`                                                     | Unsupported in v1.                                                                                                                                                                                                                 |
-| `identityHooks.*`, `skills.install`, `skills.remove`                                            | Never remotely callable; JSON consent cannot manufacture local lifecycle/install authority.                                                                                                                                        |
-| reply/answer, X acknowledgment, core/provider config, pair, run/resume, approvals, installation | Never remotely callable. Result/log ack does not reply or acknowledge core work.                                                                                                                                                   |
-| any other command, argv or shell                                                                | Never; there is no generic command endpoint.                                                                                                                                                                                       |
+| `dispatch.show`, `operation.show`                                                               | `talk`; only journal-owned operation IDs; core immutable receipt or remote held state.                                                                                                                                                                    |
+| `requests.show`, `result`                                                                       | `results.read`; any request the local `tmt result` can read, through the public API or `tmt result --json`.                                                                                                                                               |
+| `requests.sendNow`                                                                              | `talk`; the owner's own browser only, for a request this device sent ([Send now](#send-now)). Core runs `requests.sendNow` for the person.                                                                                                                |
+| `requests.list`, global `changes.cursor`, `references.resolve`, `rooms.roster`                  | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                                                      |
+| `notes.read`, `rooms.write`, `rooms.retire`                                                     | Unsupported in v1.                                                                                                                                                                                                                                        |
+| `identityHooks.*`, `skills.install`, `skills.remove`                                            | Never remotely callable; JSON consent cannot manufacture local lifecycle/install authority.                                                                                                                                                               |
+| reply/answer, X acknowledgment, core/provider config, pair, run/resume, approvals, installation | Never remotely callable. Result/log ack does not reply or acknowledge core work.                                                                                                                                                                          |
+| any other command, argv or shell                                                                | Never; there is no generic command endpoint.                                                                                                                                                                                                              |
 
 `agents.list`, `check`, `operation.show` and `result` are adapter helpers over ordinary public JSON
 commands, not new core API operations. SDK `api(op,input)` cannot reach local management/argv
@@ -1428,14 +1428,12 @@ operation that was already frozen carries it only if the stored receipt does. A 
 and names non-empty text of at most 512 bytes), and treat a malformed one as an unverifiable reply.
 How often a surface shows it is the surface's rule, not this contract's.
 
-On a paired `cli` device, ordinary `tmt talk` addressed to a remote agent is the send action: it
-freezes the operation ID and exact bytes, appends `dispatch.create`, and waits for the durable
-reply through `result`, as a local talk waits for its reply. Remote agents are addressed by their
-plain name, as in local `tmt talk`; a local identity with that name always wins. A name with no
-local match resolves to the one paired-machine agent of that name, and the command output names
-the machine. `<name>@<machine>` (the machine name recorded when this device paired) selects explicitly
-and is needed only when the plain name is ambiguous across paired machines; ambiguity refuses and
-lists the qualified candidates rather than choosing one.
+Native cloud talk uses the explicit `tmt talk --remote <ref> <agent> <message>` seam in
+#4536 (activation remains gated until that Core slice lands). Core freezes its request and
+Remote carries `dispatch.create`; the receiving machine resolves the target and pins its UUID
+before the effect. There is no automatic local-name fallback or `agent@machine` shorthand.
+The [native Firestore binding](#native-firestore-agent-binding-emulator-only) owns final transport;
+Core's ordinary receipt-bound reply and local `tmt result` own completion and retention.
 
 The wire-independent client boundary is `@tmt/remote-client`. The shipped browser entry exports
 `operations(session, {timeoutMs?})`, accepting the existing verified `Session` and opening nothing.
@@ -1899,11 +1897,11 @@ public JSON the terminal already reads; they add no grant, scope, pairing rule, 
 channel, and dispatch stays unreachable from them. They are siblings of the composed shell's
 `GET <prefix>/x/-/shell` and share its admission:
 
-| Route                             | Reads (fixed argv through the supplied `tmt`, no generic command endpoint)          |
-| --------------------------------- | ----------------------------------------------------------------------------------- |
-| `GET <prefix>/x/-/ops`            | `ops squad ls --json` and `ops squad cron ls --json`, run in parallel               |
-| `GET <prefix>/x/-/limits`         | `ops limits --json`                                                                |
-| `GET <prefix>/x/-/digest/<range>` | `digest usage report --since <range> --json`, with `<range>` `24h`, `7d` or `30d`  |
+| Route                             | Reads (fixed argv through the supplied `tmt`, no generic command endpoint)        |
+| --------------------------------- | --------------------------------------------------------------------------------- |
+| `GET <prefix>/x/-/ops`            | `ops squad ls --json` and `ops squad cron ls --json`, run in parallel             |
+| `GET <prefix>/x/-/limits`         | `ops limits --json`                                                               |
+| `GET <prefix>/x/-/digest/<range>` | `digest usage report --since <range> --json`, with `<range>` `24h`, `7d` or `30d` |
 
 The range is a path segment because the edge target grammar admits no query string beyond its two
 fixed forms; any other path, a bare `/digest`, an unknown range, another method or an upgrade is the
@@ -2218,11 +2216,11 @@ never enables agent access; the [historical conformance material](#proposal-clou
 under the [superseded-authentication note](#superseded-cloud-authentication-proposal), not a shipped Firestore gate.
 Cloudflare remains proposed. Extension/page authority never substitutes for a local paired operation grant.
 
-| Backend      | Mapping                                                                                                                                                                             |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `local`      | [Loopback HTTP](#transport-binding-loopback-http), mounted extension routes and WebSocket relay; state under the data root.                                                         |
+| Backend      | Mapping                                                                                                                                                                                                                      |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `local`      | [Loopback HTTP](#transport-binding-loopback-http), mounted extension routes and WebSocket relay; state under the data root.                                                                                                  |
 | `firestore`  | **Shipped:** extension-scoped sealed-document sync for Colab page sharing. **Emulator-only agent binding:** native invite/join, encrypted inboxes, owner responses and peer checkpoints; public Core delivery remains gated. |
-| `cloudflare` | **Proposal:** Worker admission before per-machine Durable Object storage; per-namespace relay objects; bounded WebSocket delivery and device-scoped checkpoints.                    |
+| `cloudflare` | **Proposal:** Worker admission before per-machine Durable Object storage; per-namespace relay objects; bounded WebSocket delivery and device-scoped checkpoints.                                                             |
 
 ### Native Firestore agent binding (emulator only)
 
@@ -2357,6 +2355,53 @@ Full public `talk` acceptance belongs to #4539/#4540 after the Core #4536 seam a
 activation. Pairing qualification injects the fake public Core boundary; it does not open that gate.
 Real-provider acceptance remains separate.
 
+#### Pushed agent finals
+
+The receiving serve observes local Core finals only for accepted cloud dispatches in its
+existing journal. The journal's peer and operation-to-request mapping select the Core request;
+wire input cannot select another request. Each read and the final publication claim recheck
+current grant, results scope, revocation and the original recipient allowlist under the Store
+authority fence. Pending, held and unavailable work never becomes a dispatch retry.
+Permanent per-operation final refusals remain named diagnostics while later finals and other
+projects continue. Transient provider/Core failures and budget/deadline stops keep their existing
+stop behavior; an oversized final cannot hold another accepted request behind it.
+
+A retained final travels as one fresh signed request with operation `final` and payload
+`{version:1,operationId,requestId,response}`. `operationId` is the original bare Core operation
+UUID; `requestId` is the receiving machine's mapped `req_<uuid>`; `response` is the exact body.
+The carrier ID is derived from SHA-256 of LP(`tmt-cloud-final-v1`) followed by LP of the
+canonical original operation UUID: take the first 16 bytes, set the UUIDv4 version and RFC
+variant bits, and format lowercase. The destination is the originating machine's own
+`/m/<machine>/inbox/<final-id>`. Existing carrier size bounds apply; oversized finals refuse
+with `REMOTE_CLOUD_MESSAGE_TOO_LARGE`, without truncation, chunks or plaintext fallback.
+
+The source prepares this final carrier in its existing outbox before its single claimed create.
+Until that claim, a budget/Auth delay may refresh the unused HPKE context and timestamp for the
+same immutable final intent. The claim compares the exact prepared ciphertext; a displaced
+preparation cannot write. Claimed bytes never change, including after restart.
+An uncertain publication is observed by the same ID, never re-posted or resealed. No dispatch
+response document or HPKE response context is replaced. Context secrets remain in memory.
+Finals are one-way: the receiver retains its frozen local outcome for deduplication but does
+not publish an unused response document. A final therefore adds one provider carrier write.
+The ordinary inbox driver, message admission and current grant fence also receive a final;
+the local-browser path refuses this operation.
+
+Core supplies `reply:{requestId,receipt}` with its prepared local message. Remote retains it
+only in the private sender outbox binding, alongside the destination native machine, remote
+reference and local originating identity. Neither the receipt nor that local reply object
+is included in a dispatch/final envelope, provider document, response or audit row. Old outbox
+rows without a receipt remain readable; they cannot manufacture a reply capability.
+
+Before accepting a final, the receiver verifies the pinned native signatures, deterministic
+ID and original operation binding. That original outbox row must have been claimed, must name
+this peer and a currently permitted local originator, and must remain within recovery age.
+The exact body is submitted locally with `tmt reply <requestId> --receipt <receipt> --stdin`.
+Core owns immutable acceptance, identical retries, conflicts and retention; Remote never
+writes Core storage. Replayed inbox carriers return their frozen answer without a second
+effect. A crash after Core acceptance may repeat only that exact receipt/body submission.
+`tmt result`, X and the answers view consume the ordinary local Core final, including offline
+reads after arrival. The original receiving Core remains authoritative for its agent's final.
+
 ### Native invite and join
 
 `tmt remote invite [--remote <name>]` selects an owned deployment and prints a private one-use,
@@ -2365,6 +2410,11 @@ owner UUID/key. Both terminals show the same four key-fingerprint words. The own
 `Do the words match? [y/N]`, then `Let <person> send messages to your agents? [y/N]` in the same
 ceremony. Both default to no. No grant or route exists before explicit word confirmation. Sending
 defaults off and requires the second answer or later `tmt remote devices talk <person> on`.
+After verifying the authenticated receipt, the joiner answers one
+`Let <owner> send messages to your agents? [y/N]` question in that same ceremony, also default no.
+Its receiving grant, reverse recovery hash and connection commit together. The joiner registers
+its mailbox using the confirmed inviter and publishes the reciprocal route before reporting
+connected. Both terminals print the saved Remote reference; no second code or ceremony is used.
 Talk/revoke resolve an exact client UUID or a unique active person name; duplicate names require the
 UUID. JSON, CI, agent and noninteractive invocation never consent. Ctrl+C cancels the active invite
 and erases its secret. Neither command opens a browser or creates a local-browser session.
@@ -2418,6 +2468,13 @@ its existing response proof: HMAC-SHA256 under the response key over LP of
 this distinct capability in its private connection, not the code or response key. The owner writes
 `/m/<machine>/reroutes/<peer>` with `{tokenHash}` alongside routes; revoke deletes it in that same
 publication. A reroute create requires the matching capability hash as well as the new uid.
+The reciprocal capability is HMAC-SHA256 under that same verified response key over LP of
+`"tmt-cloud-reroute-token-v1"`, `"reverse"`, project, joiner UUID and inviter UUID. LP is the existing
+u32 big-endian byte-length framing with UTF-8 parts; the forward profile stays unchanged. The
+explicit direction part separates the frames even when UUID roles swap. The inviter saves its
+reverse connection/token in its confirmation transaction; the joiner saves the reverse hash with
+its reciprocal grant/route. Existing transcript/receipt proof checks precede both commits, and
+the response key is cleared afterward on success or error. Neither code nor response key is kept.
 Old private connections still parse unchanged; pre-token test pairings need one re-pair. They
 predate deployable native agent-talk Rules, so this compatibility exception has no production peers. Cloud publication runs outside SQLite and acknowledges only an unchanged
 snapshot. Local revoke disables authority at the existing effect fence and marks every historical
@@ -2743,13 +2800,13 @@ only the declared limits, never these ceilings. The Local row is the machine jou
 (`OBJECT_PAYLOAD_BYTES`, `OBJECT_NAMESPACE_BYTES`, `OBJECT_NAMESPACE_ENTRIES`), which an object
 stored in a cloud backend must also fit when a second machine imports it.
 
-| Declared limit                      | Local (journal)    | Firestore                                                                  | Cloudflare (advisory)      |
-| ----------------------------------- | ------------------ | -------------------------------------------------------------------------- | -------------------------- |
-| `maxObjectBytes`, unchunked         | 12 MiB             | 778,680 B: one document, bounded by the extension's Rules, not verified by Remote | 12 MiB             |
-| `chunkBytes`                        | -                  | 778,680 B per document, bounded by the extension's Rules, not verified by Remote | none beyond `maxObjectBytes` |
-| `maxObjectBytes`, chunked           | 12 MiB             | 12 MiB (the Local value, referenced; advisory)                             | 12 MiB                     |
-| `maxNamespaceBytes`                 | 64 MiB             | 1 GiB (advisory sanity ceiling)                                            | 64 MiB                     |
-| `maxEntries`                        | 1,024              | 1,048,576 (advisory sanity ceiling)                                        | 1,024                      |
+| Declared limit              | Local (journal) | Firestore                                                                         | Cloudflare (advisory)        |
+| --------------------------- | --------------- | --------------------------------------------------------------------------------- | ---------------------------- |
+| `maxObjectBytes`, unchunked | 12 MiB          | 778,680 B: one document, bounded by the extension's Rules, not verified by Remote | 12 MiB                       |
+| `chunkBytes`                | -               | 778,680 B per document, bounded by the extension's Rules, not verified by Remote  | none beyond `maxObjectBytes` |
+| `maxObjectBytes`, chunked   | 12 MiB          | 12 MiB (the Local value, referenced; advisory)                                    | 12 MiB                       |
+| `maxNamespaceBytes`         | 64 MiB          | 1 GiB (advisory sanity ceiling)                                                   | 64 MiB                       |
+| `maxEntries`                | 1,024           | 1,048,576 (advisory sanity ceiling)                                               | 1,024                        |
 
 Firestore's 778,680 B is a 1 MiB document less 10,336 B reserved (a 6,144 B document name, 64 field
 names of at most 64 B plus 1 B each, and 32 B of overhead), with base64 storing three bytes in

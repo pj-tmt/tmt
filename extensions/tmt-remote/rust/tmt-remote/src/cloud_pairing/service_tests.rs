@@ -29,6 +29,16 @@ struct Ports {
     wire: Arc<Wire>,
     clock: SystemClock,
 }
+struct Cancel(Vec<Arc<AtomicBool>>);
+impl Drop for Cancel {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            for flag in &self.0 {
+                flag.store(true, Ordering::Release);
+            }
+        }
+    }
+}
 impl Clock for Ports {
     fn now(&self) -> Time {
         self.clock.now()
@@ -56,7 +66,7 @@ struct Wire {
     docs: Mutex<BTreeMap<String, Value>>,
     commits: Mutex<Vec<Value>>,
     next: AtomicUsize,
-    owner: Mutex<Weak<Service>>,
+    receivers: Mutex<BTreeMap<String, Weak<Service>>>,
     fail_invite_delete: AtomicBool,
 }
 impl Wire {
@@ -65,9 +75,15 @@ impl Wire {
             docs: Mutex::new(BTreeMap::new()),
             commits: Mutex::new(Vec::new()),
             next: AtomicUsize::new(0),
-            owner: Mutex::new(Weak::new()),
+            receivers: Mutex::new(BTreeMap::new()),
             fail_invite_delete: AtomicBool::new(false),
         }
+    }
+    fn route(&self, service: &Arc<Service>) {
+        self.receivers
+            .lock()
+            .unwrap()
+            .insert(service.machine.clone(), Arc::downgrade(service));
     }
 }
 fn token(uid: &str) -> String {
@@ -188,11 +204,28 @@ impl Http for Wire {
                 continue;
             }
             let name = write["update"]["name"].as_str().unwrap();
+            // Fixture-only Rules gate. Native signature/generation admission is
+            // still exercised by the real receiving Service below.
+            if write["update"]["fields"]["kind"]["stringValue"] == "reroute" {
+                use sha2::{Digest, Sha256};
+                let parent = name.split("/enroll/").next().unwrap();
+                let fields = &write["update"]["fields"];
+                let peer = fields["peer"]["stringValue"].as_str().unwrap();
+                let token = STANDARD
+                    .decode(fields["token"]["bytesValue"].as_str().unwrap())
+                    .unwrap();
+                let expected = docs
+                    .get(&format!("{parent}/reroutes/{peer}"))
+                    .map(|row| row["fields"]["tokenHash"]["bytesValue"].clone());
+                if expected != Some(json!(STANDARD.encode(Sha256::digest(&token)))) {
+                    return response(403, json!({}));
+                }
+            }
             if write["currentDocument"]["exists"] == false && docs.contains_key(name) {
                 return response(409, json!({}));
             }
         }
-        let mut notify = false;
+        let mut notify = std::collections::BTreeSet::new();
         for write in writes {
             if let Some(name) = write["delete"].as_str() {
                 docs.remove(name);
@@ -209,14 +242,29 @@ impl Http for Wire {
             if write.get("updateTransforms").is_some() {
                 doc["fields"]["createdAt"] = json!({"timestampValue":stamp});
             }
-            notify |= name.contains("/inbox/") || doc["fields"]["kind"]["stringValue"] == "reroute";
+            if name.contains("/inbox/") || doc["fields"]["kind"]["stringValue"] == "reroute" {
+                notify.insert(
+                    name.split("/m/")
+                        .nth(1)
+                        .unwrap()
+                        .split('/')
+                        .next()
+                        .unwrap()
+                        .to_owned(),
+                );
+            }
             docs.insert(name.into(), doc);
         }
         drop(docs);
-        if notify {
-            let owner = self.owner.lock().unwrap().upgrade();
-            if let Some(owner) = owner {
-                owner.reconcile().unwrap();
+        for machine in notify {
+            let receiver = self
+                .receivers
+                .lock()
+                .unwrap()
+                .get(&machine)
+                .and_then(Weak::upgrade);
+            if let Some(receiver) = receiver {
+                receiver.reconcile().unwrap();
             }
         }
         response(200, json!({"commitTime":stamp,"writeResults":[]}))
@@ -277,7 +325,8 @@ fn service(
     )
 }
 fn prepared(remote: &str) -> Vec<u8> {
-    json!({"version":1,"remote":remote,"requestId":crate::store::uuid_v4().unwrap(),"createdAtMs":crate::pairing::now_ms().unwrap(),"from":{"id":"77777777-7777-4777-8777-777777777777","name":"sender"},"target":{"id":TARGET,"name":"target"},"message":"causal cloud pairing effect"}).to_string().into_bytes()
+    let operation = crate::store::uuid_v4().unwrap();
+    json!({"version":1,"remote":remote,"requestId":operation,"createdAtMs":crate::pairing::now_ms().unwrap(),"from":{"id":"77777777-7777-4777-8777-777777777777","name":"sender"},"target":{"id":TARGET,"name":"target"},"message":"causal cloud pairing effect","reply":{"requestId":format!("req_{operation}"),"receipt":"PRIVATE_PAIRING_RECEIPT"}}).to_string().into_bytes()
 }
 
 #[test]
@@ -624,20 +673,11 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
     let (sender, sender_lease) = service(&core.root.join("sender"), &core, make_ports());
     let (token_tx, token_rx) = mpsc::channel();
     let (words_tx, words_rx) = mpsc::channel();
+    let join_error = words_tx.clone();
     let (choice_tx, choice_rx) = mpsc::channel();
     let mut remote = String::new();
     let mut token_text = String::new();
     std::thread::scope(|scope| {
-        struct Cancel(Vec<Arc<AtomicBool>>);
-        impl Drop for Cancel {
-            fn drop(&mut self) {
-                if std::thread::panicking() {
-                    for flag in &self.0 {
-                        flag.store(true, Ordering::Release);
-                    }
-                }
-            }
-        }
         let _cancel = Cancel(vec![owner.stop.clone(), sender.stop.clone()]);
         let owner_clone = owner.clone();
         let invite = scope.spawn(move || {
@@ -648,7 +688,7 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
                         .unwrap();
                 }
                 if event["event"] == "candidate" {
-                    words_tx.send(event["words"].clone()).unwrap();
+                    words_tx.send(Ok(event["words"].clone())).unwrap();
                     return Ok(Some(
                         choice_rx.recv_timeout(Duration::from_secs(15)).unwrap(),
                     ));
@@ -661,14 +701,21 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
         let sender_clone = sender.clone();
         let join = scope.spawn(move || {
             let mut events = vec![];
-            sender_clone
+            let result = sender_clone
                 .join(&token, |event| {
                     events.push(event);
-                    Ok(())
+                    Ok(None)
                 })
-                .map(|()| events)
+                .map(|()| events);
+            if let Err(error) = &result {
+                let _ = join_error.send(Err(error.code.clone()));
+            }
+            result
         });
-        let words = words_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let words = words_rx
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap()
+            .unwrap();
         assert!(owner.store().unwrap().grants().unwrap().is_empty());
         assert_eq!(core.sends(), 0);
         choice_tx.send((true, false)).unwrap();
@@ -713,7 +760,7 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
     .unwrap();
     assert!(
         sender
-            .join(&different.token().unwrap(), |_| Ok(()))
+            .join(&different.token().unwrap(), |_| Ok(None))
             .is_err()
     );
     assert_eq!(
@@ -729,7 +776,7 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
         saved
     );
     assert_eq!(wire.next.load(Ordering::SeqCst), 2);
-    *wire.owner.lock().unwrap() = Arc::downgrade(&owner);
+    wire.route(&owner);
     let answer = sender.send(&prepared(&remote), Some(&remote)).unwrap();
     assert_eq!(answer["state"], "refused");
     assert_eq!(core.sends(), 0);
@@ -750,14 +797,14 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
     assert_eq!(owner.machine, owner_id);
     assert_eq!(sender.machine, sender_id);
     assert_eq!(wire.next.load(Ordering::SeqCst), 2);
-    *wire.owner.lock().unwrap() = Arc::downgrade(&owner);
+    wire.route(&owner);
     assert_eq!(
         sender.send(&prepared(&remote), Some(&remote)).unwrap()["state"],
         "sent"
     );
     assert_eq!(core.sends(), 2);
     // An exact lost-join observation returns its original receipt, creating no grant.
-    sender.join(&token_text, |_| Ok(())).unwrap();
+    sender.join(&token_text, |_| Ok(None)).unwrap();
     assert_eq!(owner.store().unwrap().grants().unwrap().len(), 1);
     let old_uid = sender
         .store()
@@ -767,6 +814,11 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
         .unwrap()
         .uid;
     let sender_key = sender.key.public();
+    let machine_row = format!(
+        "projects/{PROJECT}/databases/(default)/documents/m/{}",
+        sender.machine
+    );
+    let before_fields = wire.docs.lock().unwrap()[&machine_row]["fields"].clone();
     let layout = Layout::open(&core.root.join("sender")).unwrap();
     let credentials = crate::firebase_auth::FileStore::new(&layout, PROJECT).unwrap();
     let cancel = AtomicBool::new(false);
@@ -798,6 +850,28 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
         .uid;
     assert_ne!(current_uid, old_uid);
     let docs = wire.docs.lock().unwrap();
+    let after_fields = &docs[&machine_row]["fields"];
+    assert_eq!(after_fields["uid"]["stringValue"], current_uid);
+    for field in ["authenticationKey", "descriptor", "invitingOwner"] {
+        assert_eq!(
+            after_fields[field], before_fields[field],
+            "uid recovery preserves {field}"
+        );
+    }
+    assert!(
+        wire.commits.lock().unwrap().iter().any(|commit| {
+            let writes = commit["writes"].as_array().unwrap();
+            writes.iter().any(|write| {
+                write["update"]["name"] == machine_row
+                    && write["updateMask"]["fieldPaths"] == json!(["uid"])
+            }) && writes.iter().any(|write| {
+                write["update"]["name"]
+                    .as_str()
+                    .is_some_and(|name| name.ends_with(&format!("/peers/{current_uid}")))
+            })
+        }),
+        "verified reroute publishes route and child uid in one commit"
+    );
     assert!(
         docs.iter()
             .find(|(name, _)| name.ends_with(&format!("/peers/{old_uid}")))
@@ -821,7 +895,16 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
             .lock()
             .unwrap()
             .iter()
-            .filter(|(name, _)| name.contains("/peers/"))
+            .filter(|(name, _)| name.contains(&format!("/m/{}/peers/", sender.machine)))
+            .any(|(_, row)| row["fields"]["revoked"]["booleanValue"] == false),
+        "the collaborator retains authority over its independent receiving grant"
+    );
+    assert!(
+        wire.docs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(name, _)| name.contains(&format!("/m/{}/peers/", owner.machine)))
             .all(|(_, v)| v["fields"]["revoked"]["booleanValue"] == true)
     );
     assert_eq!(
@@ -838,3 +921,331 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
 #[cfg(feature = "test-emulator")]
 #[path = "service_emulator_tests.rs"]
 mod emulator;
+
+fn pair_with_reciprocal_choice(
+    owner: &Arc<Service>,
+    collaborator: &Arc<Service>,
+    reverse_talk: bool,
+) -> Vec<Value> {
+    let (code_tx, code_rx) = mpsc::channel();
+    let mut events = Vec::new();
+    std::thread::scope(|scope| {
+        let _cancel = Cancel(vec![owner.stop.clone(), collaborator.stop.clone()]);
+        let owner_copy = owner.clone();
+        let invite = scope.spawn(move || {
+            owner_copy.invite_selected(PROJECT, config(), |event| {
+                if event["event"] == "invite" {
+                    code_tx
+                        .send(event["code"].as_str().unwrap().to_owned())
+                        .unwrap();
+                }
+                Ok((event["event"] == "candidate").then_some((true, true)))
+            })
+        });
+        let code = code_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        collaborator
+            .join(&code, |event| {
+                let choice = (event["event"] == "reverse-permission").then_some(reverse_talk);
+                events.push(event);
+                Ok(choice)
+            })
+            .unwrap();
+        invite.join().unwrap().unwrap();
+    });
+    events
+}
+
+#[test]
+fn paired_machines_push_exact_finals_both_ways_and_reply_without_reverse_talk_permission() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::paired_machines_push_exact_finals_both_ways_and_reply_without_reverse_talk_permission",
+    ) {
+        return;
+    }
+    let core = core_fixture::Core::new();
+    std::fs::write(core.root.join("multi"), "").unwrap();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let make_ports = || ProjectPorts {
+        http: ports.clone(),
+        clock: ports.clone(),
+        jitter: ports.clone(),
+    };
+    let (owner, owner_lease) = service(&core.root.join("owner"), &core, make_ports());
+    let (collaborator, collaborator_lease) =
+        service(&core.root.join("collaborator"), &core, make_ports());
+    let events = pair_with_reciprocal_choice(&owner, &collaborator, false);
+    let remote = events
+        .iter()
+        .find(|event| event["event"] == "connected")
+        .unwrap()["remote"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let choices = events
+        .iter()
+        .filter(|event| event["event"] == "reverse-permission")
+        .count();
+    assert_eq!(choices, 1);
+    assert!(
+        !collaborator
+            .store()
+            .unwrap()
+            .grant(&owner.machine)
+            .unwrap()
+            .unwrap()
+            .permits_scope("talk")
+    );
+    wire.route(&owner);
+    wire.route(&collaborator);
+    // Reciprocal local ownership also drives the collaborator's own inbox.
+    collaborator.reconcile().unwrap();
+    let forward = collaborator
+        .store()
+        .unwrap()
+        .cloud_connection(&owner.machine)
+        .unwrap()
+        .unwrap()
+        .reroute_token
+        .unwrap();
+    let reverse = owner
+        .store()
+        .unwrap()
+        .cloud_connection(&collaborator.machine)
+        .unwrap()
+        .unwrap()
+        .reroute_token
+        .unwrap();
+    assert_ne!(forward, reverse);
+    // Each wrong-direction capability is refused by the transport gate before
+    // the receiving native generation/route state can change.
+    for (source, target, wrong) in [
+        (&owner, &collaborator, &forward),
+        (&collaborator, &owner, &reverse),
+    ] {
+        let provider = source.provider(&config(), &target.machine, false).unwrap();
+        let proof = crate::cloud_pairing::Reroute {
+            machine_id: target.machine.clone(),
+            owner_key: target.key.public(),
+            peer: source.machine.clone(),
+            uid: provider.uid().into(),
+            generation: 2,
+            timestamp_ms: crate::pairing::now_ms().unwrap(),
+        };
+        let body = wire::route_request(&proof, &source.key).unwrap();
+        let id = crate::store::uuid_v4().unwrap();
+        let io = source.io();
+        assert_eq!(
+            run(
+                provider.enrollment_create(
+                    &id,
+                    provider.uid(),
+                    "reroute",
+                    &body,
+                    Some(crate::cloud_pairing::EnrollmentProof::Reroute {
+                        peer: &source.machine,
+                        token: wrong
+                    }),
+                    &io
+                ),
+                &io
+            )
+            .unwrap_err()
+            .code,
+            "REMOTE_CLOUD_ACCESS_DENIED"
+        );
+        assert!(
+            !wire
+                .docs
+                .lock()
+                .unwrap()
+                .keys()
+                .any(|name| name.ends_with(&format!("/enroll/{id}")))
+        );
+    }
+    assert_eq!(core.sends(), 0);
+    let first = prepared(&remote);
+    let first_request: Value = serde_json::from_slice(&first).unwrap();
+    assert_eq!(
+        collaborator.send(&first, Some(&remote)).unwrap()["state"],
+        "sent"
+    );
+    assert_eq!(core.sends(), 1);
+    let first_operation = first_request["requestId"].as_str().unwrap();
+    let receipt: Value = serde_json::from_slice(
+        &std::fs::read(core.root.join(format!("receipt-{first_operation}"))).unwrap(),
+    )
+    .unwrap();
+    let mapped = receipt["items"][0]["requestId"].as_str().unwrap();
+    let body = "owner final: π\r\n\0 ";
+    std::fs::write(
+        core.root.join(format!("final-{mapped}")),
+        json!({"status":"retained","response":body}).to_string(),
+    )
+    .unwrap();
+    owner.reconcile().unwrap();
+    let local_request = format!("req_{first_operation}");
+    assert_eq!(
+        std::fs::read(core.root.join(format!("reply-{local_request}"))).unwrap(),
+        body.as_bytes()
+    );
+    assert_eq!(
+        core.calls()
+            .iter()
+            .filter(|call| call["operation"] == "reply")
+            .count(),
+        1
+    );
+    owner.reconcile().unwrap();
+    collaborator.reconcile().unwrap();
+    assert_eq!(core.sends(), 1);
+    assert_eq!(
+        core.calls()
+            .iter()
+            .filter(|call| call["operation"] == "reply")
+            .count(),
+        1
+    );
+    let reverse = collaborator.machine.clone();
+    assert_eq!(
+        owner.send(&prepared(&reverse), Some(&reverse)).unwrap()["state"],
+        "refused"
+    );
+    assert_eq!(
+        core.sends(),
+        1,
+        "receiving a final does not enable reverse talk"
+    );
+    collaborator
+        .store()
+        .unwrap()
+        .talk(&owner.machine, true)
+        .unwrap();
+    let second = prepared(&reverse);
+    let second_request: Value = serde_json::from_slice(&second).unwrap();
+    assert_eq!(
+        owner.send(&second, Some(&reverse)).unwrap()["state"],
+        "sent"
+    );
+    assert_eq!(core.sends(), 2);
+    let second_operation = second_request["requestId"].as_str().unwrap();
+    let receipt: Value = serde_json::from_slice(
+        &std::fs::read(core.root.join(format!("receipt-{second_operation}"))).unwrap(),
+    )
+    .unwrap();
+    let mapped = receipt["items"][0]["requestId"].as_str().unwrap();
+    std::fs::write(
+        core.root.join(format!("final-{mapped}")),
+        json!({"status":"retained","response":""}).to_string(),
+    )
+    .unwrap();
+    collaborator.reconcile().unwrap();
+    assert_eq!(
+        std::fs::read(core.root.join(format!("reply-req_{second_operation}"))).unwrap(),
+        b""
+    );
+    assert_eq!(
+        core.calls()
+            .iter()
+            .filter(|call| call["operation"] == "reply")
+            .count(),
+        2
+    );
+    // A fixed per-operation refusal must not keep a later valid final behind it.
+    let bad_operation = "88888888-8888-4888-8888-888888888888";
+    let good_operation = "99999999-9999-4999-8999-999999999999";
+    let mut pending = Vec::new();
+    for operation in [bad_operation, good_operation] {
+        let mut request: Value = serde_json::from_slice(&prepared(&remote)).unwrap();
+        request["requestId"] = json!(operation);
+        request["reply"]["requestId"] = json!(format!("req_{operation}"));
+        assert_eq!(
+            collaborator
+                .send(request.to_string().as_bytes(), Some(&remote))
+                .unwrap()["state"],
+            "sent"
+        );
+        let receipt: Value = serde_json::from_slice(
+            &std::fs::read(core.root.join(format!("receipt-{operation}"))).unwrap(),
+        )
+        .unwrap();
+        pending.push(
+            receipt["items"][0]["requestId"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        );
+    }
+    for (mapped, response) in pending.iter().zip([
+        "x".repeat(crate::limits::CLOUD_MESSAGE_BYTES + 1),
+        "not blocked by another final".to_owned(),
+    ]) {
+        std::fs::write(
+            core.root.join(format!("final-{mapped}")),
+            json!({"status":"retained","response":response}).to_string(),
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        owner.reconcile().unwrap_err().code,
+        "REMOTE_CLOUD_MESSAGE_TOO_LARGE"
+    );
+    assert!(
+        !core
+            .root
+            .join(format!("reply-req_{bad_operation}"))
+            .exists()
+    );
+    assert_eq!(
+        std::fs::read(core.root.join(format!("reply-req_{good_operation}"))).unwrap(),
+        b"not blocked by another final"
+    );
+    assert_eq!(
+        owner.reconcile().unwrap_err().code,
+        "REMOTE_CLOUD_MESSAGE_TOO_LARGE"
+    );
+    assert_eq!(
+        core.calls()
+            .iter()
+            .filter(|call| call["operation"] == "reply")
+            .count(),
+        3
+    );
+    assert_eq!(core.sends(), 4);
+    let docs = wire.docs.lock().unwrap();
+    assert!(!docs.keys().any(|name| name.ends_with(&format!(
+        "/inbox/{}",
+        crate::cloud_inbox::finals::id(bad_operation).unwrap()
+    ))));
+    for operation in [first_operation, second_operation, good_operation] {
+        let final_id = crate::cloud_inbox::finals::id(operation).unwrap();
+        assert_eq!(
+            docs.keys()
+                .filter(|name| name.ends_with(&format!("/inbox/{final_id}")))
+                .count(),
+            1
+        );
+        assert!(
+            !docs
+                .keys()
+                .any(|name| name.ends_with(&format!("/responses/{final_id}"))),
+            "a final writes one carrier, without an unused provider response"
+        );
+    }
+    for (name, doc) in docs
+        .iter()
+        .filter(|(name, _)| name.contains("/inbox/") || name.contains("/responses/"))
+    {
+        assert_eq!(doc["fields"].as_object().unwrap().len(), 3, "{name}");
+        assert!(!doc.to_string().contains("PRIVATE_PAIRING_RECEIPT"));
+        assert!(doc["fields"]["carrier"]["bytesValue"].is_string());
+    }
+    drop(docs);
+    drop(owner);
+    drop(collaborator);
+    drop(owner_lease);
+    drop(collaborator_lease);
+}

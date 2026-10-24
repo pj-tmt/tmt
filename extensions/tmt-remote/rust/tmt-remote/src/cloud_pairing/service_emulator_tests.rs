@@ -8,7 +8,7 @@ use std::net::SocketAddr;
 struct Emulator {
     http: ProductionHttp,
     clock: Arc<SystemClock>,
-    owner: Mutex<Weak<Service>>,
+    receivers: Mutex<BTreeMap<String, Weak<Service>>>,
     calls: Mutex<BTreeMap<String, usize>>,
     probes: Mutex<BTreeMap<String, usize>>,
 }
@@ -33,15 +33,28 @@ impl Http for Emulator {
         let response = self.http.send(request, deadline, cancel)?;
         if request.operation() == Operation::Commit && response.status == 200 {
             let input: Value = serde_json::from_slice(request.body()).unwrap();
-            if input["writes"].as_array().unwrap().iter().any(|w| {
-                w["update"]["name"]
-                    .as_str()
-                    .is_some_and(|n| n.contains("/inbox/"))
-                    || w["update"]["fields"]["kind"]["stringValue"] == "reroute"
-            }) {
-                let owner = self.owner.lock().unwrap().upgrade();
-                if let Some(owner) = owner {
-                    owner.reconcile().unwrap();
+            let mut targets = std::collections::BTreeSet::new();
+            for write in input["writes"].as_array().unwrap() {
+                if let Some(name) = write["update"]["name"].as_str()
+                    && (name.contains("/inbox/")
+                        || write["update"]["fields"]["kind"]["stringValue"] == "reroute")
+                    && let Some(machine) = name
+                        .split("/m/")
+                        .nth(1)
+                        .and_then(|path| path.split('/').next())
+                {
+                    targets.insert(machine.to_owned());
+                }
+            }
+            for target in targets {
+                let receiver = self
+                    .receivers
+                    .lock()
+                    .unwrap()
+                    .get(&target)
+                    .and_then(Weak::upgrade);
+                if let Some(receiver) = receiver {
+                    receiver.reconcile().unwrap();
                 }
             }
         }
@@ -86,10 +99,16 @@ impl Emulator {
         Self {
             http,
             clock,
-            owner: Mutex::new(Weak::new()),
+            receivers: Mutex::new(BTreeMap::new()),
             calls: Mutex::new(BTreeMap::new()),
             probes: Mutex::new(BTreeMap::new()),
         }
+    }
+    fn route(&self, service: &Arc<Service>) {
+        self.receivers
+            .lock()
+            .unwrap()
+            .insert(service.machine.clone(), Arc::downgrade(service));
     }
     fn ports(self: &Arc<Self>) -> ProjectPorts {
         ProjectPorts {
@@ -203,7 +222,7 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
             sender_ref
                 .join(&join_token, |event| {
                     events.push(event);
-                    Ok(())
+                    Ok(None)
                 })
                 .unwrap();
             events
@@ -234,7 +253,7 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
     let before = emulator.calls.lock().unwrap().clone();
     assert_eq!(
         sender
-            .join(&expired.token().unwrap(), |_| Ok(()))
+            .join(&expired.token().unwrap(), |_| Ok(None))
             .unwrap_err()
             .code,
         "REMOTE_CLOUD_PAIR_EXPIRED"
@@ -246,13 +265,13 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
     );
     let (intruder, intruder_lease) = service(&core.root.join("intruder"), &core, emulator.ports());
     assert!(
-        intruder.join(&token, |_| Ok(())).is_err(),
+        intruder.join(&token, |_| Ok(None)).is_err(),
         "a competing native key cannot reuse the code"
     );
     assert_eq!(owner.store().unwrap().grants().unwrap().len(), 1);
     drop(intruder);
     drop(intruder_lease);
-    *emulator.owner.lock().unwrap() = Arc::downgrade(&owner);
+    emulator.route(&owner);
     let owner_token = emulator.token(&owner);
     let sender_token = emulator.token(&sender);
     let owner_uid = owner
@@ -395,12 +414,12 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
     let (sender, sender_lease) = service(&core.root.join("sender"), &core, emulator.ports());
     assert_eq!(owner.machine, owner_id);
     assert_eq!(sender.key.public(), sender_key);
-    *emulator.owner.lock().unwrap() = Arc::downgrade(&owner);
+    emulator.route(&owner);
     assert_eq!(
         sender.send(&prepared(&remote), Some(&remote)).unwrap()["state"],
         "sent"
     );
-    sender.join(&token, |_| Ok(())).unwrap();
+    sender.join(&token, |_| Ok(None)).unwrap();
     assert_eq!(owner.store().unwrap().grants().unwrap().len(), 1);
     let credentials = crate::firebase_auth::FileStore::new(&sender.layout, PROJECT).unwrap();
     let cancel = AtomicBool::new(false);
@@ -849,5 +868,167 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
         "invitation-only production calls: {:?}; direct Rules probes: {:?}",
         emulator.calls.lock().unwrap(),
         emulator.probes.lock().unwrap()
+    );
+}
+
+#[test]
+#[ignore = "Infra-approved Auth+Firestore emulator slot; no real project or fallback"]
+fn ordinary_user_two_way_finals_and_direction_refusals() {
+    let emulator = Arc::new(Emulator::new());
+    let core = core_fixture::Core::new();
+    std::fs::write(core.root.join("multi"), "").unwrap();
+    let (owner, _owner_lease) = service(&core.root.join("owner"), &core, emulator.ports());
+    let (collaborator, _collaborator_lease) =
+        service(&core.root.join("collaborator"), &core, emulator.ports());
+    emulator.seed_owner(&owner);
+    let events = pair_with_reciprocal_choice(&owner, &collaborator, false);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event["event"] == "reverse-permission")
+            .count(),
+        1
+    );
+    let remote = events
+        .iter()
+        .find(|event| event["event"] == "connected")
+        .unwrap()["remote"]
+        .as_str()
+        .unwrap();
+    emulator.route(&owner);
+    emulator.route(&collaborator);
+    let forward = collaborator
+        .store()
+        .unwrap()
+        .cloud_connection(&owner.machine)
+        .unwrap()
+        .unwrap()
+        .reroute_token
+        .unwrap();
+    let reverse = owner
+        .store()
+        .unwrap()
+        .cloud_connection(&collaborator.machine)
+        .unwrap()
+        .unwrap()
+        .reroute_token
+        .unwrap();
+    for (source, target, wrong) in [
+        (&owner, &collaborator, &forward),
+        (&collaborator, &owner, &reverse),
+    ] {
+        let provider = source.provider(&config(), &target.machine, false).unwrap();
+        let request = crate::cloud_pairing::Reroute {
+            machine_id: target.machine.clone(),
+            owner_key: target.key.public(),
+            peer: source.machine.clone(),
+            uid: provider.uid().into(),
+            generation: 2,
+            timestamp_ms: crate::pairing::now_ms().unwrap(),
+        };
+        let body = wire::route_request(&request, &source.key).unwrap();
+        let io = source.io();
+        assert_eq!(
+            run(
+                provider.enrollment_create(
+                    &crate::store::uuid_v4().unwrap(),
+                    provider.uid(),
+                    "reroute",
+                    &body,
+                    Some(crate::cloud_pairing::EnrollmentProof::Reroute {
+                        peer: &source.machine,
+                        token: wrong
+                    }),
+                    &io
+                ),
+                &io
+            )
+            .unwrap_err()
+            .code,
+            "REMOTE_CLOUD_ACCESS_DENIED"
+        );
+    }
+    let first = prepared(remote);
+    let first_request: Value = serde_json::from_slice(&first).unwrap();
+    assert_eq!(
+        collaborator.send(&first, Some(remote)).unwrap()["state"],
+        "sent"
+    );
+    assert_eq!(core.sends(), 1);
+    let operation = first_request["requestId"].as_str().unwrap();
+    let receipt: Value = serde_json::from_slice(
+        &std::fs::read(core.root.join(format!("receipt-{operation}"))).unwrap(),
+    )
+    .unwrap();
+    let mapped = receipt["items"][0]["requestId"].as_str().unwrap();
+    // Non-ASCII, NUL and whitespace are deliberate exact-body fixture data.
+    let body = "emulator final: π\r\n\0 ";
+    std::fs::write(
+        core.root.join(format!("final-{mapped}")),
+        json!({"status":"retained","response":body}).to_string(),
+    )
+    .unwrap();
+    owner.reconcile().unwrap();
+    assert_eq!(
+        std::fs::read(core.root.join(format!("reply-req_{operation}"))).unwrap(),
+        body.as_bytes()
+    );
+    owner.reconcile().unwrap();
+    assert_eq!(
+        core.calls()
+            .iter()
+            .filter(|call| call["operation"] == "reply")
+            .count(),
+        1
+    );
+    assert_eq!(
+        owner
+            .send(
+                &prepared(&collaborator.machine),
+                Some(&collaborator.machine)
+            )
+            .unwrap()["state"],
+        "refused"
+    );
+    assert_eq!(
+        core.sends(),
+        1,
+        "receiving a final does not enable reverse talk"
+    );
+    collaborator
+        .store()
+        .unwrap()
+        .talk(&owner.machine, true)
+        .unwrap();
+    let second = prepared(&collaborator.machine);
+    let request: Value = serde_json::from_slice(&second).unwrap();
+    assert_eq!(
+        owner.send(&second, Some(&collaborator.machine)).unwrap()["state"],
+        "sent"
+    );
+    let operation = request["requestId"].as_str().unwrap();
+    let receipt: Value = serde_json::from_slice(
+        &std::fs::read(core.root.join(format!("receipt-{operation}"))).unwrap(),
+    )
+    .unwrap();
+    let mapped = receipt["items"][0]["requestId"].as_str().unwrap();
+    std::fs::write(
+        core.root.join(format!("final-{mapped}")),
+        json!({"status":"retained","response":""}).to_string(),
+    )
+    .unwrap();
+    collaborator.reconcile().unwrap();
+    assert_eq!(
+        std::fs::read(core.root.join(format!("reply-req_{operation}"))).unwrap(),
+        b""
+    );
+    collaborator.reconcile().unwrap();
+    assert_eq!(core.sends(), 2);
+    assert_eq!(
+        core.calls()
+            .iter()
+            .filter(|call| call["operation"] == "reply")
+            .count(),
+        2
     );
 }
