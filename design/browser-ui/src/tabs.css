@@ -190,3 +190,35 @@
 .tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab[aria-selected='true'] .tmt-ui-tab-count {
   color: var(--tmt-ui-color-text);
 }
+/* Website-measured compact metrics stay local to this presentation.
+   Compact is an opt-in flat presentation; default mint tabs and panel ownership stay intact. */
+.tmt-ui-tabs[data-variant='flat'][data-presentation='compact'] .tmt-ui-tab {
+  font-size: 11px;
+  line-height: 13px;
+  padding: 8px 11px;
+  border-radius: var(--tmt-ui-radius-s);
+}
+.tmt-ui-tabs[data-variant='flat'][data-presentation='compact'] .tmt-ui-tab-count {
+  font-size: 9px;
+}
+.tmt-ui-tabs[data-variant='flat'][data-presentation='compact'] .tmt-ui-tab[aria-selected='true'] {
+  color: var(--tmt-ui-color-text);
+  background: var(--tmt-ui-surface-hover);
+  border-color: var(--tmt-ui-surface-rule);
+}
+/* Secondary ink on the light neutral fill is 4.496:1; primary neutral keeps counts above AA. */
+.tmt-ui-tabs[data-variant='flat'][data-presentation='compact']
+  .tmt-ui-tab[aria-selected='true']
+  .tmt-ui-tab-count {
+  color: var(--tmt-ui-color-text);
+}
+.tmt-ui-tabs[data-variant='flat'][data-presentation='compact'] .tmt-ui-tab:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+}
+@media (max-width: 640px) {
+  .tmt-ui-tabs[data-variant='flat'][data-presentation='compact'] .tmt-ui-tab {
+    font-size: 10px;
+    line-height: 12px;
+    padding: 7px 9px;
+  }
+}

@@ -16,7 +16,7 @@ import {
   type BrowserMenuHostOptions,
 } from '../src/menu-host.js';
 
-function NativeMenu({
+export function NativeMenu({
   options,
   controls,
 }: {

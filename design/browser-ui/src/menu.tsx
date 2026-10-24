@@ -37,6 +37,8 @@ export interface BrowserMenuProps<Key extends string = string> {
    * `triggerText`: `count` is a count chip (`icon`, the text, `count` and a chevron). */
   variant?: 'field' | 'crumb' | 'count';
   /** A `count` chip's number, boxed after the text; absent when nothing is counted. */
+  /** Field/text trigger only: compact fixed geometry; popup metrics are unchanged. */
+  presentation?: 'compact';
   count?: number;
   /** A `count` chip's tone: `attention` is for work that waits on the reader. */
   tone?: BrowserCountTone;
@@ -59,6 +61,7 @@ export function BrowserMenu<Key extends string>({
   triggerText,
   variant = 'field',
   count,
+  presentation,
   tone = 'neutral',
   description,
   onOpenChange,
@@ -99,7 +102,14 @@ export function BrowserMenu<Key extends string>({
   useLayoutEffect(() => controller.attachSurface(), [open, controller]);
   useLayoutEffect(() => controller.refresh(), [items, controller]);
   return (
-    <span className="tmt-ui-menu">
+    <span
+      className="tmt-ui-menu"
+      data-presentation={
+        variant === 'field' && (valueLabel !== undefined || triggerText !== undefined)
+          ? presentation
+          : undefined
+      }
+    >
       {valueLabel !== undefined || triggerText !== undefined ? (
         <button
           ref={trigger}
