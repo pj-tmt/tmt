@@ -7,7 +7,7 @@
     )
     calc(var(--tmt-ui-drawer-gutter) + env(safe-area-inset-right, 0px))
     calc(var(--tmt-ui-drawer-gutter) + env(safe-area-inset-bottom, 0px)) auto;
-  /* Website regular width; wide retains its existing 660px reading width. */
+  /* Website reading widths; the wide selector retains its viewport allowance on phones. */
   width: min(430px, calc(100vw - 18px - env(safe-area-inset-right, 0px)));
   height: calc(
     100dvh - var(--tmt-ui-header-height) - env(safe-area-inset-top, 0px) -
@@ -29,10 +29,7 @@
   flex-direction: column;
 }
 .tmt-ui-drawer[data-width='wide'] {
-  width: min(
-    660px,
-    calc(100vw - 2 * var(--tmt-ui-drawer-gutter) - env(safe-area-inset-right, 0px))
-  );
+  width: min(680px, calc(100vw - 18px - env(safe-area-inset-right, 0px)));
 }
 .tmt-ui-drawer::backdrop {
   background: var(--tmt-ui-surface-scrim);
@@ -144,8 +141,7 @@
   border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 @media (max-width: 640px) {
-  .tmt-ui-drawer,
-  .tmt-ui-drawer[data-width='wide'] {
+  .tmt-ui-drawer {
     width: calc(100vw - 2 * var(--tmt-ui-drawer-gutter) - env(safe-area-inset-right, 0px));
   }
 }
