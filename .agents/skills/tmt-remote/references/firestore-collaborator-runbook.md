@@ -1,7 +1,10 @@
 # Talk between two paired machines
 
-Public cloud talk remains gated while Core #4536 is in progress. This reference
-describes the two-machine flow; an upgrade refusal never authorizes bypassing it.
+Public `tmt talk --remote` is blocked by Remote's
+[message-command activation (#4900)](https://github.com/pj-tmt/tmt/issues/4900), which connects
+prepared requests to the serving owner. Core's send and UUID-query paths are merged. This
+reference describes the two-machine flow after that gate opens; preserve the pairing on an
+upgrade refusal and never bypass it.
 
 ## Install and prepare
 

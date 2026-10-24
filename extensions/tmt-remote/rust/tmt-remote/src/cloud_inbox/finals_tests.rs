@@ -263,6 +263,7 @@ fn pushed_final_preserves_exact_bytes_and_deduplicates_after_reopen() {
         let (receiver, keys) = world.receiver();
         let document = world.document(&keys, OPERATION, body);
         let first = receiver.receive(&document, world.now).unwrap().unwrap();
+        assert!(!first.response_required());
         assert_eq!(
             world.core.finals.lock().unwrap().get(OPERATION).unwrap(),
             body
@@ -281,7 +282,13 @@ fn pushed_final_preserves_exact_bytes_and_deduplicates_after_reopen() {
         drop(keys);
         world.reopen();
         let (receiver, _) = world.receiver();
-        receiver.receive(&document, world.now).unwrap().unwrap();
+        assert!(
+            !receiver
+                .receive(&document, world.now)
+                .unwrap()
+                .unwrap()
+                .response_required()
+        );
         assert_eq!(world.core.finals.lock().unwrap().len(), 1);
     }
 }

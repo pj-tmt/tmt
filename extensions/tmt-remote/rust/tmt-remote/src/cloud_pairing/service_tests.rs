@@ -65,6 +65,7 @@ impl Http for Ports {
 struct Wire {
     docs: Mutex<BTreeMap<String, Value>>,
     commits: Mutex<Vec<Value>>,
+    reads: Mutex<Vec<String>>,
     next: AtomicUsize,
     receivers: Mutex<BTreeMap<String, Weak<Service>>>,
     fail_invite_delete: AtomicBool,
@@ -74,6 +75,7 @@ impl Wire {
         Self {
             docs: Mutex::new(BTreeMap::new()),
             commits: Mutex::new(Vec::new()),
+            reads: Mutex::new(Vec::new()),
             next: AtomicUsize::new(0),
             receivers: Mutex::new(BTreeMap::new()),
             fail_invite_delete: AtomicBool::new(false),
@@ -132,6 +134,7 @@ impl Http for Wire {
         let stamp = crate::cloud_inbox::stamp(now);
         let mut docs = self.docs.lock().unwrap();
         if request.operation() == Operation::Read {
+            self.reads.lock().unwrap().push(name.to_owned());
             return response(
                 if docs.contains_key(name) { 200 } else { 404 },
                 docs.get(name).cloned().unwrap_or(json!({})),
@@ -961,6 +964,146 @@ fn pair_with_reciprocal_choice(
         invite.join().unwrap().unwrap();
     });
     events
+}
+
+#[test]
+fn missing_peer_machine_discovery_is_bounded_across_polls_and_reopen() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::missing_peer_machine_discovery_is_bounded_across_polls_and_reopen",
+    ) {
+        return;
+    }
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let make_ports = || ProjectPorts {
+        http: ports.clone(),
+        clock: ports.clone(),
+        jitter: ports.clone(),
+    };
+    let owner_root = core.root.join("owner");
+    let (owner, owner_lease) = service(&owner_root, &core, make_ports());
+    let (joiner, _joiner_lease) = service(&core.root.join("joiner"), &core, make_ports());
+    pair_with_reciprocal_choice(&owner, &joiner, false);
+    let original = owner
+        .store()
+        .unwrap()
+        .grant(&joiner.machine)
+        .unwrap()
+        .unwrap();
+    let enrollment = owner
+        .store()
+        .unwrap()
+        .cloud_checkpoint(&owner.machine)
+        .unwrap()
+        .created_at_ms();
+    // A legacy one-way peer has a grant but no reciprocal local connection.
+    owner
+        .store()
+        .unwrap()
+        .connection
+        .execute(
+            "DELETE FROM cloud_remotes WHERE owner=?1",
+            [&joiner.machine],
+        )
+        .unwrap();
+    let path = wire
+        .docs
+        .lock()
+        .unwrap()
+        .keys()
+        .find(|path| path.ends_with(&format!("/m/{}", joiner.machine)))
+        .unwrap()
+        .clone();
+    let machine = wire.docs.lock().unwrap().remove(&path).unwrap();
+    wire.reads.lock().unwrap().clear();
+    let reads = || {
+        wire.reads
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|path| path.ends_with(&format!("/m/{}", joiner.machine)))
+            .count()
+    };
+    let now = crate::pairing::now_ms().unwrap();
+    owner
+        .discover_reciprocal_peers(&config(), now, &owner.io())
+        .unwrap();
+    assert_eq!(reads(), 1, "one absent-machine observation");
+    owner
+        .discover_reciprocal_peers(&config(), now + 60_000, &owner.io())
+        .unwrap();
+    assert_eq!(
+        reads(),
+        1,
+        "a minute poll does not pay for the same absence again"
+    );
+    drop(owner);
+    drop(owner_lease);
+    let (owner, _owner_lease) = service(&owner_root, &core, make_ports());
+    for minute in 2..1440 {
+        owner
+            .discover_reciprocal_peers(&config(), now + minute * 60_000, &owner.io())
+            .unwrap();
+    }
+    assert_eq!(
+        reads(),
+        1,
+        "a full day of minute polls, including reopen, costs one discovery read"
+    );
+    // Later registration is discovered after the bounded negative cache expires.
+    wire.docs.lock().unwrap().insert(path, machine);
+    owner
+        .discover_reciprocal_peers(&config(), now + 86_400_000, &owner.io())
+        .unwrap();
+    assert_eq!(reads(), 2);
+    let connection = owner
+        .store()
+        .unwrap()
+        .cloud_connection(&joiner.machine)
+        .unwrap()
+        .unwrap();
+    assert_eq!(connection.owner_key, joiner.key.public());
+    let current = owner
+        .store()
+        .unwrap()
+        .grant(&joiner.machine)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (
+            current.revision,
+            current.scopes,
+            current.agents,
+            current.mode
+        ),
+        (
+            original.revision,
+            original.scopes,
+            original.agents,
+            original.mode
+        )
+    );
+    assert_eq!(
+        owner
+            .store()
+            .unwrap()
+            .cloud_checkpoint(&owner.machine)
+            .unwrap()
+            .created_at_ms(),
+        enrollment
+    );
+    owner
+        .discover_reciprocal_peers(&config(), now + 2 * 86_400_000, &owner.io())
+        .unwrap();
+    assert_eq!(
+        reads(),
+        2,
+        "a discovered pin needs no further discovery reads"
+    );
 }
 
 #[test]

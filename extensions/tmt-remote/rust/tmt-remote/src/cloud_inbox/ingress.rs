@@ -72,17 +72,18 @@ impl Receiver {
         bytes: Vec<u8>,
         grant: Option<crate::store::Grant>,
     ) -> Reply {
+        // This is our locally sealed response, whose operation was derived from
+        // the verified envelope. Frozen replay keeps that exact owner-produced
+        // result; an unverified carrier never supplies this decision.
+        let response_required = crate::wire::strict_json(&bytes)
+            .is_none_or(|carrier| carrier["header"]["operation"] != "final");
         Reply {
             bytes,
             grant,
             id: document.id().into(),
             peer: document.peer().into(),
             sessions: self.sessions.clone(),
-            // A final's sender deliberately discards its response context. Frozen
-            // replay rows bind these exact bytes to their verified outcome;
-            // a refusal grants no authority even with an untrusted header.
-            response_required: crate::wire::strict_json(document.bytes())
-                .is_none_or(|carrier| carrier["header"]["operation"] != "final"),
+            response_required,
         }
     }
     fn refuse(

@@ -57,6 +57,15 @@ fn live(connection: &rusqlite::Connection, peer: &str, now: u64) -> Result<Grant
         .ok_or_else(refused)
 }
 
+fn discovery_key(project: &str, peer: &str) -> Result<String, RemoteError> {
+    if !crate::deploy_run::project_ok(project) {
+        return Err(refused());
+    }
+    crate::canonical::uuid(peer).map_err(|_| refused())?;
+    // This namespace cannot collide with enrollment UUIDs or the inbox cursor.
+    Ok(format!("peer-discovery:{project}:{peer}"))
+}
+
 impl Store {
     /// The joiner creates its receiving grant only after verifying the owner's
     /// receipt and obtaining its own local sending choice. Re-observation never
@@ -185,6 +194,34 @@ impl Store {
             .into_iter()
             .map(|v| serde_json::from_str(&v).map_err(database))
             .collect()
+    }
+    /// Negative discovery is polling metadata, never a peer pin or grant.
+    pub(crate) fn cloud_peer_discovery_ready(
+        &self,
+        project: &str,
+        peer: &str,
+        now: u64,
+    ) -> Result<bool, RemoteError> {
+        crate::cloud_inbox::Checkpoint::new(now)?;
+        let key = discovery_key(project, peer)?;
+        let observed: Option<i64> = self.connection.query_row(
+            "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint' AND id=''",
+            [&key], |row| row.get(0),
+        ).optional().map_err(database)?;
+        let observed = observed
+            .map(|time| crate::cloud_inbox::Checkpoint::new(time as u64))
+            .transpose()?;
+        Ok(observed.is_none_or(|time| {
+            now.saturating_sub(time.created_at_ms()) >= crate::limits::CLOUD_PEER_DISCOVERY_RETRY_MS
+        }))
+    }
+    pub(crate) fn cloud_defer_peer_discovery(
+        &mut self,
+        project: &str,
+        peer: &str,
+        now: u64,
+    ) -> Result<(), RemoteError> {
+        self.cloud_complete(&[discovery_key(project, peer)?], now)
     }
     pub(crate) fn cloud_project_peers(&self, project: &str) -> Result<Vec<Grant>, RemoteError> {
         let mut statement = self

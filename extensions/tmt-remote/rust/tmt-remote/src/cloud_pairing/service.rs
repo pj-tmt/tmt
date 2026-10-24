@@ -840,7 +840,7 @@ impl Service {
                 provider,
             );
             run(driver.reconcile(now, &io), &io)?;
-            self.discover_reciprocal_peers(&config, &io)?;
+            self.discover_reciprocal_peers(&config, now, &io)?;
             match self.push_finals(&config, &io) {
                 Err(error) if crate::cloud_inbox::permanent(&error.code) => {
                     final_refusal.get_or_insert(error);
@@ -870,18 +870,24 @@ impl Service {
     fn discover_reciprocal_peers(
         &self,
         config: &Value,
+        now: u64,
         io: &IoBudget<'_>,
     ) -> Result<(), RemoteError> {
         let project = config["projectId"].as_str().ok_or_else(wire::invalid)?;
         let grants = self.store()?.cloud_project_peers(project)?;
         for grant in grants {
-            if !grant.live_at(crate::pairing::now_ms()?)
+            if !grant.live_at(now)
                 || self.store()?.cloud_connection(&grant.client_id)?.is_some()
+                || !self
+                    .store()?
+                    .cloud_peer_discovery_ready(project, &grant.client_id, now)?
             {
                 continue;
             }
             let provider = self.provider(config, &grant.client_id, false)?;
             let Some(row) = run(provider.machine_metadata(io), io)? else {
+                self.store()?
+                    .cloud_defer_peer_discovery(project, &grant.client_id, now)?;
                 continue;
             };
             let descriptor = self.verify_descriptor(&provider, &grant.public_key, &[], &row)?;

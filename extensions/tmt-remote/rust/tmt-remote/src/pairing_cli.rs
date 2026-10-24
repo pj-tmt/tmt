@@ -229,7 +229,10 @@ pub fn run(arguments: &ArgMatches, join: bool, remote: Option<&str>) -> Result<(
                     }
                 }
                 if let Some(reference) = event["remote"].as_str() {
-                    writeln!(output, "Remote: {reference}")?;
+                    writeln!(
+                        output,
+                        "Remote reference: {reference} (use with tmt talk --remote)"
+                    )?;
                 }
                 return Ok(());
             }

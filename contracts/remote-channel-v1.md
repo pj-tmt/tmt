@@ -2,8 +2,8 @@
 
 **Implementation status:** the local door and its signed agent operations are shipped; Colab page
 sharing over Firestore (native sync and the hosted browser client) is shipped. Cloud agent operations
-through Firestore have native invite/join and a carrier driver with emulator-only qualification; public
-Core delivery activation remains pending. Cloudflare remains proposed. Native encryption and automatic key renewal enable no access by themselves.
+through Firestore have native invite/join and a carrier driver with emulator-only qualification;
+Remote's public-message activation (#4900) remains pending. Cloudflare remains proposed. Native encryption and automatic key renewal enable no access by themselves.
 Shipped means published code with fixture/emulator proof; real-account acceptance remains open.
 This document owns host-driver authentication, local device identity/grants, wire values, operations,
 the extension channel API and backend bindings. Remote owns this contract; tmt-lead reviews changed core contracts and cross-squad
@@ -1429,7 +1429,8 @@ and names non-empty text of at most 512 bytes), and treat a malformed one as an 
 How often a surface shows it is the surface's rule, not this contract's.
 
 Native cloud talk uses the explicit `tmt talk --remote <ref> <agent> <message>` seam in
-#4536 (activation remains gated until that Core slice lands). Core freezes its request and
+#4536. Core's send and UUID-query slices are merged; Remote's
+[public-message activation](#public-native-agent-activation) remains tracked by #4900. Core freezes its request and
 Remote carries `dispatch.create`; the receiving machine resolves the target and pins its UUID
 before the effect. There is no automatic local-name fallback or `agent@machine` shorthand.
 The [native Firestore binding](#native-firestore-agent-binding-emulator-only) owns final transport;
@@ -2216,11 +2217,11 @@ never enables agent access; the [historical conformance material](#proposal-clou
 under the [superseded-authentication note](#superseded-cloud-authentication-proposal), not a shipped Firestore gate.
 Cloudflare remains proposed. Extension/page authority never substitutes for a local paired operation grant.
 
-| Backend      | Mapping                                                                                                                                                                                                                      |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `local`      | [Loopback HTTP](#transport-binding-loopback-http), mounted extension routes and WebSocket relay; state under the data root.                                                                                                  |
-| `firestore`  | **Shipped:** extension-scoped sealed-document sync for Colab page sharing. **Emulator-only agent binding:** native invite/join, encrypted inboxes, owner responses and peer checkpoints; public Core delivery remains gated. |
-| `cloudflare` | **Proposal:** Worker admission before per-machine Durable Object storage; per-namespace relay objects; bounded WebSocket delivery and device-scoped checkpoints.                                                             |
+| Backend      | Mapping                                                                                                                                                                                                                                      |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `local`      | [Loopback HTTP](#transport-binding-loopback-http), mounted extension routes and WebSocket relay; state under the data root.                                                                                                                  |
+| `firestore`  | **Shipped:** extension-scoped sealed-document sync for Colab page sharing. **Emulator-only agent binding:** native invite/join, encrypted inboxes, owner responses and peer checkpoints; public-message activation remains tracked by #4900. |
+| `cloudflare` | **Proposal:** Worker admission before per-machine Durable Object storage; per-namespace relay objects; bounded WebSocket delivery and device-scoped checkpoints.                                                                             |
 
 ### Native Firestore agent binding (emulator only)
 
@@ -2351,9 +2352,17 @@ presence all permit that identity check. `IDENTITY_CHANGED` (exit 5) maps to the
 `REMOTE_AGENT_STALE` refusal and `NAME_NOT_FOUND` (exit 3) to `REMOTE_AGENT_NOT_FOUND`. Invalid success evidence
 refuses with `REMOTE_CORE_UNAVAILABLE`. Never fall back to name-addressed `check`. Expected name is
 retained with frozen native intent; it is not a caller-chosen role.
-Full public `talk` acceptance belongs to #4539/#4540 after the Core #4536 seam and Remote #4757
-activation. Pairing qualification injects the fake public Core boundary; it does not open that gate.
-Real-provider acceptance remains separate.
+
+#### Public native agent activation
+
+The remaining public-command gate is Remote's
+`extensions/tmt-remote/rust/tmt-remote/src/message_cli.rs::run`: it validates the prepared request
+and selector, then unconditionally returns `REMOTE_CLOUD_UPGRADE_REQUIRED` before handing the
+request to the serving-owner sender. #4900 owns that bounded handoff and public-command proof.
+Core's send (#4831) and UUID-query seams and Remote's adapter (#4849) are merged; #4757 delivered
+name/request parsing. #4539 is the owner's separately
+authorized real-account acceptance after activation. Pairing/final transport qualification in
+#4540 does not open the public command, and a named upgrade refusal never authorizes bypassing it.
 
 #### Pushed agent finals
 
@@ -2415,6 +2424,10 @@ After verifying the authenticated receipt, the joiner answers one
 Its receiving grant, reverse recovery hash and connection commit together. The joiner registers
 its mailbox using the confirmed inviter and publishes the reciprocal route before reporting
 connected. Both terminals print the saved Remote reference; no second code or ceremony is used.
+A legacy project peer without a saved reciprocal connection may need a machine-row discovery read.
+An absent row is observed at most once per 24 hours, including across restart, using a private
+project/peer negative checkpoint. It never supplies authority or advances an inbox/enrollment
+cursor; after expiry, a present row still has to pass the native pin/descriptor checks.
 Talk/revoke resolve an exact client UUID or a unique active person name; duplicate names require the
 UUID. JSON, CI, agent and noninteractive invocation never consent. Ctrl+C cancels the active invite
 and erases its secret. Neither command opens a browser or creates a local-browser session.
@@ -2657,7 +2670,8 @@ operation object through relay credentials, a namespace alias or a Worker fragme
 
 **Implemented library and key lifecycle:** native machine-to-machine descriptor sign/verify,
 request seal/open and request-bound responses. The native Firestore driver is emulator-only;
-production invite/join, final Core activation and browser interoperability remain separate work.
+native invite/join is implemented, while [public-message activation](#public-native-agent-activation)
+and browser interoperability remain separate work.
 Browser enrollment remains deferred to its existing proposal.
 Edge admission remains deferred; never add another Firestore authentication gate.
 
@@ -2733,7 +2747,8 @@ The client verifies the pinned machine signature, request binding, AEAD and encl
 response before interpreting any state.
 
 The library exposes consuming response contexts: each produces exactly one response ciphertext,
-frozen before publication by the native emulator transport owner. Production activation is separate. Before reopening an adopted carrier, its journal owner
+frozen before publication by the native emulator transport owner.
+[Public-message activation](#public-native-agent-activation) is separate. Before reopening an adopted carrier, its journal owner
 must return the frozen response rather than construct another sealer for changed plaintext; consuming
 contexts do not provide a persistent replay ledger. Identical transport retransmission returns only those frozen bytes; a changed response, recovered receipt or
 later notification uses a fresh request/control context. A lost context requires fresh signed

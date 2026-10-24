@@ -298,6 +298,9 @@ originator under the current grant fence. Core's reply receipt is private bindin
 envelope or audit data. `CoreClient` submits exact stdin to ordinary receipt-bound `tmt reply`;
 Core keeps immutable acceptance and retention. The joined native worker observes mapped local
 Core finals and uses the reverse inbox with one deterministic-ID, frozen/claimed carrier.
+Each reconciliation makes one local Core request read per pending accepted dispatch, bounded by
+`journal::OPERATIONS` per peer. Reads can repeat on each reconciliation until the final's
+publication claim is persisted. These are local Core reads, not Firestore polls.
 Permanent per-operation refusals are reported without starving later mapped finals; shared
 transient/budget failures retain their stop behavior.
 Core's message contract (#4831, `contracts/remote-message-v1.md`) owns the versioned schema.
@@ -313,9 +316,15 @@ name lookup, and adopted targets never resolve again. The UUID-pinned check uses
 `identity show --json --expect-name=<expected-name> -- <uuid>`; Core owns normalization and the
 atomic name/lifetime check. Changed identities map to `REMOTE_AGENT_STALE`, absent UUIDs to
 `REMOTE_AGENT_NOT_FOUND`; offline/unknown presence is not a refusal. Native pairing composes it in
-`serve`, sharing `native_sync::projects::Projects` with extension sync; public Core delivery activation
-remains gated.
-No enrolled peer means no provider poll. The contract owns all bounds.
+`serve`, sharing `native_sync::projects::Projects` with extension sync. Public delivery is still
+blocked by `message_cli::run`'s unconditional upgrade refusal; #4900 owns its serving-owner handoff.
+The [contract activation section](../../../../contracts/remote-channel-v1.md#public-native-agent-activation)
+owns that gate; the Core send and UUID-query seams are merged.
+No enrolled peer means no provider poll. Legacy reciprocal discovery keeps one negative timestamp
+per project/peer in existing `cloud_transport` checkpoint storage. A missing machine row is read
+at most once per `limits::CLOUD_PEER_DISCOVERY_RETRY_MS` (24 hours), including after reopen; a later
+successful observation still verifies the native pin before saving a connection. This cache grants
+no authority and changes no inbox/enrollment cursor. The contract owns all bounds.
 
 `cloud_pairing::wire` owns domain-separated invite/reroute capabilities. The Store persists the
 owner's hash with grant/receipt/route adoption; the private joiner connection retains the separate
