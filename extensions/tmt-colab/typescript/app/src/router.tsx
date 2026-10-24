@@ -6,7 +6,7 @@ import { AgentActivityProvider } from './components/agent-activity.js';
 import { RemoteAttention, RemotePresenceProvider } from './remote-header.js';
 import { PagePinNotice, PageProjects } from './page-projects.js';
 import type { PagePinRequest, PagePinState } from './pins.js';
-import './source-editor.css';
+import { SourceEditor } from './source-editor.js';
 import { OwnPublicationTimeout } from './own-publication.js';
 import { entryMount, entryOpenTarget, inShell, publicEntry } from './entry.js';
 import {
@@ -2122,23 +2122,32 @@ function OpenPage({
         title={text.source}
         panel="source"
         width="wide"
+        headerActions={
+          snapshot.binding &&
+          !archived && (
+            <BrowserAction
+              type="button"
+              variant="primary"
+              label={text.save}
+              visibleLabel={text.sourceSave}
+              busy={saving}
+              busyMark={<BusyMark />}
+              disabled={!!liveError || !draftChanged}
+              onActivate={() => void save()}
+            />
+          )
+        }
         onDismiss={() => close()}
       >
-        <div className="source">
-          <span>
-            <label htmlFor="source-edit">{text.source}</label>
-            {snapshot.binding && !archived && (
-              <BrowserAction
-                type="button"
-                variant="text"
-                label={text.save}
-                busy={saving}
-                busyMark={<BusyMark />}
-                disabled={!!liveError || !draftChanged}
-                onActivate={() => void save()}
-              />
-            )}
-          </span>
+        <SourceEditor
+          changed={draftChanged}
+          editor={{
+            ref: sourceArea,
+            readOnly: archived || !snapshot.binding || saving || !!liveError,
+            value: draft,
+            onChange: (event) => typeSource(event.target.value),
+          }}
+        >
           {/* Save problems take priority over routine usage in this one notice slot. */}
           {editError ? (
             <SaveNotice
@@ -2186,15 +2195,7 @@ function OpenPage({
               <p role="status">{text.saveMerged}</p>
             </div>
           )}
-          <textarea
-            id="source-edit"
-            ref={sourceArea}
-            readOnly={archived || !snapshot.binding || saving || !!liveError}
-            spellCheck={false}
-            value={draft}
-            onChange={(event) => typeSource(event.target.value)}
-          />
-        </div>
+        </SourceEditor>
       </BrowserDrawer>
       <BrowserDrawer
         notice={endedNotice}

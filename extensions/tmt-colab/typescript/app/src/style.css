@@ -2233,12 +2233,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   border: 0;
   box-shadow: none;
 }
-.tmt-ui-drawer[data-panel='source'] .tmt-ui-drawer-body {
-  display: flex;
-  flex-direction: row;
-  gap: 0;
-  padding: 0;
-}
 
 .comment .tmt-ui-menu > .tmt-ui-icon-action > .tmt-ui-icon-action-control,
 .chat-user-turn .tmt-ui-menu > .tmt-ui-icon-action > .tmt-ui-icon-action-control {

@@ -2717,7 +2717,7 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   await closeExport.press('Enter');
   await expect.poll(urlCount).toBe(0);
   await (await pageAction(page, 'Source')).click();
-  await expect(page.getByRole('textbox', { name: 'Source', exact: true })).toHaveValue(
+  await expect(page.getByRole('textbox', { name: 'Page source', exact: true })).toHaveValue(
     '<p>Unsaved draft</p>',
   );
   await (await pageAction(page, 'Export page')).click();

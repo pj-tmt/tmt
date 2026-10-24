@@ -466,6 +466,7 @@ Comments, Chat, Source, Share and settings panels.
 - Opens over the page without moving it, closes with its own `×`, Esc or a backdrop press. Focus moves into it and returns to the opener.
 - One overlay at a time; opening another replaces it.
 - Basis: Radix (Dialog). Shared owner: [BrowserDrawer](browser-ui/README.md#drawer-and-menu), with native modal containment at every width.
+- Source uses the shared header action slot for primary Save before Close, with a truthful draft explanation, paper-toned bordered monospace editor and lower draft-equality metadata. The owner and editor-link save contracts and real notice states remain unchanged. No equality state claims a confirmed save.
 - Colab shared page drawers (Chat, Source, Agents, Files, Comments, Export and About) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, an opaque rounded surface and one 1 px rule on every edge. Source may be wider; other drawers are at most 440 px. Compact drawers fill the available width between gutters. The scrim covers the visible header and author iframe; the first press only dismisses, with no click-through, and the second press acts. The drawer body contains overscroll; there is no body scroll lock. Neither changes the author frame width.
 
 ### BrowserNotifications

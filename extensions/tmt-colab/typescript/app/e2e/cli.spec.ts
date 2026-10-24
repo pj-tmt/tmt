@@ -343,7 +343,7 @@ test('CLI writes reach a live native browser, preserve title and refuse a stale 
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'After CLI 🐈' }),
     ).toBeVisible();
-    await expect(page.getByRole('textbox', { name: 'Source', exact: true })).toHaveValue(
+    await expect(page.getByRole('textbox', { name: 'Page source', exact: true })).toHaveValue(
       '<h1>After CLI 🐈</h1>',
     );
     await expect(page.getByRole('heading', { name: 'CLI page', exact: true })).toBeVisible();
@@ -352,11 +352,15 @@ test('CLI writes reach a live native browser, preserve title and refuse a stale 
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Chunked CLI' }),
     ).toBeVisible();
-    await expect(page.getByRole('textbox', { name: 'Source', exact: true })).toHaveValue(chunked);
+    await expect(page.getByRole('textbox', { name: 'Page source', exact: true })).toHaveValue(
+      chunked,
+    );
     const old = JSON.parse(
       (await server.cli(['page', 'read', server.fixture.pageId, '--json'])).stdout,
     ) as { revision: string };
-    await page.getByRole('textbox', { name: 'Source', exact: true }).fill('<h1>Browser edit</h1>');
+    await page
+      .getByRole('textbox', { name: 'Page source', exact: true })
+      .fill('<h1>Browser edit</h1>');
     await page.getByRole('button', { name: 'Save source' }).click();
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Browser edit' }),

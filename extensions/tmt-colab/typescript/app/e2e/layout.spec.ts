@@ -151,7 +151,7 @@ for (const width of [1440, 390])
       await expect(asks).not.toBeVisible();
       await (await pageAction(page, 'Source')).click();
       const editor = page.locator('.tmt-ui-drawer[data-panel=source]');
-      await expect(editor.getByLabel('Source', { exact: true })).toHaveValue(source(true));
+      await expect(editor.getByLabel('Page source', { exact: true })).toHaveValue(source(true));
       await expect(frame).toHaveAttribute('sandbox', 'allow-scripts');
       await editor.getByRole('button', { name: 'Close Source', exact: true }).focus();
       await page.keyboard.press('Escape');

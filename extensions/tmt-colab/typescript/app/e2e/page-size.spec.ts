@@ -126,7 +126,7 @@ test('the quiet notice and Save refusal use one slot below the Source toolbar', 
   const notice = editor.locator('.source-notice');
   await expect(notice).toHaveCount(1);
   await expect(notice).toContainText('Nearly full');
-  const toolbar = editor.locator('label[for="source-edit"]').locator('..');
+  const toolbar = editor.locator('header');
   const initial = await notice.boundingBox();
   const toolbarBox = await toolbar.boundingBox();
   expect(initial!.y).toBeGreaterThanOrEqual(toolbarBox!.y + toolbarBox!.height);

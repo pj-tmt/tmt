@@ -1,6 +1,6 @@
 import { BrowserAction, BrowserDrawer, BrowserNotice, BusyMark } from '@tmt/browser-ui/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import './source-editor.css';
+import { SourceEditor } from './source-editor.js';
 import type { EditOutcome } from './link-edit.js';
 import { saveMessage } from './save.js';
 import { SaveNotice, type SaveProblem } from './save-notice.js';
@@ -134,37 +134,37 @@ export function ReaderSource({
       title={text.source}
       panel="source"
       width="wide"
+      headerActions={
+        <BrowserAction
+          type="button"
+          variant="primary"
+          label={text.save}
+          visibleLabel={text.sourceSave}
+          busy={saving}
+          busyMark={problem ? <span /> : <BusyMark />}
+          disabled={draft === base.current}
+          onActivate={() => void save()}
+        />
+      }
       onDismiss={onDismiss}
     >
-      <div className="source">
-        <span>
-          <label htmlFor="source-edit">{text.source}</label>
-          <BrowserAction
-            type="button"
-            variant="text"
-            label={text.save}
-            busy={saving}
-            busyMark={problem ? <span /> : <BusyMark />}
-            disabled={draft === base.current}
-            onActivate={() => void save()}
-          />
-        </span>
+      <SourceEditor
+        changed={draft !== base.current}
+        editor={{
+          readOnly: saving,
+          value: draft,
+          onChange: (event) => {
+            dirty.current = true;
+            setRequest(null);
+            setDraft(event.target.value);
+          },
+        }}
+      >
         {request && <EditRequestNotice outcome={request} />}
         {problem && (
           <SaveNotice problem={problem} actions={problem.conflict ? copyDraft : undefined} />
         )}
-        <textarea
-          id="source-edit"
-          readOnly={saving}
-          spellCheck={false}
-          value={draft}
-          onChange={(event) => {
-            dirty.current = true;
-            setRequest(null);
-            setDraft(event.target.value);
-          }}
-        />
-      </div>
+      </SourceEditor>
     </BrowserDrawer>
   );
 }

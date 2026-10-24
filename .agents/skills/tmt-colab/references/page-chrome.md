@@ -309,7 +309,7 @@ visible, with only message history scrolling in the remaining height.
 All widths use native modal containment without body scroll locking; resizing preserves the mounted draft and editing selection. The body contains overscroll. A header or iframe backdrop press dismisses only, never clicks through.
 Close/Escape restores focus, and media listeners/dialogs clean up on close or
 unmount. Chat initializes on first opening; closed Source, Comments and Chat panels retain drafts and admitted history;
-closing never dispatches, abandons or retries. Export closes its preparation and
+closing never dispatches, abandons or retries. Source places its existing Save action before Close in the shared header. The owner and editor link share stateless editor presentation while retaining their separate draft and save/request owners. The paper editor scrolls long lines within its bordered field and resizes vertically; its lower metadata reports draft/base equality, never persistence. Export closes its preparation and
 revokes download Blob URLs. Manage opens after its menu closes and initially
 focuses its non-interactive heading without an outline while metadata loads;
 Its title and Close stay fixed while only the management body scrolls.

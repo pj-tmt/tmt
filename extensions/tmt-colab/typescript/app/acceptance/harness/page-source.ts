@@ -11,7 +11,8 @@ export const distinct = (bytes: number, seed: string) => {
   return `<p>${out.slice(0, bytes - 7)}</p>`;
 };
 
-export const source = (page: Page) => page.getByRole('textbox', { name: 'Source', exact: true });
+export const source = (page: Page) =>
+  page.getByRole('textbox', { name: 'Page source', exact: true });
 export async function openSource(page: Page) {
   await (await pageAction(page, 'Source')).click({ timeout: 60_000 });
   return source(page);

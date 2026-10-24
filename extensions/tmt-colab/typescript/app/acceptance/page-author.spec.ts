@@ -20,7 +20,7 @@ test('original author survives later publishing and owner reload and reads to a 
     await (await pageAction(page, 'Source')).click();
     const source = page.locator('.tmt-ui-drawer[data-panel=source]');
     await source
-      .getByRole('textbox', { name: 'Source', exact: true })
+      .getByRole('textbox', { name: 'Page source', exact: true })
       .fill('<h1>Browser source</h1>');
     await source.getByRole('button', { name: 'Save source' }).click();
     await expect(

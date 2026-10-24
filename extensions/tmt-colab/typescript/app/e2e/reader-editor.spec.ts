@@ -46,8 +46,15 @@ test('an editor link is marked Can edit, names what a save does, and saves from 
   const area = page.locator('#source-edit');
   const save = page.getByRole('button', { name: text.save, exact: true });
   await expect(area).toHaveValue('<main><h1>Release notes</h1></main>');
+  await expect(
+    page
+      .locator('.tmt-ui-drawer[data-panel="source"] header')
+      .getByRole('button', { name: text.save, exact: true }),
+  ).toHaveCount(1);
+  await expect(page.getByTestId('source-draft-status')).toHaveText('Draft unchanged');
   await expect(save).toBeDisabled();
   await area.fill('<main><h1>Release notes v2</h1></main>');
+  await expect(page.getByTestId('source-draft-status')).toHaveText('Draft changed');
   await expect(save).toBeEnabled();
   await save.click();
   await expect
@@ -151,15 +158,17 @@ for (const width of [390, 1024, 1280, 1440])
       await save.hover({ force: true });
       // Actions use the standard action text size; the metadata and code keep their compact density.
       await expect(save).toHaveCSS('font-size', '14px');
-      await expect(page.locator('.source > span label')).toHaveCSS('font-size', '11px');
-      await expect(page.locator('#source-edit')).toHaveCSS('font-size', '12px');
+      await expect(page.getByTestId('source-draft-status')).toHaveCSS('font-size', '11px');
+      await expect(page.locator('#source-edit')).toHaveCSS('font-size', '11px');
       const colors = await page.evaluate(() => {
         const probe = document.createElement('span');
         probe.style.color = 'var(--tmt-ui-color-disabled-text)';
         document.body.append(probe);
         const dim = getComputedStyle(probe).color;
         probe.remove();
-        const button = document.querySelector<HTMLButtonElement>('.source > span button')!;
+        const button = document.querySelector<HTMLButtonElement>(
+          '.tmt-ui-drawer[data-panel="source"] header button[data-variant="primary"]',
+        )!;
         return {
           dim,
           button: getComputedStyle(button).color,
@@ -290,12 +299,14 @@ for (const theme of ['light', 'dark'] as const)
     await page.evaluate(async () => (await import('../test/ask-page-browser.tsx')).mount());
     await (await pageAction(page, 'Source')).click();
     const source = page.locator('#ask-page-fixture .source');
-    const save = source.getByRole('button', { name: text.save, exact: true });
+    const save = page
+      .locator('.tmt-ui-drawer[data-panel="source"] header')
+      .getByRole('button', { name: text.save, exact: true });
     const area = source.locator('#source-edit');
     await expect(save).toBeDisabled();
     await expect(save).toHaveCSS('font-size', '14px');
-    await expect(source.locator(':scope > span label')).toHaveCSS('font-size', '11px');
-    await expect(area).toHaveCSS('font-size', '12px');
+    await expect(source.getByTestId('source-draft-status')).toHaveCSS('font-size', '11px');
+    await expect(area).toHaveCSS('font-size', '11px');
     await area.fill('<main>Edited source</main>');
     await expect(save).toBeEnabled();
     await expect(save).toHaveCSS('font-size', '14px');
