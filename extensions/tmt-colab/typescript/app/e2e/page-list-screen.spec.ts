@@ -213,3 +213,122 @@ for (const width of [1440, 390])
       });
       if (width === 1440) expect((await rows(page).first().boundingBox())!.height).toBe(64);
     });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`file icons stay inside their clipping boxes at ${width} ${theme}`, async ({ page }) => {
+      await mount(page, width, theme);
+      await page.evaluate(async () => {
+        const path = '/test/page-list-browser.tsx';
+        await (await import(path)).mountPageList('quiet');
+      });
+      await expect(rows(page)).toHaveCount(2);
+      await page.screenshot({ path: await capturePath(`4883-icons-${width}-${theme}.png`) });
+      const geometry = await rows(page)
+        .first()
+        .locator('.page-row-icon')
+        .evaluate((icon) => {
+          const svg = icon.querySelector('svg')!;
+          const box = svg.getBoundingClientRect();
+          const clips: {
+            name: string;
+            top: number;
+            bottom: number;
+            left: number;
+            right: number;
+          }[] = [];
+          for (let node: Element | null = icon; node; node = node.parentElement) {
+            const style = getComputedStyle(node);
+            if (
+              node === icon ||
+              /(hidden|clip|scroll|auto)/.test(`${style.overflowX} ${style.overflowY}`)
+            ) {
+              const bounds = node.getBoundingClientRect();
+              clips.push({
+                name: node.className.toString(),
+                top: bounds.top,
+                bottom: bounds.bottom,
+                left: bounds.left,
+                right: bounds.right,
+              });
+            }
+          }
+          const artwork = svg.getBBox();
+          const stroke = parseFloat(getComputedStyle(svg).strokeWidth) / 2;
+          return {
+            box: { top: box.top, bottom: box.bottom, left: box.left, right: box.right },
+            clips,
+            artwork: {
+              left: artwork.x - stroke,
+              top: artwork.y - stroke,
+              right: artwork.x + artwork.width + stroke,
+              bottom: artwork.y + artwork.height + stroke,
+            },
+            view: { width: svg.viewBox.baseVal.width, height: svg.viewBox.baseVal.height },
+          };
+        });
+      await test.info().attach('icon-geometry', {
+        body: JSON.stringify(geometry),
+        contentType: 'application/json',
+      });
+      for (const clip of geometry.clips) {
+        expect(geometry.box.top, clip.name).toBeGreaterThanOrEqual(clip.top - 0.5);
+        expect(geometry.box.bottom, clip.name).toBeLessThanOrEqual(clip.bottom + 0.5);
+        expect(geometry.box.left, clip.name).toBeGreaterThanOrEqual(clip.left - 0.5);
+        expect(geometry.box.right, clip.name).toBeLessThanOrEqual(clip.right + 0.5);
+      }
+      expect(geometry.artwork.left).toBeGreaterThanOrEqual(0);
+      expect(geometry.artwork.top).toBeGreaterThanOrEqual(0);
+      expect(geometry.artwork.right).toBeLessThanOrEqual(geometry.view.width);
+      expect(geometry.artwork.bottom).toBeLessThanOrEqual(geometry.view.height);
+      if (width === 1440) {
+        const first = rows(page).first();
+        const title = (await first.locator('.page-row-title > a').boundingBox())!;
+        const tag = (await first.locator('.page-project').first().boundingBox())!;
+        expect(Math.abs(title.y + title.height / 2 - tag.y - tag.height / 2)).toBeLessThanOrEqual(
+          1,
+        );
+      }
+    });
+
+    test(`row titles and project tags align at ${width} ${theme}`, async ({ page }) => {
+      await mount(page, width, theme);
+      const first = rows(page)
+        .filter({ has: page.locator('.page-project') })
+        .first();
+      await page.screenshot({ path: await capturePath(`4883-alignment-${width}-${theme}.png`) });
+      const title = (await first.locator('.page-row-title > a').boundingBox())!;
+      const tag = (await first.locator('.page-project').first().boundingBox())!;
+      await test.info().attach('title-tag-geometry', {
+        body: JSON.stringify({ title, tag }),
+        contentType: 'application/json',
+      });
+      if (width === 1440)
+        expect(Math.abs(title.y + title.height / 2 - tag.y - tag.height / 2)).toBeLessThanOrEqual(
+          1,
+        );
+      else {
+        const detail = (await first.locator('.page-row-detail').boundingBox())!;
+        const titleCell = (await first.locator('.page-row-title').boundingBox())!;
+        expect(detail.y).toBeGreaterThanOrEqual(titleCell.y + titleCell.height);
+      }
+      expect(
+        await app(page)
+          .locator('[data-page-list]')
+          .evaluate((node) => node.scrollWidth <= node.clientWidth),
+      ).toBe(true);
+      expect(await page.evaluate(() => window.__pageOperations)).toEqual([]);
+      await page.evaluate(async () => {
+        const path = '/test/page-list-browser.tsx';
+        await (await import(path)).mountPageList('long');
+      });
+      const longRow = rows(page).filter({ hasText: 'Long names' });
+      await expect(longRow).toHaveCount(1);
+      expect(await longRow.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      if (width === 390) {
+        const titleCell = (await longRow.locator('.page-row-title').boundingBox())!;
+        const detail = (await longRow.locator('.page-row-detail').boundingBox())!;
+        expect(detail.y).toBeGreaterThanOrEqual(titleCell.y + titleCell.height);
+      }
+    });
+  }
