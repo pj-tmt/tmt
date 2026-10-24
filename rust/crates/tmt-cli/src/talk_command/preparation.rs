@@ -342,7 +342,8 @@ pub(super) fn prepare(
         attempt_id,
         endpoint: match route {
             RequestRoute::Pane(endpoint) => Some(endpoint),
-            RequestRoute::Inbox { .. } => None,
+            // This command selects a pane or an inbox above; a remote route has its own path.
+            RequestRoute::Inbox { .. } | RequestRoute::Remote { .. } => None,
         },
         payload,
         previous_request_id: prepared.previous_request_id,

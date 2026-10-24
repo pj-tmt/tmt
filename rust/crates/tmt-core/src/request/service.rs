@@ -432,6 +432,17 @@ fn route_valid<E>(route: &RequestRoute) -> Result<(), RequestError<E>> {
         RequestRoute::Inbox {
             recipient_identity_id,
         } => nonempty(recipient_identity_id),
+        RequestRoute::Remote {
+            remote,
+            target_id,
+            target_name,
+            sender_name,
+        } => {
+            nonempty(remote)?;
+            nonempty(target_name)?;
+            nonempty(sender_name)?;
+            target_id.as_deref().map_or(Ok(()), nonempty)
+        }
     }
 }
 
