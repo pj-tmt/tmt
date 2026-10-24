@@ -1429,9 +1429,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .proposal-inline .proposal-card {
   border: 1px solid var(--tmt-ui-surface-rule);
-  /* Square: the website has no proposal card; the in-page question band it sits beside is a square,
-     ruled band. */
-  border-radius: 0;
   box-shadow: none;
 }
 .proposal-inline :focus-visible {
@@ -1502,6 +1499,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .proposal-card {
   border: 1px solid var(--c-rule);
+  /* A framed card rounds, as every bordered card does on the website. */
+  border-radius: var(--tmt-ui-radius);
   background: var(--c-sheet);
   color: var(--c-text);
   padding: 16px;
