@@ -393,7 +393,12 @@ Only explicit pairing can sign in. A replaced persisted uid changes the native A
 keeping the runtime/budget; old extension consumers stop without inheriting membership. The joined
 pairing worker reuses finite inbox reconciliation and stops/flushes before the serve lease is released.
 Machine registration pins the native key and inviter provenance; authorized uid recovery preserves both.
-The contract owns the mailbox paths, bounds, recovery window and route proof.
+The same hourly enrollment maintenance also collects this machine's expired invite gates through
+one-result expiry queries and the existing operation cap/deadline. Strict gate admission and the
+shared Auth/budget precede deletion; failed gate cleanup cannot stop enrolled reconciliation,
+receipt pruning or the hourly attempt timestamp, replace a ceremony outcome, or grant expired
+authority. A next explicit invite reuses gate-only cleanup best-effort for a first interrupted offer; peerless projects still start no provider polling. The contract owns mailbox paths, bounds,
+recovery window and route proof.
 
 Pairing qualification is `cargo test --offline --locked -p tmt-remote --features test-emulator --lib
 ordinary_user_pairing_rules_restart_reroute_and_revoke -- --ignored --nocapture` from `rust/`.
