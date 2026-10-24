@@ -29,6 +29,9 @@ pub fn execute(
 /// What the usage hook reads, shown wherever setup plans it.
 const USAGE_NOTE: &str = "Usage and recent responses: after each turn, TMT reads token counts and keeps this agent's answers on this computer (up to 1,000 per agent, 16 KiB each, for 7 days). Use --no-usage to stop collecting.";
 
+/// What the turn-end hook keeps when usage collection is off: the agent's answers for the chat.
+const ANSWERS_NOTE: &str = "Chat answers: after each turn, TMT keeps this agent's answers on this computer (up to 1,000 per agent, 16 KiB each, for 7 days). No usage data is read or stored.";
+
 fn failure(error: impl std::error::Error + 'static) -> Failure {
     Failure::new("SETUP_ERROR", error.to_string(), 1).caused_by(error)
 }
@@ -71,14 +74,16 @@ fn run(
                 .map_err(failure)?
                 .to_path_buf();
             let before = setup::read_settings(&path).map_err(failure)?;
+            let opted_out = record::usage_opted_out(&recorded, provider.name(), &path);
             let usage = record::usage_policy(&recorded, provider.name(), &path, usage);
-            setup::plan(
+            setup::plan_with_choice(
                 provider,
                 path,
                 before,
                 environment.launcher.clone(),
                 remove,
                 usage,
+                opted_out,
             )
             .map_err(failure)
         })
@@ -90,8 +95,7 @@ fn run(
         .next()
         .expect("one selected provider plan");
     // The record was validated before planning any settings changes.
-    // Removing only the usage hook is a removal too.
-    let removing = remove || (plan.usage_before && !plan.usage);
+    let removing = remove;
     if !mode.json {
         writeln!(output, "{} {} {} in {}\nLauncher: {}\nContext: identity, role summary, existing notes path and unread X counts. No message bodies or permission changes. Provider hook trust review still applies.",
             if removing { "Remove TMT-owned" } else { "Configure" }, plan.provider, plan.events(), plan.change.path.display(), plan.launcher.display()).map_err(failure)?;
@@ -108,6 +112,7 @@ fn run(
         if plan.usage {
             writeln!(output, "{USAGE_NOTE}").map_err(failure)?;
         } else if !remove {
+            writeln!(output, "{ANSWERS_NOTE}").map_err(failure)?;
             writeln!(output, "{}", collection_off(plan.provider)).map_err(failure)?;
         }
     }
@@ -210,17 +215,21 @@ fn show_status(
         None => drivers.with_hooks().collect(),
     };
     let mut integrations = Vec::new();
+    let recorded = record::read(&ConfigPaths::discover().map_err(Failure::from)?.global_dir)
+        .map_err(failure)?;
     for driver in selected {
         let path = setup::provider_settings(driver).map_err(failure)?;
         let before = setup::read_settings(&path).map_err(failure)?;
-        // Keep validates installed entries without proposing a usage opt-in.
-        let plan = setup::plan(
+        // Keep validates installed entries without proposing a usage opt-in; the turn-end hook
+        // may be there with usage turned off, which only the setup record says.
+        let plan = setup::plan_with_choice(
             driver,
             path.clone(),
             before,
             std::path::PathBuf::from("/"),
             false,
             UsageHook::Keep,
+            record::usage_opted_out(&recorded, driver.name(), &path),
         )
         .map_err(failure)?;
         let mut row = json!({"provider": driver.name(), "settingsPath": path});

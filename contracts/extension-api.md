@@ -51,7 +51,7 @@ independent of storage access.
 | `requests.show`          | `requestId`                                                                                         | Request detail including retained prompt/final state; a passthrough adds its turn-output capture ([Passthrough](request-response-v1.md#passthrough))              |
 | `requests.sendNow`       | `requestId`; the envelope names the caller (originator or the user)                                 | `status` (`sent`/`already`), `requestId`, `state`; a refusal is a `SEND_NOW_*` or `DELIVERY_*` fault ([Send now](request-response-v1.md#send-now))                |
 | `workspace.capture`      | Empty object                                                                                        | Bounded `attempted`, `published`, `skipped` counts for recorded sockets only (see [Workspace recovery](workspace-v1.md#capture-triggers-and-public-backstop))     |
-| `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–50, default 10), optional `before` (cursor)      | `identityId`, `items`, `coverage`, `nextBefore?`: locally retained provider-final pane output (see below)                                                         |
+| `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–50, default 10), optional `before` (cursor)      | `identityId`, `items`, `coverage`, `capture?`, `nextBefore?`: locally retained provider-final pane output (see below)                                             |
 | `pane.screen`            | `identityId` (canonical UUID)                                                                       | `identityId`, `host`, `format`, `text`: the identity's current visible pane screen, read-only (see below)                                                         |
 | `dispatch.show`          | `operationId`                                                                                       | Immutable acceptance receipt                                                                                                                                      |
 | `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`, `mode`                 | Acceptance receipt; optional independent `wake` on first direct request (see [Passthrough](#passthrough-dispatch))                                                |
@@ -101,7 +101,12 @@ age or the count below) or has expired and not yet been pruned, and `droppedThro
 is then the newest `endedMs` among those dropped answers. A client that reaches the
 last page with `olderDropped` true says that older answers were not kept. An identity
 that was at the former cap of 10 when this field began reports `olderDropped` true
-from that moment.
+from that moment, with `droppedThroughMs` the oldest kept answer's `endedMs` (the
+newest dropped one is not known).
+`capture` is `{enabled}` and is present only when the identity's remembered driver
+has hooks: `enabled` is whether that driver's turn-end hook is installed, so `false`
+means its answers are not captured until the user runs `tmt setup`. An absent
+`capture` says nothing (an agent that never ran a driver with hooks).
 
 Each item is `{text, endedMs, provider, truncated, originalBytes, sessionId?}`:
 
@@ -117,11 +122,14 @@ Each item is `{text, endedMs, provider, truncated, originalBytes, sessionId?}`:
 - `provider` is `claude` or `codex`. `sessionId`, when available, is the admitted
   provider session identifier; otherwise the field is omitted, not null.
 
-Capture uses only the turn-end hook TMT already installs: Claude `Stop` and
-Codex `Stop`/notify. It requires the existing verified current binding/session
-admission and enabled usage collection (`tmt setup --usage`, rather than
-`--no-usage`). There is no new setting. Disabled capture stores no new entries;
-previously captured entries retain their original expiry. A stale session,
+Capture uses only the turn-end hook TMT installs: Claude `Stop` and Codex
+`Stop`/notify. It requires the existing verified current binding/session admission
+and that hook, which every consented `tmt setup` installs, `--no-usage` included.
+Usage collection is separate: with `--no-usage` the hook keeps the agent's answers,
+taking the final text from the hook payload alone, and reads no transcript, token
+or consumption data. An install made with `--no-usage` before this was so has no
+turn-end hook until the user runs `tmt setup` again, and captures no answers until
+then. Previously captured entries retain their original expiry. A stale session,
 subagent event, malformed payload or missing admissible final text creates no
 entry, not an empty replacement. Hooks keep their existing finite budgets and
 best-effort, non-veto behavior.
@@ -580,8 +588,9 @@ Collection runs every five seconds in the `tmt run`/`resume` foreground child
 wait, using a bounded supervised worker and the existing consented usage hooks.
 There are no listing-time provider reads or detached sampling services. Old
 wrappers and hook-only launches remain Stop-only until relaunched through the
-new foreground owner. `--no-usage` suppresses sampling and Stop collection;
-legacy lifecycle-only installations remain disabled until explicitly enabled.
+new foreground owner. `--no-usage` suppresses sampling and usage collection on the Stop hook (which stays for
+the agent's answers); legacy lifecycle-only installations remain disabled until
+explicitly enabled.
 Exactly-once accounting covers sampling/Stop races and supported contiguous
 provider groups; Claude's existing noncontiguous repeated-message limitation
 remains. No new per-request deduplication store is introduced. A cursor outside
@@ -1106,8 +1115,8 @@ supplies end events. For Codex, an interrupted turn ends through its turn-correl
 `Interrupt` hook, which is activity only and installed with the lifecycle hooks. It runs
 as Codex's hook trust policy allows: an ordinary unmanaged definition runs only after the
 user trusts it in `/hooks`, and TMT never grants or bypasses that trust. While Codex skips
-it, the last admitted activity stays unchanged. `--no-usage` disables usage and
-response collection (not this activity observer) and preserves that choice;
+it, the last admitted activity stays unchanged. `--no-usage` disables usage
+collection (not this activity observer, nor the agent's answers) and preserves that choice;
 `--usage` re-enables it. Legacy recorded lifecycle-only installs remain disabled
 until explicitly enabled. `tmt setup [provider] --status` reports the installed
 collection state without changing it. Absent end events never cause an inferred
