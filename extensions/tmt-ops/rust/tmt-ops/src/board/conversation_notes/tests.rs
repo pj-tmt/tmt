@@ -1,11 +1,14 @@
 use super::*;
 use crate::checklist::{
-    ItemView,
+    Current, ItemView, MemberView, Preview, RoomView,
     model::{Completion, Id, Item, ItemContent},
 };
 
 const ROOM: &str = "11111111-1111-4111-8111-111111111111";
 const MEMBER: &str = "22222222-2222-4222-8222-222222222222";
+const ACTOR: &str = "55555555-5555-4555-8555-555555555555";
+const ALICE: &str = "66666666-6666-4666-8666-666666666666";
+const STRANGER: &str = "77777777-7777-4777-8777-777777777777";
 
 fn view(n: u8, reference: Option<&str>, completion: Completion, archived: bool) -> ItemView {
     ItemView {
@@ -24,6 +27,63 @@ fn view(n: u8, reference: Option<&str>, completion: Completion, archived: bool) 
         assignee_available: true,
     }
 }
+fn preview(items: Vec<ItemView>) -> Preview {
+    let (room, member) = (Id::parse(ROOM).unwrap(), Id::parse(MEMBER).unwrap());
+    Preview {
+        actor_id: Id::parse(ACTOR).unwrap(),
+        current: Current {
+            room: RoomView {
+                id: room.clone(),
+                name: Some("product".into()),
+                available: true,
+                manager: true,
+            },
+            member: Some(MemberView {
+                id: member.clone(),
+                name: Some("worker".into()),
+                retired: false,
+            }),
+            checklist_id: Some(Id::conversation_checklist(&room, &member)),
+            inventory_revision: Some(1),
+            items,
+            deletion: None,
+        },
+        members: vec![
+            (Id::parse(ACTOR).unwrap(), "lead".into()),
+            (Id::parse(ALICE).unwrap(), "alice".into()),
+        ],
+    }
+}
+
+/// A list holding exactly these counts.
+fn items_of(counts: Counts) -> Vec<ItemView> {
+    let mut n = 0;
+    let mut next = |reference: Option<&str>, completion| {
+        n += 1;
+        view(n, reference, completion, false)
+    };
+    let mut items = Vec::new();
+    for _ in 0..counts.links {
+        items.push(next(Some("https://example.com/a"), Completion::Open));
+    }
+    for _ in 0..counts.todo {
+        items.push(next(None, Completion::Open));
+    }
+    for _ in 0..counts.done {
+        items.push(next(None, Completion::Complete));
+    }
+    items
+}
+
+/// The answer to a read of this task: a list with these counts, or the words of a failure.
+pub(in crate::board) fn reading(task: &Task, result: Result<Counts, String>) -> Completed {
+    Completed {
+        key: task.key.clone(),
+        epoch: task.epoch,
+        outcome: Outcome::Read(result.map(|counts| preview(items_of(counts)))),
+    }
+}
+
 fn key() -> Key {
     Key {
         room: ROOM.into(),
@@ -101,13 +161,7 @@ fn a_conversation_is_read_once_then_each_fresh_interval_and_never_twice_at_once(
         done: 0,
     };
     let t1 = t0 + Duration::from_secs(1);
-    state.finished(
-        Completed {
-            key: task.key,
-            result: Ok(counts),
-        },
-        t1,
-    );
+    state.finished(reading(&task, Ok(counts)), t1);
     assert_eq!(state.summary(&key()), Some(&Summary::Counts(counts)));
     assert!(
         state
@@ -133,13 +187,7 @@ fn a_failed_first_read_is_reported_and_retried_later_and_a_failed_refresh_keeps_
     let mut state = State::reading();
     let t0 = Instant::now();
     let task = state.offer(Some(&key()), t0).unwrap();
-    state.finished(
-        Completed {
-            key: task.key,
-            result: Err("No admitted caller".into()),
-        },
-        t0,
-    );
+    state.finished(reading(&task, Err("No admitted caller".into())), t0);
     assert_eq!(
         state.summary(&key()),
         Some(&Summary::Unavailable("No admitted caller".into()))
@@ -158,21 +206,9 @@ fn a_failed_first_read_is_reported_and_retried_later_and_a_failed_refresh_keeps_
         done: 0,
     };
     let t1 = t0 + RETRY;
-    state.finished(
-        Completed {
-            key: task.key.clone(),
-            result: Ok(counts),
-        },
-        t1,
-    );
+    state.finished(reading(&task, Ok(counts)), t1);
     let task = state.offer(Some(&key()), t1 + FRESH).unwrap();
-    state.finished(
-        Completed {
-            key: task.key,
-            result: Err("busy".into()),
-        },
-        t1 + FRESH,
-    );
+    state.finished(reading(&task, Err("busy".into())), t1 + FRESH);
     assert_eq!(
         state.summary(&key()),
         Some(&Summary::Counts(counts)),
@@ -228,13 +264,7 @@ pub(in crate::board) fn capture_case(
         "notes-empty" => Ok(Counts::default()),
         _ => Err("No admitted caller or recorded active user.".into()),
     };
-    app.notes.finished(
-        Completed {
-            key: task.key,
-            result,
-        },
-        now,
-    );
+    app.notes.finished(reading(&task, result), now);
     app
 }
 
@@ -311,13 +341,7 @@ mod header {
         app.notes = State::reading();
         let now = Instant::now();
         let task = app.notes.offer(Some(key), now).expect("a read is wanted");
-        app.notes.finished(
-            Completed {
-                key: task.key,
-                result,
-            },
-            now,
-        );
+        app.notes.finished(reading(&task, result), now);
     }
 
     #[test]
@@ -373,3 +397,5 @@ mod header {
         );
     }
 }
+
+pub(in crate::board) mod overlay;

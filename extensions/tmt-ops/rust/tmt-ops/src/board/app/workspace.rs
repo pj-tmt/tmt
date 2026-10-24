@@ -1084,6 +1084,7 @@ impl App {
                 return self.workspace_save(next);
             }
             MemberSession => return self.open_member_session(),
+            MemberNotes => return self.open_notes(),
             NewMember => return self.open_new_member(),
             MonitorDetails => return self.overview_details(),
             WorkspaceSnapshots => return self.open_recovery(),
@@ -1325,6 +1326,10 @@ impl App {
                 .discovery
                 .as_ref()
                 .is_some_and(|controller| controller.owns_typing()),
+            Some(Overlay::Notes) => self
+                .notes_overlay
+                .as_ref()
+                .is_some_and(|controller| controller.owns_typing(&self.notes)),
             Some(_) => false,
             None => self.menu.is_none() && self.input.is_some(),
         };

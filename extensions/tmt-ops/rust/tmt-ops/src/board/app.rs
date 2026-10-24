@@ -275,6 +275,8 @@ pub enum Effect {
     Recovery(super::recovery::load::Task),
     Discovery(super::discovery::load::Task),
     MemberSession(super::member_session::Task),
+    /// A read or a write of the Notes of the conversation on screen.
+    Notes(super::conversation_notes::Task),
     NewMember(super::new_member::Task),
     Foreground(super::member_session::Foreground),
 }
@@ -303,6 +305,8 @@ pub enum Choice {
     /// A click on a Talk/Measure chip selects that pane; the `M` key toggles.
     RightTab(super::shell::RightTab),
     WorkspaceTarget(super::workspace::OpsTarget),
+    /// A click on the Notes chip of a member's header: opens the list.
+    MemberNotes,
     WorkspaceBegin(super::workspace::manage::Kind),
     WorkspaceRoom {
         kind: super::workspace::manage::Kind,
@@ -588,6 +592,7 @@ pub(super) enum Overlay {
     QuotaDetails,
     Discovery,
     MemberSession,
+    Notes,
     NewMember,
     UsageControls,
     PastePreview,
@@ -610,6 +615,7 @@ impl Overlay {
                 Self::QuotaDetails => "quota-details",
                 Self::Discovery => "discovery",
                 Self::MemberSession => "member-session",
+                Self::Notes => "notes",
                 Self::NewMember => "new-member",
                 Self::UsageControls => "usage-controls",
                 Self::PastePreview => "paste-preview",
@@ -719,6 +725,7 @@ pub struct App {
     pub(super) discovery: Option<super::discovery::Controller>,
     pub(super) member_session: Option<super::member_session::Controller>,
     pub(super) member_session_generation: u64,
+    pub(super) notes_overlay: Option<super::conversation_notes::overlay::Controller>,
     pub(super) new_member: Option<super::new_member::Controller>,
     pub(super) new_member_generation: u64,
     pub(super) foreground: Option<super::member_session::Foreground>,
@@ -3055,6 +3062,7 @@ impl App {
             }
             Choice::Panels => self.open_panels(),
             Choice::Checklist => self.open_checklist(),
+            Choice::MemberNotes => self.open_notes(),
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
             Choice::Dismiss => Effect::None,
@@ -3148,6 +3156,7 @@ impl App {
             || self.discovery_shown()
             || self.new_member.is_some()
             || self.member_session.is_some()
+            || self.notes_overlay.is_some()
         {
             return self
                 .overlay_event(&Event::Paste(text.to_owned()))
@@ -3710,6 +3719,8 @@ impl App {
             Some(Overlay::NewMember)
         } else if self.member_session.is_some() {
             Some(Overlay::MemberSession)
+        } else if self.notes_overlay.is_some() {
+            Some(Overlay::Notes)
         } else if self.discovery_shown() {
             Some(Overlay::Discovery)
         } else if self.help {
@@ -3768,6 +3779,7 @@ impl App {
                 Some(Effect::None)
             }
             Overlay::MemberSession => self.member_session_event(event),
+            Overlay::Notes => self.notes_event(event),
             Overlay::NewMember => self.new_member_event(event),
             Overlay::Discovery => self.discovery_event(event),
             Overlay::Help => {
@@ -4086,6 +4098,9 @@ impl App {
         }
         if let Some(session) = &self.member_session {
             session.invalidate();
+        }
+        if let Some(notes) = &self.notes_overlay {
+            notes.invalidate();
         }
         if let Some(discovery) = &self.discovery {
             discovery.invalidate();

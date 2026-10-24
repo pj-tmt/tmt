@@ -533,13 +533,24 @@ list sorts by AGENT, SQUAD, STATE, TOK and MODEL; the Squads tree by `SQUAD / AG
 on TOK the mark takes the blank cell before the word. A click changes only the saved
 order, never the selection or a message.
 In Agents, `n` opens New member on any row; `p` pins/unpins a squad. `N`
-creates a squad, `m` manages a squad or assigns a member, and `x` leaves only the
+creates a squad on a squad row or the Common pool and opens the member's Notes on a
+member row, `m` manages a squad or assigns a member, and `x` leaves only the
 selected squad membership. On member rows the footer offers `r rename`, `m move`,
-`R resume` and `d remove`, using effective bindings and dropping whole hints at
+`R resume`, `N notes` and `d remove`, using effective bindings and dropping whole hints at
 narrow widths. `d` is a copy-only retirement review: stop the agent first and
 recheck the displayed name before running the copied command. Retirement does
 not stop the agent or close its window. Member `S switch tool` is not
 available yet. `D` opens Digest and `c` opens Timers outside a modal.
+
+A squad member's header shows its Notes chip, `≡ Notes · 3 links · 2 todo · 1 done`
+(`≡ Notes · empty` for an empty list). `N` or a click on the chip opens the list: links
+first, then todos, each row with who added it and how long ago (`you`, the member's
+name, or nothing for an item stored before the board recorded it). `↑↓`/`jk` choose,
+Enter opens a link or ticks a todo, `a` adds (a web address becomes a link; `Tab` moves
+between the note and its link), `e` edits, `d` deletes after Enter confirms, `Shift+↑↓`
+moves an item among its group and Esc closes the list, keeping a form you have not sent.
+A change someone else made first is reported in one line and your words stay in the form.
+A retired member's list reads but takes no writes.
 `r` reviews Rename for
 the selected visible agent by UUID; compatible explicit bindings keep their meaning.
 Outside an editor or modal, `w` opens saved workspace snapshots on every tab;

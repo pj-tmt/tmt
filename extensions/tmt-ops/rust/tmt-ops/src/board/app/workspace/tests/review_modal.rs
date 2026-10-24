@@ -367,7 +367,7 @@ fn capture_fitted_management_reviews() {
 fn crud_keys_keep_create_uppercase_and_remove_distinct_from_leave() {
     let mut app = board();
     assert_eq!(app.bindings()["n"].text, "new-member");
-    assert_eq!(app.bindings()["N"].text, "create-squad");
+    assert_eq!(app.bindings()["N"].text, "member-notes");
     assert_eq!(app.bindings()["d"].text, "remove-member");
     assert_eq!(app.bindings()["x"].text, "remove-membership");
     for target in [OpsTarget::Squad(ROOM.into()), OpsTarget::Pool] {
