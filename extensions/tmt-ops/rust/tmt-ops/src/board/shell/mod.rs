@@ -48,13 +48,35 @@ pub enum OpsInputOwner {
 #[derive(Debug, Default)]
 pub struct OpsShell {
     pub tab: OpsTab,
+    inactive_selection: Option<super::workspace::OpsTarget>,
 }
 
 impl OpsShell {
+    /// The active App selection stays authoritative. Only the other destination's
+    /// anchor lives here; neither this anchor nor visit history is persisted.
+    pub fn select(&mut self, tab: OpsTab, selected: &mut Option<super::workspace::OpsTarget>) {
+        if self.tab == tab {
+            return;
+        }
+        let destination = self.inactive_selection.take().or_else(|| match tab {
+            OpsTab::Digest => Some(super::workspace::OpsTarget::DigestAll),
+            OpsTab::Agents => selected
+                .clone()
+                .filter(|target| *target != super::workspace::OpsTarget::DigestAll),
+        });
+        self.inactive_selection = std::mem::replace(selected, destination);
+        self.tab = tab;
+    }
+
     /// Returns true only when the shell consumed the digit. Active editors,
     /// search and completion receive their input unchanged; the host dismisses
     /// non-typing overlays before applying the destination.
-    pub fn select_digit(&mut self, digit: char, owner: OpsInputOwner) -> bool {
+    pub fn select_digit(
+        &mut self,
+        digit: char,
+        owner: OpsInputOwner,
+        selected: &mut Option<super::workspace::OpsTarget>,
+    ) -> bool {
         if matches!(
             owner,
             OpsInputOwner::Composer | OpsInputOwner::Search | OpsInputOwner::Completion
@@ -66,7 +88,7 @@ impl OpsShell {
             '2' => OpsTab::Digest,
             _ => return false,
         };
-        self.tab = tab;
+        self.select(tab, selected);
         true
     }
 }

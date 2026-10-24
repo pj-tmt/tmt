@@ -15,7 +15,13 @@ use std::{rc::Rc, sync::Arc};
 
 #[derive(Default)]
 pub(in crate::board) struct Cache {
-    held: Option<(Key, Rc<[OpsTreeRow]>)>,
+    held: Option<(Key, Projection)>,
+}
+
+#[derive(Clone)]
+struct Projection {
+    rows: Rc<[OpsTreeRow]>,
+    exchanges: Rc<[crate::board::exchange_matrix::ExchangeParticipant]>,
 }
 
 struct Key {
@@ -46,7 +52,7 @@ impl Cache {
 
 /// Cursor changes reuse admitted facts. Snapshot/preferences reconciliation
 /// invalidates them; an immutable usage receipt also changes the key.
-pub(in crate::board) fn rows(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<[OpsTreeRow]> {
+fn projection(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Projection {
     let key = Key {
         query: app.workspace.query.clone(),
         visibility: app.workspace.visibility.clone(),
@@ -59,9 +65,26 @@ pub(in crate::board) fn rows(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<[
         .as_ref()
         .is_some_and(|(old, _)| old.matches(&key))
     {
-        cache.held = Some((key, projected_rows(app, snapshot, None).into()));
+        let rows: Rc<[OpsTreeRow]> = projected_rows(app, snapshot, None).into();
+        let exchanges = crate::board::exchange_matrix::by_traffic(
+            rows.iter()
+                .filter_map(|row| {
+                    Some(crate::board::exchange_matrix::ExchangeParticipant {
+                        id: metrics::id(row)?.into(),
+                        name: row.title.clone(),
+                    })
+                })
+                .collect(),
+            metrics::report(app).and_then(|report| report.exchange.as_ref()),
+        )
+        .into();
+        cache.held = Some((key, Projection { rows, exchanges }));
     }
-    let canonical = &cache.held.as_ref().unwrap().1;
+    cache.held.as_ref().unwrap().1.clone()
+}
+
+pub(in crate::board) fn rows(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<[OpsTreeRow]> {
+    let canonical = projection(app, snapshot).rows;
     // An explicit noncanonical membership keeps the pre-existing occurrence's
     // scoped state, action target and existing ordering tie-breaks. The cached
     // canonical projection stays unchanged when that explicit selection ends.
@@ -71,7 +94,14 @@ pub(in crate::board) fn rows(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<[
     {
         return projected_rows(app, snapshot, Some(selected)).into();
     }
-    Rc::clone(canonical)
+    canonical
+}
+
+fn exchange_participants(app: &App) -> Rc<[crate::board::exchange_matrix::ExchangeParticipant]> {
+    app.workspace_snapshot().map_or_else(
+        || Rc::from([]),
+        |snapshot| projection(app, snapshot).exchanges,
+    )
 }
 
 /// Session scope uses exactly the admitted Digest identities, including its

@@ -298,8 +298,9 @@ right column shows the selected target as Talk (the conversation) or Measure (TO
 STATE, DIGEST and TIMERS cells, the soonest timers, the Digest table and who talks to
 whom). `f` cycles the left chips Squads / Agents / Pinned and `M` toggles Talk / Measure;
 both controls sit on their pane's top rule. The shell attention bar stays global.
-Digest keeps the same identity context and existing Core-owned policy controls. A
-squad's theme applies to Agents/Digest.
+Digest first opens on `all`. Switching destinations remembers each selection for
+this board session; explicit named views and reload restores keep their selected UUID.
+Existing Core-owned policy controls stay in place. A squad's theme applies to Agents/Digest.
 Member conversation status, selected-squad usage and the Measure Digest table show `Est. ctx avoided`: Digest's estimate of context input tokens avoided by batching,
 not billed tokens, cost or turns saved. In workspace settings (`,`), choose the shared
 Digest estimate window: 1d (default), 7d or all time. The saved preference is
@@ -425,7 +426,10 @@ Activity shows 24 hourly cells, scaled to each row's busiest hour; unknown is `?
 known zero is `·`. Whole optional columns yield on narrow terminals; details carry
 the hourly strip at 60 columns. Tab exposes Exchanges in the lower pane.
 Exchanges counts only talk and reply messages, with sender rows and recipient
-columns; self is blank, `·` observed none and `—` unavailable.
+columns, busiest first by sent plus received, then name and UUID. Up to five agents
+fit, fewer on narrow or short frames; a selected agent takes the last slot if needed.
+Self is blank, `·` observed none and `—` unavailable. An observed empty flow says
+`No exchanges in this range`; an empty roster says `No agents observed`.
 Enter opens the selected member's Agents conversation. D uses the existing
 Digest chooser; e toggles details, u opens usage controls and w stays Snapshots.
 Hints follow configured bindings. The `≈ $ in` column requires full input-model
