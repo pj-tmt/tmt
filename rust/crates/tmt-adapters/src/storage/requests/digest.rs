@@ -273,10 +273,9 @@ pub(super) fn settle(
     now: u64,
 ) -> Result<(), StorageError> {
     // The existing writer transaction serializes allocation with every Core change.
-    // A turn-boundary delivery is the provider's own hook output and needs no confirmation; a
-    // checklist typed at an idle opportunity waits for a prompt that carries it (#4858).
-    let changed=db.execute("UPDATE focus_checklists SET state=?1,settled_at_ms=?5,settlement_sequence=(SELECT value+1 FROM change_cursor WHERE id=1),
-        confirmed_at_ms=CASE WHEN ?1='delivered' AND opportunity='turn_boundary' THEN ?5 END WHERE id=?2 AND identity_id=?3 AND attempt_token=?4 AND state='claimed'",
+    // A delivered checklist waits on later evidence (#4858): `confirmed_at_ms` stays null until it
+    // comes (a prompt that carries an idle paste, the end of the continuation a Stop hook started).
+    let changed=db.execute("UPDATE focus_checklists SET state=?1,settled_at_ms=?5,settlement_sequence=(SELECT value+1 FROM change_cursor WHERE id=1) WHERE id=?2 AND identity_id=?3 AND attempt_token=?4 AND state='claimed'",
         params![state.as_str(),b.id,b.identity_id,b.attempt_token,checked_now(now,"Digest settlement clock")?]).map_err(|e|classify(e,"Settle digest checklist"))?;
     if changed != 1 {
         return Err(StorageError::new(
@@ -343,6 +342,33 @@ pub(super) fn release_unconfirmed(
     )
     .map(|changed| changed as u64)
     .map_err(|e| classify(e, "Release unconfirmed digest members"))
+}
+
+/// Whether a Stop hook handed this identity a checklist and the continuation that follows has not
+/// ended: the provider is working although its activity reads idle.
+pub(super) fn continuation_open(db: &Connection, identity: &str) -> Result<bool, StorageError> {
+    db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM focus_checklists WHERE identity_id=?1 AND opportunity='turn_boundary'
+         AND state IN ('delivered','uncertain') AND confirmed_at_ms IS NULL)",
+        [identity],
+        |row| row.get(0),
+    )
+    .map_err(|e| classify(e, "Read an open Stop continuation"))
+}
+
+/// The continuation ended or a prompt arrived: the Stop that was blocked is over.
+pub(super) fn end_continuation(
+    db: &Connection,
+    identity: &str,
+    now: u64,
+) -> Result<u64, StorageError> {
+    db.execute(
+        "UPDATE focus_checklists SET confirmed_at_ms=?2 WHERE identity_id=?1 AND opportunity='turn_boundary'
+         AND state IN ('delivered','uncertain') AND confirmed_at_ms IS NULL",
+        params![identity, checked_now(now, "Digest continuation clock")?],
+    )
+    .map(|changed| changed as u64)
+    .map_err(|e| classify(e, "End a Stop continuation"))
 }
 
 /// A prompt that names a request of an unconfirmed idle checklist confirms that checklist.

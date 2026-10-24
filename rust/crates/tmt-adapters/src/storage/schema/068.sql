@@ -1,10 +1,11 @@
--- A checklist typed at an idle opportunity is unconfirmed until a prompt carries it (#4858):
--- NULL means still unconfirmed. Every checklist settled before this migration is confirmed at its
--- settlement, as is every turn-boundary delivery, which the provider's own hook output carries.
+-- Two delivered checklists wait on later evidence (#4858). One typed at an idle opportunity is
+-- unconfirmed until a prompt carries it. One handed to a Stop hook means the provider continues the
+-- turn until that continuation ends or a prompt arrives. NULL means the evidence has not come.
+-- Every checklist settled before this migration is confirmed at its settlement.
 ALTER TABLE focus_checklists ADD COLUMN confirmed_at_ms INTEGER
  CHECK (confirmed_at_ms IS NULL OR confirmed_at_ms BETWEEN 1 AND 9007199254740991);
 UPDATE focus_checklists SET confirmed_at_ms = COALESCE(settled_at_ms, created_at_ms)
- WHERE state = 'delivered' AND COALESCE(settled_at_ms, created_at_ms) >= 1;
+ WHERE state IN ('delivered', 'uncertain') AND COALESCE(settled_at_ms, created_at_ms) >= 1;
 -- A confirmation is a change like any other: readers waiting on the cursor must wake.
 DROP TRIGGER focus_checklists_advances_change_cursor_on_update;
 CREATE TRIGGER focus_checklists_advances_change_cursor_on_update AFTER UPDATE ON focus_checklists

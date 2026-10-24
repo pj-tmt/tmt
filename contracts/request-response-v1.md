@@ -1023,7 +1023,10 @@ can land in a turn the provider never announced (a background-task wake, a sched
 continuation), where it never becomes a prompt. The next turn-boundary claim returns the
 unconfirmed items to the held pool and seals them again, in sequence order, in that Stop-hook
 checklist, keyed by the same request ids so the receipt reply stays idempotent. An idle opportunity
-never offers them again and nothing is typed twice. A turn-boundary delivery is the provider's own
-hook output and is confirmed at settlement. History and settlement outcomes are unchanged.
+never offers them again and nothing is typed twice. A checklist handed to a Stop hook starts a
+continuation the activity record cannot see: the provider carries on with no new prompt while its
+activity reads idle. Until that continuation's own Stop (`stop_hook_active`) or a new prompt arrives,
+an idle opportunity does not count the recipient as idle and types nothing into it. History and
+settlement outcomes are unchanged.
 Provider adapters own launch/turn admission and actual handoff evidence. Idle
 transport uses the ordinary fresh binding, channel-first and guarded host route.

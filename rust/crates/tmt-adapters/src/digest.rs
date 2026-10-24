@@ -443,6 +443,11 @@ pub fn idle_entry(
     if !idle {
         return Ok(None);
     }
+    // A Stop that a checklist blocked ends the turn in the activity record, yet the provider
+    // carries on with no new prompt: the seat is working until that continuation's own Stop.
+    if storage.digest_continuation_open(identity)? {
+        return Ok(None);
+    }
     if delivery::current(storage, identity)?.as_ref() != Some(&entry) {
         return Ok(None);
     }

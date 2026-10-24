@@ -1,8 +1,8 @@
 use super::*;
 use crate::{storage::Storage, test_support::TestDirectory};
 
-/// Every checklist settled before migration 68 is confirmed at its settlement: only a
-/// checklist typed afterwards waits for a prompt (#4858).
+/// Every checklist handed over before migration 68 (delivered or uncertain) is confirmed at its
+/// settlement: only a checklist handed over afterwards waits on later evidence (#4858).
 #[test]
 fn the_typed_checklist_migration_confirms_every_earlier_delivery() {
     let directory = TestDirectory::new();
@@ -39,8 +39,12 @@ fn the_typed_checklist_migration_confirms_every_earlier_delivery() {
         Some(150),
         "a settled delivery is confirmed"
     );
-    assert_eq!(confirmed("uncertain"), None, "nothing else is");
-    assert_eq!(confirmed("claimed"), None);
+    assert_eq!(
+        confirmed("uncertain"),
+        Some(250),
+        "so is a settled uncertain one"
+    );
+    assert_eq!(confirmed("claimed"), None, "a claim in flight is not");
     // A positive whole number of milliseconds or null.
     for value in ["0", "-1", "9007199254740992"] {
         assert!(

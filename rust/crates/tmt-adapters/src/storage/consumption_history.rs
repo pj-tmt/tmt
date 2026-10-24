@@ -86,6 +86,8 @@ pub enum TurnBoundary<'a> {
     },
     Ended {
         turn: Option<&'a str>,
+        /// The end of a continuation after a Stop hook blocked the stop (#4858).
+        continuation: bool,
     },
 }
 
@@ -408,8 +410,15 @@ impl Storage {
                         )?;
                         // A prompt that carries a typed Digest checklist confirms it (#4858).
                         super::requests::confirm_digest_by_prompt(connection, id, prompt, now)?;
+                        // A new prompt means the continuation a Stop hook started is over.
+                        super::requests::end_digest_continuation(connection, id, now)?;
                     }
-                    TurnBoundary::Ended { turn } => {
+                    TurnBoundary::Ended { turn, continuation } => {
+                        // Only the continuation's own Stop ends it; the Stop that was blocked
+                        // is the event that started it.
+                        if continuation {
+                            super::requests::end_digest_continuation(connection, id, now)?;
+                        }
                         super::requests::passthrough::settle_turn(
                             connection,
                             id,

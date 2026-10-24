@@ -82,10 +82,12 @@ configuration. The owner map is in
   arrival (the latest send time), and the driver activity of the exact bound session and process (a
   stored event, no host call). The Digest tick writes `maxHoldMs` with every `digest.policy.set` and
   rewrites a policy whose recorded value differs; older policies read null until then.
-- A checklist typed at an idle opportunity settles `delivered` with `confirmed_at_ms` null
-  (turn-boundary deliveries and pre-068 rows are confirmed at settlement). The hook's
-  runtime-observation transaction confirms it when an admitted turn start's prompt names one of
-  its request ids (`requests::confirm_digest_by_prompt`). `digest_claimable_items` and
+- A delivered checklist keeps `confirmed_at_ms` null until later evidence arrives (pre-068 rows are
+  confirmed by the migration). One typed at an idle opportunity is confirmed by the hook's
+  runtime-observation transaction when an admitted turn start's prompt names one of its request
+  ids (`requests::confirm_digest_by_prompt`). One handed to a Stop hook marks a continuation open
+  (`digest_continuation_open`), cleared by the continuation's own Stop or any later prompt
+  (`end_digest_continuation`); `digest::idle_entry` refuses an idle opportunity meanwhile. `digest_claimable_items` and
   `claim_digest_checklist` add the unconfirmed items only at a turn-boundary opportunity, and the
   claim returns them to the held pool before sealing, so an idle claim never types them twice.
 - Originator withdrawal and final submission share the IMMEDIATE transaction. Withdrawal

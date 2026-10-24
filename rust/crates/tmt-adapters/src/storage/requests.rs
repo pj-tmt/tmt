@@ -1332,6 +1332,23 @@ pub(super) fn confirm_digest_by_prompt(
     digest::confirm_by_prompt(db, identity, prompt, now)
 }
 
+/// Whether a Stop continuation that a Digest checklist started is still running (#4858).
+pub(crate) fn digest_continuation_open(
+    db: &Connection,
+    identity: &str,
+) -> Result<bool, StorageError> {
+    digest::continuation_open(db, identity)
+}
+
+/// The continuation ended or a prompt arrived. Run in the transaction that admits the event.
+pub(super) fn end_digest_continuation(
+    db: &Connection,
+    identity: &str,
+    now: u64,
+) -> Result<u64, StorageError> {
+    digest::end_continuation(db, identity, now)
+}
+
 #[cfg(test)]
 mod service_tests;
 #[cfg(test)]
