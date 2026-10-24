@@ -236,7 +236,7 @@ export async function discover(
       projectNames(value.projects),
   );
   const known = new Set<unknown>(value.projects);
-  let previous = '';
+  const visibleIds = new Set<string>();
   for (const page of value.pages) {
     exactKeys(page, [
       'pageId',
@@ -290,12 +290,12 @@ export async function discover(
     generatedId(page.pageId);
     decimal(page.epoch);
     requireValue(
-      page.pageId > previous &&
+      !visibleIds.has(page.pageId) &&
         ['private', 'link', 'public'].includes(String(page.sharing)) &&
         ['shared', 'current'].includes(String(page.history)) &&
         typeof page.archived === 'boolean',
     );
-    previous = page.pageId;
+    visibleIds.add(page.pageId);
   }
   requireValue(Array.isArray(value.pageIds) && value.pageIds.length <= 1000);
   let previousId = '';
@@ -308,7 +308,9 @@ export async function discover(
     previousId = page.pageId;
     if (!page.deleted) liveIds.push(page.pageId);
   }
-  requireValue(JSON.stringify(liveIds) === JSON.stringify(value.pages.map((page) => page.pageId)));
+  // Display order is pins first in pin order, not global ID order. The historical catalog stays
+  // sorted; compare membership separately without changing the owner's display order.
+  requireValue(liveIds.length === visibleIds.size && liveIds.every((id) => visibleIds.has(id)));
   await verify?.(value.spaceId, owner);
   await navigator.locks.request(`colab-pin:${mount.href}`, async () => {
     const pin = await record<{ space: string; owner: Uint8Array }>(`pin:${mount.href}`),
