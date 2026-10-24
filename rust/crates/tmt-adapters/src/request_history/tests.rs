@@ -432,6 +432,8 @@ fn an_answers_page_carries_metadata_only_and_one_cursor() {
                 recipient_identity_id: Some(OTHER.into()),
                 answered_at_ms: 9,
                 answer: AnswerKind::Turn,
+                revision: 12,
+                acknowledged: false,
             },
             AnsweredRequest {
                 request_id: "req_44444444-4444-4444-8444-444444444444".into(),
@@ -440,6 +442,8 @@ fn an_answers_page_carries_metadata_only_and_one_cursor() {
                 recipient_identity_id: None,
                 answered_at_ms: 8,
                 answer: AnswerKind::Final,
+                revision: 7,
+                acknowledged: true,
             },
         ],
         next_before: Some(AnswerCursor {
@@ -453,10 +457,10 @@ fn an_answers_page_carries_metadata_only_and_one_cursor() {
         json!({
             "items":[
                 {"requestId":REQUEST,"kind":"request","sender":{"kind":"explicit","identityId":ID},
-                 "recipientId":OTHER,"answeredAtMs":9,"answer":"turn"},
+                 "recipientId":OTHER,"answeredAtMs":9,"answer":"turn","revision":12,"acknowledged":false},
                 {"requestId":"req_44444444-4444-4444-8444-444444444444","kind":"request",
                  "sender":{"kind":"explicit","identityId":ID},"recipientId":null,
-                 "answeredAtMs":8,"answer":"final"}
+                 "answeredAtMs":8,"answer":"final","revision":7,"acknowledged":true}
             ],
             "nextBefore":{"answeredAtMs":8,"requestId":"req_44444444-4444-4444-8444-444444444444"}
         })

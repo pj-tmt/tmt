@@ -8,7 +8,10 @@ use crate::{
     storage::{Storage, StorageError},
 };
 use tmt_core::{
-    request::{RequestError, RequestService, delivery::SendNowRejection, history::HistoryScope},
+    request::{
+        RequestError, RequestService, attention::AttentionRejection, delivery::SendNowRejection,
+        history::HistoryScope,
+    },
     settings::Settings,
 };
 
@@ -52,17 +55,8 @@ pub(super) fn send_now(
     request_id: &str,
     settings: Option<Settings>,
 ) -> Result<Vec<u8>, Fault> {
-    let caller = match selector {
-        Some(DispatchIdentity::Explicit(selector)) => identity_entry(storage, &selector)?.id,
-        Some(DispatchIdentity::SavedId(id)) => {
-            storage
-                .find_active_identity_by_id(&id)
-                .map_err(|_| Fault::unavailable())?
-                .ok_or_else(|| Fault::new("NAME_NOT_FOUND", "Caller identity was not found."))?
-                .id
-        }
-        None => return Err(rejection(SendNowRejection::NotAllowed)),
-    };
+    let caller =
+        caller_id(storage, selector)?.ok_or_else(|| rejection(SendNowRejection::NotAllowed))?;
     let settings = settings.expect("send-now settings");
     let delay =
         std::time::Duration::from_secs_f64(settings.paste_enter_delay_ms.min(500.0) / 1000.0);
@@ -81,6 +75,103 @@ pub(super) fn send_now(
         &serde_json::json!({"status": status, "requestId": request_id, "state": state}),
     )
     .map_err(|_| Fault::unavailable())
+}
+
+/// The identity the envelope names; `None` is the anonymous originator.
+fn caller_id(
+    storage: &mut Storage,
+    selector: Option<DispatchIdentity>,
+) -> Result<Option<String>, Fault> {
+    match selector {
+        Some(DispatchIdentity::Explicit(selector)) => {
+            Ok(Some(identity_entry(storage, &selector)?.id))
+        }
+        Some(DispatchIdentity::SavedId(id)) => storage
+            .find_active_identity_by_id(&id)
+            .map_err(|_| Fault::unavailable())?
+            .map(|entry| Some(entry.id))
+            .ok_or_else(|| Fault::new("NAME_NOT_FOUND", "Caller identity was not found.")),
+        None => Ok(None),
+    }
+}
+
+/// Most requests one `requests.ack` call acknowledges, and the input bytes that many take.
+const ACK_LIMIT: usize = 50;
+const ACK_INPUT_LIMIT: usize = 8 * 1024;
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AckWire {
+    items: Vec<AckItem>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AckItem {
+    request_id: String,
+    revision: u64,
+}
+
+/// `requests.ack` input: 1 to 50 distinct requests, each with the revision being acknowledged.
+pub(super) fn decode_ack(input: &[u8]) -> Result<Vec<(String, u64)>, Fault> {
+    if input.len() > ACK_INPUT_LIMIT {
+        return Err(invalid());
+    }
+    let wire: AckWire = serde_json::from_slice(input).map_err(|_| invalid())?;
+    let mut seen = std::collections::BTreeSet::new();
+    if wire.items.is_empty()
+        || wire.items.len() > ACK_LIMIT
+        || !wire.items.iter().all(|item| {
+            crate::request_runtime::valid_request_id(&item.request_id)
+                && (1..=tmt_core::limits::MAX_JS_SAFE_INTEGER).contains(&item.revision)
+                && seen.insert(item.request_id.as_str())
+        })
+    {
+        return Err(invalid());
+    }
+    Ok(wire
+        .items
+        .into_iter()
+        .map(|item| (item.request_id, item.revision))
+        .collect())
+}
+
+/// `requests.ack`: the caller named by the envelope acknowledges what answered their messages,
+/// the same acknowledgment `tmt x ack` makes, one request at its exact revision. Each item
+/// settles on its own: `acknowledged`, `already` (nothing to change), `conflict` with the
+/// request's `current` revision (a newer answer arrived, so it stays unread) or `notFound`.
+pub(super) fn acknowledge(
+    storage: &mut Storage,
+    selector: Option<DispatchIdentity>,
+    items: Vec<(String, u64)>,
+) -> Result<Vec<u8>, Fault> {
+    let caller = caller_id(storage, selector)?.ok_or_else(invalid)?;
+    let mut results = Vec::with_capacity(items.len());
+    for (request_id, revision) in items {
+        let result = RequestService::new(&mut *storage, wall_time_ms).acknowledge_exchange(
+            &caller,
+            &request_id,
+            revision,
+        );
+        results.push(match result {
+            Ok(done) => serde_json::json!({
+                "requestId": request_id, "revision": revision,
+                "status": if done.changed { "acknowledged" } else { "already" },
+            }),
+            Err(RequestError::Attention(AttentionRejection::RevisionConflict {
+                current, ..
+            })) => serde_json::json!({
+                "requestId": request_id, "revision": revision,
+                "status": "conflict", "current": current,
+            }),
+            Err(RequestError::Attention(AttentionRejection::NotFound)) => serde_json::json!({
+                "requestId": request_id, "revision": revision, "status": "notFound",
+            }),
+            Err(RequestError::Attention(AttentionRejection::Invalid(_))) => return Err(invalid()),
+            Err(error) => return Err(request_error(error)),
+        });
+    }
+    serde_json::to_vec(&serde_json::json!({ "items": results })).map_err(|_| Fault::unavailable())
 }
 
 fn rejection(reason: SendNowRejection) -> Fault {

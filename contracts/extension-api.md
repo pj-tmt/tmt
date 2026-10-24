@@ -50,6 +50,7 @@ independent of storage access.
 | `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`/`"answers"`; `limit`, `before`  | `items`, `nextBefore`                                                                                                                                             |
 | `requests.show`          | `requestId`                                                                                         | Request detail including retained prompt/final state; a passthrough adds its turn-output capture ([Passthrough](request-response-v1.md#passthrough))              |
 | `requests.sendNow`       | `requestId`; the envelope names the caller (originator or the user)                                 | `status` (`sent`/`already`), `requestId`, `state`; a refusal is a `SEND_NOW_*` or `DELIVERY_*` fault ([Send now](request-response-v1.md#send-now))                |
+| `requests.ack`           | `items`: 1–50 of `{requestId, revision}`; the envelope names the originator                         | `items`: per request `{requestId, revision, status}`; `status` is `acknowledged`, `already`, `conflict` (with `current`) or `notFound`                            |
 | `workspace.capture`      | Empty object                                                                                        | Bounded `attempted`, `published`, `skipped` counts for recorded sockets only (see [Workspace recovery](workspace-v1.md#capture-triggers-and-public-backstop))     |
 | `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–50, default 10), optional `before` (cursor)      | `identityId`, `items`, `coverage`, `capture?`, `nextBefore?`: locally retained provider-final pane output (see below)                                             |
 | `pane.screen`            | `identityId` (canonical UUID)                                                                       | `identityId`, `host`, `format`, `text`: the identity's current visible pane screen, read-only (see below)                                                         |
@@ -686,7 +687,7 @@ from stored facts only (no probe), so a client can offer the action. `reason` is
 agent ended) or `awaiting_approval` (it is waiting on its user, so the delivery would be
 refused). The set is open: treat an unknown reason as unavailable. It is a hint, not a
 lease: the send verifies the pane again. Whether the answer can be captured is not part
-of it; without the usage or hook evidence the answer reads `no_answer` and the send still works.
+of it; without the turn-end hook the answer reads `no_answer` and the send still works.
 
 ### Admission, wake and completion
 
@@ -897,8 +898,8 @@ submitted final (`answer:"final"`, at its submission time) or a passthrough's ca
 turn in state `answered` (`answer:"turn"`, at its settle time;
 [Passthrough](request-response-v1.md#passthrough)). A request is one or the other. An
 unanswered, refused, pending or `no_answer` request is absent. Items carry metadata
-only, `{requestId, kind, sender, recipientId, answeredAtMs, answer}`, never a prompt,
-reply or captured text; `requests.show` returns those. Limits, snapshot and housekeeping
+only, `{requestId, kind, sender, recipientId, answeredAtMs, answer, revision, acknowledged}`,
+never a prompt, reply or captured text; `requests.show` returns those. Limits, snapshot and housekeeping
 follow the results view (default 8, `limit` 1 through 50). One cursor orders both kinds by
 `(answeredAtMs, requestId)` descending: `nextBefore` is null at the end or
 `{answeredAtMs, requestId}`, passed unchanged as `before`; any other cursor field is
@@ -950,6 +951,25 @@ Example conditional room write (replace the UUIDs with actual identities):
   }
 }
 ```
+
+### Answers and acknowledgment
+
+Each `answers` item also carries `revision`, the sender's attention revision for the request,
+and `acknowledged`, whether the sender has acknowledged that revision (one request at a time
+with `tmt x ack`, or through the `x ackall` watermark). `acknowledged: false` is unread, for a
+final and a captured turn alike: both raise the revision when the answer arrives, so an answer
+on a request the sender had already acknowledged reads unread again.
+
+`requests.ack` is a write whose envelope `identity` names the originator (anonymous is
+`API_INPUT_INVALID`). For each `{requestId, revision}` it makes the acknowledgment `tmt x ack`
+makes, one request at its exact revision, and settles the items independently, in order:
+`acknowledged`, `already` (nothing to change), `conflict` with the request's `current`
+revision (a newer answer arrived, so it stays unread) or `notFound` (unknown, expired or not
+the caller's request). A call names 1 to 50 distinct requests, each with a positive
+safe-integer revision, and any other input is `API_INPUT_INVALID` before anything changes.
+A failure part-way (`API_UNAVAILABLE`) keeps the earlier items; repeating the whole call
+reports them `already`. There is no acknowledge-all or acknowledge-through operation:
+`x ackall` stays the CLI's explicit user command.
 
 ## Optional cross-extension uses
 

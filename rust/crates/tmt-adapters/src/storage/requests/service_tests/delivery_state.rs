@@ -10,10 +10,12 @@ use tmt_core::{
     operation::new_operation_id,
     request::{
         RequestError, WakeState,
+        attention::AttentionRejection,
         delivery::{DeliveryState, DeliveryView},
         digest::{
             DeliveryPolicy, DigestOpportunity, DigestPolicyWrite, DigestRejection, DigestState,
         },
+        history::AnswersQuery,
         passthrough::CaptureState,
     },
     responses::FinalText,
@@ -471,6 +473,11 @@ fn typed_while(state: Option<(&str, u64)>) -> Fixture {
 }
 
 fn typed_while_driver(driver: &str, state: Option<(&str, u64)>) -> Fixture {
+    typed_by_person(driver, state).0
+}
+
+/// [`typed_while_driver`] with the person who typed it.
+fn typed_by_person(driver: &str, state: Option<(&str, u64)>) -> (Fixture, String) {
     let mut f = Fixture::new();
     let ben = person(&mut f, "Ben");
     mark_person(&f, &ben);
@@ -482,7 +489,142 @@ fn typed_while_driver(driver: &str, state: Option<(&str, u64)>) -> Fixture {
     service(&mut f)
         .settle_request_delivery("typed", WakeState::Sent)
         .unwrap();
-    f
+    (f, ben)
+}
+
+/// The sender's attention revision for `id` and the revision they have acknowledged.
+fn attention(f: &Fixture, id: &str) -> (u64, u64) {
+    rusqlite::Connection::open(&f.database)
+        .unwrap()
+        .query_row(
+            "SELECT attention_revision,attention_acknowledged_revision FROM request_attempts
+             WHERE request_id=?",
+            [id],
+            |row| Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64)),
+        )
+        .unwrap()
+}
+
+/// What the sender's answers view says of `id`: its revision and whether it is acknowledged.
+fn answered_item(f: &mut Fixture, person: &str, id: &str) -> Option<(u64, bool)> {
+    service(f)
+        .request_answers(AnswersQuery {
+            originator_id: person.into(),
+            before: None,
+            limit: 50,
+        })
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|item| item.request_id == id)
+        .map(|item| (item.revision, item.acknowledged))
+}
+
+#[test]
+fn an_answered_capture_is_unread_for_its_sender_until_they_acknowledge_it() {
+    let (mut f, ben) = typed_by_person("claude", Some(("working", NOW_MS - 5_000)));
+    let sent = attention(&f, "typed");
+    assert!(
+        sent.0 > 0,
+        "the sender holds an attention revision from the send"
+    );
+    // They looked at the sent message: acknowledged at that revision.
+    service(&mut f)
+        .acknowledge_exchange(&ben, "typed", sent.0)
+        .unwrap();
+    assert_eq!(attention(&f, "typed"), (sent.0, sent.0));
+    assert_eq!(answered_item(&mut f, &ben, "typed"), None, "no answer yet");
+
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    let target = f.identity_id.clone();
+    let text = FinalText::new("Both done.").unwrap();
+    assert!(
+        settle_turn(
+            &db,
+            &target,
+            "session",
+            None,
+            Some((&text, "claude")),
+            NOW_MS + 10_000
+        )
+        .unwrap()
+    );
+    // The answer raised the revision exactly as a submitted final does: unread again.
+    let answered = attention(&f, "typed");
+    assert!(answered.0 > sent.0);
+    assert_eq!(answered.1, sent.0);
+    assert_eq!(
+        answered_item(&mut f, &ben, "typed"),
+        Some((answered.0, false))
+    );
+
+    // An acknowledgment of the earlier revision is stale and leaves it unread.
+    assert!(matches!(
+        service(&mut f).acknowledge_exchange(&ben, "typed", sent.0),
+        Err(RequestError::Attention(AttentionRejection::RevisionConflict { current, expected }))
+            if current == answered.0 && expected == sent.0
+    ));
+    assert_eq!(
+        answered_item(&mut f, &ben, "typed"),
+        Some((answered.0, false))
+    );
+    // Acknowledging the answer's own revision reads it, and once.
+    assert!(
+        service(&mut f)
+            .acknowledge_exchange(&ben, "typed", answered.0)
+            .unwrap()
+            .changed
+    );
+    assert_eq!(
+        answered_item(&mut f, &ben, "typed"),
+        Some((answered.0, true))
+    );
+    assert!(
+        !service(&mut f)
+            .acknowledge_exchange(&ben, "typed", answered.0)
+            .unwrap()
+            .changed
+    );
+    f.storage.close().unwrap();
+}
+
+#[test]
+fn the_senders_watermark_reads_an_answered_capture_too() {
+    let (mut f, ben) = typed_by_person("claude", Some(("working", NOW_MS - 5_000)));
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    let target = f.identity_id.clone();
+    let text = FinalText::new("Both done.").unwrap();
+    settle_turn(
+        &db,
+        &target,
+        "session",
+        None,
+        Some((&text, "claude")),
+        NOW_MS + 10_000,
+    )
+    .unwrap();
+    assert_eq!(
+        answered_item(&mut f, &ben, "typed").map(|item| item.1),
+        Some(false)
+    );
+    service(&mut f).acknowledge_all_exchanges(&ben).unwrap();
+    assert_eq!(
+        answered_item(&mut f, &ben, "typed").map(|item| item.1),
+        Some(true)
+    );
+    f.storage.close().unwrap();
+}
+
+#[test]
+fn a_capture_that_ends_without_an_answer_leaves_its_senders_revision_alone() {
+    let (mut f, ben) = typed_by_person("claude", Some(("working", NOW_MS - 5_000)));
+    let sent = attention(&f, "typed");
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    let target = f.identity_id.clone();
+    assert!(settle_turn(&db, &target, "session", None, None, NOW_MS + 10_000).unwrap());
+    assert_eq!(attention(&f, "typed"), sent, "nothing was answered");
+    assert_eq!(answered_item(&mut f, &ben, "typed"), None);
+    f.storage.close().unwrap();
 }
 
 #[test]
