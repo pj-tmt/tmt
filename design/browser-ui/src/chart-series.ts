@@ -62,6 +62,7 @@ export function createSeriesChart(options: SeriesChartOptions): HTMLElement {
     });
     tip.replaceChildren(title, ...rows);
     tip.hidden = false;
+    plot.querySelector('.tmt-ui-chart-cursor')?.removeAttribute('visibility');
     const x = model.xs[at] ?? 0;
     const flip = x > model.width / 2;
     tip.classList.toggle('tmt-ui-chart-tip-left', flip);
@@ -128,7 +129,17 @@ export function createSeriesChart(options: SeriesChartOptions): HTMLElement {
       );
     }
     plot.append(
-      svgEl('line', { x1: 0, x2: 0, y1: model.top, y2: model.bottom }, 'tmt-ui-chart-cursor'),
+      svgEl(
+        'line',
+        {
+          x1: 0,
+          x2: 0,
+          y1: model.top,
+          y2: model.bottom,
+          visibility: tip.hidden ? 'hidden' : 'visible',
+        },
+        'tmt-ui-chart-cursor',
+      ),
     );
     select(active);
   }
@@ -159,9 +170,15 @@ export function createSeriesChart(options: SeriesChartOptions): HTMLElement {
   };
   plot.addEventListener('pointermove', point);
   plot.addEventListener('pointerdown', point);
-  plot.addEventListener('pointerleave', () => (tip.hidden = true));
+  function hideTip() {
+    tip.hidden = true;
+    plot.querySelector('.tmt-ui-chart-cursor')?.setAttribute('visibility', 'hidden');
+  }
+  plot.addEventListener('pointerleave', () => {
+    if (document.activeElement !== plot) hideTip();
+  });
   plot.addEventListener('focus', () => showTip(active));
-  plot.addEventListener('blur', () => (tip.hidden = true));
+  plot.addEventListener('blur', hideTip);
   frame.append(plot, tip);
   figure.append(
     frame,

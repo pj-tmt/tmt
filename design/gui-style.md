@@ -672,16 +672,20 @@ intensity step; the painter only maps it to elements, so the model is what is un
   `series-7` (blue, orange, aqua, yellow, magenta, green, violet: the validated data-viz order,
   each stepped for light and dark), separated by a sheet-coloured rule. A chart keeps a few
   series and folds the rest into one `Other`, drawn in a neutral step of the text colour
-  (`tmt-ui-chart-s7`). Intensity (matrix, strips) uses five steps of the text colour; its text
+  (`tmt-ui-chart-s7`). Default matrix intensity uses five steps of the text colour; its text
   meets 4.5:1 on every step in light and dark (a test computes it). Colour is never the only
   carrier: every series is named in a legend (a line chart also shows its value at the selected
   column; a stacked chart leaves values to the hover tip, since a last bucket reads like a total)
   and the data table is always there.
+- The opt-in `tmt-ui-chart-seats` palette uses the website's six pastel `browser.color.seat-*` roles,
+  with 75% area opacity. It scopes chart and legend together, leaving default provider hues intact.
+  `curve: 'monotone'` smooths area edges through the sampled positions without overshoot.
 - Hovering the plot (or focusing it and using the arrows) shows a tip beside the column with the
   time and every series' value; a visually hidden live line says the same to assistive technology.
 - A missing observation is never a zero. A line breaks, a cell reads `—`, a slot stays blank;
-  a known none is `·` and the faintest step. Self is a blank cell in the matrix. The same
-  conventions as the terminal Digest.
+  a known none is `·` and the faintest step. Self is a blank cell in the default matrix.
+  `numeric: true` draws known zero as `0` and self as `—`; unavailable stays `—` with an explicit
+  spoken label. Numeric matrices use borderless, sans-serif counts on quiet mint cells.
 - Keyboard: the plot is one tab stop; Left, Right, Home and End move the readout. Every chart
   also carries a visually hidden data table for assistive technology. A matrix wider than its
   container scrolls inside its own named, keyboard-focusable region; the page never scrolls sideways.
@@ -691,7 +695,10 @@ intensity step; the painter only maps it to elements, so the model is what is un
   seats in that region; it does not silently discard low-traffic participants.
 - Text is repainted at the container's width (ResizeObserver), so type keeps its size at phone
   and desktop widths. Empty data shows one plain sentence, not an empty axis.
-- More series than a chart keeps (five on Digest) fold into one `Other` with `topLayers`.
+- Square strips use the first series hue. `layout: 'heatmap'` uses mint, short rectangular bars
+  in the token radius; optional column `labels` identify their buckets. Missing slots remain
+  hollow, and value tips and keyboard traversal keep the square strips' model.
+- More series than a chart keeps (six on Digest) fold into one `Other` with `topLayers`.
 
 ### Status mark
 

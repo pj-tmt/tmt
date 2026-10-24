@@ -14,6 +14,25 @@ export function sampleShape(search = location.search): MockShape {
 
 export const digestSource: DigestSource = {
   async report(range) {
-    return { range, sample: true, document: mockDocument(range, sampleShape()) };
+    const document = mockDocument(range, sampleShape());
+    if (new URLSearchParams(location.search).has('stale-allowance'))
+      for (const limit of document.limits) {
+        limit.stale = true;
+        limit.elapsedPercent = null;
+        limit.paceDeltaPoints = null;
+      }
+    if (new URLSearchParams(location.search).has('missing-evidence')) {
+      document.usage.seats = document.usage.seats.map((seat) => ({
+        ...seat,
+        coverage: { ...seat.coverage, complete: true, gap: false },
+        series: seat.series.map((point) => ({ ...point, complete: true })),
+      }));
+      document.usage.unavailable = [
+        { id: 'missing-seat', name: 'missing-seat', retired: false, reason: 'not_sampled' },
+      ];
+      document.limits = [];
+      document.limitsUnavailable = [{ line: 'claude', reason: 'not_sampled' }];
+    }
+    return { range, sample: true, document };
   },
 };

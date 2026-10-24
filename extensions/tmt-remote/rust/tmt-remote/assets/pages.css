@@ -179,7 +179,6 @@ body:not(:has(.tmt-ui-shell)) {
   display: none;
 }
 
-
 /* Home: what needs you across modules, then recent pages, as shared list rows. Its own class name,
    since a Colab route in the same document has its own `.home`. */
 .tmt-home {
@@ -219,31 +218,45 @@ body:not(:has(.tmt-ui-shell)) {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-header-action-size);
 }
-/* Digest: the team's usage at a glance. Flat sheets with rule borders, square, no shadows; it uses
-   the shell's content width and its rows stack to one column under 900 px. */
+/* Digest follows the concept website: allowance, chart with legend, activity and messages,
+   then coverage and method. Product facts and missing evidence come from the existing read. */
 .tmt-page.digest {
-  width: min(100% - 32px, 1440px);
+  width: min(100% - 64px, 87.5rem);
 }
 .digest-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--tmt-ui-space-m) var(--tmt-ui-space-xl);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--tmt-ui-space-m);
   margin-bottom: var(--tmt-ui-space-xl);
+}
+.digest-controls,
+.digest-provider-label,
+.digest-legend-seat {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-m);
+}
+.digest-controls {
+  flex-wrap: wrap;
+  padding-top: var(--tmt-ui-space-s);
 }
 .digest-subtitle {
   margin: 0;
   color: var(--tmt-ui-color-secondary);
 }
-.digest-controls {
+.digest-observation {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
   gap: var(--tmt-ui-space-m);
+  align-items: center;
+  margin-bottom: var(--tmt-ui-space-l);
 }
-.digest-controls .usage-note {
+.digest-observation .usage-note {
   margin: 0;
+}
+.digest-observation:not(:has(> :not([hidden]))) {
+  display: none;
 }
 .digest-sections {
   display: grid;
@@ -253,10 +266,13 @@ body:not(:has(.tmt-ui-shell)) {
 .digest-row {
   display: grid;
   align-items: start;
-  gap: var(--tmt-ui-space-xl);
+  gap: var(--tmt-ui-space-l);
   min-width: 0;
 }
-/* A chart's caption is the card's muted subtitle: sentence case, not an eyebrow. */
+.digest-section-title {
+  display: grid;
+  gap: var(--tmt-ui-space-xs);
+}
 .digest-card .tmt-ui-chart-title {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-header-action-size);
@@ -264,22 +280,13 @@ body:not(:has(.tmt-ui-shell)) {
   letter-spacing: 0;
   text-transform: none;
 }
-.digest-card .tmt-ui-chart-strip-legend {
-  margin-top: 0;
-}
 .digest-card .usage-note,
 .digest-card .tmt-ui-table {
   margin: 0;
 }
-.digest-card .tmt-ui-table {
-  display: block;
-  max-width: 100%;
-  overflow-x: auto;
-}
 .digest-card .tmt-ui-action {
   justify-self: start;
 }
-/* A column heading or a figure keeps its word whole; the leaf table would break it anywhere. */
 .digest-card .tmt-ui-table th,
 .digest-card .tmt-ui-table td {
   overflow-wrap: normal;
@@ -287,28 +294,69 @@ body:not(:has(.tmt-ui-shell)) {
 .digest-card .tmt-ui-disclosure[data-divided] {
   margin-top: 0;
 }
-.digest-provider-body {
+.digest-allowance {
   display: grid;
-  gap: var(--tmt-ui-space-xl);
+  grid-template-columns: minmax(0, 0.8fr) repeat(2, minmax(0, 1fr));
   align-items: start;
-  min-width: 0;
 }
-.digest-provider-figure {
+.digest-allowance[data-providers='1'] {
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 2fr);
+}
+.digest-allowance > .usage-note {
+  grid-column: 1 / -1;
+}
+.digest-allowance-intro,
+.digest-provider {
   display: grid;
   gap: var(--tmt-ui-space-s);
-  align-content: start;
+  min-width: 0;
 }
-.digest-bar {
-  display: block;
-  width: calc(var(--digest-bar) * 1%);
-  min-width: 4px;
-  height: 10px;
+.digest-provider-label {
+  justify-content: space-between;
 }
-.tmt-ui-table td:has(.digest-bar) {
-  width: 40%;
-  text-align: left;
+.digest-provider-label strong:last-child {
+  font-size: var(--tmt-ui-caption-size);
 }
-/* A seat name stays on one line; a long one ends in an ellipsis with the full name on hover. */
+.digest-provider .tmt-ui-meter-fill {
+  background: var(--tmt-ui-color-accent);
+}
+.digest-provider-details {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.digest-provider-details > .tmt-ui-status-tiles {
+  margin-top: var(--tmt-ui-space-m);
+}
+.digest-token-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(14rem, 1fr);
+  gap: var(--tmt-ui-space-xl);
+  align-items: start;
+}
+.digest-token-chart,
+.digest-legend {
+  min-width: 0;
+}
+.digest-token-chart .tmt-ui-chart-legend,
+.digest-token-chart .tmt-ui-chart-title,
+#digest-exchange .tmt-ui-chart-title {
+  display: none;
+}
+.digest-total-label {
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.digest-total {
+  margin: 0 0 var(--tmt-ui-space-m);
+  font: 700 2rem/1.1 var(--tmt-ui-font-display);
+}
+.digest-legend {
+  padding-top: var(--tmt-ui-space-l);
+}
+.digest-legend-seat {
+  gap: var(--tmt-ui-space-s);
+}
 .digest-seat {
   display: block;
   max-width: 18ch;
@@ -319,63 +367,78 @@ body:not(:has(.tmt-ui-shell)) {
 .digest-partial {
   color: var(--tmt-ui-color-secondary);
 }
-/* A text button: its inset focus frame gets room from the padding, which the margin offsets so
-   the text lines up with the card. */
+.digest-row-activity {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+}
 .digest-gaps {
   display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--tmt-ui-space-l);
   margin: 0;
 }
 .digest-gap {
-  display: grid;
-  grid-template-columns: minmax(8ch, 14ch) max-content minmax(0, 1fr);
+  display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--tmt-ui-space-m);
-  padding: var(--tmt-ui-space-s) 0;
-  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  gap: var(--tmt-ui-space-xs);
 }
 .digest-gap dt {
+  font-size: var(--tmt-ui-caption-size);
   font-weight: 600;
 }
 .digest-gap dd {
   margin: 0;
+  font-size: var(--tmt-ui-caption-size);
 }
-.digest-gap-source {
-  color: var(--tmt-ui-color-secondary);
-  font-size: var(--tmt-ui-header-action-size);
+.digest-method-command {
+  display: flex;
+  gap: var(--tmt-ui-space-s);
+  flex-wrap: wrap;
 }
-@media (min-width: 900px) {
-  .digest-row-providers,
-  .digest-row-coverage {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .digest-row-burn {
-    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  }
-  /* One provider fills the row. */
-  .digest-row-providers:has(> .digest-card:only-child) {
+#digest-missing {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+#digest-missing > .tmt-ui-card-head {
+  align-self: start;
+}
+#digest-missing .tmt-ui-card-title {
+  font-size: var(--tmt-ui-caption-size);
+}
+#digest-method {
+  grid-column: 1 / -1;
+}
+@media (max-width: 1050px) {
+  .digest-row-activity {
     grid-template-columns: minmax(0, 1fr);
   }
-}
-/* A provider card is wide enough for its figure beside its chart on a tablet and on a wide
-   screen; between them two cards share the row, so the chart goes below the figure. */
-@media (min-width: 640px) and (max-width: 899px), (min-width: 1280px) {
-  .digest-provider-body {
-    grid-template-columns: minmax(9rem, 2fr) minmax(0, 3fr);
+  .digest-allowance,
+  .digest-allowance[data-providers='1'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-}
-/* A lone provider card is the row's width: its figure stays beside its chart at any width from
-   tablet up. */
-@media (min-width: 640px) {
-  .digest-provider:only-child .digest-provider-body {
-    grid-template-columns: minmax(9rem, 1fr) minmax(0, 3fr);
-  }
-}
-@media (max-width: 520px) {
-  .digest-gap {
-    grid-template-columns: minmax(0, 1fr) max-content;
-  }
-  .digest-gap-source {
+  .digest-allowance-intro,
+  .digest-allowance[data-providers='1'] > .digest-provider {
     grid-column: 1 / -1;
+  }
+}
+@media (max-width: 760px) {
+  .tmt-page.digest {
+    width: min(100% - 32px, 87.5rem);
+  }
+  .digest-token-grid,
+  #digest-missing {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .digest-gaps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .digest-provider-label {
+    align-items: start;
+    flex-direction: column;
+    gap: var(--tmt-ui-space-xs);
+  }
+  .digest-head .tmt-ui-page-title {
+    font-size: 1.8rem;
   }
 }
 .ops-section .tmt-ui-list-updated {
