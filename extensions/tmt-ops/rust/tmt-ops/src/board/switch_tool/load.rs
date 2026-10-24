@@ -108,7 +108,7 @@ pub(super) fn launch(
                 review.source.session()
             )));
         }
-        std::thread::sleep(remaining.min(Duration::from_millis(100)));
+        std::thread::sleep(remaining.min(Duration::from_secs(1)));
     }
     Ok(unknown(launch_error.as_deref().unwrap_or(
         "No same-UUID running-driver observation arrived within the observation window.",

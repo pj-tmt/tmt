@@ -4,16 +4,49 @@ use ratatui::{Frame, text::Line};
 use tmt_cli_style::{Role, grid::Align};
 use tmt_tui::components::{Modal, Placement, strip};
 impl Controller {
+    fn form_lines(&self) -> Vec<String> {
+        let name = self
+            .source
+            .as_ref()
+            .map_or("selected agent", |source| source.name.as_str());
+        let driver = self.source.as_ref().map_or("unknown", Source::driver);
+        vec![
+            format!("Switch {name} from {driver}"),
+            String::new(),
+            "AI tool".into(),
+            String::new(),
+            String::new(),
+            "Model".into(),
+            String::new(),
+            String::new(),
+            "↑↓ choose an observed tool/model, or type a value. Empty model uses the selected tool's policy.".into(),
+        ]
+    }
+
+    fn pending_lines(&self) -> Vec<String> {
+        let name = self
+            .source
+            .as_ref()
+            .map_or("selected agent", |source| source.name.as_str());
+        let host = self.source.as_ref().map_or("—", Source::host);
+        let session = self.source.as_ref().map_or("—", Source::session);
+        vec![
+            format!(
+                "◌ Switching · {name} to {} in {host} / {session}…",
+                self.fields[0]
+            ),
+            "Waiting for the same UUID to report the requested running tool.".into(),
+            "Esc hides · the switch continues.".into(),
+        ]
+    }
+
     fn lines(&self) -> Vec<String> {
         match &self.stage {
-            Stage::Form if self.loaded.is_none()=>vec!["◌ Loading · host templates…".into()],
-            Stage::Form=>vec![format!("Switch {} from {}",self.source.as_ref().map_or("selected agent",|s|s.name.as_str()),self.source.as_ref().map_or("unknown",Source::driver)),
-                String::new(),"AI tool".into(),String::new(),String::new(),"Model".into(),String::new(),String::new(),
-                "↑↓ choose an observed tool/model, or type a value. Empty model uses the selected tool's policy.".into()],
-            Stage::Review=>self.review.as_ref().map_or_else(Vec::new,Review::lines),
-            Stage::Pending=>vec![format!("◌ Switching · {} to {} in {} / {}…",self.source.as_ref().map_or("selected agent",|s|s.name.as_str()),self.fields[0],self.source.as_ref().map_or("—",Source::host),self.source.as_ref().map_or("—",Source::session)),
-                "Waiting for the same UUID to report the requested running tool.".into(), "Esc hides · the switch continues.".into()],
-            Stage::Result(text)=>text.lines().map(str::to_owned).collect(),
+            Stage::Form if self.loaded.is_none() => vec!["◌ Loading · host templates…".into()],
+            Stage::Form => self.form_lines(),
+            Stage::Review => self.review.as_ref().map_or_else(Vec::new, Review::lines),
+            Stage::Pending => self.pending_lines(),
+            Stage::Result(text) => text.lines().map(str::to_owned).collect(),
         }
     }
     pub fn render(&self, frame: &mut Frame, app: &App, look: crate::look::Look, body: Rect) {
