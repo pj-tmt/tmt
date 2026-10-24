@@ -486,6 +486,11 @@ Use the same explicit commands inside or outside tmux: `tmt identity create|show
 These named and collection commands use only local storage, without tmux or
 unrelated configuration. `tmt identity show` without a name instead inspects
 only a verified bound caller; otherwise use `tmt identity show <name-or-uuid>`.
+`tmt identity show <uuid> --expect-name <name>` pins that UUID: it succeeds with the identity
+and its `presence` (read from the caller's host as `tmt ls` reads it; an unreachable host
+reads `unknown`) only while the identity is active and still has that name, and refuses
+with `IDENTITY_CHANGED` (exit 5) when it was retired or renamed; an unknown UUID is
+`NAME_NOT_FOUND`. Nothing is cached, so check again at the moment you act.
 An active canonical UUID takes precedence over an identical UUID-shaped display
 name; otherwise selection uses the normalized name. It does
 not select from the working directory, active pane or sole stored identity.
