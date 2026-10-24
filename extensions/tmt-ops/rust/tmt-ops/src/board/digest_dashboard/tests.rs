@@ -1558,20 +1558,22 @@ fn legacy_panel_bytes_survive_details_toggle_and_picker_save() {
     };
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let path = std::env::temp_dir().join(format!(
-        "digest-panel-save-{}-{}.toml",
+    let root = std::env::temp_dir().join(format!(
+        "digest-panel-save-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
+    std::fs::create_dir(&root).unwrap();
     struct Remove(std::path::PathBuf);
     impl Drop for Remove {
         fn drop(&mut self) {
-            std::fs::remove_file(&self.0).unwrap();
+            std::fs::remove_dir_all(&self.0).unwrap();
         }
     }
+    let _remove = Remove(root.clone());
+    let path = root.join("ops.toml");
     let authored = "[workspace]\ndigest_panels = { order=['report','list','status','usage','subscriptions','chart'], hidden=['usage','chart'], details=false } # legacy\n";
     std::fs::write(&path, authored).unwrap();
-    let _remove = Remove(path.clone());
     let mut config = Config::read(path.clone()).unwrap();
     let mut app = board();
     app.view
