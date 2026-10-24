@@ -69,6 +69,12 @@ with Core's usual 15 seconds and 1 MiB per call:
   coverage is not complete. The family is a presentation label, not a provider claim.
 - `limits[]`: account windows, deduplicated by `(provider, windowMinutes, resetsAtMs)`
   across seats and buckets; the newest observation wins and windows are never summed.
+  The report also reads `latest.consumption.rateLimits` from Core's closed-history
+  seed: a Claude cache's original fetch may predate the displayed buckets while its
+  windows remain current. It preserves that `observedAtMs`, which can be much older
+  than the report; it never refreshes the cache or re-dates the evidence.
+  The closed seed wins a fetch-time tie, so a rollup cannot restore a cache
+  window that the reader already removed at reset.
   Each has `provider` (the driver of the source line, as Core reports it in
   `rateLimits.provider`; never inferred, so an observation without a driver id, as from a
   Core that predates the field, is dropped), `usedPercent`, `observedAtMs`, `seats` (UUIDs), `stale` (`resetsAtMs` is not
@@ -77,13 +83,13 @@ with Core's usual 15 seconds and 1 MiB per call:
   `paceDeltaPoints` (`usedPercent - elapsedPercent`; negative is under an even pace).
   A stale window has null `elapsedPercent` and `paceDeltaPoints`.
 - `limitsUnavailable[]`: `{line,reason}` for each line whose seats reported no
-  limits: `claude` is `no_source` (Core has no Claude limit source) and others are
-  `not_observed`.
+  limits, with `reason: "not_observed"`. A missing/unusable Claude cache is
+  unavailable, never zero; older Core/Digest versions may report `no_source`.
 - `credits`: the Codex credit balance over the window, `{points:[...]}`, or null when no
   seat's series carries a balance (Claude has none). It reads the credits and tier that
   Core's rollup keeps per bucket, at the series resolution (hourly for `24h`, daily for
   `7d` and `30d`). A point is `{fromMs,toMs,balance,observedAtMs,hasCredits,unlimited,
-  serviceTiers}` for a series bucket in which some seat observed a balance: the
+serviceTiers}` for a series bucket in which some seat observed a balance: the
   observation with the newest `observedAtMs` among the seats, so seats on one account give
   one series and a balance is never summed. `balance` is the provider's decimal text in its
   credit unit. `serviceTiers` is the sorted set of tier ids seats reported for that bucket

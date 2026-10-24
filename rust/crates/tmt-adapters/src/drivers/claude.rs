@@ -5,6 +5,7 @@ pub use crate::runtime::hook_protocol::{
     CONTEXT_LIMIT, HOOK_INPUT_LIMIT, HOOK_TIMEOUT_SECONDS, encode_context,
 };
 use serde::Deserialize;
+mod allowance;
 mod caller_session;
 pub mod channel;
 mod digest;
@@ -626,7 +627,27 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
             previous_consumption.as_ref(),
             now_ms,
             scan_deadline,
-        );
+        )
+        .and_then(|mut state| {
+            let limits = if std::time::Instant::now() < deadline {
+                allowance::read(environment, now_ms)
+            } else {
+                None
+            };
+            if state.value.rate_limits != limits {
+                state.value.rate_limits = limits;
+                // A cache update is new source evidence even without new token
+                // records. Keep history continuity without counting tokens twice.
+                if previous_consumption
+                    .as_ref()
+                    .is_some_and(|previous| previous.value.sequence == state.value.sequence)
+                {
+                    state.value.delta_by_model = Some(Vec::new());
+                    state.value.advance(now_ms)?;
+                }
+            }
+            Some(state)
+        });
         crate::runtime::lifecycle::TurnObservation {
             state: crate::runtime::driver_state::after_observation(usage, consumption, previous),
             // The hook's own text wins; the transcript may not hold the record yet.

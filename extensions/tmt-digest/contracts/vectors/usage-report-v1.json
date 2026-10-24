@@ -774,7 +774,7 @@
         "limitsUnavailable": [
           {
             "line": "claude",
-            "reason": "no_source"
+            "reason": "not_observed"
           }
         ],
         "credits": {
