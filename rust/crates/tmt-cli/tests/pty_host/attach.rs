@@ -24,7 +24,19 @@ fn output_until(connection: &mut Connection, needle: &[u8]) -> Vec<u8> {
             .receive(deadline.saturating_duration_since(Instant::now()))
             .unwrap()
         {
-            Some(ServerMessage::Output(bytes)) => output.extend(bytes),
+            Some(ServerMessage::Output(bytes)) => {
+                output.extend(bytes);
+                if output
+                    .windows(b"OUTER-DONE".len())
+                    .any(|part| part == b"OUTER-DONE")
+                    && !output.windows(needle.len()).any(|part| part == needle)
+                {
+                    panic!(
+                        "outer command completed before {needle:?}: {}",
+                        String::from_utf8_lossy(&output)
+                    );
+                }
+            }
             Some(ServerMessage::Exited(exit)) => panic!("outer exited {exit:?}: {output:?}"),
             Some(_) => {}
             None => panic!("no {needle:?}; saw {}", String::from_utf8_lossy(&output)),
@@ -78,7 +90,7 @@ impl World {
         let status = self.root.join(format!("{label}.status"));
         let pid = self.root.join(format!("{label}.attach-pid"));
         let script = format!(
-            "{stty} cols {cols}; {stty} -g > {before}; read ready; {cli} {command} -- alpha <&0 & attached=$!; printf '%s' \"$attached\" > {pid}; wait \"$attached\"; result=$?; {stty} -g > {after}; printf '%s' \"$result\" > {status}; printf 'OUTER-DONE\\n'; read end",
+            "{stty} cols {cols}; {stty} -g > {before}; read ready; exec 3<&0; {cli} {command} -- alpha <&3 3<&- & attached=$!; printf '%s' \"$attached\" > {pid}; wait \"$attached\"; result=$?; {stty} -g > {after}; printf '%s' \"$result\" > {status}; printf 'OUTER-DONE\\n'; read end",
             stty = stty(),
             cli = quote(env!("CARGO_BIN_EXE_tmt")),
             command = command,
@@ -261,7 +273,12 @@ fn attachment_refuses_pipes_and_json_without_touching_a_member() {
         let error = String::from_utf8_lossy(&output.stderr);
         if args.contains(&"--json") {
             let value: Value = serde_json::from_slice(&output.stdout).unwrap();
-            assert_eq!(value["error"]["code"], "JSON_UNSUPPORTED");
+            let expected = if args[0] == "focus" {
+                "HOST_UNSUPPORTED"
+            } else {
+                "JSON_UNSUPPORTED"
+            };
+            assert_eq!(value["error"]["code"], expected);
         } else {
             assert!(error.contains("terminal"), "{output:?}");
         }

@@ -107,6 +107,16 @@ fn run(
             return Err(host_unsupported());
         }
     }
+    // Without a caller host, only an interactive terminal can attach to a
+    // built-in member. Preserve the existing no-client refusal before opening
+    // storage for machine/non-terminal focus; external hosts own their focus.
+    if into.is_none()
+        && !matches!(host.kind(), tmt_core::host::HostKind::External(_))
+        && (mode.json
+            || tmt_cli_style::Interaction::detect(false).view() != tmt_cli_style::Mode::Interactive)
+    {
+        invoker()?;
+    }
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(

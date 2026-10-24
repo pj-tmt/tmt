@@ -142,7 +142,7 @@ pub(in crate::grammar) fn focus() -> Command {
     general(spec!(
         "focus",
         "Show an identity by name or UUID, or a pane, in your client",
-        details = "Pane focus changes what your client shows. For recurring message batching, see tmt digest --help and tmt digest skill (the optional Digest extension).",
+        details = "Pane focus changes what your client shows. A built-in member attaches to live output; Ctrl-\\ leaves it running, and the screen may stay blank until the program draws. For recurring message batching, see tmt digest --help and tmt digest skill (the optional Digest extension).",
         [
             "Show an agent's pane in your tmux client" => "tmt focus worker",
             "Name your client and the pane it shows" => "tmt focus --client",
