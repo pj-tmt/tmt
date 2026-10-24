@@ -14,6 +14,9 @@ import { runPackedCommand } from './packed-command.mjs';
 import { readBoundedFile } from './native-artifact-policy.mjs';
 
 export const DECLARATION_SUPPORT = 'cb5ca3d09c584dc78d333b548208a2ca90498cb0';
+// The merge commit (#4804) that taught the installer to admit and read messageProtocols; an older
+// installer rejects the unknown key, so a component that authors it needs a CLI containing this.
+export const MESSAGE_PROTOCOLS_SUPPORT = 'd099e0a140ae194bbfe5f7eb52480919027fac2f';
 export const DECLARATION_FILE = 'TMT-USES.json';
 export const DECLARATION_OUTPUT = `rust/target/native-declaration/${DECLARATION_FILE}`;
 const MARKER = 'tmt-release-cli';
@@ -118,9 +121,16 @@ export function declarationSource(cut, root = process.cwd()) {
 }
 
 function floors(map, product) {
-  const registration = componentOfProduct(map, product).requiresCliSha;
+  const component = componentOfProduct(map, product);
+  const registration = component.requiresCliSha;
   assert(SHA.test(registration ?? ''), 'Extension declaration needs its product registration SHA.');
-  return [...new Set([DECLARATION_SUPPORT, registration])];
+  return [
+    ...new Set([
+      DECLARATION_SUPPORT,
+      registration,
+      ...(component.messageProtocols ? [MESSAGE_PROTOCOLS_SUPPORT] : []),
+    ]),
+  ];
 }
 
 function supportingCli(cli, map, product, observeCli) {
@@ -252,7 +262,7 @@ export function verifyDeclaration({ record, map, product, cut, releases, observe
   return record;
 }
 
-/** The source's authored uses are preserved; the CLI minimum is always generated. */
+/** The source's authored uses and message protocols are preserved; the CLI minimum is always generated. */
 export function declarationBytes({ record, map, product, cut }) {
   assert.deepEqual(Object.keys(record ?? {}).sort(), ['cli', 'cut', 'product', 'schema']);
   assert.equal(record.schema, 1);
@@ -266,9 +276,19 @@ export function declarationBytes({ record, map, product, cut }) {
     'Frozen CLI minimum must be a published release version.'
   );
   assert(Buffer.byteLength(`>=${record.cli.version}`) <= 64, 'CLI minimum exceeds 64 bytes.');
-  const uses = componentOfProduct(map, product).uses ?? [];
+  const component = componentOfProduct(map, product);
+  const uses = component.uses ?? [];
   const bytes = Buffer.from(
-    `${JSON.stringify({ version: 1, requiresCli: `>=${record.cli.version}`, uses }, null, 2)}\n`
+    `${JSON.stringify(
+      {
+        version: 1,
+        requiresCli: `>=${record.cli.version}`,
+        ...(component.messageProtocols ? { messageProtocols: component.messageProtocols } : {}),
+        uses,
+      },
+      null,
+      2
+    )}\n`
   );
   assert(bytes.length <= 4096, 'Generated extension declaration exceeds 4 KiB.');
   return bytes;

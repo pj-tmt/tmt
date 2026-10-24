@@ -13,6 +13,7 @@ export interface ComponentMap {
     readonly bootstrapSha?: string;
     readonly initialVersion?: string;
     readonly requiresCliSha?: string;
+    readonly messageProtocols?: readonly number[];
     readonly uses?: readonly { feature: string; label: string; extension: string; requires: string }[];
     readonly predecessor?: string;
     readonly releaseConsumers: readonly string[];
