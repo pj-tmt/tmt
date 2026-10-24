@@ -334,9 +334,54 @@ fn next(revision: u64) -> Result<u64, Error> {
         .ok_or_else(|| Error::storage("Checklist revision space exhausted."))
 }
 
+/// What one change did, for the mutation log: the same stamp the item carries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppliedChange {
+    pub action: EventAction,
+    /// Absent for a reorder, which moves the whole list.
+    pub item_id: Option<Id>,
+    /// The item's revision after the change (a delete's is its tombstone's); a reorder's is the
+    /// list's new inventory revision.
+    pub revision: u64,
+    pub by: Id,
+    pub at_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventAction {
+    Add,
+    Edit,
+    Assign,
+    Unassign,
+    Complete,
+    Reopen,
+    Archive,
+    Restore,
+    Delete,
+    Reorder,
+}
+impl EventAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Add => "add",
+            Self::Edit => "edit",
+            Self::Assign => "assign",
+            Self::Unassign => "unassign",
+            Self::Complete => "complete",
+            Self::Reopen => "reopen",
+            Self::Archive => "archive",
+            Self::Restore => "restore",
+            Self::Delete => "delete",
+            Self::Reorder => "reorder",
+        }
+    }
+}
+
 pub(super) struct Outcome {
     pub changed: bool,
     pub item_revision: Option<u64>,
+    /// Present exactly when the change moved something.
+    pub event: Option<AppliedChange>,
 }
 
 /// The caller mutates a disposable candidate under the stable room lock.
@@ -406,6 +451,13 @@ pub(super) fn apply(
         return Ok(Outcome {
             changed: true,
             item_revision: Some(1),
+            event: Some(AppliedChange {
+                action: EventAction::Add,
+                item_id: Some(item_id.clone()),
+                revision: 1,
+                by: stamp.by.clone(),
+                at_ms: stamp.at_ms,
+            }),
         });
     }
     let d = document
@@ -434,6 +486,7 @@ pub(super) fn apply(
                 return Ok(Outcome {
                     changed: false,
                     item_revision: None,
+                    event: None,
                 });
             }
             d.inventory_revision = next(d.inventory_revision)?;
@@ -448,6 +501,13 @@ pub(super) fn apply(
             Ok(Outcome {
                 changed: true,
                 item_revision: None,
+                event: Some(AppliedChange {
+                    action: EventAction::Reorder,
+                    item_id: None,
+                    revision: d.inventory_revision,
+                    by: stamp.by.clone(),
+                    at_ms: stamp.at_ms,
+                }),
             })
         }
         Action::Item {
@@ -484,6 +544,13 @@ pub(super) fn apply(
                 return Ok(Outcome {
                     changed: true,
                     item_revision: Some(deletion_revision),
+                    event: Some(AppliedChange {
+                        action: EventAction::Delete,
+                        item_id: Some(item_id.clone()),
+                        revision: deletion_revision,
+                        by: stamp.by.clone(),
+                        at_ms: stamp.at_ms,
+                    }),
                 });
             }
             if item.archived && !matches!(mutation, Mutation::Archive | Mutation::Restore) {
@@ -526,9 +593,26 @@ pub(super) fn apply(
                 item.revision = next(item.revision)?;
                 item.last_changed = Some(stamp.clone());
             }
+            let event = changed.then(|| AppliedChange {
+                action: match mutation {
+                    Mutation::Edit(_) => EventAction::Edit,
+                    Mutation::Assign(_) => EventAction::Assign,
+                    Mutation::Unassign => EventAction::Unassign,
+                    Mutation::Complete => EventAction::Complete,
+                    Mutation::Reopen => EventAction::Reopen,
+                    Mutation::Archive => EventAction::Archive,
+                    Mutation::Restore => EventAction::Restore,
+                    Mutation::Delete { .. } => unreachable!(),
+                },
+                item_id: Some(item_id.clone()),
+                revision: item.revision,
+                by: stamp.by.clone(),
+                at_ms: stamp.at_ms,
+            });
             Ok(Outcome {
                 changed,
                 item_revision: Some(item.revision),
+                event,
             })
         }
     }

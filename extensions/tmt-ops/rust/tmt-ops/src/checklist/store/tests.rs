@@ -18,7 +18,7 @@ fn insert(store: &Store) -> Result<(), Error> {
                 None,
                 &stamp(),
             )
-            .map(|_| ())
+            .map(|outcome| ((), outcome.event))
         },
         || Ok(()),
     )
@@ -32,7 +32,7 @@ fn complete(store: &Store, item: &str, revision: u64) -> Result<(), Error> {
                 None,
                 &stamp(),
             )
-            .map(|_| ())
+            .map(|outcome| ((), outcome.event))
         },
         || Ok(()),
     )
@@ -186,7 +186,7 @@ fn a_newer_database_refuses_with_an_upgrade_hint_and_changes_nothing() {
     let before = f.bytes();
     f.database()
         .execute(
-            "INSERT INTO _tmt_state_migrations(version, name, sql) VALUES(2, 'later', 'SELECT 1')",
+            "INSERT INTO _tmt_state_migrations(version, name, sql) SELECT MAX(version) + 1, 'later', 'SELECT 1' FROM _tmt_state_migrations",
             [],
         )
         .unwrap();
@@ -233,7 +233,10 @@ fn a_refused_publication_and_an_unacknowledged_commit_keep_their_bytes_and_their
     // The caller's own last check refuses: nothing is saved.
     let error = store
         .update(
-            |d| model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None, &stamp()).map(|_| ()),
+            |d| {
+                model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None, &stamp())
+                    .map(|outcome| ((), outcome.event))
+            },
             || Err(Error::new(Code::Forbidden, "privilege changed")),
         )
         .unwrap_err();
@@ -287,7 +290,10 @@ fn a_refused_publication_and_an_unacknowledged_commit_keep_their_bytes_and_their
     // A new operation succeeds afterwards.
     store
         .update(
-            |d| model::apply(d, &mutate(ITEM, 2, Mutation::Archive), None, &stamp()).map(|_| ()),
+            |d| {
+                model::apply(d, &mutate(ITEM, 2, Mutation::Archive), None, &stamp())
+                    .map(|outcome| ((), outcome.event))
+            },
             || Ok(()),
         )
         .unwrap();
@@ -307,7 +313,7 @@ fn competing_writes_queue_and_use_the_current_document() {
                     None,
                     &stamp(),
                 )
-                .map(|_| ())
+                .map(|outcome| ((), outcome.event))
             },
             || Ok(()),
         )
@@ -319,10 +325,11 @@ fn competing_writes_queue_and_use_the_current_document() {
         let store = Store::new(&root, id(ROOM), None, "ops").unwrap();
         store.update(
             |d| {
-                model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None, &stamp())?;
+                let outcome =
+                    model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None, &stamp())?;
                 locked_tx.send(()).unwrap();
                 release_rx.recv_timeout(Duration::from_secs(10)).unwrap();
-                Ok(())
+                Ok(((), outcome.event))
             },
             || Ok(()),
         )
@@ -336,7 +343,8 @@ fn competing_writes_queue_and_use_the_current_document() {
         done_tx
             .send(store.update(
                 |d| {
-                    model::apply(d, &mutate(ITEM, 1, Mutation::Archive), None, &stamp()).map(|_| ())
+                    model::apply(d, &mutate(ITEM, 1, Mutation::Archive), None, &stamp())
+                        .map(|outcome| ((), outcome.event))
                 },
                 || Ok(()),
             ))
@@ -392,7 +400,8 @@ fn eight_parallel_edits_to_different_items_all_land() {
                     } else {
                         InventoryExpectation::Revision(n - 1)
                     };
-                    model::apply(d, &create(&id_text, inventory, None), None, &stamp()).map(|_| ())
+                    model::apply(d, &create(&id_text, inventory, None), None, &stamp())
+                        .map(|outcome| ((), outcome.event))
                 },
                 || Ok(()),
             )
@@ -451,7 +460,10 @@ fn the_first_use_after_an_upgrade_imports_items_json_and_keeps_the_old_file_rena
     // The import carried the document's revisions: the next edit continues from them.
     store
         .update(
-            |d| model::apply(d, &mutate(ITEM, 2, Mutation::Archive), None, &stamp()).map(|_| ()),
+            |d| {
+                model::apply(d, &mutate(ITEM, 2, Mutation::Archive), None, &stamp())
+                    .map(|outcome| ((), outcome.event))
+            },
             || Ok(()),
         )
         .unwrap();
@@ -478,7 +490,10 @@ fn a_version_1_document_is_read_as_stored_and_the_first_write_stores_version_2()
     // The first write is the migration: version 2, the old item unknown until it changes.
     store
         .update(
-            |d| model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None, &stamp()).map(|_| ()),
+            |d| {
+                model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None, &stamp())
+                    .map(|outcome| ((), outcome.event))
+            },
             || Ok(()),
         )
         .unwrap();
@@ -508,7 +523,7 @@ fn a_corrupt_or_foreign_legacy_document_refuses_and_stays_where_it_is() {
                 |d| {
                     let mut request = create(ITEM, InventoryExpectation::Absent, None);
                     request.room_id = id(OTHER);
-                    model::apply(d, &request, None, &stamp()).map(|_| ())
+                    model::apply(d, &request, None, &stamp()).map(|outcome| ((), outcome.event))
                 },
                 || Ok(()),
             )

@@ -1,5 +1,6 @@
 //! Admitted room-owned checklist service; commands reuse this admission and persistence owner.
 
+pub mod events;
 pub mod model;
 mod store;
 
@@ -435,6 +436,15 @@ impl Service {
         })
     }
 
+    /// The list's mutation log after `after` (0 reads from the beginning), under the same read
+    /// admission as [`Service::list`]. It creates and rewrites nothing.
+    pub fn events(&self, after: u64, limit: u64) -> Result<events::Page, Error> {
+        let _migration =
+            crate::migration::config_write_guard(&self.config_path).map_err(Error::storage)?;
+        self.admit(false, false, None)?;
+        self.store.events(after, limit)
+    }
+
     /// The room this service was admitted for.
     pub fn room_id(&self) -> &Id {
         self.store.room_id()
@@ -503,12 +513,15 @@ impl Service {
                         .expect("admitted assignment has a live target");
                     item.assignee = Some(assignee);
                 }
-                Ok(Applied {
-                    current: project(&admission, document.as_ref(), request.action.item_id()),
-                    item_id: request.action.item_id().cloned(),
-                    item_revision: outcome.item_revision,
-                    changed: outcome.changed,
-                })
+                Ok((
+                    Applied {
+                        current: project(&admission, document.as_ref(), request.action.item_id()),
+                        item_id: request.action.item_id().cloned(),
+                        item_revision: outcome.item_revision,
+                        changed: outcome.changed,
+                    },
+                    outcome.event,
+                ))
             },
             || {
                 self.admit(true, request.action.manager(), request.action.assignment())
