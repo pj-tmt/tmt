@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import {
+  assertHarnessImage,
   downloadHarnessArchive,
   validateHarnessPins,
 } from '../../scripts/acquire-real-harness.mjs';
@@ -109,5 +110,31 @@ describe('container harness acquisition boundary', () => {
       })
     ).rejects.toThrow('Synthetic transport failure');
     expect(existsSync(archive)).toBe(false);
+  });
+});
+
+describe('image-only acquisition admission', () => {
+  it.each(['/.dockerenv', '/opt/tmt-real-harness-image-build'])(
+    'accepts Linux image marker %s without fetching bytes',
+    (marker) => {
+      expect(() =>
+        assertHarnessImage({ platform: 'linux', exists: (file) => file === marker })
+      ).not.toThrow();
+    }
+  );
+
+  it.each(['darwin', 'win32', 'linux'])(
+    'refuses an unmarked %s host before acquisition',
+    (platform) => {
+      expect(() => assertHarnessImage({ platform, exists: () => false })).toThrow(
+        'HARNESS_CONTAINER_REQUIRED'
+      );
+    }
+  );
+
+  it('does not treat a marker on a non-Linux host as an image', () => {
+    expect(() => assertHarnessImage({ platform: 'darwin', exists: () => true })).toThrow(
+      'HARNESS_CONTAINER_REQUIRED'
+    );
   });
 });

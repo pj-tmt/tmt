@@ -15,3 +15,9 @@ export function downloadHarnessArchive(
   options?: { fetchImpl?: typeof fetch; maxBytes?: number }
 ): Promise<{ archiveBytes: number }>;
 export function validateHarnessPins(pins: unknown): HarnessPins;
+
+/** Injectable filesystem probe keeps admission tests independent of the host. */
+export function assertHarnessImage(options?: {
+  platform?: string;
+  exists?: (file: string) => boolean;
+}): void;
