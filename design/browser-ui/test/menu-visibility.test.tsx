@@ -86,7 +86,8 @@ function fixture(document?: object, start = true, replaceSelection = false) {
     selection: () => select,
     onOpenChange: (open) => {
       transitions.push(open);
-      if (!open && replaceSelection) select = (_key, selected) => replacementSelections.push(selected);
+      if (!open && replaceSelection)
+        select = (_key, selected) => replacementSelections.push(selected);
     },
   });
   const mount = controller.attachSurface;

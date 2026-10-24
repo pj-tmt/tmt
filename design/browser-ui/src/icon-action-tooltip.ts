@@ -167,7 +167,9 @@ export function bindIconActionTooltip(
     if (returnFrame !== undefined) view.cancelAnimationFrame(returnFrame);
     returnFrame = undefined;
   };
-  const returnKey = (event: KeyboardEvent) => { if (event.key !== 'Escape') clearReturnGuard(); };
+  const returnKey = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape') clearReturnGuard();
+  };
   const refresh = () => {
     const next = button.getAttribute('aria-expanded') === 'true';
     if (expanded && !next) {

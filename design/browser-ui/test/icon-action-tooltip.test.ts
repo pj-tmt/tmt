@@ -101,7 +101,14 @@ function bindingFixture(expanded?: boolean) {
     getClientRects: () => [1],
     getAttribute: () => (state.expanded === undefined ? null : String(state.expanded)),
     matches: () => state.focusVisible,
-    getBoundingClientRect: () => ({ left: 180, right: 214, top: 16, bottom: 50 }),
+    getBoundingClientRect: () => ({
+      left: 180,
+      right: 214,
+      top: 16,
+      bottom: 50,
+      width: 34,
+      height: 34,
+    }),
   });
   const show = vi.fn(() => {
     state.visible = true;

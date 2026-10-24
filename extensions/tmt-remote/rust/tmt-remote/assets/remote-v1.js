@@ -2667,6 +2667,23 @@ var shellIconNodes = {
 		r: "10"
 	}], ["path", { d: "M12 6v6l4 2" }]],
 	terminal: [["path", { d: "M12 19h8" }], ["path", { d: "m4 17 6-6-6-6" }]],
+	ellipsis: [
+		["circle", {
+			cx: "12",
+			cy: "12",
+			r: "1"
+		}],
+		["circle", {
+			cx: "19",
+			cy: "12",
+			r: "1"
+		}],
+		["circle", {
+			cx: "5",
+			cy: "12",
+			r: "1"
+		}]
+	],
 	copy: [["rect", {
 		width: "14",
 		height: "14",

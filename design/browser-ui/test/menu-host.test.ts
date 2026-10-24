@@ -9,14 +9,25 @@ it('bundles the native menu entry without a React, product, Node or other runtim
   let modules: string[] = [];
   let entryExports: string[] = [];
   await build({
-    configFile: false, root, logLevel: 'silent',
-    plugins: [{ name: 'inspect-menu-host-runtime', generateBundle(_options, bundle) {
-      modules = [...this.getModuleIds()];
-      for (const item of Object.values(bundle))
-        if (item.type === 'chunk' && item.isEntry) entryExports = item.exports;
-    } }],
-    build: { write: false, minify: false, target: 'es2022',
-      lib: { entry: path.join(root, 'src/menu-host.ts'), formats: ['es'] } },
+    configFile: false,
+    root,
+    logLevel: 'silent',
+    plugins: [
+      {
+        name: 'inspect-menu-host-runtime',
+        generateBundle(_options, bundle) {
+          modules = [...this.getModuleIds()];
+          for (const item of Object.values(bundle))
+            if (item.type === 'chunk' && item.isEntry) entryExports = item.exports;
+        },
+      },
+    ],
+    build: {
+      write: false,
+      minify: false,
+      target: 'es2022',
+      lib: { entry: path.join(root, 'src/menu-host.ts'), formats: ['es'] },
+    },
   });
   expect(modules.length).toBeGreaterThan(5);
   expect(modules.filter((id) => !id.startsWith(production) && !id.startsWith('\0'))).toEqual([]);

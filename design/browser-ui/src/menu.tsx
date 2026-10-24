@@ -9,15 +9,12 @@ import {
 } from 'react';
 import { ChevronDown, Ellipsis } from 'lucide-react';
 import { BrowserIconAction } from './icon-action.js';
-import { createMenuController } from './menu-controller.js';
+import { createMenuController, type MenuEntry } from './menu-controller.js';
 import { browserUiClasses as c, countText } from './static.js';
 import type { BrowserCountTone } from './static.js';
 
-export interface BrowserMenuItem<Key extends string = string> {
-  key: Key;
-  label: string;
+export interface BrowserMenuItem<Key extends string = string> extends MenuEntry<Key> {
   content?: ReactNode;
-  disabled?: boolean;
   disabledReason?: string;
   checked?: boolean;
   role?: 'menuitem' | 'menuitemradio' | 'menuitemcheckbox';
