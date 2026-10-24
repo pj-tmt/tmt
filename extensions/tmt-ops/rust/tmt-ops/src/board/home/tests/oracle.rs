@@ -868,6 +868,21 @@ fn captures() -> Value {
                 }
             }
         }
+        for (look_name, look) in looks() {
+            for scene in crate::board::idle_alert_editor::tests::captures::SCENES {
+                for width in [160, 100, 80, 60] {
+                    for height in [36, 8] {
+                        let app =
+                            crate::board::idle_alert_editor::tests::captures::case(scene, look);
+                        let mut captured =
+                            capture_frame(&app, scene, look_name, width, height, &mut styles);
+                        captured["idleAlertEditor"] =
+                            crate::board::idle_alert_editor::tests::captures::metadata(&app);
+                        frames.push(captured);
+                    }
+                }
+            }
+        }
         frames.extend(crud_frames(
             crate::board::app::workspace::tests::review_modal::CRUD_SCENES,
             &mut styles,

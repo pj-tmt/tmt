@@ -278,6 +278,7 @@ pub enum Effect {
     /// A read or a write of the Notes of the conversation on screen.
     Notes(super::conversation_notes::Task),
     NewMember(super::new_member::Task),
+    IdleAlert(super::idle_alert_editor::Task),
     Foreground(super::member_session::Foreground),
 }
 
@@ -317,6 +318,7 @@ pub enum Choice {
     LaunchTemplates,
     /// Opens the squad settings overlay for this squad from the Workspace settings menu.
     SquadSettings(String),
+    IdleAlert(String),
     /// A rule between menu groups: painted, never chosen.
     Rule,
     /// The muted line above a menu's rows: painted, never chosen, not counted.
@@ -594,6 +596,7 @@ pub(super) enum Overlay {
     MemberSession,
     Notes,
     NewMember,
+    IdleAlert,
     UsageControls,
     PastePreview,
 }
@@ -617,6 +620,7 @@ impl Overlay {
                 Self::MemberSession => "member-session",
                 Self::Notes => "notes",
                 Self::NewMember => "new-member",
+                Self::IdleAlert => "idle-alert",
                 Self::UsageControls => "usage-controls",
                 Self::PastePreview => "paste-preview",
             }
@@ -728,6 +732,8 @@ pub struct App {
     pub(super) notes_overlay: Option<super::conversation_notes::overlay::Controller>,
     pub(super) new_member: Option<super::new_member::Controller>,
     pub(super) new_member_generation: u64,
+    pub(super) idle_alert_editor: Option<super::idle_alert_editor::Controller>,
+    pub(super) idle_alert_generation: u64,
     pub(super) foreground: Option<super::member_session::Foreground>,
     pub(super) discovered_uuid: Option<String>,
     pub(super) checklist_generation: u64,
@@ -758,6 +764,7 @@ pub struct App {
     pub(super) meter_hover: Option<Option<usize>>,
     /// The Agents column header under the pointer.
     pub(super) header_hover: Option<super::header_sort::Control>,
+    pub(super) idle_alert_hover: Option<String>,
     squad_keys: Vec<String>,
     pub tabs: Vec<String>,
     pub hidden: Vec<String>,
@@ -1853,6 +1860,7 @@ impl App {
         }
         self.meter_hover = None;
         self.header_hover = None;
+        self.idle_alert_hover = None;
         if Some(&next) == self.current.as_ref() {
             return Effect::None;
         }
@@ -3006,6 +3014,7 @@ impl App {
             Choice::MemberLinkAction { target, action } => {
                 self.member_link_command(&target, &action)
             }
+            Choice::IdleAlert(room) => self.open_idle_alert(Some(room)),
             Choice::Unavailable(reason) => self.say(reason),
             Choice::LinkOpen(url) => self.link_open(url),
             Choice::LinkCopy(url) => self.link_copy(url),
@@ -3155,6 +3164,7 @@ impl App {
             || self.recovery_shown()
             || self.discovery_shown()
             || self.new_member.is_some()
+            || self.idle_alert_editor.is_some()
             || self.member_session.is_some()
             || self.notes_overlay.is_some()
         {
@@ -3715,6 +3725,8 @@ impl App {
             Some(Overlay::UsageControls)
         } else if self.quota_details.is_some() {
             Some(Overlay::QuotaDetails)
+        } else if self.idle_alert_editor.is_some() {
+            Some(Overlay::IdleAlert)
         } else if self.new_member.is_some() {
             Some(Overlay::NewMember)
         } else if self.member_session.is_some() {
@@ -3780,6 +3792,7 @@ impl App {
             }
             Overlay::MemberSession => self.member_session_event(event),
             Overlay::Notes => self.notes_event(event),
+            Overlay::IdleAlert => self.idle_alert_event(event),
             Overlay::NewMember => self.new_member_event(event),
             Overlay::Discovery => self.discovery_event(event),
             Overlay::Help => {
@@ -3864,6 +3877,7 @@ impl App {
         self.buttons.clear_hover();
         self.meter_hover = None;
         self.header_hover = None;
+        self.idle_alert_hover = None;
         if key.kind == ratatui::crossterm::event::KeyEventKind::Release {
             return Effect::None;
         }
@@ -4093,6 +4107,9 @@ impl App {
         if let Some(recovery) = &self.recovery {
             recovery.invalidate();
         }
+        if let Some(editor) = &self.idle_alert_editor {
+            editor.invalidate();
+        }
         if let Some(member) = &self.new_member {
             member.invalidate();
         }
@@ -4198,33 +4215,36 @@ impl App {
             (event.column, event.row).into(),
             !self.modal_open() && !self.loading(),
         );
-        let header = if self.loading()
-            || self.overlay().is_some()
-            || self.menu.is_some()
-            || self.input.is_some()
-            || self.searching
-        {
-            None
-        } else {
-            self.workspace_strip_hits
-                .borrow()
-                .iter()
-                .find(|(area, _)| area.contains((event.column, event.row).into()))
-                .and_then(|(_, choice)| match choice {
-                    Choice::SortBy(header) => Some(super::header_sort::Control::Sort(*header)),
-                    Choice::TokUnit => Some(super::header_sort::Control::Unit),
-                    Choice::TokRange(_) => Some(super::header_sort::Control::Window),
-                    _ => None,
-                })
+        let control =
+            if self.loading() || self.modal_open() || self.input.is_some() || self.searching {
+                None
+            } else {
+                self.workspace_strip_hits
+                    .borrow()
+                    .iter()
+                    .find(|(area, _)| area.contains((event.column, event.row).into()))
+                    .map(|(_, choice)| choice.clone())
+            };
+        let header = match &control {
+            Some(Choice::SortBy(header)) => Some(super::header_sort::Control::Sort(*header)),
+            Some(Choice::TokUnit) => Some(super::header_sort::Control::Unit),
+            Some(Choice::TokRange(_)) => Some(super::header_sort::Control::Window),
+            _ => None,
+        };
+        let idle_alert_hover = match control {
+            Some(Choice::IdleAlert(room)) => Some(room),
+            _ => None,
         };
         let changed = chart_changed
             || resize_changed
             || buttons_changed
             || links_changed
             || next != self.meter_hover
-            || header != self.header_hover;
+            || header != self.header_hover
+            || idle_alert_hover != self.idle_alert_hover;
         self.meter_hover = next;
         self.header_hover = header;
+        self.idle_alert_hover = idle_alert_hover;
         changed
     }
 

@@ -575,6 +575,28 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             if matches!(row.target, OpsTarget::Squad(_))
                 && let Some(area) = painted.model
             {
+                if let OpsTarget::Squad(room) = &row.target
+                    && snapshot
+                        .roster
+                        .squads
+                        .iter()
+                        .any(|s| &s.room_id == room && s.idle_alert.is_some())
+                {
+                    app.workspace_strip_hits
+                        .borrow_mut()
+                        .push((area, Choice::IdleAlert(room.clone())));
+                    if !app.modal_open() && app.idle_alert_hover.as_ref() == Some(room) {
+                        for y in area.y..area.bottom() {
+                            for x in area.x..area.right() {
+                                let cell = &mut frame.buffer_mut()[(x, y)];
+                                cell.set_style(crate::board::header_sort::hovered(
+                                    cell.style(),
+                                    look,
+                                ));
+                            }
+                        }
+                    }
+                }
                 let displayed = crate::board::view::fit(&model, usize::from(area.width));
                 crate::board::member_links::paint_plain_hits(
                     frame, app, area, &model, &displayed, false,
