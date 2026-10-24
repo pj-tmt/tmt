@@ -784,8 +784,9 @@ after Back. Actions that write still check the current state when chosen.
 
 Unsupported hosts, permission/offline failures and incomplete observations
 carry their explanations. A host whose driver is not approved, or whose
-approval is outdated or no longer shipped, shows `tmt driver install <host>`
-as text; Ops never runs it. A Herdr row shows its host and target, not a
+approval is outdated, shows `tmt driver install <host>` as text; a driver that
+this tmt release does not ship also shows `tmt upgrade` first. Ops never runs
+them. A Herdr row shows its host and target, not a
 session or window. Its host agent name is untrusted display text: it never
 fills the name field or selects an identity. After a bind, Results show what
 the host said about its agent name. Runtime hints and recorded

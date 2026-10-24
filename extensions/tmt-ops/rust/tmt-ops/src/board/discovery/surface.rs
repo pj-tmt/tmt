@@ -58,8 +58,13 @@ fn source_fix(source: &model::SourceObservation) -> Option<String> {
         "driver_not_approved" => Some(format!(
             "Approve the {host} driver to scan it: tmt driver install {host}"
         )),
-        "driver_approval_outdated" | "driver_not_shipped" => Some(format!(
+        "driver_approval_outdated" => Some(format!(
             "Approve the {host} driver again: tmt driver install {host}"
+        )),
+        // The approved first-party file is not in this release: install alone
+        // may not help.
+        "driver_not_shipped" => Some(format!(
+            "This tmt release does not ship the {host} driver. Upgrade tmt with: tmt upgrade, then approve it: tmt driver install {host}"
         )),
         _ => None,
     }

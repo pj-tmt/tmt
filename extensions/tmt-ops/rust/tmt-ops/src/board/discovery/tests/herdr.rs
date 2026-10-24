@@ -288,7 +288,7 @@ fn a_gap_source_shows_its_reason_and_the_install_text_only() {
         ),
         (
             "driver_not_shipped",
-            "Approve the herdr driver again: tmt driver install herdr",
+            "This tmt release does not ship the herdr driver. Upgrade tmt with: tmt upgrade, then approve it: tmt driver install herdr",
         ),
     ] {
         let mut v = document();
