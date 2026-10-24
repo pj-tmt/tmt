@@ -79,6 +79,11 @@ configuration. The owner map is in
   transaction writes what a read would show: `release_unseen_ends` settles a bound row whose session was
   replaced, whose window passed, or that a later `Started` of its session overtook (before binding, so a
   start never overtakes the capture it binds).
+- Incoming request Digest admission excludes a person on either side using the reserved active `user=true`
+  mark, not pane absence. A request visible in a person's inbox reads `delivered` /
+  `waiting_for_person` until a final makes it `answered`; stale holds and activity grant
+  nothing. Legacy person references remain in history but checklist reads, claims and
+  reoffers expose no items for delivery.
 - A message's state (`request::delivery::delivery_view`, pure) is derived at read time inside the
   history, exchange, incoming and inbox read transactions from rows only: `storage/requests/delivery.rs::facts` reads the attempt's
   route and status, the wake state (an identified recipient's request stays `queued`; its paste is the

@@ -1698,19 +1698,21 @@ renameSync(output+'.tmp',output);
           id: string;
         };
         const land = store.prepare(
-          "INSERT INTO recent_responses (identity_id, text, ended_ms, provider, truncated, session_id, expires_ms) VALUES (?, ?, ?, 'claude', 0, NULL, ?)"
+          "INSERT INTO recent_responses (identity_id, text, ended_ms, provider, truncated, session_id, expires_ms, original_bytes) VALUES (?, ?, ?, 'claude', 0, NULL, ?, ?)"
         );
         const grow = store.prepare(
-          'UPDATE recent_responses SET text = ? WHERE sequence = (SELECT max(sequence) FROM recent_responses WHERE identity_id = ?)'
+          'UPDATE recent_responses SET text = ?, original_bytes = ? WHERE sequence = (SELECT max(sequence) FROM recent_responses WHERE identity_id = ?)'
         );
         const now = Date.now();
         for (let round = 1; round <= 4; round += 1) {
-          land.run(agent.id, `step ${round} is done`, now + round, now + 3_600_000);
+          const landed = `step ${round} is done`;
+          land.run(agent.id, landed, now + round, now + 3_600_000, Buffer.byteLength(landed));
           await fixture.waitForCapture(
             (current) => current.includes(`step ${round} is done`),
             shell.pane
           );
-          grow.run(`step ${round} is done and the agent keeps writing · growth ${round}`, agent.id);
+          const grown = `step ${round} is done and the agent keeps writing · growth ${round}`;
+          grow.run(grown, Buffer.byteLength(grown), agent.id);
           // The Selection box covers the middle of the grown row. Its longer Checklist
           // label still leaves the round's suffix visible beyond the box on the same line.
           await fixture.waitForCapture(
@@ -1780,9 +1782,15 @@ renameSync(output+'.tmp',output);
         const now = Date.now();
         store
           .prepare(
-            "INSERT INTO recent_responses (identity_id, text, ended_ms, provider, truncated, session_id, expires_ms) VALUES (?, ?, ?, 'claude', 0, NULL, ?)"
+            "INSERT INTO recent_responses (identity_id, text, ended_ms, provider, truncated, session_id, expires_ms, original_bytes) VALUES (?, ?, ?, 'claude', 0, NULL, ?, ?)"
           )
-          .run(agent.id, `Read [the docs](${link}) first.`, now, now + 3_600_000);
+          .run(
+            agent.id,
+            `Read [the docs](${link}) first.`,
+            now,
+            now + 3_600_000,
+            Buffer.byteLength(`Read [the docs](${link}) first.`)
+          );
       } finally {
         store.close();
       }

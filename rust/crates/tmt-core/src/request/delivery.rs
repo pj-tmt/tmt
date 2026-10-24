@@ -39,6 +39,7 @@ pub enum DeliveryReason {
     AwaitingApproval,
     HeldToSaveUsage,
     ReachedTheAgent,
+    WaitingForPerson,
     SessionNotBound,
     AgentWorking,
     HandedOver,
@@ -59,6 +60,7 @@ impl DeliveryReason {
             Self::AwaitingApproval => "awaiting_approval",
             Self::HeldToSaveUsage => "held_to_save_usage",
             Self::ReachedTheAgent => "reached_the_agent",
+            Self::WaitingForPerson => "waiting_for_person",
             Self::SessionNotBound => "session_not_bound",
             Self::AgentWorking => "agent_working",
             Self::HandedOver => "handed_over",
@@ -81,6 +83,7 @@ impl DeliveryReason {
                 "batched to save usage, sends when the agent finishes this turn"
             }
             Self::ReachedTheAgent => "delivered",
+            Self::WaitingForPerson => "waiting for the person",
             Self::SessionNotBound => "session not bound",
             Self::AgentWorking => "the agent has started on it",
             Self::HandedOver => "handed to the agent, delivery unconfirmed, do not resend",
@@ -91,7 +94,7 @@ impl DeliveryReason {
             Self::AnsweredByFoldedTurn => {
                 "answered together with the earlier message: it was typed into the running turn"
             }
-            Self::TurnEndedWithoutReply => "no reply: the agent's turn ended without one",
+            Self::TurnEndedWithoutReply => "no reply yet: the agent's turn ended without one",
             Self::NoTurnStarted => {
                 "no answer captured: no turn started with this text, the agent may have taken it into a running turn"
             }
@@ -164,6 +167,8 @@ pub struct DeliveryFacts {
     /// An identified recipient's request stays `Queued`; its paste into the pane is
     /// the wake. A pane-routed request has no wake and settles its own status.
     pub inbox: bool,
+    /// The recipient carries the active reserved person mark; no pane inference.
+    pub recipient_is_user: bool,
     pub wake: WakeState,
     pub prepared_at_ms: u64,
     pub settled_at_ms: Option<u64>,
@@ -357,6 +362,14 @@ pub fn delivery_view(facts: &DeliveryFacts, now_ms: u64) -> DeliveryView {
             };
             return DeliveryView::of(State::Unconfirmed, why);
         }
+    }
+    if facts.recipient_is_user
+        && (facts.status == AttemptStatus::Sent
+            || (facts.inbox && facts.status == AttemptStatus::Queued))
+    {
+        // Inbox publication delivers to a person. Old holds and agent observations
+        // neither delay that delivery nor turn it into an agent's running turn.
+        return DeliveryView::of(State::Delivered, Why::WaitingForPerson);
     }
     let waiting_approval = facts
         .recipient

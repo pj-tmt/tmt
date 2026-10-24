@@ -27,7 +27,7 @@ pub fn execute(
 }
 
 /// What the usage hook reads, shown wherever setup plans it.
-const USAGE_NOTE: &str = "Usage and recent responses: after each turn, TMT reads token counts and keeps this agent's last 10 final responses on this computer (up to 8 KiB each, available for 90 days by default; set exchange.retentionDays to change it). Use --no-usage to stop collecting.";
+const USAGE_NOTE: &str = "Usage and recent responses: after each turn, TMT reads token counts and keeps this agent's answers on this computer (up to 1,000 per agent, 16 KiB each, for 7 days). Use --no-usage to stop collecting.";
 
 fn failure(error: impl std::error::Error + 'static) -> Failure {
     Failure::new("SETUP_ERROR", error.to_string(), 1).caused_by(error)

@@ -232,6 +232,10 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                     return Err(digest_error(DigestRejection::AttemptMismatch));
                 }
             }
+            // Old references remain auditable, but a person has no agent checklist.
+            if records.identity_is_user(identity)? {
+                return Ok((Vec::new(), 0));
+            }
             let (count, _) = records.digest_inventory(identity, checklist, after, now)?;
             let items = records.digest_items(identity, checklist, after, limit, now)?;
             Ok((items, count))
@@ -475,6 +479,9 @@ fn claim_bound<E>(
     opportunity: DigestOpportunity,
     now: u64,
 ) -> Result<u64, RequestError<E>> {
+    if records.identity_is_user(identity)? {
+        return Ok(0);
+    }
     if opportunity == DigestOpportunity::Idle
         && records
             .digest_policy(identity)?
@@ -499,7 +506,10 @@ pub(super) fn held_until<E>(
     if !records.identity_is_active(id)? {
         return Ok(None);
     }
-    // A person is never held, in any mode, before any policy owner is consulted.
+    // Neither side of a person's request is delayed by an agent Digest policy.
+    if records.identity_is_user(id)? {
+        return Ok(None);
+    }
     if let Some(sender) = sender
         && records.identity_is_user(sender)?
     {

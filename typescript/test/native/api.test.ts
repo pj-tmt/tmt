@@ -105,11 +105,11 @@ describe('public local extension API', () => {
       const database = new Database(sandbox.database);
       try {
         const insert = database.prepare(
-          'INSERT INTO recent_responses(identity_id,text,ended_ms,provider,truncated,session_id,expires_ms) VALUES(?,?,?,?,?,?,?)'
+          'INSERT INTO recent_responses(identity_id,text,ended_ms,provider,truncated,session_id,expires_ms,original_bytes) VALUES(?,?,?,?,?,?,?,?)'
         );
-        insert.run(id, 'same text', now, 'claude', 0, 'session-one', now + 86400000);
-        insert.run(id, 'same text', now - 1, 'codex', 0, null, now + 86400000);
-        insert.run(id, 'expired', now - 1000, 'claude', 0, null, now - 1);
+        insert.run(id, 'same text', now, 'claude', 0, 'session-one', now + 86400000, 9);
+        insert.run(id, 'same text', now - 1, 'codex', 0, null, now + 86400000, 9);
+        insert.run(id, 'expired', now - 1000, 'claude', 0, null, now - 1, 7);
       } finally {
         database.close();
       }
@@ -119,22 +119,46 @@ describe('public local extension API', () => {
       expect(response.body).toEqual({
         identityId: id,
         items: [
-          { text: 'same text', endedMs: now - 1, provider: 'codex', truncated: false },
+          {
+            text: 'same text',
+            endedMs: now - 1,
+            provider: 'codex',
+            truncated: false,
+            originalBytes: 9,
+          },
           {
             text: 'same text',
             endedMs: now,
             provider: 'claude',
             truncated: false,
+            originalBytes: 9,
             sessionId: 'session-one',
           },
         ],
+        // The expired answer was dropped and is named, not hidden.
+        coverage: { olderDropped: true, droppedThroughMs: now - 1000 },
       });
-      expect(
-        (await api(sandbox, 'responses.recent', { identityId: id, limit: 1 })).body.items
-      ).toEqual([response.body.items[0]]);
+      const first = await api(sandbox, 'responses.recent', { identityId: id, limit: 1 });
+      expect(first.body.items).toEqual([response.body.items[0]]);
+      // One more answer is kept, so the page names where the next one starts.
+      expect(typeof first.body.nextBefore).toBe('number');
+      const second = await api(sandbox, 'responses.recent', {
+        identityId: id,
+        limit: 1,
+        before: first.body.nextBefore,
+      });
+      expect(second.body.items).toEqual([response.body.items[1]]);
+      expect(second.body.nextBefore).toBeUndefined();
       expect(everyTable(sandbox)).toEqual(before);
-      for (const limit of [0, 11, null, 1.5]) {
-        const invalid = await api(sandbox, 'responses.recent', { identityId: id, limit });
+      for (const input of [
+        { limit: 0 },
+        { limit: 51 },
+        { limit: null },
+        { limit: 1.5 },
+        { before: null },
+        { before: -1 },
+      ]) {
+        const invalid = await api(sandbox, 'responses.recent', { identityId: id, ...input });
         expect(invalid.status).toBe(1);
         expect(invalid.body.error.code).toBe('API_INPUT_INVALID');
       }
@@ -142,18 +166,21 @@ describe('public local extension API', () => {
       expect((await api(sandbox, 'responses.recent', { identityId: unknown })).body).toEqual({
         identityId: unknown,
         items: [],
+        coverage: { olderDropped: false },
       });
       const removed = await runCli(sandbox, ['rm', 'Recent', '--force', '--json']);
       expect(removed.status).toBe(0);
       expect((await api(sandbox, 'responses.recent', { identityId: id })).body).toEqual({
         identityId: id,
         items: [],
+        coverage: { olderDropped: false },
       });
       const successor = await identity(sandbox, 'Recent');
       expect(successor).not.toBe(id);
       expect((await api(sandbox, 'responses.recent', { identityId: successor })).body).toEqual({
         identityId: successor,
         items: [],
+        coverage: { olderDropped: false },
       });
       const retired = new Database(sandbox.database, { readonly: true });
       try {

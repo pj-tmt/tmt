@@ -10,6 +10,7 @@ fn sent_view() -> tmt_core::request::delivery::DeliveryView {
         &tmt_core::request::delivery::DeliveryFacts {
             status: AttemptStatus::Queued,
             inbox: true,
+            recipient_is_user: false,
             wake: tmt_core::request::WakeState::NotAttempted,
             prepared_at_ms: 1000,
             settled_at_ms: None,
