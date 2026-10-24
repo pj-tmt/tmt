@@ -17,6 +17,7 @@ import { readCompleteJsonLines } from './harness.js';
 import { waitForFileContent } from './wait-for-file.js';
 import { storedDocument } from '../support/ops-state.js';
 import { withE2EFixture, type E2EFixture, type MockEvent } from './harness.js';
+import { savedMemberLifetime } from './ops-saved-member-lifetime.js';
 
 /** Puts the built squad extension and a `tmt` launcher on the fixture PATH. */
 function installSquad(fixture: E2EFixture): void {
@@ -321,107 +322,144 @@ renameSync(output+'.tmp',output);
         `#!/bin/sh\nunset TMUX TMUX_PANE\nexec ${shellWord(fixture.tmuxPath)} -S ${shellWord(socket)} "$@"\n`
       );
       const log = path.join(fixture.root, 'new-member-input');
-      writeExecutable(
-        path.join(shim, 'ops-new-peer'),
-        `#!/bin/sh\nprintf 'NEW_MEMBER_READY\\n'\nwhile IFS= read -r line; do printf '%s\\n' "$line" >> ${shellWord(log)}; printf 'NEW_MEMBER_REPLY:%s\\n' "$line"; done\n`
-      );
-      await fixture.attachSessionClient('e2e');
-      const shell = fixture.createShellPane('new-member-board');
-      fixture.tmux(['resize-window', '-t', shell.pane, '-x', '150', '-y', '43']);
-      fixture.tmux(['select-window', '-t', shell.pane]);
-      fixture.tmux([
-        'send-keys',
-        '-l',
-        '-t',
-        shell.pane,
-        `PATH=${shellWord(shim)}:$PATH tmt ops ui; echo NEW_MEMBER_BOARD_EXIT=$?`,
-      ]);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
-      await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Home', 'Down', 'n']);
-      await fixture.waitForCapture(
-        (screen) => screen.includes('New member') && screen.includes('agent name'),
-        shell.pane
-      );
-      fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'new-worker']);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Tab']);
-      fixture.tmux(['send-keys', '-l', '-t', shell.pane, path.join(shim, 'ops-new-peer')]);
-      // Model remains provider-default, Squad remains product, Host/session
-      // remain tmux/product, and Saved remains selected.
-      fixture.tmux(['send-keys', '-t', shell.pane, ...Array(7).fill('Tab')]);
-      await fixture.waitForCapture(
-        (screen) =>
-          screen.includes('Will run') &&
-          screen.includes('new-worker') &&
-          screen.includes('ops-new-peer'),
-        shell.pane
-      );
-      expect(durableState(fixture)).toEqual(before);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
-      await fixture.waitForCapture(
-        (screen) => screen.includes('New member') && screen.includes('Opens with'),
-        shell.pane
-      );
-      fixture.tmux(['send-keys', '-t', shell.pane, 'End']);
-      await fixture.waitForCapture((screen) => {
-        const position = screen.match(/Read · \d+–(\d+) of (\d+)/);
-        return !position || position[1] === position[2];
-      }, shell.pane);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Enter']);
-      await fixture.waitForCapture(
-        (screen) => screen.includes('Created new-worker in product.'),
-        shell.pane
-      );
-      const created = durableIdentity(fixture, 'new-worker');
-      expect(created.lifetime).toBe('saved');
-      expect(before.identities.some((row) => row.id === created.id)).toBe(false);
-      expect(
-        durableState(fixture).identities.filter((row) => row.name === 'new-worker')
-      ).toHaveLength(1);
-      const listing = expectJsonResult(await fixture.runJsonCli(['ls'])) as {
-        identities: Array<{
-          id: string;
-          pane?: string;
-          target?: string;
-          location?: { host: string; session?: string };
-        }>;
-      };
-      const row = listing.identities.find((entry) => entry.id === created.id)!;
-      expect(row.location).toMatchObject({ host: 'tmux', session: 'product' });
-      const member = fixture
-        .tmux(['list-panes', '-a', '-F', '#{pane_id}|#{session_name}'])
-        .trim()
-        .split('\n')
-        .find((line) => line.endsWith('|product'))!
-        .split('|')[0]!;
-      expect(fixture.tmux(['show-options', '-p', '-v', '-t', member, '@tmt.opened']).trim()).toBe(
-        '1'
-      );
-      await fixture.waitForCapture((screen) => screen.includes('NEW_MEMBER_READY'), member);
-      fixture.tmux(['send-keys', '-l', '-t', member, 'causal-new-member-4582']);
-      fixture.tmux(['send-keys', '-t', member, 'Enter']);
-      await fixture.waitForCapture(
-        (screen) => screen.includes('NEW_MEMBER_REPLY:causal-new-member-4582'),
-        member
-      );
-      expect(fs.readFileSync(log, 'utf8')).toBe('causal-new-member-4582\n');
-      const squad = expectJsonResult<{
-        sections: Array<{ rows: Array<{ id: string }> }>;
-      }>(await squadCli(fixture, ['ls', '--squad', 'product']));
-      expect(
-        squad.sections.flatMap((section) => section.rows).some((entry) => entry.id === created.id)
-      ).toBe(true);
-      // Observe the modal closing before q; an adjacent Escape+q can be Alt-q.
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
-      await fixture.waitForCapture(
-        (screen) => !screen.includes('New member') && screen.includes('new-worker'),
-        shell.pane
-      );
-      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
-      await fixture.waitForCapture(
-        (screen) => screen.includes('NEW_MEMBER_BOARD_EXIT=0'),
-        shell.pane
-      );
+      const lifetime = savedMemberLifetime(fixture, shim);
+      let failure: { error: unknown } | undefined;
+      try {
+        await fixture.attachSessionClient('e2e');
+        const shell = fixture.createShellPane('new-member-board');
+        lifetime.board(shell.pane);
+        fixture.tmux(['resize-window', '-t', shell.pane, '-x', '150', '-y', '43']);
+        fixture.tmux(['select-window', '-t', shell.pane]);
+        fixture.tmux([
+          'send-keys',
+          '-l',
+          '-t',
+          shell.pane,
+          `PATH=${shellWord(shim)}:$PATH tmt ops ui; echo NEW_MEMBER_BOARD_EXIT=$?`,
+        ]);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+        await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Home', 'Down', 'n']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('New member') && screen.includes('agent name'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'new-worker']);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Tab']);
+        fixture.tmux(['send-keys', '-l', '-t', shell.pane, path.join(shim, 'ops-new-peer')]);
+        // Model remains provider-default, Squad remains product, Host/session
+        // remain tmux/product, and Saved remains selected.
+        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(7).fill('Tab')]);
+        await fixture.waitForCapture(
+          (screen) =>
+            screen.includes('Will run') &&
+            screen.includes('new-worker') &&
+            screen.includes('ops-new-peer'),
+          shell.pane
+        );
+        expect(durableState(fixture)).toEqual(before);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('New member') && screen.includes('Opens with'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-t', shell.pane, 'End']);
+        await fixture.waitForCapture((screen) => {
+          const position = screen.match(/Read · \d+–(\d+) of (\d+)/);
+          return !position || position[1] === position[2];
+        }, shell.pane);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Enter']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('Created new-worker in product.'),
+          shell.pane
+        );
+        const created = durableIdentity(fixture, 'new-worker');
+        expect(created.lifetime).toBe('saved');
+        expect(before.identities.some((row) => row.id === created.id)).toBe(false);
+        expect(
+          durableState(fixture).identities.filter((row) => row.name === 'new-worker')
+        ).toHaveLength(1);
+        const listing = expectJsonResult(await fixture.runJsonCli(['ls'])) as {
+          identities: Array<{
+            id: string;
+            pane?: string;
+            target?: string;
+            location?: { host: string; session?: string };
+          }>;
+        };
+        const row = listing.identities.find((entry) => entry.id === created.id)!;
+        expect(row.location).toMatchObject({ host: 'tmux', session: 'product' });
+        const member = fixture
+          .tmux(['list-panes', '-a', '-F', '#{pane_id}|#{session_name}'])
+          .trim()
+          .split('\n')
+          .find((line) => line.endsWith('|product'))!
+          .split('|')[0]!;
+        expect(fixture.tmux(['show-options', '-p', '-v', '-t', member, '@tmt.opened']).trim()).toBe(
+          '1'
+        );
+        await fixture.waitForCapture((screen) => screen.includes('NEW_MEMBER_READY'), member);
+        fixture.tmux(['send-keys', '-l', '-t', member, 'causal-new-member-4582']);
+        fixture.tmux(['send-keys', '-t', member, 'Enter']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('NEW_MEMBER_REPLY:causal-new-member-4582'),
+          member
+        );
+        expect(fs.readFileSync(log, 'utf8')).toBe('causal-new-member-4582\n');
+        const squad = expectJsonResult<{
+          sections: Array<{ rows: Array<{ id: string }> }>;
+        }>(await squadCli(fixture, ['ls', '--squad', 'product']));
+        expect(
+          squad.sections.flatMap((section) => section.rows).some((entry) => entry.id === created.id)
+        ).toBe(true);
+        // Observe the modal closing before q; an adjacent Escape+q can be Alt-q.
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+        await fixture.waitForCapture(
+          (screen) => !screen.includes('New member') && screen.includes('new-worker'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('NEW_MEMBER_BOARD_EXIT=0'),
+          shell.pane
+        );
+        const launcher = lifetime.launcher()!;
+        const provider = lifetime.provider()!;
+        expect(launcher.pane).toBe(member);
+        expect(provider.launcher).toBe(launcher.pid);
+        let finished = false;
+        const cleanup = lifetime.finish();
+        void cleanup.then(
+          () => {
+            finished = true;
+          },
+          () => {
+            finished = true;
+          }
+        );
+        await waitForFileContent(lifetime.entered, { description: 'owned provider exit barrier' });
+        expect(fixture.mockProcessIsRunning(provider.pid)).toBe(true);
+        expect(fixture.mockProcessIsRunning(launcher.pid)).toBe(true);
+        expect(finished, 'cleanup must join the held provider and its Core launcher').toBe(false);
+        lifetime.release();
+        const pids = await cleanup;
+        expect(pids).toContain(launcher.pid);
+        expect(pids).toContain(provider.pid);
+        for (const pid of pids) expect(fixture.mockProcessIsRunning(pid)).toBe(false);
+      } catch (error) {
+        failure = { error };
+      } finally {
+        lifetime.release();
+        try {
+          await lifetime.finish();
+        } catch (cleanup) {
+          if (failure === undefined) failure = { error: cleanup };
+          else if (cleanup !== failure.error) console.error(cleanup);
+        } finally {
+          lifetime.close();
+        }
+      }
+      if (failure) throw failure.error;
     });
   });
 
