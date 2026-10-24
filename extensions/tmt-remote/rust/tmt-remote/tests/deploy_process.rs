@@ -6,6 +6,12 @@ mod deploy_fixture;
 mod executable_fixture;
 use deploy_fixture::Root;
 const BINARY: &str = env!("CARGO_BIN_EXE_tmt-remote");
+fn read_only_call(call: &serde_json::Value) -> bool {
+    call["method"] == "GET"
+        || (call["method"] == "POST"
+            && call["url"]
+                == "https://cloudresourcemanager.googleapis.com/v3/projects/demo-remote-1:testIamPermissions")
+}
 // Optional delivery export; ordinary test assertions always run and no production input uses it.
 fn export_human(name: &str, output: &std::process::Output) {
     if let Some(directory) = std::env::var_os("TMT_REMOTE_GOLDENS") {
@@ -274,9 +280,9 @@ fn available_binary_plan_is_read_only_and_authorization_completes_the_saved_orig
     assert!(draft_document.get("target").is_none());
     let calls = fs::read_to_string(package.join("calls.jsonl")).unwrap();
     assert!(
-        calls.lines().all(
-            |line| serde_json::from_str::<serde_json::Value>(line).unwrap()["method"] == "GET"
-        )
+        calls
+            .lines()
+            .all(|line| read_only_call(&serde_json::from_str::<serde_json::Value>(line).unwrap()))
     );
     let human = invoke(&root, &[]);
     assert!(human.status.success());
@@ -348,18 +354,13 @@ fn available_binary_plan_is_read_only_and_authorization_completes_the_saved_orig
         fs::read_to_string(package.join("calls.jsonl")).unwrap(),
         calls
     );
-    let methods: Vec<_> = fs::read_to_string(package.join("calls.jsonl"))
+    let calls: Vec<serde_json::Value> = fs::read_to_string(package.join("calls.jsonl"))
         .unwrap()
         .lines()
-        .map(|line| {
-            serde_json::from_str::<serde_json::Value>(line).unwrap()["method"]
-                .as_str()
-                .unwrap()
-                .to_owned()
-        })
+        .map(|line| serde_json::from_str(line).unwrap())
         .collect();
     assert_eq!(
-        methods.iter().filter(|m| *m != "GET").count(),
+        calls.iter().filter(|call| !read_only_call(call)).count(),
         2,
         "only Rules create and release switch mutate"
     );
@@ -638,7 +639,7 @@ fn declared_hosting_runs_through_the_binary_and_publishes_only_after_joint_readb
     assert!(
         calls
             .lines()
-            .all(|line| serde_json::from_str::<Value>(line).unwrap()["method"] == "GET")
+            .all(|line| read_only_call(&serde_json::from_str::<Value>(line).unwrap()))
     );
     // Inventory has no app yet; a non-ASCII config discovered at final joint
     // read-back must remain unconfirmed, never Complete without a derivable link.
@@ -1207,9 +1208,9 @@ fn preflight_http_failure_names_the_operation_and_status_without_provider_text_o
     }
     let calls = fs::read_to_string(package.join("calls.jsonl")).unwrap();
     assert!(
-        calls.lines().all(
-            |line| serde_json::from_str::<serde_json::Value>(line).unwrap()["method"] == "GET"
-        )
+        calls
+            .lines()
+            .all(|line| read_only_call(&serde_json::from_str::<serde_json::Value>(line).unwrap()))
     );
     assert_eq!(
         calls
@@ -1218,5 +1219,55 @@ fn preflight_http_failure_names_the_operation_and_status_without_provider_text_o
             .count(),
         2,
         "one attempt per explicit command, no retry"
+    );
+}
+
+#[test]
+fn permission_refusal_is_exit_one_before_inventory_in_human_json_and_explicit_authorization() {
+    let root = Root::new();
+    available(&root);
+    let package = installed(&root, "process");
+    let state_path = package.join("state.json");
+    let mut state: serde_json::Value =
+        serde_json::from_slice(&fs::read(&state_path).unwrap()).unwrap();
+    state["grantedPermissions"] = serde_json::json!([]);
+    let before = serde_json::to_vec(&state).unwrap();
+    fs::write(&state_path, &before).unwrap();
+    for flags in [
+        vec![],
+        vec!["--json"],
+        vec!["--authorize", "aaaaaaaaaaaa", "--json"],
+    ] {
+        let output = invoke(&root, &flags);
+        assert_eq!(output.status.code(), Some(1));
+        if flags.contains(&"--json") {
+            assert!(output.stderr.is_empty());
+            let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(value["error"]["code"], "REMOTE_DEPLOY_PERMISSION_DENIED");
+            assert!(
+                value["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("firebase.projects.get (project)")
+            );
+        } else {
+            assert!(output.stdout.is_empty());
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("firebase.projects.get (project)")
+            );
+        }
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("TOKEN_CANARY"));
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("TOKEN_CANARY"));
+        assert_eq!(fs::read(&state_path).unwrap(), before);
+    }
+    let calls: Vec<serde_json::Value> = fs::read_to_string(package.join("calls.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert!(calls.iter().all(|call| call["url"] == "https://www.googleapis.com/oauth2/v3/userinfo" || call["url"] == "https://cloudresourcemanager.googleapis.com/v3/projects/demo-remote-1:testIamPermissions"));
+    assert_eq!(
+        calls.iter().filter(|call| call["method"] == "POST").count(),
+        3
     );
 }

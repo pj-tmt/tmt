@@ -789,6 +789,13 @@ mod cli_composition {
             self.1 += 1;
             Ok(())
         }
+        fn check_permissions(
+            &mut self,
+            _: &str,
+            permissions: &[&str],
+        ) -> Result<Vec<String>, tmt_remote::deploy_firestore::DeployPreflightError> {
+            Ok(permissions.iter().map(|name| (*name).to_owned()).collect())
+        }
         fn check_index_budget(
             &mut self,
             _: &str,
@@ -833,7 +840,7 @@ mod cli_composition {
             asked = true;
             assert_eq!(
                 out.human,
-                "Deploy to Firebase\n  Account         owner@example.test\n  Project         demo-remote-1 (asia-east1)\n\n  Database        asia-east1\n  Security rules  will be created\n  Sign-in         anonymous\n  Indexes         3 needed\n\nFull plan: run the same command with --details.\n"
+                "Deploy to Firebase\n  Account         owner@example.test\n  Project         demo-remote-1 (asia-east1)\n\n  Database        asia-east1\n  Security rules  will be created\n  Sign-in         anonymous\n  Indexes         3 needed\n\nPermissions: checked\nFull plan: run the same command with --details.\n"
             );
             assert!(!out.json["planDigest"].as_str().unwrap().is_empty());
             Ok(false)
@@ -974,7 +981,9 @@ mod cli_composition {
         let (details, effects) = run(&["--json", "--details"]);
         assert!(effects.is_empty());
         assert_eq!(details.json, plain.json);
-        assert_eq!(details.human, plain.human);
+        assert!(details.human.starts_with(&plain.human));
+        assert!(details.human.contains("Permissions required:\n"));
+        assert!(details.human.contains("firebase.projects.get (project)"));
 
         let digest = plain.json["planDigest"].as_str().unwrap();
         let (plain, effects) = run(&["--authorize", digest]);
@@ -982,7 +991,9 @@ mod cli_composition {
         let (details, detailed_effects) = run(&["--authorize", digest, "--details"]);
         assert_eq!(detailed_effects, effects);
         assert_eq!(details.json, plain.json);
-        assert_eq!(details.human, plain.human);
+        assert!(details.human.starts_with(&plain.human));
+        assert!(details.human.contains("Permissions required:\n"));
+        assert!(details.human.contains("firebase.projects.get (project)"));
     }
     #[test]
     fn website_notice_uses_the_frozen_replacement_view_even_for_identical_foreign_files() {

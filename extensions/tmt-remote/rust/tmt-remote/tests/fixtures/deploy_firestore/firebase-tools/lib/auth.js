@@ -55,6 +55,13 @@ global.fetch = async (url, options) => {
   if (value.readFailure && url.includes(value.readFailure.path)) {
     return new Response(JSON.stringify({ error: { message: value.canary } }), { status: value.readFailure.status });
   }
+  if (url === `https://cloudresourcemanager.googleapis.com/v3/projects/${value.project}:testIamPermissions`) {
+    if (options.method !== 'POST') throw Error('TOKEN_CANARY_PERMISSION_METHOD');
+    const input = JSON.parse(options.body);
+    if (Object.keys(input).join() !== 'permissions' || !Array.isArray(input.permissions))
+      throw Error('TOKEN_CANARY_PERMISSION_BODY');
+    return new Response(JSON.stringify({permissions: value.grantedPermissions ?? input.permissions}), {status: 200});
+  }
   // Strict owner-registration fake; native Auth is separately seeded through
   // its ordinary owner with an injected Http, never a real provider/account.
   const documents = `projects/${value.project}/databases/(default)/documents`;

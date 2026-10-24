@@ -33,6 +33,22 @@ because this version does not authorize that site's OAuth domain. Anonymous sign
 works with the dedicated-site default.
 Signing in to the CLI, pairing a browser or installing an extension never authorizes deployment.
 
+### Permissions you need
+
+Use your own project account. Project Owner, or Editor plus Firebase Admin, are usual role
+combinations to discuss with your administrator; role names are guidance, not proof of access.
+The [Firestore manifest](../../../../extensions/tmt-remote/rust/tmt-remote/src/deploy_cli/inputs.rs)
+owns the exact permission names and their deployment steps, including work without an input flag.
+
+After login, Remote checks the permissions applicable to the captured plan with the read-only
+`projects.testIamPermissions` method, before inventory or the y/N question. The short preview says
+`Permissions: checked`; `--details` lists the names and steps. A missing permission refuses with
+`REMOTE_DEPLOY_PERMISSION_DENIED` and names each missing permission and its step. An unreadable
+check or disabled API also refuses; it is never shown as checked. Ask your administrator to resolve
+the printed refusal, then rerun the same command. Remote does not grant roles, enable APIs or set
+up billing. Plan-only, JSON, explicit authorization and resume paths all recheck access; a successful
+check does not approve deployment or guarantee later provider calls will succeed.
+
 ## 2. Review the changes and answer y/N
 
 Run this yourself in an interactive terminal:

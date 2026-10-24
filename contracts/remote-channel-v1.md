@@ -3568,6 +3568,25 @@ extension resources and Hosting, including Rules/index/owner-registration effect
 input flags. This metadata describes potential work before inventory; it is not evidence
 that the signed-in account has those permissions. Permission probing is a separate operation.
 
+After login, before live inventory or authorization, Firestore deployment sends one read-only
+`POST https://cloudresourcemanager.googleapis.com/v3/projects/{project}:testIamPermissions`
+with the applicable manifest permissions, deduplicated in first-occurrence order. The helper
+verifies its live login, bounds exact names, input/output and the original process deadline,
+and never treats this POST as a mutation or retries it. It enables no API, role or billing.
+The granted subset must be readable and contain only requested names. Missing permissions
+refuse with `REMOTE_DEPLOY_PERMISSION_DENIED`, naming each missing permission and every
+associated step; malformed, unavailable or API-disabled checks refuse through their existing
+typed preflight codes. Empty granted sets grant nothing. No confirmation, authorization or
+provider mutation follows a failed check.
+
+The CLI's short preview shows `Permissions: checked` only after success; `--details` names
+the required permissions and steps. JSON adds `permissions: {checked: true, required:
+[{permission, step}]}` outside the captured plan. This observation changes neither the plan
+digest nor the deployment record and grants no consent. Plan-only, JSON, explicit digest
+authorization and saved-run continuation all recheck; later provider calls enforce access
+independently. The [owner runbook](../.agents/skills/tmt-remote/references/firestore-owner-runbook.md#permissions-you-need)
+owns role guidance and remediation.
+
 **Historical cloud-operation provisioning profile:** its [stacked authentication is superseded](#superseded-cloud-authentication-proposal).
 Firestore provisions the admission/token service and its scoped service role, Auth configuration,
 operation admission/permit/inbox/outbox/checkpoint collections, composed Rules, indexes/TTL and only
