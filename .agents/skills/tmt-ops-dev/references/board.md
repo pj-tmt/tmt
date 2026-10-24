@@ -255,7 +255,7 @@ state only, no squad data or durable preference policy.
   quits the board body, backs out of an overlay and types in an active editor.
   Right-click on a fresh visible Agents row selects that typed row and opens the
   existing Actions menu; loading, overlays and invalidated frame hits cannot use it.
-  The keyboard path remains Settings (default comma), then Actions; no direct default
+  In list focus, the keyboard path remains Settings (default comma), then Actions; no direct default
   menu key is added, and member `m` remains move-membership.
   Footer fitting follows `view::footer::hints` below.
   Opaque modals hide the base hints;

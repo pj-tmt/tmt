@@ -538,7 +538,7 @@ member row, `m` manages a squad or assigns a member, and `x` leaves only the
 selected squad membership. On member rows the footer offers `m move`, `R resume`
 and `N notes`, using effective bindings and dropping whole hints at narrow widths.
 Right-click a visible Agents row to select it and open Actions, or open Settings
-(default comma) and choose Actions. Rename agent and Remove member are named menu
+(default comma) and choose Actions. With list focus, Rename agent and Remove member are named menu
 entries without default keys. Remove member is a copy-only retirement review: stop the agent first and
 recheck the displayed name before running the copied command. Retirement does
 not stop the agent or close its window. Member `S switch tool` is not

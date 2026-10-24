@@ -626,3 +626,31 @@ fn agents_shortcuts_named_menu_choices_enter_the_existing_frozen_uuid_reviews() 
         );
     }
 }
+
+#[test]
+fn agents_shortcuts_unbound_member_actions_follow_form_scope_and_loading_admission() {
+    for state in ["reader", "loading"] {
+        let mut app = board();
+        paint(&app, 160, 40);
+        if state == "reader" {
+            app.focus = app
+                .focus_panes()
+                .iter()
+                .position(|pane| *pane == Pane::Replies)
+                .unwrap();
+            assert!(app.workspace_scope().is_reader());
+        } else {
+            app.current = Some("new-loading-view".into());
+            assert!(app.loading());
+        }
+        app.context_menu();
+        for ui in [OpsUiAction::RenameMember, OpsUiAction::RemoveMember] {
+            assert!(
+                !app.menu.as_ref().unwrap().entries.iter().any(|entry| {
+                    matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::Ui(ui))
+                }),
+                "{state}: {ui:?} cannot start its form here"
+            );
+        }
+    }
+}

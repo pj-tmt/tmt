@@ -2568,6 +2568,8 @@ impl App {
             })
             .collect();
         if self.shell.tab == super::shell::OpsTab::Agents
+            && self.workspace_scope() == crate::config::OpsKeyScope::Member
+            && !self.loading()
             && self.workspace_selected_member().is_some()
         {
             for ui in crate::action::OpsUiAction::menu_actions() {
