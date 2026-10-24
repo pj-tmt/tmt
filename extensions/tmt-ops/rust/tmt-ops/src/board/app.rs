@@ -301,7 +301,7 @@ pub enum Choice {
         url: String,
         anchor: ratatui::layout::Rect,
     },
-    FileCopy(String),
+    FileCopy(std::sync::Arc<str>),
     FileShow {
         path: String,
         anchor: ratatui::layout::Rect,
@@ -3015,7 +3015,7 @@ impl App {
             Choice::LinkOpen(url) => self.link_open(url),
             Choice::LinkCopy(url) => self.link_copy(url),
             Choice::LinkShow { url, anchor } => self.link_show(&url, anchor),
-            Choice::FileCopy(path) => self.link_copy(path),
+            Choice::FileCopy(path) => self.link_copy(path.to_string()),
             Choice::FileShow { path, anchor } => self.file_show(&path, anchor),
             Choice::AgentsFilter(filter) => self.agents_filter(filter),
             Choice::RightTab(tab) => self.select_right_tab(tab),

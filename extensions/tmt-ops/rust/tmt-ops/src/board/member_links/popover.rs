@@ -129,7 +129,7 @@ impl App {
             MenuEntry {
                 key: "y".into(),
                 label: "Copy full path".into(),
-                choice: Choice::FileCopy(path.to_owned()),
+                choice: Choice::FileCopy(path.into()),
             },
             MenuEntry {
                 key: "f".into(),
@@ -181,7 +181,7 @@ impl App {
                     .iter()
                     .all(|entry| entry.choice == Choice::FileCopy(path.clone())) =>
             {
-                Some((Target::File(path), anchor))
+                Some((Target::File(path.to_string()), anchor))
             }
             _ => None,
         }
@@ -217,7 +217,7 @@ impl App {
     fn show_destination(&mut self, target: Target, anchor: Rect) -> Effect {
         let (text, title, copy) = match target {
             Target::Url(url) => (url.clone(), "Full link", Choice::LinkCopy(url)),
-            Target::File(path) => (path.clone(), "Full path", Choice::FileCopy(path)),
+            Target::File(path) => (path.clone(), "Full path", Choice::FileCopy(path.into())),
             Target::Member(_) => return Effect::None,
         };
         let entries: Vec<_> = chunks(&text, LINE)
@@ -725,6 +725,37 @@ mod tests {
             assert!(app.member_links.borrow().hits.is_empty());
             click(&mut app, hit.area);
             assert!(app.menu.is_none(), "an old chip is no longer actionable");
+        }
+    }
+
+    #[test]
+    fn a_long_full_path_keeps_all_its_text_and_copies_from_either_end() {
+        let path = format!("/tmp/{}.txt", "file_name_".repeat(500));
+        let mut app = reader(&format!("See '{path}' now."));
+        let hit = app
+            .member_links
+            .borrow()
+            .hits
+            .iter()
+            .find(|hit| matches!(hit.target, Target::File(_)))
+            .unwrap()
+            .clone();
+        app.file_show(&path, hit.area);
+        let menu = app.menu.as_ref().unwrap();
+        assert!(menu.entries.len() > 8, "the full path scrolls");
+        assert_eq!(
+            menu.entries
+                .iter()
+                .map(|entry| entry.label.as_str())
+                .collect::<String>(),
+            path
+        );
+        let first = menu.entries.first().unwrap().choice.clone();
+        let last = menu.entries.last().unwrap().choice.clone();
+        for choice in [first, last] {
+            assert!(
+                matches!(app.choose(choice), Effect::Act(Request::Copy { text, .. }) if text == path)
+            );
         }
     }
 }

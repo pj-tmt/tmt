@@ -1124,6 +1124,27 @@ mod tests {
     }
 
     #[test]
+    fn file_tokens_do_not_cross_code_or_link_boundaries() {
+        use super::super::member_links::Target;
+        for source in [
+            "before '/tmp/a`b.txt' after` tail",
+            "before '/tmp/a[b.txt' after](https://example.com) tail",
+        ] {
+            let mapped = render_conversation_with_members(source, 80, Look::default(), None);
+            assert!(
+                !mapped
+                    .mentions
+                    .iter()
+                    .flatten()
+                    .any(|link| matches!(link.target, Target::File(_))),
+                "{source}"
+            );
+            let literal = render_output_with_members(source, 80, Look::default(), None);
+            assert_eq!(mapped.lines, literal.lines, "{source}");
+        }
+    }
+
+    #[test]
     fn reported_and_bare_paths_keep_underscores_spaces_and_source_mapping() {
         for source in [
             reported::PATH,
