@@ -11,7 +11,7 @@ mod protocol;
 pub(crate) use protocol::{LIMIT, Plan, parse_results};
 use tmt_adapters::native_install::{self, Product};
 
-fn plan(prefix: &Path) -> Plan {
+pub(crate) fn plan(prefix: &Path) -> Plan {
     plan_with(prefix, |product, channel| {
         native_install::latest_release_version(product, channel).map(|version| version.to_string())
     })

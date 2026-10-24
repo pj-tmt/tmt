@@ -282,16 +282,18 @@ the move is a bootstrap reinstall.
   child, and the parent never reads the candidate's inventory. Pre-activation failures keep the
   previous release; a reported post-activation failure keeps the active result; a missing report
   is uncertain and asks the user to inspect before retrying.
-- Root upgrade updates the CLI first and lets that CLI judge extension inventories; core registers
-  each product's files before that product publishes them, so the supporting CLI release must reach
-  users first. `native_upgrade_command` refreshes managed skills in the new executable, then asks
-  it for hidden `__native-upgrade-extensions --json --plan`, asks one consent question (`[Y/n]`:
-  Enter agrees, end of input declines) and passes that exact plan on stdin with `--yes`. An unsupported older target fails with a rerun hint; there
-  is no old-process fallback or rollback. Before acquisition, the apply child refuses a changed
-  old version or a newly pinned installation; its captured immutable executable and the adapter's
-  current-id publication fence retain that observation. `upgrade_all` keeps each channel and pin; non-terminal
-  runs without `--yes` report `consentRequired`; product failures stay independent, a CLI failure
-  stops the extension phase and a pinned CLI permits it.
+- Root upgrade prepares a metadata-only, frozen CLI and installed-extension preview before one
+  human approval (`[Y/n]`: Enter agrees, end of input declines). Decline or a failed preview
+  changes no component. `--yes` uses the same frozen selection; JSON, pipes and agent callers
+  never prompt. Machine runs retain CLI update behavior and report extension `consentRequired`
+  without `--yes`. The CLI then activates and refreshes managed skills through the new executable,
+  which keeps extension inventory authority. Its hidden `__native-upgrade-extensions --json --plan`
+  must match the consented products, installed versions, pin states and exact targets before the
+  parent sends the legacy plan on stdin with `--yes`. The apply child refuses a changed old
+  version or a newly pinned installation before acquisition; its immutable executable and the
+  adapter's current-id publication fence retain that observation. Unsupported targets fail with
+  a rerun hint, without an old-process fallback, activation retry or rollback. Product failures
+  remain independent; CLI failure stops extensions, and a pinned CLI permits them.
 - `NATIVE_UPGRADE_FAILED` carries a diagnostic `cause`; HTTPS failures never echo URI or proxy
   credentials. After binary activation, skill failures become `skills.status: "warning"` with
   path/cause and partial publication; they never turn that product into a failed upgrade or stop

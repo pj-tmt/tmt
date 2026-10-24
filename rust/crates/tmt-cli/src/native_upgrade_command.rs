@@ -2,6 +2,7 @@
 
 mod database;
 mod extensions;
+mod preview;
 mod rename;
 mod summary;
 
@@ -50,42 +51,62 @@ pub fn execute_with_schema_consent(
         }
     };
     let current = std::env::current_exe().ok();
-    let prior = Prior {
-        repeat: repeat_command(channel, exact, unpin, yes, allow_schema_ahead),
-        ran_from_moved_prefix: current
-            .as_deref()
-            .is_some_and(native_install::in_moved_prefix),
-        versions: current
-            .as_deref()
-            .map(installed_versions)
-            .unwrap_or_default(),
-    };
+    let versions = current
+        .as_deref()
+        .map(installed_versions)
+        .unwrap_or_default();
+    let ran_from_moved_prefix = current
+        .as_deref()
+        .is_some_and(native_install::in_moved_prefix);
     let result = (|| {
         let executable = std::env::current_exe()?;
-        native_install::upgrade_product_with_schema_consent(
+        let request = || UpgradeRequest {
+            executable: &executable,
+            channel,
+            exact,
+            unpin,
+        };
+        let checkpoint = || {
+            if interrupt.is_interrupted() {
+                Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "Native update interrupted.",
+                ))
+            } else {
+                Ok(())
+            }
+        };
+        checkpoint()?;
+        let prepared = native_install::prepare_upgrade(
             tmt_core::native_install::Product::Cli,
-            UpgradeRequest {
-                executable: &executable,
-                channel,
-                exact,
-                unpin,
-            },
+            request(),
             allow_schema_ahead,
-            None,
-            || {
-                if interrupt.is_interrupted() {
-                    Err(io::Error::new(
-                        io::ErrorKind::Interrupted,
-                        "Native update interrupted.",
-                    ))
-                } else {
-                    Ok(())
-                }
-            },
+        )?;
+        let extensions =
+            crate::extension_install_command::upgrade_all::plan(prepared.current().prefix());
+        checkpoint()?;
+        let approval = preview::approve(
+            &prepared,
+            &extensions,
+            channel.is_some() || exact.is_some() || unpin,
+            yes,
+            mode,
         )
+        .map_err(|failure| {
+            let message = failure
+                .source()
+                .map_or_else(|| failure.to_string(), |cause| format!("{failure} {cause}"));
+            io::Error::other(message)
+        })?;
+        if !approval.proceed {
+            return Ok(None);
+        }
+        native_install::upgrade_prepared(&prepared, request(), None, checkpoint, &|_| {})
+            .map(|report| Some((report, extensions, approval.extensions)))
     })();
-    let report = match result {
-        Ok(report) => report,
+    let (report, extensions, extension_consent) = match result {
+        Ok(Some(report)) => report,
+        Ok(None) => return Ok(0),
         Err(mut error) => {
             let activated = error.activated.take();
             let status = if error.kind() == io::ErrorKind::Interrupted {
@@ -99,9 +120,15 @@ pub fn execute_with_schema_consent(
             return publish(activated.as_deref(), None, Some(failure), mode);
         }
     };
+    let prior = Prior {
+        repeat: repeat_command(channel, exact, unpin, yes, allow_schema_ahead),
+        ran_from_moved_prefix,
+        versions,
+        extensions,
+    };
     if report.skipped_pinned {
         drop(interrupt);
-        return finish(&report, None, None, yes, &prior, None, mode);
+        return finish(&report, None, None, extension_consent, &prior, None, mode);
     }
     if interrupt.is_interrupted() {
         return publish(
@@ -133,7 +160,15 @@ pub fn execute_with_schema_consent(
     let database = failure
         .is_none()
         .then(|| database::run(&report.installation.active_executable, &UnixCommandRunner));
-    finish(&report, skills, failure, yes, &prior, database, mode)
+    finish(
+        &report,
+        skills,
+        failure,
+        extension_consent,
+        &prior,
+        database,
+        mode,
+    )
 }
 
 /// What the upgrade started from: where it ran and which versions were installed, for the
@@ -143,6 +178,7 @@ struct Prior {
     repeat: String,
     ran_from_moved_prefix: bool,
     versions: BTreeMap<String, String>,
+    extensions: crate::extension_install_command::upgrade_all::Plan,
 }
 
 /// The bare retry the extension rows suggest; a repeated invocation replaces it.
@@ -206,8 +242,9 @@ fn finish(
     mode: OutputMode,
 ) -> io::Result<u8> {
     let extensions = if failure.is_none() {
-        extensions::upgrade(
+        extensions::upgrade_frozen(
             &report.installation.active_executable,
+            &prior.extensions,
             yes,
             mode,
             &UnixCommandRunner,
