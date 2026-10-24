@@ -27,8 +27,23 @@ pub(super) struct Row {
     pub kind: Kind,
     pub title: String,
     pub reference: Option<String>,
-    /// `host  who · age`, `who · age` or `who · done age`; empty when nothing is known.
-    pub meta: String,
+    /// The host of a link; empty for a todo.
+    pub host: String,
+    /// `who · age` or `who · done age`; empty when nothing is known.
+    pub byline: String,
+}
+
+impl Row {
+    /// What the right-hand column shows: the host (cut to `host_cells`) when there is room for
+    /// it, then the byline.
+    pub fn meta(&self, host_cells: usize) -> String {
+        let host = super::super::view::fit(&self.host, host_cells);
+        [host.trim_end(), self.byline.as_str()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("  ")
+    }
 }
 
 /// The items the overlay lists, archived ones left out, in the list's own order.
@@ -49,17 +64,8 @@ pub(super) fn rows(preview: &Preview, now_ms: u64) -> Vec<Row> {
                 .added
                 .as_ref()
                 .map(|stamp| format!("{} · {}", who(preview, stamp), age(now_ms, stamp)));
-            let meta = match kind {
-                Kind::Link => {
-                    let host = host(item.content.reference.as_deref().unwrap_or_default());
-                    [Some(host), author]
-                        .into_iter()
-                        .flatten()
-                        .filter(|part| !part.is_empty())
-                        .collect::<Vec<_>>()
-                        .join("  ")
-                }
-                Kind::Todo => author.unwrap_or_default(),
+            let byline = match kind {
+                Kind::Link | Kind::Todo => author.unwrap_or_default(),
                 Kind::Done => {
                     let done = item.last_changed.as_ref().map_or_else(
                         || "done".to_owned(),
@@ -71,12 +77,17 @@ pub(super) fn rows(preview: &Preview, now_ms: u64) -> Vec<Row> {
                     }
                 }
             };
+            let host = match kind {
+                Kind::Link => host(item.content.reference.as_deref().unwrap_or_default()),
+                _ => String::new(),
+            };
             Row {
                 id: item.id.clone(),
                 kind,
                 title: item.content.title.clone(),
                 reference: item.content.reference.clone(),
-                meta,
+                host,
+                byline,
             }
         })
         .collect()

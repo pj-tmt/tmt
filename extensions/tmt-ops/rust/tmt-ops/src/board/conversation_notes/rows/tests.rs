@@ -96,7 +96,7 @@ fn who_added_an_item_is_you_a_roster_name_a_short_id_or_nobody() {
         ]),
         NOW,
     );
-    let metas: Vec<_> = rows.iter().map(|row| row.meta.as_str()).collect();
+    let metas: Vec<_> = rows.iter().map(|row| row.meta(usize::MAX)).collect();
     assert_eq!(metas, ["you · 3m", "alice · 2h", "77777777 · 1d", ""]);
 }
 
@@ -135,7 +135,7 @@ fn a_link_shows_its_host_and_a_done_todo_when_it_was_done() {
         kinds,
         [Kind::Link, Kind::Done, Kind::Done, Kind::Done, Kind::Done]
     );
-    let metas: Vec<_> = rows.iter().map(|row| row.meta.as_str()).collect();
+    let metas: Vec<_> = rows.iter().map(|row| row.meta(usize::MAX)).collect();
     assert_eq!(
         metas,
         [

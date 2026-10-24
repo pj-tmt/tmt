@@ -16,6 +16,13 @@ use unicode_width::UnicodeWidthStr;
 const FILE: &str = "ops.conversation-notes.xml";
 /// The widest the right-hand `host  who · age` column grows before the title gives way.
 const META_MAX: usize = 36;
+/// A host is cut to this many cells so that it never crowds the title.
+const HOST_CELLS: usize = 16;
+/// The title keeps at least this many cells; below it the host is dropped, the byline stays.
+const TITLE_MIN: usize = 24;
+/// The modal's width (`w-100`) and what its border, padding, cursor, mark and gaps take.
+const MODAL_CELLS: u16 = 100;
+const CHROME_CELLS: usize = 4 + 1 + 1 + 3;
 
 fn markup(title: &str, meta: usize) -> String {
     format!(
@@ -75,12 +82,22 @@ impl Controller {
             (Some(member), _) => format!("Notes · {}", safe(member)),
             _ => "Notes".into(),
         };
-        let meta = items
-            .iter()
-            .map(|row| row.meta.width())
-            .max()
-            .unwrap_or(0)
-            .min(META_MAX);
+        let room = usize::from(body.width.min(MODAL_CELLS)).saturating_sub(CHROME_CELLS);
+        let widest = |host_cells| {
+            items
+                .iter()
+                .map(|row| row.meta(host_cells).width())
+                .max()
+                .unwrap_or(0)
+                .min(META_MAX)
+        };
+        // The title has priority: a host that would leave it too little gives way entirely.
+        let host_cells = if room.saturating_sub(widest(HOST_CELLS)) < TITLE_MIN {
+            0
+        } else {
+            HOST_CELLS
+        };
+        let meta = widest(host_cells).min(room.saturating_sub(TITLE_MIN).max(1));
         let key = format!("{title}/{meta}");
         let mut cached = self.template.borrow_mut();
         if cached.as_ref().is_none_or(|(old, _)| old != &key) {
@@ -134,7 +151,7 @@ impl Controller {
                     "id": row.id.as_str(), "disabled": false,
                     "cursor": if selected.as_deref() == Some(row.id.as_str()) { "›" } else { "" },
                     "mark": row.kind.mark(), "title": safe(&row.title),
-                    "meta": safe(&row.meta), "role": role,
+                    "meta": safe(&row.meta(host_cells)), "role": role,
                 })
             }));
         }
