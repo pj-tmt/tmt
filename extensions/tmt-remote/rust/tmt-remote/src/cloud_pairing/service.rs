@@ -658,9 +658,22 @@ impl Service {
     }
     pub fn send(&self, raw: &[u8], explicit: Option<&str>) -> Result<Value, RemoteError> {
         let request = crate::cloud_command::Request::read(raw)?;
-        let selected = explicit
-            .or(request.remote.as_deref())
-            .ok_or_else(unavailable)?;
+        let selected = request.selected(explicit)?;
+        let result = self.send_selected(raw, selected);
+        if let Err(error) = &result
+            && error.code != "REMOTE_CLOUD_CONFLICT"
+            && error.code != "REMOTE_CLOUD_MESSAGE_EXPIRED"
+            && self
+                .store()
+                .and_then(|store| store.cloud_outgoing_attempted(&request.request_id))
+                .unwrap_or(true)
+        {
+            // A failed observation (including Store failure) cannot undo a prior mutation claim.
+            return serde_json::to_value(request.unconfirmed(selected)).map_err(|_| unavailable());
+        }
+        result
+    }
+    fn send_selected(&self, raw: &[u8], selected: &str) -> Result<Value, RemoteError> {
         let mut record = self
             .store()?
             .cloud_connection(selected)?

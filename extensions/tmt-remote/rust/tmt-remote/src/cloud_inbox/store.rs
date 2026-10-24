@@ -382,6 +382,13 @@ impl Store {
     ) -> Result<bool, RemoteError> {
         self.connection.execute("UPDATE cloud_transport SET attempted=1 WHERE peer_id=?1 AND kind='outbox' AND id=?2 AND attempted=0",[peer,id]).map(|n|n==1).map_err(database)
     }
+    /// Public command errors cannot prove NotSent after the existing durable mutation claim.
+    pub(crate) fn cloud_outgoing_attempted(&self, id: &str) -> Result<bool, RemoteError> {
+        self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM cloud_transport WHERE kind='outbox' AND id=?1 AND attempted=1)",
+            [id], |row| row.get(0),
+        ).map_err(database)
+    }
     /// The existing serving maintenance pass drops only elapsed sender recovery windows.
     pub(crate) fn cloud_prune_outgoing(&mut self, now: u64) -> Result<(), RemoteError> {
         let keep = journal::RECOVERY + crate::session::CLOCK_SKEW.as_millis() as u64;

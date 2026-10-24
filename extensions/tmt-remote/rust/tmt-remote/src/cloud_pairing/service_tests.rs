@@ -12,6 +12,75 @@ use crate::{
 use std::sync::{Weak, atomic::AtomicUsize, mpsc};
 const PROJECT: &str = "demo-native-pairing";
 const TARGET: &str = "66666666-6666-4666-8666-666666666666";
+#[test]
+fn serving_sender_keeps_a_claimed_request_unconfirmed_when_its_connection_is_unavailable() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::serving_sender_keeps_a_claimed_request_unconfirmed_when_its_connection_is_unavailable",
+    ) {
+        return;
+    }
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let root = core.root.join("sender");
+    let make_ports = || ProjectPorts {
+        http: ports.clone(),
+        clock: ports.clone(),
+        jitter: ports.clone(),
+    };
+    let (sender, lease) = service(&root, &core, make_ports());
+    let raw = prepared("missing");
+    let request = crate::cloud_command::Request::read(&raw).unwrap();
+    assert_eq!(
+        sender.send(&raw, None).unwrap_err().code,
+        "REMOTE_CLOUD_UNAVAILABLE"
+    );
+    sender
+        .store()
+        .unwrap()
+        .cloud_freeze_outgoing(
+            &sender.machine,
+            &request.request_id,
+            b"frozen-intent",
+            b"frozen-carrier",
+            request.created_at_ms,
+        )
+        .unwrap();
+    assert_eq!(
+        sender.send(&raw, None).unwrap_err().code,
+        "REMOTE_CLOUD_UNAVAILABLE",
+        "unclaimed bytes prove no mutation was attempted"
+    );
+    assert!(
+        sender
+            .store()
+            .unwrap()
+            .cloud_claim_outgoing(&sender.machine, &request.request_id)
+            .unwrap()
+    );
+    let answer = sender.send(&raw, None).unwrap();
+    assert_eq!(answer["state"], "unconfirmed");
+    assert_eq!(answer["reason"], "REMOTE_CLOUD_UNCONFIRMED");
+    drop(sender);
+    drop(lease);
+    let (sender, _lease) = service(&root, &core, make_ports());
+    assert_eq!(
+        sender.send(&raw, None).unwrap()["state"],
+        "unconfirmed",
+        "restart cannot turn a durable claim into NotSent"
+    );
+    assert!(wire.docs.lock().unwrap().is_empty());
+    assert!(wire.commits.lock().unwrap().is_empty());
+    assert_eq!(
+        wire.next.load(Ordering::SeqCst),
+        0,
+        "no sign-in or credential bootstrap"
+    );
+    assert_eq!(core.sends(), 0);
+}
 fn config() -> Value {
     json!({"projectId":PROJECT,"appId":"1:12345:web:fixture","apiKey":"public-test","authDomain":format!("{PROJECT}.firebaseapp.com")})
 }
@@ -338,6 +407,256 @@ fn service_with_identity(
 fn prepared(remote: &str) -> Vec<u8> {
     let operation = crate::store::uuid_v4().unwrap();
     json!({"version":1,"remote":remote,"requestId":operation,"createdAtMs":crate::pairing::now_ms().unwrap(),"from":{"id":"77777777-7777-4777-8777-777777777777","name":"sender"},"target":{"id":TARGET,"name":"target"},"message":"causal cloud pairing effect","reply":{"requestId":format!("req_{operation}"),"receipt":"PRIVATE_PAIRING_RECEIPT"}}).to_string().into_bytes()
+}
+
+fn message_control(sender: &Arc<Service>, lease: &Serving) -> crate::control::Control {
+    let pairing = Arc::new(crate::pairing::Pairing::new(
+        sender.machine.clone(),
+        crate::store::uuid_v4().unwrap(),
+        sender.key.public(),
+        "http://127.0.0.1:1".into(),
+        sender.store.clone(),
+        crate::pairing::Timing::CONTRACT,
+    ));
+    let devices = Arc::new(crate::devices::Devices::new(
+        sender.store.clone(),
+        Some(sender.sessions.clone()),
+    ));
+    crate::control::Control::start_with_views(
+        lease,
+        pairing,
+        devices,
+        crate::control::Door {
+            origin: "http://127.0.0.1:1".into(),
+            prefix: "/r/fixture/".into(),
+        },
+        None,
+        sender.stop.clone(),
+        crate::control::StatusViews {
+            cloud: Some(sender.clone()),
+            ..Default::default()
+        },
+    )
+    .unwrap()
+}
+
+/// The maintained native sandbox owns CLI ancestry, private Core state and child cleanup.
+fn public_message(
+    core: &core_fixture::Core,
+    state: &str,
+    capture: &std::path::Path,
+    peer: &str,
+) -> (Vec<u8>, Value) {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../..")
+        .canonicalize()
+        .unwrap();
+    let node = tmt_invoke::find_executable(
+        std::ffi::OsStr::new("node"),
+        &std::env::var_os("PATH").unwrap(),
+    )
+    .expect("pinned Node must be available");
+    let script = root.join(
+        "extensions/tmt-remote/rust/tmt-remote/tests/fixtures/cloud-message-core-acceptance.mjs",
+    );
+    let input=json!({"remoteExecutable":root.join("rust/target/debug/tmt-remote"),"peer":peer,"discovery":core.root.join("tmt"),"capture":capture,"target":TARGET,"state":state}).to_string();
+    let output = tmt_invoke::invoke(
+        tmt_invoke::Request {
+            program: &node,
+            args: &[script.into_os_string()],
+            input: input.as_bytes(),
+            deadline: Instant::now() + Duration::from_secs(120),
+            max_stream_bytes: 65536,
+            launch: tmt_invoke::LaunchOptions::default(),
+        },
+        None,
+    )
+    .expect("bounded public Core proof and confirmed cleanup");
+    assert!(
+        output.status.success(),
+        "public Core proof failed: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let summary: Value =
+        serde_json::from_slice(&output.stdout).expect("one content-free proof summary");
+    (std::fs::read(capture).unwrap(), summary)
+}
+
+#[test]
+#[ignore = "explicit built Core/Remote public-command acceptance; offline HTTP fixture"]
+fn public_core_message_reaches_the_serving_owner_and_a_lost_answer_stays_uncertain() {
+    use std::{
+        io::{BufRead, BufReader, Write},
+        os::unix::net::{UnixListener, UnixStream},
+    };
+    let core = core_fixture::Core::new();
+    std::fs::write(core.root.join("multi"), "").unwrap();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let make_ports = || ProjectPorts {
+        http: ports.clone(),
+        clock: ports.clone(),
+        jitter: ports.clone(),
+    };
+    let (owner, _owner_lease) = service(&core.root.join("owner"), &core, make_ports());
+    let (sender, sender_lease) = service(&core.root.join("sender"), &core, make_ports());
+    let owner_provider = owner.provider(&config(), &owner.machine, true).unwrap();
+    let sender_provider = sender.provider(&config(), &owner.machine, true).unwrap();
+    let descriptor = owner
+        .keys
+        .advertised(crate::pairing::now_ms().unwrap())
+        .unwrap();
+    run(
+        owner_provider.register_machine(&owner.key.public(), descriptor.bytes(), None, &owner.io()),
+        &owner.io(),
+    )
+    .unwrap();
+    owner
+        .store()
+        .unwrap()
+        .insert_grant(&crate::store::Grant {
+            client_id: sender.machine.clone(),
+            public_key: sender.key.public(),
+            kind: "cli".into(),
+            origin: "cli".into(),
+            name: "Sender".into(),
+            agents: "all".into(),
+            scopes: vec!["talk".into()],
+            mode: "direct".into(),
+            issued_at_ms: 1,
+            expires_at_ms: None,
+            revision: 1,
+            disabled: false,
+        })
+        .unwrap();
+    owner
+        .store()
+        .unwrap()
+        .remember_cloud_owner(PROJECT, &config())
+        .unwrap();
+    owner.store().unwrap().connection.execute("INSERT INTO cloud_peers(project,client_id,owner,owner_key,generation) VALUES(?1,?2,?3,?4,1)",rusqlite::params![PROJECT,sender.machine,owner.machine,owner.key.public().as_slice()]).unwrap();
+    sender
+        .store()
+        .unwrap()
+        .save_cloud_connection(&Connection {
+            version: 1,
+            name: "peer".into(),
+            owner: owner.machine.clone(),
+            owner_key: owner.key.public(),
+            config: config(),
+            peer: sender.machine.clone(),
+            uid: sender_provider.uid().into(),
+            request: vec![],
+            confirmed: true,
+            descriptor: descriptor.bytes().to_vec(),
+            reroute_token: None,
+        })
+        .unwrap();
+    wire.route(&owner);
+    let control = message_control(&sender, &sender_lease);
+    for (index, (expected_state, lost)) in
+        [("sent", false), ("unconfirmed", true), ("refused", false)]
+            .into_iter()
+            .enumerate()
+    {
+        if expected_state == "refused" {
+            owner.store().unwrap().talk(&sender.machine, false).unwrap();
+        }
+        let proxy_root = core.root.join(format!("proxy{index}"));
+        let directory = proxy_root.join("remote");
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join(crate::control::SOCKET);
+        let socket = UnixListener::bind(&path).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::write(core.root.join("storage-root"), proxy_root.to_str().unwrap()).unwrap();
+        let actual = sender.layout.directory.clone();
+        let capture = core.root.join(format!("public-{index}.json"));
+        let (request, summary) = std::thread::scope(|scope| {
+            let (cancel, watch) = UnixStream::pair().unwrap();
+            let bridge = scope.spawn(move || {
+                use std::os::fd::AsFd;
+                let mut ready = [
+                    nix::poll::PollFd::new(socket.as_fd(), nix::poll::PollFlags::POLLIN),
+                    nix::poll::PollFd::new(watch.as_fd(), nix::poll::PollFlags::POLLIN),
+                ];
+                assert!(
+                    nix::poll::poll(&mut ready, 60000u16).unwrap() > 0,
+                    "bounded public-command connection"
+                );
+                if ready[1].revents().is_some_and(|flags| !flags.is_empty()) {
+                    return false;
+                }
+                let (mut client, _) = socket.accept().unwrap();
+                client
+                    .set_read_timeout(Some(Duration::from_secs(70)))
+                    .unwrap();
+                let mut raw = String::new();
+                BufReader::new(client.try_clone().unwrap())
+                    .read_line(&mut raw)
+                    .unwrap();
+                let mut destination =
+                    UnixStream::connect(actual.join(crate::control::SOCKET)).unwrap();
+                destination
+                    .set_read_timeout(Some(Duration::from_secs(70)))
+                    .unwrap();
+                destination.write_all(raw.as_bytes()).unwrap();
+                let mut answer = String::new();
+                BufReader::new(destination).read_line(&mut answer).unwrap();
+                assert_eq!(
+                    serde_json::from_str::<Value>(&answer).unwrap()["state"],
+                    if expected_state == "refused" {
+                        "refused"
+                    } else {
+                        "sent"
+                    }
+                );
+                if !lost {
+                    client.write_all(answer.as_bytes()).unwrap();
+                }
+                true
+            });
+            let result = public_message(&core, expected_state, &capture, "peer");
+            drop(cancel);
+            assert!(
+                bridge.join().unwrap(),
+                "public command must reach the real owner"
+            );
+            result
+        });
+        assert_eq!(
+            core.sends(),
+            (index + 1).min(2),
+            "one effect through the existing inbox/dispatch owner"
+        );
+        assert_eq!(
+            summary["deliveryState"],
+            if lost {
+                json!("uncertain")
+            } else {
+                Value::Null
+            }
+        );
+        assert_eq!(
+            sender.send(&request, None).unwrap()["state"],
+            if expected_state == "refused" {
+                "refused"
+            } else {
+                "sent"
+            },
+            "same ID is observed through the existing recovery owner"
+        );
+        assert_eq!(
+            core.sends(),
+            (index + 1).min(2),
+            "no second effect or automatic resend"
+        );
+    }
+    control.stop();
 }
 
 #[test]
