@@ -698,7 +698,7 @@ test.describe('the app in a browser', () => {
     await page.locator('nav.tmt-ui-rail a[data-id="digest"]').focus();
     await expect(tip).toHaveText('Digest');
     await toggle.click();
-    await expect(page.locator('nav.tmt-ui-rail')).toHaveCSS('width', '220px');
+    await expect(page.locator('nav.tmt-ui-rail')).toHaveCSS('width', '232px');
     await page.close();
   });
 });
@@ -932,7 +932,7 @@ test.describe('the Ops route on the owner read', () => {
     await expect(stats.nth(1)).toHaveAttribute('data-tone', 'working');
     await expect(stats.nth(1).locator('.tmt-ui-stat-number')).toHaveCSS(
       'font-family',
-      /Bricolage Grotesque/,
+      /Inter, -apple-system, system-ui/,
     );
     // Nobody needs the person, so there is no attention banner.
     await expect(page.locator('#ops-section .tmt-ui-banner')).toHaveCount(0);
@@ -1311,6 +1311,9 @@ test.describe('the Digest route on the owner reads', () => {
         'Pace',
         'Resets in',
       ]);
+      const headline = page.locator('.digest-head .tmt-ui-page-title');
+      await expect(headline).toBeVisible();
+      await expect(headline).toHaveCSS('font-family', /Inter, -apple-system, system-ui/);
       await expect(provider.locator('.tmt-ui-meter-fill')).toHaveCSS(
         'background-color',
         /rgb\(\d+, \d+, \d+\)/,

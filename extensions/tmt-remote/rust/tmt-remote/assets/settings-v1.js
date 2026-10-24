@@ -344,6 +344,7 @@ var browserUiClasses = Object.freeze({
 	meter: "tmt-ui-meter",
 	meterFill: "tmt-ui-meter-fill",
 	glyph: "tmt-ui-glyph",
+	page: "tmt-ui-page",
 	pageHead: "tmt-ui-page-head",
 	pageTitle: "tmt-ui-page-title",
 	pageSubtitle: "tmt-ui-page-subtitle",

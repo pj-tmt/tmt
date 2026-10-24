@@ -78,7 +78,7 @@ and 32 px and the full mark at 256 px.
 The leaf preserves differing product metrics through explicit custom properties;
 it does not guess a product profile or replace them with fallback values. The
 host defines every property used by its chosen components. Header sizes are
-56px/48px below the existing 479px threshold. Page positioning, body offset and full attribution disclosure remain host-owned; Drawer and Menu own their top-layer geometry and dismissal.
+62px/56px below the 760px threshold. Page positioning, body offset and full attribution disclosure remain host-owned; Drawer and Menu own their top-layer geometry and dismissal.
 
 | Host property suffix after `--tmt-ui-host-`                                             | Existing product values retained for adoption                                                           |
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -100,6 +100,17 @@ host defines every property used by its chosen components. Header sizes are
 Thin notice/action borders use the accepted 1px browser metric; field/header
 borders remain 1px. This supersedes earlier shadow and opacity proposals only.
 Input autocomplete remains a host-owned listbox. No native select or new font loading enters this leaf.
+
+The shell and heading metrics follow the concept website: 232px rail, 45px module
+rows, 33px sub-items and a 45px brand mark. Body and display text use
+`Inter, -apple-system, system-ui, "Segoe UI", sans-serif`, without bundled fonts or
+external font requests. Rail sub-item text starts 8px beyond the parent's icon
+left edge (Ben direct); its smaller type and separate current-page marker retain hierarchy.
+
+The optional static `page` class (`tmt-ui-page`) applies shared content insets:
+33px/36px block/inline, 24px/18px through 760px. Hosts opt in on their content
+wrapper and retain width limits, layout and scrolling. Page titles are 37px/720
+(29px compact), and card titles are 19px/660; these come from browser metric tokens.
 
 ## Controlled input contracts
 
@@ -123,7 +134,7 @@ adds the `tmt` / `terminal team` words for marketing surfaces.
 The header brand renders the small form at the header's mark size, `aria-hidden="true"`.
 Mark size and brand gap derive from the wordmark-size token using the handbook's 33/19 and
 12/19 ratios (about 24.32px and 8.84px with a 14px label); they stay equal at compact and wide
-widths, within the 48px/56px header. The product label and brand link use the normal text
+widths, within the 56px/62px header. The product label and brand link use the normal text
 colour. The screen title follows the brand as plain text, without a divider.
 `generated/brand-mark-static.svg` is the static-host copy of that header mark; static hosts embed it
 (with their own extra classes and gradient ids) and the shared stylesheet styles it. The
@@ -367,8 +378,7 @@ as products do; nothing is redrawn. It shows each demo in a light and a dark col
 onto gallery attributes (`gallery/force-states.ts`). The shell, dialog, drawer, open menu and
 notifications render in iframes of the gallery itself (`?frame=<name>&theme=<theme>`), because
 they need a viewport or the top layer; the phone shell is a 390px frame. `?frame=charts`
-shows the real chart demos without competing overlay frames for keyboard-focus checks. The gallery loads web
-fonts from Google Fonts and supplies Colab's host metrics.
+shows the real chart demos without competing overlay frames for keyboard-focus checks. The gallery uses the website's system font stack without font requests and supplies Colab's host metrics.
 
 When mounted as a local preview route, a side outline (wide screens) or a header dropdown
 lists the sections and follows the scroll; the section's name is the page heading's suffix.

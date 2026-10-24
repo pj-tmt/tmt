@@ -191,7 +191,11 @@ for (const width of [1440, 390, 320])
           if (!references.has(shelled)) references.set(shelled, frame);
           expect(frame, screen).toEqual({ ...references.get(shelled)!, gap: tokens.header.gap });
           expect(current.height).toBe(
-            parseFloat(width < 480 ? tokens.header['compact-height'] : tokens.header.height),
+            parseFloat(
+              width <= Number.parseFloat(tokens.header['compact-max-width'])
+                ? tokens.header['compact-height']
+                : tokens.header.height,
+            ),
           );
           if (screen === 'pages' || screen === 'archived' || screen === 'empty') {
             expect(title).toBeNull();

@@ -99,6 +99,7 @@ const css = `/* Generated: generate-static-css */
 @media (max-width: ${tokens.header['compact-max-width']}) {
   :root {
     --tmt-ui-header-height: var(--tmt-ui-header-compact-height);
+    --tmt-ui-header-padding-inline: var(--tmt-ui-header-compact-padding-inline);
   }
 }
 \n${fragments.map((s) => bare(s.replaceAll('\r\n', '\n').replaceAll('__compact-max-width__', tokens.header['compact-max-width']))).join('\n')}\n`;

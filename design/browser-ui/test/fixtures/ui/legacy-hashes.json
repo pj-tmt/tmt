@@ -1,7 +1,7 @@
 {
   "baseline": "a5c85cb407003632dc9a5b3ac51ca2f6d92be355",
   "sha256": {
-    "generated/static.css": "e420edbf04f4c2954388553b1de36d8a18ff77c5aeaf4a9e750162c775add2ed",
+    "generated/static.css": "acf57df2a3a779e893c040544313e85c1b60f6bfc1f85e65a4ffa83f619f7f0e",
     "src/action.css": "29316ae4fa5a30526240a48fc589043cbeeb5662d114b4be4f709fe99b40388a",
     "src/action.tsx": "bdb44de4902350c66e25ecbe88342545e76317ab611118faa6767f29bae7e6c4",
     "src/chips.css": "46ee249714c41bf206c7d8202835ac0b6014492222d3de0d35aa632e8ec61d19",
@@ -33,7 +33,7 @@
     "src/overlay.ts": "37c0a2bbd673dc15c1ca1efe5b4fe09bce7087b6bf73c70a377b5f513d129325",
     "src/popup.ts": "d76753fe162d2945d9ae6aae0bbefca1233ded3d2b9783be2dad5262666bd4ba",
     "src/react.ts": "03ced166c4e85405b0112547ae157afef68dce8bccf4be7fbbd83bea5d64c9a7",
-    "src/static.ts": "938a1fa165e4227a2047fc3cd180546f3b122cb8d9449c8f686a0bc15a3ad2ca",
+    "src/static.ts": "58348603ccab65e4469df286c5be5a23b47293fecb45ad6fec46ca5373a8d83a",
     "src/tabs.css": "72653d1a84cdcbab804ff0689085ce90fca1de2e756e02d018e5aa922833c948",
     "src/tabs.tsx": "c5287f786eb09c8b06a457cbe404016cadec4657b3a2ff15cc9b46f8ccc2cdbc",
     "src/toggle.css": "bcf941ec22f3d9cefa68acd6cca9f9f43adb50d65ea0e6e00cf422b03e64ff08",
@@ -43,11 +43,11 @@
     "font": {
       "display": {
         "use": "Headings",
-        "stack": "\"Bricolage Grotesque\", system-ui, sans-serif"
+        "stack": "Inter, -apple-system, system-ui, \"Segoe UI\", sans-serif"
       },
       "body": {
         "use": "Prose",
-        "stack": "\"Hanken Grotesk\", system-ui, -apple-system, \"Segoe UI\", sans-serif"
+        "stack": "Inter, -apple-system, system-ui, \"Segoe UI\", sans-serif"
       },
       "mono": {
         "use": "Commands, labels, terminal mockups",
@@ -55,10 +55,10 @@
       }
     },
     "header": {
-      "height": "56px",
-      "compact-height": "48px",
-      "compact-max-width": "479px",
-      "padding-inline": "clamp(12px, 1.4vw, 20px)",
+      "height": "62px",
+      "compact-height": "56px",
+      "compact-max-width": "760px",
+      "padding-inline": "36px",
       "gap": "12px",
       "mark-size": "12px",
       "mark-line-height": "1",
@@ -73,7 +73,8 @@
       "action-line-height": "1.2",
       "action-weight": "400",
       "icon-size": "18px",
-      "icon-stroke": "1.75"
+      "icon-stroke": "1.75",
+      "compact-padding-inline": "18px"
     },
     "browser": {
       "color": {
@@ -337,13 +338,54 @@
         "control-size": "32px",
         "indicator-width": "3px",
         "tab-indicator-width": "2px",
-        "rail-width": "220px",
+        "rail-width": "232px",
         "rail-collapsed-width": "56px",
         "module-menu-width": "230px",
         "spin-duration": "0.9s",
         "radius-s": "6px",
         "radius-l": "12px",
-        "radius-pill": "999px"
+        "radius-pill": "999px",
+        "rail-padding-top": "22px",
+        "rail-padding-inline": "12px",
+        "rail-padding-bottom": "17px",
+        "rail-item-height": "45px",
+        "rail-item-size": "13px",
+        "rail-item-padding-block": "13px",
+        "rail-item-padding-inline": "14px",
+        "rail-item-gap": "13px",
+        "rail-icon-size": "19px",
+        "rail-sub-height": "33px",
+        "rail-sub-size": "12px",
+        "rail-sub-padding-block": "9px",
+        "rail-sub-padding-inline": "13px",
+        "rail-sub-indent": "8px",
+        "rail-brand-height": "45px",
+        "rail-brand-padding-inline": "13px",
+        "rail-brand-gap": "10px",
+        "rail-brand-after": "24px",
+        "rail-wordmark-size": "29px",
+        "rail-wordmark-weight": "760",
+        "rail-wordmark-tracking": "-1px",
+        "page-padding-block": "33px",
+        "page-padding-inline": "36px",
+        "page-compact-padding-block": "24px",
+        "page-compact-padding-inline": "18px",
+        "page-body-size": "15px",
+        "page-compact-body-size": "14px",
+        "page-title-size": "37px",
+        "page-title-weight": "720",
+        "page-title-line-height": "1.2",
+        "page-title-tracking": "-1.35px",
+        "page-title-compact-size": "29px",
+        "page-title-compact-tracking": "-0.95px",
+        "page-subtitle-size": "14px",
+        "page-subtitle-gap": "7px",
+        "page-subtitle-compact-size": "12px",
+        "card-title-size": "19px",
+        "card-title-weight": "660",
+        "card-title-line-height": "1.4",
+        "rail-count-size": "10px",
+        "rail-count-padding-block": "2px"
       }
     }
   }

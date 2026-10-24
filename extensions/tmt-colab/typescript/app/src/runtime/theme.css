@@ -71,9 +71,9 @@
   --inset-shadow-*: initial;
   --drop-shadow-*: initial;
   --text-shadow-*: initial;
-  --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-sans: Inter, -apple-system, system-ui, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-display: system-ui, sans-serif;
+  --font-display: Inter, -apple-system, system-ui, 'Segoe UI', sans-serif;
 }
 
 :root {

@@ -16,7 +16,6 @@ if (!new URL(location.href).searchParams.has('field')) {
   popover.setAttribute('role', 'dialog');
   popover.setAttribute('aria-label', 'Annotation baseline');
   popover.style.left = '12px';
-  popover.style.top = '80px';
   // The reused fixture host is <main>; production SelectionAnnotation uses <div>.
   popover.style.minHeight = '0';
   const toolbar = document.createElement('nav');
@@ -25,12 +24,14 @@ if (!new URL(location.href).searchParams.has('field')) {
     const button = document.createElement('button');
     button.textContent = position;
     button.addEventListener('click', () => {
-      popover.style.top = position === 'Top' ? '80px' : 'auto';
+      popover.style.top =
+        position === 'Top' ? `${toolbar.getBoundingClientRect().bottom + 8}px` : 'auto';
       popover.style.bottom = position === 'Bottom' ? '12px' : 'auto';
     });
     toolbar.append(button);
   }
   document.body.prepend(toolbar);
+  popover.style.top = `${toolbar.getBoundingClientRect().bottom + 8}px`;
 }
 
 /** Access changes retain one editor root and its session history. */
