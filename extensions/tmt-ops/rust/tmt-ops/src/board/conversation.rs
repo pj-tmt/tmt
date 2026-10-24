@@ -572,6 +572,24 @@ impl App {
         state.sessions.get(&identity)?.reply.clone()
     }
 
+    /// The member shown and the requests whose answered turn the conversation shows.
+    pub(super) fn conversation_turns(&self) -> Option<(String, Vec<String>)> {
+        if !self.scrolls.visible(Pane::Replies) {
+            return None;
+        }
+        let target = self.conversation_target()?;
+        let id = self.target_row(&target)?["id"].as_str()?;
+        let state = self.conversation.borrow();
+        let identity = (self.view.as_ref()?.me_id.clone(), id.to_owned());
+        let turns = state
+            .sessions
+            .get(&identity)?
+            .answered_turns()
+            .map(str::to_owned)
+            .collect();
+        Some((id.to_owned(), turns))
+    }
+
     pub(super) fn conversation_input_area(&self) -> Option<Rect> {
         let pane = self
             .conversation
