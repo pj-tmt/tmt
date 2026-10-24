@@ -1,11 +1,12 @@
 /** Test-only entry: the Digest page on its real markup, with the sample or the product source. */
 import { digestPage } from '../src/digest-page.js';
-import { mockDocument } from '../src/digest-mock.js';
+import { MOCK_NOW_MS, mockDocument } from '../src/digest-mock.js';
 import { sampleShape } from './digest-sample-source.js';
-import { digestSource as sampleSource } from './digest-sample-source.js';
-import { digestSource, type DigestSource, type UsageRange } from '../src/digest-source.js';
+import { createDigestSource as createSampleSource } from './digest-sample-source.js';
+import { createDigestSource, type DigestSource, type UsageRange } from '../src/digest-source.js';
 
 const params = new URLSearchParams(location.search);
+const sampleSource = createSampleSource();
 declare global {
   interface Window {
     digestReads: number;
@@ -47,13 +48,22 @@ if (params.has('delayed-range')) {
           unavailable: 'Your machine did not answer. This page tries again shortly.',
         };
       const report = { range, sample: true, document: mockDocument(range, sampleShape()) };
+      const allowance = structuredClone(mockDocument('7d', sampleShape()));
+      allowance.observedAtMs += window.digestReads * 60_000;
+      if (params.has('expiring-window'))
+        allowance.limits = [{ ...allowance.limits[1]!, resetsAtMs: MOCK_NOW_MS + 120_000 }];
+      if (params.has('allowance-failure') && window.digestReads === 2)
+        return {
+          ...report,
+          allowanceUnavailable: 'Allowance could not be read. This page tries again shortly.',
+        };
       const document = structuredClone(report.document);
       document.observedAtMs += window.digestReads * 60_000;
-      if (window.digestReads >= 3) for (const limit of document.limits) limit.usedPercent = 90;
-      return { ...report, document };
+      if (window.digestReads >= 3) for (const limit of allowance.limits) limit.usedPercent = 90;
+      return { ...report, document, allowance };
     },
   };
   digestPage(source, window.digestRoute.signal);
 } else {
-  digestPage(params.has('product') ? digestSource : sampleSource);
+  digestPage(params.has('product') ? createDigestSource() : sampleSource);
 }

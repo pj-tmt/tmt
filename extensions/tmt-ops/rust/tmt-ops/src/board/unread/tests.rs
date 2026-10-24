@@ -3,13 +3,17 @@ use serde_json::json;
 
 fn reply(request: &str, member: &str, at: u64) -> Value {
     json!({"requestId":request,"recipientId":member,"sender":{"identityId":"you"},
-        "kind":"request","recipientAcknowledged":true,
-        "final":{"status":"retained","submittedAtMs":at}})
+        "kind":"request","answeredAtMs":at,"answer":"final"})
+}
+
+fn turn(request: &str, member: &str, at: u64) -> Value {
+    json!({"requestId":request,"recipientId":member,"sender":{"identityId":"you"},
+        "kind":"request","answeredAtMs":at,"answer":"turn"})
 }
 
 fn page(items: Vec<Value>, more: bool) -> Value {
     let cursor = if more {
-        json!({"submittedAtMs":items.last().unwrap()["final"]["submittedAtMs"],
+        json!({"answeredAtMs":items.last().unwrap()["answeredAtMs"],
             "requestId":items.last().unwrap()["requestId"]})
     } else {
         Value::Null
@@ -73,10 +77,12 @@ fn malformed_foreign_and_over_limit_pages_cannot_claim_complete_counts() {
         .remove("nextBefore");
     let mut wrong_actor = valid.clone();
     wrong_actor["items"][0]["sender"]["identityId"] = json!("someone-else");
-    let mut withdrawn = valid.clone();
-    withdrawn["items"][0]["final"]["status"] = json!("withdrawn");
+    let mut unknown_answer = valid.clone();
+    unknown_answer["items"][0]["answer"] = json!("withdrawn");
     let mut invalid_time = valid.clone();
-    invalid_time["items"][0]["final"]["submittedAtMs"] = json!(0);
+    invalid_time["items"][0]["answeredAtMs"] = json!(0);
+    let mut results_cursor = page(vec![reply("request", "a", 100)], true);
+    results_cursor["nextBefore"] = json!({"submittedAtMs":100,"requestId":"request"});
     let conflict = page(
         vec![reply("same", "a", 100), reply("same", "b", 100)],
         false,
@@ -88,11 +94,42 @@ fn malformed_foreign_and_over_limit_pages_cannot_claim_complete_counts() {
     for invalid in [
         missing_boundary,
         wrong_actor,
-        withdrawn,
+        unknown_answer,
         invalid_time,
+        results_cursor,
         conflict,
         too_many,
     ] {
         assert!(Page::read("you", &invalid).is_none());
     }
+}
+
+#[test]
+fn a_final_and_a_captured_turn_count_alike_and_one_request_counts_once() {
+    let observed = Page::read(
+        "you",
+        &page(
+            vec![
+                turn("direct", "a", 130),
+                reply("asked", "a", 120),
+                turn("elsewhere", "b", 110),
+            ],
+            false,
+        ),
+    )
+    .unwrap();
+    assert_eq!(observed.count("a", 0).total, 2);
+    assert_eq!(
+        observed.count("a", 125).label().as_deref(),
+        Some("1 unread")
+    );
+    assert_eq!(observed.count("b", 100).total, 1);
+    assert_eq!(observed.newest("a"), Some(130));
+    assert_eq!(observed.submitted("a", "direct"), Some(130));
+    let repeated = Page::read(
+        "you",
+        &page(vec![turn("same", "a", 100), turn("same", "a", 100)], false),
+    )
+    .unwrap();
+    assert_eq!(repeated.count("a", 0).total, 1);
 }

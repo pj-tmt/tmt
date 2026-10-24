@@ -185,15 +185,21 @@ fn conversation_results_use_one_originator_page_without_room_or_lead_scans() {
     .read(
         |input| {
             calls += 1;
-            assert_eq!(
-                input,
-                json!({"originatorId":"me","view":"results","limit":50})
-            );
-            Ok(json!({"items":[reply("cross-room", "a", 20, Some("latest"))],"nextBefore":null}))
+            assert_eq!(input["originatorId"], "me");
+            assert_eq!(input["limit"], 50);
+            Ok(if input["view"] == "answers" {
+                json!({"items":[],"nextBefore":null})
+            } else {
+                assert_eq!(input["view"], "results");
+                json!({"items":[reply("cross-room", "a", 20, Some("latest"))],"nextBefore":null})
+            })
         },
         30,
     );
-    assert_eq!(calls, 1);
+    assert_eq!(
+        calls, 2,
+        "the results page, and the answers page for unread"
+    );
     assert!(read.leads.is_empty());
     let mut state = State::default();
     state.set_sender(Some("me"));
@@ -451,20 +457,21 @@ fn one_global_results_page_and_one_recipient_page_per_distinct_lead_are_bounded(
     let mut inputs = Vec::new();
     let read = fetch(vec![lead("a", "one"), lead("a", "two"), lead("b", "three")]).read(|input| {
         inputs.push(input.clone());
-        Ok(if input["view"] == "results" {
-            json!({"items":[reply("late", "b", 40, Some("answer"))],"nextBefore":{"submittedAtMs":40,"requestId":"late"}})
-        } else {
-            json!({"items":[ask("pending", "a", 50)],"nextBefore":null})
+        Ok(match input["view"].as_str() {
+            Some("results") => json!({"items":[reply("late", "b", 40, Some("answer"))],"nextBefore":{"submittedAtMs":40,"requestId":"late"}}),
+            Some("answers") => json!({"items":[],"nextBefore":null}),
+            _ => json!({"items":[ask("pending", "a", 50)],"nextBefore":null}),
         })
     }, 100);
-    assert_eq!(read.calls, 3);
-    assert_eq!(inputs.len(), 3);
+    assert_eq!(read.calls, 4);
+    assert_eq!(inputs.len(), 4);
     assert!(inputs.iter().all(|input| input["limit"] == LIMIT
         && input.get("before").is_none()
         && input.get("roomId").is_none()));
     assert_eq!(inputs[0]["originatorId"], "me");
-    assert_eq!(inputs[1]["recipientId"], "a");
-    assert_eq!(inputs[2]["recipientId"], "b");
+    assert_eq!(inputs[1]["view"], "answers");
+    assert_eq!(inputs[2]["recipientId"], "a");
+    assert_eq!(inputs[3]["recipientId"], "b");
     assert_eq!(
         read.leads
             .iter()
@@ -485,15 +492,17 @@ fn missing_user_reads_nothing_but_home_members_without_leads_reuse_one_results_p
     assert_eq!(read.calls, 0);
     let read = fetch(vec![]).read(
         |input| {
-            assert_eq!(
-                input,
-                json!({"originatorId":"me","view":"results","limit":50})
-            );
-            Ok(json!({"items":[reply("member-reply","member",20,Some("answer"))]}))
+            assert_eq!(input["originatorId"], "me");
+            Ok(if input["view"] == "answers" {
+                json!({"items":[],"nextBefore":null})
+            } else {
+                assert_eq!(input["view"], "results");
+                json!({"items":[reply("member-reply","member",20,Some("answer"))]})
+            })
         },
         100,
     );
-    assert_eq!(read.calls, 1);
+    assert_eq!(read.calls, 2);
     assert!(read.leads.is_empty());
     assert_eq!(read.replies[0]["recipientId"], "member");
     assert_eq!(read.replies[0]["requestId"], "member-reply");
@@ -557,7 +566,7 @@ fn failed_reads_are_not_empty_evidence_and_changed_sender_drops_observations() {
     };
     let read = fetch(vec![lead("a", "squad")])
         .read(|_| Err(SquadError::new("READ_FAILED", "cannot read")), 100);
-    assert_eq!(read.calls, 2);
+    assert_eq!(read.calls, 3);
     state.replace(read);
     assert!(state.failure.is_some() && state.leads[0].failure.is_some());
     assert_eq!(state.leads[0].exchange, Some(prior));
@@ -704,27 +713,45 @@ impl State {
 }
 
 #[test]
-fn unread_uses_only_the_originator_page_and_holds_it_across_failed_or_late_reads() {
+fn unread_uses_only_the_originators_answers_page_and_holds_it_across_failed_or_late_reads() {
     let mut state = State::default();
     state.reconcile(&observation_home(vec![lead("a", "room")]), Some("me"));
     let read = fetch(vec![lead("a", "room")]).read(
-        |input| {
-            if input["view"] == "results" {
+        |input| match input["view"].as_str() {
+            Some("results") => {
                 Ok(json!({"items":[reply("new", "a", 100, Some("answer"))], "nextBefore":null}))
-            } else {
-                Ok(json!({"items":[reply("older", "a", 90, Some("older"))], "nextBefore":null}))
             }
+            Some("answers") => {
+                assert_eq!(
+                    input,
+                    json!({"originatorId":"me","view":"answers","limit":50})
+                );
+                Ok(json!({"items":[
+                    {"requestId":"turn","kind":"request","sender":{"identityId":"me"},
+                     "recipientId":"a","answeredAtMs":150,"answer":"turn"},
+                    {"requestId":"new","kind":"request","sender":{"identityId":"me"},
+                     "recipientId":"a","answeredAtMs":100,"answer":"final"}
+                ], "nextBefore":null}))
+            }
+            _ => Ok(json!({"items":[reply("older", "a", 90, Some("older"))], "nextBefore":null})),
         },
         200,
     );
-    assert_eq!(read.calls, 2, "no extra query to count unread");
+    assert_eq!(
+        read.calls, 3,
+        "results, one answers page for unread, the lead's history"
+    );
     state.replace(read);
     assert_eq!(
         state.replies.len(),
         2,
         "conversation metadata still includes history"
     );
-    assert_eq!(state.unread("me").unwrap().count("a", 0).total, 1);
+    assert_eq!(
+        state.unread("me").unwrap().count("a", 0).total,
+        2,
+        "a captured turn counts beside the final"
+    );
     let held = state.unread("me").unwrap().clone();
     state.replace(fetch(vec![]).read(|_| Err(SquadError::new("FAILED", "missing")), 200));
     assert_eq!(state.unread("me"), Some(&held));
@@ -748,9 +775,40 @@ fn unread_uses_only_the_originator_page_and_holds_it_across_failed_or_late_reads
     assert_eq!(state.unread("other").unwrap().count("a", 0).total, 0);
 }
 
-/// Native scenarios admit the same bounded originator document as the worker.
+/// What Core's `answers` view says of a `results` page: each submitted final is an answer at
+/// its submission time.
+fn answers_of(results: &Value) -> Value {
+    let items: Vec<_> = results["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|item| item["final"]["submittedAtMs"].is_u64())
+        .map(|item| {
+            json!({
+                "requestId":item["requestId"], "kind":item["kind"], "sender":item["sender"],
+                "recipientId":item["recipientId"], "answeredAtMs":item["final"]["submittedAtMs"],
+                "answer":"final"
+            })
+        })
+        .collect();
+    let next = &results["nextBefore"];
+    json!({"items":items,"nextBefore":if next.is_null() {
+        Value::Null
+    } else {
+        json!({"answeredAtMs":next["submittedAtMs"],"requestId":next["requestId"]})
+    }})
+}
+
+/// Native scenarios admit the same bounded originator documents as the worker.
 impl State {
+    /// A `results` page, with the `answers` page its finals make.
     pub(in crate::board) fn test_results(&mut self, actor: &str, document: Value) {
+        let answers = answers_of(&document);
+        self.test_pages(actor, document, answers);
+    }
+
+    /// A `results` page and an explicit `answers` page, as when a turn answered without a final.
+    pub(in crate::board) fn test_pages(&mut self, actor: &str, results: Value, answers: Value) {
         self.set_sender(Some(actor));
         let read = Fetch::results(Some(Me {
             id: actor.into(),
@@ -758,15 +816,17 @@ impl State {
         }))
         .read(
             |input| {
-                assert_eq!(
-                    input,
-                    json!({"originatorId":actor,"view":"results","limit":50})
-                );
-                Ok(document.clone())
+                let view = input["view"].as_str().unwrap_or_default().to_owned();
+                assert_eq!(input, json!({"originatorId":actor,"view":view,"limit":50}));
+                match view.as_str() {
+                    "results" => Ok(results.clone()),
+                    "answers" => Ok(answers.clone()),
+                    other => panic!("unexpected view {other}"),
+                }
             },
             crate::status::now_ms(),
         );
-        assert_eq!(read.calls, 1);
+        assert_eq!(read.calls, 2);
         self.replace(read);
     }
 }

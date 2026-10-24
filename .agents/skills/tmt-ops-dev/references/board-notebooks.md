@@ -211,7 +211,8 @@ question-only presentation and does not acquire or paint these captures.
 
 Unread markers are separate from Core acknowledgments. After a successful draw,
 App admits only the exact actor/member/request submission of an acquired displayed
-reply in the Agents conversation while the reader holds focus; moving the list
+reply, or the answered turn of a send the answers page lists, in the Agents conversation
+while the reader holds focus; moving the list
 selection onto a row never reads it, and leaving the reader makes the next opening
 a fresh one. Loading, hidden, modal-covered or paused newer text cannot mark
 unseen output. A guarded `j` seals the actor/member and newest observed

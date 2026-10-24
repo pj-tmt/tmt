@@ -1269,11 +1269,13 @@ test.describe('the Ops route on the owner read', () => {
  */
 test.describe('the Digest route on the owner reads', () => {
   async function stub(page: Page) {
+    const reads: string[] = [];
     await page.route(`${origin}/sdk/mount`, (route) =>
       route.fulfill({ json: { address: `${origin}/r/owner` } }),
     );
     await page.route(new RegExp(`${origin}/r/owner/x/-/digest/(24h|7d|30d)$`), (route) => {
       const range = route.request().url().split('/').pop() as UsageRange;
+      reads.push(`digest/${range}`);
       return route.fulfill({
         json: {
           version: 1,
@@ -1284,12 +1286,37 @@ test.describe('the Digest route on the owner reads', () => {
         },
       });
     });
-    await page.route(`${origin}/r/owner/x/-/limits`, (route) =>
-      route.fulfill({
+    await page.route(`${origin}/r/owner/x/-/limits`, (route) => {
+      reads.push('limits');
+      return route.fulfill({
         json: { version: 1, state: 'unavailable', reason: 'not_sampled', observedAtMs: Date.now() },
-      }),
-    );
+      });
+    });
+    return reads;
   }
+
+  test('range switches reuse one allowance read and the minute tick obtains the next snapshot', async () => {
+    let reads: string[] = [];
+    const { page } = await openApp('/digest', async (page) => {
+      await page.clock.install();
+      reads = await stub(page);
+    });
+    await expect(page.locator('#digest-provider-codex > .digest-provider')).toBeVisible();
+    const count = (target: string) => reads.filter((name) => name === target).length;
+    expect(count('digest/7d')).toBe(1);
+    expect(count('limits')).toBe(1);
+    for (const range of ['7d', '30d', '24h']) {
+      await page.getByRole('tab', { name: range, exact: true }).click();
+      await expect(page.locator('.digest-total-label')).toContainText(range);
+      expect(count('digest/7d')).toBe(1);
+      expect(count('limits')).toBe(1);
+    }
+    await page.clock.fastForward(60_000);
+    await expect.poll(() => count('limits')).toBe(2);
+    await expect.poll(() => count('digest/7d')).toBe(2);
+    await expect(page.locator('#digest-provider-codex > .digest-provider')).toBeVisible();
+    await page.close();
+  });
 
   for (const width of [1440, 390])
     test(`draws the website allowance rows, charts, tabs, meters and coverage from the leaf pieces at ${width}`, async () => {
@@ -1322,7 +1349,7 @@ test.describe('the Digest route on the owner reads', () => {
         .locator('.tmt-ui-meter-fill')
         .evaluate((node) => (node as HTMLElement).style.getPropertyValue('--tmt-ui-meter-fill'));
       expect(Number(left)).toBeGreaterThan(0);
-      // The range is the leaf's boxed tabs, one selected; choosing 7d reads that range.
+      // The range is the leaf's boxed tabs, one selected; choosing 7d reuses the weekly report.
       const ranges = page.locator('#usage-ranges .tmt-ui-tab');
       await expect(ranges).toHaveText(['24h', '7d', '30d']);
       await expect(ranges.first()).toHaveAttribute('aria-selected', 'true');

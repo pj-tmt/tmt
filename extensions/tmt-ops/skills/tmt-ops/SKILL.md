@@ -461,10 +461,10 @@ replies to the selected incoming request, and authored bindings retain precedenc
 The active field uses Enter to send and Escape to retain its draft. Its fill is
 the boundary; there is no frame or heading rule. The Talk matrix is hidden until its data ships.
 
-A submitted reply you have not seen shows `● N unread` in STATE and squad team
+A submitted reply, or the captured turn of a message you typed straight to an agent, you have not seen shows `● N unread` in STATE and squad team
 strips, before working/idle/waiting state. Only the unread glyph is blue; NO_COLOR
 keeps the mark and words. The top bar shows your global unread count beside
-waiting. `N+` is a lower bound from the existing 50-result page, not an all-history
+waiting. `N+` is a lower bound from the 50-answer page, not an all-history
 count; zero observed unread never invents an unread state. Opening the agent's
 acquired conversation or successfully jumping with `j` advances your shared read
 marker. It survives restart, named views and reset-view. A save failure keeps the

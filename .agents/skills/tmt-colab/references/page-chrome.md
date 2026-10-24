@@ -299,7 +299,7 @@ explicit full-history/details view.
 
 `BrowserDrawer` renders in place and native modality promotes it above the header/frame. Desktop panels float on
 the right on an opaque square surface with a 1 px border on every edge. Chat,
-Source, Agents, Files, Comments and Export leave 8 px below the header and at the
+Source, Agents, Files and Export leave 8 px below the header and at the
 right and bottom edges (4 px through 480 px), plus top/right/bottom safe-area insets. All widths use native modal containment;
 menus use a transparent catching backdrop and consume Escape before their drawer. Neither changes renderer
 width or content layout; the header and page edge remain visible.
@@ -308,7 +308,8 @@ Chat: its bounded flex body keeps the shared header and non-shrinking composer
 visible, with only message history scrolling in the remaining height.
 All widths use native modal containment without body scroll locking; resizing preserves the mounted draft and editing selection. The body contains overscroll. A header or iframe backdrop press dismisses only, never clicks through.
 Close/Escape restores focus, and media listeners/dialogs clean up on close or
-unmount. Chat initializes on first opening; closed Source, Comments and Chat panels retain drafts and admitted history;
+unmount. Chat initializes on first opening; closed Source and Chat drawers retain drafts and admitted history, and the
+Comments panel, which unmounts when closed, gets its drafts back from the router's draft store;
 closing never dispatches, abandons or retries. Source places its existing Save action before Close in the shared header. The owner and editor link share stateless editor presentation while retaining their separate draft and save/request owners. The paper editor scrolls long lines within its bordered field and resizes vertically; its lower metadata reports draft/base equality, never persistence. Export closes its preparation and
 revokes download Blob URLs. Manage opens after its menu closes and initially
 focuses its non-interactive heading without an outline while metadata loads;
@@ -317,6 +318,20 @@ Tab reaches its enabled controls with visible focus outlines, and
 Close/Escape restores the trigger's focus. Safety details
 remain available from About this page, reader Page information and blocked views; visibility never
 substitutes for writer admission.
+
+The Comments region (the list and a thread's Discussion view) is a non-modal `BrowserPanel`, not a
+drawer: no scrim, focus trap or page inertness, so the page stays readable and keyboard-reachable
+beside or under it, and it shares the single panel slot with the drawers. `src/panel-mode.ts` picks
+its mode from one width pair (column from 1180 px, card from 761 px, sheet below; `e2e/panel-mode.spec.ts`
+holds the mode on both sides of each). A column is a track of the page grid:
+the page narrows by the panel width (286 px, 310 px from 1600 px), the gap (34 px, 42 px) and a 24 px
+right margin, and the panel sticks 20 px under the header with its own scroll and a 1 px left rule. A
+card (330 px, 12 px from the right and bottom, top at the header plus 13 px) and a sheet (7 px insets, up to
+75dvh) float over the page; the floating page controls move left of a card and above a sheet. Escape
+closes the panel only from inside it (a Discussion view steps back to the list first); on the page it
+falls through to the annotation window and selection mode. `Show in the page` scrolls to the passage
+and leaves the panel open. The panel mounts only while open; a thread opens at its latest message, and a
+reader at the end follows new messages while one scrolled up is held.
 
 `agent-status-panel.tsx` presents the canonical read-only `LiveAsk` observation
 inside the Agents drawer. It reads only while opened or after explicit Recheck,
@@ -377,8 +392,8 @@ published the document; the threads, asks and presentations follow when `#publis
 verified them. Until then `PageView.discussionPending` is set and those three fields are absent,
 never empty, so nothing unverified reads as verified: the router shows no comment count (the
 Discussion button and its Comments row carry no number), no `Needs you` entry (not `✓ Nothing waits`),
-no inline question, review, reading or proposal layer, and no thread highlights. The Comments and
-Chat drawers show one quiet `Loading comments…` status instead of a list or composer. The document
+no inline question, review, reading or proposal layer, and no thread highlights. The Comments panel and the
+Chat drawer show one quiet `Loading comments…` status instead of a list or composer. The document
 frame does not move when verification arrives; the layers and the count then appear. `ThreadStore`
 reports unavailable until verified, so no write can start from a pending view. `e2e/progressive-open.spec.ts`
 holds the verification back through the fixture's `discussionPending` option.

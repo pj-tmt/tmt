@@ -86,7 +86,7 @@ export interface FlowPair {
  * Without it the page shows the latest window only.
  */
 export interface LimitHistory {
-  line: string;
+  provider: string;
   windowMinutes: number;
   resetsAtMs: number;
   points: readonly { atMs: number; percentLeft: number }[];
@@ -106,7 +106,13 @@ export interface UsageDocument {
   limitHistory?: readonly LimitHistory[];
 }
 
-export interface DigestReport {
+export interface AllowanceReport {
+  /** Fixed weekly snapshot, independent of the selected usage range. */
+  allowance?: UsageDocument;
+  allowanceUnavailable?: string;
+}
+
+export interface DigestReport extends AllowanceReport {
   range: UsageRange;
   /** Whether this is sample data, not the owner's usage. */
   sample: boolean;
@@ -116,7 +122,12 @@ export interface DigestReport {
 }
 
 export interface DigestSource {
-  report(range: UsageRange, signal?: AbortSignal): Promise<DigestReport>;
+  /** Range switches reuse this mount's allowance; the minute refresh requests a fresh read. */
+  report(
+    range: UsageRange,
+    signal?: AbortSignal,
+    refreshAllowance?: boolean,
+  ): Promise<DigestReport>;
 }
 
 /** What `x/-/digest/<range>` answers: the usage report document, unchanged, under `report`. */
@@ -154,21 +165,13 @@ const REASONS: Record<OwnerReadReason | 'no-session' | 'unreachable', string> = 
   unreachable: 'Your machine did not answer. This page tries again shortly.',
 };
 
-/** The model family a driver's weekly window belongs to, as the report names it on its seats. */
-const DRIVER_LINES: Record<string, string> = { claude: 'claude', codex: 'gpt' };
-
-/**
- * The percent-left history of the current weekly window per provider. The cache keeps 8 days, so
- * its points can span two windows: only those of the newest window (its reset time) are drawn.
- */
+/** Keep each reset's samples separate, including older windows still active this week. */
 export function limitHistoryFrom(
   answer: OwnerReadAnswer<LimitsPayload>,
 ): readonly LimitHistory[] | undefined {
   if (answer.state !== 'ok') return undefined;
   const histories: unknown = answer.payload.limitHistory;
   if (!Array.isArray(histories)) return undefined;
-  // The door projects these, but a client reads each entry as data: one that is not the shape of
-  // the contract (a provider, a window, points of three numbers) shows no history for its provider.
   const isPoint = (point: unknown): point is readonly [number, number, number] =>
     Array.isArray(point) && point.length === 3 && point.every((value) => Number.isFinite(value));
   return histories.flatMap((entry: unknown) => {
@@ -179,54 +182,72 @@ export function limitHistoryFrom(
       !Array.isArray(history.points)
     )
       return [];
-    const points = history.points.filter(isPoint);
-    const last = points.at(-1);
-    if (!last) return [];
-    return [
-      {
-        line: DRIVER_LINES[history.provider] ?? history.provider,
-        windowMinutes: history.windowMinutes as number,
-        resetsAtMs: last[2],
-        points: points
-          .filter((point) => point[2] === last[2])
-          .map(([atMs, percentLeft]) => ({ atMs, percentLeft })),
-      },
-    ];
+    const groups = new Map<number, { atMs: number; percentLeft: number }[]>();
+    for (const [atMs, percentLeft, reset] of history.points.filter(isPoint)) {
+      const points = groups.get(reset) ?? [];
+      points.push({ atMs, percentLeft });
+      groups.set(reset, points);
+    }
+    return [...groups].map(([resetsAtMs, points]) => ({
+      provider: history.provider!,
+      windowMinutes: history.windowMinutes as number,
+      resetsAtMs,
+      points: points.sort((a, b) => a.atMs - b.atMs),
+    }));
   });
 }
 
-/**
- * The report from the two owner reads. An unavailable Digest read is the page's empty state with
- * its reason; an unavailable limits read only leaves the history out (the latest window still
- * shows), since `limits` needs Ops and a machine whose board never ran has no samples.
- */
+/** A failed weekly read stays explicit; the selected usage range is never its fallback. */
+export function allowanceFromAnswers(
+  weekly: OwnerReadAnswer<DigestPayload>,
+  limits: OwnerReadAnswer<LimitsPayload>,
+): AllowanceReport {
+  if (
+    weekly.state !== 'ok' ||
+    weekly.payload.since !== '7d' ||
+    weekly.payload.report?.since !== '7d'
+  )
+    return { allowanceUnavailable: 'Allowance could not be read. This page tries again shortly.' };
+  const limitHistory = limitHistoryFrom(limits);
+  return { allowance: { ...weekly.payload.report, ...(limitHistory ? { limitHistory } : {}) } };
+}
+
+/** Selected usage and independently acquired allowance through the existing owner reads. */
 export function reportFromAnswers(
   range: UsageRange,
   digest: OwnerReadAnswer<DigestPayload>,
-  limits: OwnerReadAnswer<LimitsPayload>,
+  allowance: AllowanceReport,
 ): DigestReport {
   if (digest.state !== 'ok') {
     const reason = digest.state === 'unavailable' ? digest.reason : digest.state;
-    return { range, sample: false, unavailable: REASONS[reason] };
+    return { range, sample: false, ...allowance, unavailable: REASONS[reason] };
   }
   const document = digest.payload.report;
   if (digest.payload.since !== range || document?.since !== range)
-    return { range, sample: false, unavailable: REASONS.unknown };
-  const limitHistory = limitHistoryFrom(limits);
-  return {
-    range,
-    sample: false,
-    document: limitHistory ? { ...document, limitHistory } : document,
-  };
+    return { range, sample: false, ...allowance, unavailable: REASONS.unknown };
+  return { range, sample: false, document, ...allowance };
 }
 
-/** The source the page reads: the owner's usage report and weekly-limit history. */
-export const digestSource: DigestSource = {
-  async report(range, signal = new AbortController().signal) {
-    const [digest, limits] = await Promise.all([
-      ownerRead<DigestPayload>(`digest/${range}`, signal),
-      ownerRead<LimitsPayload>('limits', signal),
-    ]);
-    return reportFromAnswers(range, digest, limits);
-  },
-};
+/** One source per mount: range switches share even an in-flight weekly read, never global state. */
+export function createDigestSource(): DigestSource {
+  let weekly: Promise<OwnerReadAnswer<DigestPayload>> | undefined;
+  let allowance: Promise<AllowanceReport> | undefined;
+  return {
+    async report(range, signal = new AbortController().signal, refreshAllowance = false) {
+      if (refreshAllowance) {
+        weekly = undefined;
+        allowance = undefined;
+      }
+      const selected =
+        range === '7d' && weekly ? weekly : ownerRead<DigestPayload>(`digest/${range}`, signal);
+      if (!allowance) {
+        weekly = range === '7d' ? selected : ownerRead<DigestPayload>('digest/7d', signal);
+        allowance = Promise.all([weekly, ownerRead<LimitsPayload>('limits', signal)]).then(
+          ([weekly, limits]) => allowanceFromAnswers(weekly, limits),
+        );
+      }
+      const [digest, snapshot] = await Promise.all([selected, allowance]);
+      return reportFromAnswers(range, digest, snapshot);
+    },
+  };
+}

@@ -192,10 +192,18 @@ those live regions. Presentation equality never suppresses signed reads or autho
 bars clipped to the reported window; any missing constituent keeps the entire bar hollow.
 Token areas use the leaf's pastel seat palette and monotone interpolation; sampled values and
 incomplete-bucket notes remain unchanged. `digest-page` derives the allowance rows, combined token chart and seat legend, activity and
-message views, and coverage/method footer from `DigestSource`. Provider history and method
+message views, and coverage/method footer from `DigestSource`. Allowance uses a fixed
+`digest/7d` owner read independently of the selected usage range (the 7d selection shares that
+read); `limits` supplies history. Each mounted source reuses that one allowance result
+across range switches (including in-flight reads). A switch reads only its selected usage
+report; 7d reuses the weekly report itself. The minute refresh obtains a fresh allowance
+result. There is no global cache. Limit titles come only from the explicit source `provider`,
+never seat model families. Active weekly windows group by provider, duration and reset; the
+newest observation reported by a current seat leads each provider, with other windows folded
+and labeled by reset, reporter seats and observation age. Histories match that exact window.
+Claude stays explicitly not reported until Core has a real source. Provider history and method
 stay disclosures. The page owns range, scale, expanded legend and disclosure state; changed
 reports restore open disclosures and summary focus, while unchanged reads retain the existing
 DOM and scroll position. Failed refreshes retain the last good report for that range; an
 unavailable newly selected range does not display the preceding range's observations. The
-route signal owns refresh cleanup. The presentation does not change report decoding, owner
-reads, allowance accounting or persistence.
+route signal owns refresh cleanup. The page uses existing owner reads and does not change allowance accounting or persistence.

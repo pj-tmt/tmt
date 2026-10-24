@@ -12,11 +12,22 @@ import { text } from '../strings.js';
 import { useNotificationConversation } from '../reply-notification-context.js';
 
 const bottomThreshold = 24;
-function atBottom(node: HTMLDivElement) {
+function atBottom(node: HTMLElement) {
   return node.scrollHeight - node.clientHeight - node.scrollTop <= bottomThreshold;
 }
-function scrollPosition(node: HTMLDivElement) {
+function scrollPosition(node: HTMLElement) {
   return { top: node.scrollTop, height: node.clientHeight, contentHeight: node.scrollHeight };
+}
+/** The element whose scroll offset is the reading position: the history when it scrolls itself,
+ * else the nearest ancestor that does (the Comments panel's body, which also holds the pinned
+ * composer and the footer). */
+function scrollerOf(history: HTMLElement): HTMLElement {
+  if (getComputedStyle(history).overflowY !== 'visible') return history;
+  for (let node = history.parentElement; node; node = node.parentElement) {
+    const overflow = getComputedStyle(node).overflowY;
+    if (overflow === 'auto' || overflow === 'scroll' || overflow === 'overlay') return node;
+  }
+  return history;
 }
 /** Owns history scrolling; callers retain placement, draft and action lifetimes. */
 export function ConversationWindow({
@@ -96,13 +107,41 @@ export function ConversationWindow({
       (element) => element.dataset.conversationRecord === request.recordKey,
     );
     if (!record) return;
-    node.scrollTop += record.getBoundingClientRect().top - node.getBoundingClientRect().top;
-    position.current = scrollPosition(node);
-    following.current = atBottom(node);
+    const scroller = scrollerOf(node);
+    scroller.scrollTop += record.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    position.current = scrollPosition(scroller);
+    following.current = atBottom(scroller);
     if (following.current) clearPending();
     node.focus({ preventScroll: true });
     reportReading();
     notificationRef.current.revealed?.(request.id);
+  }, [clearPending, reportReading]);
+  const scrolled = useCallback(() => {
+    const node = history.current && scrollerOf(history.current);
+    if (!node) return;
+    const previousPosition = position.current;
+    const currentPosition = scrollPosition(node);
+    position.current = currentPosition;
+    // A queued scroll may reflect a layout clamp before size observation.
+    // Only ignore the offset that the shrinking range can clamp to, using
+    // either content/viewport ordering. A reader's different offset still
+    // detaches even when a resize is pending; size observation owns following.
+    if (
+      !previousPosition ||
+      currentPosition.top ===
+        Math.min(
+          previousPosition.top,
+          Math.max(
+            0,
+            Math.min(previousPosition.contentHeight, currentPosition.contentHeight) -
+              Math.max(previousPosition.height, currentPosition.height),
+          ),
+        )
+    )
+      return;
+    following.current = atBottom(node);
+    if (following.current) clearPending();
+    reportReading();
   }, [clearPending, reportReading]);
   const requestReveal = useCallback(() => {
     if (!notificationRef.current.reveal || revealFrame.current !== undefined) return;
@@ -114,7 +153,7 @@ export function ConversationWindow({
     });
   }, [revealRecord]);
   const latest = useCallback(() => {
-    const node = history.current;
+    const node = history.current && scrollerOf(history.current);
     if (!node) return;
     following.current = true;
     node.scrollTop = node.scrollHeight;
@@ -146,7 +185,7 @@ export function ConversationWindow({
     const observer = new ResizeObserver(() => {
       // Chat keeps its drawer mounted while closed. A hidden history has no
       // reading position to retain; its next visible size opens at latest.
-      const node = history.current;
+      const node = history.current && scrollerOf(history.current);
       if (node && (!node.clientHeight || atBottom(node))) following.current = true;
       if (following.current) latest();
       else if (node) position.current = scrollPosition(node);
@@ -162,13 +201,15 @@ export function ConversationWindow({
       document.removeEventListener('visibilitychange', reportReading);
     };
   }, [latest, requestReveal, reportReading]);
-  // A history with no scroll of its own (the Comments panel's) opens at its latest messages by
-  // revealing the window's end in the container that does scroll; it never follows arrivals.
+  // A history with no scroll of its own (the Comments panel's) reads and follows in the ancestor
+  // that scrolls; the history's own scroll event never fires there.
   useLayoutEffect(() => {
     const node = history.current;
-    if (node && getComputedStyle(node).overflowY === 'visible')
-      root.current?.scrollIntoView({ block: 'end' });
-  }, []);
+    const scroller = node && scrollerOf(node);
+    if (!scroller || scroller === node) return;
+    scroller.addEventListener('scroll', scrolled, { passive: true });
+    return () => scroller.removeEventListener('scroll', scrolled);
+  }, [scrolled]);
   return (
     <section {...attributes} ref={root} className={`conversation-window ${className}`}>
       {!hideHeader && (
@@ -192,33 +233,7 @@ export function ConversationWindow({
           aria-labelledby={historyLabel ? undefined : headingId}
           aria-label={historyLabel}
           tabIndex={-1}
-          onScroll={() => {
-            const node = history.current;
-            if (!node) return;
-            const previousPosition = position.current;
-            const currentPosition = scrollPosition(node);
-            position.current = currentPosition;
-            // A queued scroll may reflect a layout clamp before size observation.
-            // Only ignore the offset that the shrinking range can clamp to, using
-            // either content/viewport ordering. A reader's different offset still
-            // detaches even when a resize is pending; size observation owns following.
-            if (
-              !previousPosition ||
-              currentPosition.top ===
-                Math.min(
-                  previousPosition.top,
-                  Math.max(
-                    0,
-                    Math.min(previousPosition.contentHeight, currentPosition.contentHeight) -
-                      Math.max(previousPosition.height, currentPosition.height),
-                  ),
-                )
-            )
-              return;
-            following.current = atBottom(node);
-            if (following.current) clearPending();
-            reportReading();
-          }}
+          onScroll={scrolled}
         >
           <div className="conversation-message-content" ref={content}>
             {children}
