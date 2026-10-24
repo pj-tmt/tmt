@@ -895,10 +895,12 @@ test('4781 merges Activity into selected Stacked/Lines and shares seat order wit
 });
 
 for (const failure of ['invalid', 'read', 'write'] as const)
-  test(`seat order falls back to Usage when local preference is ${failure}`, async ({ page }) => {
+  test(`seat order remains usable when local preference is ${failure}`, async ({ page }) => {
     await page.addInitScript((mode) => {
-      if (mode === 'invalid') localStorage.setItem('tmt-digest-seat-order', 'random');
-      else
+      if (mode === 'invalid') {
+        if (localStorage.getItem('tmt-digest-seat-order') === null)
+          localStorage.setItem('tmt-digest-seat-order', 'random');
+      } else
         Object.defineProperty(Storage.prototype, mode === 'read' ? 'getItem' : 'setItem', {
           value() {
             throw new Error('blocked storage');
@@ -911,13 +913,28 @@ for (const failure of ['invalid', 'read', 'write'] as const)
       'aria-selected',
       'true',
     );
-    if (failure === 'write') {
-      await sort.getByRole('tab', { name: 'Name', exact: true }).click();
-      await expect(sort.getByRole('tab', { name: 'Usage', exact: true })).toHaveAttribute(
-        'aria-selected',
-        'true',
-      );
-    }
+    await sort.getByRole('tab', { name: 'Name', exact: true }).click();
+    await expect(sort.getByRole('tab', { name: 'Name', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    const names = (await page.locator('#digest-ranking tbody .digest-seat').allTextContents()).map(
+      (name) => name.replace(/\*$/, ''),
+    );
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    await expect(page.locator('#digest-exchange tbody th')).toHaveText(names);
+    await expect(
+      page.locator('#digest-exchange thead th').filter({ hasNotText: 'From' }),
+    ).toHaveText(names);
+    await page.getByRole('tab', { name: '7d', exact: true }).click();
+    await expect(sort.getByRole('tab', { name: 'Name', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await page.reload();
+    await expect(
+      sort.getByRole('tab', { name: failure === 'invalid' ? 'Name' : 'Usage', exact: true }),
+    ).toHaveAttribute('aria-selected', 'true');
     expect(errors).toEqual([]);
   });
 

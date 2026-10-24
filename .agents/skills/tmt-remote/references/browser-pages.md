@@ -191,7 +191,8 @@ those live regions. Presentation equality never suppresses signed reads or autho
 `digest-page` combines per-seat activity with Token usage through its Stacked/Lines and Absolute/Share
 views, reusing the same reported buckets and palette. Missing observations break lines rather than
 becoming zero. A browser-local Name/Usage view preference sorts the seat table and both axes of the
-full-width Messages heatmap; guarded storage failures fall back to Usage and store no report data.
+full-width Messages heatmap. Invalid or unreadable stored preferences initially fall back to Usage;
+later choices remain active for the mounted page even when persistence fails. Storage holds no report data.
 Messages retains all observed participants, quiet zeros and diagonal, and a focusable internal scroller
 for large teams. Its owner-local table uses existing accent/text tokens for the sequential tint.
 Token areas use the leaf's pastel seat palette and monotone interpolation; sampled values and

@@ -4414,10 +4414,7 @@ function readSeatOrder() {
 function writeSeatOrder(value) {
 	try {
 		localStorage.setItem(SEAT_ORDER_KEY, value);
-		return value;
-	} catch {
-		return "usage";
-	}
+	} catch {}
 }
 /** A flat sheet with a sentence-case title and an optional right-hand slot in its head. */
 function card(id, title, body, options = {}) {
@@ -4930,7 +4927,8 @@ function digestPage(source = createDigestSource(), signal) {
 			value: "name",
 			text: "Name"
 		}], state.order, (value) => {
-			state.order = writeSeatOrder(value);
+			state.order = value;
+			writeSeatOrder(value);
 			if (good?.range === current) paint(good, false);
 			renderSort();
 			document.getElementById(`usage-panel-${state.order}`)?.focus({ preventScroll: true });

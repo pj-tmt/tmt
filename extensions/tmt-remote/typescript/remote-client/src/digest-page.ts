@@ -60,12 +60,11 @@ function readSeatOrder(): SeatOrder {
   }
 }
 
-function writeSeatOrder(value: SeatOrder): SeatOrder {
+function writeSeatOrder(value: SeatOrder): void {
   try {
     localStorage.setItem(SEAT_ORDER_KEY, value);
-    return value;
   } catch {
-    return 'usage';
+    // Persistence is optional; the mounted page keeps the reader's choice.
   }
 }
 
@@ -757,7 +756,8 @@ export function digestPage(
         ],
         state.order,
         (value) => {
-          state.order = writeSeatOrder(value);
+          state.order = value;
+          writeSeatOrder(value);
           if (good?.range === current) paint(good, false);
           renderSort();
           document.getElementById(`usage-panel-${state.order}`)?.focus({ preventScroll: true });
