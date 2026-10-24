@@ -246,8 +246,10 @@ delivery. They install and launch nothing.
   fails the transcript boundary, a non-UUID ID, a community driver, or a Codex match in its flat
   `archived_sessions` (Codex can unarchive a thread). A move is not probed: its agent runs, and
   its transcript may not be written yet. A resume that replays a launch preset is probed only
-  when the preset's executable is one of the driver's registered executables; a wrapper may set
-  its own `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, so its session is `Unknown`. The preset's
+  when the preset's executable is one of the driver's registered executables, matched by file
+  name; a wrapper may set its own `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, so its session is
+  `Unknown`. A wrapper installed under the driver's own name (for example `~/bin/claude`) is
+  still probed, so it needs `--retry` when its sessions live elsewhere. The preset's
   environment keys cannot change the config root. The probe marks, forgets and launches nothing; `--retry`
   skips it. A stale refusal carries `error.reason: session_stale`. Read `error.reason` with
   `error.code`: a runtime refusal keeps its own reason vocabulary.

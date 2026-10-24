@@ -832,5 +832,13 @@ mod presence_tests {
                 "{registered}"
             );
         }
+        // A wrapper preset for another session is not replayed: the registered
+        // command launches in the caller's environment, so it is probed.
+        let mut other = replayed("/opt/wrappers/claude-work");
+        other.session = Some("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb".into());
+        assert_eq!(
+            refusal(select_with(&home, false, false, false, Some(&other))).1,
+            "session_missing"
+        );
     }
 }
