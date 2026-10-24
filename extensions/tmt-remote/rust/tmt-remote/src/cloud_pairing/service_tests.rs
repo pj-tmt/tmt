@@ -275,6 +275,14 @@ fn service(
     core: &core_fixture::Core,
     ports: ProjectPorts,
 ) -> (Arc<Service>, Serving) {
+    service_with_identity(root, core, ports, Arc::new(Identity))
+}
+fn service_with_identity(
+    root: &std::path::Path,
+    core: &core_fixture::Core,
+    ports: ProjectPorts,
+    identity: Arc<dyn CloudIdentityQuery>,
+) -> (Arc<Service>, Serving) {
     let layout = Layout::open(root).unwrap();
     let lease = layout.serve_lock().unwrap();
     let mut store = Store::open(&lease).unwrap();
@@ -302,7 +310,7 @@ fn service(
             Arc::new(AtomicBool::new(false)),
             crate::limits::CLOUD_ENVELOPE_BYTES,
         )
-        .with_cloud_identity(Arc::new(Identity)),
+        .with_cloud_identity(identity),
     );
     let messages = Arc::new(
         MessageService::new(sessions.clone(), crate::limits::CLOUD_ENVELOPE_BYTES)
@@ -974,9 +982,24 @@ fn paired_machines_push_exact_finals_both_ways_and_reply_without_reverse_talk_pe
         clock: ports.clone(),
         jitter: ports.clone(),
     };
-    let (owner, owner_lease) = service(&core.root.join("owner"), &core, make_ports());
+    std::fs::write(
+        core.root.join("identities"),
+        json!({"identities":[{"id":TARGET,"name":"target","lifetime":"saved"}]}).to_string(),
+    )
+    .unwrap();
+    let query = Arc::new(crate::core::CoreClient::at(core.root.join("tmt")).unwrap());
+    let (owner, owner_lease) =
+        service_with_identity(&core.root.join("owner"), &core, make_ports(), query.clone());
     let (collaborator, collaborator_lease) =
-        service(&core.root.join("collaborator"), &core, make_ports());
+        service_with_identity(&core.root.join("collaborator"), &core, make_ports(), query);
+    let pinned_queries = || {
+        core.calls()
+            .iter()
+            .filter(|call| {
+                call["operation"] == "identity" && call["argv"][3] == "--expect-name=target"
+            })
+            .count()
+    };
     let events = pair_with_reciprocal_choice(&owner, &collaborator, false);
     let remote = events
         .iter()
@@ -1074,6 +1097,11 @@ fn paired_machines_push_exact_finals_both_ways_and_reply_without_reverse_talk_pe
         "sent"
     );
     assert_eq!(core.sends(), 1);
+    assert_eq!(
+        pinned_queries(),
+        1,
+        "forward delivery uses the public Core pin"
+    );
     let first_operation = first_request["requestId"].as_str().unwrap();
     let receipt: Value = serde_json::from_slice(
         &std::fs::read(core.root.join(format!("receipt-{first_operation}"))).unwrap(),
@@ -1131,6 +1159,11 @@ fn paired_machines_push_exact_finals_both_ways_and_reply_without_reverse_talk_pe
         "sent"
     );
     assert_eq!(core.sends(), 2);
+    assert_eq!(
+        pinned_queries(),
+        2,
+        "reverse delivery uses the public Core pin too"
+    );
     let second_operation = second_request["requestId"].as_str().unwrap();
     let receipt: Value = serde_json::from_slice(
         &std::fs::read(core.root.join(format!("receipt-{second_operation}"))).unwrap(),

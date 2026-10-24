@@ -87,13 +87,14 @@ process.stdout.write(JSON.stringify({ version: 1, state: 'sent', remote: request
     const wrapper = path.join(sandbox.root, 'actual-core');
     // Exact forwarding only. No receipt, argv or body is logged. The existing
     // invocation owner bounds and reaps this wrapper and its non-detached child.
+    // Core runs in that owner's private cwd, including test-isolated Core builds.
     writeExecutable(
       wrapper,
       `#!${process.execPath}
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 fs.appendFileSync(${JSON.stringify(calls)}, process.argv[2] + '\\n', { mode: 0o600 });
-const child = spawn(${JSON.stringify(sandbox.cli.executable)}, [...${JSON.stringify(sandbox.cli.args)}, ...process.argv.slice(2)], { env: ${JSON.stringify(sandbox.env)}, stdio: 'inherit' });
+const child = spawn(${JSON.stringify(sandbox.cli.executable)}, [...${JSON.stringify(sandbox.cli.args)}, ...process.argv.slice(2)], { cwd: ${JSON.stringify(sandbox.cwd)}, env: ${JSON.stringify(sandbox.env)}, stdio: 'inherit' });
 child.once('error', () => process.exit(1));
 child.once('exit', (code, signal) => process.exit(signal === null ? (code ?? 1) : 1));
 `
