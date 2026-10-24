@@ -46,7 +46,7 @@ at start by `hyperlinks::supported` (`FORCE_HYPERLINK`, positive terminal signal
 Conversation Markdown preserves authored soft and hard line breaks. A continuation
 inside a quote carries only its list indent forward; the quote gutter is added
 once per displayed line. Source mappings and copied message bytes stay unchanged.
-Conversation bodies always render in full: there is no fold state, caption or
+Conversation bodies always render in full, with no message fold or expansion
 control, and the pane scrolls. A separate anchor map preserves reading position
 while source mappings retain raw identities.
 
