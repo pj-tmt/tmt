@@ -21,6 +21,57 @@ pub enum AncestryError {
     Unavailable,
 }
 
+/// Executable names along one complete caller chain, from a single bounded ps
+/// snapshot. Missing, cyclic or truncated evidence is unavailable, never human.
+pub fn command_chain<R: CommandRunner>(
+    runner: &R,
+    first: u32,
+    deadline: Instant,
+) -> Result<Vec<(u32, String)>, AncestryError> {
+    use std::collections::{HashMap, HashSet};
+    let output = query_ps(
+        runner,
+        &["-A".into(), "-o".into(), "pid=,ppid=,comm=".into()],
+        deadline,
+        4 * 1024 * 1024,
+    )
+    .map_err(AncestryError::Command)?;
+    let text = std::str::from_utf8(&output.stdout).map_err(|_| AncestryError::Unavailable)?;
+    let mut processes = HashMap::new();
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        let (pid, rest) = line
+            .trim()
+            .split_once(char::is_whitespace)
+            .ok_or(AncestryError::Unavailable)?;
+        let (parent, executable) = rest
+            .trim_start()
+            .split_once(char::is_whitespace)
+            .ok_or(AncestryError::Unavailable)?;
+        let pid = pid.parse::<u32>().map_err(|_| AncestryError::Unavailable)?;
+        let parent = parent
+            .parse::<u32>()
+            .map_err(|_| AncestryError::Unavailable)?;
+        if processes.insert(pid, (parent, executable.trim())).is_some() {
+            return Err(AncestryError::Unavailable);
+        }
+    }
+    let mut pid = first;
+    let mut seen = HashSet::new();
+    let mut chain = Vec::new();
+    for _ in 0..MAX_DEPTH {
+        if pid <= 1 {
+            return Ok(chain);
+        }
+        if !seen.insert(pid) {
+            return Err(AncestryError::Unavailable);
+        }
+        let &(parent, executable) = processes.get(&pid).ok_or(AncestryError::Unavailable)?;
+        chain.push((pid, executable.to_owned()));
+        pid = parent;
+    }
+    Err(AncestryError::Unavailable)
+}
+
 /// `first` and its ancestors, nearest first, ending before PID 0.
 pub fn chain<R: CommandRunner>(
     runner: &R,

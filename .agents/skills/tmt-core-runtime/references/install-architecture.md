@@ -224,6 +224,12 @@ the move is a bootstrap reinstall.
   come from the fixed product table. Ops, Remote, Colab and Digest are registered for installation;
   an unavailable channel pointer is an acquisition failure, never confirmation that no release exists,
   and changes nothing. Digest remains unpublished until its release activation.
+- Missing-command offers reuse the explicit install composition after one human consent.
+  A three-second read-only metadata preview may fail soft to unknown version/size.
+  `native_install::ProgressEvent` observes acquisition, actual HTTP byte counts, verification
+  and publication; CLI maps it into the application-neutral `tmt-cli-style::progress`.
+  Observer output failure cannot affect activation. Successful publication precedes skill
+  settlement; skill warnings retain the active release and remain visible in the final result.
 - Install, upgrade and uninstall need consent (`--yes` or a prompt) and refuse non-interactive
   runs without it. `ls` inspects local state only: receipts plus the current activation,
   payload, command links and PATH shadowing. Only `--check` adds one bounded metadata

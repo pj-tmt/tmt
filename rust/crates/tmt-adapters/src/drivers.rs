@@ -65,6 +65,8 @@ pub struct Runtime {
     /// when the provider has a supported one.
     pub channel: Option<fn() -> Box<dyn crate::runtime::channel::RuntimeChannel>>,
     pub identify_caller: Option<fn() -> ActionResult<RuntimeCaller, ()>>,
+    /// A provider hint suppresses questions even when it cannot prove identity.
+    pub caller_marked: fn() -> bool,
 }
 
 pub struct DriverDefinition {
@@ -257,6 +259,34 @@ impl Registry {
             .fold(ActionResult::Unsupported, |found, identify| {
                 found.or_unsupported(identify)
             })
+    }
+
+    /// The same bounded ancestry snapshot as caller_context's runtime lookup,
+    /// with no extra pane, storage or per-process probes. Unknown is never human.
+    pub fn caller_is_human(&self) -> bool {
+        if self
+            .iter()
+            .filter_map(|driver| driver.runtime.as_ref())
+            .any(|runtime| (runtime.caller_marked)())
+        {
+            return false;
+        }
+        let chain = crate::process::ancestry::command_chain(
+            &crate::process::UnixCommandRunner,
+            std::process::id(),
+            Instant::now() + Duration::from_secs(3),
+        );
+        chain.is_ok_and(|chain| {
+            chain.iter().all(|(_, executable)| {
+                !self.iter().any(|driver| {
+                    driver.descriptor.executables.iter().any(|name| {
+                        std::path::Path::new(executable)
+                            .file_name()
+                            .is_some_and(|file| file == *name)
+                    })
+                })
+            })
+        })
     }
 
     /// The caller's driver owns its explanation; a probe failure is not a

@@ -17,6 +17,7 @@ pub(super) fn install(
     exact: Option<&str>,
     archive: Option<&str>,
     manifest: Option<&str>,
+    progress: native_install::ProgressObserver<'_>,
 ) -> Result<InstalledExtension, Failure> {
     let name = product.as_str();
     let target = tmt_core::native_install::native_target(env::consts::OS, env::consts::ARCH)
@@ -82,7 +83,7 @@ pub(super) fn install(
         )
         .map(|report| report.installation)
         .map_err(|error| io::Error::new(error.kind(), error)),
-        (None, None) => native_install::install_release(
+        (None, None) => native_install::install_release_observed(
             product,
             native_install::ReleaseInstallRequest {
                 prefix,
@@ -92,6 +93,7 @@ pub(super) fn install(
             },
             None,
             checkpoint,
+            progress,
         ),
         _ => {
             return Err(Failure::new(

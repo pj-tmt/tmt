@@ -249,6 +249,11 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     env: &["CODEX_HOME", "CODEX_SQLITE_HOME"],
     locate,
     runtime: Some(super::Runtime {
+        caller_marked: || {
+            ["CODEX_THREAD_ID", "CODEX_SANDBOX"]
+                .iter()
+                .any(|name| std::env::var_os(name).is_some())
+        },
         driver: || Box::new(CodexRuntime),
         lifecycle: || Box::new(CodexLifecycle),
         channel: Some(|| Box::new(channel::CodexChannel)),

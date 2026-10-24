@@ -2,7 +2,7 @@
 
 use std::{
     cell::Cell,
-    io,
+    io::{self, Read},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -143,7 +143,19 @@ impl Https {
         maximum: usize,
         deadline: Instant,
     ) -> io::Result<Response> {
-        self.get_inner(url, accept, maximum, deadline, false)
+        self.get_observed(url, accept, maximum, deadline, &|_, _| {})
+    }
+
+    /// Reports actual response-body bytes, never redirect or retry bodies.
+    pub(crate) fn get_observed(
+        &self,
+        url: &str,
+        accept: &str,
+        maximum: usize,
+        deadline: Instant,
+        progress: &dyn Fn(u64, Option<u64>),
+    ) -> io::Result<Response> {
+        self.get_inner(url, accept, maximum, deadline, false, progress)
     }
 
     pub(crate) fn get_actions(
@@ -163,7 +175,14 @@ impl Https {
         {
             return Err(invalid_url());
         }
-        self.get_inner(url, "application/vnd.github+json", maximum, deadline, true)
+        self.get_inner(
+            url,
+            "application/vnd.github+json",
+            maximum,
+            deadline,
+            true,
+            &|_, _| {},
+        )
     }
 
     fn get_inner(
@@ -173,6 +192,7 @@ impl Https {
         maximum: usize,
         deadline: Instant,
         actions_redirects: bool,
+        progress: &dyn Fn(u64, Option<u64>),
     ) -> io::Result<Response> {
         #[cfg(test)]
         let mut current = validate_url_with_loopback(url, self.allow_loopback)?;
@@ -307,14 +327,29 @@ impl Https {
                 })
                 .collect::<io::Result<Vec<_>>>()?;
             let link = (!links.is_empty()).then(|| links.join(","));
-            let bytes = response
-                .body_mut()
-                .with_config()
-                .limit(body_limit)
-                .read_to_vec()
-                .map_err(map_ureq_error)?;
-            if bytes.len() > maximum {
-                return Err(invalid_response("HTTPS response exceeds its size limit"));
+            let total = response
+                .headers()
+                .get("content-length")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse::<u64>().ok());
+            let mut reader = response.body_mut().with_config().limit(body_limit).reader();
+            let mut bytes = Vec::new();
+            let mut chunk = [0; 32 * 1024];
+            loop {
+                if Instant::now() >= deadline {
+                    return Err(timeout_error());
+                }
+                let count = reader
+                    .read(&mut chunk)
+                    .map_err(|error| map_ureq_error(error.into()))?;
+                if count == 0 {
+                    break;
+                }
+                if bytes.len().saturating_add(count) > maximum {
+                    return Err(invalid_response("HTTPS response exceeds its size limit"));
+                }
+                bytes.extend_from_slice(&chunk[..count]);
+                progress(bytes.len() as u64, total);
             }
             return Ok(Response { body: bytes, link });
         }

@@ -41,6 +41,16 @@ rollback. Older verified releases are removed
 automatically; damaged or unrecognized content is preserved. Cleanup problems do
 not fail an update, and repair does not prune.
 
+## Missing official commands
+
+When an official extension command is missing, a human terminal invocation offers
+one verified installation, including bundled agent skills. Declining changes
+nothing. After installation, run the printed original command yourself.
+Agents, scripts, pipes and `--json` never prompt or install automatically:
+`EXTENSION_NOT_INSTALLED` (exit 3) includes the exact install command, such as
+`tmt extension install ops --yes`. Root help shows missing official extensions;
+completion lists only installed commands.
+
 ## Install an extension archive
 
 An installed `tmt` installs an extension from a local archive and its manifest:
