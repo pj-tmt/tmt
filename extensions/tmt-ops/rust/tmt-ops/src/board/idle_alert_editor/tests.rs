@@ -55,8 +55,10 @@ fn no_tab_arrows_presets_typed_value_cancel_and_invalid_save() {
         app.idle_alert_editor.as_ref().unwrap().after.as_str(),
         "30m"
     );
+    app.idle_alert_editor.as_mut().unwrap().notice = Some("✓ Saved · squad idle alert".into());
     key(&mut app, KeyCode::Right);
     assert!(app.idle_alert_editor.as_ref().unwrap().enabled);
+    assert!(app.idle_alert_editor.as_ref().unwrap().notice.is_none());
     key(&mut app, KeyCode::Down);
     key(&mut app, KeyCode::Right);
     assert_eq!(
@@ -366,7 +368,7 @@ fn threshold_preview_uses_held_over_marks_and_unknown_never_becomes_zero() {
     assert!(
         c.impact(&app)
             .join(" ")
-            .contains("Now: 1 member alerted (worker)")
+            .contains("2 alerted now: *lead (35m), worker-3 (32m)")
     );
     app.idle_alert_editor.as_mut().unwrap().after = Editor::from("45m");
     assert!(
@@ -375,7 +377,7 @@ fn threshold_preview_uses_held_over_marks_and_unknown_never_becomes_zero() {
             .unwrap()
             .impact(&app)
             .join(" ")
-            .contains("worker would no longer count as over")
+            .contains("*lead (35m), worker-3 (32m) no longer count as over")
     );
     app.view
         .as_mut()
@@ -387,11 +389,10 @@ fn threshold_preview_uses_held_over_marks_and_unknown_never_becomes_zero() {
         .roster
         .squads[0]
         .member_states
-        .get_mut(MEMBER)
-        .unwrap()
-        .idle_over = false;
+        .values_mut()
+        .for_each(|state| state.idle_over = false);
     let c = app.idle_alert_editor.as_ref().unwrap();
-    assert!(!c.impact(&app).join(" ").contains("worker would"));
+    assert!(!c.impact(&app).join(" ").contains("worker-3"));
     app.view
         .as_mut()
         .unwrap()
@@ -426,4 +427,37 @@ fn loading_can_be_cancelled_and_late_read_cannot_reopen_it() {
         recovered: None,
     });
     assert!(app.idle_alert_editor.is_none());
+}
+
+#[test]
+fn enter_saves_from_after_and_pointer_places_the_shared_caret() {
+    let mut app = form();
+    let _commands = crate::runner::forbid_commands();
+    paint(&app, 160, 36);
+    let area = app
+        .idle_alert_editor
+        .as_ref()
+        .unwrap()
+        .hits
+        .borrow()
+        .iter()
+        .find_map(|(r, c)| matches!(c, Control::After).then_some(*r))
+        .unwrap();
+    let event = Event::Mouse(ratatui::crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: area.x + 1,
+        row: area.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    app.overlay_event(&event);
+    key(&mut app, KeyCode::Char('1'));
+    assert_eq!(
+        app.idle_alert_editor.as_ref().unwrap().after.as_str(),
+        "130m"
+    );
+    paint(&app, 160, 36);
+    let Effect::IdleAlert(task) = key(&mut app, KeyCode::Enter) else {
+        panic!("Enter saves from the After row")
+    };
+    assert_eq!(task.save.as_ref().unwrap().2, "130m");
 }

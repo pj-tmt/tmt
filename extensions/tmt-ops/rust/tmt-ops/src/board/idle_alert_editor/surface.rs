@@ -30,12 +30,45 @@ impl Controller {
         } else {
             1
         };
-        let areas = modal.areas(
+        let mut areas = modal.areas(
             body,
             [66, (demand + 4 + usize::from(self.notice.is_some())) as u16],
             true,
             self.notice.is_some(),
         );
+        // The same modal geometry, placed beside the list rather than over Talk.
+        if let Some(list) = app
+            .workspace_placement(body)
+            .and_then(|p| p.list)
+            .filter(|list| list.width >= areas.outer.width)
+        {
+            let x = list.x + (list.width - areas.outer.width) / 2;
+            let row_end = app
+                .hits
+                .borrow()
+                .iter()
+                .filter(|hit| hit.row().is_some())
+                .map(|hit| hit.y.saturating_add(1))
+                .max()
+                .unwrap_or(body.y);
+            let y = areas
+                .outer
+                .y
+                .max(row_end)
+                .min(body.bottom().saturating_sub(areas.outer.height));
+            let dx = i32::from(x) - i32::from(areas.outer.x);
+            let dy = i32::from(y) - i32::from(areas.outer.y);
+            for area in [
+                &mut areas.outer,
+                &mut areas.content,
+                &mut areas.footer,
+                &mut areas.position,
+                &mut areas.status,
+            ] {
+                area.x = (i32::from(area.x) + dx).max(0) as u16;
+                area.y = (i32::from(area.y) + dy).max(0) as u16;
+            }
+        }
         modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
         app.input_band.set(Some(areas.outer));
         let content = areas.content;
@@ -80,8 +113,8 @@ impl Controller {
             for (i, hit) in hits {
                 self.hits.borrow_mut().push((hit, Control::On(i == 0)));
             }
-            paint(frame, line(2), "After", Role::Text);
-            let row = line(2);
+            paint(frame, line(1), "After", Role::Text);
+            let row = line(1);
             let editor = Rect::new(
                 row.x + 9,
                 row.y,
@@ -147,12 +180,12 @@ impl Controller {
                 self.hits.borrow_mut().push((hit, Control::Preset(i)));
             }
             if invalid {
-                paint(frame, line(3), INVALID, Role::Blocked);
+                paint(frame, line(2), INVALID, Role::Blocked);
             }
             for (i, text) in impact.iter().enumerate() {
                 paint(
                     frame,
-                    line((4 + usize::from(invalid) + i) as u16),
+                    line((3 + usize::from(invalid) + i) as u16),
                     text,
                     Role::Muted,
                 );
@@ -187,7 +220,7 @@ impl Controller {
             let hits = chips(
                 app,
                 frame.buffer_mut(),
-                areas.footer,
+                line((demand - 1) as u16),
                 &[
                     (
                         "Save",
@@ -208,23 +241,11 @@ impl Controller {
                     },
                 ));
             }
-            let start = hits
-                .iter()
-                .map(|(_, hit)| hit.right())
-                .max()
-                .unwrap_or(areas.footer.x)
-                .saturating_add(1)
-                .min(areas.footer.right());
             paint(
                 frame,
-                Rect::new(
-                    start,
-                    areas.footer.y,
-                    areas.footer.right() - start,
-                    areas.footer.height,
-                ),
+                areas.footer,
                 if available {
-                    "↑↓ row · ←→ choose · Esc"
+                    "↑↓ row · ←→ choose · type a time · Enter save · Esc cancel"
                 } else {
                     "Esc close"
                 },

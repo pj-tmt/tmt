@@ -19,30 +19,45 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "idle-editor-unknown",
 ];
 pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
-    let mut app = if matches!(
+    let mut app = crate::board::app::workspace::tests::capture_case("idle-alert-overview", look);
+    if !matches!(
         scene,
-        "idle-editor-loading"
-            | "idle-editor-unavailable"
+        "idle-editor-list-on"
+            | "idle-editor-list-off"
+            | "idle-editor-hover"
             | "idle-editor-pool"
             | "idle-editor-chooser"
+            | "idle-editor-loading"
+            | "idle-editor-unavailable"
     ) {
-        board()
-    } else {
-        form()
-    };
-    app.view.as_mut().unwrap().look = look;
-    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
-    snapshot.squad_looks.clear();
-    let squad = &mut snapshot.roster.squads[0];
-    squad.lead = Some(MEMBER.into());
-    squad.idle_alert = Some(crate::board::workspace::IdleAlertSetting {
-        enabled: scene != "idle-editor-list-off",
-        after_ms: 1_800_000,
-    });
-    squad.member_states.get_mut(MEMBER).unwrap().idle_over = scene != "idle-editor-list-off";
-    let member = snapshot.roster.members.get_mut(MEMBER).unwrap();
-    member.activity.phase = crate::board::activity::Phase::Idle;
-    member.activity.since_ms = Some(crate::status::now_ms() - 32 * 60_000);
+        let Effect::IdleAlert(task) = app.open_idle_alert(None) else {
+            panic!("idle fixture has a selected scoped member")
+        };
+        app.finished_idle_alert(Completed {
+            task,
+            result: Ok(Box::new(config())),
+            recovered: None,
+        });
+    }
+    if scene == "idle-editor-list-off" {
+        let squad = &mut app
+            .view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .roster
+            .squads[0];
+        squad.idle_alert = Some(crate::board::workspace::IdleAlertSetting {
+            enabled: false,
+            after_ms: 1_800_000,
+        });
+        for state in squad.member_states.values_mut() {
+            state.idle_over = false;
+        }
+    }
     match scene {
         "idle-editor-list-on" | "idle-editor-list-off" | "idle-editor-hover" => {
             app.idle_alert_editor = None;
@@ -137,5 +152,17 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
     app
 }
 pub(in crate::board) fn metadata(app: &App) -> serde_json::Value {
-    app.idle_alert_editor.as_ref().map_or(serde_json::Value::Null,|c|serde_json::json!({"focus":c.focus,"choice":c.choice,"pending":c.pending,"readable":c.readable.get(),"hits":c.hits.borrow().iter().map(|(r,a)|serde_json::json!({"rect":[r.x,r.y,r.width,r.height],"control":format!("{a:?}")})).collect::<Vec<_>>()}))
+    let cells: Vec<_> = app
+        .workspace_strip_hits
+        .borrow()
+        .iter()
+        .filter_map(|(r, choice)| match choice {
+            Choice::IdleAlert(room) => {
+                Some(serde_json::json!({"room":room,"rect":[r.x,r.y,r.width,r.height]}))
+            }
+            _ => None,
+        })
+        .collect();
+    let editor=app.idle_alert_editor.as_ref().map(|c|serde_json::json!({"focus":c.focus,"choice":c.choice,"caret":c.after.cursor(),"pending":c.pending,"readable":c.readable.get(),"hits":c.hits.borrow().iter().map(|(r,a)|serde_json::json!({"rect":[r.x,r.y,r.width,r.height],"control":format!("{a:?}")})).collect::<Vec<_>>()}));
+    serde_json::json!({"cells":cells,"editor":editor})
 }

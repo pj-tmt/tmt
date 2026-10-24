@@ -84,7 +84,7 @@ impl Controller {
             .map(|m| m.name.as_str());
         let mut lines = vec![match lead {
             Some(lead) => format!(
-                "Tells {lead} once when a member stays idle longer than After. Not sent while it waits on you or rests (hold)."
+                "Tells *{lead} once when a member stays idle longer than After. Not sent while it waits on you or rests (hold)."
             ),
             None => "? No lead observed; no idle alert can be sent.".into(),
         }];
@@ -104,10 +104,40 @@ impl Controller {
             return lines;
         };
         let original = config.idle_alert(&self.name).ok();
+        let now = crate::status::now_ms();
+        let named = |member: &super::workspace::OpsMember| {
+            let age = member
+                .activity
+                .since_ms
+                .filter(|since| *since <= now)
+                .map(|since| crate::requests::age(now, since))
+                .unwrap_or_else(|| "?".into());
+            format!(
+                "{}{} ({age})",
+                if squad.lead.as_ref() == Some(&member.id) {
+                    "*"
+                } else {
+                    ""
+                },
+                member.name
+            )
+        };
+        let current = if alerted.is_empty() {
+            "◷ No members alerted now.".into()
+        } else {
+            format!(
+                "◷ {} alerted now: {}",
+                alerted.len(),
+                alerted
+                    .iter()
+                    .map(|m| named(m))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
         match self.draft() {
             Ok(setting) if original != Some(setting) => {
                 let after_ms = u64::try_from(setting.after.as_millis()).unwrap_or(u64::MAX);
-                let now = crate::status::now_ms();
                 let removed: Vec<_> = alerted
                     .iter()
                     .filter(|m| {
@@ -117,37 +147,31 @@ impl Controller {
                                 .and_then(|since| now.checked_sub(since))
                                 .is_some_and(|age| age < after_ms)
                     })
-                    .map(|m| m.name.as_str())
                     .collect();
                 lines.push(if removed.is_empty() {
-                    "No currently alerted member leaves the threshold.".into()
+                    "◷ No currently alerted member leaves the threshold.".into()
                 } else {
                     format!(
-                        "After {}: {} would no longer count as over.",
-                        self.after.as_str(),
-                        removed.join(", ")
+                        "{}: {} no longer {} as over",
+                        if setting.enabled {
+                            format!("◷ at {}", self.after)
+                        } else {
+                            "○ Off".into()
+                        },
+                        removed
+                            .iter()
+                            .map(|m| named(m))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        if removed.len() == 1 {
+                            "counts"
+                        } else {
+                            "count"
+                        }
                     )
                 });
             }
-            Ok(_) => lines.push(if alerted.is_empty() {
-                "Now: no members alerted.".into()
-            } else {
-                format!(
-                    "Now: {} {} alerted ({}).",
-                    alerted.len(),
-                    if alerted.len() == 1 {
-                        "member"
-                    } else {
-                        "members"
-                    },
-                    alerted
-                        .iter()
-                        .map(|m| m.name.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            }),
-            Err(_) => {}
+            _ => lines.push(current),
         }
         lines
     }
@@ -293,6 +317,9 @@ impl App {
                     }
                     KeyCode::Left | KeyCode::Right => {
                         let back = key.code == KeyCode::Left;
+                        if c.focus < 2 {
+                            c.notice = None;
+                        }
                         match c.focus {
                             0 => c.enabled = !c.enabled,
                             1 => {
@@ -304,8 +331,8 @@ impl App {
                             _ => c.choice = 1 - c.choice.min(1),
                         }
                     }
-                    KeyCode::Enter if c.focus == 2 => {
-                        action = Some(if c.choice == 0 {
+                    KeyCode::Enter => {
+                        action = Some(if c.focus != 2 || c.choice == 0 {
                             Control::Save
                         } else {
                             Control::Cancel
@@ -352,6 +379,7 @@ impl App {
                     return Some(Effect::None);
                 }
                 Control::On(on) => {
+                    c.notice = None;
                     c.enabled = on;
                     c.focus = 0;
                 }
@@ -360,6 +388,7 @@ impl App {
                     c.choice = 0;
                 }
                 Control::Preset(i) => {
+                    c.notice = None;
                     c.focus = 1;
                     c.choice = i + 1;
                     c.after = Editor::from(PRESETS[i]);
