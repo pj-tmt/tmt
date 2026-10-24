@@ -539,11 +539,11 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 Owns listener/restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery)
 and `<dataRoot>/remote/` ([state leaf](#shared-extension-state-layout)).
 Home/Remote/SDK; read-only auto-pair; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
-`cloud_hpke`: bytes; `cloud_keys`: renewals; `cloud_inbox`: emulation.
+`cloud_hpke`: bytes; `cloud_keys`: renewals; `cloud_inbox`: carrier.
 
 [Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
 settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
-Remote owns authority; UI grants none. Local: keys/grants/signatures/last-use/cleanup.
+Remote owns authority; UI grants none. Native invite/join and uid routing.
 Firestore: Auth/Rules only; Core never uses Remote trust.
 `message`: envelopes/grants/scope/allowlist/hold/uncertainty/audit; names→UUID.
 Proposed (#4533): `talk` → Remote interface → target host → driver.

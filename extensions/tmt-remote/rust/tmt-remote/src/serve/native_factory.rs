@@ -7,14 +7,11 @@ use std::{
 use tmt_remote::{
     deploy_discovery::{DeclarationSource, sealed_declaration},
     error::RemoteError,
-    firebase_auth::{
-        AuthOwner, Clock, FileStore, Http, Jitter, ProductionHttp, Project, RandomJitter,
-        SystemClock,
-    },
+    firebase_auth::AuthOwner,
     firestore_budget::{Decision, Model, NATIVE_DEFAULT_MODEL},
     limits,
     mount::{Extension, ObjectDeclaration},
-    native_sync::{NativeBudgetFile, NativeClient, NativeRuntime},
+    native_sync::{NativeClient, NativeRuntime},
     object_service::{
         ObjectService,
         sync::{BindInput, ClientFactory, Registration},
@@ -24,31 +21,10 @@ use tmt_remote::{
     state::Layout,
 };
 
-pub(super) struct NativePorts {
-    pub(super) http: Arc<dyn Http + Send + Sync>,
-    pub(super) clock: Arc<dyn Clock + Send + Sync>,
-    pub(super) jitter: Arc<dyn Jitter + Send + Sync>,
-}
+pub(super) type NativePorts = tmt_remote::native_sync::projects::ProjectPorts;
 pub(super) struct NativeInputs<'source> {
     pub(super) source: &'source mut dyn DeclarationSource,
     pub(super) ports: Option<NativePorts>,
-}
-impl NativePorts {
-    pub(super) fn production(project: &Project) -> Result<Self, RemoteError> {
-        let clock = Arc::new(SystemClock::default());
-        let http = ProductionHttp::new(project, clock.clone())
-            .map_err(|error| RemoteError::new(error.code(), &error.to_string()))?;
-        if http.emulator_active() {
-            super::object_warning(
-                "tmt-remote: test-emulator routing active (loopback, demo project)",
-            );
-        }
-        Ok(Self {
-            http: Arc::new(http),
-            clock,
-            jitter: Arc::new(RandomJitter),
-        })
-    }
 }
 fn unavailable() -> RemoteError {
     RemoteError::new(
@@ -85,6 +61,7 @@ pub(super) struct ProjectOwner<'objects, 'lease> {
     auth: Arc<AuthOwner>,
     runtime: Arc<NativeRuntime>,
     tick: Option<CheckpointOwner>,
+    pub(super) projects: Arc<tmt_remote::native_sync::projects::Projects>,
     pub(super) permission_notice: Option<&'static str>,
 }
 impl<'objects, 'lease> ProjectOwner<'objects, 'lease> {
@@ -117,34 +94,14 @@ impl<'objects, 'lease> ProjectOwner<'objects, 'lease> {
         }
         let model = Model::new(NATIVE_DEFAULT_MODEL.0, NATIVE_DEFAULT_MODEL.1)
             .map_err(|_| unavailable())?;
-        let project =
-            Project::from_public_config(&selected.public_config).map_err(|_| unavailable())?;
-        let ports = match ports {
-            Some(ports) => ports,
-            None => NativePorts::production(&project)?,
-        };
-        let auth = Arc::new(
-            AuthOwner::load(
-                project,
-                Arc::new(FileStore::new(layout, &selected.project).map_err(|_| unavailable())?),
-                ports.http.clone(),
-                ports.clock.clone(),
-                ports.jitter.clone(),
-            )
-            .map_err(|_| unavailable())?,
-        );
+        let projects = Arc::new(tmt_remote::native_sync::projects::Projects::new(
+            layout.clone(),
+            ports,
+        ));
+        let serving = projects.load(&selected.public_config, false)?;
+        let auth = serving.auth.clone();
+        let runtime = serving.runtime.clone();
         let permission_notice = auth.take_permission_notice();
-        let now = ports.clock.now();
-        let budget = Arc::new(Mutex::new(
-            NativeBudgetFile::open(layout, &selected.project, now.wall_ms, now.monotonic_ms)
-                .map_err(|_| unavailable())?,
-        ));
-        let runtime = Arc::new(NativeRuntime::new(
-            ports.http,
-            ports.clock,
-            ports.jitter,
-            budget,
-        ));
         let factory = client_factory(runtime.clone(), model, auth.clone());
         let mut registrations = Vec::new();
         for (name, bytes, digest) in declarations {
@@ -184,6 +141,7 @@ impl<'objects, 'lease> ProjectOwner<'objects, 'lease> {
             auth,
             runtime,
             tick: Some(tick),
+            projects,
             permission_notice,
         }))
     }

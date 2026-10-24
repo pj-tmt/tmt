@@ -1,10 +1,9 @@
 use super::*;
+pub(crate) use crate::core_fixture::executable_fixture;
 use std::{
     fs,
     sync::atomic::{AtomicUsize, Ordering},
 };
-#[path = "../tests/support/executable_fixture.rs"]
-pub(crate) mod executable_fixture;
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 #[test]
