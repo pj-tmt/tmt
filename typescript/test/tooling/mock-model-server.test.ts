@@ -469,15 +469,77 @@ it('copies the script length and accepts omitted stream as non-streaming JSON', 
   expect(server.snapshot()).toMatchObject({ completedTurns: 1, plannedTurns: 1 });
 });
 
-it.each(['messages', 'responses'] as const)('matches %s by pathname when SDK query flags are present', async (protocol) => {
-  const server = await start([turn(protocol)]);
-  const response = await fetch(`${server.baseUrl}/v1/${protocol}?beta=true`, {
-    method: 'POST', headers: { authorization: `Bearer ${MOCK_MODEL_TOKEN}`, 'content-type': 'application/json' },
-    body: JSON.stringify(body(protocol)), signal: AbortSignal.timeout(2000),
-  });
-  expect(response.status).toBe(200);
-  await response.text();
-  expect(server.snapshot()).toMatchObject({ completedTurns: 1 });
-  expect(server.snapshot().failure).toBeUndefined();
-  expect(server.snapshot().census[0].path).toBe(`/v1/${protocol}`);
-});
+it.each(['messages', 'responses'] as const)(
+  'matches %s by pathname when SDK query flags are present',
+  async (protocol) => {
+    const server = await start([turn(protocol)]);
+    const response = await fetch(`${server.baseUrl}/v1/${protocol}?beta=true`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${MOCK_MODEL_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body(protocol)),
+      signal: AbortSignal.timeout(2000),
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(server.snapshot()).toMatchObject({ completedTurns: 1 });
+    expect(server.snapshot().failure).toBeUndefined();
+    expect(server.snapshot().census[0].path).toBe(`/v1/${protocol}`);
+  }
+);
+
+const sessionId = '12345678-1234-4234-8234-123456789abc';
+
+it.each(['messages', 'responses'] as const)(
+  'exposes only a canonical UUID from the selected pinned %s session field',
+  async (protocol) => {
+    const server = await startMockModelServer({
+      turns: [turn(protocol)],
+      sessionSource: protocol === 'messages' ? 'claude-code-2.1.285' : 'codex-0.160.0',
+    });
+    servers.push(server);
+    const response = await fetch(`${server.baseUrl}/v1/${protocol}`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${MOCK_MODEL_TOKEN}`,
+        'content-type': 'application/json',
+        session_id: sessionId,
+        'x-private-field': 'must-not-be-captured',
+      },
+      body: JSON.stringify({
+        ...body(protocol),
+        metadata: {
+          user_id: JSON.stringify({ session_id: sessionId, account_id: 'must-not-be-captured' }),
+        },
+      }),
+    });
+    await response.text();
+    const snapshot = server.snapshot();
+    expect(snapshot.census[0].sessionId).toBe(sessionId);
+    expect(JSON.stringify(snapshot)).not.toContain('must-not-be-captured');
+    expect(Object.keys(snapshot.census[0]).sort()).toEqual(
+      ['method', 'path', 'status', 'bodyBytes', 'model', 'stream', 'kind', 'sessionId'].sort()
+    );
+  }
+);
+
+it.each([undefined, 'not-a-uuid', sessionId.toUpperCase()])(
+  'does not qualify a missing or non-canonical session field (%s)',
+  async (value) => {
+    const server = await startMockModelServer({
+      turns: [turn('responses')],
+      sessionSource: 'codex-0.160.0',
+    });
+    servers.push(server);
+    const response = await fetch(`${server.baseUrl}/v1/responses`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${MOCK_MODEL_TOKEN}`,
+        'content-type': 'application/json',
+        ...(value === undefined ? {} : { session_id: value }),
+      },
+      body: JSON.stringify(body('responses')),
+    });
+    await response.text();
+    expect(server.snapshot().census[0]).not.toHaveProperty('sessionId');
+  }
+);

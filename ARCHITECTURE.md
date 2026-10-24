@@ -450,15 +450,15 @@ own module/drawing boundaries and verification.
 Rust tests stay owner-local. TypeScript suites share `test/support`, which imports
 no suite. Native/E2E import neither each other nor tooling. Scenarios own assertions;
 support owns fixtures and scripted loopback models, never provider launch.
-Frozen inputs and independent SQL/schema oracles cannot derive expectations from
-the implementation under test.
+Frozen inputs and independent SQL/schema oracles cannot derive expectations from tested code.
 
 State, provider roots, prefixes, sockets and processes remain fixture-owned.
 Adapters' default-off `test-isolation` feature admits private discovery paths in consumer test builds.
 `typescript/scripts/private-world.mjs` runs suite commands in a private HOME/XDG/TMPDIR world
 (under `/tmp` when the temporary directory is too long for sockets) and reports what they leave behind; Ops test builds resolve their cache to a process-private root.
-Native fixtures isolate ancestry and tmux discovery; Docker owns isolated tmux
-and peers. Host tmux, provider installs and global environment mutation are not evidence.
+Native fixtures isolate ancestry and tmux discovery; Docker isolates tmux and peers.
+E2E owns the advisory exception. Host tmux, provider installs and global
+environment changes are not evidence.
 
 Cleanup confirms owned child/group absence before deleting fixture state;
 unknown inspection, leaks and false positives fail. Signals target only verified

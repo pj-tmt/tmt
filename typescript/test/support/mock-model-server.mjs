@@ -157,7 +157,17 @@ function compileSideRequest(side, index) {
 }
 
 /** Scripted transport only: never launches a provider, reads its state, or forwards traffic. */
-export async function startMockModelServer({ turns, sideRequests = [], limits = {} }) {
+export async function startMockModelServer({
+  turns,
+  sideRequests = [],
+  limits = {},
+  sessionSource,
+}) {
+  if (
+    sessionSource !== undefined &&
+    !['claude-code-2.1.285', 'codex-0.160.0'].includes(sessionSource)
+  )
+    throw new Error('MOCK_CONFIG: session source must name an exact supported client pin');
   if (!Array.isArray(turns) || turns.length < 1 || turns.length > 16)
     throw new Error('MOCK_CONFIG: supply 1..16 scripted text turns');
   const key = (protocol, model) => JSON.stringify([protocol, model]);
@@ -271,9 +281,7 @@ export async function startMockModelServer({ turns, sideRequests = [], limits = 
       return refuse(404, 'MOCK_UNKNOWN_REQUEST', 'Request route is not declared');
     if (
       request.headers.authorization !== `Bearer ${MOCK_MODEL_TOKEN}` &&
-      !(
-        pathname.startsWith('/v1/messages') && request.headers['x-api-key'] === MOCK_MODEL_TOKEN
-      )
+      !(pathname.startsWith('/v1/messages') && request.headers['x-api-key'] === MOCK_MODEL_TOKEN)
     )
       return refuse(401, 'MOCK_SYNTHETIC_AUTH_REQUIRED', 'Use only the fixture synthetic token');
     if (!/^application\/json(?:;|$)/i.test(request.headers['content-type'] ?? ''))
@@ -301,6 +309,23 @@ export async function startMockModelServer({ turns, sideRequests = [], limits = 
       }
       if (validModel(body?.model)) entry.model = body.model;
       if (typeof body?.stream === 'boolean') entry.stream = body.stream;
+      // Candidate wire locations stay unqualified until a hosted request matches public CLI JSON.
+      // Never retain the containing metadata, header, or a non-canonical identifier.
+      let sessionId;
+      if (sessionSource === 'codex-0.160.0' && protocol === 'responses')
+        sessionId = request.headers.session_id;
+      if (sessionSource === 'claude-code-2.1.285' && protocol === 'messages') {
+        try {
+          sessionId = JSON.parse(body?.metadata?.user_id).session_id;
+        } catch {
+          // Missing or moved fields remain absent; the advisory assertion refuses qualification.
+        }
+      }
+      if (
+        typeof sessionId === 'string' &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(sessionId)
+      )
+        entry.sessionId = sessionId;
       // Recheck after asynchronous reads: a refusal on another connection is fatal to the fixture.
       if (failure)
         return refuse(409, 'MOCK_FAILED', 'An earlier request failed; inspect the census');
