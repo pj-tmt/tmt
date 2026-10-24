@@ -31,12 +31,12 @@ clap.workspace = true
 clap_complete.workspace = true
 serde_json.workspace = true
 time.workspace = true
+crossterm.workspace = true
 
 [dev-dependencies]
 tmt-adapters = { workspace = true, features = ["test-isolation"] }
 tmt-test-support.workspace = true
 toml_edit.workspace = true
-crossterm.workspace = true
 insta.workspace = true
 syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "visit"] }
 # Macro arguments are token streams; the output guard scans them.

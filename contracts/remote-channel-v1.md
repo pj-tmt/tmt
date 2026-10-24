@@ -2,8 +2,8 @@
 
 **Implementation status:** the local door and its signed agent operations are shipped; Colab page
 sharing over Firestore (native sync and the hosted browser client) is shipped. Cloud agent operations
-through Firestore have an emulator-only native driver; production enrollment and Core activation remain
-pending. Cloudflare remains proposed. Native encryption and automatic key renewal enable no access by themselves.
+through Firestore have native invite/join and a carrier driver with emulator-only qualification; public
+Core delivery activation remains pending. Cloudflare remains proposed. Native encryption and automatic key renewal enable no access by themselves.
 Shipped means published code with fixture/emulator proof; real-account acceptance remains open.
 This document owns host-driver authentication, local device identity/grants, wire values, operations,
 the extension channel API and backend bindings. Remote owns this contract; tmt-lead reviews changed core contracts and cross-squad
@@ -749,6 +749,11 @@ Lost key, changed add-on origin, revocation or expiry requires pairing again. No
 export-based backup, automatic key replacement, passkey renewal or remote grant extension.
 
 ### Trust grants and remote lifecycle
+
+Owner-local `devices talk <person|client-id> on|off` and `devices revoke <person|client-id>`
+resolve an exact client ID first, otherwise a unique active device name. Duplicate names refuse
+with the matching client IDs; no first-match selection occurs. Selection stays under the Store
+lock through the existing grant mutation. Names are command selectors, not persisted authority.
 
 A grant makes one device a trusted source on one machine. Grant JSON names are `clientId`,
 `machineId`, `profile`, `publicKey`, `kind`, `origin`, `name`, `agents`, `scopes`, `mode`,
@@ -2206,7 +2211,7 @@ an origin is `established` or `closed`.
 Message framing, authentication and admission are scoped to their host driver. The `local` door and extension
 stores are implemented, as are Firestore extension declarations, deployment and sealed-document
 sync for Colab page sharing. The native Firestore **agent operation** binding below is emulator-only;
-invite/join and the final Core command alignment do not ship here. The admission-service proposal and
+native invite/join is implemented, while final public Core delivery alignment remains pending. The admission-service proposal and
 historical cloud conformance remain superseded. Native encryption and its automatic key lifecycle
 are independent of production enrollment. Their specification
 never enables agent access; the [historical conformance material](#proposal-cloud-conformance) is retained
@@ -2216,7 +2221,7 @@ Cloudflare remains proposed. Extension/page authority never substitutes for a lo
 | Backend      | Mapping                                                                                                                                                                             |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `local`      | [Loopback HTTP](#transport-binding-loopback-http), mounted extension routes and WebSocket relay; state under the data root.                                                         |
-| `firestore`  | **Shipped:** extension-scoped sealed-document sync for Colab page sharing. **Emulator-only agent binding:** encrypted inboxes, owner responses and peer checkpoints; no production enrollment. |
+| `firestore`  | **Shipped:** extension-scoped sealed-document sync for Colab page sharing. **Emulator-only agent binding:** native invite/join, encrypted inboxes, owner responses and peer checkpoints; public Core delivery remains gated. |
 | `cloudflare` | **Proposal:** Worker admission before per-machine Durable Object storage; per-namespace relay objects; bounded WebSocket delivery and device-scoped checkpoints.                    |
 
 ### Native Firestore agent binding (emulator only)
@@ -2245,11 +2250,10 @@ and create-only storage. Exact-ID reads require the document's peer to match the
 (or the machine owner). A routed peer may also GET a missing ID (404), so observation can wait for a
 response; a non-routed uid cannot. Response listing is denied. Neither writer
 may update a carrier. Senders never delete. The receiving owner removes retained inbox/response pairs
-after journal retention; the one transport table is pruned only after that cleanup. Test fixtures alone
-seed machine/peer registrations; this does not activate the namespace in a real deploy or add a bootstrap shortcut.
+after journal retention; the one transport table is pruned only after that cleanup. Native enrollment creates machine/peer registrations through ordinary Auth and owner-only Rules;
+the carrier-only fixture may seed them independently. No real-project acceptance is claimed.
 The owner-written routing row is `/m/<machineId>/peers/<Firebase-uid>` with `{peer,revoked,expiresAt}`;
-create and exact GET each use one routing lookup. #4538 owns enrollment and automatic re-routing:
-the local Store maps native peers to uids, revocation fences all of that peer's uid rows in the same
+create and exact GET each use one routing lookup. The local Store maps native peers to uids, revocation fences all of that peer's uid rows in the same
 operation, and at most one route per native peer is live (a new one supersedes the old). Lost or renewed
 Firebase credentials re-route from the signed native identity automatically, without a new pairing step.
 
@@ -2295,17 +2299,19 @@ context. A no-response in-flight observation ends as `REMOTE_CLOUD_UNCONFIRMED`:
 processed, so observe the same request ID and never resend. Only immutable request age reaching
 RECOVERY is `REMOTE_CLOUD_MESSAGE_EXPIRED`.
 
-The emulator fixture composes the finite driver with the lease-owning message service and cancellation;
-it persists no process-specific subscription. The driver is not reachable in production until #4538
-(enrollment) and #4536 (UUID-pinned identity query) land. #4538 will wire it at
-`serve::native_factory::ProjectOwner::prepare`, sharing that owner's Auth/runtime, budget and cancel/join
-lifecycle. No inert registration hook or provider probe is installed now. Production serve without an
-enrolled cloud peer starts no inbox polling and spends no cloud budget.
-Cadence reuses native polling, clamped to 5 seconds minimum and 60 seconds maximum including jitter.
-An empty idle query is conservatively charged 1 read plus 2 Rules lookups: 4,320 modeled reads/day/machine,
-8.64% of Spark's 50,000 reads/day. This is modeled billing, not emulator wire counts or observed project
-headroom. All traffic, including recovery, goes through the same guard; Auth/Rules/budget refusal never
-causes a mutation retry. Reopening the same Store resumes the checkpoint without a user step.
+`serve` composes the lease-owning native pairing service with the existing message service. One
+per-project `Projects` owner shares Auth, HTTP, budget and cancellation with native extension sync;
+explicit invite/join may sign in, while background recovery and sending never create an identity.
+A replaced persisted Firebase uid gets a new Auth owner and reuses the same runtime/budget. Existing
+extension consumers retain their old stopped identity, so another uid inherits no page membership.
+With no enrolled cloud peer, serve starts no provider polling and spends no cloud budget. Its one
+joined worker reconciles enrollment, route cleanup and the existing inbox driver; stop cancels I/O,
+joins handlers/worker and flushes the common project budget before releasing the serve lease.
+An idle machine uses one inbox and one enrollment query per minute. Each is conservatively charged
+1 read plus 2 Rules lookups: 8,640 modeled reads/day/machine, 17.28% of Spark's 50,000 reads/day,
+plus bounded hourly cleanup and descriptor renewal. These are modeled charges, not emulator wire
+counts or observed headroom. All enrollment, routing and operation traffic uses the same daily guard.
+Reopening the same Store resumes its native identity, trust, permissions and checkpoints.
 
 The provisional public boundary is `tmt remote message --json`, one bounded version-1 JSON document
 on stdin/stdout. `cloud_command` owns its schema: request `{version,remote,requestId,createdAtMs,from:{id,name},
@@ -2333,7 +2339,62 @@ backend. The final schema/argv is aligned at Core's separate slice. Until the re
 `identity show` exists, production cloud delivery refuses with `REMOTE_CLOUD_UPGRADE_REQUIRED`;
 tests inject the fake public Core boundary. Never fall back to name-addressed `check`. Expected name is
 retained with frozen native intent and checked before a Core effect; it is not a caller-chosen role.
-Invite/join, production enrollment and real-provider acceptance remain separate epic slices.
+Full public `talk` acceptance belongs to #4539/#4540 after the Core #4536 seam and Remote #4757
+activation. Pairing qualification injects the fake public Core boundary; it does not open that gate.
+Real-provider acceptance remains separate.
+
+### Native invite and join
+
+`tmt remote invite [--remote <name>]` selects an owned deployment and prints a private one-use,
+ten-minute code. `tmt remote join <code>` validates its public project configuration and pinned native
+owner UUID/key. Both terminals show the same four key-fingerprint words. The owner answers
+`Do the words match? [y/N]`, then `Let <person> send messages to your agents? [y/N]` in the same
+ceremony. Both default to no. No grant or route exists before explicit word confirmation. Sending
+defaults off and requires the second answer or later `tmt remote devices talk <person> on`.
+Talk/revoke resolve an exact client UUID or a unique active person name; duplicate names require the
+UUID. JSON, CI, agent and noninteractive invocation never consent. Ctrl+C cancels the active invite
+and erases its secret. Neither command opens a browser or creates a local-browser session.
+
+The code carries public connection metadata, the owner pin, an offer UUID, nonce, generation,
+expiry and 128-bit secret. Firestore never stores that secret. Its separate enrollment transcript
+binds every field, the candidate native UUID/key, authenticated uid, name and nonce. Existing HMAC,
+Ed25519 possession, fingerprint and response-proof primitives are reused with distinct framing.
+The mailbox is one create-only collection `/m/<machine>/enroll`: `<offerId>` holds a candidate,
+`<offerId>-response` the owner's receipt. Exact fields are `{uid,kind,body,createdAt}`; Rules bind a
+candidate's uid to `request.auth.uid`, exact kinds/UUIDs, bounded bytes and server request time.
+Only the owner lists (limit one), writes responses or deletes; a caller can GET its own exact row or
+a missing row. Kind and offer correlation are bound by the verified transcript. A competing, expired,
+cancelled or reused code refuses. An identical confirmed candidate may observe only its original
+receipt before the original deadline; this cannot create another grant. No offer secret or derived
+response key is persisted. Immutable enrollment rows are retained at most until bounded hourly
+cleanup observes them older than 24 hours; logical invite expiry remains ten minutes.
+
+Machine metadata `/m/<machine>` is created once under the locally generated random UUIDv4.
+The exact fields are `{uid,authenticationKey,descriptor}` with type/size bounds. Create requires
+`request.auth.uid == uid`; only the stored owner may update, and uid/key are immutable. Only the
+descriptor changes; no machine delete or list is allowed. Any authenticated caller may GET an exact
+machine row. Both participants verify the fetched key against their invite/native pin. A conflicting
+pre-existing uid or key gives `REMOTE_CLOUD_MACHINE_CONFLICT` and is never overwritten. A public
+sign-in method permits signed-in users to create rows under their own uid; this storage-only limit
+gives no access to another owner's machine. Peer-route CRUD belongs only to that stored owner,
+with exact `{peer,revoked,expiresAt}` fields and bounds.
+
+Confirmation atomically persists the grant, exact receipt/proof, native trust and pending uid route
+in the existing Store. Cloud publication runs outside SQLite and acknowledges only an unchanged
+snapshot. Local revoke disables authority at the existing effect fence and marks every historical
+uid route for cleanup in the same transaction. Offline cloud cleanup stays visibly pending; it never
+restores local authority. Confirmed state, native keys and policy survive reopen/upgrades. An
+unsupported saved connection version refuses with `REMOTE_CLOUD_UPGRADE_REQUIRED` and
+`This connection needs a newer Remote. Run tmt upgrade; your pairing is kept.`
+
+A changed sender uid creates `<rerouteId>` in the same mailbox with `kind=reroute`. Its confirmed
+native key signs `{machineId,owner pin,peer,new uid,generation,timestampMs}`; the sender reserves
+its increasing counter durably before signing. Rules bind the writer to the new uid. The owner checks
+signature, pin, current non-revoked/non-expired grant, generation strictly greater than stored, and
+timestamp within 60 seconds of provider createTime. It atomically replaces the live uid route and
+writes `<rerouteId>-response`, signed over the exact request and ID. Old-generation replay cannot
+roll back; substitution under another uid fails. No challenge document, extra confirmation or new
+code is needed. Exactly one uid per native peer is live; all former uids lose carrier access.
 
 ### Superseded cloud authentication proposal
 

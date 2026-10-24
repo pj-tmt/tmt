@@ -89,7 +89,7 @@ impl Renderer<'_> {
             .map(|column| {
                 rows.iter()
                     .filter_map(|(_, _, row)| row.get(column))
-                    .map(|parts| parts.iter().map(|part| cells(&part.text)).sum())
+                    .map(|parts| parts.iter().map(Part::width).sum())
                     .max()
                     .unwrap_or(0)
             })
@@ -164,7 +164,7 @@ impl Renderer<'_> {
                         .get_mut(visual)
                         .map(std::mem::take)
                         .unwrap_or_default();
-                    let used = content.iter().map(|part| cells(&part.text)).sum::<usize>();
+                    let used = content.iter().map(Part::width).sum::<usize>();
                     parts.push(Part::new(" ".into(), text_style, source, None));
                     parts.append(&mut content);
                     parts.push(Part::new(
@@ -216,6 +216,23 @@ fn wrap_parts(parts: Vec<Part>, width: usize) -> Vec<Vec<Part>> {
         }
     };
     for (index, part) in parts.iter().enumerate() {
+        if part.is_file() {
+            let caption = files::fit(&part.text, width);
+            used = lines
+                .last()
+                .expect("a line is open")
+                .iter()
+                .map(|(_, text)| unicode_width::UnicodeWidthStr::width(text.as_str()))
+                .sum();
+            let caption_width = unicode_width::UnicodeWidthStr::width(caption.as_str());
+            if used > 0 && used + caption_width > width {
+                lines.push(Vec::new());
+                used = 0;
+            }
+            add(&mut lines, index, &caption);
+            used += caption_width;
+            continue;
+        }
         for word in part.text.split_inclusive(' ') {
             let body = word.trim_end_matches(' ');
             if used > 0 && used + cells(body) > width {
@@ -248,7 +265,9 @@ fn wrap_parts(parts: Vec<Part>, width: usize) -> Vec<Vec<Part>> {
             line.into_iter()
                 .map(|(index, text)| {
                     let part = &parts[index];
-                    Part::new(text, part.style, part.source, part.member.clone())
+                    let mut shown = Part::new(text, part.style, part.source, part.member.clone());
+                    shown.source_range = part.source_range.clone();
+                    shown
                 })
                 .collect()
         })

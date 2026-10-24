@@ -399,9 +399,8 @@ impl Session {
         let mut anchor_text = String::new();
         let mut final_spans = Vec::new();
         let mut copy_messages = vec![self.text.clone()];
-        let mut copy_lines: Vec<Option<super::copy::At>> = Vec::new();
-        let mut copy_rows: Vec<String> = Vec::new();
-        let next_at = std::cell::Cell::new(None);
+        let mut copy_rows: Vec<super::copy::Row> = Vec::new();
+        let next_copy = std::cell::RefCell::new(None);
         let mut header_anchors = std::collections::BTreeMap::new();
         let mut next_mention = mapped
             .mentions
@@ -410,18 +409,25 @@ impl Session {
             .map(|link| link.occurrence + 1)
             .max()
             .unwrap_or(0);
-        let mut append = |line: Line<'static>, links, source: Option<usize>| {
+        let mut append = |line: Line<'static>,
+                          links: Vec<super::super::member_links::Link>,
+                          source: Option<usize>| {
             let index = lines.len();
             if index > 0 {
                 anchor_text.push('\n');
             }
-            let shown = line.to_string();
-            anchor_text.push_str(&shown);
-            copy_rows.push(shown);
+            for span in &line.spans {
+                anchor_text.push_str(&span.content);
+            }
+            copy_rows.push(
+                next_copy
+                    .borrow_mut()
+                    .take()
+                    .unwrap_or_else(|| super::copy::Row::new(None, line.to_string(), &links)),
+            );
             sources.push(index);
             mentions.push(links);
             original.push(source);
-            copy_lines.push(next_at.take());
             lines.push(line);
             index
         };
@@ -519,12 +525,31 @@ impl Session {
                         );
                         let message = copy_messages.len();
                         copy_messages.push(sanitize(&send.text));
-                        for (line, source) in body.lines.into_iter().zip(body.sources) {
-                            next_at.set((line.width() > 0).then_some(super::copy::At {
-                                message,
-                                line: source,
-                            }));
-                            append(super::super::exchange_view::body(line, look), vec![], None);
+                        let mut file_occurrences = std::collections::BTreeMap::new();
+                        for ((line, mut links), source) in
+                            body.lines.into_iter().zip(body.mentions).zip(body.sources)
+                        {
+                            next_copy.replace(Some(super::copy::Row::new(
+                                (line.width() > 0).then_some(super::copy::At {
+                                    message,
+                                    line: source,
+                                }),
+                                line.to_string(),
+                                &links,
+                            )));
+                            links.retain(|link| {
+                                matches!(&link.target, super::super::member_links::Target::File(_))
+                            });
+                            for link in &mut links {
+                                link.occurrence =
+                                    *file_occurrences.entry(link.occurrence).or_insert_with(|| {
+                                        let occurrence = next_mention;
+                                        next_mention += 1;
+                                        occurrence
+                                    });
+                                link.column += 3;
+                            }
+                            append(super::super::exchange_view::body(line, look), links, None);
                         }
                         // The block's one status line sits under its last body.
                         let label = if place.role == super::answer_order::Role::Last {
@@ -568,7 +593,7 @@ impl Session {
                             .iter()
                             .filter_map(|answered| sends[*answered].capture.as_ref());
                         for capture in own.into_iter().chain(held) {
-                            let content = markdown::render_conversation_with_members(
+                            let content = markdown::render_output_with_members(
                                 &capture.markdown(),
                                 width.saturating_sub(3).max(1),
                                 look,
@@ -629,23 +654,27 @@ impl Session {
                             .map(|link| link.occurrence + 1)
                             .max()
                             .unwrap_or(0);
-                        for link in body.mentions.iter_mut().flatten() {
-                            link.occurrence += next_mention;
-                            // The grouped painter indents a final's lines by the gutter.
-                            link.column += gutter;
-                        }
+                        let occurrence_base = next_mention;
                         next_mention += count;
                         let mut end = header + 1;
                         let message = copy_messages.len();
                         copy_messages.push(sanitize(&reply.body));
                         let body_sources = std::mem::take(&mut body.sources);
-                        for ((line, links), source) in
+                        for ((line, mut links), source) in
                             body.lines.into_iter().zip(body.mentions).zip(body_sources)
                         {
-                            next_at.set((line.width() > 0).then_some(super::copy::At {
-                                message,
-                                line: source,
-                            }));
+                            next_copy.replace(Some(super::copy::Row::new(
+                                (line.width() > 0).then_some(super::copy::At {
+                                    message,
+                                    line: source,
+                                }),
+                                line.to_string(),
+                                &links,
+                            )));
+                            for link in &mut links {
+                                link.occurrence += occurrence_base;
+                                link.column += gutter;
+                            }
                             end = append(line, links, None) + 1;
                         }
                         final_spans.push((header + 1..end, index));
@@ -664,14 +693,16 @@ impl Session {
                         .rposition(|index| mapped.lines[*index].width() > 0)
                         .map_or(first, |index| index + 1);
                     for &index in &rows[first..end] {
-                        next_at.set(
+                        next_copy.replace(Some(super::copy::Row::new(
                             (mapped.lines[index].width() > 0
                                 && !self.authored_lines.contains_key(&mapped.sources[index]))
                             .then_some(super::copy::At {
                                 message: 0,
                                 line: mapped.sources[index],
                             }),
-                        );
+                            mapped.lines[index].to_string(),
+                            &mapped.mentions[index],
+                        )));
                         append(
                             mapped.lines[index].clone(),
                             mapped.mentions[index].clone(),
@@ -694,7 +725,7 @@ impl Session {
                         None,
                     );
                     // Display-only member links never give pane text request-source authority.
-                    let body = markdown::render_conversation_with_members(
+                    let body = markdown::render_output_with_members(
                         &sanitize(&item.text),
                         width.saturating_sub(3).max(1),
                         look,
@@ -753,7 +784,6 @@ impl Session {
             final_spans,
             copy: super::copy::Map {
                 messages: copy_messages,
-                lines: copy_lines,
                 rows: copy_rows,
             },
         }
@@ -762,18 +792,22 @@ impl Session {
     /// The source of the unmerged transcript: the session text, but for its authored lines.
     fn copy_of_text(&self, mapped: &Mapped) -> super::copy::Map {
         super::copy::Map {
-            rows: mapped.lines.iter().map(ToString::to_string).collect(),
             messages: vec![self.text.clone()],
-            lines: mapped
+            rows: mapped
                 .lines
                 .iter()
                 .zip(&mapped.sources)
-                .map(|(line, source)| {
-                    (line.width() > 0 && !self.authored_lines.contains_key(source)).then_some(
-                        super::copy::At {
-                            message: 0,
-                            line: *source,
-                        },
+                .zip(&mapped.mentions)
+                .map(|((line, source), links)| {
+                    super::copy::Row::new(
+                        (line.width() > 0 && !self.authored_lines.contains_key(source)).then_some(
+                            super::copy::At {
+                                message: 0,
+                                line: *source,
+                            },
+                        ),
+                        line.to_string(),
+                        links,
                     )
                 })
                 .collect(),

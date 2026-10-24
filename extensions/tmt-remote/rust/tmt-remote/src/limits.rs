@@ -7,6 +7,11 @@ pub const CLOUD_KEY_RENEW_LEAD_MS: u64 = 7 * 86_400_000;
 pub const CLOUD_KEY_CHECK_MS: u64 = 60_000;
 pub const CLOUD_KEYRING_BYTES: usize = 16 * 1024;
 pub const CLOUD_DESCRIPTOR_BYTES: usize = 4 * 1024;
+/// Public enrollment metadata and terminal invite token, never operation bodies.
+pub const CLOUD_ENROLLMENT_BYTES: usize = 16 * 1024;
+pub const CLOUD_INVITE_BYTES: usize = 12 * 1024;
+/// Base64 invite token plus the private control frame. No operation body is admitted.
+pub const CLOUD_PAIR_CONTROL_BYTES: usize = CLOUD_INVITE_BYTES * 2;
 pub const CLOUD_KEYRING_KEYS: usize = 3;
 const _: () = assert!(
     CLOUD_KEYRING_KEYS as u64
@@ -282,3 +287,10 @@ pub const CLOUD_RECONCILE_CALL: Duration = Duration::from_secs(60);
 /// Worst-case JSON escaping and signed-envelope base64 must fit one cloud carrier.
 pub const CLOUD_MESSAGE_BYTES: usize = (CLOUD_ENVELOPE_BYTES - METADATA_BYTES) / 8;
 pub const CLOUD_COMMAND_BYTES: usize = CLOUD_MESSAGE_BYTES * 6 + METADATA_BYTES;
+
+/// Maximum atomic route replacement batch (Firestore commit limit).
+pub const CLOUD_ROUTE_BATCH: usize = 500;
+/// Enrollment documents outlive the ten-minute receipt observation window.
+pub const CLOUD_ENROLLMENT_RETENTION_MS: u64 = 86_400_000;
+/// Bound owner mailbox cleanup without adding an idle query every minute.
+pub const CLOUD_ENROLLMENT_CLEANUP: Duration = Duration::from_secs(3_600);

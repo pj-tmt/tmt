@@ -301,6 +301,11 @@ pub enum Choice {
         url: String,
         anchor: ratatui::layout::Rect,
     },
+    FileCopy(std::sync::Arc<str>),
+    FileShow {
+        path: String,
+        anchor: ratatui::layout::Rect,
+    },
     AgentsFilter(super::workspace::AgentsFilter),
     /// A click on a Talk/Measure chip selects that pane; the `M` key toggles.
     RightTab(super::shell::RightTab),
@@ -3010,6 +3015,8 @@ impl App {
             Choice::LinkOpen(url) => self.link_open(url),
             Choice::LinkCopy(url) => self.link_copy(url),
             Choice::LinkShow { url, anchor } => self.link_show(&url, anchor),
+            Choice::FileCopy(path) => self.link_copy(path.to_string()),
+            Choice::FileShow { path, anchor } => self.file_show(&path, anchor),
             Choice::AgentsFilter(filter) => self.agents_filter(filter),
             Choice::RightTab(tab) => self.select_right_tab(tab),
             Choice::WorkspaceTarget(target) => {
@@ -3571,9 +3578,13 @@ impl App {
         }
 
         if key.code == KeyCode::Esc
-            && let Some((url, anchor)) = self.link_full_menu()
+            && let Some((target, anchor)) = self.destination_full_menu()
         {
-            return self.link_popover(&url, anchor);
+            return match target {
+                super::member_links::Target::Url(url) => self.link_popover(&url, anchor),
+                super::member_links::Target::File(path) => self.file_popover(&path, anchor),
+                super::member_links::Target::Member(_) => Effect::None,
+            };
         }
         let Some(menu) = &mut self.menu else {
             return Effect::None;

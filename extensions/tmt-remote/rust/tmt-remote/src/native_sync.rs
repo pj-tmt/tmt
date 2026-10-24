@@ -7,3 +7,6 @@ mod subscription;
 pub use budget_state::{NativeBudgetError, NativeBudgetFile};
 pub use client::{NativeBudgetPort, NativeClient, NativeRuntime};
 pub use poll::PollCadence;
+mod complete;
+pub mod projects;
+pub(crate) use complete::complete;

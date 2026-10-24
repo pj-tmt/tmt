@@ -8,7 +8,6 @@ use std::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    task::{Context, Poll, Wake, Waker},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
@@ -305,38 +304,12 @@ impl Drop for OwnedSubscription {
         self.0.close();
     }
 }
-struct TaskWake(thread::Thread);
-impl Wake for TaskWake {
-    fn wake(self: Arc<Self>) {
-        self.0.unpark()
-    }
-    fn wake_by_ref(self: &Arc<Self>) {
-        self.0.unpark()
-    }
-}
-/// Drive the injected port on its owned worker; cancellation wakes a parked future.
+/// Drive the injected port on its owned worker with shared cancellation/deadline admission.
 pub(in crate::object_service) fn complete<T>(
     future: impl Future<Output = Result<T, SyncError>>,
     io: &IoBudget<'_>,
 ) -> Result<T, SyncError> {
-    let waker = Waker::from(Arc::new(TaskWake(thread::current())));
-    let mut context = Context::from_waker(&waker);
-    let mut future = std::pin::pin!(future);
-    loop {
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(result) => return result,
-            Poll::Pending => {}
-        }
-        if io.cancelled.load(Ordering::Acquire) {
-            return Err(SyncError::Cancelled);
-        }
-        let left = io
-            .deadline
-            .checked_duration_since(Instant::now())
-            .filter(|left| !left.is_zero())
-            .ok_or(SyncError::Deadline)?;
-        thread::park_timeout(left.min(Duration::from_millis(100)));
-    }
+    crate::native_sync::complete(future, io)?
 }
 #[cfg(test)]
 mod tests {

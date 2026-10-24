@@ -172,9 +172,17 @@ fn shipping_guard_checks_normal_build_alias_and_dev_dependency_kinds() {
 }
 
 #[test]
-fn three_production_sites_share_the_project_bound_http_constructor() {
+fn serving_projects_and_sync_share_the_project_bound_http_constructor() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    for file in ["sync_cli.rs", "serve/native_factory.rs"] {
+    for file in ["serve.rs", "serve/native_factory.rs"] {
+        let source = fs::read_to_string(src.join(file)).unwrap();
+        assert!(
+            source.contains("projects::Projects::new"),
+            "serving must use the shared project owner in {file}"
+        );
+        assert!(!source.contains("UreqHttp::new"));
+    }
+    for file in ["sync_cli.rs", "native_sync/projects.rs"] {
         let source = fs::read_to_string(src.join(file)).unwrap();
         assert!(
             !source.contains("UreqHttp::new"),

@@ -3718,7 +3718,7 @@ fn owner_sending_scope_cli_works_stopped_and_running_without_changing_other_poli
     let toggle = |pilot: &Pilot, mode: &str| {
         let output = pilot
             .command()
-            .args(["devices", "talk", &id, mode, "--json"])
+            .args(["devices", "talk", "Owner device", mode, "--json"])
             .output()
             .unwrap();
         assert!(
@@ -3745,7 +3745,7 @@ fn owner_sending_scope_cli_works_stopped_and_running_without_changing_other_poli
     assert!(human.status.success());
     assert_eq!(
         String::from_utf8(human.stdout).unwrap(),
-        "✓ Disabled sending for Owner device\n"
+        "✓ Sending is off for Owner device\n"
     );
     let on = toggle(&pilot, "on");
     assert_eq!(on["revision"], 3);
@@ -3862,5 +3862,39 @@ fn owner_cli_removes_other_devices_offline_and_shows_last_use_without_tombstones
     assert_eq!(
         serde_json::from_slice::<Value>(&list.stdout).unwrap()["devices"],
         serde_json::json!([])
+    );
+}
+
+#[test]
+fn native_pairing_requires_a_terminal_before_core_or_state_discovery() {
+    let pilot = Pilot::new();
+    for arguments in [
+        vec!["invite", "--json"],
+        vec!["join", "private-invite", "--json"],
+    ] {
+        let output = pilot
+            .command()
+            .args(arguments)
+            .env("TMT_AGENT", "fixture")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stderr.is_empty());
+        let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(value["error"]["code"], "REMOTE_CONFIRMATION_REQUIRED");
+        assert!(
+            !String::from_utf8(output.stdout)
+                .unwrap()
+                .contains("private-invite")
+        );
+    }
+    assert!(
+        !pilot.root.join("calls").exists(),
+        "refused before any Core query"
+    );
+    assert!(
+        !pilot.root.join("state").exists(),
+        "refused before serve bootstrap or state discovery"
     );
 }

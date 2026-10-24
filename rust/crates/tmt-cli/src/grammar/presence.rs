@@ -142,7 +142,7 @@ pub(in crate::grammar) fn focus() -> Command {
     general(spec!(
         "focus",
         "Show an identity by name or UUID, or a pane, in your client",
-        details = "Pane focus changes what your client shows. For recurring message batching, see tmt digest --help and tmt digest skill (the optional Digest extension).",
+        details = "Pane focus changes what your client shows. A built-in member attaches to live output; Ctrl-\\ leaves it running, and the screen may stay blank until the program draws. For recurring message batching, see tmt digest --help and tmt digest skill (the optional Digest extension).",
         [
             "Show an agent's pane in your tmux client" => "tmt focus worker",
             "Name your client and the pane it shows" => "tmt focus --client",
@@ -191,6 +191,20 @@ pub(in crate::grammar) fn unbind() -> Command {
             "Detach this pane from its identity" => "tmt unbind",
         ]
     ))
+}
+
+pub(in crate::grammar) fn attach() -> Command {
+    general(spec!(
+        "attach",
+        "Use a built-in-host member's terminal; Ctrl-\\ leaves it running",
+        details = "Passes live output through unchanged. The screen may stay blank until the program draws.\nRequires an interactive terminal; TMT keeps no scrollback.",
+        [
+            "Attach to a member" => "tmt attach worker",
+            "Detach the other viewers" => "tmt attach -d worker",
+        ]
+    ))
+    .arg(operand("target", true).help("Identity name or UUID"))
+    .arg(Arg::new("detach-others").short('d').action(ArgAction::SetTrue).help("Detach the other viewers before using the terminal"))
 }
 
 pub(in crate::grammar) fn discover() -> Command {
