@@ -413,6 +413,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 .iter()
                 .find(|(field, _)| *field == Field::State)
                 .map_or(0, |(_, rect)| usize::from(rect.width));
+            let mut checklist_hit = None;
             let (state, state_primary_width) = if let Some(label) = app.activity_label(row) {
                 let (primary, task, todo) =
                     columns::activity_spans(app, row, &label, state_width, false);
@@ -466,7 +467,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                         }
                     })
                     .collect();
-                let state = if members.is_empty()
+                let mut state = if members.is_empty()
                     && snapshot.roster.observation != OpsObservation::Complete
                 {
                     Line::styled("—", look.role(Role::Muted))
@@ -479,7 +480,26 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                         app.cron_glyphs,
                     )
                 };
-                (state, None)
+                let used = state.width();
+                let suffix = columns::todo_span(app, row, used, state_width, false);
+                if let Some(suffix) = suffix {
+                    if let OpsTarget::Squad(room) = &row.target
+                        && let Some((_, cell)) =
+                            slots.iter().find(|(field, _)| *field == Field::State)
+                    {
+                        checklist_hit = Some((
+                            Rect::new(
+                                cell.x + used as u16 + 3,
+                                stripe.y,
+                                suffix.width() as u16 - 3,
+                                1,
+                            ),
+                            Choice::RoomChecklist(room.clone()),
+                        ));
+                    }
+                    state.spans.push(suffix);
+                }
+                (state, Some(used))
             };
             let expanded = rows
                 .get(index + 1)
@@ -560,6 +580,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 },
                 look,
             );
+            if let Some(hit) = checklist_hit {
+                app.workspace_strip_hits.borrow_mut().push(hit);
+            }
             if let Some(area) = painted.tokens {
                 app.workspace_strip_hits
                     .borrow_mut()
@@ -824,8 +847,9 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
     }) {
         use super::manage::Kind;
         use crate::action::{Action, OpsUiAction};
-        let mut actions = if matches!(target, OpsTarget::Squad(_)) {
+        let mut actions = if let OpsTarget::Squad(room) = target {
             vec![
+                ("Checklist", Choice::RoomChecklist(room.clone())),
                 ("Add member", Choice::WorkspaceBegin(Kind::Add)),
                 ("Set/clear lead", Choice::WorkspaceBegin(Kind::Lead)),
                 ("Rename", Choice::WorkspaceBegin(Kind::RenameSquad)),
@@ -842,7 +866,16 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
             vec![]
         }
         .into_iter()
-        .map(|(label, choice)| (label.to_owned(), choice))
+        .map(|(label, choice)| {
+            let label = if matches!(choice, Choice::RoomChecklist(_))
+                && let OpsTarget::Squad(room) = target
+            {
+                app.notes.room_label(room)
+            } else {
+                label.to_owned()
+            };
+            (label, choice)
+        })
         .collect::<Vec<_>>();
         if let OpsTarget::Squad(id) = target {
             let verb = if snapshot.preferences.hidden.contains(id) {

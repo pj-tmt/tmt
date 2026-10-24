@@ -296,6 +296,20 @@ shared paste/file fold painter, current-hit fences, atomic × removal and full-s
 preview also serve quotes. Caret motion skips collapsed folds; there is no undo
 facility. Literal quotes grant no request authority and need no source revalidation.
 
+Each squad has its room checklist, separately from each member's conversation list.
+The squad row's `○ N todo` count opens the exact room list; the squad detail keeps a
+visible Checklist button, including empty or unobserved lists. A known count appears
+inline as `Checklist · N todo`. The existing Actions entry opens the same controller.
+Current-frame UUID hits, loading and overlay guards prevent a stale row from choosing
+another room. A row's optional count yields before the existing state/unread words.
+
+Every open, nonarchived item is a todo, including an item with a reference. Completed
+items count as done; archived items count nowhere. Links remain a secondary attribute:
+the link count overlaps todo/done instead of reducing them. The global header includes
+each room list and each admitted room/member conversation once, independent of search,
+collapse or viewport. Unknown and partial totals retain their existing presentation.
+[Acquisition ownership](board-home.md#checklist-todo-projection) stays on the existing lane.
+
 `n Add to Notes` in the conversation Link popover or Selection menu opens the existing
 Notes draft. Links preselect Link and keep the full URL, with its last path segment
 (or host) as the editable title; selections preselect Todo with the selected source

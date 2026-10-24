@@ -70,19 +70,26 @@ pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
     }
 }
 
-fn service(core: &Core, key: &Key) -> Result<(Service, Id, Id), Error> {
+fn service(core: &Core, key: &Key) -> Result<Service, Error> {
     let config = Config::load(core).map_err(|error| invalid(error.message))?;
-    let (room, member) = (Id::parse(&key.room)?, Id::parse(&key.member)?);
-    let service = Service::for_conversation(core, &config, room.clone(), member.clone())?;
-    Ok((service, room, member))
+    let room = Id::parse(&key.room)?;
+    match key.member() {
+        Some(member) => Service::for_conversation(core, &config, room, Id::parse(member)?),
+        None => Service::new(core, &config, room),
+    }
 }
 
 fn read(core: &Core, key: &Key) -> Result<Preview, Error> {
-    service(core, key)?.0.preview()
+    service(core, key)?.preview()
 }
 
 fn apply(core: &Core, key: &Key, write: Write) -> Result<Applied, Error> {
-    let (service, room, member) = service(core, key)?;
+    let room = Id::parse(&key.room)?;
+    let member = Id::parse(
+        key.member()
+            .ok_or_else(|| invalid("Room writes belong to Checklist."))?,
+    )?;
+    let service = service(core, key)?;
     let checklist_id = Id::conversation_checklist(&room, &member);
     let action = match write {
         Write::Add {

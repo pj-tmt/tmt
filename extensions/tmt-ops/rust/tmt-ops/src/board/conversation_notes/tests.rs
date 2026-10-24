@@ -1,4 +1,5 @@
 use super::*;
+mod rooms;
 use crate::checklist::{
     Current, ItemView, MemberView, Preview, RoomView,
     model::{Completion, Id, Item, ItemContent},
@@ -17,7 +18,7 @@ pub(in crate::board) fn admit_empty(app: &mut crate::board::app::App) {
         .unwrap()
         .rows
         .keys()
-        .filter_map(Key::of)
+        .filter_map(Key::list)
         .collect::<Vec<_>>();
     let mut state = State::reading();
     state.reconcile(keys.clone().into_iter());
@@ -83,22 +84,21 @@ fn preview(items: Vec<ItemView>) -> Preview {
 
 /// A list holding exactly these counts.
 fn items_of(counts: Counts) -> Vec<ItemView> {
-    let mut n = 0;
-    let mut next = |reference: Option<&str>, completion| {
-        n += 1;
-        view(n, reference, completion, false)
-    };
-    let mut items = Vec::new();
-    for _ in 0..counts.links {
-        items.push(next(Some("https://example.com/a"), Completion::Open));
-    }
-    for _ in 0..counts.todo {
-        items.push(next(None, Completion::Open));
-    }
-    for _ in 0..counts.done {
-        items.push(next(None, Completion::Complete));
-    }
-    items
+    assert!(counts.links <= counts.todo + counts.done);
+    (0..counts.todo + counts.done)
+        .map(|index| {
+            view(
+                u8::try_from(index + 1).unwrap(),
+                (index < counts.links).then_some("https://example.com/a"),
+                if index < counts.todo {
+                    Completion::Open
+                } else {
+                    Completion::Complete
+                },
+                false,
+            )
+        })
+        .collect()
 }
 
 /// The answer to a read of this task: a list with these counts, or the words of a failure.
@@ -113,12 +113,12 @@ pub(in crate::board) fn reading(task: &Task, result: Result<Counts, String>) -> 
 fn key() -> Key {
     Key {
         room: ROOM.into(),
-        member: MEMBER.into(),
+        subject: Subject::Conversation(MEMBER.into()),
     }
 }
 
 #[test]
-fn a_reference_makes_a_link_and_the_rest_are_todo_or_done_and_archived_counts_nowhere() {
+fn references_are_attributes_of_open_and_completed_items_and_archived_counts_nowhere() {
     let items = [
         view(1, Some("https://example.com/a"), Completion::Open, false),
         view(
@@ -137,8 +137,8 @@ fn a_reference_makes_a_link_and_the_rest_are_todo_or_done_and_archived_counts_no
         Counts::of(&items),
         Counts {
             links: 2,
-            todo: 2,
-            done: 1
+            todo: 3,
+            done: 2
         }
     );
     assert!(Counts::of(&items[5..]).is_empty(), "only archived items");
@@ -156,8 +156,8 @@ fn the_chip_reads_pending_empty_counts_and_unavailable() {
         "≡ Notes · 3 links · 2 todo · 1 done"
     );
     assert_eq!(
-        chip(counts(1, 0, 0).as_ref()),
-        "≡ Notes · 1 link · 0 todo · 0 done"
+        chip(counts(1, 1, 0).as_ref()),
+        "≡ Notes · 1 link · 1 todo · 0 done"
     );
     assert_eq!(
         chip(Some(&Summary::Unavailable("no".into()))),
@@ -183,7 +183,7 @@ fn a_conversation_is_read_once_then_each_fresh_interval_and_never_twice_at_once(
     );
     let counts = Counts {
         links: 1,
-        todo: 0,
+        todo: 1,
         done: 0,
     };
     let t1 = t0 + Duration::from_secs(1);
@@ -196,7 +196,7 @@ fn a_conversation_is_read_once_then_each_fresh_interval_and_never_twice_at_once(
     );
     let refresh = state.offer(Some(&key()), t1 + FRESH).expect("fresh again");
     let other = Key {
-        member: "44444444-4444-4444-8444-444444444444".into(),
+        subject: Subject::Conversation("44444444-4444-4444-8444-444444444444".into()),
         ..key()
     };
     assert!(
@@ -212,7 +212,7 @@ fn background_counts_are_serial_minutely_and_do_not_retain_the_list_body() {
     let now = Instant::now();
     let selected = key();
     let other = Key {
-        member: ALICE.into(),
+        subject: Subject::Conversation(ALICE.into()),
         ..key()
     };
     let mut state = State::reading();
@@ -309,7 +309,7 @@ fn unread_conversations_are_not_starved_by_an_early_keys_refresh() {
     let now = Instant::now();
     let first = key();
     let later = Key {
-        member: ALICE.into(),
+        subject: Subject::Conversation(ALICE.into()),
         ..key()
     };
     let mut state = State::reading();
@@ -452,19 +452,43 @@ pub(in crate::board) fn capture_case(
         .expect("the fixture has a member");
     app.select(index);
     let key = app.conversation_notes_key().expect("a squad member");
-    app.notes = State::reading();
+    if scene == "notes-unavailable" {
+        app.notes = State::reading();
+        let keys = app
+            .workspace_snapshot()
+            .unwrap()
+            .rows
+            .keys()
+            .filter_map(Key::list)
+            .collect::<Vec<_>>();
+        app.notes.reconcile(keys.into_iter());
+    } else {
+        admit_empty(&mut app);
+    }
     let now = Instant::now();
     let task = app.notes.offer(Some(&key), now).unwrap();
     let result = match scene {
         "notes-counts" => Ok(Counts {
             links: 3,
-            todo: 2,
+            todo: 5,
             done: 1,
         }),
         "notes-empty" => Ok(Counts::default()),
         _ => Err("No admitted caller or recorded active user.".into()),
     };
     app.notes.finished(reading(&task, result), now);
+    if scene == "notes-unavailable" {
+        let room = Key::room(&key.room);
+        let task = app.notes.offer(Some(&room), now).unwrap();
+        app.notes.finished(
+            Completed {
+                key: task.key,
+                epoch: task.epoch,
+                outcome: Outcome::Counts(Err("No admitted caller or recorded active user.".into())),
+            },
+            now,
+        );
+    }
     app
 }
 
@@ -590,18 +614,18 @@ mod header {
             &key,
             Ok(Counts {
                 links: 3,
-                todo: 2,
+                todo: 5,
                 done: 1,
             }),
         );
         let text = screen(&app);
         let header = text.lines().next().unwrap();
-        assert!(header.contains("○ 2 todo"), "{header}");
+        assert!(header.contains("○ 5 todo"), "{header}");
         let member = text
             .lines()
             .find(|line| line.contains("worker") && line.contains("working"))
             .unwrap();
-        assert!(member.contains("· 2 todo"), "{member}");
+        assert!(member.contains("· 5 todo"), "{member}");
         assert!(!text.contains("need you"), "{text}");
     }
 
@@ -708,13 +732,13 @@ mod header {
             &key,
             Ok(Counts {
                 links: 3,
-                todo: 2,
+                todo: 5,
                 done: 1,
             }),
         );
         let text = screen(&app);
         assert!(
-            text.contains("≡ Notes · 3 links · 2 todo · 1 done"),
+            text.contains("≡ Notes · 3 links · 5 todo · 1 done"),
             "{text}"
         );
     }

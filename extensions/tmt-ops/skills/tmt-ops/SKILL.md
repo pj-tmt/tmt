@@ -551,7 +551,7 @@ available yet. `D` opens Digest and `c` opens Timers outside a modal.
 
 A squad member's header shows its Notes chip, `≡ Notes · 3 links · 2 todo · 1 done`
 (`≡ Notes · empty` for an empty list). `N` or a click on the chip opens the list: links
-first, then todos, each row with who added it and how long ago (`you`, the member's
+first, then items without links, each row with who added it and how long ago (`you`, the member's
 name, or nothing for an item stored before the board recorded it). `↑↓`/`jk` choose,
 Enter opens a link or ticks a todo, `a` adds (a web address becomes a link; `Tab` moves
 between the note and its link), `e` edits, `d` deletes after Enter confirms, `Shift+↑↓`
@@ -566,12 +566,18 @@ shows the held message's author, kind and time; the item's body keeps its Source
 reference. Multiple or missing message sources say so. Existing unsent Notes drafts
 are preserved, and these source descriptions grant no request or navigation authority.
 
-Member STATE cells append `· N todo` only for known positive counts, when the
-whole suffix fits after the activity and task. Pending, unavailable and zero counts
+Member STATE cells append `· N todo`; squad STATE cells append their room list's
+`· ○ N todo`. Counts appear only when known and positive and the whole suffix fits
+after the existing state and task. State/unread words keep their width first.
+Pending, unavailable and zero counts
 add no row suffix; the global header carries the unknown or partial observation.
-Every open, nonarchived todo counts, regardless of who added it or its assignee.
-The selected conversation refreshes every five seconds, other conversations at
-most once per minute, one background read at a time. Acknowledged Notes changes
+Every open, nonarchived item counts as a todo, including a linked item, regardless of
+who added it or its assignee. Completed items count as done. The links count is an
+overlapping attribute, not a separate completion kind. Click a squad's count to open
+its room Checklist; its detail also has a visible Checklist button, with `· N todo`
+when known, including zero. Actions → Checklist remains available.
+The selected list refreshes every five seconds, other lists at
+most once per minute, one background read at a time. Acknowledged list changes
 update the chip, STATE and header together; held counts remain during refresh.
 `r` reviews Rename for
 the selected visible agent by UUID; compatible explicit bindings keep their meaning.
@@ -891,9 +897,9 @@ or an unavailable member sends nothing and retains the draft.
 ## Home dashboard
 
 The Agents Usage band and Measure view are the shell's dashboard. The flat agent rows and Digest counts follow
-saved hiding and launch scope; shell attention remains global. The shell keeps online/blocked observations and the global Notes todo total
-visible across tabs. The todo total deduplicates exact room/member conversations,
-independent of search or viewport; a Common-pool member has no room list.
+saved hiding and launch scope; shell attention remains global. The shell keeps online/blocked observations and the global checklist todo total
+visible across tabs. The todo total includes each squad room list and deduplicates
+exact room/member conversation lists, independent of search or viewport; a Common-pool member has no room list.
 Complete totals read `○ N todo`, including `○ 0 todo`; a partially observed total
 reads `○ N todo · partial`. No answer yet reads `○ … todo`, and unavailable
 observations read `○ — todo`, rather than a false zero. Search, pinning, sorting, expansion,
