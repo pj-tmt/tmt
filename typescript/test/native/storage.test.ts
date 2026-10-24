@@ -138,6 +138,7 @@ function expectNativeSchema(
     { version: 63, name: 'record refused runtime starts on their binding' },
     { version: 64, name: 'index the passthrough turns an originator has had answered' },
     { version: 65, name: 'let a request carry a remote route' },
+    { version: 66, name: 'let a final answer a remote request' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
