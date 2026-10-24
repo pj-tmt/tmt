@@ -11,6 +11,9 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     if let Some(session) = &app.member_session {
         session.render(frame, app, look, body);
     }
+    if let Some(notes) = &app.notes_overlay {
+        notes.render(frame, app, look, body);
+    }
     if let Some(recovery) = &app.recovery
         && recovery.active
     {

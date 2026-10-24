@@ -1090,7 +1090,7 @@ fn session(
             }
             Ok(BoardEvent::ViewStatePublished) => Effect::None,
             Ok(BoardEvent::NotesRead(completed)) => {
-                app.notes.finished(completed, Instant::now());
+                app.finished_notes(completed, Instant::now());
                 dirty = true;
                 Effect::None
             }
@@ -1180,6 +1180,7 @@ fn session(
                 app.in_flight += 1;
                 io(lane::Job::MemberSession(task));
             }
+            Effect::Notes(task) => io(lane::Job::Notes(task)),
             Effect::Discovery(task) => {
                 app.in_flight += 1;
                 io(lane::Job::Discovery(task));

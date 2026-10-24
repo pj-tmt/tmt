@@ -285,12 +285,23 @@ projects its typed results/errors. The board consumes the same typed service dir
   and store see only the UUID. Every admission re-resolves the member: unknown is
   `CHECKLIST_MEMBER_UNAVAILABLE`, retired is readable and refuses writes. Admission to the
   room and the actor's authority are those of the room list. No Core schema or contract changes.
-- The board's Notes chip (`board/conversation_notes.rs`) is a read-only projection of a conversation
-  list, one per `(room, member)`: a lane job runs `Service::for_conversation(..).preview()` for
-  the member on screen (never per frame; the first read, then one per five seconds, a failed
-  one waits thirty) and keeps only the counts. An item with a `reference` is a link; one
-  without is a todo (open) or done (complete); archived items count nowhere. A Common-pool
-  member has no room and no list. Only the running board reads (`State::reading`).
+- The board's Notes (`board/conversation_notes.rs`) project a conversation list, one per
+  `(room, member)`: a lane job runs `Service::for_conversation(..).preview()` for the member on
+  screen (never per frame; the first read, then one per five seconds, a failed one waits
+  thirty) and keeps the list for the chip and the overlay. An item with a `reference` is a
+  link; one without is a todo (open) or done (complete); archived items are neither counted
+  nor listed. A Common-pool member has no room and no list. Only the running board reads
+  (`State::reading`). The overlay (`N`, a click on the chip) lists links, then todos; a row
+  shows `who · age` from the item's `added` stamp (`you`, the room roster's name, or the
+  start of an identity the roster no longer lists; no stamp, no author and no age) and a done
+  todo `done <age>` from `last_changed`. Every write (`Add`, `Edit`, `Toggle`, `Delete`,
+  `Reorder`) is one lane job through `Service::apply` carrying the item and inventory
+  revisions the row was read at; one write is in flight per list, and a read begun before a
+  write never replaces what the write answered. A refusal shows Core's words in one line
+  (`CHECKLIST_MEMBER_UNAVAILABLE` for a retired member); a conflict also re-reads the list. An
+  unsent form belongs to the conversation, not the overlay: Esc closes the overlay and keeps
+  a changed form, a sent one is dropped on success and re-aimed at the item's new revision
+  on a conflict.
 - A write queues behind another writer for at most five seconds; a spent budget is
   `CHECKLIST_STORAGE_ERROR` saying nothing was saved with the one retry, and a commit that
   timed out is `CHECKLIST_OUTCOME_UNKNOWN`. The implementation limits are 64 MiB per document

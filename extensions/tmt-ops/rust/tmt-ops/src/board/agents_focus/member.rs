@@ -47,21 +47,23 @@ pub(super) fn render(
     // A member of a squad has a Notes list in its room; one of the Common pool has no room,
     // so it keeps the link line.
     if let Some(key) = conversation_notes::Key::of(target) {
-        line(
-            frame,
-            area,
-            y,
-            neutral(
-                format!(
-                    " {}",
-                    conversation_notes::fitted(
-                        app.notes.summary(&key),
-                        usize::from(area.width).saturating_sub(1)
-                    )
-                ),
-                look,
-            ),
+        let chip = format!(
+            " {}",
+            conversation_notes::fitted(
+                app.notes.summary(&key),
+                usize::from(area.width).saturating_sub(1)
+            )
         );
+        // The chip opens the list where it is drawn, for the member that is selected.
+        if app.workspace_selection_visible() {
+            let width = unicode_width::UnicodeWidthStr::width(chip.as_str());
+            app.workspace_action_hits.borrow_mut().push((
+                Rect::new(area.x, *y, (width as u16).min(area.width), 1),
+                target.clone(),
+                super::super::app::Choice::MemberNotes,
+            ));
+        }
+        line(frame, area, y, neutral(chip, look));
     } else {
         let link = conversation::link_preview(app, row, &app.workspace_bindings());
         line(

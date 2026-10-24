@@ -12,6 +12,7 @@ pub enum OpsUiAction {
     Inspect,
     MonitorDetails,
     MemberSession,
+    MemberNotes,
     Previous,
     Next,
     Fold,
@@ -82,6 +83,13 @@ const SPECS: &[OpsUiSpec] = &[
         "member-session",
         "Session…",
         "read the selected agent's host and remembered session, then review resume or move",
+        12
+    ),
+    spec!(
+        MemberNotes,
+        "member-notes",
+        "notes",
+        "read and edit the selected agent's Notes list",
         12
     ),
     spec!(
@@ -344,6 +352,7 @@ impl OpsUiAction {
                 | Self::RenameMember
                 | Self::MonitorDetails
                 | Self::MemberSession
+                | Self::MemberNotes
         )
     }
 }
