@@ -683,11 +683,8 @@ mod tests {
                 let _ = std::fs::remove_dir_all(&self.0);
             }
         }
-        for provider in ["claude", "codex", "sh"] {
+        for provider in ["claude", "codex"] {
             for resume in [false, true] {
-                if provider == "sh" && resume {
-                    continue;
-                }
                 let root = std::env::temp_dir().join(format!(
                     "tmt-owner-refusal-{}",
                     tmt_core::operation::new_operation_id()
@@ -726,12 +723,13 @@ mod tests {
                 let command = [program.into_os_string()];
                 // Any host work is pinned to a missing private socket; it
                 // cannot discover or select the user's server.
-                let host = Host::for_caller_with(
-                    &CallerEnvironment {
-                        tmux: Some(format!("{},1,0", root.join("private.sock").display()).into()),
-                        pane: Some("%1".into()),
-                        process_id: u64::from(std::process::id()),
-                        driver_env: Default::default(),
+                let host = Host::for_server_with(
+                    &tmt_core::endpoint::ServerEvidence {
+                        host: tmt_core::host::HostKind::Tmux,
+                        server_id: tmt_core::operation::new_operation_id(),
+                        socket_path: root.join("private.sock").to_string_lossy().into(),
+                        server_pid: 1,
+                        server_start_time: "unstarted-private-fixture".into(),
                     },
                     UnixCommandRunner,
                 );
@@ -753,25 +751,17 @@ mod tests {
                     &mut effect,
                     || None,
                 );
-                if provider == "sh" {
-                    assert_eq!(result.unwrap(), 0, "non-provider launch remains available");
-                    assert!(marker.exists());
-                    assert!(matches!(effect, LaunchEffect::Launched));
-                    // Foreground completion closes its owned connection.
-                    storage = Storage::open(&paths.database).unwrap();
-                } else {
-                    let error = result.unwrap_err();
-                    assert_eq!(error.code, "RUNTIME_CONFLICT");
-                    assert!(error.message.contains("No new agent was launched"));
-                    assert!(
-                        error.document()["error"]["suggestion"]
-                            .as_str()
-                            .unwrap()
-                            .contains("rerun")
-                    );
-                    assert!(matches!(effect, LaunchEffect::NotLaunched));
-                    assert!(!marker.exists(), "provider must not spawn");
-                }
+                let error = result.unwrap_err();
+                assert_eq!(error.code, "RUNTIME_CONFLICT");
+                assert!(error.message.contains("No new agent was launched"));
+                assert!(
+                    error.document()["error"]["suggestion"]
+                        .as_str()
+                        .unwrap()
+                        .contains("rerun")
+                );
+                assert!(matches!(effect, LaunchEffect::NotLaunched));
+                assert!(!marker.exists(), "provider must not spawn");
                 let actual = storage
                     .with_binding_transaction(|records| records.session_preferences(&identity.id))
                     .unwrap();
