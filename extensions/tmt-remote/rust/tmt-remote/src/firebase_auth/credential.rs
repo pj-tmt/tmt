@@ -130,12 +130,19 @@ impl FileStore {
         let file = handle
             .as_ref()
             .expect("credential lock handle was initialized");
-        admit(file, false)?;
         // A retained descriptor must never lock an old inode after its path is
-        // replaced. Keep the original strict no-symlink/owner/mode admission.
-        let current = fs::symlink_metadata(path).map_err(|_| invalid())?;
-        let opened = file.metadata().map_err(|_| invalid())?;
-        if !current.is_file() || current.dev() != opened.dev() || current.ino() != opened.ino() {
+        // replaced. Any failed admission or metadata read also invalidates it.
+        let matches = match (
+            admit(file, false),
+            fs::symlink_metadata(path),
+            file.metadata(),
+        ) {
+            (Ok(_), Ok(current), Ok(opened)) => {
+                current.is_file() && current.dev() == opened.dev() && current.ino() == opened.ino()
+            }
+            _ => false,
+        };
+        if !matches {
             *handle = None;
             return Err(invalid());
         }
