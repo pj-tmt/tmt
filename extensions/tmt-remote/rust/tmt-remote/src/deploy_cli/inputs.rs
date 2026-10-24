@@ -180,7 +180,7 @@ pub fn validate_hosted_sign_in(
     {
         return Err(invalid(
             "--sign-in",
-            "google.com on a dedicated Hosting site is not supported yet; use anonymous or select the existing project-default site explicitly.",
+            "google.com on a dedicated Hosting site is not supported yet; use --site <project-id> to select your existing project-default site, or --sign-in anonymous.",
         ));
     }
     Ok(())

@@ -132,7 +132,10 @@ fn dedicated_hosted_google_refuses_but_anonymous_and_default_site_remain_support
             assert!(result.is_ok());
         } else {
             assert!(
-                matches!(result, Err(DeployCliError::Local(error)) if error.code == "REMOTE_DEPLOY_INPUT_INVALID" && error.message.contains("dedicated Hosting site"))
+                matches!(result, Err(DeployCliError::Local(error)) if error.code == "REMOTE_DEPLOY_INPUT_INVALID"
+                    && error.message.contains("dedicated Hosting site")
+                    && error.message.contains("--site <project-id>")
+                    && error.message.contains("--sign-in anonymous"))
             );
         }
         selected.sign_in = vec![SignInProvider::Anonymous];
