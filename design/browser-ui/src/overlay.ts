@@ -1,11 +1,21 @@
-import type { KeyboardEvent } from 'react';
+interface OverlayEscapeEvent {
+  isTrusted: boolean;
+  repeat?: boolean;
+  keyCode?: number;
+  altKey?: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  shiftKey?: boolean;
+  isComposing?: boolean;
+  nativeEvent?: { isComposing?: boolean };
+}
 
 /** Modified, repeated and composing keys cannot dismiss an actionable layer. */
-export function admitsOverlayEscape(event: KeyboardEvent<HTMLElement>): boolean {
+export function admitsOverlayEscape(event: OverlayEscapeEvent): boolean {
   return (
     event.isTrusted &&
     !event.repeat &&
-    !event.nativeEvent.isComposing &&
+    !(event.nativeEvent?.isComposing ?? event.isComposing) &&
     event.keyCode !== 229 &&
     !event.altKey &&
     !event.ctrlKey &&
