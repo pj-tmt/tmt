@@ -394,7 +394,7 @@ fn from_observation(
     observed.diagnostic.map(|diagnostic| LearningView {
         step: diagnostic.step.as_str(),
         reason: diagnostic.reason.as_str(),
-        next_step: tmt_core::binding::session::launch::recovery(
+        next_step: tmt_core::binding::session::launch::session_learning_recovery(
             identity,
             &observed.driver,
             preferences,

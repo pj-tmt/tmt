@@ -139,7 +139,7 @@ impl LaunchObservation {
 }
 
 /// Recovery is presentation only; this command is never executed automatically.
-pub fn recovery(
+pub fn session_learning_recovery(
     identity: &crate::identity::Identity,
     driver: &HarnessId,
     preferences: &super::SessionPreferences,
@@ -185,9 +185,12 @@ mod tests {
         };
         let driver = HarnessId::new("codex").unwrap();
         let mut preferences = super::super::SessionPreferences::default();
-        assert!(recovery(&identity, &driver, &preferences).ends_with("tmt run -- Alpha codex"));
+        assert!(
+            session_learning_recovery(&identity, &driver, &preferences)
+                .ends_with("tmt run -- Alpha codex")
+        );
         identity.name = "🧑".repeat(64);
-        let fresh = recovery(&identity, &driver, &preferences);
+        let fresh = session_learning_recovery(&identity, &driver, &preferences);
         assert!(fresh.len() <= 256 && !fresh.contains('🧑'));
         preferences.remember(
             driver.clone(),
@@ -195,11 +198,11 @@ mod tests {
             ProviderSessionId::new("known").unwrap(),
         );
         assert!(
-            recovery(&identity, &driver, &preferences)
+            session_learning_recovery(&identity, &driver, &preferences)
                 .ends_with(&format!("tmt resume -- {}", identity.id))
         );
         assert!(
-            !recovery(&identity, &HarnessId::new("claude").unwrap(), &preferences)
+            !session_learning_recovery(&identity, &HarnessId::new("claude").unwrap(), &preferences)
                 .contains("tmt resume")
         );
     }

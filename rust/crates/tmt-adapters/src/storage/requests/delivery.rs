@@ -33,7 +33,7 @@ pub(super) fn facts(
             {
                 refusal = Some(tmt_core::binding::session::StartRefusalReason::SessionNotLearned);
                 let preferences = rows.session_preferences(&entry.identity.id)?;
-                let fix = tmt_core::binding::session::launch::recovery(
+                let fix = tmt_core::binding::session::launch::session_learning_recovery(
                     &entry.identity,
                     &observed.driver,
                     &preferences,
