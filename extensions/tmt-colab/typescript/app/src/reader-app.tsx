@@ -56,8 +56,19 @@ export function ReaderApp({
   const bar = useRef<HTMLElement>(null);
   const noteBox = useRef<HTMLElement>(null);
   /** The note's height with its margins: it sits above the page frame, so a frame that fills the
-   * viewport and the page's minimum height both leave room for it (`reader-style.css`). */
+   * viewport leaves room for it (`frameLead`), and so does the page's minimum height
+   * (`reader-style.css`). */
   const [noteSize, setNoteSize] = useState(0);
+  const noteHeight = () => {
+    const box = noteBox.current;
+    if (!box) return 0;
+    const style = getComputedStyle(box);
+    return (
+      box.getBoundingClientRect().height +
+      Number.parseFloat(style.marginTop) +
+      Number.parseFloat(style.marginBottom)
+    );
+  };
   const ready = state.kind === 'ready';
   useEffect(() => {
     const box = noteBox.current;
@@ -65,18 +76,13 @@ export function ReaderApp({
       setNoteSize(0);
       return;
     }
-    const measure = () => {
-      const style = getComputedStyle(box);
-      setNoteSize(
-        box.getBoundingClientRect().height +
-          Number.parseFloat(style.marginTop) +
-          Number.parseFloat(style.marginBottom),
-      );
-    };
+    const measure = () => setNoteSize(noteHeight());
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(box);
     return () => observer.disconnect();
+    // `noteHeight` only reads the note's box, which `ready` decides is there.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
   const {
     reset: resetPageLinks,
@@ -111,6 +117,7 @@ export function ReaderApp({
       },
       onLink: requestPageLink,
       viewportInset: () => toolbarInset(bar.current),
+      frameLead: noteHeight,
     })
       .then((handle) => {
         if (controller.signal.aborted) handle.destroy();

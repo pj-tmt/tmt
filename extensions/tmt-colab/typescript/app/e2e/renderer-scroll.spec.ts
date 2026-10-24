@@ -153,6 +153,25 @@ for (const reader of [false, true]) {
       .toEqual([700, 0]);
     await expect(frame).toHaveAttribute('data-scroll-mode', 'frame');
   });
+
+  test(`${reader ? 'reader' : 'owner'}: a page shorter than the viewport does not scroll the document`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await mount(page, '<style>body{margin:0}</style><main>A short page</main>', reader);
+    const frame = page.locator('iframe');
+    await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
+    // The reader's note above the frame takes room from the frame's minimum height, so the
+    // document is exactly one viewport tall, with and without the note.
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => document.documentElement.scrollHeight - document.documentElement.clientHeight,
+        ),
+      )
+      .toBeLessThanOrEqual(0);
+    if (reader) expect(await noteSize(page)).toBeGreaterThan(0);
+  });
 }
 
 test('identical normalized slot requests cannot mask authored viewport feedback', async ({

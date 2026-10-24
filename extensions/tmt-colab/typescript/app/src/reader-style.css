@@ -64,10 +64,6 @@ main {
   /* Same canvas as the full app: a page without its own background is white in light and dark. */
   background: #fff;
 }
-.frame-host iframe[data-scroll-mode='frame'] {
-  /* A frame that fills the viewport leaves room for the note above it, so it ends at the viewport's edge. */
-  max-height: calc(100dvh - var(--reader-bar-size) - var(--reader-note-size, 0px));
-}
 .frame-host iframe {
   display: block;
   color-scheme: light;
