@@ -112,6 +112,7 @@ pub struct DeliveryFacts {
     pub recipient: Option<RecipientActivity>,
     /// A refused start is an observation, not authority or missing telemetry.
     pub recipient_start_refusal: Option<StartRefusalReason>,
+    pub recipient_session_recovery: Option<String>,
     pub recipient_name: Option<String>,
 }
 
@@ -320,6 +321,20 @@ pub fn delivery_view(facts: &DeliveryFacts, now_ms: u64) -> DeliveryView {
         && let Some(refusal) = facts.recipient_start_refusal
     {
         view.reason = Why::SessionNotBound;
+        if refusal == StartRefusalReason::SessionNotLearned {
+            view.reason_text = format!(
+                "session not bound · {}",
+                facts
+                    .recipient_session_recovery
+                    .as_deref()
+                    .unwrap_or("inspect the recipient's identity for the next step")
+            );
+            if view.reason_text.len() > 256 || view.reason_text.chars().any(char::is_control) {
+                view.reason_text =
+                    "session not bound · inspect the recipient's identity for the next step".into();
+            }
+            return view;
+        }
         let (step, command) = if refusal == StartRefusalReason::PreviousSessionLive {
             (
                 "the old session is still running; move it with:",

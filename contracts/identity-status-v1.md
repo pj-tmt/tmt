@@ -183,6 +183,43 @@ and with the new private main process verified under that pane by PID/start.
 Unknown evidence refuses adoption. Hooks still require the user's installed,
 trusted setup; missing hooks cannot supply an observation.
 
+### Managed launch session learning
+
+A managed launch records a bounded observation before spawning its provider.
+One binding-owned row per exact launch owner PID/start holds both the intent and
+any early SessionStart. It grants no presence, delivery or resume authority.
+Only the already verified private main provider may supply that event; the
+ordinary binding, driver, native child/owner and session admission fences remain.
+Foreground admission consumes a matching early event and remembers its session
+in the same transaction. A matching intervening End stays ended. A concurrent
+binding or preference change wins; no event replaces another session's key.
+An admitted start commits the session before optional context work.
+
+The row retains only driver/session coordinates, bounded driver state, fixed
+diagnostic codes and times. It is settled at launch exit, removed with its
+binding on rebind/retirement, and retained for at most 24 hours (at most eight
+launches per binding; expired rows are removed on the next launch). It never
+stores a transcript, context body or a second copy of preferences.
+
+`tmt ls --json` rows expose additive `session.learning`: `null` without an
+unresolved launch observation, otherwise `{step,reason,nextStep}`.
+`tmt identity show --json` and named `tmt ls <name> --json` add `session` only
+when that observation exists. Steps are `input`, `decode`, `driver_admission`,
+`host_discovery`, `pane_snapshot`, `provider_verification`, `storage`, `context`.
+Reasons are `in_progress`, `not_admitted`, `worker_error`, `budget_timeout`,
+`spawn_failed`, `launch_ended`, `conflict`. An admitted session suppresses an
+older failure. These reads are stored-only; human listing/show gives the same
+recovery step. An unresolved observation projects `session.unbound=true` and
+the existing message-state `session_not_bound` reason without authorizing or
+blocking delivery itself. `nextStep` never suggests resume without remembered
+coordinates: it asks the user to exit the agent and either resume the retained
+session or start through `tmt run`.
+
+Hook diagnostics share the original work budget; they never extend it, retry a
+hook or leave an unbounded writer. A failed optional context step cannot erase
+an already committed session. If even the bounded diagnostic cannot be saved,
+the provider-facing hook reports that fact without claiming a stored result.
+
 Explicit `this`, `name` and `add` perform the same admission after the pane bind
 commits. A verified caller-session locator applies only to that exact target;
 `add` from another pane cannot use its invoker's session. When a provider is

@@ -23,6 +23,7 @@ use tmt_core::{
     endpoint::ProcessIncarnation,
 };
 
+pub(crate) mod admission;
 mod agent_name;
 mod channel;
 mod move_session;

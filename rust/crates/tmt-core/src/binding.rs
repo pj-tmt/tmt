@@ -162,6 +162,10 @@ pub trait BindingRecords: IdentityReader {
         driver: &session::HarnessId,
         now_ms: u64,
     ) -> Result<bool, Self::Error>;
+    fn launch_preferences_match(
+        &self,
+        observation: &session::launch::LaunchObservation,
+    ) -> Result<bool, Self::Error>;
     fn launch_observation(
         &self,
         binding_id: &str,

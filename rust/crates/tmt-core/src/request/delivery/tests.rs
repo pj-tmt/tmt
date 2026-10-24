@@ -13,6 +13,7 @@ fn facts(status: AttemptStatus) -> DeliveryFacts {
         oldest_held_at_ms: None,
         recipient: None,
         recipient_start_refusal: None,
+        recipient_session_recovery: None,
         recipient_name: None,
     }
 }

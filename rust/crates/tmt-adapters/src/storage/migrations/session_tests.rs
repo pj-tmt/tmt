@@ -404,15 +404,15 @@ fn launch_observations_are_binding_owned_and_do_not_admit_a_session() {
         INSERT INTO bindings (id,identity_id,transport,pane_id,server_id,socket_path,server_pid,server_start_time,pane_pid,bound_at,last_verified_at)
         VALUES ('binding','identity','tmux','%3','server','/tmp/private',41,'server-start',51,'bound','verified');").unwrap();
     let insert = "INSERT INTO launch_observations
-        (binding_id,owner_pid,owner_start,driver,created_at_ms,expires_at_ms)
-        VALUES ('binding',61,'owner-start','claude',100,200)";
+        (binding_id,preferences_fingerprint,owner_pid,owner_start,driver,created_at_ms,expires_at_ms)
+        VALUES ('binding','0000000000000000000000000000000000000000000000000000000000000000',61,'owner-start','claude',100,200)";
     db.execute(insert, [])
         .expect("a launch intent has one durable row before the provider starts");
     assert!(
         db.execute(insert, []).is_err(),
         "the same launch cannot have two rows"
     );
-    db.execute("UPDATE launch_observations SET status='pending',provider_pid=71,provider_start='provider-start',provider_session='session',runtime_mode='default',observed_at_ms=110 WHERE binding_id='binding'", []).unwrap();
+    db.execute("UPDATE launch_observations SET status='pending',provider_transition='started',provider_pid=71,provider_start='provider-start',provider_session='session',runtime_mode='default',observed_at_ms=110 WHERE binding_id='binding'", []).unwrap();
     let state: (String, Option<String>) = db
         .query_row(
             "SELECT runtime_state,observed_provider_session_id FROM bindings",

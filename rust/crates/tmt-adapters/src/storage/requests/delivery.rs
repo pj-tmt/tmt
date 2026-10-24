@@ -21,13 +21,40 @@ pub(super) fn facts(
                 .and_then(|entry| entry.binding.as_ref())
                 .and_then(|binding| binding.session.start_refusal.as_ref())
                 .map(|refusal| refusal.reason);
-            Ok::<_, StorageError>((refusal, entry.map(|entry| entry.identity.name)))
+            let mut refusal = refusal;
+            let mut recovery = None;
+            if refusal.is_none()
+                && let Some(entry) = entry.as_ref()
+                && let Some(binding) = entry.binding.as_ref()
+                && let Some(observed) =
+                    crate::storage::launch_observations::latest(db, &binding.id, now)?
+                && observed.status != tmt_core::binding::session::launch::LaunchStatus::Admitted
+                && observed.diagnostic.is_some()
+            {
+                refusal = Some(tmt_core::binding::session::StartRefusalReason::SessionNotLearned);
+                let preferences = rows.session_preferences(&entry.identity.id)?;
+                let fix = tmt_core::binding::session::launch::recovery(
+                    &entry.identity,
+                    &observed.driver,
+                    &preferences,
+                );
+                recovery = Some(if fix.len() + "session not bound · ".len() <= 256 {
+                    fix
+                } else {
+                    format!(
+                        "Inspect the recipient and its next step: tmt identity show {}",
+                        entry.identity.id
+                    )
+                });
+            }
+            Ok::<_, StorageError>((refusal, entry.map(|entry| entry.identity.name), recovery))
         })
         .transpose()?
         .unwrap_or_default();
     Ok(DeliveryFacts {
         recipient_start_refusal: context.0,
         recipient_name: context.1,
+        recipient_session_recovery: context.2,
         status: attempt.status,
         inbox: matches!(attempt.route, RequestRoute::Inbox { .. }),
         wake: RequestRows(db)

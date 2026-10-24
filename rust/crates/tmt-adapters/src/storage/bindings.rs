@@ -116,6 +116,12 @@ impl BindingRecords for BindingRows<'_> {
         }
         super::launch_observations::begin(self.0, &binding.id, owner, driver, now_ms)
     }
+    fn launch_preferences_match(
+        &self,
+        observation: &tmt_core::binding::session::launch::LaunchObservation,
+    ) -> Result<bool, Self::Error> {
+        super::launch_observations::preferences_match(self.0, observation)
+    }
     fn launch_observation(
         &self,
         binding_id: &str,

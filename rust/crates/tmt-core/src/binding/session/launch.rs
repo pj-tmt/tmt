@@ -1,5 +1,5 @@
 //! Bounded observations of a managed launch, never admission or presence authority.
-use super::{DriverState, HarnessId, ProviderSessionId, RuntimeMode};
+use super::{DriverState, HarnessId, ProviderSessionId, RuntimeMode, SessionTransition};
 use crate::endpoint::ProcessIncarnation;
 
 pub const RETENTION_MS: u64 = 24 * 60 * 60 * 1_000;
@@ -8,6 +8,7 @@ pub const MAXIMUM_PER_BINDING: usize = 8;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingStart {
     pub process: ProcessIncarnation,
+    pub transition: SessionTransition,
     pub session: ProviderSessionId,
     pub mode: RuntimeMode,
     pub state: Option<DriverState>,
@@ -54,6 +55,7 @@ impl SessionLearningStep {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionLearningReason {
+    InProgress,
     NotAdmitted,
     WorkerError,
     BudgetTimeout,
@@ -64,6 +66,7 @@ pub enum SessionLearningReason {
 impl SessionLearningReason {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::InProgress => "in_progress",
             Self::NotAdmitted => "not_admitted",
             Self::WorkerError => "worker_error",
             Self::BudgetTimeout => "budget_timeout",
@@ -74,6 +77,7 @@ impl SessionLearningReason {
     }
     pub fn parse(value: &str) -> Option<Self> {
         Some(match value {
+            "in_progress" => Self::InProgress,
             "not_admitted" => Self::NotAdmitted,
             "worker_error" => Self::WorkerError,
             "budget_timeout" => Self::BudgetTimeout,
@@ -101,6 +105,7 @@ pub enum LaunchStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchObservation {
     pub binding_id: String,
+    pub preferences_fingerprint: String,
     pub owner: ProcessIncarnation,
     pub driver: HarnessId,
     pub created_at_ms: u64,
@@ -133,9 +138,72 @@ impl LaunchObservation {
     }
 }
 
+/// Recovery is presentation only; this command is never executed automatically.
+pub fn recovery(
+    identity: &crate::identity::Identity,
+    driver: &HarnessId,
+    preferences: &super::SessionPreferences,
+) -> String {
+    if preferences
+        .remembered
+        .as_ref()
+        .is_some_and(|remembered| &remembered.harness == driver)
+    {
+        return format!(
+            "Exit the agent in its pane, then run: tmt resume -- {}",
+            identity.id
+        );
+    }
+    let command = crate::driver::descriptor::named(driver.as_str())
+        .and_then(|driver| driver.executables.first())
+        .map(|executable| {
+            format!(
+                "Exit the agent in its pane, then run: tmt run -- {} {}",
+                crate::names::command_word(&identity.name),
+                crate::names::command_word(executable)
+            )
+        });
+    command
+        .filter(|command| command.len() <= 256)
+        .unwrap_or_else(|| {
+            "Exit the agent in its pane, then start it again with tmt run in that pane.".into()
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recovery_never_suggests_resume_without_coordinates_or_truncates_a_command() {
+        let mut identity = crate::identity::Identity {
+            id: "123e4567-e89b-42d3-a456-426614174000".into(),
+            name: "Alpha".into(),
+            canonical_name: "alpha".into(),
+            lifetime: crate::identity::Lifetime::Saved,
+            created_at: "created".into(),
+            updated_at: "updated".into(),
+        };
+        let driver = HarnessId::new("codex").unwrap();
+        let mut preferences = super::super::SessionPreferences::default();
+        assert!(recovery(&identity, &driver, &preferences).ends_with("tmt run -- Alpha codex"));
+        identity.name = "🧑".repeat(64);
+        let fresh = recovery(&identity, &driver, &preferences);
+        assert!(fresh.len() <= 256 && !fresh.contains('🧑'));
+        preferences.remember(
+            driver.clone(),
+            RuntimeMode::new("default").unwrap(),
+            ProviderSessionId::new("known").unwrap(),
+        );
+        assert!(
+            recovery(&identity, &driver, &preferences)
+                .ends_with(&format!("tmt resume -- {}", identity.id))
+        );
+        assert!(
+            !recovery(&identity, &HarnessId::new("claude").unwrap(), &preferences)
+                .contains("tmt resume")
+        );
+    }
+
     #[test]
     fn a_pending_start_selects_only_its_exact_live_launch_coordinates() {
         let owner = ProcessIncarnation::new(10, "owner").unwrap();
@@ -143,6 +211,7 @@ mod tests {
         let driver = HarnessId::new("claude").unwrap();
         let mut observation = LaunchObservation {
             binding_id: "binding".into(),
+            preferences_fingerprint: "test-fingerprint".into(),
             owner: owner.clone(),
             driver: driver.clone(),
             created_at_ms: 100,
@@ -151,6 +220,7 @@ mod tests {
             diagnostic: None,
             pending: Some(PendingStart {
                 process: child.clone(),
+                transition: SessionTransition::Started,
                 session: ProviderSessionId::new("session").unwrap(),
                 mode: RuntimeMode::new("default").unwrap(),
                 state: None,

@@ -36,6 +36,7 @@ struct ListedRow {
     resume: Option<serde_json::Value>,
     activity: serde_json::Value,
     unbound: Option<bool>,
+    learning: Option<crate::session_learning::LearningView>,
     running_driver: Option<String>,
     /// The identified driver's level, advisory like `driver`.
     driver_support: Option<tmt_core::driver::descriptor::Support>,
@@ -87,6 +88,7 @@ enum Report {
         target: String,
         row: IdentityPresence,
         remembered: Option<RememberedSession>,
+        learning: Option<Box<crate::session_learning::LearningView>>,
     },
     Pane {
         target: String,
@@ -567,10 +569,29 @@ fn operation(
                                 )
                                 .caused_by(error)
                             })?;
+                    let learning = crate::session_learning::view(
+                        storage,
+                        row.binding.as_ref(),
+                        &row.identity,
+                        &preferences,
+                    )
+                    .map_err(|error| {
+                        Failure::new(
+                            "IDENTITY_ERROR",
+                            "Could not read session learning diagnostics.",
+                            1,
+                        )
+                        .caused_by(error)
+                    })?;
                     let unbound = row
                         .binding
                         .as_ref()
                         .and_then(|b| b.session.unbound(&preferences));
+                    let unbound = if learning.is_some() {
+                        Some(true)
+                    } else {
+                        unbound
+                    };
                     let resume = crate::output::resume_document(&preferences, &registry);
                     let runtime = row
                         .binding
@@ -608,6 +629,7 @@ fn operation(
                         resume,
                         activity,
                         unbound,
+                        learning,
                         running_driver,
                         driver_support,
                     })
@@ -636,10 +658,29 @@ fn operation(
                 let row =
                     binding::name_presence(storage, endpoint, &target).map_err(binding_failure)?;
                 let remembered = remembered_session(storage, &row.identity)?;
+                let learning = crate::session_learning::identity_view(
+                    storage,
+                    &row.identity,
+                    &storage
+                        .session_preferences(&row.identity.id)
+                        .map_err(|error| {
+                            Failure::new("IDENTITY_ERROR", "Could not read session preferences.", 1)
+                                .caused_by(error)
+                        })?,
+                )
+                .map_err(|error| {
+                    Failure::new(
+                        "IDENTITY_ERROR",
+                        "Could not read session learning diagnostics.",
+                        1,
+                    )
+                    .caused_by(error)
+                })?;
                 Ok(Report::Named {
                     target,
                     row,
                     remembered,
+                    learning: learning.map(Box::new),
                 })
             }
         }

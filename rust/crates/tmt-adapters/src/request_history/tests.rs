@@ -18,6 +18,7 @@ fn sent_view() -> tmt_core::request::delivery::DeliveryView {
             oldest_held_at_ms: None,
             recipient: None,
             recipient_start_refusal: None,
+            recipient_session_recovery: None,
             recipient_name: None,
         },
         0,

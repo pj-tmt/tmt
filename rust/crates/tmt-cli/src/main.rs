@@ -56,6 +56,7 @@ mod response_command;
 mod room_command;
 mod run_command;
 mod send_now_command;
+mod session_learning;
 mod setup_command;
 mod skill_refresh_command;
 mod skill_reminder;
