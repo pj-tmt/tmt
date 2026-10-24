@@ -1,15 +1,14 @@
 //! The Notes of one conversation (a member's list inside a room), read and written on the lane.
-//! The board keeps only what it paints; Core's checklist stays the one owner of the items.
-use crate::checklist::{
-    Applied, Code, Error, ItemView, Preview,
-    model::{Completion, Id},
-};
+//! The board keeps only what it paints; the admitted checklist service stays the one owner of the items.
+use crate::checklist::{Applied, Code, Error, Preview, model::Id};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     time::{Duration, Instant},
 };
 
 mod draft;
+mod summary;
+pub(in crate::board) use summary::{Counts, Summary, Total};
 pub(in crate::board) mod overlay;
 mod rows;
 mod surface;
@@ -23,6 +22,7 @@ pub(in crate::board) use work::{Write, complete};
 const FRESH: Duration = Duration::from_secs(5);
 /// A failed read is asked again later, not on every turn of the loop.
 const RETRY: Duration = Duration::from_secs(30);
+const BACKGROUND: Duration = Duration::from_secs(60);
 
 /// A conversation: the room and the member, both canonical UUIDs.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -32,62 +32,30 @@ pub(in crate::board) struct Key {
 }
 
 impl Key {
-    /// A member of a squad has a list in its room; a member of the Common pool has no room.
-    pub fn of(target: &super::workspace::OpsTarget) -> Option<Self> {
+    fn parts(target: &super::workspace::OpsTarget) -> Option<(&str, &str)> {
         match target {
             super::workspace::OpsTarget::Member {
                 room_id: Some(room),
                 identity_id,
-            } => Some(Self {
-                room: room.clone(),
-                member: identity_id.clone(),
-            }),
+            } => Some((room, identity_id)),
             _ => None,
         }
     }
-}
 
-/// What the summary counts; archived items belong to neither.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(in crate::board) struct Counts {
-    pub links: usize,
-    pub todo: usize,
-    pub done: usize,
-}
-
-impl Counts {
-    /// An item with a reference is a link; one without is a todo, open or done.
-    pub fn of<'a>(items: impl IntoIterator<Item = &'a ItemView>) -> Self {
-        let mut counts = Self::default();
-        for view in items.into_iter().filter(|view| !view.item.archived) {
-            match (&view.item.content.reference, view.item.completion) {
-                (Some(_), _) => counts.links += 1,
-                (None, Completion::Open) => counts.todo += 1,
-                (None, Completion::Complete) => counts.done += 1,
-            }
-        }
-        counts
+    /// A member of a squad has a list in its room; a member of the Common pool has no room.
+    pub fn of(target: &super::workspace::OpsTarget) -> Option<Self> {
+        Self::parts(target).map(|(room, member)| Self {
+            room: room.into(),
+            member: member.into(),
+        })
     }
-
-    pub fn is_empty(self) -> bool {
-        self == Self::default()
-    }
-}
-
-/// What the board knows of one conversation's list.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(in crate::board) enum Summary {
-    /// Asked, nothing back yet.
-    Pending,
-    Counts(Counts),
-    /// Core's own words for why the list could not be read.
-    Unavailable(String),
 }
 
 /// What the lane does for one conversation: read its list, or apply one write to it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Work {
     Read,
+    Counts,
     Write(Write),
 }
 
@@ -103,6 +71,7 @@ pub(in crate::board) struct Task {
 #[derive(Debug)]
 enum Outcome {
     Read(Result<Preview, String>),
+    Counts(Result<Counts, String>),
     Write(Result<Applied, Error>),
 }
 
@@ -124,11 +93,11 @@ pub(in crate::board) struct Written {
 
 struct Entry {
     summary: Summary,
-    /// The last list Core answered, for the overlay; the summary derives from it.
+    /// The last admitted list, for the overlay; the summary derives from it.
     preview: Option<Preview>,
     /// When the read in flight began, or the last one ended.
     at: Instant,
-    in_flight: bool,
+    preview_at: Option<Instant>,
     /// Bumped by every write, so that a read begun before it cannot overwrite what it changed.
     epoch: u64,
     /// A write is on the lane; the next one waits for its answer.
@@ -136,16 +105,98 @@ struct Entry {
 }
 
 /// A board built without a lane (a test, a preview) reads nothing; the running board is
-/// started with [`State::reading`].
+/// started with [`State::enable`].
 #[derive(Default)]
 pub(in crate::board) struct State {
     reading: bool,
     lists: BTreeMap<Key, Entry>,
+    /// One quiet read owns the lane admission, including when selection changes.
+    read: Option<Key>,
+    /// The earliest background retry, so idle loop turns do not rescan the roster.
+    background_at: Option<Instant>,
+    /// Global admitted conversations, independent of search and the viewport.
+    scope: Option<BTreeSet<Key>>,
+    total: Option<Total>,
     /// An unsent form outlives the overlay that showed it.
     drafts: BTreeMap<Key, Draft>,
 }
 
 impl State {
+    /// Unchanged rosters compare borrowed UUIDs without rebuilding the admission inventory.
+    pub fn observe_roster<'a>(
+        &mut self,
+        targets: impl Iterator<Item = &'a super::workspace::OpsTarget> + Clone,
+    ) {
+        let admitted: BTreeSet<_> = targets.clone().filter_map(Key::parts).collect();
+        if self.scope.as_ref().is_some_and(|scope| {
+            scope.len() == admitted.len()
+                && scope
+                    .iter()
+                    .zip(&admitted)
+                    .all(|(key, (room, member))| key.room == *room && key.member == *member)
+        }) {
+            return;
+        }
+        self.reconcile(targets.filter_map(Key::of));
+    }
+
+    pub fn enable(&mut self) {
+        self.reading = true;
+    }
+
+    pub fn reconcile(&mut self, keys: impl Iterator<Item = Key>) {
+        let scope: BTreeSet<_> = keys.collect();
+        if self.scope.as_ref() == Some(&scope) {
+            return;
+        }
+        self.lists.retain(|key, entry| {
+            scope.contains(key)
+                || entry.writing
+                || self.read.as_ref() == Some(key)
+                || self.drafts.contains_key(key)
+        });
+        self.scope = Some(scope);
+        self.background_at = None;
+        self.recount();
+    }
+
+    fn recount(&mut self) {
+        let mut total = Total::default();
+        let keys: Box<dyn Iterator<Item = &Key> + '_> = match &self.scope {
+            Some(keys) => Box::new(keys.iter()),
+            None if self.lists.is_empty() => {
+                self.total = None;
+                return;
+            }
+            None => Box::new(self.lists.keys()),
+        };
+        for key in keys {
+            total.observe(self.summary(key));
+        }
+        self.total = Some(total);
+    }
+
+    pub fn total(&self) -> Option<Total> {
+        self.total
+    }
+
+    #[cfg(test)]
+    pub fn total_label(&self) -> String {
+        self.total.map_or_else(|| "… todo".into(), Total::label)
+    }
+
+    pub fn row_label(&self, target: &super::workspace::OpsTarget) -> Option<String> {
+        let key = Key::of(target)?;
+        match self.summary(&key) {
+            Some(Summary::Counts(counts)) => {
+                (counts.todo > 0).then(|| format!("{} todo", counts.todo))
+            }
+            Some(Summary::Unavailable(_)) => Some("— todo".into()),
+            None | Some(Summary::Pending) => Some("… todo".into()),
+        }
+    }
+
+    #[cfg(test)]
     pub fn reading() -> Self {
         Self {
             reading: true,
@@ -157,18 +208,23 @@ impl State {
     /// [`FRESH`] while it stays on screen (a failure waits [`RETRY`]).
     pub fn offer(&mut self, shown: Option<&Key>, now: Instant) -> Option<Task> {
         let key = shown.filter(|_| self.reading)?;
+        if self.read.is_some() {
+            return None;
+        }
         let epoch = match self.lists.get_mut(key) {
-            Some(entry) if entry.in_flight => return None,
+            Some(entry) if entry.writing => return None,
             Some(entry) => {
                 let wait = if matches!(entry.summary, Summary::Unavailable(_)) {
                     RETRY
                 } else {
                     FRESH
                 };
-                if now.duration_since(entry.at) < wait {
+                let at = entry.preview_at.unwrap_or(entry.at);
+                if (entry.preview_at.is_some() || matches!(entry.summary, Summary::Unavailable(_)))
+                    && now.duration_since(at) < wait
+                {
                     return None;
                 }
-                entry.in_flight = true;
                 entry.at = now;
                 entry.epoch
             }
@@ -179,7 +235,7 @@ impl State {
                         summary: Summary::Pending,
                         preview: None,
                         at: now,
-                        in_flight: true,
+                        preview_at: None,
                         epoch: 0,
                         writing: false,
                     },
@@ -187,9 +243,52 @@ impl State {
                 0
             }
         };
+        self.read = Some(key.clone());
+        self.recount();
         Some(Task {
             key: key.clone(),
             work: Work::Read,
+            epoch,
+        })
+    }
+
+    /// Selected reads are offered first; a background turn admits just one due list.
+    pub fn offer_background(&mut self, shown: Option<&Key>, now: Instant) -> Option<Task> {
+        if !self.reading || self.read.is_some() || self.background_at.is_some_and(|at| now < at) {
+            return None;
+        }
+        let candidate = self
+            .scope
+            .as_ref()?
+            .iter()
+            .filter(|key| {
+                Some(*key) != shown && self.lists.get(*key).is_none_or(|entry| !entry.writing)
+            })
+            .map(|key| (self.lists.get(key).map(|entry| entry.at), key))
+            .min_by_key(|(at, _)| *at);
+        let Some((at, key)) = candidate else {
+            self.background_at = Some(now + BACKGROUND);
+            return None;
+        };
+        if let Some(at) = at.filter(|at| now.duration_since(*at) < BACKGROUND) {
+            self.background_at = Some(at + BACKGROUND);
+            return None;
+        }
+        let key = key.clone();
+        let entry = self.lists.entry(key.clone()).or_insert_with(|| Entry {
+            summary: Summary::Pending,
+            preview: None,
+            at: now,
+            preview_at: None,
+            epoch: 0,
+            writing: false,
+        });
+        entry.at = now;
+        let epoch = entry.epoch;
+        self.read = Some(key.clone());
+        Some(Task {
+            key,
+            work: Work::Counts,
             epoch,
         })
     }
@@ -206,11 +305,31 @@ impl State {
     }
 
     pub fn finished(&mut self, completed: Completed, now: Instant) -> Option<Written> {
+        self.background_at = None;
+        let written = self.adopt(completed, now);
+        if let Some(scope) = &self.scope {
+            self.lists.retain(|key, entry| {
+                scope.contains(key)
+                    || entry.writing
+                    || self.read.as_ref() == Some(key)
+                    || self.drafts.contains_key(key)
+            });
+        }
+        self.recount();
+        written
+    }
+
+    fn adopt(&mut self, completed: Completed, now: Instant) -> Option<Written> {
+        if matches!(completed.outcome, Outcome::Read(_) | Outcome::Counts(_))
+            && self.read.as_ref() == Some(&completed.key)
+        {
+            self.read = None;
+        }
         let entry = self.lists.get_mut(&completed.key)?;
         match completed.outcome {
             Outcome::Read(result) => {
-                entry.in_flight = false;
                 entry.at = now;
+                entry.preview_at = Some(now);
                 if completed.epoch != entry.epoch {
                     return None;
                 }
@@ -218,10 +337,25 @@ impl State {
                     Ok(preview) => {
                         entry.summary = Summary::Counts(Counts::of(&preview.current.items));
                         entry.preview = Some(preview);
+                        entry.preview_at = Some(now);
                     }
                     // A list already shown stays on a failed refresh; only a first read reports it.
                     Err(error) if matches!(entry.summary, Summary::Pending) => {
                         entry.summary = Summary::Unavailable(error)
+                    }
+                    Err(_) => {}
+                }
+                None
+            }
+            Outcome::Counts(result) => {
+                entry.at = now;
+                if completed.epoch != entry.epoch {
+                    return None;
+                }
+                match result {
+                    Ok(counts) => entry.summary = Summary::Counts(counts),
+                    Err(error) if matches!(entry.summary, Summary::Pending) => {
+                        entry.summary = Summary::Unavailable(error);
                     }
                     Err(_) => {}
                 }
@@ -234,6 +368,8 @@ impl State {
                 match result {
                     Ok(applied) => {
                         entry.adopt(applied.current);
+                        entry.at = now;
+                        entry.preview_at = Some(now);
                         // A draft the write carried is sent.
                         if draft.is_some_and(|draft| draft.sent()) {
                             self.drafts.remove(&completed.key);
@@ -271,7 +407,7 @@ impl State {
         self.lists.get(key).map(|entry| &entry.summary)
     }
 
-    /// The last list Core answered for this conversation.
+    /// The last admitted list for this conversation.
     pub fn preview(&self, key: &Key) -> Option<&Preview> {
         self.lists.get(key)?.preview.as_ref()
     }

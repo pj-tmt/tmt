@@ -78,9 +78,7 @@ impl Member {
     /// `stale` means the board's read is too old or failed; it never becomes idle.
     pub fn label(&self, stale: bool, now_ms: u64) -> Label {
         let activity = self.activity;
-        let (state, since) = if self.waiting {
-            ("waiting", None)
-        } else if stale {
+        let (state, since) = if stale {
             ("stale", activity.last_ms)
         } else {
             match activity.phase {
@@ -119,8 +117,6 @@ impl Label {
     pub fn word(&self) -> &'static str {
         match self.state {
             "unknown" => "?",
-            // The one vocabulary: a request that waits on the user reads Needs you.
-            "waiting" => "Needs you",
             state => state,
         }
     }
@@ -316,12 +312,15 @@ mod tests {
         assert_eq!(unknown.label(false, NOW).state, "unknown");
         let bare = member(Phase::Unknown, None, None, None);
         assert_eq!(words(&bare.label(false, NOW), 80), "?");
-        // A request that waits on the user wins; a stale read never becomes idle.
+        // A waiting request does not replace activity; a stale read never becomes idle.
         let waiting = Member {
             waiting: true,
             ..working.clone()
         };
-        assert_eq!(words(&waiting.label(true, NOW), 80), "Needs you · review");
+        assert_eq!(
+            words(&waiting.label(true, NOW), 80),
+            "stale 59m ago · review"
+        );
         assert_eq!(
             words(&working.label(true, NOW), 80),
             "stale 59m ago · review",

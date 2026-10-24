@@ -3123,12 +3123,7 @@ fn overview_never_claims_zero_from_incomplete_rosters_and_reports_the_global_obs
         let complete = paint(&app, 160, 36).join("\n");
         assert!(complete.contains("● 150 online"), "{complete}");
         assert!(complete.contains("✗ 1 blocked"), "{complete}");
-        assert!(complete.contains("◆ 0 need you"), "{complete}");
-        assert!(
-            crate::board::overview::monitor::scene(&app, app.workspace_snapshot().unwrap()).waiting
-                == 0,
-            "blocked is not a pending question"
-        );
+        assert!(complete.contains("○ … todo"), "{complete}");
         assert_eq!(
             crate::board::overview::monitor::scene(&app, app.workspace_snapshot().unwrap())
                 .summary
@@ -3264,6 +3259,7 @@ fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() 
                             depth,
                         };
                         let mut app = board();
+                        crate::board::conversation_notes::tests::admit_empty(&mut app);
                         app.view.as_mut().unwrap().look = look;
                         let snapshot =
                             &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
@@ -3590,6 +3586,7 @@ fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
         ] {
             for selected in [false, true] {
                 let mut app = board();
+                crate::board::conversation_notes::tests::admit_empty(&mut app);
                 app.view.as_mut().unwrap().look = look;
                 let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
                 snapshot.squad_looks.clear();
@@ -3644,7 +3641,10 @@ fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
                 // A cell too narrow for the whole task drops it; it is never painted for "working".
                 let tail = match state {
                     "idle" => " · idle",
-                    "working" | "offline" | "waiting" | "blocked" => "",
+                    "offline" => " · offline",
+                    "waiting" => " · waiting",
+                    "blocked" => " · blocked",
+                    "working" => "",
                     _ => unreachable!(),
                 };
                 assert!(
@@ -3668,11 +3668,11 @@ fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
                         look.role(match role {
                             Some(role) if in_task => role,
                             _ if selected => Role::Text,
-                            _ if x == 49 => {
+                            _ if x == 54 => {
                                 assert_eq!(terminal.backend().buffer()[(x, hit.y)].symbol(), "—");
                                 Role::Dim
                             }
-                            _ if x >= 53 => Role::Muted,
+                            _ if x >= 58 => Role::Muted,
                             _ => Role::Text,
                         })
                         .fg
@@ -3723,11 +3723,6 @@ fn confirmed_hide_moves_only_its_visible_squad_and_keeps_global_attention() {
         0
     );
     app.workspace_action(OpsUiAction::RevealHidden);
-    assert!(
-        crate::board::overview::monitor::scene(&app, app.workspace_snapshot().unwrap()).waiting
-            == 0,
-        "revealing a squad does not manufacture waiting evidence"
-    );
     assert_eq!(
         crate::board::overview::monitor::scene(&app, app.workspace_snapshot().unwrap())
             .summary
@@ -3950,10 +3945,6 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                             &app,
                             app.workspace_snapshot().unwrap(),
                         );
-                        assert!(
-                            scene.waiting == 0,
-                            "these observed agents have no pending question"
-                        );
                         assert_eq!(scene.summary.total, if mode == "revealed" { 4 } else { 2 });
                         let snapshot = app.workspace_snapshot().unwrap();
                         assert_eq!(
@@ -3968,7 +3959,6 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                                 .count(),
                             if mode == "revealed" { 2 } else { 1 }
                         );
-                        assert_eq!(scene.summary.needs_you, usize::from(mode != "hidden"));
                     }
                     assert_eq!(app.workspace_snapshot().unwrap().shell_counts, global);
                     let before = app.workspace.selected.clone();
@@ -4101,7 +4091,7 @@ fn hidden_line_reports_both_attention_kinds_but_omits_absent_and_revealed_attent
             .map(|x| terminal.backend().buffer()[(x, 1)].symbol())
             .collect::<String>()
     };
-    assert!(paint(&app).contains("Hidden: 1 · ◆ 1 need you · ✗ 1 blocked · show"));
+    assert!(paint(&app).contains("Hidden: 1 · ✗ 1 blocked · show"));
     app.workspace.visibility.reveal_hidden = true;
     let line = paint(&app);
     assert!(line.contains("Hidden: 1 · shown"));
@@ -4129,8 +4119,10 @@ fn nondefault_layer_caption_changes_only_the_header_and_never_overlaps_attention
                     ),
                     depth,
                 };
-                let default = capture_case("agents", look);
+                let mut default = capture_case("agents", look);
+                crate::board::conversation_notes::tests::admit_empty(&mut default);
                 let mut named = capture_case("agents", look);
+                crate::board::conversation_notes::tests::admit_empty(&mut named);
                 named.view_layer = crate::board::ViewLayer::parse("popup").unwrap();
                 let draw = |app: &App| {
                     let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
@@ -4148,15 +4140,9 @@ fn nondefault_layer_caption_changes_only_the_header_and_never_overlaps_attention
                         .collect::<String>()
                 };
                 let shown = line(&popup);
-                assert!(shown.contains(if width == 60 {
-                    "OPS / UI · …"
-                } else {
-                    "OPS / UI · popup"
-                }));
+                assert!(shown.contains("OPS / UI · popup"), "{width}: {shown}");
                 assert!(
-                    shown.contains("online")
-                        && shown.contains("need you")
-                        && shown.contains("blocked")
+                    shown.contains("online") && shown.contains("todo") && shown.contains("blocked")
                 );
                 assert!(!line(&ordinary).contains("· popup"));
                 assert_eq!(
@@ -4166,9 +4152,7 @@ fn nondefault_layer_caption_changes_only_the_header_and_never_overlaps_attention
                 named.view_layer = crate::board::ViewLayer::parse(&"x".repeat(32)).unwrap();
                 let long = line(&draw(&named));
                 assert!(
-                    long.contains("online")
-                        && long.contains("need you")
-                        && long.contains("blocked")
+                    long.contains("online") && long.contains("todo") && long.contains("blocked")
                 );
                 if width >= 160 {
                     assert!(long.contains(&"x".repeat(32)));
@@ -4186,7 +4170,7 @@ fn named_header_keeps_unknown_attention_before_the_long_layer_caption() {
     let app = capture_case("named-layer-long-partial", crate::look::Look::default());
     for width in [60, 100] {
         let line = paint(&app, width, 36)[0].clone();
-        assert!(line.contains("online") && line.contains("need you") && line.contains("blocked"));
+        assert!(line.contains("online") && line.contains("todo") && line.contains("blocked"));
         assert!(line.contains("totals unknown"));
         if width == 100 {
             assert!(line.contains("OPS / UI · ") && line.contains('…'));
@@ -5482,9 +5466,9 @@ fn a_zero_width_state_cell_paints_nothing_and_records_no_area() {
     let rows = app.workspace_rows();
     let row = rows.iter().find(|row| row.activity.is_some()).unwrap();
     let label = app.activity_label(row).unwrap();
-    let (primary, task) =
+    let (primary, task, todo) =
         crate::board::workspace::columns::activity_spans(&app, row, &label, 0, false);
-    assert!(primary.is_empty() && task.is_none());
+    assert!(primary.is_empty() && task.is_none() && todo.is_none());
     app.workspace_state_cells.borrow_mut().clear();
     let mut buffer = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 10, 1));
     let used = crate::board::workspace::columns::paint_activity(
@@ -5503,6 +5487,7 @@ fn a_zero_width_state_cell_paints_nothing_and_records_no_area() {
 /// or without a request waiting on the user.
 fn disagreeing_board(waiting: bool, look: crate::look::Look) -> App {
     let mut app = board();
+    crate::board::conversation_notes::tests::admit_empty(&mut app);
     app.view.as_mut().unwrap().look = look;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     snapshot.squad_looks.clear();
@@ -5527,19 +5512,15 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
     use tmt_cli_style::Role;
     for (waiting, words) in [
         (false, "● working · blocked"),
-        (true, "◆ Needs you · blocked"),
+        (true, "● working · blocked"),
     ] {
         let look = crate::look::Look::default();
         let mut app = disagreeing_board(waiting, look);
         let tree = painted_member_row(&app, 160, 36);
-        // The 16-cell tree cell drops the whole suffix rather than cutting `blocked`.
-        let kept = if waiting {
-            "◆ Needs you"
-        } else {
-            "● working"
-        };
+        // The wider state track retains the whole task.
+        let kept = "● working · blocked";
         assert!(tree.contains(kept), "tree: {tree}");
-        assert!(!tree.contains("· b"), "tree: {tree}");
+        assert!(!tree.contains("· bl…"), "tree: {tree}");
         assert!(
             paint(&app, 160, 36).join("\n").contains(words),
             "focus keeps the full state"
@@ -5587,7 +5568,7 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
                     .map(|x| y * 160 + x)
             })
             .unwrap();
-        let glyph_role = if waiting { Role::Waiting } else { Role::Text };
+        let glyph_role = Role::Text;
         assert_eq!(buffer.content[glyph].fg, look.role(glyph_role).fg.unwrap());
         assert_eq!(
             buffer.content[glyph + 2].fg,
@@ -5668,6 +5649,7 @@ fn overview_state_is_as_wide_as_the_widest_cell_of_the_list() {
                 Some(_) => disagreeing_board(false, look),
             };
             app.view.as_mut().unwrap().look = look;
+            crate::board::conversation_notes::tests::admit_empty(&mut app);
             if let Some(task) = task.filter(|task| *task != "blocked") {
                 let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
                 snapshot.roster.squads[0]
@@ -5794,14 +5776,11 @@ fn unread_replies_replace_the_activity_words_and_keep_the_task() {
         };
         let mut app = disagreeing_board(false, look);
         let before = painted_member_row(&app, 160, 36);
-        assert!(
-            before.contains("● working") && !before.contains("· b"),
-            "{before}"
-        );
+        assert!(before.contains("● working · blocked"), "{before}");
         with_unread_replies(&mut app);
         let tree = painted_member_row(&app, 160, 36);
         assert!(
-            tree.contains("● 2 unread") && !tree.contains("· b"),
+            tree.contains("● 2 unread · blocked"),
             "{depth:?} tree: {tree}"
         );
         assert!(!tree.contains("working"), "{depth:?} tree: {tree}");
@@ -5863,10 +5842,10 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
     for (word, phase, waiting, glyph) in [
         ("working", Phase::Working, false, "●"),
         ("idle", Phase::Idle, false, "◌"),
-        ("waiting", Phase::Working, true, "◆"),
+        ("waiting", Phase::Working, true, "●"),
     ] {
         // The activity word on screen is the one vocabulary's; the task text stays Core's.
-        let shown = if word == "waiting" { "Needs you" } else { word };
+        let shown = if word == "waiting" { "working" } else { word };
         let mut app = disagreeing_board(waiting, crate::look::Look::default());
         let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
         snapshot
@@ -5893,15 +5872,16 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
             tree.contains(&format!("{glyph} {shown}")),
             "{word} tree: {tree}"
         );
-        assert!(!tree.contains(&format!("· {word}")), "{word} tree: {tree}");
+        if word == "waiting" {
+            assert!(tree.contains("· waiting"), "{word} tree: {tree}");
+        } else {
+            assert!(!tree.contains(&format!("· {word}")), "{word} tree: {tree}");
+        }
 
         with_unread_replies(&mut app);
         let unread = format!("● 2 unread · {word}");
         let tree = painted_member_row(&app, 160, 36);
-        assert!(
-            tree.contains("● 2 unread") && !tree.contains(&format!("· {}", &word[..2])),
-            "{word} tree: {tree}"
-        );
+        assert!(tree.contains(&unread), "{word} tree: {tree}");
         assert!(
             paint(&app, 160, 36).join("\n").contains(&unread),
             "{word} member focus"
@@ -5923,13 +5903,12 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
         assert!(roster.contains(&unread), "{word} roster: {roster}");
         app.shell.tab = OpsTab::Agents;
         app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-        // At 80 cells the STATE room is 16: the whole task is dropped, never cut.
+        app.workspace.selected = Some(target);
+        app.workspace_reconcile();
+        // The narrower Overview layout drops the whole task at 80 columns.
         for (width, words) in [(110, unread.clone()), (80, "● 2 unread".to_owned())] {
             let screen = paint(&app, width, 36).join("\n");
             assert!(screen.contains(&words), "{word} {width}: {screen}");
-            if width == 80 {
-                assert!(!screen.contains(&format!("· {}", &word[..2])), "{screen}");
-            }
         }
     }
 }
@@ -5972,7 +5951,7 @@ fn agents_group_glyphs_use_core_activity_and_room_attention_instead_of_task_stat
         (Phase::Working, false, false, '●'),
         (Phase::Idle, false, false, '◌'),
         (Phase::Unknown, false, false, '?'),
-        (Phase::Working, true, false, '◆'),
+        (Phase::Working, true, false, '●'),
         (Phase::Working, false, true, '?'),
     ] {
         let mut app = disagreeing_board(waiting, crate::look::Look::default());

@@ -1787,6 +1787,7 @@ impl App {
                 self.error = Some(error);
             }
         }
+        self.reconcile_notes_scope();
         self.project_usage(Instant::now());
         self.prune_views();
         if self
@@ -5808,7 +5809,6 @@ mod token_window_tests {
             squads: vec![super::super::home::SquadLine {
                 squad: "product".into(),
                 lead: Some(serde_json::json!({"id":"a"})),
-                counts: Default::default(),
             }],
         });
         let mut input = super::super::rate::tests::input(100);
@@ -5850,7 +5850,6 @@ mod token_window_tests {
             .push(super::super::home::SquadLine {
                 squad: "extra".into(),
                 lead: Some(json!({"id":"a"})),
-                counts: Default::default(),
             });
         view.document["sections"][0]["rows"]
             .as_array_mut()

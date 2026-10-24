@@ -120,7 +120,7 @@ impl AgentsField {
     fn minimum(self) -> u16 {
         match self {
             Self::Agent => 25,
-            Self::State => 16,
+            Self::State => 21,
             Self::Session => 20,
             Self::Tokens => 7,
             Self::Cron => 4,
@@ -517,6 +517,38 @@ pub fn activity_spans(
 ) -> (
     Vec<ratatui::text::Span<'static>>,
     Option<ratatui::text::Span<'static>>,
+    Option<ratatui::text::Span<'static>>,
+) {
+    use unicode_width::UnicodeWidthStr;
+    let (primary, task) = activity_parts(app, row, label, width, selected);
+    let used = primary
+        .iter()
+        .map(|span| span.content.width())
+        .sum::<usize>()
+        + task.as_ref().map_or(0, |span| span.content.width());
+    let suffix = app
+        .notes
+        .row_label(&row.target)
+        .map(|text| format!(" · {text}"))
+        .filter(|text| used + text.width() <= width);
+    let suffix = suffix.map(|suffix| {
+        ratatui::text::Span::styled(
+            suffix,
+            table_style(app, selected, app.look().role(Role::Muted)),
+        )
+    });
+    (primary, task, suffix)
+}
+
+fn activity_parts(
+    app: &crate::board::app::App,
+    row: &OpsTreeRow,
+    label: &crate::board::activity::Label,
+    width: usize,
+    selected: bool,
+) -> (
+    Vec<ratatui::text::Span<'static>>,
+    Option<ratatui::text::Span<'static>>,
 ) {
     use ratatui::text::Span;
     use unicode_width::UnicodeWidthStr;
@@ -615,7 +647,7 @@ pub fn paint_activity(
     selected: bool,
 ) -> u16 {
     use ratatui::layout::Rect;
-    let (primary, task) = activity_spans(app, row, label, usize::from(cell.width), selected);
+    let (primary, task, todo) = activity_spans(app, row, label, usize::from(cell.width), selected);
     let width = primary.iter().map(|span| span.width()).sum::<usize>() as u16;
     let task_width = task.as_ref().map_or(0, |task| {
         (task.width() as u16).min(cell.width.saturating_sub(width))
@@ -627,12 +659,13 @@ pub fn paint_activity(
     if task_width > 0 {
         states.push(Rect::new(cell.x + width, cell.y, task_width, 1));
     }
+    let todo_width = todo.as_ref().map_or(0, |span| span.width() as u16);
     tmt_tui::components::strip::paint_left(
         buffer,
         cell,
-        ratatui::text::Line::from_iter(primary.into_iter().chain(task)),
+        ratatui::text::Line::from_iter(primary.into_iter().chain(task).chain(todo)),
     );
-    width + task_width
+    width + task_width + todo_width
 }
 
 pub fn table_style(
@@ -801,17 +834,17 @@ mod tests {
     #[test]
     fn agents_tracks_follow_pane_width_and_drop_only_whole_optional_fields() {
         let mut layout = AgentsLayout::default();
-        let wide = layout.slots(Rect::new(0, 7, 70, 1));
+        let wide = layout.slots(Rect::new(0, 7, 75, 1));
         assert_eq!(
             wide.iter()
                 .map(|(field, slot)| (*field, slot.x, slot.width))
                 .collect::<Vec<_>>(),
             vec![
                 (AgentsField::Agent, 0, 25),
-                (AgentsField::State, 26, 16),
-                (AgentsField::Tokens, 43, 7),
-                (AgentsField::Cron, 53, 4),
-                (AgentsField::Model, 58, 12),
+                (AgentsField::State, 26, 21),
+                (AgentsField::Tokens, 48, 7),
+                (AgentsField::Cron, 58, 4),
+                (AgentsField::Model, 63, 12),
             ]
         );
         for width in 0..=160 {
@@ -829,7 +862,7 @@ mod tests {
             );
             assert_eq!(
                 slots.iter().any(|(field, _)| *field == AgentsField::Model),
-                width >= 70
+                width >= 75
             );
             for (field, slot) in &slots {
                 if matches!(
@@ -845,7 +878,7 @@ mod tests {
             }
         }
         assert_eq!(AgentsField::Cron.caption(Default::default()), "◷");
-        let narrow = layout.slots(Rect::new(0, 0, 69, 1));
+        let narrow = layout.slots(Rect::new(0, 0, 74, 1));
         assert!(!narrow.iter().any(|(field, _)| *field == AgentsField::Model));
         assert!(
             narrow

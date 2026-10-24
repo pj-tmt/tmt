@@ -101,7 +101,7 @@ actor; actor changes discard it. A member's count is `N+ unread` only when
 observed zero renders no unread state, even when older replies are possible.
 
 StateCell supplies `● N unread` in place of the glyph and activity words
-(working/idle/waiting/stale/`?`); the member's task state still follows, as
+(working/idle/ended/stale/`?`); the member's task state still follows, as
 `● N unread · <task>`, and clips first in a narrow cell. Only the activity form
 leaves out a task that repeats its activity word; the unread form keeps it. One owner,
 `columns::activity_spans`, paints it in the tree, roster and flat rows.
@@ -155,7 +155,7 @@ supplies missing room evidence. Digest retains its own projection over the same
 acquisition. Shell attention and provider quota remain global.
 
 Squads use lead-first, UUID-deduplicated team strips, the existing HOUR readings
-and per-room sum for TOK 1h, and NOW from pending questions before tasks. Missing
+and per-room sum for TOK 1h. Task/model cells never disclose pending question bodies. Missing
 readings remain unavailable and incomplete sums stay partial. The Agents view
 contains all admitted identities, with unread agents first, followed by waiting agents: proven oldest request
 first, unknown request times last, then name/UUID. Authored sort operates within
@@ -172,8 +172,7 @@ admitted row and starts at the top; source refresh or filtering keeps hidden/mis
 anchors without retargeting. The primary list has one scroll owner and a neutral
 `↓ N more` overflow caption only when rows exceed the space above the footer.
 The list uses that full space; later lower sections reduce it through placement.
-The waiting-first count note appears only for a positive count. Short viewports
-reveal the selected target. Only the
+Short viewports reveal the selected target. Only the
 footer advertises effective keys; Help and Actions retain other admitted actions.
 With nothing selected the default Timers key is the explicit `all-timers` action. The authored
 `timers` action retains selected-scope admission; hidden or missing selected scopes
@@ -464,8 +463,8 @@ that does not fit its cell whole is dropped, never cut (`Label::fit`, `activity_
 Only ◆ and ✗ carry attention color; activity words and other marks remain neutral,
 and a member's secondary task state is muted unless it is `blocked` (✗, red). Agent working/idle
 counts tally core activity once per identity and count a stale read as unknown;
-Squad TEAM glyphs use the same activity label (request attention first, never
-a task state). Needs-you counts stay task and request facts.
+Squad TEAM glyphs use the same observed activity label, never a task state or
+a pending request as a substitute for activity.
 Sent-message feedback shares that acquired activity; the [conversation owner](board-notebooks.md#replies-and-verification) defines its progress and visible clocks.
 
 One identity-total series uses the existing Rate owner. Its header reads
@@ -525,3 +524,16 @@ Frozen HOME and TUI parity baselines retain their provenance until a decoded
 cells/styles/hits/oracle diff is approved by the UX primary reviewer. Regeneration follows the
 [TUI parity gate](../../tmt-tui/references/development.md#board-parity-baseline).
 [development.md](development.md#checks) owns commands and isolated captures.
+
+## Conversation todo projection
+
+`conversation_notes::State` owns held per-conversation counts and the global
+room/member admission set. The existing quiet Notes lane admits one read at a
+time, selected first at five seconds and other keys at most once per minute.
+Background deliveries contain counts only; full previews remain with the selected
+Notes overlay. The existing write epoch fences late reads. Scope publication and
+Notes delivery update the cached header total, so paint does not scan every
+conversation. `columns::activity_spans` adds the whole todo suffix to the observed
+activity (or the existing unread override), and the shared track solver keeps
+header, row and hit geometry aligned. Pending/unavailable counts stay distinct
+from known zero.

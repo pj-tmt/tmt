@@ -31,7 +31,6 @@ pub struct Counts {
 pub struct SquadLine {
     pub squad: String,
     pub lead: Option<Value>,
-    pub counts: Counts,
 }
 
 #[derive(Debug)]
@@ -197,7 +196,6 @@ fn model(order: &[String], acquired: &Acquired) -> Home {
             SquadLine {
                 squad: name.into(),
                 lead: lead.is_object().then(|| lead.clone()),
-                counts: one,
             }
         })
         .collect();

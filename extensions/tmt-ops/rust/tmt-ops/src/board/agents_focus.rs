@@ -74,9 +74,9 @@ fn member_state(app: &App, target: &OpsTarget, width: usize) -> Line<'static> {
     let Some(label) = app.activity_label(&row) else {
         return neutral("?", app.look());
     };
-    let (primary, task) =
+    let (primary, task, todo) =
         super::workspace::columns::activity_spans(app, &row, &label, width, false);
-    Line::from_iter(primary.into_iter().chain(task))
+    Line::from_iter(primary.into_iter().chain(task).chain(todo))
 }
 
 fn share(reading: Option<super::rate::Reading>, total: Option<(u128, bool)>) -> String {
