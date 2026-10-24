@@ -84,6 +84,10 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                     ));
             let effective = match outcome {
                 Settlement::Sent => AttemptStatus::Sent,
+                Settlement::Held if matches!(attempt.route, RequestRoute::Remote { .. }) => {
+                    AttemptStatus::Queued
+                }
+                Settlement::Held => return Err(RequestError::StateInvalid),
                 Settlement::Uncertain => AttemptStatus::Uncertain,
                 Settlement::DefinitelyFailed if cannot_prove_unsent => AttemptStatus::Uncertain,
                 Settlement::DefinitelyFailed => AttemptStatus::DefinitelyFailed,

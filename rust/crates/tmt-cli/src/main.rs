@@ -407,6 +407,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         request @ Invocation::Talk { .. } => {
             return talk_command::execute(request, parsed.mode);
         }
+        request @ Invocation::TalkRemote { .. } => {
+            return talk_command::remote::execute(request, parsed.mode);
+        }
         request @ (Invocation::Role { .. } | Invocation::Preamble(_)) => {
             return profile_command::execute(request, parsed.mode);
         }

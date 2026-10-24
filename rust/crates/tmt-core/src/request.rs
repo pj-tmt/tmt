@@ -149,6 +149,9 @@ impl AttemptStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Settlement {
     Sent,
+    /// A remote peer accepted the request and will deliver it later: queued, not yet sent. No
+    /// other route holds a request this way.
+    Held,
     Uncertain,
     DefinitelyFailed,
 }

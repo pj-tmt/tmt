@@ -18,6 +18,7 @@ use tmt_adapters::{
 pub(crate) fn eligible(invocation: &Invocation) -> bool {
     match invocation {
         Invocation::Talk { .. }
+        | Invocation::TalkRemote { .. }
         | Invocation::Reply { .. }
         | Invocation::Answer { .. }
         | Invocation::Check { .. }

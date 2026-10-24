@@ -2314,11 +2314,11 @@ counts or observed headroom. All enrollment, routing and operation traffic uses 
 Reopening the same Store resumes its native identity, trust, permissions and checkpoints.
 
 The provisional public boundary is `tmt remote message --json`, one bounded version-1 JSON document
-on stdin/stdout. `cloud_command` owns its schema: request `{version,remote,requestId,createdAtMs,from:{id,name},
-target:{name,id?},message}`, with required nullable `remote`; answer `{version,state,remote,target}` and optional
-fixed `reason`. `target.name` is required (1–128 UTF-8 bytes, no controls); `target.id` may be omitted,
-but null or a noncanonical UUID is refused. The sender seals and echoes the target exactly as sent,
-including an omitted ID. The receiver resolves a bare name through Core's public `identity show`
+on stdin/stdout. `cloud_command` implements [Remote message v1](remote-message-v1.md), which owns the request and
+answer schema, including the local-only `reply` handle. `target.name` is required (1–128 UTF-8
+bytes, no controls); `target.id` may be omitted, but null or a noncanonical UUID is refused. The
+sender seals and echoes the target exactly as sent, including an omitted ID.
+The receiver resolves a bare name through Core's public `identity show`
 lookup to one live local identity; no match (`REMOTE_AGENT_NOT_FOUND`) or ambiguity
 (`REMOTE_AGENT_AMBIGUOUS`) is a durable per-document refusal. Before adoption, it freezes that UUID
 and current name in the existing dispatch intent, applies the same recipient grant, and retains the
@@ -2335,7 +2335,7 @@ A repeat must retain the exact prepared bytes, including creation time, sender a
 A changed creation time conflicts with its frozen outbox row. The existing maintenance pass prunes
 sender outbox rows only past RECOVERY plus clock skew; it adds no tombstone ledger or context secret.
 Nonzero exit carries a JSON error code. Explicit/default/local selection never silently changes
-backend. The final schema/argv is aligned at Core's separate slice. Until the real UUID-pinned
+backend. Core's side is `talk --remote`. Until the real UUID-pinned
 `identity show` exists, production cloud delivery refuses with `REMOTE_CLOUD_UPGRADE_REQUIRED`;
 tests inject the fake public Core boundary. Never fall back to name-addressed `check`. Expected name is
 retained with frozen native intent and checked before a Core effect; it is not a caller-chosen role.

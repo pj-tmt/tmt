@@ -546,7 +546,7 @@ settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-c
 Remote owns authority; UI grants none. Native invite/join and uid routing.
 Firestore: Auth/Rules only; Core never uses Remote trust.
 `message`: envelopes/grants/scope/allowlist/hold/uncertainty/audit; names→UUID.
-Proposed (#4533): `talk` → Remote interface → target host → driver.
+`talk --remote`: Core records → [message v1](contracts/remote-message-v1.md) → Remote; finals via `reply`.
 Local: `transport`/`routes` → `message` → `session`/`operations`; same-ID public Core API dispatch/recovery.
 Door: `remote-v1.js` ([SDK](extensions/tmt-remote/typescript/remote-client/README.md));
 owner-installed [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`; public CLI/SDK/`tmt-extension-objects` elsewhere; never Remote state files.

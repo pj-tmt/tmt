@@ -341,3 +341,76 @@ fn an_expired_remote_final_whose_attempt_is_gone_reads_as_absent() {
     );
     f.storage.close().unwrap();
 }
+
+#[test]
+fn only_a_remote_request_can_be_held_for_later_delivery() {
+    let mut f = Fixture::new();
+    let ben = create_or_resolve(&mut f.storage, "Ben", Lifetime::Saved)
+        .unwrap()
+        .identity
+        .id;
+    let prepare = |f: &mut Fixture,
+                   id: &str,
+                   attempt: &str,
+                   route: RequestRoute,
+                   recipient: Option<String>| {
+        service(f)
+            .prepare(
+                PrepareRequest {
+                    origin: RequestOrigin::Person,
+                    room_id: None,
+                    kind: RequestKind::Request,
+                    request_id: id.into(),
+                    message: "hello".into(),
+                    route,
+                    wait: false,
+                    expires_at_ms: NOW_MS + 3_600_001,
+                    originator: Originator::Explicit(ben.clone()),
+                    recipient_identity_id: recipient,
+                    preamble: None,
+                },
+                attempt.into(),
+                7,
+            )
+            .unwrap()
+    };
+    let remote = prepare(&mut f, REQUEST, "attempt-remote", remote_route(), None);
+    service(&mut f).begin_send(&remote.attempt_id).unwrap();
+    service(&mut f)
+        .settle(&remote.attempt_id, Settlement::Held)
+        .unwrap();
+    assert_eq!(
+        service(&mut f)
+            .request_detail(REQUEST)
+            .unwrap()
+            .item
+            .delivery,
+        AttemptStatus::Queued
+    );
+    // Settling again with the same outcome is a no-op; a different one is refused.
+    service(&mut f)
+        .settle(&remote.attempt_id, Settlement::Held)
+        .unwrap();
+    assert!(matches!(
+        service(&mut f).settle(&remote.attempt_id, Settlement::Sent),
+        Err(RequestError::StateInvalid)
+    ));
+
+    // A local route has no later delivery to wait for.
+    let recipient = f.identity_id.clone();
+    let inbox = prepare(
+        &mut f,
+        "req_66666666-6666-4666-8666-666666666666",
+        "attempt-inbox",
+        RequestRoute::Inbox {
+            recipient_identity_id: recipient.clone(),
+        },
+        Some(recipient),
+    );
+    service(&mut f).begin_send(&inbox.attempt_id).unwrap();
+    assert!(matches!(
+        service(&mut f).settle(&inbox.attempt_id, Settlement::Held),
+        Err(RequestError::StateInvalid)
+    ));
+    f.storage.close().unwrap();
+}

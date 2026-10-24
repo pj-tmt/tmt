@@ -51,6 +51,8 @@ pub mod pty;
 #[cfg(unix)]
 mod release_http;
 #[cfg(unix)]
+pub mod remote_message;
+#[cfg(unix)]
 pub mod reply_notice;
 pub mod reply_receipt;
 #[cfg(unix)]
