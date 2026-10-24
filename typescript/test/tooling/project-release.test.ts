@@ -111,6 +111,22 @@ function projectResponse(p: Project, cursor: string | null = null) {
     },
   };
 }
+function pagedProjectApi(size: number): Api {
+  const rows = Array.from({ length: size }, (_, index) => item(index + 1));
+  return fakeApi(undefined, (query) => {
+    if (query.includes('closedByPullRequestsReferences'))
+      return Object.fromEntries(
+        [...query.matchAll(/(i\d+):node\(id:"([^"]+)"\)/g)].map(([, alias, id]) => [
+          alias,
+          { id, state: 'CLOSED', closedByPullRequestsReferences: connection([]) },
+        ])
+      );
+    const match = /items\(first:100,after:(null|"[^"]+")\)/.exec(query)!;
+    const start = Number(JSON.parse(match[1]) || 0);
+    const end = Math.min(start + 100, size);
+    return projectResponse(project(rows.slice(start, end)), end < size ? String(end) : null);
+  });
+}
 function stateApi(
   p: Project,
   releases: Release[],
@@ -700,6 +716,56 @@ describe('bounded discovery and mutation safety', () => {
     });
     expect(skipped.issues).toBe(0);
   });
+  it.each([2999, 3000])('reads all %i Project items within the 30-page cap', (size) => {
+    const api = pagedProjectApi(size);
+    const result = readProject(api);
+    expect(LIMITS.pages).toBe(30);
+    expect(result.items.size).toBe(size);
+    expect(result.pages).toBe(30);
+    expect(api.counts.graphql).toBe(30);
+    expect(writes(api)).toHaveLength(0);
+  });
+
+  it('refuses 3001 Project items before a 31st page or any write', () => {
+    const api = pagedProjectApi(3001);
+    expect(() => readProject(api)).toThrow('Project pagination cap reached');
+    expect(api.counts.graphql).toBe(30);
+    expect(writes(api)).toHaveLength(0);
+  });
+
+  it('keeps full Project and closing-PR discovery within 150 of 200 GraphQL calls', () => {
+    const fixture = pagedProjectApi(3000);
+    const spawn = vi.fn((_program: unknown, _args: unknown, options: { input: string }) => {
+      const data = fixture.graphql(JSON.parse(options.input).query);
+      if (!data || typeof data !== 'object') throw new Error('Invalid fixture response');
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          data: {
+            ...data,
+            rateLimit: { cost: 1, remaining: 5000 - fixture.counts.graphql },
+          },
+        }),
+      };
+    });
+    const api = githubApi({
+      repository,
+      appToken: 'synthetic-project-token',
+      spawn: spawn as unknown as typeof spawnSync,
+    });
+    const p = readProject(api);
+    const closing = readClosingPrs(api, [...p.items.values()], repository);
+    expect(closing.issues.size).toBe(3000);
+    expect(LIMITS).toEqual({ graphql: 200, rest: 20, pages: 30, prs: 2000, batch: 25 });
+    expect(api.counts.graphql).toBe(30 + Math.ceil(3000 / 25));
+    expect(api.counts.graphql).toBe(150);
+    expect(() => api.reserve(50)).not.toThrow();
+    expect(() => api.reserve(51)).toThrow('Insufficient GraphQL budget before writes');
+    expect(
+      spawn.mock.calls.every(([, , options]) => JSON.parse(options.input).query.startsWith('query'))
+    ).toBe(true);
+  });
+
   it('fails incomplete pagination, schema, merge and changed issue evidence before writes', () => {
     expect(() =>
       readReleases(fakeApi(() => Array.from({ length: 100 }, () => release('v5.0.0-alpha.1'))))

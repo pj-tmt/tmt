@@ -10,7 +10,9 @@ import { reconcilePublishedTags } from './release-tag-refs.mjs';
 import { ownerOf, parseComponentMap, releasedComponentsForPath } from './ci-scope.mjs';
 
 export const PROJECT_ID = 'PVT_kwDOFBKkD84BlZ_A';
-export const LIMITS = { graphql: 200, rest: 20, pages: 20, prs: 2000, batch: 25 };
+// 3,000 Project items: 30 read pages + 120 first-page closing-PR batches = 150 calls.
+// Extra closing pages, mutations and readback share the remaining 50; reserve still refuses.
+export const LIMITS = { graphql: 200, rest: 20, pages: 30, prs: 2000, batch: 25 };
 const recovery =
   'Run a full project-release.yml dry run; resolve incomplete evidence before retrying.';
 const chunks = (rows, size = LIMITS.batch) =>
