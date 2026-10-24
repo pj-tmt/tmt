@@ -660,6 +660,27 @@ impl<R: CommandRunner> Host<R> {
         self.primary == HostKind::Tmux
     }
 
+    /// Interactive attachment is currently provided only by the built-in member
+    /// supervisor. It is not an external-driver capability or a focus side effect.
+    pub fn has_terminal_stream(&self) -> bool {
+        self.primary == HostKind::pty()
+    }
+
+    pub fn terminal_connection(
+        &self,
+        entry: &BindingEntry,
+    ) -> Result<crate::pty::Connection, ActionError> {
+        if !self.has_terminal_stream()
+            || entry
+                .binding
+                .as_ref()
+                .is_none_or(|binding| binding.server.host != self.primary)
+        {
+            return Err(ActionError::HostUnsupported);
+        }
+        pty::attach(self.external.runner(), entry)
+    }
+
     /// The nearest verified external pane of the caller. With tmux variables
     /// too (tmux in a Herdr pane, or the reverse), one pinned ancestry orders
     /// both panes ([`Host::nearest_nested_external`]). Failures prove

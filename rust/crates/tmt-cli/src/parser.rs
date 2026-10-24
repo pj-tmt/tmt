@@ -102,6 +102,7 @@ fn finish_parse(invocation: Invocation, mode: OutputMode) -> Result<Parsed, Pars
                 | Invocation::Learn { .. }
                 | Invocation::Run { .. }
                 | Invocation::Resume { .. }
+                | Invocation::Attach { .. }
         )
     {
         return Err(ParseError {
@@ -527,6 +528,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             }
         }
         ["focus"] if flag(m, "client") => Invocation::FocusClient,
+        ["attach"] => Invocation::Attach {
+            target: required(m, "target"),
+            detach_others: flag(m, "detach-others"),
+        },
         ["focus"] => Invocation::Focus {
             target: required(m, "target"),
             into: text(m, "into").map(|direction| match direction.as_str() {

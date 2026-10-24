@@ -124,6 +124,7 @@ impl World {
                     for (socket, pid, start) in rows {
                         let socket = PathBuf::from(socket);
                         if socket.parent() != Some(directory.as_path()) {
+                            eprintln!("owned supervisor socket outside its directory: {socket:?}");
                             self.unconfirmed = true;
                             continue;
                         }
@@ -135,6 +136,7 @@ impl World {
                                 self.owned.push(process);
                             }
                         } else {
+                            eprintln!("invalid owned supervisor incarnation {pid}/{start:?}");
                             self.unconfirmed = true;
                         }
                     }
@@ -161,6 +163,10 @@ impl World {
                 .to_owned();
             let Ok(mut client) = Connection::connect(&directory, &id) else {
                 if file.path().exists() && !self.known_sockets.contains(&file.path()) {
+                    eprintln!(
+                        "unrecorded socket could not be connected: {:?}",
+                        file.path()
+                    );
                     self.unconfirmed = true;
                 }
                 continue;
@@ -187,10 +193,17 @@ impl World {
                             }
                         }
                         Ok(ProcessObservation::Gone) => {}
-                        _ => self.unconfirmed = true,
+                        other => {
+                            eprintln!("owned PTY pid {pid} observation: {other:?}");
+                            self.unconfirmed = true;
+                        }
                     }
                 }
             } else if file.path().exists() && !self.known_sockets.contains(&file.path()) {
+                eprintln!(
+                    "unrecorded socket returned no inspect state: {:?}",
+                    file.path()
+                );
                 self.unconfirmed = true;
             }
         }
@@ -246,6 +259,7 @@ impl World {
                 };
             }
             if Instant::now() >= deadline {
+                eprintln!("owned processes not confirmed gone: {:?}", self.owned);
                 return false;
             }
             std::thread::sleep(Duration::from_millis(10));
@@ -671,3 +685,6 @@ fn a_fast_exit_has_one_confirmed_startup_and_a_missing_program_is_not_success() 
     );
     assert!(world.clean());
 }
+
+#[path = "pty_host/attach.rs"]
+mod attach;

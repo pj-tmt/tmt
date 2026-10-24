@@ -21,7 +21,6 @@ const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-adapters", "nix", Some("cfg(unix)")), // subprocess and pipe fixtures
     ("tmt-adapters", "rcgen", Some("cfg(unix)")), // release HTTP TLS certificates
     ("tmt-adapters", "rustls", Some("cfg(unix)")), // release HTTP TLS server
-    ("tmt-cli", "crossterm", None),    // binding presentation fixtures
     ("tmt-cli", "insta", None),        // command rendering snapshots
     ("tmt-cli", "proc-macro2", None),  // architecture syntax fixtures
     ("tmt-cli", "toml_edit", None),    // audited unsafe-boundary manifest policy
@@ -92,7 +91,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "clap",
             "clap_complete",
             "serde_json",
-            "time", // UTC human time formatting
+            "time",      // UTC human time formatting
+            "crossterm", // invocation-owned attach raw mode and terminal restoration
         ],
         "tmt-command-output" => &["tmt-core", "tmt-adapters", "tmt-cli-style", "serde_json"],
         "tmt-digest" => &[
