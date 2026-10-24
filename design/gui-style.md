@@ -585,7 +585,8 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   inside modal Chat. The field grows to a bounded height, then scrolls. Square corners
   and existing ink/accent tokens apply. Basis: own parent chrome with Lexical editing.
 
-Mention chips share an icon and named roles in editors, sent messages and lists:
+Mention chips share an icon and named roles in editors, sent messages and lists
+(a bordered chip rounds at the small radius token, as the website's tags do):
 agent chips are neutral grey with bold ink; person chips use pale blue and
 blue-grey text. Unknown identity kinds default to agent. Current directory data
 has no person kind: the person variant is tokens and explicit presentation fixtures,
