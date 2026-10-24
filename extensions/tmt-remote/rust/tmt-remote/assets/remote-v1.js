@@ -5222,6 +5222,34 @@ var opsSource = { async board(signal) {
 	return boardFromAnswer(await ownerRead("ops", signal));
 } };
 //#endregion
+//#region src/command-copy.ts
+/** A terminal reference with best-effort Copy and inline status; it never executes the command. */
+function commandCopy(text) {
+	const command = document.createElement("div");
+	command.className = browserUiClasses.command;
+	const code = document.createElement("code");
+	code.className = browserUiClasses.commandText;
+	code.textContent = text;
+	const copy = document.createElement("button");
+	copy.className = browserUiClasses.commandCopy;
+	copy.type = "button";
+	copy.setAttribute("aria-label", `Copy ${text}`);
+	copy.append(createIcon("copy"), "Copy");
+	const feedback = document.createElement("span");
+	feedback.className = browserUiClasses.commandFeedback;
+	feedback.setAttribute("role", "status");
+	copy.addEventListener("click", async () => {
+		try {
+			await navigator.clipboard.writeText(text);
+			feedback.textContent = "Copied.";
+		} catch {
+			feedback.textContent = "Copy failed. Select the command and copy it manually.";
+		}
+	});
+	command.append(code, copy, feedback);
+	return command;
+}
+//#endregion
 //#region src/ops-parts.ts
 /** The pieces the Ops sections share: element and mark helpers, the state chip, the count strip,
 * the page head and the board's squads in display order. */
@@ -5346,23 +5374,7 @@ function terminalCard(options) {
 	tile.append(createIcon("terminal"));
 	const title = el("h3", browserUiClasses.cardTitle, options.title);
 	title.id = options.id;
-	const command = el("span", browserUiClasses.command);
-	const copy = el("button", browserUiClasses.commandCopy);
-	copy.type = "button";
-	copy.setAttribute("aria-label", "Copy tmt ops ui");
-	copy.append(createIcon("copy"), "Copy");
-	const feedback = el("span", browserUiClasses.commandFeedback);
-	feedback.setAttribute("role", "status");
-	copy.addEventListener("click", async () => {
-		try {
-			await navigator.clipboard.writeText("tmt ops ui");
-			feedback.textContent = "Copied.";
-		} catch {
-			feedback.textContent = "Copy failed. Select the command and copy it manually.";
-		}
-	});
-	command.append(el("code", browserUiClasses.commandText, "tmt ops ui"), copy, feedback);
-	card.append(tile, title, el("p", void 0, options.text), command);
+	card.append(tile, title, el("p", void 0, options.text), commandCopy("tmt ops ui"));
 	return card;
 }
 var keyOf = (agent) => `${agent.squad}/${agent.name}`;
@@ -6331,27 +6343,6 @@ function settingsCard(title, id) {
 	card.append(heading);
 	return card;
 }
-/** The Ops terminal-card pattern: copying a reference never executes the command. */
-function coreCommand() {
-	const text = "tmt config show";
-	const command = element$1("div", browserUiClasses.command);
-	const copy = element$1("button", browserUiClasses.commandCopy);
-	copy.type = "button";
-	copy.setAttribute("aria-label", `Copy ${text}`);
-	copy.append(createIcon("copy"), element$1("span", void 0, "Copy"));
-	const feedback = element$1("span", `${browserUiClasses.commandFeedback} tmt-settings-command-feedback`);
-	feedback.setAttribute("role", "status");
-	copy.addEventListener("click", async () => {
-		try {
-			await navigator.clipboard.writeText(text);
-			feedback.textContent = "Copied.";
-		} catch {
-			feedback.textContent = "Copy failed. Select the command and copy it manually.";
-		}
-	});
-	command.append(element$1("code", browserUiClasses.commandText, text), copy, feedback);
-	return command;
-}
 function generalView(settings) {
 	const head = element$1("div", browserUiClasses.pageHead);
 	head.append(element$1("h2", browserUiClasses.pageTitle, "Make TMT feel like yours."), element$1("p", browserUiClasses.pageSubtitle, "A familiar space, with just the right amount of you."));
@@ -6380,9 +6371,9 @@ function generalView(settings) {
 			notAvailable(detail, reason);
 			warning.append(detail);
 		}
-		warning.append(coreCommand());
+		warning.append(commandCopy("tmt config show"));
 		core.append(warning);
-	} else core.append(coreCommand());
+	} else core.append(commandCopy("tmt config show"));
 	const primary = element$1("div", "tmt-settings-stack");
 	primary.append(appearance, core);
 	const machine = settingsCard("Your machine.", "tmt-settings-machine-title");

@@ -3,6 +3,7 @@
  * then read-only values), Identities, Modules and Drivers & hooks. Everything but the theme is
  * read-only; rows are the shared list rows and every state is a mark and a word.
  */
+import { commandCopy } from './command-copy.js';
 import { pageLoading } from './page-loading.js';
 import { notAvailable, notInBrowser } from './not-available.js';
 import { createIcon } from '@tmt/browser-ui/glyph';
@@ -249,31 +250,6 @@ function settingsCard(title: string, id: string): HTMLElement {
   return card;
 }
 
-/** The Ops terminal-card pattern: copying a reference never executes the command. */
-function coreCommand(): HTMLElement {
-  const text = 'tmt config show';
-  const command = element('div', browserUiClasses.command);
-  const copy = element('button', browserUiClasses.commandCopy);
-  copy.type = 'button';
-  copy.setAttribute('aria-label', `Copy ${text}`);
-  copy.append(createIcon('copy'), element('span', undefined, 'Copy'));
-  const feedback = element(
-    'span',
-    `${browserUiClasses.commandFeedback} tmt-settings-command-feedback`,
-  );
-  feedback.setAttribute('role', 'status');
-  copy.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      feedback.textContent = 'Copied.';
-    } catch {
-      feedback.textContent = 'Copy failed. Select the command and copy it manually.';
-    }
-  });
-  command.append(element('code', browserUiClasses.commandText, text), copy, feedback);
-  return command;
-}
-
 function generalView(settings: TmtSettings): HTMLElement[] {
   const head = element('div', browserUiClasses.pageHead);
   head.append(
@@ -322,9 +298,9 @@ function generalView(settings: TmtSettings): HTMLElement[] {
       notAvailable(detail, reason);
       warning.append(detail);
     }
-    warning.append(coreCommand());
+    warning.append(commandCopy('tmt config show'));
     core.append(warning);
-  } else core.append(coreCommand());
+  } else core.append(commandCopy('tmt config show'));
   const primary = element('div', 'tmt-settings-stack');
   primary.append(appearance, core);
   const machine = settingsCard('Your machine.', 'tmt-settings-machine-title');

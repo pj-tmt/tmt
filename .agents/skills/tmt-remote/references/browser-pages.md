@@ -190,6 +190,8 @@ those live regions. Presentation equality never suppresses signed reads or autho
 
 ## TMT Settings General
 
+General and the Ops terminal cards share `commandCopy(text)`: a terminal reference, a Copy button and inline success/manual-copy feedback, with no command execution.
+
 General uses the shared shell module menu and page inset. Its appearance previews keep the existing
 browser-only System/Light/Dark theme owner and keyboard choice. Core configuration remains read-only:
 observed source rows are shown as supplied; without a browser read, the amber card names

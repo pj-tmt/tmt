@@ -83,7 +83,7 @@
 .tmt-settings-warning > .tmt-ui-command {
   margin-top: var(--tmt-ui-space-m);
 }
-.tmt-settings-command-feedback:empty {
+.tmt-settings .tmt-ui-command-feedback:empty {
   display: none;
 }
 .tmt-settings-themes {
@@ -181,6 +181,8 @@
   font-size: var(--tmt-ui-header-action-size);
 }
 .tmt-settings-foot {
+  justify-self: stretch;
+  width: 100%;
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
 }

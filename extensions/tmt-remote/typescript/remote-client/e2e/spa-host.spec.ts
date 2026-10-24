@@ -1450,6 +1450,11 @@ test.describe('Settings General website presentation', () => {
           const cards = general.locator('.tmt-settings-card');
           await expect(cards).toHaveCount(4);
           await expect(cards.first()).toHaveCSS('border-radius', '8px');
+          const foot = general.locator('.tmt-settings-foot');
+          const gridBox = await general.locator('.tmt-settings-grid').boundingBox();
+          const footBox = await foot.boundingBox();
+          expect(footBox!.x).toBeCloseTo(gridBox!.x, 0);
+          expect(footBox!.width).toBeCloseTo(gridBox!.width, 0);
           await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
           if (process.env.TMT_SETTINGS_CAPTURE_DIR) {
             await page.evaluate(() => document.fonts.ready);
@@ -1516,7 +1521,7 @@ test.describe('Settings General website presentation', () => {
       });
       try {
         await page.getByRole('button', { name: 'Copy tmt config show' }).click();
-        await expect(page.locator('.tmt-settings-command-feedback')).toHaveText(
+        await expect(page.locator('.tmt-settings .tmt-ui-command-feedback')).toHaveText(
           denied ? 'Copy failed. Select the command and copy it manually.' : 'Copied.',
         );
         expect(

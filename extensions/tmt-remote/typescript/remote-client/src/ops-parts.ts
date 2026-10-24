@@ -2,6 +2,7 @@
  * the page head and the board's squads in display order. */
 import { browserUiClasses } from '@tmt/browser-ui/static';
 import { createIcon } from '@tmt/browser-ui/glyph';
+import { commandCopy } from './command-copy.js';
 import { notAvailable } from './not-available.js';
 import {
   AGENT_STATES,
@@ -173,23 +174,7 @@ export function terminalCard(options: {
   tile.append(createIcon('terminal'));
   const title = el('h3', browserUiClasses.cardTitle, options.title);
   title.id = options.id;
-  const command = el('span', browserUiClasses.command);
-  const copy = el('button', browserUiClasses.commandCopy);
-  copy.type = 'button';
-  copy.setAttribute('aria-label', 'Copy tmt ops ui');
-  copy.append(createIcon('copy'), 'Copy');
-  const feedback = el('span', browserUiClasses.commandFeedback);
-  feedback.setAttribute('role', 'status');
-  copy.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText('tmt ops ui');
-      feedback.textContent = 'Copied.';
-    } catch {
-      feedback.textContent = 'Copy failed. Select the command and copy it manually.';
-    }
-  });
-  command.append(el('code', browserUiClasses.commandText, 'tmt ops ui'), copy, feedback);
-  card.append(tile, title, el('p', undefined, options.text), command);
+  card.append(tile, title, el('p', undefined, options.text), commandCopy('tmt ops ui'));
   return card;
 }
 
