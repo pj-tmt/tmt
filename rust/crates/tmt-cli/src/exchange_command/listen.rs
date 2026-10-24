@@ -124,6 +124,7 @@ fn item_document(
         "recipient": participant_document(item.recipient_identity_id.as_deref(), identities),
         "preparedAtMs": item.exchange.prepared_at_ms,
         "delivery": item.exchange.delivery.as_str(),
+        "messageState": tmt_adapters::request_history::message_state(&item.exchange.message_state),
         "finalStatus": item.exchange.final_state.as_str(),
         "acknowledged": item.exchange.acknowledged,
         "settled": item.exchange.settled,
@@ -311,7 +312,7 @@ fn write_incoming(
                 name(item.sender_identity_id.as_ref()),
                 name(item.recipient_identity_id.as_ref())
             )),
-            Cell::from(item.exchange.delivery.as_str()),
+            Cell::from(item.exchange.message_state.state.as_str()),
             Cell::from(item.exchange.final_state.as_str()),
         ]);
     }
@@ -438,6 +439,10 @@ mod tests {
                 recipient_identity_id: Some(identity.id.clone()),
                 prepared_at_ms: 1,
                 delivery: AttemptStatus::Queued,
+                message_state: tmt_core::request::delivery::DeliveryView::of(
+                    tmt_core::request::delivery::DeliveryState::Sent,
+                    tmt_core::request::delivery::DeliveryReason::WaitingForDelivery,
+                ),
                 final_state: FinalState::NotSubmitted,
                 revision: 1,
                 acknowledged: false,

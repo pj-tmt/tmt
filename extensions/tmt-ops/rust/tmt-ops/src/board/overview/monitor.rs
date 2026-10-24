@@ -75,7 +75,6 @@ pub(in crate::board) struct Cache {
 pub(in crate::board) struct Scene {
     pub rows: Rc<[OpsTreeRow]>,
     pub matching_agents: usize,
-    pub waiting: usize,
     pub summary: super::summary::Summary,
 }
 /// What a squad is doing now: its lead's (else any member's) open request,
@@ -262,10 +261,6 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
                 .then_with(|| av.order(a).id.cmp(bv.order(b).id)),
             })
     });
-    let waiting = projected
-        .iter()
-        .filter(|(row, _)| waits(snapshot, row))
-        .count();
     let agents: Rc<[OpsTreeRow]> = projected
         .into_iter()
         .map(|(row, _)| row)
@@ -274,7 +269,6 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
     let matching_agents = agents.len();
     let scene = Rc::new(Scene {
         matching_agents,
-        waiting,
         rows: agents,
         summary: super::summary::project(
             snapshot,

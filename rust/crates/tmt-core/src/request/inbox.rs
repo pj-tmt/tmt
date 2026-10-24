@@ -33,6 +33,8 @@ pub struct OpenRequest {
     pub originator: Originator,
     pub prepared_at_ms: u64,
     pub delivery: AttemptStatus,
+    /// The sender's view of the message; `delivery` is the raw attempt status.
+    pub message_state: super::delivery::DeliveryView,
     pub preview: Option<String>,
 }
 

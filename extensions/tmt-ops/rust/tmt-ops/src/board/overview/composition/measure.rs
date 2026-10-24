@@ -136,8 +136,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             crate::board::stat_tiles::Tile {
                 label: "STATE",
                 value: text(format!(
-                    "{} working · {} wait",
-                    summary.working, summary.needs_you
+                    "{} working · {} unknown",
+                    summary.working, summary.unknown_activity
                 )),
                 detail: Line::default(),
             },

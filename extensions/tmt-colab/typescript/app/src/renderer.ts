@@ -165,6 +165,10 @@ export async function mountRenderer(
     onAnchors?(resolved: string[], checked?: boolean): void;
     /** Trusted chrome's fixed header inset; absent for standalone renderer probes. */
     viewportInset?(): number;
+    /** The height of trusted content between the header and the frame at scroll 0 (the reader's
+     * note). It takes room from a frame that fills the viewport, but not from where a revealed
+     * element lands: that content has scrolled away by then. Absent is none. */
+    frameLead?(): number;
     /** The scheme the author's page paints (white when it paints nothing), for cards drawn over it. */
     onScheme?(scheme: PageScheme): void;
     onSlots?(slots: AnchorPosition[]): void;
@@ -268,7 +272,8 @@ export async function mountRenderer(
   // that registers the group sends it, since the page does not measure the same sizes again.
   let waitingSlots: InlineSlot[] | undefined;
   const inset = () => Math.max(0, Math.min(window.innerHeight, options.viewportInset?.() ?? 0));
-  const viewportHeight = () => Math.max(1, window.innerHeight - inset());
+  const lead = () => Math.max(0, options.frameLead?.() ?? 0);
+  const viewportHeight = () => Math.max(1, window.innerHeight - inset() - lead());
   let reportedHeight = 0,
     pendingHeight: number | undefined,
     heightTimer: ReturnType<typeof setTimeout> | undefined,
@@ -1166,7 +1171,7 @@ export async function mountRenderer(
   const anchorRectangle = (id: string): SelectionRect | undefined => {
     const position = positions.get(id);
     if (stopped || !position) return;
-    return { ...position.rect, ...(innerScroll ? { y: inset() } : {}) };
+    return { ...position.rect, ...(innerScroll ? { y: inset() + lead() } : {}) };
   };
   const selectionMode = (enabled: boolean) => {
     if (stopped || !ready) return;

@@ -662,6 +662,12 @@ function TabsDemo({
 export function TabsSection() {
   return (
     <Section id="tabs">
+      <FramePair
+        title="Compact page-list controls · opt-in"
+        frame="compact-controls"
+        params={{ presentation: 'compact' }}
+        height={620}
+      />
       <Pair title="BrowserTabs · boxed">
         {(theme) => <TabsDemo theme={theme} variant="boxed" />}
       </Pair>

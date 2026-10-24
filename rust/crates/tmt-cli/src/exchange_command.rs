@@ -27,7 +27,7 @@ enum ResultKind {
     Withdraw(WithdrawnRequest),
     List(ExchangePage),
     Show {
-        detail: ExchangeDetail,
+        detail: Box<ExchangeDetail>,
         receipt: Option<String>,
     },
     Ack(Acknowledged),
@@ -132,7 +132,10 @@ fn run_selected(
                     } else {
                         None
                     };
-                    Ok(ResultKind::Show { detail, receipt })
+                    Ok(ResultKind::Show {
+                        detail: Box::new(detail),
+                        receipt,
+                    })
                 })
             }
             ExchangeOperation::Ack {

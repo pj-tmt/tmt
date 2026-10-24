@@ -5,6 +5,7 @@ use super::{
 use crate::request::{
     attention::AttentionRejection,
     correlation,
+    delivery::delivery_view,
     inbox::{AnswerRejection, INBOX_LIMIT, INBOX_MAX_LIMIT, OpenPage, OpenQuery, OpenRequest},
 };
 
@@ -19,6 +20,8 @@ fn open_items<E>(
         if answer_refusal(records, &row.attention.attempt, now)?.is_some() {
             continue;
         }
+        let message_state =
+            delivery_view(&records.delivery_facts(&row.attention.attempt, now)?, now);
         let attempt = row.attention.attempt;
         open.push(OpenRequest {
             request_id: attempt.request_id,
@@ -26,6 +29,7 @@ fn open_items<E>(
             originator: attempt.originator,
             prepared_at_ms: attempt.prepared_at_ms,
             delivery: attempt.status,
+            message_state,
             preview: row.preview,
         });
     }

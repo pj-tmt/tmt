@@ -237,6 +237,7 @@ fn document(me: &Identity, report: &Report) -> Value {
                         "from": from_document(item, names),
                         "preparedAtMs": item.prepared_at_ms,
                         "delivery": item.delivery.as_str(),
+                        "messageState": tmt_adapters::request_history::message_state(&item.message_state),
                         "preview": item.preview,
                     });
                     if let Some(room) = &item.room_id {

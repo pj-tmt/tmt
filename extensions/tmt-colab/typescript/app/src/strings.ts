@@ -1151,6 +1151,8 @@ export const text = {
   readerOlder:
     'This link was made by an older version. Ask the owner for a new link (tmt colab share link reset).',
   readerFailed: 'Could not open this page. Open the full link again.',
+  readerNoteTitle: 'You can read this shared page.',
+  readerNoteTitleEditor: 'You can edit this page.',
   readerNote:
     'You are reading a shared page. You cannot edit it or ask agents. Anyone who holds this link and can reach this address can read the page.',
   readerNoteEditor:

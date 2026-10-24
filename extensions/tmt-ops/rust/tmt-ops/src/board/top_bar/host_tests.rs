@@ -212,9 +212,9 @@ fn shrinking_drops_whole_segments_in_the_approved_order() {
     let attention = Attention {
         online: "28".into(),
         unread: Default::default(),
-        waiting: "9".into(),
+        todo: "9 todo".into(),
         blocked: "1".into(),
-        waiting_positive: true,
+        todo_positive: true,
         blocked_positive: true,
         complete: true,
         ascii: false,
@@ -268,9 +268,9 @@ fn the_last_fit_stage_ellipsizes_the_name_without_discarding_known_values() {
     let attention = super::Attention {
         online: "28".into(),
         unread: Default::default(),
-        waiting: "9".into(),
+        todo: "9 todo".into(),
         blocked: "1".into(),
-        waiting_positive: true,
+        todo_positive: true,
         blocked_positive: true,
         complete: true,
         ascii: false,

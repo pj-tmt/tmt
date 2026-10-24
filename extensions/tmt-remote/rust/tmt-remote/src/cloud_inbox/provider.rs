@@ -88,6 +88,19 @@ impl Provider {
         before_commit: Option<Box<dyn FnOnce() -> Result<bool, SyncError> + Send + '_>>,
         io: &IoBudget<'_>,
     ) -> Result<Option<crate::firebase_auth::Response>, RemoteError> {
+        // Query cardinality bounds both the reserved reads and the retained JSON.
+        let documents = if operation == Operation::Query {
+            body["structuredQuery"]["limit"]
+                .as_u64()
+                .filter(|limit| {
+                    (1..=crate::limits::CLOUD_INBOX_PAGE_DOCUMENTS as u64).contains(limit)
+                })
+                .ok_or_else(|| document::invalid(CloudDocumentReason::QueryShape))?
+                as usize
+        } else {
+            1
+        };
+        let response_limit = crate::limits::CLOUD_PROVIDER_BYTES * documents;
         let bytes = if operation == Operation::Read {
             vec![]
         } else {
@@ -107,7 +120,7 @@ impl Provider {
                     model: &self.model,
                     closed: &self.closed,
                     retry_after_ms: &self.retry_after_ms,
-                    response_limit: crate::limits::CLOUD_PROVIDER_BYTES,
+                    response_limit,
                     before_commit,
                     operation,
                     url,
@@ -189,10 +202,18 @@ impl Provider {
                 &answer,
             ));
         }
-        // A cancelled/deadline call remains unknown. Never turn it into a retry.
+        self.observe(peer, stream, id, io).await
+    }
+    /// An attempted create stays unknown if its exact-ID observation fails.
+    /// Observing an existing attempt never reserves another unsent commit.
+    pub(crate) async fn observe(
+        &self,
+        peer: &str,
+        stream: &str,
+        id: &str,
+        io: &IoBudget<'_>,
+    ) -> Result<Option<Document>, RemoteError> {
         io.check().map_err(|_| unavailable())?;
-        // The create may have committed even when its exact-ID observation is refused,
-        // cancelled or unreadable. Do not report a read refusal as a refused mutation.
         self.get(peer, stream, id, io)
             .await
             .map_err(|_| unavailable())
@@ -205,7 +226,7 @@ impl Provider {
         after: Option<&super::document::Cursor>,
         io: &IoBudget<'_>,
     ) -> Result<Page, RemoteError> {
-        if limit == 0 || limit > crate::journal::OPERATIONS as usize {
+        if limit == 0 || limit > crate::limits::CLOUD_INBOX_PAGE_DOCUMENTS {
             return Err(document::invalid(CloudDocumentReason::QueryShape));
         }
         let mut value = json!({"structuredQuery":{"from":[{"collectionId":"inbox","allDescendants":false}],"where":{"fieldFilter":{"field":{"fieldPath":"createdAt"},"op":"GREATER_THAN_OR_EQUAL","value":{"timestampValue":stamp(from_ms)}}},"orderBy":[{"field":{"fieldPath":"createdAt"},"direction":"ASCENDING"},{"field":{"fieldPath":"__name__"},"direction":"ASCENDING"}],"limit":limit}});

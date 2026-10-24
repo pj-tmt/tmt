@@ -2259,12 +2259,23 @@ Firebase credentials re-route from the signed native identity automatically, wit
 
 The driver uses ordinary Auth, HTTP, cancellation and the persistent project budget shared with native
 sealed-document sync. One shallow query of the selected machine's inbox, ordered and filtered by
-`createdAt`, covers all native peers with one document per provider page. No collection-group scan or
-recursive wildcard is used. Its checkpoint is one provider create-time value per peer with a 120-second overlap; only a full
-bounded reconciliation advances it. The existing journal handles repeated IDs and effects. Store/serve
+`createdAt` and document ID, covers all native peers. Each reconciliation starts with a one-document
+probe; only a full page permits follow-up pages, sized from retained transport rows and capped at
+four documents. These rows are a sizing hint, never permission to skip an unseen timestamp or ID.
+An empty idle inbox uses one query per minute, reserving one document plus the existing Rules lookups.
+Rules allow only the receiving owner to list inbox pages with a limit from one through four;
+enrollment retains its one-document limit and responses remain unlistable. Each page's retained
+REST response is bounded by its requested document count times `limits::CLOUD_PROVIDER_BYTES`.
+No collection-group scan or recursive wildcard is used. The machine query retains one completed
+provider timestamp with a 120-second overlap and a durable exact-timestamp/ID continuation after
+each durable outcome. A transient failure or capacity stop resumes that prefix; only a fully drained
+bounded reconciliation advances the completed timestamp. Enrollment has a separate checkpoint. The existing journal handles repeated IDs and effects. Store/serve
 lease ownership is unchanged: one additive `cloud_transport` table freezes exact request bytes/digest,
 response ciphertext and publication attempt before HTTP. An ambiguous create is observed at that same
-ID, never automatically re-posted or resealed. A frozen outbox row without a durable send claim makes
+ID, never automatically re-posted or resealed. An already-attempted response publication keeps its
+grant fence and goes directly to exact-ID observation, without reserving another commit that cannot
+be sent. Its missing or failed observation remains unconfirmed. Request maxima are never refunded.
+A frozen outbox row without a durable send claim makes
 its first create directly, without a preparation GET; the usual Auth/budget/claim fence still runs.
 Changed bytes under an ID refuse. A duplicate returns
 only frozen response ciphertext. Context secrets stay in memory for the bounded in-flight call; after

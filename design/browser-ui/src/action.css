@@ -157,3 +157,30 @@
 .tmt-ui-action-mark[data-busy='false']:not([data-leading]) {
   visibility: hidden;
 }
+/* Website-measured compact metrics stay local to this presentation.
+   Compact places the decorative/busy mark beside its label in one stable shared slot. */
+.tmt-ui-action[data-presentation='compact'] {
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1.35;
+  min-height: 37px;
+  padding: 9px 13px;
+  gap: var(--tmt-ui-space-s);
+}
+.tmt-ui-action[data-presentation='compact']:has(> .tmt-ui-action-mark + .tmt-ui-action-label) {
+  display: inline-flex;
+}
+.tmt-ui-action[data-presentation='compact'] > .tmt-ui-action-mark,
+.tmt-ui-action[data-presentation='compact'] > .tmt-ui-action-mark > svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+}
+@media (max-width: 640px) {
+  .tmt-ui-action[data-presentation='compact'] {
+    font-size: 10px;
+    min-height: 35px;
+    padding: 8px 10px;
+  }
+}

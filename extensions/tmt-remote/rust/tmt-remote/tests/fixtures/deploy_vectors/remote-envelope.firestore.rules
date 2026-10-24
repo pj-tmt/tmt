@@ -98,7 +98,7 @@ service cloud.firestore {
       allow create: if carrier() && peerCreate(machine) &&
         id.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}');
       allow get: if machineOwner(machine) || peerRead(machine);
-      allow list: if machineOwner(machine) && request.query.limit == 1;
+      allow list: if machineOwner(machine) && request.query.limit >= 1 && request.query.limit <= 4;
       allow delete: if machineOwner(machine);
     }
     match /m/{machine}/responses/{id} {

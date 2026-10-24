@@ -188,7 +188,8 @@ pub fn decode_history_request(bytes: &[u8]) -> Option<String> {
     valid_request_id(&input.request_id).then_some(input.request_id)
 }
 
-fn message_state(view: &tmt_core::request::delivery::DeliveryView) -> Value {
+/// The `messageState` object every client prints: history, `x`, `inbox` and `x listen` share it.
+pub fn message_state(view: &tmt_core::request::delivery::DeliveryView) -> Value {
     json!({"state":view.state.as_str(),"reason":{"code":view.reason.code(),"text":view.reason_text},
         "latestMs":view.latest_ms,"remainingMs":view.remaining_ms,"canSendNow":view.can_send_now})
 }

@@ -188,3 +188,31 @@ fn owner(
 
     (sessions, keys, service, descriptor)
 }
+
+/// Fixture envelope framing shared by offline and ordinary-user emulator scenarios.
+pub fn signed_request_as(
+    peer: &str,
+    id: &str,
+    operation: &str,
+    payload: &str,
+    now: u64,
+    sign: impl FnOnce(&[u8]) -> [u8; 64],
+) -> Vec<u8> {
+    let window = "22222222-2222-4222-8222-222222222222";
+    let session = "55555555-5555-4555-8555-555555555555";
+    let envelope = tmt_remote::canonical::Envelope {
+        kind: "request",
+        id,
+        correlation_id: None,
+        machine_id: MACHINE,
+        window_id: window,
+        client_id: peer,
+        session_id: session,
+        sequence: "1",
+        timestamp_ms: now,
+        origin: "cli",
+        operation,
+        payload: payload.as_bytes(),
+    };
+    serde_json::json!({"version":1,"profile":"local-v1","kind":"request","id":id,"correlationId":null,"machineId":MACHINE,"windowId":window,"clientId":peer,"sessionId":session,"sequence":"1","timestampMs":now,"origin":"cli","operation":operation,"payload":tmt_remote::canonical::base64url(payload.as_bytes()),"signature":tmt_remote::canonical::base64url(&sign(&tmt_remote::canonical::envelope(&envelope).unwrap()))}).to_string().into_bytes()
+}

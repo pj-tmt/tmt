@@ -7,6 +7,8 @@ export interface BrowserActionProps {
   label: string;
   visibleLabel?: string;
   variant: BrowserActionVariant;
+  /** Opt-in small type and adjacent mark/label; default host metrics stay unchanged. */
+  presentation?: 'compact';
   disabled?: boolean;
   disabledReason?: string;
   disabledReasonId?: string;
@@ -21,6 +23,7 @@ export function BrowserAction({
   label,
   visibleLabel,
   variant,
+  presentation,
   disabled = false,
   disabledReason,
   disabledReasonId,
@@ -40,6 +43,7 @@ export function BrowserAction({
         type={type}
         aria-label={visibleLabel === undefined ? undefined : label}
         data-variant={variant}
+        data-presentation={presentation}
         disabled={disabled}
         aria-disabled={(busy && !disabled) || undefined}
         aria-busy={busy || undefined}

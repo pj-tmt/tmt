@@ -22,6 +22,10 @@ pub(crate) fn namespace() -> String {
             &crate::limits::CLOUD_CARRIER_BYTES.to_string(),
         )
         .replace(
+            "CLOUD_INBOX_PAGE_DOCUMENTS",
+            &crate::limits::CLOUD_INBOX_PAGE_DOCUMENTS.to_string(),
+        )
+        .replace(
             "CLOUD_DESCRIPTOR_BYTES",
             &crate::limits::CLOUD_DESCRIPTOR_BYTES.to_string(),
         )
@@ -36,6 +40,13 @@ mod tests {
     fn artifact_has_the_same_carrier_bound_and_owner_only_deletion() {
         let rules = super::artifact();
         assert!(!rules.contains("CLOUD_CARRIER_BYTES"));
+        assert!(!rules.contains("CLOUD_INBOX_PAGE_DOCUMENTS"));
+        assert!(rules.contains("request.query.limit >= 1 && request.query.limit <= 4"));
+        assert_eq!(
+            rules.matches("request.query.limit == 1").count(),
+            1,
+            "enrollment retains its one-document cap"
+        );
         assert!(rules.contains(&format!("<= {}", crate::limits::CLOUD_CARRIER_BYTES)));
         assert_eq!(
             rules

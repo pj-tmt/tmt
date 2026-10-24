@@ -56,6 +56,11 @@ fn invalid(message: impl ToString) -> Error {
 pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
     let outcome = match task.work {
         Work::Read => Outcome::Read(read(core, &task.key).map_err(|error| error.message)),
+        Work::Counts => Outcome::Counts(
+            read(core, &task.key)
+                .map(|preview| super::Counts::of(&preview.current.items))
+                .map_err(|error| error.message),
+        ),
         Work::Write(write) => Outcome::Write(apply(core, &task.key, write)),
     };
     Completed {

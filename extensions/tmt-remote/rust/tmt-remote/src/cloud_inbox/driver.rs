@@ -84,9 +84,13 @@ impl InboxDriver {
             Ok((from, None, None))
         })?;
         let mut count = 0;
+        // An empty minute poll reserves only one document plus the Rules lookups.
+        let mut limit = 1;
         loop {
-            // A one-document query costs at most 1 delivery + 2 Rules lookups, including idle.
-            let page = self.provider.inbox(from, 1, cursor.as_ref(), io).await?;
+            let page = self
+                .provider
+                .inbox(from, limit, cursor.as_ref(), io)
+                .await?;
             snapshot = Some(snapshot.map_or(page.read_ms, |old: u64| old.min(page.read_ms)));
             for document in page.documents {
                 if count >= crate::journal::OPERATIONS as usize {
@@ -100,16 +104,22 @@ impl InboxDriver {
                     if let Some(frozen) = self.receiver.receive(&document, now)? {
                         let frozen = Arc::new(frozen);
                         let publication = Arc::clone(&frozen);
-                        let observed = self.provider.create(
-                            document.peer(), "responses", document.id(), &frozen.bytes,
-                            Box::new(move || publication.claim_publication().map_err(|error| {
-                                if super::ingress::permanent(&error.code) {
-                                    crate::sealed_sync::SyncError::Denied
-                                } else {
-                                    crate::sealed_sync::SyncError::Unavailable
-                                }
-                            })), io,
-                        ).await;
+                        let observed = if frozen.publication_attempted()? {
+                            // Keep the current grant fence even though no second write can occur.
+                            frozen.claim_publication()?;
+                            self.provider.observe(document.peer(), "responses", document.id(), io).await
+                        } else {
+                            self.provider.create(
+                                document.peer(), "responses", document.id(), &frozen.bytes,
+                                Box::new(move || publication.claim_publication().map_err(|error| {
+                                    if super::ingress::permanent(&error.code) {
+                                        crate::sealed_sync::SyncError::Denied
+                                    } else {
+                                        crate::sealed_sync::SyncError::Unavailable
+                                    }
+                                })), io,
+                            ).await
+                        };
                         match observed {
                             Ok(Some(response)) if response.bytes() == frozen.bytes => {},
                             Ok(Some(_)) => return Err(RemoteError::new(
@@ -161,6 +171,9 @@ impl InboxDriver {
             if !page.full {
                 break;
             }
+            limit = self
+                .sessions
+                .with_operation_store(|store| store.cloud_inbox_page_limit(from))?;
         }
         self.sessions
             .with_operation_store(|s| s.cloud_finish_query(snapshot.unwrap_or(0)))?;
