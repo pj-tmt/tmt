@@ -658,9 +658,7 @@ impl Service {
     }
     pub fn send(&self, raw: &[u8], explicit: Option<&str>) -> Result<Value, RemoteError> {
         let request = crate::cloud_command::Request::read(raw)?;
-        let selected = explicit
-            .or(request.remote.as_deref())
-            .ok_or_else(unavailable)?;
+        let selected = request.selected(explicit)?;
         let mut record = self
             .store()?
             .cloud_connection(selected)?

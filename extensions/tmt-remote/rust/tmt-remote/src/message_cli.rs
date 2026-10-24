@@ -1,17 +1,17 @@
-//! Provisional public boundary: bounded input, no enrollment or provider bootstrap shortcut.
+//! Public prepared messages reach the existing serving owner, never a new transport composition.
 use clap::{Arg, ArgAction, Command};
-use std::io::Read;
+use std::io::{Read, Write};
 use tmt_cli_style::{CommandSpec, Example, OutputModes};
-use tmt_remote::{cloud_command, error::RemoteError, limits};
+use tmt_remote::{control, error::RemoteError, limits};
 const MESSAGE: CommandSpec = CommandSpec {
     name: "message",
-    summary: "Carry one prepared cloud message (pilot)",
+    summary: "Carry one prepared cloud message",
     examples: &[Example {
         command: "tmt remote message --json < prepared-message.json",
         note: "Read one prepared cloud request",
     }],
     outputs: OutputModes::Json,
-    details: "Reads one bounded version-1 request from stdin and writes one JSON answer. Cloud enrollment and the Core command alignment are not enabled yet. Nothing opens and an uncertain message is never sent again automatically.",
+    details: "Reads one bounded version-1 request from stdin and writes one JSON answer through the running Remote owner. Requires an already joined cloud peer. Nothing opens, signs in or starts automatically, and an uncertain message is never sent again automatically.",
 };
 pub(crate) fn command() -> Command {
     tmt_cli_style::command(&MESSAGE)
@@ -33,18 +33,11 @@ pub(crate) fn run(explicit: Option<&str>) -> Result<(), RemoteError> {
     std::io::stdin()
         .take((limits::CLOUD_COMMAND_BYTES + 1) as u64)
         .read_to_end(&mut bytes)?;
-    let request = cloud_command::Request::read(&bytes)?;
-    if explicit.is_some()
-        && request.remote.as_deref().is_some()
-        && explicit != request.remote.as_deref()
-    {
-        return Err(RemoteError::new(
-            "REMOTE_SELECTOR_INVALID",
-            "The command and prepared request name different remotes.",
-        ));
-    }
-    // Final argv/schema alignment belongs to #4536, enrollment to #4538. The emulator
-    // composes the same Request/Sender boundary with fixture-only seeded peers. Never
-    // turn this provisional command into a production grant or name-based fallback.
-    Err(cloud_command::upgrade())
+    // Reject invalid input before even asking Core for the storage root.
+    let request = tmt_remote::cloud_command::Request::read(&bytes)?;
+    request.selected(explicit)?;
+    let root = super::discovery_root()?;
+    let answer = control::cloud_message(&root.join("remote"), &bytes, explicit)?;
+    writeln!(tmt_cli_style::stream::stdout(true), "{answer}")?;
+    Ok(())
 }

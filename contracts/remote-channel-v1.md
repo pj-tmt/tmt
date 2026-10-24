@@ -2,8 +2,8 @@
 
 **Implementation status:** the local door and its signed agent operations are shipped; Colab page
 sharing over Firestore (native sync and the hosted browser client) is shipped. Cloud agent operations
-through Firestore have native invite/join and a carrier driver with emulator-only qualification;
-Remote's public-message activation (#4900) remains pending. Cloudflare remains proposed. Native encryption and automatic key renewal enable no access by themselves.
+through Firestore have native invite/join and a one-way public Core sender through the serving owner,
+with offline and emulator qualification. Composed two-way final delivery and real-account acceptance remain separate. Cloudflare remains proposed. Native encryption and automatic key renewal enable no access by themselves.
 Shipped means published code with fixture/emulator proof; real-account acceptance remains open.
 This document owns host-driver authentication, local device identity/grants, wire values, operations,
 the extension channel API and backend bindings. Remote owns this contract; tmt-lead reviews changed core contracts and cross-squad
@@ -2220,10 +2220,10 @@ Cloudflare remains proposed. Extension/page authority never substitutes for a lo
 | Backend      | Mapping                                                                                                                                                                                                                                      |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `local`      | [Loopback HTTP](#transport-binding-loopback-http), mounted extension routes and WebSocket relay; state under the data root.                                                                                                                  |
-| `firestore`  | **Shipped:** extension-scoped sealed-document sync for Colab page sharing. **Emulator-only agent binding:** native invite/join, encrypted inboxes, owner responses and peer checkpoints; public-message activation remains tracked by #4900. |
+| `firestore`  | **Shipped:** extension-scoped sealed-document sync for Colab page sharing. **Native agent binding:** invite/join, encrypted inboxes, owner responses and the one-way public Core sender; composed final acceptance remains separate. |
 | `cloudflare` | **Proposal:** Worker admission before per-machine Durable Object storage; per-namespace relay objects; bounded WebSocket delivery and device-scoped checkpoints.                                                                             |
 
-### Native Firestore agent binding (emulator only)
+### Native Firestore agent binding
 
 `cloud_inbox` carries `cloud-hpke-v1` envelopes through the common `MessageService`, operation owner,
 Store and journal. Firebase Auth/Rules admits access to `/m/<machineId>`, separate from every `/x/`
@@ -2323,7 +2323,7 @@ plus bounded hourly cleanup and descriptor renewal. These are modeled charges, n
 counts or observed headroom. All enrollment, routing and operation traffic uses the same daily guard.
 Reopening the same Store resumes its native identity, trust, permissions and checkpoints.
 
-The provisional public boundary is `tmt remote message --json`, one bounded version-1 JSON document
+The public boundary is `tmt remote message --json`, one bounded version-1 JSON document
 on stdin/stdout. `cloud_command` implements [Remote message v1](remote-message-v1.md), which owns the request and
 answer schema, including the local-only `reply` handle. `target.name` is required (1–128 UTF-8
 bytes, no controls); `target.id` may be omitted, but null or a noncanonical UUID is refused. The
@@ -2355,14 +2355,23 @@ retained with frozen native intent; it is not a caller-chosen role.
 
 #### Public native agent activation
 
-The remaining public-command gate is Remote's
-`extensions/tmt-remote/rust/tmt-remote/src/message_cli.rs::run`: it validates the prepared request
-and selector, then unconditionally returns `REMOTE_CLOUD_UPGRADE_REQUIRED` before handing the
-request to the serving-owner sender. #4900 owns that bounded handoff and public-command proof.
-Core's send (#4831) and UUID-query seams and Remote's adapter (#4849) are merged; #4757 delivered
-name/request parsing. #4539 is the owner's separately
-authorized real-account acceptance after activation. Pairing/final transport qualification in
-#4540 does not open the public command, and a named upgrade refusal never authorizes bypassing it.
+The public command discovers the existing owner-only control socket and hands the exact prepared
+bytes to the serving owner's existing finite sender. It never opens the Store, starts serve, signs in,
+enrolls, opens a browser or selects another peer. Core resolves a targeting default before preparation;
+Remote admits the same explicit/request selector and refuses `local`, a missing peer or a conflict.
+The private `cloud.message` frame has a named cap derived from the prepared-command bound; other
+control operations keep their smaller cap. Its answer wait covers the existing finite sender call;
+neither the control exchange nor a retry renews the provider budget. A stopped/absent or unsupported
+owner has a typed pre-handoff refusal. Once writing may have submitted the request, EOF, a deadline
+or malformed/mismatched answer returns `unconfirmed`, never a false pre-effect JSON error. A well-formed
+typed owner answer passes through unchanged: a definite refusal stays refused and uncertainty stays
+unconfirmed. The Sender owns this classification: a definitive provider refusal of a fresh dispatch
+keeps its typed error; once an original carrier is known present or attempted, failure of its fresh
+recovery-control observation or publication is `REMOTE_CLOUD_UNCONFIRMED`, not proof that the original
+was not sent. The Service adds no blanket claim-based override, second ledger or resend.
+The one-way public proof uses built Core and Remote plus the serving owner/inbox; the composed
+public final in the originating `tmt result` remains #4540 after reciprocal delivery is integrated.
+Real-provider acceptance remains the owner's separately authorized #4539 run.
 
 #### Pushed agent finals
 
@@ -2669,9 +2678,8 @@ operation object through relay credentials, a namespace alias or a Worker fragme
 ### End-to-end operation encryption
 
 **Implemented library and key lifecycle:** native machine-to-machine descriptor sign/verify,
-request seal/open and request-bound responses. The native Firestore driver is emulator-only;
-native invite/join is implemented, while [public-message activation](#public-native-agent-activation)
-and browser interoperability remain separate work.
+request seal/open and request-bound responses. Native invite/join and the one-way public sender
+compose the Firestore driver; composed public final acceptance and browser interoperability remain separate work.
 Browser enrollment remains deferred to its existing proposal.
 Edge admission remains deferred; never add another Firestore authentication gate.
 
@@ -2747,8 +2755,7 @@ The client verifies the pinned machine signature, request binding, AEAD and encl
 response before interpreting any state.
 
 The library exposes consuming response contexts: each produces exactly one response ciphertext,
-frozen before publication by the native emulator transport owner.
-[Public-message activation](#public-native-agent-activation) is separate. Before reopening an adopted carrier, its journal owner
+frozen before publication by the native transport owner. Before reopening an adopted carrier, its journal owner
 must return the frozen response rather than construct another sealer for changed plaintext; consuming
 contexts do not provide a persistent replay ledger. Identical transport retransmission returns only those frozen bytes; a changed response, recovered receipt or
 later notification uses a fresh request/control context. A lost context requires fresh signed
