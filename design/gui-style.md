@@ -464,13 +464,13 @@ and still reaches the host's active menu, drawer or dialog.
 
 ### Overlay
 
-Comments, Chat, Source, Share and settings panels.
+Chat, Source, Share and settings panels (Comments is the non-modal panel below).
 
 - Opens over the page without moving it, closes with its own `×`, Esc or a backdrop press. Focus moves into it and returns to the opener.
 - One overlay at a time; opening another replaces it.
 - Shared owner: [BrowserDrawer](browser-ui/README.md#drawer-and-menu), with native HTML dialog containment at every width.
 - Source uses the shared header action slot for primary Save before Close, with a truthful draft explanation, paper-toned bordered monospace editor and lower draft-equality metadata. The owner and editor-link save contracts and real notice states remain unchanged. No equality state claims a confirmed save.
-- Colab shared page drawers (Chat, Source, Agents, Files, Comments, Export and About) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, an opaque rounded surface and one 1 px rule on every edge. Source may be wider; regular drawers are at most 430 px (viewport minus 18 px), and use viewport minus 12 px through 640 px. Compact drawers fill the available width between gutters. The scrim covers the visible header and author iframe; the first press only dismisses, with no click-through, and the second press acts. The drawer body contains overscroll; there is no body scroll lock. Neither changes the author frame width. The modal scrim dims and blurs the page using the shared scrim role and 3 px overlay blur.
+- Colab shared page drawers (Chat, Source, Agents, Files, Export and About) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, an opaque rounded surface and one 1 px rule on every edge. Source may be wider; regular drawers are at most 430 px (viewport minus 18 px), and use viewport minus 12 px through 640 px. Compact drawers fill the available width between gutters. The scrim covers the visible header and author iframe; the first press only dismisses, with no click-through, and the second press acts. The drawer body contains overscroll; there is no body scroll lock. Neither changes the author frame width. The modal scrim dims and blurs the page using the shared scrim role and 3 px overlay blur.
 
 ### Non-modal side panel
 
@@ -480,6 +480,11 @@ leave the page interactive. It shares the Drawer header. The host selects column
 the heading; Escape inside and Close request dismissal, then return focus to the
 opener. There is no scrim, trap or inert page. The host coordinates it with modal
 drawers and retains content, drafts and breakpoints.
+
+Colab's Comments region is this panel: a column of the page grid from 1180 px (the page narrows
+beside it, 286 px wide with a 34 px gap and a 24 px margin, 310 px and 42 px from 1600 px; it sticks 20 px
+under the header, ruled on its left), a card from 761 px and a sheet below. Escape on the page does
+not close it; `Show in the page` scrolls and leaves it open.
 
 ### BrowserNotifications
 
@@ -763,7 +768,7 @@ a 1px rule under the view strip, as rows of number, title, quoted passage and
 14px (the compact body token) and the quote and meta take the caption size; the selected view tab uses the shared
 selection tint. Each view has an
 empty state; its header count combines unresolved ordinary threads and undecided unresolved
-proposals. Selecting a row opens that thread's Discussion view in the drawer: a status line
+proposals. Selecting a row opens that thread's Discussion view in the panel: a status line
 (`Needs you`, `Open discussion` or `Resolved by X`) with `All comments`, the title, the quoted
 passage with its number and a `Show in the page` arrow, the turns, the reply composer and a footer
 rule with `Resolve` or `Reopen`. The reply composer is a four-line field flush with the content

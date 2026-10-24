@@ -1,5 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
-import { openPanel } from './comments-region.js';
+import { commentsRegion } from './comments-region.js';
 
 /** Resolve page actions through their header menu; readers keep their direct Files control.
  * Chat is in Discussion; page tools, including Agent status, are in More. */
@@ -8,9 +8,17 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
     name === 'Files' ? /^Files(?: \(\d+\)| \d+)?$/ : name === 'Agents' ? 'Agent status' : name;
   const page = 'page' in host ? host.page() : host;
   const header = host.locator('.page-header-actions:visible');
-  const drawer = openPanel(page);
-  // The first covered-header press dismisses only; the action needs a second press.
+  // Every action starts from nothing open: a modal drawer is dismissed from its covered header, and
+  // the non-modal Comments panel (which leaves the header live) through its own Close.
+  const drawer = page.locator('.tmt-ui-drawer[open]');
+  const comments = commentsRegion(page);
   const dismissDrawer = async () => {
+    if (await comments.isVisible()) {
+      await comments.getByRole('button', { name: /^Close (Comments|Discussion)$/ }).click();
+      await comments.waitFor({ state: 'hidden' });
+      return;
+    }
+    // The first covered-header press dismisses only; the action needs a second press.
     const button = await page
       .locator('.tmt-ui-header:visible button:visible')
       .first()
@@ -19,7 +27,8 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
     await page.mouse.click(button.x + button.width / 2, button.y + button.height / 2);
     await drawer.waitFor({ state: 'hidden' });
   };
-  if (await drawer.isVisible()) await dismissDrawer();
+  const anythingOpen = async () => (await drawer.isVisible()) || (await comments.isVisible());
+  if (await anythingOpen()) await dismissDrawer();
   if (name === 'Files') {
     const direct = host.getByRole('button', { name: directName, exact: true });
     await header.or(direct).first().waitFor();
@@ -51,7 +60,7 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
     } catch (error) {
       // A deep link such as `#t=` opens its drawer once the page has loaded, which can be after the
       // check above; dismiss that drawer and press again.
-      if (!(await drawer.isVisible())) throw error;
+      if (!(await anythingOpen())) throw error;
       await dismissDrawer();
       await trigger.click();
     }

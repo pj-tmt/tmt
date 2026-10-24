@@ -37,6 +37,23 @@ async function expectRuleEdge(panel: Locator, theme: 'light' | 'dark') {
   await expect(children.first()).toHaveCSS('border-top-width', '0px');
   await expect(children.nth(count - 1)).toHaveCSS('border-bottom-width', '0px');
 }
+/** The Comments panel's own edge by mode: a column is ruled on its left only (the page grid owns
+ * the rest); a card and a sheet float and draw the leaf's edge on all four sides, once. */
+async function expectCommentsEdge(panel: Locator, theme: 'light' | 'dark') {
+  const mode = await panel.getAttribute('data-mode');
+  if (mode !== 'column') {
+    for (const side of ['top', 'right', 'bottom', 'left']) {
+      await expect(panel).toHaveCSS(`border-${side}-width`, '1px');
+      await expect(panel).toHaveCSS(`border-${side}-color`, rgb(tokens.browser.color.edge[theme]));
+    }
+    return;
+  }
+  await expect(panel).toHaveCSS('border-left-width', '1px');
+  await expect(panel).toHaveCSS('border-left-style', 'solid');
+  await expect(panel).toHaveCSS('border-left-color', rule[theme]);
+  for (const side of ['top', 'right', 'bottom'])
+    await expect(panel).toHaveCSS(`border-${side}-width`, '0px');
+}
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const) {
     test(`annotation design matrix ${width} ${theme}`, async ({ page }) => {
@@ -136,8 +153,8 @@ for (const width of [1440, 390])
         'outline-color',
         rgb(tokens.browser.color['annotation-rule-selected'][theme]),
       );
-      // A marker opens the thread's Discussion view in the drawer, which draws the shared edge.
-      await expectRuleEdge(commentsRegion(page), theme);
+      // A marker opens the thread's Discussion view in the panel, which draws its mode's edge.
+      await expectCommentsEdge(commentsRegion(page), theme);
       await expect(thread.locator('.annotation-number')).toHaveText('1');
       const human = thread.locator('.conversation-turn[data-turn-role="user"]');
       const agent = thread.locator('.conversation-turn[data-turn-role="agent"]');
@@ -165,8 +182,7 @@ for (const width of [1440, 390])
       const panel = page.getByTestId('comments-panel');
       // Comments reopens on the thread that was open; All comments is the list.
       await panel.getByRole('button', { name: 'All comments', exact: true }).click();
-      // The Comments drawer floats too; the shared drawer already draws the same edge.
-      await expectRuleEdge(commentsRegion(page), theme);
+      await expectCommentsEdge(commentsRegion(page), theme);
       // The numbers are split between the Open and Resolved views (the open thread shows in both).
       const allNumbers = async () => {
         const seen = new Set<string>();

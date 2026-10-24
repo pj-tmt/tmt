@@ -644,7 +644,7 @@ test('visible open Answer and Proposal histories suppress arrivals; folded and d
   });
   await expect(cards(page)).toHaveCount(1);
   await cards(page).getByRole('button', { name: 'Open Proposal', exact: true }).click();
-  const fallback = page.locator('dialog:modal .proposal-card');
+  const fallback = commentsRegion(page).locator('.proposal-card');
   await expect(fallback).toBeFocused();
   await expect(fallback).toHaveAttribute('data-arrived', '');
   await expect(fallback).toContainText('Detached folded follow-up');
