@@ -535,7 +535,6 @@ Owns listener/restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-disco
 and `<dataRoot>/remote/` ([state leaf](#shared-extension-state-layout)).
 Home/Remote/SDK; read-only auto-pair; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
 `cloud_hpke`: bytes; `cloud_keys`: renewals; `cloud_inbox`: carriers, private reply binding.
-Its Store-backed inbox scan keeps a one-document idle probe and bounded follow-up pages under the existing project budget.
 
 [Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
 settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
