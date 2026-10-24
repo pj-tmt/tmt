@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub(in crate::board) mod activity;
 mod draft;
 mod summary;
 pub(in crate::board) use summary::{Counts, Summary, Total};
@@ -85,7 +86,7 @@ impl Key {
 /// A list read or a conversation write; the room modal retains its own write owner.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Work {
-    Read,
+    Read { after: u64 },
     Counts,
     Write(Write),
 }
@@ -101,7 +102,10 @@ pub(in crate::board) struct Task {
 
 #[derive(Debug)]
 enum Outcome {
-    Read(Result<Preview, String>),
+    Read {
+        preview: Result<Preview, String>,
+        activity: activity::Read,
+    },
     Counts(Result<Counts, String>),
     Write(Result<Applied, Error>),
 }
@@ -124,6 +128,7 @@ pub(in crate::board) struct Written {
 
 struct Entry {
     summary: Summary,
+    activity: activity::Held,
     /// The last admitted list, for the overlay; the summary derives from it.
     preview: Option<Preview>,
     /// When the read in flight began, or the last one ended.
@@ -279,6 +284,7 @@ impl State {
                     key.clone(),
                     Entry {
                         summary: Summary::Pending,
+                        activity: activity::Held::default(),
                         preview: None,
                         at: now,
                         preview_at: None,
@@ -294,7 +300,9 @@ impl State {
         Some(Task {
             key: key.clone(),
             work: if key.member().is_some() {
-                Work::Read
+                Work::Read {
+                    after: self.lists[key].activity.cursor(),
+                }
             } else {
                 Work::Counts
             },
@@ -327,6 +335,7 @@ impl State {
         let key = key.clone();
         let entry = self.lists.entry(key.clone()).or_insert_with(|| Entry {
             summary: Summary::Pending,
+            activity: activity::Held::default(),
             preview: None,
             at: now,
             preview_at: None,
@@ -378,6 +387,7 @@ impl State {
         let key = Key::room(current.room.id.as_str());
         let entry = self.lists.entry(key).or_insert_with(|| Entry {
             summary: Summary::Pending,
+            activity: activity::Held::default(),
             preview: None,
             at: now,
             preview_at: None,
@@ -392,19 +402,23 @@ impl State {
     }
 
     fn adopt(&mut self, completed: Completed, now: Instant) -> Option<Written> {
-        if matches!(completed.outcome, Outcome::Read(_) | Outcome::Counts(_))
+        if matches!(completed.outcome, Outcome::Read { .. } | Outcome::Counts(_))
             && self.read.as_ref() == Some(&completed.key)
         {
             self.read = None;
         }
         let entry = self.lists.get_mut(&completed.key)?;
         match completed.outcome {
-            Outcome::Read(result) => {
+            Outcome::Read {
+                preview: result,
+                activity,
+            } => {
                 entry.at = now;
                 entry.preview_at = Some(now);
                 if completed.epoch != entry.epoch {
                     return None;
                 }
+                entry.activity.adopt(activity);
                 match result {
                     Ok(preview) => {
                         entry.summary = Summary::Counts(Counts::of(&preview.current.items));
@@ -417,6 +431,7 @@ impl State {
                     }
                     Err(_) => {}
                 }
+                entry.activity.present(entry.preview.as_ref());
                 None
             }
             Outcome::Counts(result) => {
@@ -484,6 +499,10 @@ impl State {
         self.lists.get(key)?.preview.as_ref()
     }
 
+    pub fn activity(&self, key: &Key) -> Option<&std::sync::Arc<activity::Snapshot>> {
+        self.lists.get(key)?.activity.snapshot.as_ref()
+    }
+
     pub fn writing(&self, key: &Key) -> bool {
         self.lists.get(key).is_some_and(|entry| entry.writing)
     }
@@ -512,6 +531,7 @@ impl Entry {
         if let Some(preview) = &mut self.preview {
             preview.current = current;
         }
+        self.activity.present(self.preview.as_ref());
     }
 }
 

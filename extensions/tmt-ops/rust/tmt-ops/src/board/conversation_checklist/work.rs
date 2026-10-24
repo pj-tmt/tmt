@@ -55,7 +55,15 @@ fn invalid(message: impl ToString) -> Error {
 /// Runs a task on the lane.
 pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
     let outcome = match task.work {
-        Work::Read => Outcome::Read(read(core, &task.key).map_err(|error| error.message)),
+        Work::Read { after } => {
+            let service = service(core, &task.key);
+            let preview = service
+                .as_ref()
+                .map_err(|error| error.message.clone())
+                .and_then(|service| service.preview().map_err(|error| error.message));
+            let activity = super::activity::read(core, service.as_ref().ok(), after);
+            Outcome::Read { preview, activity }
+        }
         Work::Counts => Outcome::Counts(
             read(core, &task.key)
                 .map(|preview| super::Counts::of(&preview.current.items))

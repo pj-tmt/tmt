@@ -1,4 +1,5 @@
 use super::*;
+pub(in crate::board) mod activity_scenes;
 mod rooms;
 use crate::checklist::{
     Current, ItemView, MemberView, Preview, RoomView,
@@ -54,7 +55,7 @@ fn view(n: u8, reference: Option<&str>, completion: Completion, archived: bool) 
         assignee_available: true,
     }
 }
-fn preview(items: Vec<ItemView>) -> Preview {
+pub(super) fn preview(items: Vec<ItemView>) -> Preview {
     let (room, member) = (Id::parse(ROOM).unwrap(), Id::parse(MEMBER).unwrap());
     Preview {
         actor_id: Id::parse(ACTOR).unwrap(),
@@ -106,11 +107,14 @@ pub(in crate::board) fn reading(task: &Task, result: Result<Counts, String>) -> 
     Completed {
         key: task.key.clone(),
         epoch: task.epoch,
-        outcome: Outcome::Read(result.map(|counts| preview(items_of(counts)))),
+        outcome: Outcome::Read {
+            preview: result.map(|counts| preview(items_of(counts))),
+            activity: activity::Read::default(),
+        },
     }
 }
 
-fn key() -> Key {
+pub(super) fn key() -> Key {
     Key {
         room: ROOM.into(),
         subject: Subject::Conversation(MEMBER.into()),
