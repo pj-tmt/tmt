@@ -88,14 +88,16 @@ sooner paints nothing; a job the user did not ask to wait on (`Job::shows_progre
 none, and a result or failure is shown at once. Persistent
 migration and acquisition failures retain their existing footer priority.
 
-`board::unread` projects submitted finals from the existing originator-results
-page, limited to 50 with no continuation fetch just to count. Request IDs deduplicate
-repeated room evidence; squad/global counts deduplicate member UUIDs. Only the
-originator page supplies this count, never blended recipient histories or pane
-output. Optional failed/malformed reads retain the previous page for the same
+`board::unread` projects what answered the user's messages from one page of Core's
+originator `answers` view (a submitted final, or a passthrough's captured turn), limited
+to 50 with no continuation fetch just to count; it is read by the same Leads job that
+reads the results page, which still feeds the reply list. A request is one item, so a
+final and a turn never count twice. Request IDs deduplicate repeated room evidence;
+squad/global counts deduplicate member UUIDs. Only the originator page supplies this
+count, never blended recipient histories or pane output. Optional failed/malformed reads retain the previous page for the same
 actor; actor changes discard it. A member's count is `N+ unread` only when
 `nextBefore` is present and that pair's marker precedes the page's oldest
-`submittedAtMs`. Aggregate `+` is the OR of eligible members' partial flags;
+`answeredAtMs`. Aggregate `+` is the OR of eligible members' partial flags;
 observed zero renders no unread state, even when older replies are possible.
 
 StateCell supplies `● N unread` in place of the glyph and activity words
@@ -128,7 +130,9 @@ wrap commands, and keep the existing clipped-control and default-Cancel rules.
 
 ## Shell, geometry and input
 
-`board::shell` owns Agents and Digest selection. Agents uses one list with three
+`board::shell` owns Agents and Digest selection, with one inactive destination
+anchor kept only for the board session. First ordinary Digest entry selects `all`;
+explicit named-view and exec restores retain their UUID. Agents uses one list with three
 chips (`AgentsFilter`: Squads tree, Agents flat list, Pinned) and one right column
 (`RightTab`: Talk, Measure). The shared FilterBar paints the chips and the
 in-place search field on the left rule and `talk_measure` paints its control on the
@@ -249,7 +253,12 @@ projects the selected member or squad through the shared board components.
 Conversation, editor, drafts, reply reader and Send keep their existing owners. Digest projects the
 Core usage/traffic and supplier-owned Digest status through `digest_dashboard`:
 range summary, TOK-ranked table with read-only `all`, six-level 24-hour activity,
-Exchanges and details. Wide frames place Exchanges above details; narrower frames
+Exchanges and details. The existing Digest report/query/scope cache also holds the
+full admitted exchange ranking: shared `exchange_matrix::by_traffic` orders by
+sent plus received, then name and UUID before the shared painter fits at most five
+and retains an off-list selection in the last slot. Cursor and viewport changes
+reuse those facts. Known-empty traffic and unavailable traffic stay distinct.
+Wide frames place Exchanges above details; narrower frames
 stack the table and details, with Tab exposing Exchanges. Enter on a real member
 opens its Agents Talk pane; `all` grants no recipient or Digest mutation.
 The canonical roster owns membership and action admission.
@@ -439,7 +448,13 @@ identities list as `idle_source`, so no presence is read), `OpsMembershipState::
 `OpsSquad::idle_alert` carry the result, and `activity::Label::idle_over` (only while the label
 reads idle) makes `columns::activity_spans`, `team_strip::line` and the squad team strip paint
 `state_cell::over` (`◷`, `!` under the ASCII glyph set) in the attention colour before the idle word.
-The squad row's MODEL cell names `idle alert 30m` while enabled; nothing is derived in the board.
+The squad row's MODEL / ALERT cell shows `◷ 30m` or `○ off` from that observation;
+`idle_alert_editor` owns its clipped hit, effective `i` entry, scoped chooser and disposable
+form. It uses shared Modal/ChipGroup/Editor/input styles. The action lane loads Config and
+validates both settings before writing changed keys through `set_setting` (After, then enabled).
+A second-write refusal rereads the saved setting, keeps the draft and names the partial result.
+Its threshold preview uses held activity and published over marks; paint/input acquire nothing
+and never dispatch alerts. The catalog supplies Help, Settings and whole footer hints.
 The per-squad settings overlay is reached from the Workspace settings menu (`Choice::SquadSettings`, last
 after a `Choice::Rule`; absent without a selected squad): `Opening::SquadSettings` opens it in that squad's
 context with `Overlay::from_menu`, which keeps a refresh from closing it, returns Esc to the menu, titles it

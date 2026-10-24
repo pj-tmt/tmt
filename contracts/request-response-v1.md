@@ -774,9 +774,11 @@ The following semantic scenarios are illustrative only, not final JSON schemas:
 
 ### Message state
 
-Every history item and `requests.show` detail carries one `messageState` object for the sender's
+Every history item and `requests.show` detail, and every `x`, `x show`, `x listen` and `inbox` item, carries one `messageState` object for the sender's
 view of that message, derived at read time from stored facts only (never pane text), so every
-client paints the same words and keeps no copy of the rules:
+client paints the same words and keeps no copy of the rules. The `delivery` field beside it is the
+raw attempt status: a request held by Digest stays `queued` after its checklist is delivered, so read
+`messageState`, not `delivery`, to tell held from handed over:
 
 | `state`       | When                                                                                                                               | `canSendNow`                                                       |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
@@ -935,7 +937,9 @@ for one originator across rooms and recipients, including acknowledged work.
 It reuses canonical attempts and response metadata; it is independent of X's
 unread attention and revision cursor. Submitted does not mean successful, and
 core does not infer question/blocked categories. Results order and page by final
-submission time with request ID as the tie-breaker, not preparation time.
+submission time with request ID as the tie-breaker, not preparation time. The
+`answers` view lists the same originator's finals together with its answered
+passthrough turns, metadata only, in one order.
 
 The [extension API contract](extension-api.md#other-operation-details) owns the
 input, cursor, JSON fields and preview caps. Expired/unavailable bodies retain

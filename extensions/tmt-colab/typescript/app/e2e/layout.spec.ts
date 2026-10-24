@@ -3,7 +3,7 @@ import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
-import { tokens } from './tokens.js';
+import { tokens, headerHeight } from './tokens.js';
 
 /** The rail is the only column left of the page on a wide screen. */
 const railWidth = Number.parseFloat(tokens.browser.metric['rail-width']!);
@@ -132,12 +132,34 @@ for (const width of [1440, 390])
       await (await pageAction(page, 'Comments')).click();
       const comments = commentsRegion(page);
       await expect(comments).toBeVisible();
-      expect((await frame.boundingBox())?.width).toBe(beforePanel?.width);
-      expect((await frame.boundingBox())?.height).toBe(beforePanel?.height);
       expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforePanel);
-      if (width === 390) {
-        expect((await comments.boundingBox())?.width).toBe(382);
-        expect((await comments.boundingBox())?.y).toBe(52);
+      const metric = (name: string) =>
+        page
+          .locator('.workspace')
+          .evaluate(
+            (node, name) => Number.parseFloat(getComputedStyle(node).getPropertyValue(name)),
+            name,
+          );
+      if (width === 1440) {
+        // A column takes its own tracks from the page grid: the frame narrows by the panel, its
+        // margin and the gap, and stays as tall.
+        await expect(comments).toHaveAttribute('data-mode', 'column');
+        const taken =
+          (await metric('--colab-panel-width')) +
+          (await metric('--colab-panel-edge')) +
+          (await metric('--colab-panel-gap'));
+        expect((await frame.boundingBox())?.width).toBe(beforePanel!.width - taken);
+      } else {
+        // A sheet floats over the page: the frame does not move; the sheet has the leaf's 7px insets.
+        await expect(comments).toHaveAttribute('data-mode', 'sheet');
+        expect((await frame.boundingBox())?.width).toBe(beforePanel?.width);
+        expect((await frame.boundingBox())?.height).toBe(beforePanel?.height);
+        const gap = await comments.evaluate((node) =>
+          Number.parseFloat(getComputedStyle(node).getPropertyValue('--tmt-ui-panel-sheet-gap')),
+        );
+        const box = (await comments.boundingBox())!;
+        expect(box.width).toBe(width - 2 * gap);
+        expect(box.y + box.height).toBe(900 - gap);
       }
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-comments.png` });
       await commentsClose(page, 'list').click();
@@ -269,7 +291,7 @@ for (const width of [1440, 390])
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const) {
-    test(`drawer edge ${width}px ${theme}: gutters preserve header and page geometry`, async ({
+    test(`Comments panel edge ${width}px ${theme}: its mode keeps header and page geometry`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -294,32 +316,56 @@ for (const width of [1440, 390])
       const before = await frame.boundingBox();
       const scroll = await page.evaluate(() => window.scrollY);
       await (await pageAction(page, 'Comments')).click();
-      const drawer = commentsRegion(page);
-      await expect(drawer).toBeVisible();
-      const edge = (await drawer.boundingBox())!;
-      const gutter = width <= 480 ? 4 : 8;
-      expect(edge.x + edge.width).toBe(width - gutter);
-      expect(edge.y + edge.height).toBe(900 - gutter);
-      expect(edge.y).toBe((width <= 480 ? 48 : 56) + gutter);
-      await expect(drawer).toHaveCSS('border-right-width', '1px');
+      const panel = commentsRegion(page);
+      await expect(panel).toBeVisible();
+      const edge = (await panel.boundingBox())!;
+      const length = (name: string) =>
+        panel.evaluate(
+          (node, name) => Number.parseFloat(getComputedStyle(node).getPropertyValue(name)),
+          name,
+        );
+      // The marker's lane edge, measured fresh: a column reflows the page as it opens and closes.
+      const frameAt = async () => {
+        const box = await marker.boundingBox();
+        return (
+          !!box &&
+          page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.tagName === 'IFRAME', {
+            x: box.x + box.width - 2,
+            y: box.y + box.height / 2,
+          })
+        );
+      };
+      if (width === 1440) {
+        // A column: 24px clear of the viewport's right edge, sticky 20px under the header, ruled on
+        // its left only; it reflows the page beside it, so the marker lane stays uncovered.
+        await expect(panel).toHaveAttribute('data-mode', 'column');
+        expect(edge.x + edge.width).toBe(width - (await length('--colab-panel-edge')));
+        expect(edge.y).toBe(headerHeight(width) + (await length('--colab-panel-sticky-gap')));
+        await expect(panel).toHaveCSS('border-left-width', '1px');
+        await expect(panel).toHaveCSS('border-right-width', '0px');
+        expect((await frame.boundingBox())?.width).toBeLessThan(before!.width);
+        await expect.poll(frameAt).toBe(true);
+      } else {
+        // A sheet: the leaf's insets on three sides, edged all round, over the page.
+        await expect(panel).toHaveAttribute('data-mode', 'sheet');
+        const gap = await length('--tmt-ui-panel-sheet-gap');
+        expect(edge.x + edge.width).toBe(width - gap);
+        expect(edge.y + edge.height).toBe(900 - gap);
+        await expect(panel).toHaveCSS('border-right-width', '1px');
+        expect((await frame.boundingBox())?.width).toBe(before?.width);
+        expect((await frame.boundingBox())?.height).toBe(before?.height);
+      }
       await expect(page.locator('.frame-host:visible')).toHaveCSS('clip-path', 'none');
       const capture = process.env.COLAB_DRAWER_CAPTURE_DIR;
       if (capture) {
         mkdirSync(capture, { recursive: true });
         await page.screenshot({ path: `${capture}/comments-${width}-${theme}.png` });
       }
-      expect((await frame.boundingBox())?.width).toBe(before?.width);
-      expect((await frame.boundingBox())?.height).toBe(before?.height);
       expect(await page.evaluate(() => window.scrollY)).toBe(scroll);
-      const box = (await marker.boundingBox())!;
-      const exposed = { x: box.x + box.width - 2, y: box.y + box.height / 2 };
-      const frameAt = () =>
-        page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.tagName === 'IFRAME', exposed);
-      // The 8 px page edge is visible; the annotation marker sits farther in and remains covered.
-      if (width > 640) await expect.poll(frameAt).toBe(false);
       await commentsClose(page, 'list').click();
-      await expect(drawer).not.toBeVisible();
+      await expect(panel).not.toBeVisible();
       await expect.poll(frameAt).toBe(true);
+      expect((await frame.boundingBox())?.width).toBe(before?.width);
       await marker.click();
       await expect(page.getByTestId('comment-thread')).toBeVisible();
     });
@@ -403,7 +449,7 @@ test('one-row fitting retains full labels, stable content and compact action aut
       ),
     ).toBeVisible();
     await expect(heading).toHaveAttribute('title', title);
-    await expect(header).toHaveCSS('height', width < 480 ? '48px' : '56px');
+    await expect(header).toHaveCSS('height', `${headerHeight(width)}px`);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     expect(await iframe.evaluate((node, saved) => node === saved, frameHandle)).toBe(true);
     expect(await heading.evaluate((node, saved) => node === saved, titleHandle)).toBe(true);

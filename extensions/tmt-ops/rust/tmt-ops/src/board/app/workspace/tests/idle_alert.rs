@@ -69,10 +69,10 @@ fn only_a_member_shown_as_idle_keeps_the_over_mark() {
 fn the_squad_row_names_the_alert_and_counts_the_members_over_only_while_it_is_on() {
     let on = screen(&idle_board(32 * MINUTE, true, alert(30)), 160);
     // The MODEL cell is 12 wide: the full words do not fit, the value stays.
-    assert!(on.contains("alert 30m"), "{on}");
+    assert!(on.contains("◷ 30m"), "{on}");
     assert!(on.contains("◷ 1 idle"), "{on}");
     let excepted = screen(&idle_board(32 * MINUTE, false, alert(30)), 160);
-    assert!(excepted.contains("alert 30m"), "{excepted}");
+    assert!(excepted.contains("◷ 30m"), "{excepted}");
     assert!(!excepted.contains("1 idle"), "{excepted}");
     for off in [
         None,
@@ -82,7 +82,7 @@ fn the_squad_row_names_the_alert_and_counts_the_members_over_only_while_it_is_on
         }),
     ] {
         let screen = screen(&idle_board(32 * MINUTE, false, off), 160);
-        assert!(!screen.contains("alert"), "{screen}");
+        assert_eq!(screen.contains("○ off"), off.is_some(), "{screen}");
         // The ◷ column caption stays; no row or count carries the idle mark.
         assert!(
             !screen.contains("◷ idle") && !screen.contains("1 idle"),
@@ -322,4 +322,19 @@ pub(in crate::board) fn open_squad_settings(app: &mut App) {
         .surface
         .borrow_mut()
         .select("idle_alert.enabled");
+}
+
+#[test]
+fn disabled_alert_is_visible_and_direct_action_is_in_the_catalog() {
+    let label = IdleAlertSetting {
+        enabled: false,
+        after_ms: 30 * MINUTE,
+    }
+    .label(30);
+    assert_eq!(label.as_deref(), Some("○ off"));
+    let action = crate::action::Action::parse("idle-alert");
+    assert!(
+        action.is_ok(),
+        "idle-alert must be a bindable catalog action"
+    );
 }

@@ -89,6 +89,7 @@ import type { QuoteSelector } from './thread-records.js';
 import { Home, validateHomeSearch, type HomeSearch } from './home.js';
 import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
+import './about-drawer.css';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import { framedLayout } from './page-layout.js';
 import type { AnchorPosition, RenderState, SelectionRect } from './renderer.js';
@@ -102,7 +103,7 @@ import { SessionEvictedError } from './ask-remote.js';
 import { SessionLimitError } from './session-limit-error.js';
 import { SessionLimitBody } from './session-limit.js';
 import { ExportPanel } from './export-panel.js';
-import { BrowserDrawer } from '@tmt/browser-ui/react';
+import { BrowserDrawer, BrowserPanel } from '@tmt/browser-ui/react';
 import { AgentStatusPanel } from './agent-status-panel.js';
 import { AgentPresentation, useAgentPresentation } from './agent-directory.js';
 import { ChatPanel } from './chat-panel.js';
@@ -114,6 +115,8 @@ import { isChatThread, threadNumbers } from './thread-records.js';
 import { PageSizeNotice, PageSizeSection, usePageSize } from './page-size.js';
 import { usePageEditor } from './use-page-editor.js';
 import { usePagePanels } from './use-page-panels.js';
+import { usePanelMode } from './panel-mode.js';
+import './panel-layout.css';
 import { useAnnotations } from './use-annotations.js';
 import { usePageRenderer } from './use-page-renderer.js';
 import { SaveNotice } from './save-notice.js';
@@ -169,8 +172,22 @@ function PageFloatingActions({
       const drawer = [...document.querySelectorAll<HTMLDialogElement>('.tmt-ui-drawer[open]')]
         .find((candidate) => !candidate.contains(host))
         ?.getBoundingClientRect();
-      const right = Math.min(box.right, drawer?.left ?? innerWidth);
-      let bottom = Math.min(innerHeight, box.bottom);
+      // A card sits over the page's right edge and a sheet over its bottom; a column is a grid
+      // track beside the page, so the host's own box already ends before it.
+      const floating = document.querySelector<HTMLElement>(
+        '.tmt-ui-panel:not([hidden])[data-mode="card"], .tmt-ui-panel:not([hidden])[data-mode="sheet"]',
+      );
+      const over = floating?.getBoundingClientRect();
+      const right = Math.min(
+        box.right,
+        drawer?.left ?? innerWidth,
+        over && floating?.dataset.mode === 'card' ? over.left : innerWidth,
+      );
+      let bottom = Math.min(
+        innerHeight,
+        box.bottom,
+        over && floating?.dataset.mode === 'sheet' ? over.top : innerHeight,
+      );
       const fab = element.current?.getBoundingClientRect();
       const left = right - margin - (fab?.width ?? 0);
       const avoided = [
@@ -218,7 +235,8 @@ function PageFloatingActions({
       observer.observe(card);
     // Native dialog show/close happens in its own effect. Follow its actual layout,
     // rather than depending on sibling effect order.
-    for (const drawer of document.querySelectorAll('.tmt-ui-drawer')) observer.observe(drawer);
+    for (const drawer of document.querySelectorAll('.tmt-ui-drawer, .tmt-ui-panel'))
+      observer.observe(drawer);
     const composer = document.querySelector('.annotation-popover');
     if (composer) observer.observe(composer);
     window.addEventListener('resize', place);
@@ -1237,6 +1255,7 @@ function OpenPage({
   });
   const needsYouMenuFocus = useRef(false);
   const panels = usePagePanels(snapshot.id, snapshot.binding);
+  const panelMode = usePanelMode();
   // Handlers the renderer and the keys keep across renders reach the panels through a ref.
   const panelsRef = useRef(panels);
   panelsRef.current = panels;
@@ -1390,7 +1409,7 @@ function OpenPage({
     if (panel === 'about' || panel === 'source') void refreshSize();
   }, [panel, refreshSize]);
   const toggleSelectionMode = useRef<() => void>(() => {});
-  const escapeAnnotation = useRef<() => void>(() => {});
+  const escapeAnnotation = useRef<(fromPanel?: boolean) => void>(() => {});
   const chatBusy = useRef(false);
   const binding = useRef(snapshot.binding);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
@@ -1502,11 +1521,13 @@ function OpenPage({
     );
     return true;
   };
-  escapeAnnotation.current = () => {
+  escapeAnnotation.current = (fromPanel = false) => {
     if (panel === 'chat') {
       if (!chatBusy.current) close();
-    } else if (panel === 'comments') {
-      // A send or status change in flight holds the open Discussion, as Chat holds its busy send.
+    } else if (panel === 'comments' && fromPanel) {
+      // Escape inside the non-modal panel closes it; on the page it falls through to the rungs
+      // below and leaves the panel open. A send or status change in flight holds the open
+      // Discussion, as Chat holds its busy send.
       if (!discussedThread || !statusBusy.current) close();
     } else if (annotationRef.current) closeRef.current(true);
     else if (canSelect) setSelectionMode(false);
@@ -1890,15 +1911,24 @@ function OpenPage({
         panel="about"
         onDismiss={() => close()}
       >
-        <PageAttribution
-          originalAuthor={view.originalAuthor}
-          publisherAgent={view.publisherAgent}
-        />
+        <section aria-labelledby="about-author-heading">
+          <h3 id="about-author-heading">{text.aboutAuthor}</h3>
+          <PageAttribution
+            originalAuthor={view.originalAuthor}
+            publisherAgent={view.publisherAgent}
+          />
+        </section>
         <PageLayoutSection layout={view.layout} reason={view.layoutReason} />
         <PageSizeSection size={size} exportPage={() => show('export')} />
-        <p>{text.warning}</p>
+        <section aria-labelledby="about-scripts-heading">
+          <h3 id="about-scripts-heading">{text.aboutScripts}</h3>
+          <p>{text.warning}</p>
+        </section>
       </BrowserDrawer>
-      <div className="workspace">
+      <div
+        className="workspace"
+        data-panel-column={panel === 'comments' && panelMode === 'column' ? '' : undefined}
+      >
         {pageLinkBar}
         <PageWorkBand
           work={view.work}
@@ -1954,6 +1984,81 @@ function OpenPage({
             </NoticeCard>
           )}
         </div>
+        <BrowserPanel
+          keepMounted
+          focusFallback={environment.focusFallback}
+          open={panel === 'comments'}
+          mode={panelMode}
+          title={discussedThread ? text.discussion : text.comments}
+          caption={
+            discussedThread && numbers.get(activeThread!) !== undefined
+              ? text.discussionPosition(numbers.get(activeThread!)!, numbers.size)
+              : undefined
+          }
+          data-panel="comments"
+          onDismiss={(reason) => {
+            if (reason === 'close') close();
+            else escapeAnnotation.current(true);
+          }}
+        >
+          {endedNotice && <div className="panel-notice">{endedNotice}</div>}
+          {discussionPending && !liveError && (
+            <p role="status" className="discussion-pending">
+              {text.discussionPending}
+            </p>
+          )}
+          <SavedDrafts
+            archived={archived}
+            drafts={discussionPending ? [] : savedDrafts(drafts.current, view.threads)}
+            discard={(key) => keepDraft(key, null)}
+          />
+          {draftsUnsaved && (
+            <p role="status" className="annotation-hint saved-drafts-notice">
+              {text.draftsNotSaved}
+            </p>
+          )}
+          {!discussionPending && (
+            <ThreadPanel
+              connectionPresentation={connectionPresentation}
+              archived={archived}
+              reopenProposal={proposalLayer.reopenProposal}
+              creationRecipient={view.creationRecipient}
+              hideHeader
+              numbers={numbers}
+              renderProposal={proposalLayer.renderProposal}
+              key={`discussion:${snapshot.id}:${draftsReady}`}
+              threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
+              resolved={resolved}
+              anchorsChecked={anchorsChecked}
+              selection={selector}
+              binding={
+                liveError?.message === managementChanged ? undefined : snapshot.binding?.discussion
+              }
+              ask={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
+              title={view.title || snapshot.title}
+              asks={view.asks ?? []}
+              active={activeThread}
+              select={openThread}
+              showInPage={(ref) => {
+                // The panel stays: it is beside or over the page, not a modal that hides it.
+                renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
+              }}
+              presentations={view.threadPresentations}
+              onStatusChange={
+                statusCoordinator
+                  ? (thread, resolved) => statusCoordinator.change(thread, resolved)
+                  : undefined
+              }
+              onBusy={(busy) => {
+                statusBusy.current = busy;
+                setChangingStatus(busy);
+              }}
+              draft={(ref) => drafts.current.get(`${ref.writer}:${ref.id}`)}
+              onDraft={(ref, edit) => keepDraft(`${ref.writer}:${ref.id}`, edit)}
+              blocked={discussionBlocked}
+            />
+          )}
+        </BrowserPanel>
       </div>
       {(canSelect || (state === 'ready' && !liveError)) && (
         <PageFloatingActions
@@ -2200,79 +2305,6 @@ function OpenPage({
       <BrowserDrawer
         notice={endedNotice}
         focusFallback={environment.focusFallback}
-        open={panel === 'comments'}
-        title={discussedThread ? text.discussion : text.comments}
-        caption={
-          discussedThread && numbers.get(activeThread!) !== undefined
-            ? text.discussionPosition(numbers.get(activeThread!)!, numbers.size)
-            : undefined
-        }
-        panel="comments"
-        onDismiss={(reason) => {
-          if (reason === 'close') close();
-          else escapeAnnotation.current();
-        }}
-      >
-        {discussionPending && !liveError && (
-          <p role="status" className="discussion-pending">
-            {text.discussionPending}
-          </p>
-        )}
-        <SavedDrafts
-          archived={archived}
-          drafts={discussionPending ? [] : savedDrafts(drafts.current, view.threads)}
-          discard={(key) => keepDraft(key, null)}
-        />
-        {draftsUnsaved && (
-          <p role="status" className="annotation-hint saved-drafts-notice">
-            {text.draftsNotSaved}
-          </p>
-        )}
-        {!discussionPending && (
-          <ThreadPanel
-            connectionPresentation={connectionPresentation}
-            archived={archived}
-            reopenProposal={proposalLayer.reopenProposal}
-            creationRecipient={view.creationRecipient}
-            hideHeader
-            numbers={numbers}
-            renderProposal={proposalLayer.renderProposal}
-            key={`discussion:${snapshot.id}:${draftsReady}`}
-            threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
-            resolved={resolved}
-            anchorsChecked={anchorsChecked}
-            selection={selector}
-            binding={
-              liveError?.message === managementChanged ? undefined : snapshot.binding?.discussion
-            }
-            ask={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
-            title={view.title || snapshot.title}
-            asks={view.asks ?? []}
-            active={activeThread}
-            select={openThread}
-            showInPage={(ref) => {
-              close();
-              renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
-            }}
-            presentations={view.threadPresentations}
-            onStatusChange={
-              statusCoordinator
-                ? (thread, resolved) => statusCoordinator.change(thread, resolved)
-                : undefined
-            }
-            onBusy={(busy) => {
-              statusBusy.current = busy;
-              setChangingStatus(busy);
-            }}
-            draft={(ref) => drafts.current.get(`${ref.writer}:${ref.id}`)}
-            onDraft={(ref, edit) => keepDraft(`${ref.writer}:${ref.id}`, edit)}
-            blocked={discussionBlocked}
-          />
-        )}
-      </BrowserDrawer>
-      <BrowserDrawer
-        notice={endedNotice}
-        focusFallback={environment.focusFallback}
         open={panel === 'agents'}
         title={text.agentStatus}
         panel="agents"
@@ -2385,6 +2417,7 @@ function OpenPage({
                   {(view.shell || !endedError) && (
                     <ShellPage
                       shell={view.shell}
+                      title={view.title || snapshot.title}
                       embed={embedded ? undefined : (pageId) => <EmbeddedPage pageId={pageId} />}
                     />
                   )}

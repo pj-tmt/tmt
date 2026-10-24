@@ -1,17 +1,22 @@
-//! The Notes of one conversation (a member's list inside a room), read on the lane. The board
-//! keeps only what it paints; Core's checklist stays the one owner of the items.
-use crate::{
-    checklist::{
-        ItemView, Service,
-        model::{Completion, Id},
-    },
-    config::Config,
-    core::Core,
+//! The Notes of one conversation (a member's list inside a room), read and written on the lane.
+//! The board keeps only what it paints; Core's checklist stays the one owner of the items.
+use crate::checklist::{
+    Applied, Code, Error, ItemView, Preview,
+    model::{Completion, Id},
 };
 use std::{
     collections::BTreeMap,
     time::{Duration, Instant},
 };
+
+mod draft;
+pub(in crate::board) mod overlay;
+mod rows;
+mod surface;
+mod work;
+
+pub(in crate::board) use draft::Draft;
+pub(in crate::board) use work::{Write, complete};
 
 /// How long a read stays current while its conversation is on screen: an agent can edit the
 /// same list through the CLI, so the summary follows without a per-frame read.
@@ -79,22 +84,55 @@ pub(in crate::board) enum Summary {
     Unavailable(String),
 }
 
-/// One read for the lane.
+/// What the lane does for one conversation: read its list, or apply one write to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Work {
+    Read,
+    Write(Write),
+}
+
+/// One job for the lane.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::board) struct Task {
     key: Key,
+    work: Work,
+    /// The list generation a read began at; a write in between makes its answer stale.
+    epoch: u64,
 }
 
+#[derive(Debug)]
+enum Outcome {
+    Read(Result<Preview, String>),
+    Write(Result<Applied, Error>),
+}
+
+#[derive(Debug)]
 pub(in crate::board) struct Completed {
     key: Key,
-    result: Result<Counts, String>,
+    epoch: u64,
+    outcome: Outcome,
+}
+
+/// How a write ended, for the overlay that asked for it.
+#[derive(Debug)]
+pub(in crate::board) struct Written {
+    pub key: Key,
+    /// The item the write added or changed.
+    pub item: Option<Id>,
+    pub result: Result<(), Error>,
 }
 
 struct Entry {
     summary: Summary,
+    /// The last list Core answered, for the overlay; the summary derives from it.
+    preview: Option<Preview>,
     /// When the read in flight began, or the last one ended.
     at: Instant,
     in_flight: bool,
+    /// Bumped by every write, so that a read begun before it cannot overwrite what it changed.
+    epoch: u64,
+    /// A write is on the lane; the next one waits for its answer.
+    writing: bool,
 }
 
 /// A board built without a lane (a test, a preview) reads nothing; the running board is
@@ -103,6 +141,8 @@ struct Entry {
 pub(in crate::board) struct State {
     reading: bool,
     lists: BTreeMap<Key, Entry>,
+    /// An unsent form outlives the overlay that showed it.
+    drafts: BTreeMap<Key, Draft>,
 }
 
 impl State {
@@ -117,7 +157,7 @@ impl State {
     /// [`FRESH`] while it stays on screen (a failure waits [`RETRY`]).
     pub fn offer(&mut self, shown: Option<&Key>, now: Instant) -> Option<Task> {
         let key = shown.filter(|_| self.reading)?;
-        match self.lists.get_mut(key) {
+        let epoch = match self.lists.get_mut(key) {
             Some(entry) if entry.in_flight => return None,
             Some(entry) => {
                 let wait = if matches!(entry.summary, Summary::Unavailable(_)) {
@@ -130,61 +170,141 @@ impl State {
                 }
                 entry.in_flight = true;
                 entry.at = now;
+                entry.epoch
             }
             None => {
                 self.lists.insert(
                     key.clone(),
                     Entry {
                         summary: Summary::Pending,
+                        preview: None,
                         at: now,
                         in_flight: true,
+                        epoch: 0,
+                        writing: false,
                     },
                 );
+                0
             }
-        }
-        Some(Task { key: key.clone() })
+        };
+        Some(Task {
+            key: key.clone(),
+            work: Work::Read,
+            epoch,
+        })
     }
 
-    pub fn finished(&mut self, completed: Completed, now: Instant) {
-        let Some(entry) = self.lists.get_mut(&completed.key) else {
-            return;
-        };
-        entry.in_flight = false;
-        entry.at = now;
-        match completed.result {
-            Ok(counts) => entry.summary = Summary::Counts(counts),
-            // A list already shown stays on a failed refresh; only a first read reports it.
-            Err(error) if matches!(entry.summary, Summary::Pending) => {
-                entry.summary = Summary::Unavailable(error)
+    /// The write for the lane, or None while the list is unread or another write is on it.
+    pub fn write(&mut self, key: &Key, write: Write) -> Option<Task> {
+        let entry = self.lists.get_mut(key).filter(|entry| !entry.writing)?;
+        entry.writing = true;
+        Some(Task {
+            key: key.clone(),
+            work: Work::Write(write),
+            epoch: entry.epoch,
+        })
+    }
+
+    pub fn finished(&mut self, completed: Completed, now: Instant) -> Option<Written> {
+        let entry = self.lists.get_mut(&completed.key)?;
+        match completed.outcome {
+            Outcome::Read(result) => {
+                entry.in_flight = false;
+                entry.at = now;
+                if completed.epoch != entry.epoch {
+                    return None;
+                }
+                match result {
+                    Ok(preview) => {
+                        entry.summary = Summary::Counts(Counts::of(&preview.current.items));
+                        entry.preview = Some(preview);
+                    }
+                    // A list already shown stays on a failed refresh; only a first read reports it.
+                    Err(error) if matches!(entry.summary, Summary::Pending) => {
+                        entry.summary = Summary::Unavailable(error)
+                    }
+                    Err(_) => {}
+                }
+                None
             }
-            Err(_) => {}
+            Outcome::Write(result) => {
+                entry.writing = false;
+                entry.epoch += 1;
+                let draft = self.drafts.get_mut(&completed.key);
+                match result {
+                    Ok(applied) => {
+                        entry.adopt(applied.current);
+                        // A draft the write carried is sent.
+                        if draft.is_some_and(|draft| draft.sent()) {
+                            self.drafts.remove(&completed.key);
+                        }
+                        Some(Written {
+                            key: completed.key,
+                            item: applied.item_id,
+                            result: Ok(()),
+                        })
+                    }
+                    Err(error) => {
+                        if let Some(current) = &error.current {
+                            entry.adopt((**current).clone());
+                        }
+                        // The draft stays, aimed at the item as it is now.
+                        if let Some(draft) = draft.filter(|draft| draft.sent()) {
+                            draft.rejected(entry.preview.as_ref());
+                        }
+                        // After a conflict or an unknown outcome the list is read again now.
+                        if matches!(error.code, Code::OutcomeUnknown | Code::Conflict) {
+                            entry.at = now.checked_sub(FRESH).unwrap_or(now);
+                        }
+                        Some(Written {
+                            key: completed.key,
+                            item: None,
+                            result: Err(error),
+                        })
+                    }
+                }
+            }
         }
     }
 
     pub fn summary(&self, key: &Key) -> Option<&Summary> {
         self.lists.get(key).map(|entry| &entry.summary)
     }
-}
 
-/// Reads the list of one conversation through Core's checklist service.
-pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
-    let result = read(core, &task.key);
-    Completed {
-        key: task.key,
-        result,
+    /// The last list Core answered for this conversation.
+    pub fn preview(&self, key: &Key) -> Option<&Preview> {
+        self.lists.get(key)?.preview.as_ref()
+    }
+
+    pub fn writing(&self, key: &Key) -> bool {
+        self.lists.get(key).is_some_and(|entry| entry.writing)
+    }
+
+    pub fn draft(&self, key: &Key) -> Option<&Draft> {
+        self.drafts.get(key)
+    }
+
+    pub fn draft_mut(&mut self, key: &Key) -> Option<&mut Draft> {
+        self.drafts.get_mut(key)
+    }
+
+    pub fn keep(&mut self, key: &Key, draft: Draft) {
+        self.drafts.insert(key.clone(), draft);
+    }
+
+    pub fn drop_draft(&mut self, key: &Key) {
+        self.drafts.remove(key);
     }
 }
 
-fn read(core: &Core, key: &Key) -> Result<Counts, String> {
-    let config = Config::load(core).map_err(|error| error.message)?;
-    let (room, member) = (
-        Id::parse(&key.room).map_err(|error| error.message)?,
-        Id::parse(&key.member).map_err(|error| error.message)?,
-    );
-    let preview = Service::for_conversation(core, &config, room, member)
-        .and_then(|service| service.preview())
-        .map_err(|error| error.message)?;
-    Ok(Counts::of(&preview.current.items))
+impl Entry {
+    /// Takes the list a write answered with, and counts it.
+    fn adopt(&mut self, current: crate::checklist::Current) {
+        self.summary = Summary::Counts(Counts::of(&current.items));
+        if let Some(preview) = &mut self.preview {
+            preview.current = current;
+        }
+    }
 }
 
 /// The chip's words: `≡ Notes · 3 links · 2 todo · 1 done`, `≡ Notes · empty`, or the mark alone

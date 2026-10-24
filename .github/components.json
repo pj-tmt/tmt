@@ -12,6 +12,7 @@
     "releaseStatus: only with release:false; never means no released product contains this leaf and forbids releaseConsumers, parked means explicitly deferred publication. Absence means awaiting activation. This does not change CI selection.",
     "initialVersion: owner-approved first alpha seed; requiresCliSha: supporting CLI registration commit that must be in its newest published release before a first product cut.",
     "uses: authored optional extension features; release-declaration.mjs generates requiresCli and TMT-USES.json from the captured cut, never from a source copy.",
+    "messageProtocols: authored optional list of the Core message-protocol versions an extension's message command speaks (tmt-remote: [1]); release-declaration.mjs copies it into the generated TMT-USES.json and then requires a published CLI containing the installer's support commit.",
     "bootstrapSha: first-release history boundary for the release cut (#1399); the last commit before the component existed, kept unchanged.",
     "predecessor names an exact historical product key. Published archives declare their own skills inventory; Ops requiresCliSha pins its supporting CLI registration; the first successor cut waits for a published CLI containing it."
   ],
@@ -187,6 +188,7 @@
       "bootstrapSha": "ffb5f32154f0f910d4b27287d5da70abbbc4f386",
       "initialVersion": "0.1.0-alpha.1",
       "uses": [],
+      "messageProtocols": [1],
       "requiresCliSha": "ffea6da78361e5ea3df75b9da55fd0ea0c8a973d"
     },
     "driver-herdr": {

@@ -65,7 +65,18 @@ pub struct RequestEndpoint {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RequestRoute {
     Pane(RequestEndpoint),
-    Inbox { recipient_identity_id: String },
+    Inbox {
+        recipient_identity_id: String,
+    },
+    /// Carried to a peer through Remote (#4536). The peer resolves `target_name`, or checks it
+    /// against `target_id` when the sender gave a UUID, so there is no local recipient.
+    /// `sender_name` is the sender's name at preparation, kept so a repeat is byte-identical.
+    Remote {
+        remote: String,
+        target_id: Option<String>,
+        target_name: String,
+        sender_name: String,
+    },
 }
 
 /// Delivery and attention are shared; only requests admit a final response.
@@ -138,6 +149,9 @@ impl AttemptStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Settlement {
     Sent,
+    /// A remote peer accepted the request and will deliver it later: queued, not yet sent. No
+    /// other route holds a request this way.
+    Held,
     Uncertain,
     DefinitelyFailed,
 }
@@ -473,6 +487,13 @@ pub trait RequestRecords {
         limit: u64,
         now_ms: u64,
     ) -> Result<Vec<history::HistoryRecord>, Self::Error>;
+    /// The originator's answered requests, newest answer first, at most `limit`.
+    fn list_answers(
+        &self,
+        query: &history::AnswersQuery,
+        limit: u64,
+        now_ms: u64,
+    ) -> Result<Vec<history::AnsweredRequest>, Self::Error>;
     fn find_request_history(
         &self,
         request_id: &str,

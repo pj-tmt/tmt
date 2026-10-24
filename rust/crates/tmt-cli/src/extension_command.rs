@@ -1,5 +1,7 @@
 //! Compose pure command grammar with the PATH execution adapter.
 
+pub(crate) mod missing;
+
 use crate::grammar::extensions;
 use std::{ffi::OsString, io};
 use tmt_adapters::extension_command as adapter;
@@ -50,6 +52,11 @@ pub fn execute(name: &str, args: &[OsString], help: bool, prefix: &[OsString]) -
             .chain(args.iter().cloned())
             .collect()
     };
+    if let Some(product) = missing::official(name) {
+        let (mode, requested_help) =
+            crate::diagnostics::missing_extension_context(&crate::grammar::grammar(), &original);
+        return missing::execute(product, &original, mode, help || requested_help);
+    }
     let mut error =
         crate::parser::parse_core(&original).expect_err("external name is not a core command");
     match name {
@@ -128,6 +135,17 @@ impl Discovered {
                 format!("ignored: reserved core command ({})", path(file)),
             )
         }));
+        for product in crate::extension_install_command::INSTALLABLE_EXTENSIONS {
+            if !self.has(product.as_str()) {
+                entries.push((
+                    product.as_str().into(),
+                    format!(
+                        "not installed; tmt extension install {} --yes",
+                        product.as_str()
+                    ),
+                ));
+            }
+        }
         if entries.is_empty() {
             return Vec::new();
         }
@@ -164,6 +182,11 @@ fn group_aliases(
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "not installed; tmt extension install {} --yes",
+        &[" --yes"],
+        &[("{}", "ops")],
+    ),
     crate::cli_style_tests::HintSpec::skipped(
         "Put options after the extension name: tmt <name> [options].",
         "External extension grammar is owned by its CLI; core parsing cannot validate it.",

@@ -1,4 +1,5 @@
 .tmt-ui-drawer {
+  box-sizing: border-box;
   --tmt-ui-drawer-gutter: var(--tmt-ui-space-s);
   position: fixed;
   inset: calc(
@@ -6,11 +7,8 @@
     )
     calc(var(--tmt-ui-drawer-gutter) + env(safe-area-inset-right, 0px))
     calc(var(--tmt-ui-drawer-gutter) + env(safe-area-inset-bottom, 0px)) auto;
-  /* 440px and 660px (wide): the drawer's reading widths; no token names a surface width. */
-  width: min(
-    440px,
-    calc(100vw - 2 * var(--tmt-ui-drawer-gutter) - env(safe-area-inset-right, 0px))
-  );
+  /* Website reading widths; the wide selector retains its viewport allowance on phones. */
+  width: min(430px, calc(100vw - 18px - env(safe-area-inset-right, 0px)));
   height: calc(
     100dvh - var(--tmt-ui-header-height) - env(safe-area-inset-top, 0px) -
       env(safe-area-inset-bottom, 0px) - 2 * var(--tmt-ui-drawer-gutter)
@@ -31,13 +29,11 @@
   flex-direction: column;
 }
 .tmt-ui-drawer[data-width='wide'] {
-  width: min(
-    660px,
-    calc(100vw - 2 * var(--tmt-ui-drawer-gutter) - env(safe-area-inset-right, 0px))
-  );
+  width: min(680px, calc(100vw - 18px - env(safe-area-inset-right, 0px)));
 }
 .tmt-ui-drawer::backdrop {
   background: var(--tmt-ui-surface-scrim);
+  backdrop-filter: blur(var(--tmt-ui-overlay-blur));
 }
 /* Enter and exit: the drawer slides from its edge, the scrim fades; it stays rendered while it
    leaves. Under reduced motion every duration is 0ms. */
@@ -145,13 +141,21 @@
   border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 @media (max-width: 640px) {
-  .tmt-ui-drawer,
-  .tmt-ui-drawer[data-width='wide'] {
+  .tmt-ui-drawer {
     width: calc(100vw - 2 * var(--tmt-ui-drawer-gutter) - env(safe-area-inset-right, 0px));
+  }
+  .tmt-ui-drawer[data-width='wide'] {
+    width: calc(100vw - 34px - env(safe-area-inset-right, 0px));
   }
 }
 @media (max-width: 480px) {
   .tmt-ui-drawer {
     --tmt-ui-drawer-gutter: var(--tmt-ui-space-xs);
+  }
+}
+
+@media (max-width: 640px) {
+  .tmt-ui-drawer[data-width='regular'] {
+    width: calc(100vw - 12px - env(safe-area-inset-right, 0px));
   }
 }

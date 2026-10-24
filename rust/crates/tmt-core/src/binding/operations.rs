@@ -1,4 +1,4 @@
-use super::observation::{named_entry, observe, reconcile};
+use super::observation::{named_entry, observe, reconcile, selected_entry};
 use super::*;
 use crate::{
     endpoint::ProcessIncarnation,
@@ -55,6 +55,45 @@ pub fn bind_identity_with_creation_at<R: BindingRepository, O: BindingEndpoint>(
     save: bool,
 ) -> Result<BoundIdentity, BindingError<R::Error, O::Error>> {
     bind_with_origin(repository, endpoint, pane_id, target, name, save, false)
+}
+
+/// Bind an identity chosen earlier by its UUID. The name is never looked up again, so a rename
+/// between selection and binding cannot retarget the bind, and no identity is ever created. An
+/// unknown or retired id is `NameNotFound` before the pane changes.
+pub fn bind_existing_identity<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    pane_id: &str,
+    identity_id: &str,
+    save: bool,
+) -> Result<BoundIdentity, BindingError<R::Error, O::Error>> {
+    endpoint.begin_coordination();
+    let preflight = endpoint
+        .current_snapshot(&[pane_id.into()])
+        .map_err(BindingError::Endpoint)?;
+    target_pane(&preflight, pane_id, None)?;
+    repository.with_binding_transaction(|records| {
+        endpoint.begin_coordination();
+        let entry = records
+            .entry_by_id(identity_id)?
+            .ok_or_else(|| BindingError::NameNotFound(identity_id.into()))?;
+        let probe = observe(endpoint, &entry).map_err(BindingError::Endpoint)?;
+        if entry.binding.is_some() && evaluate_binding(&entry, &probe) == BindingEvidence::Unknown {
+            return Err(BindingError::Unverified);
+        }
+        reconcile(records, entry, &probe)?;
+        deadline(endpoint)
+    })?;
+    repository.with_binding_transaction(|records| {
+        endpoint.begin_coordination();
+        let mut selected = records
+            .entry_by_id(identity_id)?
+            .ok_or_else(|| BindingError::NameNotFound(identity_id.into()))?;
+        if save && selected.identity.lifetime == Lifetime::Temporary {
+            selected.identity = records.save_identity(&selected.identity)?;
+        }
+        bind_selected(records, endpoint, pane_id, None, selected, false)
+    })
 }
 
 /// Only the launcher may create an identity with automatic-name provenance.
@@ -649,8 +688,8 @@ pub fn remove_identity<R: BindingRepository, O: BindingEndpoint>(
     force: bool,
 ) -> Result<BindingEntry, BindingError<R::Error, O::Error>> {
     repository.with_binding_transaction(|records| {
-        let entry =
-            named_entry(records, name)?.ok_or_else(|| BindingError::NameNotFound(name.into()))?;
+        let entry = selected_entry(records, name)?
+            .ok_or_else(|| BindingError::NameNotFound(name.into()))?;
         if entry.identity.lifetime == Lifetime::Saved && !force {
             return Err(BindingError::ConfirmationRequired);
         }
@@ -685,7 +724,7 @@ pub fn rename_identity<R: BindingRepository, O>(
     let name = crate::names::validate_name(new).map_err(BindingError::InvalidName)?;
     repository.with_binding_transaction(|records| {
         let entry =
-            named_entry(records, old)?.ok_or_else(|| BindingError::NameNotFound(old.into()))?;
+            selected_entry(records, old)?.ok_or_else(|| BindingError::NameNotFound(old.into()))?;
         rename_entry(records, entry, &name)
     })
 }

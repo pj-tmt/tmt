@@ -373,3 +373,24 @@
   box-sizing: border-box;
   font-family: var(--tmt-ui-font-mono);
 }
+
+.gallery-panel-demo {
+  padding: var(--tmt-ui-space-xl);
+}
+.gallery-panel-demo[data-mode='column'][data-open] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 286px;
+  gap: 34px;
+}
+.gallery-panel-demo[data-mode='column'][data-open] > .gallery-panel-column {
+  border-left: 1px solid var(--tmt-ui-surface-rule);
+  padding-left: 23px;
+}
+.gallery-panel-page h1 {
+  font-size: 24px;
+}
+.gallery-panel-demo textarea {
+  display: block;
+  width: 100%;
+  min-height: 72px;
+}

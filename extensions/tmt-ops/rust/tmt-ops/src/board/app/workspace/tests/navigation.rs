@@ -2,6 +2,54 @@
 use super::*;
 
 #[test]
+fn digest_first_entry_uses_all_and_destination_picks_stay_independent() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = populated_board(2, 4);
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| matches!(row.target, OpsTarget::Member { .. }))
+        .unwrap();
+    app.workspace_select(index);
+    let agents = app.workspace.selected.clone();
+    assert!(matches!(agents, Some(OpsTarget::Member { .. })));
+    paint(&app, 160, 36);
+    key(&mut app, KeyCode::Char('2'));
+    assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
+
+    let rows = app.workspace_rows();
+    let index = rows
+        .iter()
+        .rposition(|row| matches!(row.target, OpsTarget::Member { .. }))
+        .unwrap();
+    let digest = rows[index].target.clone();
+    app.workspace_select(index);
+    key(&mut app, KeyCode::Char('1'));
+    assert_eq!(app.workspace.selected, agents);
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| {
+            matches!(row.target, OpsTarget::Member { .. }) && Some(&row.target) != agents.as_ref()
+        })
+        .unwrap();
+    app.workspace_select(index);
+    let changed_agents = app.workspace.selected.clone();
+    key(&mut app, KeyCode::Char('2'));
+    assert_eq!(app.workspace.selected, Some(digest.clone()));
+    key(&mut app, KeyCode::Char('2'));
+    assert_eq!(app.workspace.selected, Some(digest));
+    app.workspace_reconcile();
+    assert!(
+        app.workspace_rows()
+            .iter()
+            .any(|row| Some(&row.target) == app.workspace.selected.as_ref())
+    );
+    key(&mut app, KeyCode::Char('1'));
+    assert_eq!(app.workspace.selected, changed_agents);
+}
+
+#[test]
 fn escape_returns_one_level_and_never_quits_the_board() {
     for (width, height) in [(160, 36), (100, 24), (60, 18)] {
         let mut app = board();
@@ -84,8 +132,13 @@ fn destination_bindings_leave_conversation_and_dismiss_read_only_owners() {
         assert_eq!(app.shell.tab, OpsTab::Digest, "{owner}");
         assert!(!app.modal_open(), "{owner}");
         assert_eq!(app.focused_pane(), Some(Pane::Rows), "{owner}");
-        assert_eq!(app.workspace.selected, target, "{owner}");
+        assert_eq!(
+            app.workspace.selected,
+            Some(OpsTarget::DigestAll),
+            "{owner}"
+        );
         assert_eq!(key(&mut app, KeyCode::Char('1')), Effect::None, "{owner}");
+        assert_eq!(app.workspace.selected, target, "{owner}");
         assert_eq!(app.shell.tab, OpsTab::Agents, "{owner}");
     }
 }
@@ -170,7 +223,10 @@ fn configured_destination_and_reader_entry_share_the_effective_table() {
 
 #[test]
 fn reader_entry_without_a_response_says_why_without_changing_selection() {
-    let mut app = board();
+    let mut app = configured_member(
+        "[bind]\nv='view-reply'\n",
+        json!({"id":MEMBER,"name":"worker"}),
+    );
     let target = app.workspace.selected.clone();
     assert!(!paint(&app, 160, 36).join("\n").contains("v reader"));
     app.context_menu();
@@ -190,7 +246,10 @@ fn reader_entry_without_a_response_says_why_without_changing_selection() {
 
 #[test]
 fn reader_entry_uses_the_visible_response_without_requiring_retired_row_expansion() {
-    let mut app = board();
+    let mut app = configured_member(
+        "[bind]\nv='view-reply'\n",
+        json!({"id":MEMBER,"name":"worker"}),
+    );
     app.view.as_mut().unwrap().replies = vec![json!({
         "recipientId":MEMBER,"requestId":"req_44444444-4444-4444-8444-444444444444",
         "response":"Actual held response", "submittedAtMs":crate::status::now_ms(),
@@ -358,4 +417,72 @@ fn q_steps_back_in_overlays_and_release_events_do_not_switch_tabs() {
     assert_eq!(app.key(release), Effect::None);
     assert_eq!(app.shell.tab, OpsTab::Agents);
     assert_eq!(key(&mut app, KeyCode::Char('q')), Effect::Quit);
+}
+
+#[test]
+fn digest_restores_keep_explicit_uuid_and_the_other_destination_is_session_only() {
+    for exec in [false, true] {
+        let mut app = board();
+        let target = app.workspace.selected.clone();
+        app.shell.tab = OpsTab::Digest;
+        let mut replacement = board();
+        if exec {
+            replacement.carry(app.resume().unwrap());
+            replacement.restore_pending();
+        } else {
+            let hint = crate::board::view_state::ViewState {
+                controls: None,
+                scrolls: vec![],
+                shell: OpsTab::Digest,
+                expanded: app.workspace.expanded.clone(),
+                pool_expanded: true,
+                selected: target.clone(),
+            };
+            replacement.carry_view_hint(&hint, false);
+        }
+        assert_eq!(replacement.shell.tab, OpsTab::Digest);
+        assert_eq!(replacement.workspace.selected, target);
+        key(&mut replacement, KeyCode::Char('1'));
+        key(&mut replacement, KeyCode::Char('2'));
+        assert_eq!(replacement.workspace.selected, target);
+    }
+}
+
+#[test]
+fn digest_keyboard_pointer_and_authored_entry_share_the_selection_transition() {
+    let _no_commands = crate::runner::forbid_commands();
+    for entry in ["key", "pointer", "action"] {
+        let mut app = board();
+        let agents = app.workspace.selected.clone();
+        paint(&app, 160, 36);
+        let effect = match entry {
+            "key" => key(&mut app, KeyCode::Char('2')),
+            "pointer" => {
+                let hit = *app
+                    .tab_hits
+                    .borrow()
+                    .iter()
+                    .find(|hit| hit.tab == 1)
+                    .unwrap();
+                app.mouse(
+                    MouseEvent {
+                        kind: MouseEventKind::Down(MouseButton::Left),
+                        column: hit.x,
+                        row: hit.y,
+                        modifiers: KeyModifiers::NONE,
+                    },
+                    Instant::now(),
+                )
+            }
+            _ => app.perform(&crate::action::Action::parse("digest-dashboard").unwrap()),
+        };
+        assert_eq!(effect, Effect::None);
+        assert_eq!(
+            app.workspace.selected,
+            Some(OpsTarget::DigestAll),
+            "{entry}"
+        );
+        key(&mut app, KeyCode::Char('1'));
+        assert_eq!(app.workspace.selected, agents, "{entry}");
+    }
 }

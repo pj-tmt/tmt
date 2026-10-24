@@ -27,9 +27,13 @@ configuration. The owner map is in
   rebuilds a table, must recreate its triggers: `change_cursor_tests` fails until every table is
   covered or deliberately excluded and every column compared.
 - Host columns on `bindings`, `request_attempts`, `request_responses` and `host_servers` accept any
-  host name (1 to 32 of `[a-z0-9-]`, starting with a letter); NULL is tmux; inbox routes carry no
-  host. `host_servers` holds TMT's UUIDv4 per server incarnation of a host without its own
+  host name (1 to 32 of `[a-z0-9-]`, starting with a letter); NULL is tmux; inbox and remote routes
+  carry no host. `host_servers` holds TMT's UUIDv4 per server incarnation of a host without its own
   server-level store.
+- `request_attempts.route_kind` is `pane`, `inbox` or `remote`, and CHECKs tie each kind to its own
+  columns. A remote route stores the Remote reference, an optional target UUID, the target name and
+  the sender name; it has no local recipient or pane, so recipient-keyed readers never list it and
+  `find_active_request` never matches it. `request_responses` has no remote route.
 - Metadata is one value per key per identity UUID, at most 64 entries, revalidated against the
   active UUID inside the write transaction; retirement hides it and a same-name successor inherits
   nothing. Status is one atomic record per active UUID.
@@ -72,7 +76,7 @@ configuration. The owner map is in
   replaced, whose window passed, or that a later `Started` of its session overtook (before binding, so a
   start never overtakes the capture it binds).
 - A message's state (`request::delivery::delivery_view`, pure) is derived at read time inside the
-  history/detail transaction from rows only: `storage/requests/delivery.rs::facts` reads the attempt's
+  history, exchange, incoming and inbox read transactions from rows only: `storage/requests/delivery.rs::facts` reads the attempt's
   route and status, the wake state (an identified recipient's request stays `queued`; its paste is the
   wake), the `focus_items`/`focus_checklists` hold, `focus_policies.max_hold_ms` plus the oldest held
   arrival (the latest send time), and the driver activity of the exact bound session and process (a
@@ -175,6 +179,10 @@ owns event cardinality, direction, window rounding, `--bucket` summing
   the same index walk with a per-entry test (no recipient column in the index), so a page
   may visit every retained final of the originator; add a recipient-leading index before
   that cost matters.
+- Schema 64 indexes answered passthrough turns by settle time. The originator answers view cuts
+  finals (schema-47 index) and turns (that index, with a per-entry originator test) to the page
+  and merges the two short lists under one `(answeredAtMs, requestId)` keyset; a request is a
+  final or a turn, never both, so the keyset names one entry.
 - `tmt-adapters::request_text` owns display-control classification shared by label validation
   and preview/notice normalization. Stored request and response bodies remain exact.
 - `tmt-adapters::request_history` admits and encodes the local-owner API without reply proofs

@@ -4,6 +4,22 @@ use crate::output::Failure;
 use tmt_adapters::drivers::Registry;
 use tmt_core::driver::{ActionResult, caller::RuntimeCaller};
 
+/// Automatic install offers require human terminal evidence. A marker, runtime
+/// ancestor or incomplete observation refuses; this does not attribute identity.
+pub fn may_offer_install(interaction: tmt_cli_style::Interaction) -> bool {
+    offer_eligible(interaction, std::env::var_os("TMT_AGENT").is_some(), || {
+        Registry::builtin().caller_is_human()
+    })
+}
+
+fn offer_eligible(
+    interaction: tmt_cli_style::Interaction,
+    marked: bool,
+    human: impl FnOnce() -> bool,
+) -> bool {
+    !interaction.json && interaction.stdin && interaction.stdout && !marked && human()
+}
+
 /// Explicit identity and endpoint selectors do not use implicit host evidence.
 /// A shared runtime's inherited pane cannot authorize either a sender or a
 /// binding mutation. Session correlation is not replaced by remembered history.
@@ -58,6 +74,47 @@ mod tests {
         binding::session::{HarnessId, ProviderSessionId},
         driver::caller::HostAttribution,
     };
+
+    #[test]
+    fn install_offer_requires_positive_human_evidence_and_both_terminal_streams() {
+        let person = tmt_cli_style::Interaction {
+            json: false,
+            stdin: true,
+            stdout: true,
+            stderr: false,
+            dumb: false,
+        };
+        assert!(offer_eligible(person, false, || true));
+        assert!(!offer_eligible(person, false, || false));
+        for (facts, marked) in [
+            (person, true),
+            (
+                tmt_cli_style::Interaction {
+                    json: true,
+                    ..person
+                },
+                false,
+            ),
+            (
+                tmt_cli_style::Interaction {
+                    stdin: false,
+                    ..person
+                },
+                false,
+            ),
+            (
+                tmt_cli_style::Interaction {
+                    stdout: false,
+                    ..person
+                },
+                false,
+            ),
+        ] {
+            assert!(!offer_eligible(facts, marked, || panic!(
+                "automation must not scan callers"
+            )));
+        }
+    }
 
     #[test]
     fn a_shared_provider_carries_its_own_reason_and_copyable_fix() {

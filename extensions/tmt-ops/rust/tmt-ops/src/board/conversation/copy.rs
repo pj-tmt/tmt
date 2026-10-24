@@ -3,6 +3,7 @@
 //! line within it; a selection maps back to those source lines instead of the painted text.
 //! Tables, code, headings, lists and quotes are copied as whole source lines. A selection
 //! that starts or ends inside a plain paragraph line copies the exact source characters.
+use crate::board::member_links::{Link, Origin};
 
 /// Where one displayed transcript line came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15,9 +16,26 @@ pub(super) struct At {
 #[derive(Default)]
 pub(super) struct Map {
     pub messages: Vec<String>,
-    pub lines: Vec<Option<At>>,
-    /// What each displayed line shows.
-    pub rows: Vec<String>,
+    pub rows: Vec<Row>,
+}
+
+pub(super) struct Row {
+    pub at: Option<At>,
+    pub shown: String,
+    origins: Vec<Origin>,
+}
+
+impl Row {
+    pub fn new(at: Option<At>, shown: String, links: &[Link]) -> Self {
+        Self {
+            at,
+            shown,
+            origins: links
+                .iter()
+                .filter_map(|link| link.source.clone())
+                .collect(),
+        }
+    }
 }
 
 /// One end of a selection: a byte offset in the painted text of its row.
@@ -44,7 +62,7 @@ pub(super) fn passage(map: &Map, selected: &Selected) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut line = first;
     while line <= last {
-        let Some(start) = map.lines.get(line).copied().flatten() else {
+        let Some(start) = map.rows.get(line).and_then(|row| row.at) else {
             parts.push(
                 selected
                     .shown
@@ -58,7 +76,7 @@ pub(super) fn passage(map: &Map, selected: &Selected) -> String {
         // A run of displayed lines of one message is copied as the source lines it covers.
         let (mut low, mut high, mut end) = (start.line, start.line, line);
         while end < last
-            && let Some(next) = map.lines.get(end + 1).copied().flatten()
+            && let Some(next) = map.rows.get(end + 1).and_then(|row| row.at)
             && next.message == start.message
         {
             low = low.min(next.line);
@@ -130,6 +148,7 @@ fn source(text: &str, low: usize, high: usize, cut: &Cut) -> String {
     };
     for (line, text) in lines.iter().enumerate().take(high + 1).skip(low) {
         let mut text = *text;
+        let hard_break = line + 1 < lines.len() && text.ends_with("  ");
         let from = if line == low && prose(line) {
             cut.head.filter(|at| text.is_char_boundary(*at))
         } else {
@@ -146,8 +165,8 @@ fn source(text: &str, low: usize, high: usize, cut: &Cut) -> String {
             text = &text[..to.min(text.len())];
         }
         text = &text[start.min(text.len())..];
-        out.push(if to.is_some() {
-            text.trim_end().to_owned()
+        out.push(if to.is_some() && hard_break {
+            text.trim_end_matches(' ').to_owned()
         } else {
             text.to_owned()
         });
@@ -172,9 +191,14 @@ fn source(text: &str, low: usize, high: usize, cut: &Cut) -> String {
 /// the exact character. `None` when the line is not plain prose or its text cannot be aligned
 /// with its source.
 fn exact(map: &Map, text: &str, row: usize, end: &End, head: bool) -> Option<usize> {
-    let source_line = map.lines.get(row).copied().flatten()?;
+    let source_line = map.rows.get(row)?.at?;
     let lines: Vec<&str> = text.split('\n').collect();
     let line = *lines.get(source_line.line)?;
+    let line_start = lines
+        .iter()
+        .take(source_line.line)
+        .map(|line| line.len() + 1)
+        .sum::<usize>();
     // Spaces are not anchors, and the painted row may carry a pane border or a scroll bar
     // beside the displayed text: find that text inside it.
     let nonspace = |text: &str| {
@@ -184,14 +208,14 @@ fn exact(map: &Map, text: &str, row: usize, end: &End, head: bool) -> Option<usi
     };
     let painted = nonspace(end.row);
     let lead = painted
-        .find(&nonspace(map.rows.get(row)?))
+        .find(&nonspace(&map.rows.get(row)?.shown))
         .map(|byte| painted[..byte].chars().count())?;
     let ordinal = nonspace(&end.row[..end.at.min(end.row.len())])
         .chars()
         .count()
         .saturating_sub(lead);
     // The displayed rows of this source line.
-    let same = |index: usize| map.lines.get(index).copied().flatten() == Some(source_line);
+    let same = |index: usize| map.rows.get(index).and_then(|row| row.at) == Some(source_line);
     let mut top = row;
     while top > 0 && same(top - 1) {
         top -= 1;
@@ -202,13 +226,40 @@ fn exact(map: &Map, text: &str, row: usize, end: &End, head: bool) -> Option<usi
     }
     // Align the displayed characters with the source characters: the display is the source
     // without its markers.
-    let mut source_chars = line.char_indices().filter(|(_, c)| !c.is_whitespace());
+    let mut source_chars = line
+        .char_indices()
+        .filter(|(_, c)| !c.is_whitespace())
+        .peekable();
     let mut shown: Vec<(usize, usize, usize, usize)> = Vec::new(); // row, nth, from, to
     for index in top..=bottom {
-        let rendered = map.rows.get(index)?;
-        for (nth, character) in rendered.chars().filter(|c| !c.is_whitespace()).enumerate() {
-            let (from, matched) = source_chars.find(|(_, c)| *c == character)?;
-            shown.push((index, nth, from, from + matched.len_utf8()));
+        let row = map.rows.get(index)?;
+        let mut origins = row.origins.iter().peekable();
+        for (nth, (byte, character)) in row
+            .shown
+            .char_indices()
+            .filter(|(_, c)| !c.is_whitespace())
+            .enumerate()
+        {
+            while origins
+                .peek()
+                .is_some_and(|origin| origin.shown.end <= byte)
+            {
+                origins.next();
+            }
+            if let Some(origin) = origins.peek().filter(|origin| origin.shown.contains(&byte)) {
+                let from = origin.source.start.checked_sub(line_start)?;
+                let to = origin.source.end.checked_sub(line_start)?;
+                if to > line.len() {
+                    return None;
+                }
+                while source_chars.peek().is_some_and(|(at, _)| *at < to) {
+                    source_chars.next();
+                }
+                shown.push((index, nth, from, to));
+            } else {
+                let (from, matched) = source_chars.find(|(_, c)| *c == character)?;
+                shown.push((index, nth, from, from + matched.len_utf8()));
+            }
         }
     }
     let first_char = shown.first()?;
@@ -305,20 +356,26 @@ mod tests {
     fn map(messages: &[&str], lines: &[Option<(usize, usize)>]) -> Map {
         Map {
             messages: messages.iter().map(|text| (*text).to_owned()).collect(),
-            lines: lines
+            rows: lines
                 .iter()
-                .map(|at| at.map(|(message, line)| At { message, line }))
+                .map(|at| {
+                    Row::new(
+                        at.map(|(message, line)| At { message, line }),
+                        String::new(),
+                        &[],
+                    )
+                })
                 .collect(),
-            rows: Vec::new(),
         }
     }
 
     /// A map whose displayed rows are known, so a paragraph's ends can be cut exactly.
     fn shown_map(messages: &[&str], lines: &[Option<(usize, usize)>], rows: &[&str]) -> Map {
-        Map {
-            rows: rows.iter().map(|row| (*row).to_owned()).collect(),
-            ..map(messages, lines)
+        let mut map = map(messages, lines);
+        for (line, shown) in map.rows.iter_mut().zip(rows) {
+            line.shown = (*shown).to_owned();
         }
+        map
     }
 
     fn passage(map: &Map, shown: &[String], first: usize, last: usize) -> String {
@@ -344,11 +401,11 @@ mod tests {
                 last,
                 shown: &shown,
                 start: End {
-                    row: &map.rows[first],
+                    row: &map.rows[first].shown,
                     at: start,
                 },
                 end: End {
-                    row: &map.rows[last],
+                    row: &map.rows[last].shown,
                     at: end,
                 },
             },
@@ -357,6 +414,162 @@ mod tests {
 
     fn shown(rows: &[&str]) -> Vec<String> {
         rows.iter().map(|row| (*row).to_owned()).collect()
+    }
+
+    fn rendered_map(source: &str, width: usize) -> Map {
+        let rendered = crate::board::markdown::render_conversation_with_members(
+            source,
+            width,
+            crate::look::Look::default(),
+            None,
+        );
+        Map {
+            messages: vec![source.to_owned()],
+            rows: rendered
+                .lines
+                .iter()
+                .zip(&rendered.sources)
+                .zip(&rendered.mentions)
+                .map(|((line, &source), links)| {
+                    Row::new(
+                        (line.width() > 0).then_some(At {
+                            message: 0,
+                            line: source,
+                        }),
+                        line.to_string(),
+                        links,
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn shortened_captions_copy_the_whole_original_message_with_its_eof_spaces() {
+        for source in [
+            crate::board::markdown::reported::PATH.to_owned(),
+            "before '/tmp/one file_name.txt' after ".to_owned(),
+            "before '/tmp/one file_name.txt' after  ".to_owned(),
+        ] {
+            for width in [12, 24, 80, 200] {
+                let map = rendered_map(&source, width);
+                let last = map.rows.len() - 1;
+                assert_eq!(
+                    cut(&map, 0, last, 0, map.rows[last].shown.len()),
+                    source,
+                    "{width}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_caption_selection_copies_its_raw_token_and_adjacent_prose_stays_exact() {
+        let source = "before '/tmp/my_file name.txt' after";
+        let map = rendered_map(source, 200);
+        let row = &map.rows[0].shown;
+        let file = row.find("my_file").unwrap();
+        let after = row.find("after").unwrap();
+        assert_eq!(cut(&map, 0, 0, 0, "before".len()), "before");
+        assert_eq!(
+            cut(&map, 0, 0, file + 1, file + 4),
+            "'/tmp/my_file name.txt'"
+        );
+        assert_eq!(cut(&map, 0, 0, after, row.len()), "after");
+        assert_eq!(
+            cut(&map, 0, 0, 0, row.find(" after").unwrap()),
+            "before '/tmp/my_file name.txt'"
+        );
+    }
+
+    #[test]
+    fn file_caption_copy_excludes_surrounding_prose_punctuation() {
+        let source = "before (/tmp/report_name.txt), after";
+        let map = rendered_map(source, 200);
+        let row = &map.rows[0].shown;
+        let file = row.find("report_name").unwrap();
+        assert_eq!(cut(&map, 0, 0, file + 1, file + 4), "/tmp/report_name.txt");
+        assert_eq!(cut(&map, 0, 0, 0, row.len()), source);
+        let punctuation = row.find("),").unwrap();
+        assert_eq!(cut(&map, 0, 0, punctuation, punctuation + 2), "),");
+    }
+
+    #[test]
+    fn equal_basenames_copy_the_selected_occurrence_after_wrapping() {
+        for width in [12, 200] {
+            let map = rendered_map("/tmp/one.txt /other/one.txt", width);
+            let row = map.rows.len() - 1;
+            let start = map.rows[row].shown.rfind("one.txt").unwrap();
+            assert_eq!(cut(&map, row, row, start + 1, start + 4), "/other/one.txt");
+        }
+    }
+
+    #[test]
+    fn a_painted_message_gutter_is_not_part_of_the_source_alignment() {
+        let map = rendered_map("before '/tmp/a.txt' after", 200);
+        let painted = crate::board::exchange_view::body(
+            ratatui::text::Line::from(map.rows[0].shown.clone()),
+            crate::look::Look::default(),
+        )
+        .to_string();
+        let start = painted.find("before").unwrap();
+        assert_eq!(
+            super::passage(
+                &map,
+                &Selected {
+                    first: 0,
+                    last: 0,
+                    shown: std::slice::from_ref(&painted),
+                    start: End {
+                        row: &painted,
+                        at: start
+                    },
+                    end: End {
+                        row: &painted,
+                        at: start + "before".len()
+                    },
+                }
+            ),
+            "before"
+        );
+    }
+
+    #[test]
+    fn reported_quote_and_paths_copy_the_original_source_after_real_wrapping() {
+        use crate::{
+            board::markdown::{render_conversation_with_members, reported},
+            look::Look,
+        };
+
+        for source in [
+            reported::QUOTE,
+            reported::PATH,
+            "/tmp/some_dir/file_name.rs",
+            "src/some_module/file_name.rs",
+        ] {
+            for width in [160, 100, 80, 60, 40, 24] {
+                let rendered =
+                    render_conversation_with_members(source, width, Look::default(), None);
+                let rows: Vec<String> = rendered.lines.iter().map(ToString::to_string).collect();
+                let map = Map {
+                    messages: vec![source.to_owned()],
+                    rows: rendered
+                        .sources
+                        .iter()
+                        .zip(&rows)
+                        .zip(&rendered.mentions)
+                        .map(|((&line, shown), links)| {
+                            Row::new(Some(At { message: 0, line }), shown.clone(), links)
+                        })
+                        .collect(),
+                };
+                assert_eq!(
+                    passage(&map, &rows, 0, rows.len() - 1),
+                    source,
+                    "width={width}, source={source:?}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -67,9 +67,7 @@ export function ChapterPanel({
       }
       panel="shell-chapter"
       focusFallback={() =>
-        document.querySelector<HTMLElement>(
-          `[data-page-id="${chapter.pageId}"] .shell-chapter-title a`,
-        )
+        document.querySelector<HTMLElement>(`[data-page-id="${chapter.pageId}"] button.shell-row`)
       }
       onDismiss={onDismiss}
     >

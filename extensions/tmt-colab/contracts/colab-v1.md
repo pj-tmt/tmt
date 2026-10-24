@@ -1329,7 +1329,8 @@ reopening the proposal or changing the pending count. This explicit opening
 acknowledges a locally unseen resolution; rendering or filtering does not.
 Comments mixes proposals with ordinary annotations in one list with the views
 Open, Needs you, Resolved and, only when the page has a proposal, Proposals (a rule closes the
-view strip and every row). The
+view strip and every row). Row titles stay at 14px (the compact body token); quoted passages
+and metadata use the caption size. The
 open thread stays listed in every view. Needs you holds undecided proposals and
 threads with news the person has not seen. Changing the view never changes status, sends a request or changes the header
 count. The one header pending count is computed by `openThreadCount`: unresolved
@@ -2617,7 +2618,7 @@ one hover outline, a completed text selection or a text-bearing click captured t
 the same bounded quote owner opens the existing anchored discussion. Textless clicks
 show a temporary polite hint and create nothing. Source replacement reprojects mode;
 page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
-Escape consumes one level: a nested menu or mention list, then the active drawer (Chat draft retained and busy sends uninterrupted; in the Comments drawer, Escape from a Discussion view's reply field first returns to the comment list, and a send or status change in flight holds the drawer), then the anchored window (draft retained), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. This key request cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Page-link requests have only the bounded activation/confirmation exception above. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
+Escape consumes one level: a nested menu or mention list, then the active drawer (Chat draft retained and busy sends uninterrupted; in the Comments panel, Escape from inside it: from a Discussion view's reply field it first returns to the comment list, and a send or status change in flight holds the panel; Escape on the page leaves the panel open), then the anchored window (draft retained), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. This key request cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Page-link requests have only the bounded activation/confirmation exception above. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
 Alt+Enter still explicitly requests the annotation view with exactly
 `type:"colab.render.annotate",renderId`; it cannot send. A trusted parent action captures
 the quote. Page-wide comments have null anchors.
@@ -2648,7 +2649,7 @@ frame's edge. Markers whose lines are closer than one target share one `+n` mark
 tall and at least 16 px wide with 4 px inside each end, in the same 24 px target. Hover
 shows the bounded quoted text. Comment first-line tooltips stay in parent chrome. A marker posts exactly `type:"colab.render.open-thread"`,
 `renderId`, `requestId`, `id` on the bound port; the parent accepts only a known ID in
-its current highlight request and opens that thread's Discussion view in the Comments drawer. A `+n` marker
+its current highlight request and opens that thread's Discussion view in the Comments panel. A `+n` marker
 posts exactly `type:"colab.render.open-list"`, `renderId`, `requestId`; the parent accepts the
 current render and request only and opens the Comments list (closing an open annotation
 window), with no thread ID and no thread opened. Forging either view-only
@@ -3464,7 +3465,7 @@ proven default-added chip, preserving manually typed/picked mentions and surroun
 text. The preference is a storage-safe, device-local convenience, never authority.
 Provenance stays in editing/page memory and is stripped from the unchanged encrypted
 v1 draft format; restored unknown-provenance mentions count as manual.
-Bound mentions are atomic, square, flat chips: a solid online dot, muted offline
+Bound mentions are atomic, flat chips with the small radius token: a solid online dot, muted offline
 state, or a dashed not-found border. Unknown/unavailable presence is labeled explicitly.
 Same-name agents include their machine name. Hover/focus exposes the full name,
 machine and state; the trailing remove action drops the binding without sending.
@@ -3596,19 +3597,21 @@ answer` is a new comment and an ordinary single-comment Ask; the batch is untouc
 The Comments overlay lists every annotation and page-level thread, with a quote
 snippet, participants, display time and open/resolved status. Selecting a row scrolls
 the window to its anchor and opens that thread's Discussion view in the overlay, in place
-of the list (the drawer reads Discussion with the thread's position, `n / N`, and `All
+of the list (the panel reads Discussion with the thread's position, `n / N`, and `All
 comments` returns to the list); the selected thread stays selected while Comments is closed
-and reopened. A margin marker, and a Thread notification, open the same thread's Discussion view in that drawer; the anchored window exists only for a new selection and the first thread it creates. Page-owned per-thread drafts also
+and reopened. A margin marker, and a Thread notification, open the same thread's Discussion view in that panel; the anchored window exists only for a new selection and the first thread it creates. Page-owned per-thread drafts also
 survive switching to the explicit Comments details view. Agent replies join verified Ask records to comment IDs and
 remain attributed to their agent. Overlay geometry does not reflow page content.
-Shared Chat, Source, Agents, Files, Comments and Export drawers leave an 8 px
+Shared Chat, Source, Agents, Files and Export drawers leave an 8 px
 header/right/bottom gutter (4 px through 480 px), with top/right/bottom safe-area insets, an opaque
 square surface and a 1 px border. The header remains visible behind the scrim. All drawers use the shared leaf
 Drawer with native modal focus containment at every width. The first header or
 author-frame backdrop press dismisses only, without click-through; a second press
 acts. The shared Close button retains draft/attempt owners; Chat keeps its audience
 caption. Action and Manage radio menus use the shared top-layer Menu; autocomplete
-remains a listbox. A nested menu consumes Escape before its drawer.
+remains a listbox. A nested menu consumes Escape before its drawer. Comments is the one
+exception: a non-modal panel (a column beside the page, a card or a sheet by width) with no scrim,
+trap or inert page, sharing the single panel slot with the drawers.
 A trusted non-editing `@` key opens the existing Chat under the same admission as
 the header Discussion action: a mounted, unarchived page and no other menu or
 dialog. An anchored annotation does not block it. Only a mounted editable composer

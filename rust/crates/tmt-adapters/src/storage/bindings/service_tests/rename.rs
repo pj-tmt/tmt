@@ -571,3 +571,28 @@ fn a_new_name_over_64_characters_is_refused_on_every_admission_path_and_a_held_o
     assert_eq!(renamed.identity.id, bound.identity.id);
     storage.close().unwrap();
 }
+
+#[test]
+fn an_identity_uuid_selects_the_identity_and_a_retired_uuid_is_not_found() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let alice = tmt_core::binding::bind_identity(&mut storage, &mut endpoint, "%1", "Alice", true)
+        .unwrap()
+        .identity;
+
+    let renamed = rename_identity::<_, EndpointFailure>(&mut storage, &alice.id, "Ada").unwrap();
+    assert_eq!(renamed.previous.name, "Alice");
+    assert_eq!(renamed.identity.id, alice.id);
+    assert_eq!(renamed.identity.name, "Ada");
+
+    // A name that happens to match a retired UUID is not a way around the retirement.
+    remove_identity(&mut storage, &mut endpoint, &alice.id, true).unwrap();
+    for selector in [alice.id.as_str(), "7f0c2f2e-0000-4000-8000-000000000000"] {
+        match rename_identity::<_, EndpointFailure>(&mut storage, selector, "Again") {
+            Err(Error::NameNotFound(named)) => assert_eq!(named, selector),
+            other => panic!("{selector}: {other:?}"),
+        }
+    }
+    storage.close().unwrap();
+}

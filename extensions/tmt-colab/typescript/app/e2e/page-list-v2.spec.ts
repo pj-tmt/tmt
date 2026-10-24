@@ -87,9 +87,6 @@ for (const width of [1586, 1440, 1150, 901, 900, 651, 650, 390])
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );
-      await page.locator('.page-list-scroll:visible').evaluate((node) => {
-        node.scrollTop = 0;
-      });
       await section.evaluate((node) => {
         node.scrollTop = 0;
       });

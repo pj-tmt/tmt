@@ -54,6 +54,7 @@ fn step_phrase(kind: &StepKind, ordinal: usize, total: usize) -> String {
             }
             HostingStep::Finalize | HostingStep::Release => "Publishing the website…",
         },
+        StepKind::OwnerAccess => "Register this machine as owner",
         StepKind::Rules => "Setting up security rules…",
         StepKind::Verify => "Checking the finished setup…",
     }
@@ -355,6 +356,7 @@ mod tests {
                 StepKind::Hosting(HostingStep::Release),
                 "Publishing the website…",
             ),
+            (StepKind::OwnerAccess, "Register this machine as owner"),
             (StepKind::Rules, "Setting up security rules…"),
             (StepKind::Verify, "Checking the finished setup…"),
         ] {

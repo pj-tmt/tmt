@@ -18,13 +18,15 @@ use tmt_adapters::{
 pub(crate) fn eligible(invocation: &Invocation) -> bool {
     match invocation {
         Invocation::Talk { .. }
+        | Invocation::TalkRemote { .. }
         | Invocation::Reply { .. }
         | Invocation::Answer { .. }
         | Invocation::Check { .. }
+        | Invocation::Stop { .. }
         | Invocation::Focus { .. } => true,
         Invocation::Identity(request) => match request {
             IdentityRequest::Create(_) => true,
-            IdentityRequest::Show(_) | IdentityRequest::List(_) => false,
+            IdentityRequest::Show { .. } | IdentityRequest::List(_) => false,
             IdentityRequest::Metadata { operation, .. } => match operation {
                 IdentityMetadataRequest::Apply
                 | IdentityMetadataRequest::Set { .. }
@@ -270,7 +272,10 @@ mod tests {
                 from: None,
                 limit: None,
             },
-            Invocation::Identity(IdentityRequest::Show(None)),
+            Invocation::Identity(IdentityRequest::Show {
+                name: None,
+                expect_name: None,
+            }),
             Invocation::Identity(IdentityRequest::List(Vec::new())),
             metadata(IdentityMetadataRequest::Get { key: text("k") }),
             metadata(IdentityMetadataRequest::List),

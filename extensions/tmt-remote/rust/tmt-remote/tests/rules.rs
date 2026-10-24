@@ -756,3 +756,61 @@ fn actual_client_codec_mapping_composes_the_shared_index_coverage_golden() {
         serde_json::from_slice(&fs::read(home.join("index-coverage.json")).unwrap()).unwrap();
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn native_agent_talk_rules_are_deployed_once_with_the_generated_bound() {
+    // The ordinary production composer must include the same policy qualified by
+    // native carrier tests, even when no extension contributes a fragment.
+    let plan = deploy_plan::compose(target(false), &[]).unwrap();
+    let composed = rules::compose(&plan, &[]).unwrap();
+    let native = tmt_remote::cloud_inbox::rules::artifact();
+    let start = native.find("    function machineOwner(machine)").unwrap();
+    let end = native.rfind("    match /{document=**}").unwrap();
+    assert!(composed.rules.contains(&native[start..end]));
+    assert_eq!(
+        composed
+            .rules
+            .matches("match /m/{machine}/inbox/{id}")
+            .count(),
+        1
+    );
+    assert_eq!(
+        composed
+            .rules
+            .matches("match /m/{machine}/responses/{id}")
+            .count(),
+        1
+    );
+    assert_eq!(composed.rules.matches("rules_version = '2';").count(), 1);
+    assert_eq!(composed.rules.matches("match /{document=**}").count(), 1);
+    for path in [
+        "match /m/{machine} {",
+        "match /m/{machine}/peers/{uid}",
+        "match /m/{machine}/enroll/{id}",
+    ] {
+        assert_eq!(composed.rules.matches(path).count(), 1, "{path}");
+    }
+    for (name, bound) in [
+        (
+            "CLOUD_CARRIER_BYTES",
+            tmt_remote::limits::CLOUD_CARRIER_BYTES,
+        ),
+        (
+            "CLOUD_DESCRIPTOR_BYTES",
+            tmt_remote::limits::CLOUD_DESCRIPTOR_BYTES,
+        ),
+        (
+            "CLOUD_ENROLLMENT_BYTES",
+            tmt_remote::limits::CLOUD_ENROLLMENT_BYTES,
+        ),
+    ] {
+        assert!(!composed.rules.contains(name), "generated {name}");
+        assert!(composed.rules.contains(&format!("<= {bound}")), "{name}");
+    }
+    // A shallow createdAt ASC, __name__ ASC query needs no composite index:
+    // https://firebase.google.com/docs/firestore/query-data/index-overview
+    assert_eq!(
+        serde_json::from_str::<Value>(&composed.indexes).unwrap()["indexes"],
+        json!([])
+    );
+}

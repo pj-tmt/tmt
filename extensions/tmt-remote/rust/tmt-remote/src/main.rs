@@ -1,8 +1,13 @@
 mod activation_cli;
 mod message_cli;
 mod open_cli;
+mod pairing_cli;
 mod serve;
 mod sync_cli;
+
+#[cfg(test)]
+#[path = "serve/test_isolation.rs"]
+mod test_isolation;
 
 use clap::{Arg, ArgAction, Command};
 use serde_json::json;
@@ -110,11 +115,11 @@ const TALK: CommandSpec = CommandSpec {
     name: "talk",
     summary: "Enable or disable sending for one paired device",
     examples: &[Example {
-        command: "tmt remote devices talk <client-id> on|off",
+        command: "tmt remote devices talk <person> on|off",
         note: "Keep its other grant policy unchanged",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Only the local owner can run this command. A changed scope ends Sessions on the previous revision; revoked devices cannot be enabled.",
+    details: "Use a unique device name or a client ID. Only the local owner can run this command. A changed scope ends Sessions on the previous revision; revoked devices cannot be enabled.",
 };
 const DEVICES: CommandSpec = CommandSpec {
     name: "devices",
@@ -125,7 +130,7 @@ const DEVICES: CommandSpec = CommandSpec {
             note: "Show each device with its fingerprint words",
         },
         Example {
-            command: "tmt remote devices revoke <client-id>",
+            command: "tmt remote devices revoke <person>",
             note: "End a device's access now",
         },
         Example {
@@ -140,8 +145,8 @@ const REVOKE: CommandSpec = CommandSpec {
     name: "revoke",
     summary: "Revoke one paired device",
     examples: &[Example {
-        command: "tmt remote devices revoke <client-id>",
-        note: "The client ID is shown by tmt remote devices",
+        command: "tmt remote devices revoke <person>",
+        note: "Use a unique device name or the client ID shown by tmt remote devices",
     }],
     outputs: OutputModes::HumanAndJson,
     details: "Revoking a revoked device reports it again. Pair again to trust the device anew.\nTo revoke this machine's Firestore sign-in instead, use tmt remote sync revoke.",
@@ -224,6 +229,8 @@ fn grammar() -> Command {
         .subcommand_required(true)
         .subcommand(activation_cli::command())
         .subcommand(message_cli::command())
+        .subcommand(pairing_cli::command(false))
+        .subcommand(pairing_cli::command(true))
         .subcommand(open_cli::command(false))
         .subcommand(open_cli::command(true))
         .arg(Arg::new("remote").long("remote").global(true).help("Remote name, owned project id, or local"))
@@ -358,7 +365,7 @@ fn grammar() -> Command {
             tmt_cli_style::command(&DEVICES)
                 .subcommand(
                     tmt_cli_style::command(&TALK)
-                        .arg(Arg::new("client-id").required(true))
+                        .arg(Arg::new("client-id").value_name("PERSON").required(true).help("Unique device name or client ID"))
                         .arg(
                             Arg::new("enabled")
                                 .required(true)
@@ -373,8 +380,9 @@ fn grammar() -> Command {
                 .subcommand(
                     tmt_cli_style::command(&REVOKE).arg(
                         Arg::new("client-id")
+                            .value_name("PERSON")
                             .required(true)
-                            .help("Device client ID from tmt remote devices"),
+                            .help("Unique device name or client ID from tmt remote devices"),
                     ),
                 )
                 .subcommand(
@@ -395,16 +403,21 @@ fn grammar() -> Command {
 fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     let (name, arguments) = matches.subcommand().expect("required subcommand");
     let explicit = matches.get_one::<String>("remote").map(String::as_str);
-    if !(matches!(name, "link" | "deploy" | "sync" | "message")
-        || name == "status"
-            && !arguments.get_flag("objects")
-            && !arguments.get_flag("machine")
-            && !arguments.get_flag("budget"))
+    if !(matches!(
+        name,
+        "link" | "deploy" | "sync" | "message" | "invite" | "join"
+    ) || name == "status"
+        && !arguments.get_flag("objects")
+        && !arguments.get_flag("machine")
+        && !arguments.get_flag("budget"))
         && explicit.is_some()
     {
         let root = discovery_root()?;
         let layout = Layout::open(&root)?;
         tmt_remote::remote_selector::local(&layout, explicit, name)?;
+    }
+    if name == "invite" || name == "join" {
+        return pairing_cli::run(arguments, name == "join", explicit);
     }
     if name == "message" {
         return message_cli::run(explicit);
@@ -703,11 +716,19 @@ fn confirm_deploy(
     output: &mut impl Write,
     stop: &AtomicBool,
 ) -> std::io::Result<bool> {
+    confirm_terminal(input, output, stop, tmt_remote::deploy_cli::DEPLOY_PROMPT)
+}
+fn confirm_terminal(
+    input: &mut (impl std::io::Read + std::os::fd::AsFd),
+    output: &mut impl Write,
+    stop: &AtomicBool,
+    prompt: &str,
+) -> std::io::Result<bool> {
     use nix::{
         errno::Errno,
         poll::{PollFd, PollFlags, poll},
     };
-    write!(output, "{} ", tmt_remote::deploy_cli::DEPLOY_PROMPT)?;
+    write!(output, "{prompt} ")?;
     output.flush()?;
     loop {
         if stop.load(Ordering::SeqCst) {
@@ -823,6 +844,13 @@ fn status(
             Err(error) => return Err(error),
         },
     };
+    if projection == StatusProjection::Ordinary
+        && answer["running"] == true
+        && let Ok(Some(cloud)) = control::cloud_status(&root.join("remote"))
+        && (cloud["cleanupPending"] == true || !cloud["error"].is_null())
+    {
+        answer["cloud"] = cloud;
+    }
     let mut recorded_summary = None;
     let sign_in = if projection == StatusProjection::Ordinary {
         let layout = Layout::existing(&root)?;
@@ -901,6 +929,12 @@ fn status(
                 .map(|port| format!("Remote is not running; last bound port {port}"))
                 .unwrap_or_else(|| "Remote is not running".into());
             tmt_cli_style::message::warning(&mut output, terminal, &detail, None)?;
+        }
+        if answer["cloud"]["cleanupPending"] == true {
+            writeln!(output, "Cloud cleanup is pending.")?;
+        }
+        if let Some(code) = answer["cloud"]["error"].as_str() {
+            writeln!(output, "Cloud transport: {code}")?;
         }
         if projection == StatusProjection::Layers {
             if let Some(selected) = answer.get("firestoreDeployment") {
@@ -1478,15 +1512,12 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
         return Ok(tmt_cli_style::message::success(
             &mut output,
             terminal,
-            &format!(
-                "{} {name}",
-                match request["op"].as_str() {
-                    Some("rename") => "Renamed",
-                    Some("talk") if request["enabled"] == true => "Enabled sending for",
-                    Some("talk") => "Disabled sending for",
-                    _ => "Revoked",
-                }
-            ),
+            &match request["op"].as_str() {
+                Some("rename") => format!("Renamed {name}"),
+                Some("talk") if request["enabled"] == true => format!("Sending is on for {name}."),
+                Some("talk") => format!("Sending is off for {name}."),
+                _ => format!("Revoked {name}. This machine no longer accepts their requests."),
+            },
         )?);
     }
     use tmt_cli_style::{

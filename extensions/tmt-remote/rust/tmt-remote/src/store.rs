@@ -181,7 +181,7 @@ impl Store {
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 10] = [
+const MIGRATIONS: [(&str, &str); 13] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -280,6 +280,29 @@ const MIGRATIONS: [(&str, &str); 10] = [
         attempted INTEGER NOT NULL DEFAULT 0 CHECK(attempted IN (0,1)),
         PRIMARY KEY(peer_id,kind,id)); CREATE INDEX cloud_transport_expiry ON cloud_transport(kind,created_ms);"),
 
+
+    ("cloud_pairing", "CREATE TABLE cloud_peers(
+        project TEXT NOT NULL, client_id TEXT NOT NULL REFERENCES grants(client_id),
+        owner TEXT NOT NULL, owner_key BLOB NOT NULL CHECK(length(owner_key)=32),
+        generation INTEGER NOT NULL CHECK(generation>0),
+        PRIMARY KEY(project,client_id));
+     CREATE TABLE cloud_pair_receipts(
+        offer TEXT PRIMARY KEY, digest BLOB NOT NULL CHECK(length(digest)=32),
+        deadline_ms INTEGER NOT NULL, receipt BLOB NOT NULL, challenge TEXT NOT NULL,
+        proof BLOB NOT NULL CHECK(length(proof)=32));
+     CREATE TABLE cloud_peer_routes(
+        project TEXT NOT NULL, uid TEXT NOT NULL,
+        client_id TEXT NOT NULL REFERENCES grants(client_id),
+        generation INTEGER NOT NULL CHECK(generation>0),
+        revoked INTEGER NOT NULL CHECK(revoked IN(0,1)),
+        pending INTEGER NOT NULL CHECK(pending IN(0,1)),
+        PRIMARY KEY(project,uid));
+     CREATE UNIQUE INDEX cloud_peer_live_route ON cloud_peer_routes(project,client_id) WHERE revoked=0;
+     CREATE TABLE cloud_reroute_counters(machine_id TEXT PRIMARY KEY,generation INTEGER NOT NULL CHECK(generation>0));
+     CREATE TABLE cloud_owner_projects(project TEXT PRIMARY KEY,config TEXT NOT NULL);
+     CREATE TABLE cloud_remotes(name TEXT PRIMARY KEY,owner TEXT NOT NULL UNIQUE,connection TEXT NOT NULL);"),
+    ("cloud_final_binding", "ALTER TABLE cloud_transport ADD COLUMN binding TEXT;"),
+    ("cloud_pair_tokens", "ALTER TABLE cloud_peers ADD COLUMN reroute_hash BLOB CHECK(reroute_hash IS NULL OR length(reroute_hash)=32);"),
 ];
 fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     let port: Option<i64> = connection
@@ -344,51 +367,11 @@ impl Store {
         grant: &Grant,
         audit: Option<(&str, &[u8])>,
     ) -> Result<(), RemoteError> {
-        let millis = |value: u64| {
-            i64::try_from(value)
-                .ok()
-                .filter(|v| *v < (1 << 53))
-                .ok_or_else(|| database("time out of range"))
-        };
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database)?;
-        transaction
-            .execute(
-                "DELETE FROM settings_designation WHERE public_key=?1",
-                [grant.public_key.as_slice()],
-            )
-            .map_err(database)?;
-        transaction
-            .execute(
-                "INSERT INTO grants VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                rusqlite::params![
-                    grant.client_id,
-                    grant.public_key.as_slice(),
-                    grant.kind,
-                    grant.origin,
-                    grant.name,
-                    grant.agents,
-                    grant.scopes.join(" "),
-                    grant.mode,
-                    millis(grant.issued_at_ms)?,
-                    grant.expires_at_ms.map(millis).transpose()?,
-                    i64::try_from(grant.revision).map_err(database)?,
-                    grant.disabled,
-                ],
-            )
-            .map_err(|e| match e {
-                rusqlite::Error::SqliteFailure(f, _)
-                    if f.code == rusqlite::ErrorCode::ConstraintViolation =>
-                {
-                    RemoteError::new(
-                        "REMOTE_ALREADY_PAIRED",
-                        "This device key already has a live grant.",
-                    )
-                }
-                other => database(other),
-            })?;
+        insert_grant_in(&transaction, grant)?;
         if let Some((offer, digest)) = audit {
             crate::audit::append(
                 &transaction,
@@ -619,6 +602,12 @@ pub(crate) fn revoke_in(
             [client_id],
         )
         .map_err(database)?;
+    connection
+        .execute(
+            "UPDATE cloud_peer_routes SET revoked=1,pending=1 WHERE client_id=?1 AND revoked=0",
+            [client_id],
+        )
+        .map_err(database)?;
     let grant = grant_in(connection, client_id)?;
     if grant.as_ref().is_some_and(|grant| !grant.disabled) {
         return Err(database("grant revision exhausted"));
@@ -811,6 +800,50 @@ impl Store {
         tx.commit().map_err(database)?;
         Ok(sequence)
     }
+}
+pub(crate) fn insert_grant_in(connection: &Connection, grant: &Grant) -> Result<(), RemoteError> {
+    let millis = |value: u64| {
+        i64::try_from(value)
+            .ok()
+            .filter(|v| *v < (1 << 53))
+            .ok_or_else(|| database("time out of range"))
+    };
+    connection
+        .execute(
+            "DELETE FROM settings_designation WHERE public_key=?1",
+            [grant.public_key.as_slice()],
+        )
+        .map_err(database)?;
+    connection
+        .execute(
+            "INSERT INTO grants VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            rusqlite::params![
+                grant.client_id,
+                grant.public_key.as_slice(),
+                grant.kind,
+                grant.origin,
+                grant.name,
+                grant.agents,
+                grant.scopes.join(" "),
+                grant.mode,
+                millis(grant.issued_at_ms)?,
+                grant.expires_at_ms.map(millis).transpose()?,
+                i64::try_from(grant.revision).map_err(database)?,
+                grant.disabled,
+            ],
+        )
+        .map_err(|e| match e {
+            rusqlite::Error::SqliteFailure(f, _)
+                if f.code == rusqlite::ErrorCode::ConstraintViolation =>
+            {
+                RemoteError::new(
+                    "REMOTE_ALREADY_PAIRED",
+                    "This device key already has a live grant.",
+                )
+            }
+            other => database(other),
+        })?;
+    Ok(())
 }
 pub(crate) const GRANT_COLUMNS: &str =
     "client_id, public_key, kind, origin, name, agents, scopes, mode,

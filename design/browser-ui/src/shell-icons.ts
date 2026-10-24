@@ -1,9 +1,13 @@
 /**
  * Lucide 1.52.0 (ISC, see `LICENSE.lucide`) node data for the shell, so static hosts draw the
- * same icons without a React or Lucide runtime. The first eight are the module icon allow-list
+ * same icons without a React or Lucide runtime. The module icon allow-list below is the subset
  * of Remote's describe contract; an unknown name falls back to `box`.
  */
 export const shellIconNodes = {
+  sun: [
+    ['circle', { cx: '12', cy: '12', r: '4' }],
+    ['path', { d: 'M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5' }],
+  ],
   house: [
     ['path', { d: 'M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8' }],
     [
@@ -99,6 +103,11 @@ export const shellIconNodes = {
   terminal: [
     ['path', { d: 'M12 19h8' }],
     ['path', { d: 'm4 17 6-6-6-6' }],
+  ],
+  ellipsis: [
+    ['circle', { cx: '12', cy: '12', r: '1' }],
+    ['circle', { cx: '19', cy: '12', r: '1' }],
+    ['circle', { cx: '5', cy: '12', r: '1' }],
   ],
   copy: [
     ['rect', { width: '14', height: '14', x: '8', y: '8', rx: '2', ry: '2' }],

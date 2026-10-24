@@ -128,7 +128,7 @@ mod tests {
             "epoch":"00000000-0000-4000-8000-000000000001","sequence":1,
             "observedAtMs":100,"complete":false,"gap":true,
             // Optional Codex limits ride the same public document, unchanged.
-            "rateLimits":{"observedAtMs":90,"windows":[{"windowMinutes":10080,"usedPercent":78.5,"resetsAtMs":1_791_948_558_000u64}]}
+            "rateLimits":{"provider":"codex","observedAtMs":90,"windows":[{"windowMinutes":10080,"usedPercent":78.5,"resetsAtMs":1_791_948_558_000u64}]}
         });
         let counters = State::read(&serde_json::json!({"value":public})).unwrap();
         preferences.remembered.as_mut().unwrap().state =

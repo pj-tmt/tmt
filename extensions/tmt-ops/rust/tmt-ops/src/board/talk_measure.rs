@@ -26,7 +26,10 @@ const OPTIONS: [(&str, &str, RightTab); 2] = [
 pub(in crate::board) fn paint(buffer: &mut Buffer, app: &App, rule: Rect) -> Rect {
     let look = app.look();
     let key = keycap::key(app, crate::action::OpsUiAction::TalkMeasure, "M");
-    let cap = key.as_deref().map(|key| keycap::span(key, false, look));
+    let cap = key
+        .as_deref()
+        .map(|key| keycap::control_span(app, key, crate::action::OpsUiAction::TalkMeasure));
+    let enabled = app.workspace_strip_enabled();
     let cap_width = cap.as_ref().map_or(0, Span::width);
     let chips = OPTIONS
         .iter()
@@ -57,7 +60,7 @@ pub(in crate::board) fn paint(buffer: &mut Buffer, app: &App, rule: Rect) -> Rec
                 text: format!(" {label} "),
                 gap: " ".into(),
                 selected: *tab == app.right_tab,
-                disabled: false,
+                disabled: !enabled,
                 cursor: false,
             })
             .collect(),

@@ -16,6 +16,7 @@ pub const HISTORY_INPUT_LIMIT: usize = 4096;
 struct CursorWire {
     prepared_at_ms: Option<u64>,
     submitted_at_ms: Option<u64>,
+    answered_at_ms: Option<u64>,
     request_id: String,
 }
 #[derive(Deserialize)]
@@ -29,11 +30,74 @@ struct QueryWire {
     before: Option<CursorWire>,
 }
 
-pub fn decode_history_query(bytes: &[u8]) -> Option<HistoryQuery> {
+/// What `requests.list` asks for: a history of one recipient or room, an originator's
+/// results, or an originator's answers.
+pub enum ListQuery {
+    History(HistoryQuery),
+    Answers(AnswersQuery),
+}
+
+fn decode_wire(bytes: &[u8]) -> Option<QueryWire> {
     if bytes.len() > HISTORY_INPUT_LIMIT {
         return None;
     }
-    let input: QueryWire = serde_json::from_slice(bytes).ok()?;
+    serde_json::from_slice(bytes).ok()
+}
+
+pub fn decode_list_query(bytes: &[u8]) -> Option<ListQuery> {
+    let input = decode_wire(bytes)?;
+    if input.view.as_deref() == Some("answers") {
+        answers_query(input).map(ListQuery::Answers)
+    } else {
+        history_query(input).map(ListQuery::History)
+    }
+}
+
+pub fn decode_history_query(bytes: &[u8]) -> Option<HistoryQuery> {
+    history_query(decode_wire(bytes)?)
+}
+
+/// Only the originator, a limit and a cursor over answer time: an answers page lists
+/// everything the caller sent, across recipients and rooms.
+fn answers_query(input: QueryWire) -> Option<AnswersQuery> {
+    let originator_id = input.originator_id.filter(|id| canonical_id(id))?;
+    if input.recipient_id.is_some() || input.room_id.is_some() {
+        return None;
+    }
+    let limit = input.limit.unwrap_or(RESULTS_LIMIT);
+    if !(1..=HISTORY_MAX_LIMIT).contains(&limit) {
+        return None;
+    }
+    let before = match input.before {
+        None => None,
+        Some(cursor) => {
+            let (None, None, Some(answered_at_ms)) = (
+                cursor.prepared_at_ms,
+                cursor.submitted_at_ms,
+                cursor.answered_at_ms,
+            ) else {
+                return None;
+            };
+            if answered_at_ms == 0
+                || answered_at_ms > MAX_JS_SAFE_INTEGER
+                || !valid_request_id(&cursor.request_id)
+            {
+                return None;
+            }
+            Some(AnswerCursor {
+                answered_at_ms,
+                request_id: cursor.request_id,
+            })
+        }
+    };
+    Some(AnswersQuery {
+        originator_id,
+        before,
+        limit,
+    })
+}
+
+fn history_query(input: QueryWire) -> Option<HistoryQuery> {
     if input
         .recipient_id
         .as_deref()
@@ -75,8 +139,13 @@ pub fn decode_history_query(bytes: &[u8]) -> Option<HistoryQuery> {
     let before = match input.before {
         None => None,
         Some(cursor) => {
-            let timestamp = match (results, cursor.prepared_at_ms, cursor.submitted_at_ms) {
-                (false, Some(time), None) | (true, None, Some(time)) => time,
+            let timestamp = match (
+                results,
+                cursor.prepared_at_ms,
+                cursor.submitted_at_ms,
+                cursor.answered_at_ms,
+            ) {
+                (false, Some(time), None, None) | (true, None, Some(time), None) => time,
                 _ => return None,
             };
             if timestamp == 0
@@ -119,7 +188,8 @@ pub fn decode_history_request(bytes: &[u8]) -> Option<String> {
     valid_request_id(&input.request_id).then_some(input.request_id)
 }
 
-fn message_state(view: &tmt_core::request::delivery::DeliveryView) -> Value {
+/// The `messageState` object every client prints: history, `x`, `inbox` and `x listen` share it.
+pub fn message_state(view: &tmt_core::request::delivery::DeliveryView) -> Value {
     json!({"state":view.state.as_str(),"reason":{"code":view.reason.code(),"text":view.reason_text},
         "latestMs":view.latest_ms,"remainingMs":view.remaining_ms,"canSendNow":view.can_send_now})
 }
@@ -190,6 +260,20 @@ pub fn encode_history_page(page: &HistoryPage, results: bool) -> Vec<u8> {
             HistoryCursor::Submitted { submitted_at_ms, request_id } => json!({"submittedAtMs":submitted_at_ms,"requestId":request_id}),
         }),
     })).expect("serializable request history")
+}
+
+pub fn encode_answers_page(page: &AnswersPage) -> Vec<u8> {
+    serde_json::to_vec(&json!({
+        "items":page.items.iter().map(|answer| json!({
+            "requestId":answer.request_id,"kind":answer.kind.as_str(),
+            "sender":{"kind":answer.originator.as_str(),"identityId":answer.originator.identity_id()},
+            "recipientId":answer.recipient_identity_id,
+            "answeredAtMs":answer.answered_at_ms,"answer":answer.answer.as_str()
+        })).collect::<Vec<_>>(),
+        "nextBefore":page.next_before.as_ref().map(|cursor| json!({
+            "answeredAtMs":cursor.answered_at_ms,"requestId":cursor.request_id
+        })),
+    })).expect("serializable request answers")
 }
 
 pub fn encode_history_detail(detail: &HistoryDetail) -> Vec<u8> {

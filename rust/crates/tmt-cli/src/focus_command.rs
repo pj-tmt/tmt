@@ -1,5 +1,5 @@
-//! `tmt focus`: show a verified identity's pane, or a pane (for example to
-//! return), in the invoking user's tmux client. It changes only the view.
+//! `tmt focus`: show a verified identity's host pane, or attach to a built-in
+//! terminal. Directional focus remains a host-owned pane operation.
 //! `tmt focus --client` only names that client and the pane it shows.
 
 use crate::{
@@ -71,23 +71,32 @@ fn no_neighbour() -> Failure {
 }
 
 enum FocusResult {
+    Attached(crate::attach_command::Prepared),
     Focused(Focused),
     Swapped(PaneSwap),
 }
 
 /// `target` is an identity UUID, name or pane target (such as a previous
 /// `from`); Focus resolves UUIDs first through their recorded binding.
-fn run(target: String, into: Option<SwapDirection>) -> Result<FocusResult, Failure> {
+fn run(
+    target: String,
+    into: Option<SwapDirection>,
+    mode: OutputMode,
+) -> Result<FocusResult, Failure> {
     // A focus changes the invoking user's own view: the caller's host.
     let host = Host::for_caller(&CallerEnvironment::current());
     // A tmux view needs the invoking client; an external host focuses
     // through its driver, which owns which view moves.
-    let invoker = match host.kind() {
-        tmt_core::host::HostKind::External(_) => None,
-        _ => Some(invoker()?),
+    let swap_invoker = if into.is_some() {
+        match host.kind() {
+            tmt_core::host::HostKind::External(_) => None,
+            _ => Some(invoker()?),
+        }
+    } else {
+        None
     };
     if into.is_some() {
-        let caller = invoker
+        let caller = swap_invoker
             .as_ref()
             .and_then(|invoker| invoker.pane.as_deref())
             .ok_or_else(host_unsupported)?;
@@ -97,6 +106,16 @@ fn run(target: String, into: Option<SwapDirection>) -> Result<FocusResult, Failu
         if verified.as_deref() != Some(caller) {
             return Err(host_unsupported());
         }
+    }
+    // Without a caller host, only an interactive terminal can attach to a
+    // built-in member. Preserve the existing no-client refusal before opening
+    // storage for machine/non-terminal focus; external hosts own their focus.
+    if into.is_none()
+        && !matches!(host.kind(), tmt_core::host::HostKind::External(_))
+        && (mode.json
+            || tmt_cli_style::Interaction::detect(false).view() != tmt_cli_style::Mode::Interactive)
+    {
+        invoker()?;
     }
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let mut storage = Storage::open(&paths.database).map_err(|error| {
@@ -110,7 +129,7 @@ fn run(target: String, into: Option<SwapDirection>) -> Result<FocusResult, Failu
     })?;
     let pending = target::resolve_focus(&mut storage, &target).and_then(|observed| {
         if let Some(direction) = into {
-            let invoker = invoker.as_ref().ok_or_else(host_unsupported)?;
+            let invoker = swap_invoker.as_ref().ok_or_else(host_unsupported)?;
             if observed.server.host != host.kind() || observed.server.socket_path != invoker.socket
             {
                 return Err(host_unsupported());
@@ -137,6 +156,14 @@ fn run(target: String, into: Option<SwapDirection>) -> Result<FocusResult, Failu
                 .map(FocusResult::Swapped)
                 .map_err(|error| pane_failure(error, &observed.pane.id));
         }
+        if Host::for_server(&observed.server).has_terminal_stream() {
+            crate::attach_command::ensure_interactive(mode)?;
+            return crate::attach_command::prepare_observed(observed).map(FocusResult::Attached);
+        }
+        let invoker = match host.kind() {
+            tmt_core::host::HostKind::External(_) => None,
+            _ => Some(invoker()?),
+        };
         let (Some(identity), binding @ Some(_)) = (observed.identity, observed.binding) else {
             // An unbound pane target has no identity evidence to verify.
             let pane = observed.pane.id;
@@ -195,7 +222,7 @@ pub fn client(mode: OutputMode) -> io::Result<u8> {
 }
 
 pub fn execute(target: String, into: Option<SwapDirection>, mode: OutputMode) -> io::Result<u8> {
-    let result = match run(target, into) {
+    let result = match run(target, into, mode) {
         Ok(result) => result,
         Err(mut error) => {
             if into.is_some() && error.code == "HOST_UNSUPPORTED" {
@@ -204,9 +231,13 @@ pub fn execute(target: String, into: Option<SwapDirection>, mode: OutputMode) ->
             return error.publish(mode);
         }
     };
+    if let FocusResult::Attached(prepared) = result {
+        return crate::attach_command::execute_prepared(prepared, false, mode);
+    }
     let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     let terminal = stdout.terminal();
     let focused = match result {
+        FocusResult::Attached(_) => unreachable!("attachment returned before text output"),
         FocusResult::Swapped(swapped) => {
             if mode.json {
                 let document = if swapped.already {

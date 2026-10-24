@@ -102,6 +102,7 @@ fn finish_parse(invocation: Invocation, mode: OutputMode) -> Result<Parsed, Pars
                 | Invocation::Learn { .. }
                 | Invocation::Run { .. }
                 | Invocation::Resume { .. }
+                | Invocation::Attach { .. }
         )
     {
         return Err(ParseError {
@@ -349,6 +350,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             name: text(m, "name"),
             driver: text(m, "driver"),
             move_running: flag(m, "move") || text(m, "driver").is_some(),
+            fresh: flag(m, "new"),
             show: flag(m, "show"),
             forget_launch: flag(m, "forget-launch"),
             model: text(m, "model"),
@@ -459,7 +461,8 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             let expect=required(m,"expect");
             if !tmt_core::content_digest::is_sha256(&expect) {return Err("--expect requires a lowercase SHA-256 digest.".into());}
             let pane=required(m,"pane-target");
-            if !tmt_core::host::HostKind::Tmux.is_pane_id(&pane) {return Err("Guarded add requires an exact tmux pane ID.".into());}
+            // Driver syntax is registered after parsing; the command checks it.
+            if !tmt_core::host::HostKind::Tmux.is_pane_id(&pane) && !tmt_core::host::has_pane_id_shape(&pane) {return Err("Guarded add requires an exact pane ID.".into());}
             let identity=text(m,"identity");
             if identity.as_ref().is_some_and(|id|!tmt_core::endpoint::valid_server_id(id) || *id!=id.to_ascii_lowercase()) {return Err("--identity requires a canonical UUID.".into());}
             let name=text(m,"name");
@@ -479,10 +482,41 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             name: required(m, "name"),
             force: flag(m, "force"),
         },
+        ["stop"] => Invocation::Stop {
+            name: required(m, "name"),
+            close: flag(m, "close"),
+        },
         ["mv"] | ["identity", "mv"] => Invocation::Rename {
             old: required(m, "old"),
             new: required(m, "new"),
         },
+        ["talk"] if text(m, "remote").is_some() => {
+            if flag(m, "passthrough")
+                || flag(m, "urgent")
+                || flag(m, "no-preamble")
+                || supplied(m, "timeout")
+                || supplied(m, "delay")
+                || supplied(m, "room")
+                || supplied(m, "kind")
+            {
+                return Err("--remote sends one request through Remote and returns at once; it takes no --passthrough, --urgent, --no-preamble, --timeout, --delay, --room or --kind.".into());
+            }
+            let target = required(m, "target");
+            let expect_name = text(m, "expect-name");
+            if tmt_core::dispatch::canonical_id(&target) != expect_name.is_some() {
+                return Err("A UUID target needs --expect-name <name>, and --expect-name is only for a UUID target.".into());
+            }
+            Invocation::TalkRemote {
+                remote: required(m, "remote"),
+                target,
+                expect_name,
+                message: required(m, "message"),
+                originator: text(m, "identity"),
+            }
+        }
+        ["talk"] if text(m, "expect-name").is_some() => {
+            return Err("--expect-name pins a UUID target on a Remote peer and needs --remote.".into());
+        }
         ["talk"] => {
             let timeout = text(m, "timeout")
                 .map(|value| duration(&value))
@@ -523,6 +557,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             }
         }
         ["focus"] if flag(m, "client") => Invocation::FocusClient,
+        ["attach"] => Invocation::Attach {
+            target: required(m, "target"),
+            detach_others: flag(m, "detach-others"),
+        },
         ["focus"] => Invocation::Focus {
             target: required(m, "target"),
             into: text(m, "into").map(|direction| match direction.as_str() {
@@ -604,7 +642,17 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["identity", "create"] => {
             Invocation::Identity(IdentityRequest::Create(required(m, "name")))
         }
-        ["identity", "show"] => Invocation::Identity(IdentityRequest::Show(text(m, "name"))),
+        ["identity", "show"] => {
+            let (name, expect_name) = (text(m, "name"), text(m, "expect-name"));
+            if expect_name.is_some()
+                && !name
+                    .as_deref()
+                    .is_some_and(tmt_core::dispatch::canonical_id)
+            {
+                return Err("--expect-name needs the identity's UUID.".into());
+            }
+            Invocation::Identity(IdentityRequest::Show { name, expect_name })
+        }
         ["identity", "ls"] => {
             let mut filters = Vec::new();
             for expression in texts(m, "where") {

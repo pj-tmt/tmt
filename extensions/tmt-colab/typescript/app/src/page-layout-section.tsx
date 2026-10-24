@@ -29,32 +29,30 @@ export function PageLayoutSection({
   }, [reason, expanded]);
   return (
     <section className="page-layout-info" aria-labelledby="page-layout-heading">
-      <dl>
-        <dt id="page-layout-heading">{text.pageLayout.heading}</dt>
-        <dd>
-          {layout === undefined ? text.pageLayout.freeform : names[layout]}
-          {layout === 'canvas' && reason !== undefined && (
-            <>
-              <p
-                ref={line}
-                className="page-layout-reason"
-                data-expanded={expanded ? '' : undefined}
-                title={reason}
-              >
-                {reason}
-              </p>
-              {(clamped || expanded) && (
-                <BrowserAction
-                  type="button"
-                  label={expanded ? text.pageLayout.showLess : text.pageLayout.showAll}
-                  variant="text"
-                  onActivate={() => setExpanded(!expanded)}
-                />
-              )}
-            </>
+      <h3 id="page-layout-heading">{text.pageLayout.heading}</h3>
+      <p className="page-layout-value">
+        {layout === undefined ? text.pageLayout.freeform : names[layout]}
+      </p>
+      {layout === 'canvas' && reason !== undefined && (
+        <>
+          <p
+            ref={line}
+            className="page-layout-reason"
+            data-expanded={expanded ? '' : undefined}
+            title={reason}
+          >
+            {reason}
+          </p>
+          {(clamped || expanded) && (
+            <BrowserAction
+              type="button"
+              label={expanded ? text.pageLayout.showLess : text.pageLayout.showAll}
+              variant="text"
+              onActivate={() => setExpanded(!expanded)}
+            />
           )}
-        </dd>
-      </dl>
+        </>
+      )}
     </section>
   );
 }

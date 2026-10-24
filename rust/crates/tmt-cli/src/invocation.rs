@@ -94,6 +94,7 @@ pub enum Invocation {
         name: Option<String>,
         driver: Option<String>,
         move_running: bool,
+        fresh: bool,
         show: bool,
         forget_launch: bool,
         model: Option<String>,
@@ -134,6 +135,10 @@ pub enum Invocation {
         name: String,
         force: bool,
     },
+    Stop {
+        name: String,
+        close: bool,
+    },
     Rename {
         old: String,
         new: String,
@@ -147,6 +152,14 @@ pub enum Invocation {
         originator: Option<String>,
         options: TalkOptions,
     },
+    /// One request to a named Remote peer. A UUID target is pinned and carries its expected name.
+    TalkRemote {
+        remote: String,
+        target: String,
+        expect_name: Option<String>,
+        message: String,
+        originator: Option<String>,
+    },
     Check {
         target: String,
         lines: Option<u64>,
@@ -159,6 +172,10 @@ pub enum Invocation {
     },
     /// Read-only: the invoker's tmux client and the pane it shows.
     FocusClient,
+    Attach {
+        target: String,
+        detach_others: bool,
+    },
     Config(ConfigRequest),
     ExtensionHooks(ExtensionHooksRequest),
     Driver(DriverRequest),
@@ -400,7 +417,11 @@ pub enum ConfigRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub enum IdentityRequest {
     Create(String),
-    Show(Option<String>),
+    /// `expect_name` pins the selected UUID to the name its caller last saw.
+    Show {
+        name: Option<String>,
+        expect_name: Option<String>,
+    },
     List(Vec<IdentityFilterRequest>),
     Metadata {
         identity: Option<String>,

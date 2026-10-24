@@ -47,7 +47,7 @@ independent of storage access.
 | `capabilities`           | `{}`                                                                                                | Protocol range, operations, byte limits and ordinary commands                                                                                                     |
 | `storage.root`           | `{}`                                                                                                | `dataRoot`: absolute selected TMT data directory; no directory creation or storage/config reads                                                                   |
 | `changes.cursor`         | `{}`                                                                                                | `cursor`: an opaque non-negative integer that changes whenever core's durable records change (see below)                                                          |
-| `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`; optional `limit` and `before`  | `items`, `nextBefore`                                                                                                                                             |
+| `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`/`"answers"`; `limit`, `before`  | `items`, `nextBefore`                                                                                                                                             |
 | `requests.show`          | `requestId`                                                                                         | Request detail including retained prompt/final state; a passthrough adds its turn-output capture ([Passthrough](request-response-v1.md#passthrough))              |
 | `requests.sendNow`       | `requestId`; the envelope names the caller (originator or the user)                                 | `status` (`sent`/`already`), `requestId`, `state`; a refusal is a `SEND_NOW_*` or `DELIVERY_*` fault ([Send now](request-response-v1.md#send-now))                |
 | `workspace.capture`      | Empty object                                                                                        | Bounded `attempted`, `published`, `skipped` counts for recorded sockets only (see [Workspace recovery](workspace-v1.md#capture-triggers-and-public-backstop))     |
@@ -441,10 +441,17 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   Historical requests are not attributed on initial baseline. At most four
   distinct model IDs are retained per increment; unavailable evidence or the
   existing opaque-state size bound omits attribution while retaining totals.
-- `consumption.rateLimits` is `{observedAtMs,windows}` from the same newest accepted
+- `consumption.rateLimits` is `{provider,observedAtMs,windows}` from the same newest accepted
   Codex source line as the counters. It is absent for Claude, when that line carries
   no limits and when any field is invalid (never partial). `observedAtMs` is that
   line's own time, not the read time, so an idle session reports old limits as old.
+  `provider` is the driver id of that source line (`codex` today; another value appears
+  only when Core gains a real limit source for that driver). Consumers use it and never
+  infer a provider from a seat's model lines; a value stored before the field reads as
+  `codex`. Core publishes no account identifier: the source line carries none (its
+  `limit_id` names a limit family and `plan_type` a plan tier shared by every account on
+  it), so a consumer recognises one account's window only by `(provider, windowMinutes,
+resetsAtMs)`.
   `windows` has one or two `{windowMinutes,usedPercent,resetsAtMs}` entries in
   strictly ascending `windowMinutes`: `usedPercent` (0–100) of the account's
   allowance used in that window and `resetsAtMs` its UTC Unix millisecond reset.
@@ -845,6 +852,21 @@ header with null `responsePreview` and false `previewTruncated`; expired request
 metadata is omitted. The view uses one observation snapshot without housekeeping,
 acknowledgment, retention renewal or other durable row changes.
 
+To count what has answered an originator's messages, call `requests.list` with
+`{"originatorId":"<canonical UUID>","view":"answers"}`; `recipientId` and `roomId` are
+refused. It lists the originator's requests that earned an answer, newest first: a
+submitted final (`answer:"final"`, at its submission time) or a passthrough's captured
+turn in state `answered` (`answer:"turn"`, at its settle time;
+[Passthrough](request-response-v1.md#passthrough)). A request is one or the other. An
+unanswered, refused, pending or `no_answer` request is absent. Items carry metadata
+only, `{requestId, kind, sender, recipientId, answeredAtMs, answer}`, never a prompt,
+reply or captured text; `requests.show` returns those. Limits, snapshot and housekeeping
+follow the results view (default 8, `limit` 1 through 50). One cursor orders both kinds by
+`(answeredAtMs, requestId)` descending: `nextBefore` is null at the end or
+`{answeredAtMs, requestId}`, passed unchanged as `before`; any other cursor field is
+invalid. An older core answers `API_INPUT_INVALID`. The `results` view and reply
+collection are unchanged and never include captured turns.
+
 A submitted final means a reply exists, not that the work succeeded. Core does
 not classify historical replies as question or blocked, or infer those categories
 from body text or delivery failures. Extensions own those labels from their inbox
@@ -917,7 +939,7 @@ release. At most 4 KiB of UTF-8 JSON:
 }
 ```
 
-- `version` is `1`. `uses` has at most 8 entries. The only optional top-level key is `requiresCli` below; other unknown keys and duplicate `feature` values are rejected.
+- `version` is `1`. `uses` has at most 8 entries. The only optional top-level keys are `requiresCli` and `messageProtocols` below; other unknown keys and duplicate `feature` values are rejected.
 - `feature` matches `[a-z][a-z0-9-]{0,31}`. `label` is 1 to 48 printable characters: no control,
   bidirectional-override or line-separator characters, so it is safe on one terminal line (the same rule
   as notice display fields).
@@ -941,6 +963,12 @@ automatic CLI upgrade. This comparison uses ordinary SemVer precedence: `5.0.0-d
 `5.0.0-alpha.N`; release tooling's preparation-version ordering is separate.
 Damaged repair checks the acquired, verified release's minimum before republishing and preserves the
 prefix on refusal; healthy repair remains a no-op.
+
+**Message protocols.** Version 1 may also declare optional `messageProtocols`: one to eight ascending
+integers from 1 to 255, the Core message-protocol versions the extension's `message` command speaks.
+Core reads it only from the installed, verified release (`native_install::message_protocols`), never
+freezes it in the receipt and never runs the extension to probe it. No declaration means none. As with
+`requiresCli`, an older installer rejects the unknown key, so the supporting CLI must publish first.
 
 `extension ls` determines CLI compatibility from the verified installed receipt only. A declared minimum adds
 `cli: {requires, running, compatible}` to that extension's JSON row. An incompatible minimum adds one

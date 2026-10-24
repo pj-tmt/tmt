@@ -29,6 +29,11 @@ use tmt_core::{
 };
 
 const BUDGET: Duration = Duration::from_millis(crate::invocation::MAXIMUM_HOOK_WORK_BUDGET_MS);
+use crate::session_learning::Learning;
+use tmt_core::binding::session::launch::{
+    SessionLearningReason as Reason, SessionLearningStep as Step,
+};
+
 const ERROR_LINE: &str = "tmt: lifecycle context unavailable; continuing without context.";
 
 /// Provider hooks always exit successfully. The existing bounded process owner
@@ -41,6 +46,10 @@ pub fn execute(
     activity_only: bool,
 ) -> io::Result<u8> {
     let started = Instant::now();
+    let learning = Learning::capture(provider);
+    let mut diagnostic_deadline = started + BUDGET;
+    let mut work_deadline = diagnostic_deadline;
+    let mut failure_reason = Reason::WorkerError;
     // A turn end fires after every turn; its failures stay silent.
     let mut turn_end = false;
     let mut publication_deadline = started;
@@ -54,20 +63,31 @@ pub fn execute(
         } else {
             channel_duration.unwrap_or(BUDGET)
         };
-        let deadline = started + duration;
-        publication_deadline = deadline;
+        diagnostic_deadline = started + duration;
+        publication_deadline = diagnostic_deadline;
+        // Parent cleanup/diagnostics share the original budget; never renew it.
+        let deadline = if worker {
+            diagnostic_deadline
+        } else {
+            diagnostic_deadline
+                .checked_sub(Duration::from_millis(200))
+                .unwrap_or(started)
+        };
+        work_deadline = deadline;
+        if let Some(learning) = &learning {
+            let _ = learning.stage(Step::Input, deadline);
+        }
         let input = read_stdin_bounded(
-            if channel_duration.is_some() || work_budget_ms.is_some() {
-                deadline.saturating_duration_since(Instant::now())
-            } else {
-                BUDGET
-            },
+            deadline.saturating_duration_since(Instant::now()),
             tmt_adapters::runtime::hook_protocol::HOOK_INPUT_LIMIT,
         )
         .map_err(|_| ())?;
         turn_end = lifecycle.decode_turn(input.as_bytes()).is_some();
         if worker {
-            return observe(provider, &input, deadline, activity_only);
+            return observe(provider, &input, deadline, activity_only, learning.as_ref());
+        }
+        if let Some(learning) = &learning {
+            let _ = learning.stage(Step::DriverAdmission, deadline);
         }
         lifecycle
             .wait_for_hook_admission(input.as_bytes(), deadline)
@@ -86,13 +106,34 @@ pub fn execute(
                 deadline,
                 max_output_bytes: 64 * 1024,
             })
-            .map_err(|_| ())?;
+            .map_err(|error| {
+                if error.kind == tmt_adapters::process::CommandFailure::Timeout {
+                    failure_reason = Reason::BudgetTimeout;
+                }
+            })?;
         if !output.stderr.is_empty() {
             return Err(());
         }
         crate::workspace_hook::Observation::decode(&output.stdout)
     })();
+    if !worker
+        && result.is_ok()
+        && let Some(learning) = &learning
+    {
+        let _ = learning.succeeded(diagnostic_deadline);
+    }
     let failed = result.is_err();
+    if failed && let Some(learning) = &learning {
+        if Instant::now() >= work_deadline {
+            failure_reason = Reason::BudgetTimeout;
+        }
+        if learning.fail(failure_reason, diagnostic_deadline).is_err() && !worker {
+            let _ = writeln!(
+                io::stderr().lock(),
+                "tmt: session-learning diagnostic could not be saved."
+            );
+        }
+    }
     match result {
         Ok(observation) => {
             if worker {
@@ -308,6 +349,7 @@ pub(super) fn verified_lifecycle_caller<R: CommandRunner + Clone>(
             session,
             verified_binding,
             start: None,
+            learning: None,
         },
         deadline,
         runner,
@@ -321,6 +363,7 @@ struct CallerRequest<'a> {
     session: &'a ProviderSessionId,
     verified_binding: Option<&'a str>,
     start: Option<&'a dyn tmt_adapters::runtime::lifecycle::LifecycleObservation>,
+    learning: Option<&'a Learning>,
 }
 
 fn verified_caller<R: CommandRunner + Clone>(
@@ -335,6 +378,7 @@ fn verified_caller<R: CommandRunner + Clone>(
         session,
         verified_binding,
         start,
+        learning,
     } = request;
     let paths = ConfigPaths::discover().map_err(|_| ())?;
     let now = tmt_adapters::request_runtime::wall_time_ms();
@@ -352,7 +396,8 @@ fn verified_caller<R: CommandRunner + Clone>(
         .map_err(|_| ())?
         else {
             if let Some(event) = start
-                && let Some(observed) = observed_hook_pane(&paths, deadline, runner.clone())?
+                && let Some(observed) =
+                    observed_hook_pane(&paths, deadline, runner.clone(), learning)?
                 && let Some(stored) = observed.stored.as_ref()
             {
                 // An ambient pane variable cannot attribute a shared server:
@@ -405,7 +450,7 @@ fn verified_caller<R: CommandRunner + Clone>(
         };
         (stored, snapshot, process)
     } else {
-        let Some(observed) = observed_hook_pane(&paths, deadline, runner.clone())? else {
+        let Some(observed) = observed_hook_pane(&paths, deadline, runner.clone(), learning)? else {
             return Ok(Caller::Unobserved);
         };
         let HookPane {
@@ -414,6 +459,9 @@ fn verified_caller<R: CommandRunner + Clone>(
             pid,
             marked,
         } = observed;
+        if let Some(learning) = learning {
+            let _ = learning.stage(Step::ProviderVerification, deadline);
+        }
         let process = lifecycle
             .observe_in_pane(&runner, u64::from(std::process::id()), pid, deadline)
             .ok_or_else(|| {
@@ -474,7 +522,11 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
     paths: &ConfigPaths,
     deadline: Instant,
     runner: R,
+    learning: Option<&Learning>,
 ) -> Result<Option<HookPane>, ()> {
+    if let Some(learning) = learning {
+        let _ = learning.stage(Step::HostDiscovery, deadline);
+    }
     let environment = CallerEnvironment::current();
     let panes = Host::for_verified_caller(
         &environment,
@@ -490,6 +542,9 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
             Err(())
         };
     };
+    if let Some(learning) = learning {
+        let _ = learning.stage(Step::PaneSnapshot, deadline);
+    }
     let snapshot = panes
         .observe_snapshot(OperationOptions {
             deadline: Some(deadline),
@@ -508,6 +563,9 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
         .is_some_and(|pid| pid != observed_pane.pane_pid)
     {
         return Err(());
+    }
+    if let Some(learning) = learning {
+        let _ = learning.stage(Step::Storage, deadline);
     }
     let stored = Storage::context_by_pane(
         &paths.database,
@@ -615,7 +673,11 @@ fn observe(
     input: &str,
     deadline: Instant,
     activity_only: bool,
+    learning: Option<&Learning>,
 ) -> Result<Observation, ()> {
+    if let Some(learning) = learning {
+        let _ = learning.stage(Step::Decode, deadline);
+    }
     let registry = RuntimeRegistry::first_party();
     let harness = HarnessId::new(provider).map_err(|_| ())?;
     let lifecycle = registry.lifecycle(&harness).ok_or(())?;
@@ -680,6 +742,7 @@ fn observe(
             session: event.session(),
             verified_binding: event.verified_binding(),
             start: event.starting().then_some(event.as_ref()),
+            learning,
         },
         deadline,
         SupervisedProbeRunner,
@@ -710,6 +773,20 @@ fn observe(
         BindingEvidence::Active(_)
     ) {
         return Err(());
+    }
+    if event.transition() == Some(tmt_core::binding::session::SessionTransition::Ended)
+        && let Some(learning) = learning
+        && learning.ended(&stored, &process, event.as_ref(), deadline)?
+    {
+        return Ok(Observation::default());
+    }
+    if event.starting()
+        && let Some(learning) = learning
+    {
+        let _ = learning.stage(Step::Storage, deadline);
+        if learning.defer(&stored, &process, host, event.as_ref(), lifecycle, deadline)? {
+            return Ok(Observation::default());
+        }
     }
     let previous = match &binding.session.key {
         Some(key) if key.incarnation == process => RuntimeLiveness::Alive,
@@ -888,6 +965,9 @@ fn observe(
         )
     {
         return Err(());
+    }
+    if let Some(learning) = learning {
+        let _ = learning.stage(Step::Context, deadline);
     }
     // Extension contributions share the hook's remaining budget.
     let context = crate::context_command::render_verified(
@@ -1114,7 +1194,20 @@ pub(super) fn commit_session(
                         tmt_adapters::request_runtime::wall_time_ms(),
                     );
                 }
-                records.set_session_preferences(&binding.identity_id, &preferences)
+                if !records.set_session_preferences(&binding.identity_id, &preferences)? {
+                    return Ok(false);
+                }
+                if let Some(owner) = proposed.next.launch_owner.as_ref()
+                    && let Some(observed) = records.launch_observation(&binding.id, owner)?
+                {
+                    crate::session_learning::settle(
+                        records,
+                        &observed,
+                        tmt_core::binding::session::launch::LaunchStatus::Admitted,
+                        None,
+                    )?;
+                }
+                Ok(true)
             } else {
                 Ok(true)
             }

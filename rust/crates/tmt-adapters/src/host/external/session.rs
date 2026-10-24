@@ -36,9 +36,9 @@ use tmt_core::{
     identity::Identity,
 };
 use tmt_driver_protocol::{
-    CaptureRequest, CaptureResponse, ClearRequest, ClearResponse, DriverError, ErrorCode,
-    FocusRequest, InputRequest, Marker, NameAgentRequest, Op, Pane, PromptRequest, PublishRequest,
-    ServerRequest, ServerResponse, SnapshotRequest, SnapshotResponse,
+    CaptureRequest, CaptureResponse, ClearRequest, ClearResponse, CloseRequest, DriverError,
+    ErrorCode, FocusRequest, InputRequest, Marker, NameAgentRequest, Op, Pane, PromptRequest,
+    PublishRequest, ServerRequest, ServerResponse, SnapshotRequest, SnapshotResponse,
 };
 
 /// A handle's approved drivers and, when its primary host is external, that
@@ -223,6 +223,8 @@ pub(super) fn driver_process<R: CommandRunner>(
 /// that names it.
 pub struct Session<'a, R> {
     drivers: &'a Drivers<R>,
+    /// A guarded bind's discovered target, whose socket it observes again.
+    discovery: Option<tmt_core::discovery::DiscoveryTarget>,
     deadline: Instant,
     /// Core's paste-to-Enter delay, the same setting tmux uses.
     enter_delay: Duration,
@@ -239,6 +241,7 @@ impl<'a, R: CommandRunner> Session<'a, R> {
     pub fn new(drivers: &'a Drivers<R>) -> Self {
         Self {
             drivers,
+            discovery: None,
             deadline: Instant::now(),
             enter_delay: Duration::ZERO,
             slots: HashMap::new(),
@@ -248,6 +251,29 @@ impl<'a, R: CommandRunner> Session<'a, R> {
     pub fn with_enter_delay(mut self, delay: Duration) -> Self {
         self.enter_delay = delay;
         self
+    }
+
+    pub fn with_discovery_target(mut self, target: tmt_core::discovery::DiscoveryTarget) -> Self {
+        self.discovery = Some(target);
+        self
+    }
+
+    /// The pane's fence as discovery reads it now, on the target's socket;
+    /// `None` when it is gone or not adoptable.
+    pub fn discovery_target(
+        &self,
+        host: HostName,
+        pane: &str,
+    ) -> Result<Option<tmt_core::discovery::DiscoveryTarget>, HostError> {
+        let socket = self.discovery.as_ref().map(|target| target.socket.as_str());
+        let observation = self
+            .drivers
+            .discover(host, socket, Some(pane), self.deadline)?;
+        Ok(observation
+            .candidates
+            .into_iter()
+            .find(|candidate| candidate.pane == pane && candidate.adoptable())
+            .and_then(|candidate| candidate.fence))
     }
 
     pub fn begin_coordination(&mut self) {
@@ -431,7 +457,11 @@ struct Observed {
     panes: Option<Vec<PaneObservation>>,
 }
 
-fn observation(host: &HostName, pane: Pane, start: Option<ProcessIncarnation>) -> PaneObservation {
+pub(super) fn observation(
+    host: &HostName,
+    pane: Pane,
+    start: Option<ProcessIncarnation>,
+) -> PaneObservation {
     PaneObservation {
         agent_name: pane.agent_name,
         // An external host's wire has no session or window; only the host is known.
@@ -670,6 +700,53 @@ impl<R: CommandRunner> HostDriver for ExternalDriver<'_, R> {
             }),
             Err(error) => Err(ActionError::Evidence(error)),
         }
+    }
+
+    fn close_preflight(&self) -> Result<(), ActionError> {
+        if self.process.supports(Op::Close) {
+            Ok(())
+        } else {
+            Err(ActionError::HostUnsupported)
+        }
+    }
+
+    /// The driver's own mark on the one pane, read from a one-pane snapshot. A pane that is
+    /// gone, or no longer the verified shell, reads as no answer.
+    fn opened_by_tmt(&mut self, binding: &Binding) -> Result<Option<bool>, HostError> {
+        let answer = self.call::<SnapshotResponse>(SnapshotRequest {
+            socket: binding.server.socket_path.clone(),
+            panes: Some(vec![binding.pane_id.clone()]),
+        })?;
+        match answer {
+            Ok(snapshot) => Ok(snapshot
+                .panes
+                .iter()
+                .find(|pane| pane.id == binding.pane_id && pane.pane_pid == binding.pane_pid)
+                .map(|pane| pane.opened_by_tmt)),
+            Err(error) if matches!(error.code, ErrorCode::Unavailable | ErrorCode::NotFound) => {
+                Ok(None)
+            }
+            Err(error) => Err(refused(&self.process, error)),
+        }
+    }
+
+    /// One `close` for exactly this pane; the driver refuses unless it still runs the
+    /// verified shell. No retry, whatever the answer.
+    fn close_pane(&mut self, binding: &Binding) -> Result<(), ActionError> {
+        self.close_preflight()?;
+        let request = CloseRequest {
+            socket: binding.server.socket_path.clone(),
+            pane_id: binding.pane_id.clone(),
+            pane_pid: binding.pane_pid,
+        };
+        self.process
+            .call_done(
+                Op::Close,
+                request,
+                Instant::now() + Op::Close.bounds().deadline,
+            )
+            .map_err(|error| ActionError::Evidence(HostError::Driver(error)))?
+            .map_err(|error| ActionError::Evidence(refused(&self.process, error)))
     }
 
     fn name_agent(&mut self, binding: &Binding, name: &str) -> Result<AgentNaming, HostError> {

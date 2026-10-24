@@ -1061,6 +1061,18 @@ mod cli_composition {
             let mut no = |out: &tmt_remote::deploy_command::DeployCommandOutput| {
                 asked = true;
                 assert_eq!(out.json["plan"]["hosting"]["replaces"], view.replaces);
+                assert_eq!(
+                    out.human.matches("Register this machine as owner").count(),
+                    1,
+                    "both short and full interactive previews disclose owner access exactly once"
+                );
+                assert!(
+                    out.json["plan"]["steps"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|id| id == "owner:register")
+                );
                 assert!(
                     out.human.contains(match kind {
                         "own" => "Website files   no change",
@@ -2183,4 +2195,57 @@ fn account_changed_after_the_displayed_snapshot_refuses_before_effects() {
     ));
     assert!(provider.calls.is_empty() && provider.effects.is_empty());
     assert!(store.load_or_draft().unwrap().run.is_none());
+}
+
+#[test]
+fn preview_names_and_digest_binds_the_native_agent_talk_policy() {
+    let root = Root::new();
+    let layout = root.layout();
+    let mut store =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
+    store.persist(&DeployRecord::new(ID)).unwrap();
+    let plan = compose(
+        Target {
+            backend: CloudBackend::Firestore,
+            physical_ttl: false,
+        },
+        &[],
+    )
+    .unwrap();
+    let composed = tmt_remote::rules::compose(&plan, &[]).unwrap();
+    let mut port = Fake::new(ACCOUNT);
+    let out = execute(
+        &input(&plan, composed.rules.as_bytes()),
+        &DeployCommandOptions::default(),
+        &mut store,
+        &mut port,
+        7,
+    )
+    .unwrap();
+    assert!(out.human.contains(&format!(
+        "Agent talk Rules: /m/{{machine}}; carrier bound {} B; descriptor bound {} B; enrollment bound {} B",
+        tmt_remote::limits::CLOUD_CARRIER_BYTES,
+        tmt_remote::limits::CLOUD_DESCRIPTOR_BYTES,
+        tmt_remote::limits::CLOUD_ENROLLMENT_BYTES
+    )));
+    assert_eq!(
+        out.json["plan"]["rules"]["digest"],
+        deploy_run::rules_digest(composed.rules.as_bytes())
+    );
+    assert!(
+        port.effects.is_empty(),
+        "preview cannot deploy the added policy"
+    );
+    let other = execute(
+        &input(&plan, b"different Rules"),
+        &DeployCommandOptions::default(),
+        &mut store,
+        &mut port,
+        7,
+    )
+    .unwrap();
+    assert_ne!(
+        out.json["planDigest"], other.json["planDigest"],
+        "authorization binds the composed Rules bytes"
+    );
 }

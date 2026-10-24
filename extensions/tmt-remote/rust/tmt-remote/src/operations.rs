@@ -36,6 +36,7 @@ struct Dispatch {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct Intent {
     operation_id: String,
+    #[serde(default)]
     pub(crate) recipient_ids: Vec<String>,
     pub(crate) message: String,
     kind: String,
@@ -162,7 +163,7 @@ pub(crate) fn invalid() -> RemoteError {
 }
 /// A client's `dispatch.create`: only the anonymous originator. A caller never selects an identity.
 fn dispatch(bytes: &[u8]) -> Result<Dispatch, RemoteError> {
-    let value = frozen_dispatch(bytes)?;
+    let value = parsed_dispatch(bytes)?;
     if value.identity.is_some() {
         return Err(invalid());
     }
@@ -171,6 +172,13 @@ fn dispatch(bytes: &[u8]) -> Result<Dispatch, RemoteError> {
 /// A journaled `dispatch.create`: the anonymous form a client sent, or the same send attributed to
 /// the person at this machine. Never both and never neither.
 fn frozen_dispatch(bytes: &[u8]) -> Result<Dispatch, RemoteError> {
+    let value = parsed_dispatch(bytes)?;
+    if value.input.recipient_ids.len() != 1 {
+        return Err(invalid());
+    }
+    Ok(value)
+}
+fn parsed_dispatch(bytes: &[u8]) -> Result<Dispatch, RemoteError> {
     let value: Dispatch = serde_json::from_slice(bytes).map_err(|_| invalid())?;
     if value
         .request_digest
@@ -188,9 +196,15 @@ fn frozen_dispatch(bytes: &[u8]) -> Result<Dispatch, RemoteError> {
         || value.operation != "dispatch.create"
         || !attribution
         || value.input.kind != "request"
-        || value.input.recipient_ids.len() != 1
+        || value.input.recipient_ids.len() > 1
+        || (value.input.recipient_ids.is_empty()
+            && (value.input.expected_name.is_none() || value.created_at_ms.is_none()))
         || !canonical::is_core_id(&value.input.operation_id)
-        || !canonical::is_core_id(&value.input.recipient_ids[0])
+        || value
+            .input
+            .recipient_ids
+            .iter()
+            .any(|id| !canonical::is_core_id(id))
     {
         return Err(invalid());
     }
@@ -356,7 +370,6 @@ impl Operations {
                 if value.input.operation_id != permit.message.envelope().id {
                     return Err(invalid());
                 }
-                permits(&permit.grant, &value.input)?;
                 if permit.cloud()
                     && (value.input.expected_name.is_none() || value.created_at_ms.is_none())
                 {
@@ -372,6 +385,35 @@ impl Operations {
                 }) {
                     return Err(invalid());
                 }
+                if value.input.recipient_ids.is_empty() {
+                    // Recover an adopted UUID rather than resolving a name again after a rename.
+                    let known = match permit.with_store(|store| {
+                        store.owned(&permit.grant, &value.input.operation_id, now_ms()?)
+                    }) {
+                        Ok(owned) => Some(owned),
+                        Err(error)
+                            if error.owned_read()
+                                == Some(crate::error::OwnedReadFailure::Unavailable) =>
+                        {
+                            None
+                        }
+                        Err(error) => return Err(error),
+                    };
+                    let (ids, name) = if let Some(known) = known {
+                        let intent =
+                            frozen_dispatch(known.frozen.as_deref().ok_or_else(invalid)?)?.input;
+                        (intent.recipient_ids, intent.expected_name)
+                    } else {
+                        let target = self.core.cloud_target(
+                            value.input.expected_name.as_deref().ok_or_else(invalid)?,
+                            &self.stop,
+                        )?;
+                        (vec![target.id], Some(target.name))
+                    };
+                    value.input.recipient_ids = ids;
+                    value.input.expected_name = name;
+                }
+                permits(&permit.grant, &value.input)?;
                 value.input.message =
                     format!("[remote: {}]\n{}", permit.grant.name, value.input.message);
                 let mut wire = json!({"version":1,"operation":"dispatch.create","originator":"anonymous",

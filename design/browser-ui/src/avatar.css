@@ -13,6 +13,7 @@
   user-select: none;
 }
 .tmt-ui-avatar[data-size='s'] {
+  font-size: 10px;
   width: 24px;
   height: 24px;
 }

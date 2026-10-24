@@ -29,6 +29,9 @@ fn arguments(request: RunRequest<'_>) -> Vec<OsString> {
         if resume.retry {
             argv.push("--retry".into());
         }
+        if resume.fresh {
+            argv.push("--new".into());
+        }
         if let Some(driver) = resume.driver {
             argv.extend(["--driver".into(), driver.into()]);
         }
@@ -130,6 +133,37 @@ mod tests {
         );
     }
     #[test]
+    fn a_fresh_resume_reenters_with_new() {
+        let argv = arguments(RunRequest {
+            name: "member",
+            options: &LaunchSettings::default(),
+            command: &[],
+            resume: Some(Resume {
+                driver: None,
+                retry: false,
+                move_running: false,
+                fresh: true,
+            }),
+            save: false,
+            channel: ChannelMode::Disabled,
+        });
+        assert_eq!(
+            argv,
+            [
+                "resume",
+                "--host",
+                HostKind::pty().as_str(),
+                "--no-channel",
+                "--new",
+                "--",
+                "member"
+            ]
+            .into_iter()
+            .map(OsString::from)
+            .collect::<Vec<_>>()
+        );
+    }
+    #[test]
     fn resume_reentry_keeps_driver_move_retry_and_model_preferences() {
         let options = LaunchSettings {
             model: Some("model".into()),
@@ -143,6 +177,7 @@ mod tests {
                 driver: Some("driver"),
                 retry: true,
                 move_running: true,
+                fresh: false,
             }),
             save: false,
             channel: ChannelMode::Default,

@@ -291,6 +291,11 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     env: &["CLAUDE_CONFIG_DIR"],
     locate,
     runtime: Some(super::Runtime {
+        caller_marked: || {
+            ["CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID"]
+                .iter()
+                .any(|name| std::env::var_os(name).is_some())
+        },
         driver: || Box::new(ClaudeRuntime),
         lifecycle: || Box::new(ClaudeLifecycle),
         channel: Some(|| Box::new(channel::ClaudeChannel)),
@@ -556,6 +561,26 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
             return crate::runtime::sampling::located(&root, locator, session);
         }
         None
+    }
+
+    /// Claude keeps one `<session>.jsonl` per project directory.
+    fn session_presence(
+        &self,
+        session: &ProviderSessionId,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        deadline: std::time::Instant,
+    ) -> crate::runtime::session_presence::SessionPresence {
+        let root = config_root(environment).join("projects");
+        crate::runtime::session_presence::probe(
+            &crate::runtime::session_presence::Layout {
+                root: &root,
+                depth: 1,
+                names: |name, session| name.strip_suffix(".jsonl") == Some(session),
+            },
+            session,
+            deadline,
+            crate::runtime::session_presence::PRESENCE_ENTRIES,
+        )
     }
 
     fn turn_state(

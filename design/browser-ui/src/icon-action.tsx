@@ -1,13 +1,9 @@
-import { useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { useLayoutEffect, useImperativeHandle, useRef } from 'react';
 import type { KeyboardEventHandler, ReactNode, Ref } from 'react';
 import type { BrowserActionProps } from './action.js';
 import { useBusyMark } from './busy-mark.js';
-import { claimIconActionTooltip, placeIconActionTooltip } from './icon-action-tooltip.js';
+import { bindIconActionTooltip } from './icon-action-tooltip.js';
 import { browserUiClasses as c } from './static.js';
-
-// Escape can restore focus to another icon action while closing its host.
-// Keep that focus return from opening a replacement tooltip in the same frame.
-const escapeFocus = new WeakSet<Document>();
 
 export type BrowserIconActionProps = Omit<
   BrowserActionProps,
@@ -48,62 +44,26 @@ export function BrowserIconAction({
 }: BrowserIconActionProps) {
   const button = useRef<HTMLButtonElement>(null);
   const tooltip = useRef<HTMLSpanElement>(null);
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
-  const open = (hovered || focused) && !dismissed && !expanded;
+  const wrapper = useRef<HTMLSpanElement>(null);
+  const help = useRef<ReturnType<typeof bindIconActionTooltip> | null>(null);
   const marked = useBusyMark(busy && !disabled);
   useImperativeHandle(buttonRef, () => button.current!, []);
-  useEffect(() => {
-    const node = tooltip.current;
-    const anchor = button.current;
-    if (!open || !node || !anchor) return;
-    const release = claimIconActionTooltip(anchor.ownerDocument, () => {
-      if (node.matches(':popover-open')) node.hidePopover();
-      setDismissed(true);
-    });
-    node.showPopover();
-    const dispose = placeIconActionTooltip(anchor, node);
-    const escape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || !node.matches(':popover-open')) return;
-      // Dismiss the tooltip without consuming the containing dialog/menu's Escape.
-      const document = anchor.ownerDocument;
-      node.hidePopover();
-      escapeFocus.add(document);
-      setDismissed(true);
-      const clear = () => {
-        escapeFocus.delete(document);
-        document.removeEventListener('keydown', nextKey, true);
-      };
-      const nextKey = (event: KeyboardEvent) => {
-        if (event.key !== 'Escape') clear();
-      };
-      document.addEventListener('keydown', nextKey, true);
-      document.defaultView?.requestAnimationFrame(clear);
-    };
-    anchor.ownerDocument.addEventListener('keydown', escape, true);
+  useLayoutEffect(() => {
+    help.current = bindIconActionTooltip(wrapper.current!, button.current!, tooltip.current!);
     return () => {
-      release();
-      dispose();
-      anchor.ownerDocument.removeEventListener('keydown', escape, true);
-      if (node.matches(':popover-open')) node.hidePopover();
+      help.current?.dispose();
+      help.current = null;
     };
-  }, [open]);
+  }, []);
+  useLayoutEffect(() => {
+    help.current?.refresh();
+  }, [expanded]);
   if (!label.trim()) throw new Error('Icon action requires a nonempty label');
   if (disabledReason !== undefined && !disabledReasonId)
     throw new Error('Disabled reason requires a stable ID');
   return (
     <>
-      <span
-        className={c.iconAction}
-        onPointerMove={() => {
-          if (!hovered) {
-            setHovered(true);
-            setDismissed(false);
-          }
-        }}
-        onPointerLeave={() => setHovered(false)}
-      >
+      <span className={c.iconAction} ref={wrapper}>
         <button
           ref={button}
           className={`${c.action} ${c.iconActionControl}`}
@@ -119,22 +79,12 @@ export function BrowserIconAction({
           aria-controls={controls}
           aria-busy={busy || undefined}
           aria-describedby={disabledReason !== undefined ? disabledReasonId : undefined}
-          onFocus={(event) => {
-            if (event.currentTarget.matches(':focus-visible')) {
-              setFocused(true);
-              // Returning from an expanded menu must not reopen help on the same activation.
-              setDismissed(!!expanded || escapeFocus.has(event.currentTarget.ownerDocument));
-            }
-          }}
-          onBlur={() => setFocused(false)}
           onKeyDown={onKeyDown}
           onClick={(event) => {
             // Busy stays focusable; fence its activation and form submission here.
             if (busy) event.preventDefault();
             else if (!disabled) {
-              const node = tooltip.current;
-              if (node?.matches(':popover-open')) node.hidePopover();
-              setDismissed(true);
+              help.current?.dismiss();
               onActivate(event);
             }
           }}

@@ -44,8 +44,8 @@ are outside the tracked-file map. The [layout skill](.agents/skills/tmt-layout/S
 owns moves and the tracked-file guard.
 
 `tmt-gui-lead` owns shared visual tokens and [private browser UI](design/browser-ui/README.md).
-`design/browser-ui`: `./ui`/`./react`: React/Radix/cmdk/CVA, themes/portals, decorative action marks; `./static`/`./shell`/`./chart`: framework-free DOM; hosts own state.
-Layers retain Radix focus/dismiss ownership and host close admission; layer integration contracts live in the linked leaf README.
+`design/browser-ui`: `./ui`/`./react`: React/Radix/cmdk/CVA, themes/portals, decorative action marks; `./static`/`./shell`/`./chart`/`./menu-host`: framework-free DOM; hosts own domain state.
+`./ui` uses Radix; BrowserDialog/Drawer use native modality; BrowserPanel is non-modal. Hosts admit closure; see leaf contracts.
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
@@ -113,14 +113,10 @@ the core crates live in the [tmt-core-runtime skill](.agents/skills/tmt-core-run
 | Concrete adapters | `rust/crates/tmt-adapters/src/` | Config files, SQLite, bounded files and processes, signals, tmux evidence/transport, response input, HTTP acquisition, native release publication and managed skill files.                                      |
 | Application/CLI   | `rust/crates/tmt-cli/src/`      | Core grammar, typed invocations, preflight and use-case composition, completion and the executable entry point. It chooses adapters; it does not duplicate their storage, file, installation or process policy. |
 
-`rust/crates/tmt-command-output` owns shared command output/error values and
-formatting. It renders human text through `rust/crates/tmt-cli-style`, the one
-implementation of the [CLI style](design/cli-style.md) (palette, themes over the
-design tokens, marks, values, messages, lists, tables, the column-width solver
-`grid` that tables and extension boards share, the help registration contract and
-`Interaction`). Both are leaves with no TMT dependency so extension CLIs can share
-them; the architecture guard enforces that. `mark::Mark` owns each shared mark's
-symbol, description and style token.
+`tmt-command-output` owns shared command output/errors and formatting.
+Human text uses `tmt-cli-style` for [CLI style](design/cli-style.md), `grid`,
+help, `Interaction` and `progress`. This presentation leaf has no TMT
+dependencies; the architecture guard enforces that boundary.
 
 `rust/crates/tmt-tui` is an internal, unpublished, application-neutral presentation
 leaf for TMT terminal UIs (markup admission, one Taffy geometry computation, Ratatui
@@ -160,9 +156,8 @@ An unknown root command named `[a-z0-9][a-z0-9-]*` resolves `tmt-<name>` on PATH
 core wins every collision. On Unix the adapter `exec`s, so the extension inherits
 stdio, TTY and signals and its exit status is the command's. `core_executable` hands
 companions the managed stable launcher via `TMT_EXECUTABLE`, else the invoking executable.
-Core keeps no registry, manifest, daemon or extension
-state. Only arguments after the name are passed, verbatim. Completion v1 is
-optional, bounded and falls back to file completion on any failure.
+Only the tail is forwarded; missing official names reuse native installation.
+Completion v1 is optional, bounded and falls back to file completion on any failure.
 
 ### Local extension API (v1)
 
@@ -224,7 +219,7 @@ a working directory, active pane or sole identity.
   `identity` owns lifetime/create/promote; `identity_metadata`/`identity_status`
   own untrusted descriptions, never authority ([atomic metadata](contracts/extension-api.md#conditional-identity-metadata)).
   `binding` owns evidence, retirement, binds/moves and CAS rename.
-  [Discovery](contracts/discovery-v1.md) owns candidate bounds and native/UUID fences; guarded `add` uses `binding`.
+  [Discovery](contracts/discovery-v1.md) owns candidate bounds and native/UUID fences for tmux and admitted host drivers; guarded `add` uses `binding`.
 - Unknown or conflicting endpoint evidence is never proof of death. Saved
   identities detach and stay offline; temporary identities retire only on
   conclusive evidence or explicit unbind, and exchanges are kept. Presence is
@@ -243,7 +238,7 @@ a working directory, active pane or sole identity.
   authorize retirement or detachment; unchanged records retain conclusive stale
   binding cleanup.
 - Lifecycle hooks complete existing bindings, never create or move identities.
-  Binding-owned refused starts are diagnostic; [session projection](contracts/identity-status-v1.md#session-binding-observation) reads only stored facts.
+  Binding-owned starts and launch learning are diagnostic; [projections](contracts/identity-status-v1.md#session-binding-observation) read stored facts.
   Bounded callbacks exit zero; launch hooks retain reviewed externalized-name compatibility. Persistent
   provider configuration changes only through consented `tmt setup`.
 - `tmt-core::endpoint::ProcessIncarnation` (PID plus core's own start token) is the
@@ -310,8 +305,7 @@ or Enter is uncertain and never retried as unsent; [pane cosmetics](.agents/skil
 The CLI and the `delivery` and `pane_badge` adapters reach a terminal only through
 `tmt-adapters::host::Host`; extensions never do (they read `tmt ls --json` and
 `tmt whoami`), and the architecture guard rejects extension code that names the host
-port, the tmux module or core's `binding`, `endpoint` or `host` model. Every host,
-the built-in tmux and external drivers alike, implements `host::driver::HostDriver`,
+port, the tmux module or core's `binding`, `endpoint` or `host` model. Each built-in or external host implements `host::driver::HostDriver`,
 and one binding policy in `host::driver::{status, send, focus, swap_into}` decides which
 evidence makes a binding present and when input is blocked. A host with agent
 names (Herdr) shows the identity's name as the agent's; the host's name is never
@@ -320,7 +314,8 @@ opaque to everything but its host: `HostKind` is pure data, evidence from anothe
 host is `Unknown`, and only `tmt-core/src/host.rs`, `tmt-adapters/src/host.rs` and
 `tmux/` may spell a built-in host's name. Core's delivery policy rewrites ASCII `!` to
 fullwidth `！` in typed text. The built-in host uses this seam in process;
-`tmt-adapters::pty` owns each member and its zero-scrollback VT screen. See the
+`tmt-adapters::pty` owns members, screens and attach; CLI restores terminal modes.
+See the
 [hosts and drivers reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md).
 
 ### Agent drivers
@@ -541,14 +536,14 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 Owns listener/restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery)
 and `<dataRoot>/remote/` ([state leaf](#shared-extension-state-layout)).
 Home/Remote/SDK; read-only auto-pair; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
-`cloud_hpke`: bytes; `cloud_keys`: renewals; `cloud_inbox`: emulator transport.
+`cloud_hpke`: bytes; `cloud_keys`: renewals; `cloud_inbox`: carriers, private reply binding.
 
 [Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
 settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
-Remote owns authority; UI grants none. Local: keys/grants/signatures/last-use/cleanup.
+Remote owns authority; UI grants none. Native invite/join and uid routing.
 Firestore: Auth/Rules only; Core never uses Remote trust.
-`message`: local envelopes/grants/scope/allowlist/hold/uncertainty/audit.
-Proposed (#4533): `talk` → Remote interface → target host → driver.
+`message`: wire/grants/scope/allowlist/hold/uncertainty/audit; UUID/name checks.
+`talk --remote` → [message v1](contracts/remote-message-v1.md) → Remote
 Local: `transport`/`routes` → `message` → `session`/`operations`; same-ID public Core API dispatch/recovery.
 Door: `remote-v1.js` ([SDK](extensions/tmt-remote/typescript/remote-client/README.md));
 owner-installed [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`; public CLI/SDK/`tmt-extension-objects` elsewhere; never Remote state files.
@@ -557,7 +552,7 @@ owner-installed [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`; publ
 Serve: Auth/runtime/factory/tick/joins/flush; v3 opt-in.
 `native_sync`: COUNT/read limits; Colab cursors; no Core/carrier. Emulation never ships.
 [object-backends](.agents/skills/tmt-remote/references/object-backends.md): channels/backends/quotas.
-Deploy: `hosting` hash; frozen consent/history/`--details`; Rules/Hosting fences; EXPECTED+ACTIVE/live ID/readiness.
+Deploy: `hosting` hash; owner setup/consent/history; Rules/Hosting fences; EXPECTED+ACTIVE/live ID/readiness.
 [Modules](.agents/skills/tmt-remote/references/architecture-internals.md);
 [door/discovery](.agents/skills/tmt-remote/references/door-and-discovery.md): lifecycle/status/management.
 [Background](contracts/extension-serve-v1.md).

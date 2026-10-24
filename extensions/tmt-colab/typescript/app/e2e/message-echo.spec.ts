@@ -1,4 +1,5 @@
 import { pageAction } from '../test/page-actions.js';
+import { commentsRegion } from '../test/comments-region.js';
 import { expect, test, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
 import { destination } from '../test/ask-fixtures.js';
@@ -498,7 +499,7 @@ test('anchored dialog: a failed reply survives closing the thread as the compose
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
   await page.getByTestId('annotation-row').first().click();
   // The thread's composer remounts, so the row's draft comes back in it.
-  const reopened = page.getByRole('dialog', { name: /^(Comments|Discussion)$/ });
+  const reopened = commentsRegion(page);
   const composer = reopened.getByRole('combobox', { name: 'Message', exact: true });
   await expect(composer).toHaveText('Keep this unsent reply.', { useInnerText: true });
   await expect(echo(page)).toHaveCount(0);
@@ -513,7 +514,7 @@ test('comments: a reply that fails after Comments closed mid-send still holds it
   const fixtureRoot = page.locator('#ask-page-fixture');
   await (await pageAction(fixtureRoot, 'Comments')).click();
   await page.getByTestId('annotation-row').first().click();
-  const panel = page.getByRole('dialog', { name: /^(Comments|Discussion)$/ });
+  const panel = commentsRegion(page);
   const input = panel.getByRole('combobox', { name: 'Message', exact: true });
   await input.pressSequentially('Closed while sending.');
   await page_('holdReply');

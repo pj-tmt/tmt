@@ -238,7 +238,7 @@ fn interruptible(message: &'static str) -> Result<impl FnMut() -> io::Result<()>
 }
 
 /// Keep outcomes and aligned lists typed until the style owner renders them.
-struct Human(Vec<HumanLine>);
+pub(crate) struct Human(Vec<HumanLine>);
 
 enum HumanLine {
     Plain(String),
@@ -247,6 +247,18 @@ enum HumanLine {
 }
 
 impl Human {
+    /// The offer summarizes success separately, after finishing its progress rows.
+    /// Keep warnings and recovery notices outside that repaint region.
+    pub(crate) fn write_notices(&self) -> io::Result<()> {
+        let mut output = tmt_cli_style::stream::stdout(false);
+        for line in self.0.iter().skip(1) {
+            if let HumanLine::Plain(text) = line {
+                writeln!(output, "{}", tmt_cli_style::table::escape(text))?;
+            }
+        }
+        Ok(())
+    }
+
     fn done(text: String) -> Self {
         let mut lines = text.lines();
         Self(
@@ -299,6 +311,37 @@ struct InstalledExtension {
 }
 
 fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Failure> {
+    run_observed(request, mode, &|_| {})
+}
+
+/// The offer already obtained consent. Reuse the ordinary installer and skills
+/// settlement, with no argv subprocess or automatic command execution.
+pub(crate) fn install_offered(
+    product: Product,
+    progress: native_install::ProgressObserver<'_>,
+) -> Result<(Value, Human), Failure> {
+    let request = ExtensionInstallRequest::Install {
+        name: product.as_str().into(),
+        prefix: None,
+        channel: None,
+        to: None,
+        archive: None,
+        manifest: None,
+        yes: true,
+        skills: false,
+        repair: false,
+    };
+    let Some(result) = run_observed(request, OutputMode::default(), progress)? else {
+        unreachable!("explicit consent cannot decline")
+    };
+    Ok(result)
+}
+
+fn run_observed(
+    request: ExtensionInstallRequest,
+    mode: OutputMode,
+    progress: native_install::ProgressObserver<'_>,
+) -> Result<Outcome, Failure> {
     match request {
         ExtensionInstallRequest::Install {
             name,
@@ -339,6 +382,7 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
                     to.as_deref(),
                     archive.as_deref(),
                     manifest.as_deref(),
+                    progress,
                 )?
             };
             let mut human = human;

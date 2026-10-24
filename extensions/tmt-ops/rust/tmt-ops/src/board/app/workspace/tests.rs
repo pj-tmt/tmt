@@ -125,6 +125,24 @@ pub(in crate::board) fn board() -> App {
     app
 }
 
+/// Enter a named member action through the same menu a user can reach without a key.
+fn member_menu_action(app: &mut App, ui: OpsUiAction) -> Effect {
+    app.context_menu();
+    let choice = app
+        .menu
+        .as_ref()
+        .unwrap()
+        .entries
+        .iter()
+        .find_map(|entry| {
+            matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::Ui(ui))
+                .then(|| entry.choice.clone())
+        })
+        .expect("visible catalog member action");
+    app.menu = None;
+    app.choose(choice)
+}
+
 /// Acquire effective tables through Config, as the refresh worker does.
 pub(in crate::board) fn configured_member(text: &str, row: serde_json::Value) -> App {
     let mut app = board();
@@ -2204,7 +2222,7 @@ fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
         assert_eq!(app.focused_pane(), Some(Pane::Rows));
         let lines = paint(&app, width, 36);
         assert!(
-            lines[lines.len() - 2].contains("r rename"),
+            lines[lines.len() - 2].contains("m move"),
             "{width}: {:?}",
             lines.last()
         );
@@ -2946,8 +2964,21 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         } else {
             Value::Null
         };
-        app.home_leads
-            .test_results(&actor, json!({"items":items,"nextBefore":next}));
+        if scene == "unread-turn" {
+            // A direct send answered by a captured turn alone: no final reply exists.
+            let turn = json!({
+                "requestId":"unread-turn", "kind":"request", "sender":{"identityId":actor},
+                "recipientId":MEMBER, "answeredAtMs":101, "answer":"turn"
+            });
+            app.home_leads.test_pages(
+                &actor,
+                json!({"items":[],"nextBefore":null}),
+                json!({"items":[turn],"nextBefore":null}),
+            );
+        } else {
+            app.home_leads
+                .test_results(&actor, json!({"items":items,"nextBefore":next}));
+        }
         if scene == "unread-idle" {
             let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
             snapshot.roster.members.get_mut(MEMBER).unwrap().state = Some("idle".into());
@@ -2981,6 +3012,9 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
                 .lead = Some(MEMBER.into());
             app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
         }
+        if scene == "unread-chip-hover" {
+            app.composer.unread_hover.set(true);
+        }
         if scene == "unread-cleared" {
             let mut marks = crate::config::ReadMarkers::default();
             marks.advance(&actor, MEMBER, 102).unwrap();
@@ -3007,6 +3041,7 @@ fn capture_workspace_packet() {
             "unread-waiting",
             "unread-squads",
             "unread-cleared",
+            "unread-turn",
         ]
     } else {
         &[
@@ -4906,8 +4941,10 @@ fn capture_keycaps_packet() {
     crate::status::with_now_ms(1_791_600_000_000, || {
         let _no_commands = crate::runner::forbid_commands();
         for tab in [OpsTab::Agents, OpsTab::Digest] {
-            for scene in ["default", "custom", "unbound"] {
-                for width in [160, 100, 60] {
+            for scene in [
+                "default", "custom", "unbound", "reader", "typing", "search", "loading", "actions",
+            ] {
+                for width in [160, 100, 80, 60] {
                     for (base, depth) in [
                         ("tmt", tmt_cli_style::Depth::TrueColor),
                         ("tmt-light", tmt_cli_style::Depth::TrueColor),
@@ -4916,11 +4953,11 @@ fn capture_keycaps_packet() {
                     ] {
                         let mut app = match scene {
                             "custom" => configured_member(
-                                "[bind]\nv = 'agents-filter'\nf = 'help'\nf2 = 'agents'\n'1' = 'help'\nw = 'help'\nf3 = 'workspace-snapshots'\n",
+                                "[bind]\nv = 'agents-filter'\nf = 'help'\nM = 'copy'\nt = 'talk-measure'\nf2 = 'agents'\n'1' = 'help'\nw = 'help'\nf3 = 'workspace-snapshots'\n",
                                 json!({"id":MEMBER,"name":"worker"}),
                             ),
                             "unbound" => configured_member(
-                                "[bind]\nf = 'help'\nw = 'help'\n",
+                                "[bind]\nf = 'help'\nM = 'copy'\nw = 'help'\n",
                                 json!({"id":MEMBER,"name":"worker"}),
                             ),
                             _ => board(),
@@ -4944,6 +4981,24 @@ fn capture_keycaps_packet() {
                         {
                             *value = look;
                         }
+                        match scene {
+                            "reader" => {
+                                app.focus = app
+                                    .focus_panes()
+                                    .iter()
+                                    .position(|pane| *pane == Pane::Replies)
+                                    .unwrap();
+                            }
+                            "typing" => {
+                                key(&mut app, KeyCode::Enter);
+                            }
+                            "search" => app.searching = true,
+                            "loading" => app.current = Some("new-loading-view".into()),
+                            "actions" => {
+                                app.context_menu();
+                            }
+                            _ => {}
+                        }
                         let mut terminal = Terminal::new(TestBackend::new(width, 44)).unwrap();
                         terminal
                             .draw(|frame| crate::board::view::render(frame, &app))
@@ -4961,7 +5016,7 @@ fn capture_keycaps_packet() {
             }
         }
     });
-    assert_eq!(captures.len(), 108);
+    assert_eq!(captures.len(), 256);
     std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
 }
 

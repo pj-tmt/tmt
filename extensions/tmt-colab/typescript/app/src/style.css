@@ -27,7 +27,8 @@ button {
   border: var(--tmt-ui-action-border-width) solid var(--tmt-ui-color-edge);
   box-shadow: none;
   padding: 7px 12px;
-  border-radius: 0;
+  /* The website's controls round at 8px; a plain button that sits in a ruled list or row says so. */
+  border-radius: var(--tmt-ui-radius);
   cursor: pointer;
 }
 /* The shell's rail and module menu, and list-row titles, keep the design system's neutral hover. */
@@ -91,7 +92,6 @@ footer {
 .home {
   max-width: 1080px;
   margin: auto;
-  padding: 56px 32px 80px;
 }
 .eyebrow {
   text-transform: uppercase;
@@ -108,15 +108,6 @@ footer {
   color: var(--c-muted);
   margin: 8px 0 36px;
   font-size: 16px;
-}
-/* The leaf owns list rows; Colab owns the trusted row disclosure. */
-.chip {
-  font: 11px var(--f-mono);
-  border: 1.5px solid var(--c-text);
-  color: var(--c-muted);
-  padding: 4px 8px;
-  border-radius: 0;
-  white-space: nowrap;
 }
 .retention-hint {
   margin: 0;
@@ -309,10 +300,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   .page-header-meta {
     gap: 4px;
   }
-  .page-header-meta .chip {
-    padding: 3px 5px;
-    font-size: 10px;
-  }
 }
 /* The marker lane the render frame reserves at the right edge of every page: page-frame.css declares
    the same width for the frame, and e2e/column-frame.spec.ts holds the two equal. */
@@ -372,18 +359,10 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   display: block;
   font-size: 24px;
 }
-/* About > Layout: the same stacked label-over-value row as the attribution rows above it, at every width. */
-.page-layout-info dl {
-  margin: 0 0 12px;
-  font: 12px/1.4 var(--f-body);
-  white-space: normal;
+/* About > Layout: the heading, its value and, for a canvas page, the clamped reason; the drawer's
+ * section rhythm is in about-drawer.css. */
+.page-layout-value {
   overflow-wrap: anywhere;
-}
-.page-layout-info dt {
-  color: var(--c-muted);
-}
-.page-layout-info dd {
-  margin: 0 0 8px;
 }
 .page-layout-reason {
   margin: 4px 0 0;
@@ -402,14 +381,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   padding-inline: 0;
 }
 /* About > Page size: flat, tabular label/value rows that wrap at 390 with no horizontal scroll. */
-.page-size h3 {
-  margin: 16px 0 8px;
-  font: 600 14px/1.4 var(--tmt-ui-font-body);
-}
-.page-size p {
-  margin: 6px 0;
-  font: 400 13px/1.5 var(--tmt-ui-font-body);
-}
 .page-size dl {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -437,10 +408,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   left: 20px;
 }
 @media (max-width: 800px) {
-  .home {
-    padding-left: 20px;
-    padding-right: 20px;
-  }
   footer {
     padding: 16px 20px;
   }
@@ -679,13 +646,14 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   margin-top: 12px;
 }
 .management-dialog {
-  width: min(720px, calc(100% - 32px));
+  width: min(560px, calc(100% - 32px));
   max-height: 85vh;
   padding: 0;
   overflow: hidden;
-  background: var(--c-paper);
+  background: var(--tmt-ui-surface-sheet);
   color: var(--c-text);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-l);
   box-shadow: none;
 }
 .management-dialog[open] {
@@ -694,13 +662,13 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .management-dialog > .dialog-bar {
   flex-shrink: 0;
-  padding: 24px 24px 0;
-  border-bottom: 1px solid var(--c-rule);
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
 }
 .management-dialog-body {
   min-height: 0;
   overflow: auto;
-  padding: 0 24px 24px;
+  padding: 16px 22px 22px;
 }
 .management-dialog::backdrop {
   background: #0008;
@@ -719,25 +687,45 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   overflow-wrap: anywhere;
 }
 .management-dialog section {
-  margin: 24px 0;
-  border-top: 1px solid var(--c-rule);
+  margin: 23px 0 0;
+  padding-top: 22px;
+  border-top: 1px solid var(--tmt-ui-surface-rule);
+}
+.management-dialog h3 {
+  margin: 0 0 13px;
+  font: 600 13px/1.4 var(--tmt-ui-font-body);
+}
+.management-dialog p {
+  margin: 0 0 12px;
+  color: var(--c-muted);
+  font: 12px/1.7 var(--tmt-ui-font-body);
 }
 .management-dialog label {
   display: flex;
   flex-direction: column;
+  gap: 6px;
   margin: 12px 0;
+  color: var(--c-muted);
+  font: 12px/1.4 var(--tmt-ui-font-body);
 }
-.management-dialog input:not(.tmt-ui-command-text),
+.management-dialog input:not(.tmt-ui-command-text, [type='checkbox']),
 .management-dialog select {
   width: 100%;
-  padding: 8px;
-  font: inherit;
+  padding: 9px 12px;
+  font: 13px/1.4 var(--tmt-ui-font-body);
   color: var(--c-text);
-  background: var(--c-sheet);
-  border: 1px solid var(--c-text);
+  background: var(--tmt-ui-surface-field);
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
 }
 .management-dialog button:not(.tmt-ui-command-copy) {
   margin: 4px 4px 4px 0;
+  padding: 7px 12px;
+  font: 12px/1.4 var(--tmt-ui-font-body);
+  color: var(--c-text);
+  background: var(--tmt-ui-surface-sheet);
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
 }
 .management-dialog button:not(.tmt-ui-command-copy):disabled {
   opacity: 0.55;
@@ -832,6 +820,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   padding: 18px 0;
   border: 0;
   border-bottom: 1px solid var(--c-rule);
+  /* Square: a row of a ruled list, as the website's thread rows are. */
+  border-radius: 0;
   background: transparent;
   color: var(--c-text);
   text-align: left;
@@ -844,6 +834,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   min-width: 0;
 }
 .annotation-row strong {
+  /* Comments titles keep the 14px compact body scale at every viewport. */
+  font-size: var(--tmt-ui-page-compact-body-size);
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -952,7 +944,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   max-height: 100%;
   width: 100%;
   box-shadow: none;
-  border-radius: 0;
   font: var(--tmt-ui-host-field-size) / var(--tmt-ui-host-field-line-height) var(--f-body);
 }
 .conversation-window-bar {
@@ -1041,7 +1032,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comments-panel .conversation-composer:has(> .annotation-compose[data-connection='ended']) {
   position: static;
 }
-/* Pinned flush with the drawer's bottom edge, so it does not shift at the end of the scroll. */
+/* Pinned flush with the panel's bottom edge, so it does not shift at the end of the scroll. */
 .tmt-ui-drawer-body:has(.comments-panel .conversation-composer) {
   padding-bottom: 0;
 }
@@ -1085,6 +1076,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   padding: var(--conversation-gap) var(--conversation-inset);
   border: 0;
   border-bottom: 1px solid var(--c-rule);
+  /* Square: a turn is a row divided by a rule, as the website's thread turns are; a bubble rounds
+     itself. */
   border-radius: 0;
   box-shadow: none;
   background: transparent;
@@ -1307,7 +1300,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comment-thread {
   background: var(--tmt-ui-surface-annotation-panel);
   border: 0;
-  border-radius: 0;
   box-shadow: none;
 }
 .comment-thread [hidden] {
@@ -1437,7 +1429,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .proposal-inline .proposal-card {
   border: 1px solid var(--tmt-ui-surface-rule);
-  border-radius: 0;
   box-shadow: none;
 }
 .proposal-inline :focus-visible {
@@ -1508,6 +1499,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .proposal-card {
   border: 1px solid var(--c-rule);
+  /* A framed card rounds, as every bordered card does on the website. */
+  border-radius: var(--tmt-ui-radius);
   background: var(--c-sheet);
   color: var(--c-text);
   padding: 16px;
@@ -1651,8 +1644,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comment-thread[data-layout='discussion'] .conversation-composer {
   background: var(--tmt-ui-surface-sheet);
 }
-/* The position (n / N) ends the drawer heading, next to Close, as on the website. */
-.tmt-ui-drawer[data-panel='comments'] .tmt-ui-drawer-heading {
+/* The position (n / N) ends the panel heading, next to Close, as on the website. */
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-heading {
   flex: 1;
   justify-content: space-between;
 }
@@ -1816,7 +1809,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .question-group-card {
   background: transparent;
   border: 0;
-  border-radius: 0;
   box-shadow: none;
 }
 /* The group is only a focus anchor after a Send; its actions carry the visible focus. */
@@ -2223,12 +2215,11 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .chat-panel .comment-header-end {
   flex: 0 0 34px;
 }
-/* A drawer's plain buttons take no fill or edge, except where the control owns its look: the list
-   row's rule and the view tab's selection tint (the only tabs in a drawer are Comments'). */
-.tmt-ui-drawer
-  button:not(.tmt-ui-action):not(.annotation-row):not(.tmt-ui-tab):not(
-    [data-testid='ask-send']
-  ):not(.tmt-ui-menu-item):not(.tmt-ui-menu-trigger) {
+/* A drawer's or panel's plain buttons take no fill or edge. `:where()` leaves the reset at the
+   specificity of the global `button` rule above, which it follows, so any control that owns its look
+   (the leaf's actions, tabs and menus, the list row's rule, the send button) wins with its own class
+   and needs no entry here. */
+:where(.tmt-ui-drawer, .tmt-ui-panel) button {
   background: transparent;
   border: 0;
   box-shadow: none;

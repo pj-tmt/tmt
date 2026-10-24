@@ -48,6 +48,7 @@ struct FailureDetails {
     secondary: Vec<Box<dyn Error>>,
     metadata_conflicts: Option<tmt_core::identity_metadata::MetadataConflicts>,
     runtime_refusal: Option<tmt_adapters::runtime::lifecycle::RuntimeRefusal>,
+    reason: Option<&'static str>,
 }
 
 #[derive(Debug)]
@@ -208,6 +209,13 @@ impl Failure {
         self
     }
 
+    /// A stable machine-readable reason beside the code, for a refusal that has
+    /// no runtime refusal of its own (that one keeps its own reason).
+    pub fn with_reason(mut self, reason: &'static str) -> Self {
+        self.details.get_or_insert_default().reason = Some(reason);
+        self
+    }
+
     pub fn at_stage(mut self, stage: &'static str) -> Self {
         self.stage = Some(stage);
         self
@@ -221,6 +229,8 @@ impl Failure {
         if let Some(refusal) = self.runtime_refusal() {
             document["error"]["reason"] = refusal.reason.into();
             document["error"]["fix"] = refusal.fix.clone().into();
+        } else if let Some(reason) = self.details.as_ref().and_then(|details| details.reason) {
+            document["error"]["reason"] = reason.into();
         }
         if let Some(current) = self
             .details

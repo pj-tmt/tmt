@@ -2,8 +2,8 @@
 
 **Implementation status:** the local door and its signed agent operations are shipped; Colab page
 sharing over Firestore (native sync and the hosted browser client) is shipped. Cloud agent operations
-through Firestore have an emulator-only native driver; production enrollment and Core activation remain
-pending. Cloudflare remains proposed. Native encryption and automatic key renewal enable no access by themselves.
+through Firestore have native invite/join and a carrier driver with emulator-only qualification; public
+Core delivery activation remains pending. Cloudflare remains proposed. Native encryption and automatic key renewal enable no access by themselves.
 Shipped means published code with fixture/emulator proof; real-account acceptance remains open.
 This document owns host-driver authentication, local device identity/grants, wire values, operations,
 the extension channel API and backend bindings. Remote owns this contract; tmt-lead reviews changed core contracts and cross-squad
@@ -749,6 +749,11 @@ Lost key, changed add-on origin, revocation or expiry requires pairing again. No
 export-based backup, automatic key replacement, passkey renewal or remote grant extension.
 
 ### Trust grants and remote lifecycle
+
+Owner-local `devices talk <person|client-id> on|off` and `devices revoke <person|client-id>`
+resolve an exact client ID first, otherwise a unique active device name. Duplicate names refuse
+with the matching client IDs; no first-match selection occurs. Selection stays under the Store
+lock through the existing grant mutation. Names are command selectors, not persisted authority.
 
 A grant makes one device a trusted source on one machine. Grant JSON names are `clientId`,
 `machineId`, `profile`, `publicKey`, `kind`, `origin`, `name`, `agents`, `scopes`, `mode`,
@@ -2206,7 +2211,7 @@ an origin is `established` or `closed`.
 Message framing, authentication and admission are scoped to their host driver. The `local` door and extension
 stores are implemented, as are Firestore extension declarations, deployment and sealed-document
 sync for Colab page sharing. The native Firestore **agent operation** binding below is emulator-only;
-invite/join and the final Core command alignment do not ship here. The admission-service proposal and
+native invite/join is implemented, while final public Core delivery alignment remains pending. The admission-service proposal and
 historical cloud conformance remain superseded. Native encryption and its automatic key lifecycle
 are independent of production enrollment. Their specification
 never enables agent access; the [historical conformance material](#proposal-cloud-conformance) is retained
@@ -2216,7 +2221,7 @@ Cloudflare remains proposed. Extension/page authority never substitutes for a lo
 | Backend      | Mapping                                                                                                                                                                             |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `local`      | [Loopback HTTP](#transport-binding-loopback-http), mounted extension routes and WebSocket relay; state under the data root.                                                         |
-| `firestore`  | **Shipped:** extension-scoped sealed-document sync for Colab page sharing. **Emulator-only agent binding:** encrypted inboxes, owner responses and peer checkpoints; no production enrollment. |
+| `firestore`  | **Shipped:** extension-scoped sealed-document sync for Colab page sharing. **Emulator-only agent binding:** native invite/join, encrypted inboxes, owner responses and peer checkpoints; public Core delivery remains gated. |
 | `cloudflare` | **Proposal:** Worker admission before per-machine Durable Object storage; per-namespace relay objects; bounded WebSocket delivery and device-scoped checkpoints.                    |
 
 ### Native Firestore agent binding (emulator only)
@@ -2245,22 +2250,32 @@ and create-only storage. Exact-ID reads require the document's peer to match the
 (or the machine owner). A routed peer may also GET a missing ID (404), so observation can wait for a
 response; a non-routed uid cannot. Response listing is denied. Neither writer
 may update a carrier. Senders never delete. The receiving owner removes retained inbox/response pairs
-after journal retention; the one transport table is pruned only after that cleanup. Test fixtures alone
-seed machine/peer registrations; this does not activate the namespace in a real deploy or add a bootstrap shortcut.
+after journal retention; the one transport table is pruned only after that cleanup. Native enrollment creates machine/peer registrations through ordinary Auth and owner-only Rules;
+the carrier-only fixture may seed them independently. No real-project acceptance is claimed.
 The owner-written routing row is `/m/<machineId>/peers/<Firebase-uid>` with `{peer,revoked,expiresAt}`;
-create and exact GET each use one routing lookup. #4538 owns enrollment and automatic re-routing:
-the local Store maps native peers to uids, revocation fences all of that peer's uid rows in the same
+create and exact GET each use one routing lookup. The local Store maps native peers to uids, revocation fences all of that peer's uid rows in the same
 operation, and at most one route per native peer is live (a new one supersedes the old). Lost or renewed
 Firebase credentials re-route from the signed native identity automatically, without a new pairing step.
 
 The driver uses ordinary Auth, HTTP, cancellation and the persistent project budget shared with native
 sealed-document sync. One shallow query of the selected machine's inbox, ordered and filtered by
-`createdAt`, covers all native peers with one document per provider page. No collection-group scan or
-recursive wildcard is used. Its checkpoint is one provider create-time value per peer with a 120-second overlap; only a full
-bounded reconciliation advances it. The existing journal handles repeated IDs and effects. Store/serve
+`createdAt` and document ID, covers all native peers. Each reconciliation starts with a one-document
+probe; only a full page permits follow-up pages, sized from retained transport rows and capped at
+four documents. These rows are a sizing hint, never permission to skip an unseen timestamp or ID.
+An empty idle inbox uses one query per minute, reserving one document plus the existing Rules lookups.
+Rules allow only the receiving owner to list inbox pages with a limit from one through four;
+enrollment retains its one-document limit and responses remain unlistable. Each page's retained
+REST response is bounded by its requested document count times `limits::CLOUD_PROVIDER_BYTES`.
+No collection-group scan or recursive wildcard is used. The machine query retains one completed
+provider timestamp with a 120-second overlap and a durable exact-timestamp/ID continuation after
+each durable outcome. A transient failure or capacity stop resumes that prefix; only a fully drained
+bounded reconciliation advances the completed timestamp. Enrollment has a separate checkpoint. The existing journal handles repeated IDs and effects. Store/serve
 lease ownership is unchanged: one additive `cloud_transport` table freezes exact request bytes/digest,
 response ciphertext and publication attempt before HTTP. An ambiguous create is observed at that same
-ID, never automatically re-posted or resealed. A frozen outbox row without a durable send claim makes
+ID, never automatically re-posted or resealed. An already-attempted response publication keeps its
+grant fence and goes directly to exact-ID observation, without reserving another commit that cannot
+be sent. Its missing or failed observation remains unconfirmed. Request maxima are never refunded.
+A frozen outbox row without a durable send claim makes
 its first create directly, without a preparation GET; the usual Auth/budget/claim fence still runs.
 Changed bytes under an ID refuse. A duplicate returns
 only frozen response ciphertext. Context secrets stay in memory for the bounded in-flight call; after
@@ -2295,22 +2310,33 @@ context. A no-response in-flight observation ends as `REMOTE_CLOUD_UNCONFIRMED`:
 processed, so observe the same request ID and never resend. Only immutable request age reaching
 RECOVERY is `REMOTE_CLOUD_MESSAGE_EXPIRED`.
 
-The emulator fixture composes the finite driver with the lease-owning message service and cancellation;
-it persists no process-specific subscription. The driver is not reachable in production until #4538
-(enrollment) and #4536 (UUID-pinned identity query) land. #4538 will wire it at
-`serve::native_factory::ProjectOwner::prepare`, sharing that owner's Auth/runtime, budget and cancel/join
-lifecycle. No inert registration hook or provider probe is installed now. Production serve without an
-enrolled cloud peer starts no inbox polling and spends no cloud budget.
-Cadence reuses native polling, clamped to 5 seconds minimum and 60 seconds maximum including jitter.
-An empty idle query is conservatively charged 1 read plus 2 Rules lookups: 4,320 modeled reads/day/machine,
-8.64% of Spark's 50,000 reads/day. This is modeled billing, not emulator wire counts or observed project
-headroom. All traffic, including recovery, goes through the same guard; Auth/Rules/budget refusal never
-causes a mutation retry. Reopening the same Store resumes the checkpoint without a user step.
+`serve` composes the lease-owning native pairing service with the existing message service. One
+per-project `Projects` owner shares Auth, HTTP, budget and cancellation with native extension sync;
+explicit invite/join may sign in, while background recovery and sending never create an identity.
+A replaced persisted Firebase uid gets a new Auth owner and reuses the same runtime/budget. Existing
+extension consumers retain their old stopped identity, so another uid inherits no page membership.
+With no enrolled cloud peer, serve starts no provider polling and spends no cloud budget. Its one
+joined worker reconciles enrollment, route cleanup and the existing inbox driver; stop cancels I/O,
+joins handlers/worker and flushes the common project budget before releasing the serve lease.
+An idle machine uses one inbox and one enrollment query per minute. Each is conservatively charged
+1 read plus 2 Rules lookups: 8,640 modeled reads/day/machine, 17.28% of Spark's 50,000 reads/day,
+plus bounded hourly cleanup and descriptor renewal. These are modeled charges, not emulator wire
+counts or observed headroom. All enrollment, routing and operation traffic uses the same daily guard.
+Reopening the same Store resumes its native identity, trust, permissions and checkpoints.
 
 The provisional public boundary is `tmt remote message --json`, one bounded version-1 JSON document
-on stdin/stdout. `cloud_command` owns its schema: request `{version,remote,requestId,createdAtMs,from:{id,name},
-target:{id,name},message}`, with required nullable `remote`; answer `{version,state,remote}` and optional
-fixed `reason`. States are `sent`, `held`, `refused`, `unconfirmed`, `unavailable`. Core owns preparation,
+on stdin/stdout. `cloud_command` implements [Remote message v1](remote-message-v1.md), which owns the request and
+answer schema, including the local-only `reply` handle. `target.name` is required (1–128 UTF-8
+bytes, no controls); `target.id` may be omitted, but null or a noncanonical UUID is refused. The
+sender seals and echoes the target exactly as sent, including an omitted ID.
+The receiver resolves a bare name through Core's public `identity show`
+lookup to one live local identity; no match (`REMOTE_AGENT_NOT_FOUND`) or ambiguity
+(`REMOTE_AGENT_AMBIGUOUS`) is a durable per-document refusal. Before adoption, it freezes that UUID
+and current name in the existing dispatch intent, applies the same recipient grant, and retains the
+UUID-pinned expected-name check before effect. Recovery uses the frozen UUID, never a new name lookup.
+An explicit target UUID keeps its existing pinned path and treats the name as the expected name.
+The sender needs no directory or extra provider read. States are `sent`, `held`, `refused`,
+`unconfirmed`, `unavailable`. Core owns preparation,
 receipts and retention; `createdAtMs` is the immutable original creation time in integer milliseconds,
 identical on every repeat. A request at least `journal::RECOVERY` old refuses with
 `REMOTE_CLOUD_MESSAGE_EXPIRED` before any write; a future time beyond the 60-second skew bound refuses.
@@ -2320,11 +2346,95 @@ A repeat must retain the exact prepared bytes, including creation time, sender a
 A changed creation time conflicts with its frozen outbox row. The existing maintenance pass prunes
 sender outbox rows only past RECOVERY plus clock skew; it adds no tombstone ledger or context secret.
 Nonzero exit carries a JSON error code. Explicit/default/local selection never silently changes
-backend. The final schema/argv is aligned at Core's separate slice. Until the real UUID-pinned
-`identity show` exists, production cloud delivery refuses with `REMOTE_CLOUD_UPGRADE_REQUIRED`;
-tests inject the fake public Core boundary. Never fall back to name-addressed `check`. Expected name is
-retained with frozen native intent and checked before a Core effect; it is not a caller-chosen role.
-Invite/join, production enrollment and real-provider acceptance remain separate epic slices.
+backend. Core's side is `talk --remote`. Before effect, Remote calls Core's public
+`identity show --json --expect-name=<expected-name> -- <uuid>` through the bounded subprocess owner.
+Core atomically checks the pinned UUID's current name and lifetime; active, offline and unknown
+presence all permit that identity check. `IDENTITY_CHANGED` (exit 5) maps to the durable
+`REMOTE_AGENT_STALE` refusal and `NAME_NOT_FOUND` (exit 3) to `REMOTE_AGENT_NOT_FOUND`. Invalid success evidence
+refuses with `REMOTE_CORE_UNAVAILABLE`. Never fall back to name-addressed `check`. Expected name is
+retained with frozen native intent; it is not a caller-chosen role.
+Full public `talk` acceptance belongs to #4539/#4540 after the Core #4536 seam and Remote #4757
+activation. Pairing qualification injects the fake public Core boundary; it does not open that gate.
+Real-provider acceptance remains separate.
+
+### Native invite and join
+
+`tmt remote invite [--remote <name>]` selects an owned deployment and prints a private one-use,
+ten-minute code. `tmt remote join <code>` validates its public project configuration and pinned native
+owner UUID/key. Both terminals show the same four key-fingerprint words. The owner answers
+`Do the words match? [y/N]`, then `Let <person> send messages to your agents? [y/N]` in the same
+ceremony. Both default to no. No grant or route exists before explicit word confirmation. Sending
+defaults off and requires the second answer or later `tmt remote devices talk <person> on`.
+Talk/revoke resolve an exact client UUID or a unique active person name; duplicate names require the
+UUID. JSON, CI, agent and noninteractive invocation never consent. Ctrl+C cancels the active invite
+and erases its secret. Neither command opens a browser or creates a local-browser session.
+
+The code carries public connection metadata, the owner pin, an offer UUID, nonce, generation,
+expiry and 128-bit secret. Firestore never stores that secret. Its separate enrollment transcript
+binds every field, the candidate native UUID/key, authenticated uid, name and nonce. Existing HMAC,
+Ed25519 possession, fingerprint and response-proof primitives are reused with distinct framing.
+The mailbox is one create-only collection `/m/<machine>/enroll`: `<offerId>` holds a candidate,
+`<offerId>-response` the owner's receipt. Responses contain only `{uid,kind,body,createdAt}`.
+Candidates carry those fields plus `token` (32 bytes) for a join, or `token` and its canonical
+native `peer` for a reroute. Rules bind the candidate uid to `request.auth.uid`, exact kinds/UUIDs,
+bounded bytes and server request time.
+Before exposing a code, the owner creates `/m/<machine>/invites/<offerId>` with
+`{tokenHash,expiresAt}`. The join token is HMAC-SHA256 under the code over LP of
+`"tmt-cloud-invite-token-v1"`, project, owner UUID and offer UUID. Only SHA-256 of that token is
+stored in the invitation; it is neither the raw code nor its enrollment MAC/response key.
+A join requires its matching unexpired gate. The owner attempts gate deletion when the ceremony ends
+(confirm, refusal, cancellation or expiry). Cleanup is best-effort and never replaces the ceremony's
+result; expiry refuses logically even when cleanup cannot reach the provider. These owner-only gates
+have no client update or list capability.
+Only the owner lists (limit one), writes responses or deletes; a caller can GET its own exact row or
+a missing row. Kind and offer correlation are bound by the verified transcript. A competing, expired,
+cancelled or reused code refuses. An identical confirmed candidate may observe only its original
+receipt before the original deadline; this cannot create another grant. No offer secret or derived
+response key is persisted. Immutable enrollment rows are retained at most until bounded hourly
+cleanup observes them older than 24 hours; logical invite expiry remains ten minutes.
+
+Machine metadata `/m/<machine>` is created under its locally generated UUIDv4. Its exact fields
+are `{uid,authenticationKey,descriptor}` plus optional immutable `invitingOwner` (canonical UUID,
+not itself). A create requires `request.auth.uid == uid` and either the admin-owned
+`/owners/<uid>` allow-list or an unrevoked, unexpired `/m/<invitingOwner>/peers/<uid>` route whose
+`peer` is this new machine UUID. Anonymous sign-in alone authorizes no agent-talk write.
+Only the stored uid may update the descriptor; it cannot change uid, key or inviter provenance,
+including old absence. Any authenticated caller may GET an exact machine row; there is no machine
+list/delete. Both participants check the fetched key against the native/invite pin; a conflict
+returns `REMOTE_CLOUD_MACHINE_CONFLICT` and is never overwritten.
+
+The inviter alone may move a child's uid after verifying its native-signed reroute. Rules check
+that `/m/<invitingOwner>.uid == request.auth.uid`, that only `uid` changes, and that `getAfter` of
+the inviter's new-uid route is live, unexpired and bound to the child UUID. Route publication and
+the child's uid-only masked update commit together; a route already live also satisfies Rules.
+The key, descriptor and provenance stay unchanged. An uninvited owner's uid has no client update
+exception: recovery belongs to the explicitly [authorized deploy](#authorized-deploy).
+Peer-route CRUD stays with the stored owner; each row has exact `{peer,revoked,expiresAt}` fields.
+
+Confirmation atomically persists the grant, exact receipt/proof, native trust, reroute-token hash
+and pending uid route in the existing Store. The receipt carries `rerouteToken`, authenticated by
+its existing response proof: HMAC-SHA256 under the response key over LP of
+`"tmt-cloud-reroute-token-v1"`, project, owner UUID and native peer UUID. The joiner keeps only
+this distinct capability in its private connection, not the code or response key. The owner writes
+`/m/<machine>/reroutes/<peer>` with `{tokenHash}` alongside routes; revoke deletes it in that same
+publication. A reroute create requires the matching capability hash as well as the new uid.
+Old private connections still parse unchanged; pre-token test pairings need one re-pair. They
+predate deployable native agent-talk Rules, so this compatibility exception has no production peers. Cloud publication runs outside SQLite and acknowledges only an unchanged
+snapshot. Local revoke disables authority at the existing effect fence and marks every historical
+uid route for cleanup in the same transaction. Offline cloud cleanup stays visibly pending; it never
+restores local authority. Confirmed state, native keys and policy survive reopen/upgrades. An
+unsupported saved connection version refuses with `REMOTE_CLOUD_UPGRADE_REQUIRED` and
+`This connection needs a newer Remote. Run tmt upgrade; your pairing is kept.`
+
+A changed sender uid creates `<rerouteId>` in the same mailbox with `kind=reroute`. Its confirmed
+native key signs `{machineId,owner pin,peer,new uid,generation,timestampMs}`; the sender reserves
+its increasing counter durably before signing. Rules bind the writer to the new uid and require
+the peer's reroute token; native signatures and generation checks remain with the existing receiver. The owner checks
+signature, pin, current non-revoked/non-expired grant, generation strictly greater than stored, and
+timestamp within 60 seconds of provider createTime. It atomically replaces the live uid route and
+writes `<rerouteId>-response`, signed over the exact request and ID. Old-generation replay cannot
+roll back; substitution under another uid fails. No challenge document, extra confirmation or new
+code is needed. Exactly one uid per native peer is live; all former uids lose carrier access.
 
 ### Superseded cloud authentication proposal
 
@@ -2431,9 +2541,14 @@ owned state through a fresh signed session, without resending work.
 ### Shipped: layer-1 composition
 
 The composition below is shipped and is not part of the superseded admission-service proposal.
-In the `sharing` profile, Remote builds `firestore.rules` from text it owns (`rules_version`, one
-`match /x/<extension>` wrapper per extension of the plan, a default deny) and each extension's admission fragment, which
-it tokenizes and rebuilds, never splices. A fragment holds only nested `match` and `allow <methods>: if <condition>`
+In the `sharing` profile, Remote builds `firestore.rules` from text it owns (`rules_version`,
+the native `/m/{machine}` agent-talk namespace, one `match /x/<extension>` wrapper per extension
+of the plan, a default deny) and each extension's admission fragment, which it tokenizes and
+rebuilds, never splices. The native policy comes from the same generated-cap artifact used by
+carrier and enrollment qualification; extension fragments cannot replace it or escape their wrapper.
+The exact composed bytes are covered by the deployment's Rules digest and existing authorization.
+The full human plan names the native namespace and its bounds; JSON retains the existing Rules digest.
+A fragment holds only nested `match` and `allow <methods>: if <condition>`
 statements over an allow-list of request and document fields, operators and methods. Field/index
 postfix access includes `request.auth.token.firebase.sign_in_provider`; `+` supports string-ID
 composition without type checking. Nested match wildcards can compare document fields and enclosing
@@ -2452,7 +2567,10 @@ interests and discovery (optional sequence equality, document-name order) use Fi
 The canonical composite union is digest-bound and deduplicated across extensions by collection ID and ordered
 fields; no extension-specific field names are built in. TTL is written only when the target provisions it.
 Either more than 200 single-field configurations or more than 200 composites without billing is refused as
-`too-many-index-configs`, with no artifact (limits checked 2026-10-14). The device inbox, permit, chunk, response and checkpoint Rules above wait for the admission service.
+`too-many-index-configs`, with no artifact (limits checked 2026-10-14). Native inbox and enrollment
+queries use the automatic collection-scope `createdAt` ascending index and its same-direction
+`__name__` suffix; they require no composite. The superseded admission-service policy above
+is not deployed.
 
 ### Proposal: Cloudflare Worker and Durable Objects
 
@@ -2716,7 +2834,7 @@ state invalidates consent.
 
 Declared Hosting refuses before login when the lazy provider factory does not support the
 complete lifecycle. Executable steps create only the named app/site, associate the site when listed,
-finish database/sign-in/index prerequisites, stage a Version (create, populate, required-hash uploads,
+finish database/sign-in/index prerequisites, register this machine as owner, stage a Version (create, populate, required-hash uploads,
 finalize), switch Rules, release Hosting, then verify both. Pending app/stage work blocks subsequent steps. Rules and
 Hosting publication are not atomic: a single writer is required, switches re-read captured state,
 and ambiguity stays partial/unknown without rollback or a usable binding. Provider-generated
@@ -3265,9 +3383,10 @@ sender, reader and guard work before releasing keys or opening a successor.
 
 ### Authorized deploy
 
-**Shipped:** the Firestore extension-sharing deployment described under **Current implementation**
-below. The operation-root/admission-service and Cloudflare provisioning in the following profile
-remain **proposed**; the shipped deploy does not enable cloud agent operations.
+**Shipped:** the Firestore deployment described under **Current implementation** below includes
+extension-sharing Rules and the native agent-talk carrier/enrollment policy. Publishing that
+policy does not enroll a peer or grant agent access. The superseded admission-service and
+Cloudflare provisioning in the following profile remain **proposed**.
 
 `tmt remote deploy <backend>` composes Remote's resources and all enabled extension declarations
 into one deployment in the owner's account. Before effects it shows the exact account/project,
@@ -3283,6 +3402,19 @@ declared extension/blob resources. Cloudflare provisions the Worker, per-machine
 per-namespace Durable Object bindings, scoped connector credentials and only declared blob resources.
 Private device/machine encryption material is never provisioned to either provider. A backend
 with missing required services/permissions is refused before publishing an active binding.
+
+A hosted Firestore plan includes the explicit `owner:register` step after its public configuration
+and sign-in setup, before Rules publication and Verify. The short summary and details disclose
+`Register this machine as owner`; its step ID is in the authorized digest. It reuses ordinary
+anonymous Auth (included in the displayed plan), then uses the authorized deploy credential to
+admit `/owners/<uid>` and create the pinned native machine row. Clients can never write `/owners`.
+On uid loss, the same authorized step may update only the original owner's uid, preserve its native
+key/descriptor, and retire the previous uid's matching owner entry in one conditional commit.
+A conflicting key, inviter provenance or foreign allow-list binding refuses with
+`REMOTE_DEPLOY_OWNER_CONFLICT`; nothing is overwritten. The original snapshot preconditions guard
+against concurrent pin replacement. Exact reruns observe before writing, including a lost commit
+answer; there is no mutation retry. Verify remains read-only and checks this step too. Deploying
+these gates grants no native operation permission or public Core delivery activation by itself.
 
 Remote records deployment identity, plan/declaration digests and per-resource outcomes durably in
 its own state. Validate all declarations first; publish a usable binding only after the complete
@@ -3420,8 +3552,8 @@ including unrelated indexes, separately from single-field configurations. Existi
 a new authorized plan reconciles its required indexes. Index readiness is a recorded prerequisite of sharing, as defined by the status-layer projection. Each step is observed
 first and applied only when absent, so an exact-plan retry skips what exists and never repeats an
 effect; a provider answer lost after a possible effect is recorded `unknown` and resolved by the next
-observation, never reported as failed. An existing equivalent object is adopted and kept; nothing is
-ever deleted. A destructive replacement of foreign live Rules names their exact fingerprint in the
+observation, never reported as failed. Equivalent user resources are adopted and kept;
+owner-access metadata follows the registration rule above. A destructive replacement of foreign live Rules names their exact fingerprint in the
 plan; authorizing that plan digest consents to replacement. A changed foreign fingerprint invalidates
 that authorization and is refused before switching the release.
 The deployed Rules begin with a Remote marker line naming the deployment and the digest of the
@@ -3434,7 +3566,7 @@ until the run completes no binding is usable; a failure before that call leaves 
 valid; running a finished plan again is a fresh check that keeps the binding until a Rules call is made.
 Preflight HTTP failures expose `error.provider: {operation, status}` in JSON and name the
 operation and numeric HTTP status in fixed human text. `operation` is one of `identity`,
-`project`, `database`, `fields`, `indexes`, `rules-release`, `rules-set`, `web-apps`,
+`project`, `database`, `owner-registration`, `fields`, `indexes`, `rules-release`, `rules-set`, `web-apps`,
 `web-app-config`, `web-app-operation`, `sign-in-config`, `google-sign-in-config`,
 `hosting-site`, `hosting-channel`, `hosting-version`, `hosting-files`, `hosting-release`,
 `hosting-upload`; `status` is a numeric HTTP code. No URL, resource name, project ID or
@@ -3448,7 +3580,7 @@ Records carry fixed reason codes, never provider text, and Remote fixes the owne
   `_DEPLOYMENT_INVALID`, `_SIGN_IN_MISSING`, `_AUTHORIZATION_STALE`, `_ACCOUNT_CHANGED`,
   `_ACCOUNT_UNREADABLE`, `_PROJECT_CONFLICT`, `_HOSTING_UNAVAILABLE`.
 - Step faults: `REMOTE_DEPLOY_PERMISSION_DENIED`, `_API_DISABLED`, `_QUOTA_EXCEEDED`,
-  `_PROVIDER_REJECTED`, `_DATABASE_MISMATCH`, `_RULES_FOREIGN`, `_VERIFY_FAILED`.
+  `_PROVIDER_REJECTED`, `_OWNER_CONFLICT`, `_DATABASE_MISMATCH`, `_RULES_FOREIGN`, `_VERIFY_FAILED`.
 - Owner steps: `REMOTE_DEPLOY_OWNER_INITIALIZE_AUTH`, `_ENABLE_GOOGLE_SIGN_IN`.
 
 The public `<extension> deploy-declaration --json` reply has exactly six fields:

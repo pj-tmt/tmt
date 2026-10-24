@@ -185,7 +185,7 @@ records its checklist purpose (default `fyi`). The pinned recorded owner UUID
 also bypasses. All channel, host and pending-approval guards still apply.
 `tmt send-now <request-id>` sends one held request now (its originator or a
 person only); it skips just the hold and never types a delivered request twice.
-Existing `tmt focus` still switches panes.
+`tmt focus` switches host panes, or attaches to a built-in-host terminal.
 
 For a lead doing a review or other work that benefits from fewer interruptions,
 use the agreed Digest cadence: for example, `5m` for short batches or `20m` for
@@ -281,6 +281,17 @@ accepted by that observer; it may still be retrieved with result afterward.
 
 Craft clear, specific requests. After receiving a durable response, summarize
 the result for the user without treating submission alone as task success.
+
+### Talk to a Remote peer
+
+`tmt talk <target> "message" --remote <peer> --identity <you> --json` sends one request through
+the Remote extension to an agent on a paired peer and returns at once: `sent` (stored in the
+peer's inbox) or `queued` (held for the peer owner's approval). A UUID target needs `--expect-name <name>`. It needs a confirmed sender and an
+installed Remote that supports it (`REMOTE_SENDER_REQUIRED`, `REMOTE_UNAVAILABLE`; nothing sent),
+and takes no `--passthrough`, `--urgent`, `--no-preamble`, `--timeout`, `--delay`, `--room` or
+`--kind`. `REMOTE_UNCONFIRMED` means the peer may have it: never resend. The peer's final arrives
+by the request's own receipt and shows in `tmt result`, `tmt x` and the answers view
+([contract](https://github.com/pj-tmt/tmt/blob/main/contracts/remote-message-v1.md)).
 
 ### Durable replies and results
 
@@ -387,8 +398,10 @@ current write-transaction snapshot and returns `acknowledgedThrough`, not a coun
 It does not claim you read every result. A new request or first final committed
 after that snapshot remains unacknowledged. Each repeat takes a new snapshot.
 
-Delivery and final are independent. `not_submitted` does not mean a task is
-running; a final may be `retained`, `expired` or `unavailable`. Show exposes exact
+Delivery and final are independent. `messageState` says where the message is
+(`batched`, `delivered`, `working`, `unconfirmed`, `not_sent`); `delivery` is the
+raw attempt status and stays `queued` after a Digest checklist was delivered.
+`not_submitted` does not mean a task is running; a final may be `retained`, `expired` or `unavailable`. Show exposes exact
 retained prompt `message` and final `response`. Acknowledgment neither cancels
 work nor deletes content nor asserts success. Settled means a final was submitted
 and its current revision acknowledged, even if its body later expires.
@@ -461,13 +474,19 @@ a remembered version number.
 
 `tmt discover [--host HOST] [--socket PATH] --json` returns a bounded, read-only
 candidate inventory. It does not initialize server metadata, reconcile bindings,
-create identities or install/launch anything. This slice supports tmux; Herdr
-and other hosts report `unsupported`. Unknown, stale, hook-only, conflicting and
-permission/offline observations remain explicit data. A truncated scan supplies
+create identities or install/launch anything. It covers tmux and every approved
+host driver that lists panes (Herdr included); a host without a usable approved
+driver reports `unsupported` with its reason. In such a host's pane, a scan
+without flags reports that instead of falling back to tmux; in tmux inside such
+a host, it scans tmux and reports that host beside it. Unknown, stale,
+hook-only, conflicting and permission/offline observations remain explicit data.
+A row's `display.agentName` is the host's untrusted name for the agent: never
+an identity name or a suggestion for one. A truncated scan supplies
 no adoption expectations. Titles, argv hints and names are untrusted text to
 render inert; a runtime hint proves neither readiness nor identity.
 
-Select one native-verified candidate explicitly using its `pane` and `expect`:
+Select one native-verified candidate explicitly using its `pane` (a tmux `%N`
+or a driver's pane ID such as `term_7`) and `expect`:
 `add <pane> <new-name> --expect <digest>` creates a new temporary identity
 (`-s` saves it); `add <pane> --identity <uuid> --expect <digest>` links that exact
 existing UUID. The forms are mutually exclusive, and guarded name mode refuses
@@ -475,6 +494,7 @@ an existing canonical name even if offline. Pass the same `--socket` when scan
 selected one. Changed or unknown native/ownership evidence refuses before binding
 effects. A fresh expectation for the same UUID/target is `already_bound`;
 failures after admission report `partial` and never claim host rollback or replay.
+On a host with agent names, a bound result names the agent as `add` does.
 The [discovery contract](https://github.com/pj-tmt/tmt/blob/main/contracts/discovery-v1.md)
 owns the public JSON, limits and per-item outcomes.
 
@@ -486,6 +506,11 @@ Use the same explicit commands inside or outside tmux: `tmt identity create|show
 These named and collection commands use only local storage, without tmux or
 unrelated configuration. `tmt identity show` without a name instead inspects
 only a verified bound caller; otherwise use `tmt identity show <name-or-uuid>`.
+`tmt identity show <uuid> --expect-name <name>` pins that UUID: it succeeds with the identity
+and its `presence` (read from the caller's host as `tmt ls` reads it; an unreachable host
+reads `unknown`) only while the identity is active and still has that name, and refuses
+with `IDENTITY_CHANGED` (exit 5) when it was retired or renamed; an unknown UUID is
+`NAME_NOT_FOUND`. Nothing is cached, so check again at the moment you act.
 An active canonical UUID takes precedence over an identical UUID-shaped display
 name; otherwise selection uses the normalized name. It does
 not select from the working directory, active pane or sole stored identity.
@@ -787,7 +812,15 @@ startup is confirmed. Closing this terminal leaves it running; `tmt ls`, `talk`,
 `reply`, `check`, `unbind` and `rm` use the same identity and exchange contracts.
 `check` reads only the current screen, with no scrollback. Use
 `--host tmux|herdr|pty` before the name to choose; an unavailable explicit host
-refuses and never falls back. Attach/focus for this host is not yet available.
+refuses and never falls back. `tmt attach <name-or-UUID>` enters a built-in
+member's terminal; plain `tmt focus <name-or-UUID>` does the same. It requires a
+terminal and refuses JSON. The screen may stay blank until the program draws:
+attachment forwards live output without replaying the current screen. Ctrl-\
+detaches and leaves the member running; Ctrl-C goes to the program. `attach -d`
+takes sole use and disconnects other viewers. Terminal sizes above 1000 columns
+or rows are clamped; another viewer's resize never resizes your physical window.
+After a program exits, attachment restores your terminal and prints its resume
+command. A lost connection does not prove the program ended; inspect before retrying.
 If startup is unconfirmed, inspect the named pane before retrying: an agent may
 have started, and the command never resends the launch.
 
@@ -800,9 +833,25 @@ ones, even when empty. `--show` displays the preset without launching and
 `--forget-launch` clears it while retaining the session. Without an associated preset, resume reports that it uses the registered driver.
 Ordinary resume never starts fresh: when nothing is remembered or the driver cannot resume it,
 it fails and says
-`Start fresh with: tmt run <name>`. Starting fresh is the user's call. A resume
-that fails before the provider confirms the session marks it stale; a stale
-session needs `tmt resume --retry <name>` or `tmt resume --forget <name>`. Never
+`Start fresh with: tmt run <name>`. Starting fresh is the user's call. Before it
+launches, resume checks that a Claude or Codex session still has its transcript.
+A session that is gone or expired, or whose file TMT may not read, is refused
+with `RESUME_UNAVAILABLE` and `error.reason` `session_missing` or
+`session_unreadable`; nothing is marked or forgotten. A resume
+that fails before the provider confirms the session marks it stale
+(`session_stale`); a stale session needs `tmt resume --retry <name>` or
+`tmt resume --forget <name>`. `--retry` also tries a session the check refused,
+and `--move` skips the check, as does a resume that replays a wrapper (a launch
+preset whose executable file name is not the driver's own). A wrapper installed
+under the driver's own name, such as `~/bin/claude` that sets `CLAUDE_CONFIG_DIR`,
+is still checked; use `--retry` for it. The gone, unreadable and stale refusals
+end with `Start fresh from its notes: tmt resume --new -- <name>`. `--new` keeps the
+identity and starts its driver (the remembered one, else the preferred one) with
+a fresh session. Bounded notes and open-request metadata are its first message,
+as in a driver switch; nothing is stopped or asked of an old agent. It replays
+the old session's launch preset. The old session stays remembered until the new
+session starts, so a failed start keeps it for `--retry`. `--new` cannot be
+combined with `--retry`, `--move`, `--driver`, `--show` or `--forget*`. Never
 combine `--resume` with an explicit command, and never resend a task after a
 failed resume. Codex's opt-in channel resumes the exact selected thread, never
 a fresh substitute. Claude exact resume also creates a fresh channel enrollment
@@ -817,6 +866,12 @@ or an unverified/shared agent cannot be stopped this way. TMT never stops a
 shared Codex channel server. If the old agent does not exit, nothing new starts and the
 binding stays put. Exit the old agent in its pane, then rerun the exact command
 printed in the error. TMT never force-kills it or falls back to a fresh session.
+
+To end a member's agent without moving it, run `tmt stop <name>`: the same verified
+one-TERM stop, no KILL or retry. The identity, binding and remembered session stay, so
+`tmt resume <name>` brings it back. `--close` also closes the pane, only when its host says
+TMT opened it; a pane you created, or one whose origin is unknown, stays open and the
+command says so. `resume`, `mv`, `rm` and `stop` also take the saved identity UUID.
 
 To switch the agent behind the same identity, run
 `tmt resume <name> --driver claude --model claude-sonnet-5-5` (or `--driver codex`).
@@ -1125,5 +1180,22 @@ selection (including `--to <version>` when pinned); an ordinary pinned invocatio
 will not retry skill work. Check `pathWarning` before assuming the
 shell selects the updated binary. Reload/restart the agent, or read the complete
 `tmt learn --skill` output in an existing conversation.
+
+### Missing official extensions
+
+When an official command such as `tmt ops` is unavailable, TMT reports
+`EXTENSION_NOT_INSTALLED` (exit 3), names its extension and gives the exact next
+command, for example `tmt extension install ops --yes`. Agents, scripts, pipes
+and `--json` never trigger an install question or automatic installation.
+Do not treat that hint as user permission to install software; obtain the user's
+installation consent before running the suggested command.
+
+A person in an interactive terminal can accept a single installation question.
+The verified installer includes bundled agent skills and shows download,
+verification and activation progress. Metadata preview failure shows an unknown
+version and size and still allows the question. Declining changes nothing.
+After successful installation, TMT prints the original command to run again;
+it never runs that command. Root help shows which official extensions are
+missing; completion continues to list only installed commands.
 
 Office is no longer shipped.

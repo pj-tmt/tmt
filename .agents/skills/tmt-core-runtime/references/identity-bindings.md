@@ -38,19 +38,29 @@ The [discovery v1 contract](../../../../contracts/discovery-v1.md) owns the publ
 shape and bounds. `tmt-core::discovery` owns native/UUID expectation values and
 the observation shape; the fence starts with the pane's host, so one host's
 expectation never admits another host's pane, and guarded add and discovery
-storage look up bindings by that host. `tmux::discovery` reads escaped topology without initializing a server marker,
-with one batched native-start observation. `storage::discovery` reads only the
-existing schema/rows, without reconciliation, creation or migration. Unknown
-markers and conflicting rows supply no adoption authority. Explicit external inventory selections remain unsupported without executing
-their driver; implicit caller selection uses the existing verified host lookup.
+storage look up bindings by that host. `tmux::discovery` reads escaped topology
+without initializing a server marker, and `host::external::discovery` reads a
+driver's `server` and `snapshot`; each makes one batched native-start
+observation. `registry::admitted_read_only` reads the approvals once per
+discovery or guarded add, never adopting, probing or locking: an approval it
+cannot use is a gap, whose driver never runs: its caller variables alone make
+implicit selection refuse, and with tmux variables the gap is reported beside
+the tmux scan. `storage::discovery` reads only the existing schema/rows, without
+reconciliation, creation or migration, and an external host's server ID comes
+from the recorded `host_servers` row. Unknown markers and conflicting rows
+supply no adoption authority.
 
 `binding::bind_guarded` admits the frozen target inside the binding transaction
 before creation or promotion. It shares `bind_selected` with ordinary binding;
 the guard adds native-start and ownership checks, not a second publication path.
 Name mode is insert-only; existing linking takes an exact UUID. Refused admissions
-have no identity or host effects. Failures after admission are partial host attempts
+have no identity or host effects. On an external host, `Host::resolve_fenced_server`
+records the server UUID between the first admission and the transaction, and only
+for the incarnation the fence names, re-verified first. Failures after admission are partial host attempts
 with rolled-back SQL on an in-transaction refusal or uncertain commit/close;
-they never claim host rollback or automatic replay. Guarded
+they never claim host rollback or automatic replay. After the commit, guarded add
+names the host agent through the same `name_bound_agent` as ordinary add, with the
+host handle built from the drivers it read once. Guarded
 add and discovery bypass optional caller learning, workspace capture and hook
 delivery. They install and launch nothing.
 
@@ -173,6 +183,10 @@ delivery. They install and launch nothing.
   state in the same transaction. No session ID or running observation grants ownership.
 - Resume coordinates pair session ID, harness and driver-owned mode (Claude `default`, Codex
   `shared`/`embedded`); provider hooks must record the same tokens.
+- A resume, `--move` and `--driver` resolve their operand once through `Storage::resolve_identity`
+  (an active UUID wins over a UUID-shaped name; an unknown or retired UUID is `NAME_NOT_FOUND`
+  before any stop, handoff or launch), then work on that identity by id: the launch binds with
+  `bind_existing_identity`, which never looks the name up again, so a rename cannot retarget it.
 - Driver state is an opaque versioned document of at most 1 KiB that core stores and never
   parses. `RuntimeLifecycle::reads_state` names readable versions and
   `RuntimeRegistry::reconcile` drops what no registered driver can read. It holds resume
@@ -209,7 +223,8 @@ delivery. They install and launch nothing.
   Retirement clears both. A switch archives only an exactly associated launch preset
   under `resume.driver.<harness>`; another driver's settings never apply.
   [Driver switching](../../../../contracts/driver-protocol-v1.md#built-in-driver-switch)
-  owns handoff, stop and caller-pane launch behavior.
+  owns handoff, stop and caller-pane launch behavior, and the fresh start (`resume --new`):
+  its handoff, replayed launch preset, and why a failed start keeps the remembered record.
 - An independent provider hook, attributed by pane ancestry, records only the pane's main
   provider: the nearest provider process above the hook with no built-in provider above it up
   to the verified pane. The pane process itself may be that provider after a shell exec.
@@ -234,6 +249,26 @@ delivery. They install and launch nothing.
   `--move` command; unknown evidence refuses with a check-the-old-pane next step.
   Only conclusive exit or a different native process incarnation permits continuing.
   Fresh launches keep their existing degraded-evidence policy.
+- Before an exact resume without `--retry` or `--move`, the session's first-party driver probes
+  for its transcript by exact UUID only (`runtime::session_presence`): Claude
+  `projects/*/<uuid>.jsonl`, Codex `sessions/YYYY/MM/DD/rollout-*-<uuid>.jsonl`. It lists
+  directories without following symlinks, admits a file only through the `runtime::transcript`
+  boundary, and reads no content; 16,384 entries, and 500 ms checked between entries. `Missing`
+  (the whole tree was read, no file names the session) refuses with `RESUME_UNAVAILABLE` and
+  `error.reason: session_missing`; a named file whose open is denied, a symlink or not regular
+  is `session_unreadable`. Any doubt is `Unknown` and resumes as before: no tree, a linked or
+  unlistable directory, the deadline, the bound, another open error, a file that opens but
+  fails the transcript boundary, a non-UUID ID, a community driver, or a Codex match in its flat
+  `archived_sessions` (Codex can unarchive a thread). A move is not probed: its agent runs, and
+  its transcript may not be written yet. A resume that replays a launch preset is probed only
+  when the preset's executable is one of the driver's registered executables, matched by file
+  name; a wrapper may set its own `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, so its session is
+  `Unknown`. A wrapper installed under the driver's own name (for example `~/bin/claude`) is
+  still probed, so it needs `--retry` when its sessions live elsewhere. The preset's
+  environment keys cannot change the config root. The probe marks, forgets and launches nothing; `--retry`
+  skips it. The missing, unreadable and stale refusals name `tmt resume --new -- <name>`; `--new`
+  skips the probe and the stale check. A stale refusal carries `error.reason: session_stale`. Read `error.reason` with
+  `error.code`: a runtime refusal keeps its own reason vocabulary.
 - Explicit `resume <name> --move` preflights the exact session and caller destination before
   stopping anything. The lifecycle driver proves the captured process is its private main
   agent under the old pane; a pane process, nested agent or shared Codex server refuses.
@@ -281,6 +316,15 @@ delivery. They install and launch nothing.
   step. It never guesses a session from cwd, titles, recency or a transcript scan.
 - The channel choice (nullable) is recorded after an admitted fresh launch or explicit resume
   flag; null keeps the driver default; flagless resume does not rewrite it.
+- `session_learning` coordinates the managed launch's single early SessionStart with
+  `run_command::admission`; `launch_observations` holds the intent and pending event
+  in one binding-owned row. A provider launch without a confirmed native owner
+  refuses before spawn or resume-pending (`RUNTIME_CONFLICT`); non-provider
+  commands keep their existing behavior. The session and pending consumption commit together,
+  before optional context work. Its preference fingerprint fences concurrent edits;
+  it grants no authority. End cannot resurrect the pending key. Retention, fixed
+  diagnostics and stored-only recovery projections have one owner in the
+  [session binding contract](../../../../contracts/identity-status-v1.md#managed-launch-session-learning).
 - Activity comes from TMT's own UserPromptSubmit/Stop hooks (Claude runs them synchronously;
   ordering relies on that provider contract) and, for Codex, its first-party turn ID.
   A Codex `Interrupt` with its turn ID also ends that turn as idle, through the same turn-end
@@ -389,7 +433,9 @@ delivery. They install and launch nothing.
   `RuntimeLifecycle::hook_work_duration`). The remaining budget reaches the worker as a typed
   hidden argument and reaches `turn_state`. A failed worker kills its own group; the supervisor
   owns deadline termination. Hooks open only existing compatible storage with a short lock wait,
-  never migrate, and on failure emit no context and at most one fixed stderr line. A hook
+  never migrate, and on failure emit no context and a fixed stderr notice (plus a
+  fixed diagnostic-save failure notice if applicable). Managed-launch diagnostics
+  reserve 200 ms within that same budget, never beyond it. A hook
   supplies observation only: the binding must match fresh server/pane/marker evidence and
   payload session IDs never create bindings or move identities. `verified_caller` gets the
   caller's host from `Host::for_verified_caller` (the one host its locators name, or a nested

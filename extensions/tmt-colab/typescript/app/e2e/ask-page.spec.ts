@@ -1,3 +1,4 @@
+import { headerHeight } from './tokens.js';
 import { commentsClose, commentsRegion, openPanel } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
@@ -441,7 +442,11 @@ for (const width of [1440, 390]) {
     await expect(live).toHaveCount(1);
     await expect(live).toHaveAttribute('role', 'status');
     await expect(live).toHaveAttribute('aria-live', 'polite');
-    await expect(page.locator('dialog:modal .tmt-ui-notification-status')).toHaveCount(0);
+    await expect(
+      page.locator(
+        'dialog:modal .tmt-ui-notification-status, .tmt-ui-panel .tmt-ui-notification-status',
+      ),
+    ).toHaveCount(0);
     await expect(legacy).toHaveCount(0);
     await page.evaluate(() => {
       const events: string[] = [];
@@ -855,9 +860,11 @@ for (const [width, height, theme] of [
       state: 'replied',
       message: 'Existing discussion. '.repeat(45),
     });
+    // A sheet over a short viewport leaves no room above it, and the group then hides (its state
+    // stays in the DOM): the control is read through that, and pressed while the page shows it.
     const mode = page
       .locator('.selection-mode')
-      .getByRole('button', { name: 'Selection mode', exact: true });
+      .getByRole('button', { name: 'Selection mode', exact: true, includeHidden: true });
     await mode.click();
     await expect(mode).toHaveAccessibleName(text.selectionMode);
     await expect(mode).toHaveAttribute('aria-keyshortcuts', 'c Escape');
@@ -1095,19 +1102,16 @@ for (const [width, theme] of [
       ['Source', 'source'],
       ['Agents', 'agents'],
       ['Files', 'files'],
-      ['Comments', 'comments'],
       ['Export page', 'export'],
     ]) {
+      // Comments is a non-modal panel now: layout.spec.ts holds its geometry by mode.
       await (await pageAction(page, action!)).click();
-      const drawer =
-        panel === 'comments'
-          ? commentsRegion(page)
-          : page.locator(`.tmt-ui-drawer[data-panel=${panel}][open]`);
+      const drawer = page.locator(`.tmt-ui-drawer[data-panel=${panel}][open]`);
       await expect(drawer).toBeVisible();
       const box = (await drawer.boundingBox())!;
       const gap = width <= 480 ? 4 : 8;
       expect(box.x + box.width).toBe(width - gap);
-      expect(box.y).toBe((width <= 480 ? 48 : 56) + gap);
+      expect(box.y).toBe(headerHeight(width) + gap);
       expect(box.y + box.height).toBe(900 - gap);
       await expect(drawer).toHaveCSS('border-right-width', '1px');
       expect((await frame.boundingBox())?.width).toBe(before?.width);

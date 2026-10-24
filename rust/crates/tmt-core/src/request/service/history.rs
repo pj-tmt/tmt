@@ -8,6 +8,14 @@ use crate::{
     },
 };
 
+fn valid_cursor(timestamp: u64, request_id: &str) -> bool {
+    timestamp > 0
+        && timestamp <= MAX_JS_SAFE_INTEGER
+        && !request_id.is_empty()
+        && request_id.len() <= 80
+        && !request_id.chars().any(char::is_control)
+}
+
 fn valid_query(query: &HistoryQuery) -> bool {
     let scope = match &query.scope {
         HistoryScope::Recipient {
@@ -32,11 +40,7 @@ fn valid_query(query: &HistoryQuery) -> bool {
                     HistoryScope::Recipient { .. } | HistoryScope::Room(_),
                     HistoryCursor::Prepared { .. }
                 )
-            ) && cursor.timestamp() > 0
-                && cursor.timestamp() <= MAX_JS_SAFE_INTEGER
-                && !cursor.request_id().is_empty()
-                && cursor.request_id().len() <= 80
-                && !cursor.request_id().chars().any(char::is_control)
+            ) && valid_cursor(cursor.timestamp(), cursor.request_id())
         })
 }
 
@@ -160,6 +164,37 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         } else {
             self.read(observe)
         }
+    }
+
+    /// The originator's answered requests, newest answer first. Metadata only, so a
+    /// reader can count what arrived without loading any text. Reading never acknowledges.
+    pub fn request_answers(
+        &mut self,
+        query: AnswersQuery,
+    ) -> Result<AnswersPage, RequestError<R::Error>> {
+        if !(canonical_id(&query.originator_id)
+            && (1..=HISTORY_MAX_LIMIT).contains(&query.limit)
+            && query
+                .before
+                .as_ref()
+                .is_none_or(|cursor| valid_cursor(cursor.answered_at_ms, &cursor.request_id)))
+        {
+            return Err(RequestError::Invalid("Invalid request answers query."));
+        }
+        let clock = &self.clock;
+        self.repository.with_request_observation(|records| {
+            let mut items = records.list_answers(&query, query.limit + 1, positive(clock())?)?;
+            let more = items.len() as u64 > query.limit;
+            items.truncate(query.limit as usize);
+            let next_before = more.then(|| {
+                let last = items.last().expect("positive page limit");
+                AnswerCursor {
+                    answered_at_ms: last.answered_at_ms,
+                    request_id: last.request_id.clone(),
+                }
+            });
+            Ok(AnswersPage { items, next_before })
+        })
     }
 
     /// Owner inspection exposes exact retained text, not reply credentials or pane paths.

@@ -1,4 +1,7 @@
+import { CompactControlsFrame } from './compact-controls-frame.js';
 import { ChartsSection } from './charts.js';
+import { MenuHostFrame } from './menu-host-frame.js';
+import { TopBarFrame } from './topbar-frame.js';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Settings } from 'lucide-react';
@@ -6,6 +9,7 @@ import {
   BrowserAction,
   BrowserDialog,
   BrowserDrawer,
+  BrowserPanel,
   BrowserField,
   BrowserHeader,
   BrowserIconAction,
@@ -133,7 +137,8 @@ function ShellHeader() {
 
 function ShellFrame({ params }: { params: URLSearchParams }) {
   const view = useMemo<ShellView>(() => {
-    const place = { origin, href: `${origin}/colab/pages` };
+    const path = params.get('page') === 'project' ? '/colab/p/release' : '/colab/pages';
+    const place = { origin, href: `${origin}${path}` };
     const colab = answer.modules[0]!;
     const menu = params.get('menu') === 'none' ? undefined : describedMenu(colab, place);
     if (menu) menu.groups[0]!.items[0]!.total = 12;
@@ -159,19 +164,26 @@ function ShellFrame({ params }: { params: URLSearchParams }) {
   return (
     <BrowserShell view={view} select={() => true}>
       <ShellHeader />
-      <div className="gallery-frame-main">
-        <BrowserList label="Pages">
-          <BrowserListRow
-            title={<a href="#pages">Release plan for the remote channel</a>}
-            metadata="ux-4 · 2 minutes ago"
-            state={<span>◆ needs you</span>}
-          />
-          <BrowserListRow
-            title={<a href="#pages">Brand sheet</a>}
-            metadata="tmt-ux-lead · yesterday"
-            state={<span>✓ answered</span>}
-          />
-        </BrowserList>
+      <div className="tmt-ui-page">
+        <header className="tmt-ui-page-head">
+          <h2 className="tmt-ui-page-title">Your pages, in one place.</h2>
+          <p className="tmt-ui-page-subtitle">A shared space for your team’s work.</p>
+        </header>
+        <section className="tmt-ui-card">
+          <h3 className="tmt-ui-card-title">Pages</h3>
+          <BrowserList label="Pages">
+            <BrowserListRow
+              title={<a href="#pages">Release plan for the remote channel</a>}
+              metadata="ux-4 · 2 minutes ago"
+              state={<span>◆ needs you</span>}
+            />
+            <BrowserListRow
+              title={<a href="#pages">Brand sheet</a>}
+              metadata="tmt-ux-lead · yesterday"
+              state={<span>✓ answered</span>}
+            />
+          </BrowserList>
+        </section>
       </div>
     </BrowserShell>
   );
@@ -216,8 +228,10 @@ function HostedFrame() {
   );
 }
 
-function DialogFrame() {
-  const [open, setOpen] = useState(true);
+function DialogFrame({ params }: { params: URLSearchParams }) {
+  const [open, setOpen] = useState(params.get('open') !== 'false');
+  const confirm = params.get('presentation') === 'confirm';
+  const deleting = confirm && params.get('intent') === 'delete';
   return (
     <>
       <BrowserAction
@@ -228,44 +242,56 @@ function DialogFrame() {
       />
       <BrowserDialog
         open={open}
-        title="Move to project"
+        title={confirm ? (deleting ? 'Delete page?' : 'Archive page?') : 'Move to project'}
+        size={params.get('size') === 'wide' ? 'wide' : 'regular'}
+        presentation={confirm ? 'confirm' : 'standard'}
         onDismiss={() => setOpen(false)}
         actions={
           <>
             <BrowserAction
               type="button"
-              variant="text"
+              variant={confirm ? 'secondary' : 'text'}
               label="Cancel"
               onActivate={() => setOpen(false)}
             />
             <BrowserAction
               type="button"
-              variant="primary"
-              label="Move"
+              variant={deleting ? 'destructive' : 'primary'}
+              label={confirm ? (deleting ? 'Delete page' : 'Archive page') : 'Move'}
               onActivate={() => setOpen(false)}
             />
           </>
         }
       >
-        <BrowserField
-          controlId="dialog-project"
-          label="Project"
-          renderControl={(props) => <input {...props} defaultValue="Release planning" />}
-        />
-        <BrowserField
-          controlId="dialog-note"
-          label="Note"
-          description="Shown to the project's members."
-          descriptionId="dialog-note-description"
-          renderControl={(props) => <input {...props} placeholder="Optional" />}
-        />
+        {confirm ? (
+          <p>
+            {deleting
+              ? 'This permanently removes the page. Copies already made cannot be taken back.'
+              : 'An archived page stays readable, but nobody can edit it. You can restore it from Archived.'}
+          </p>
+        ) : (
+          <>
+            <BrowserField
+              controlId="dialog-project"
+              label="Project"
+              renderControl={(props) => <input {...props} defaultValue="Release planning" />}
+            />
+            <BrowserField
+              controlId="dialog-note"
+              label="Note"
+              description="Shown to the project's members."
+              descriptionId="dialog-note-description"
+              renderControl={(props) => <input {...props} placeholder="Optional" />}
+            />
+          </>
+        )}
       </BrowserDialog>
     </>
   );
 }
 
 function DrawerFrame({ params }: { params: URLSearchParams }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(params.get('open') !== 'false');
   return (
     <>
       <BrowserAction
@@ -405,6 +431,144 @@ function NotificationsFrame() {
   );
 }
 
+function PanelReply({ send }: { send(): Promise<void> }) {
+  const [draft, setDraft] = useState('');
+  const [status, setStatus] = useState<'idle' | 'pending' | 'failed'>('idle');
+  return (
+    <>
+      <BrowserField
+        controlId="panel-persistent-reply"
+        label="Reply draft"
+        renderControl={(props) => (
+          <textarea {...props} value={draft} onChange={(event) => setDraft(event.target.value)} />
+        )}
+      />
+      <BrowserAction
+        type="button"
+        label="Send reply"
+        variant="primary"
+        busy={status === 'pending'}
+        onActivate={async () => {
+          setStatus('pending');
+          try {
+            await send();
+            setStatus('idle');
+          } catch {
+            setStatus('failed');
+          }
+        }}
+      />
+      <p role="status">{status === 'failed' ? 'Reply failed. Your draft is retained.' : status}</p>
+    </>
+  );
+}
+
+function PanelFrame({ params }: { params: URLSearchParams }) {
+  const [open, setOpen] = useState(params.get('open') !== 'false');
+  const hostClose = params.get('host-close');
+  const keepMounted = params.get('keep-mounted') === 'true';
+  const failReply = useRef<(() => void) | null>(null);
+  const [width, setWidth] = useState(window.innerWidth);
+  const [refusals, setRefusals] = useState(0);
+  const [pageActions, setPageActions] = useState(0);
+  const [showOpener, setShowOpener] = useState(true);
+  useEffect(() => {
+    const resize = () => setWidth(window.innerWidth);
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
+  const mode = width >= 1180 ? 'column' : width > 760 ? 'card' : 'sheet';
+  return (
+    <div className="gallery-panel-demo" data-mode={mode} data-open={open || undefined}>
+      <div className="gallery-panel-page">
+        <h1>Ops UI proposal</h1>
+        {showOpener && (
+          <BrowserAction
+            type="button"
+            variant="secondary"
+            label="Discussion"
+            onActivate={() => setOpen(true)}
+          />
+        )}
+        <p>The page remains available while its discussion is open.</p>
+        <BrowserAction
+          type="button"
+          variant="secondary"
+          label="Page action"
+          onActivate={() => {
+            setPageActions((n) => n + 1);
+            if (hostClose === 'close' || hostClose === 'unmount') setOpen(false);
+          }}
+        />
+        {keepMounted && (
+          <BrowserAction
+            type="button"
+            label="Fail pending reply"
+            variant="secondary"
+            onActivate={() => failReply.current?.()}
+          />
+        )}
+        <p id="page-action-status">Page actions {pageActions}</p>
+        <p role="status">{refusals ? `Dismissal refused ${refusals}` : ''}</p>
+      </div>
+      <div className="gallery-panel-column">
+        {(open || hostClose !== 'unmount') && (
+          <BrowserPanel
+            open={open}
+            keepMounted={keepMounted}
+            title="Discussion"
+            caption="1 / 2"
+            mode={mode}
+            focusFallback={() =>
+              Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+                (node) => node.textContent === 'Page action',
+              ) ?? null
+            }
+            onDismiss={() => {
+              if (params.get('refuse') === 'true') setRefusals((n) => n + 1);
+              else setOpen(false);
+            }}
+          >
+            <BrowserAction
+              type="button"
+              variant="text"
+              label="Remove opener"
+              onActivate={() => setShowOpener(false)}
+            />
+            {keepMounted && (
+              <PanelReply
+                send={() =>
+                  new Promise<void>((_, reject) => {
+                    failReply.current = () => {
+                      failReply.current = null;
+                      reject(new Error('Fixture reply failure'));
+                    };
+                  })
+                }
+              />
+            )}
+            <p>Navigation feedback</p>
+            <blockquote>The page decides its shape.</blockquote>
+            <BrowserField
+              controlId="panel-reply"
+              label="Reply"
+              renderControl={(props) => (
+                <textarea
+                  {...props}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') event.preventDefault();
+                  }}
+                />
+              )}
+            />
+            <BrowserAction type="button" variant="secondary" label="Reply" onActivate={() => {}} />
+          </BrowserPanel>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function frameFor(name: string, params: URLSearchParams): ReactNode {
   switch (name) {
     case 'notice':
@@ -420,11 +584,19 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
     case 'hosted':
       return <HostedFrame />;
     case 'dialog':
-      return <DialogFrame />;
+      return <DialogFrame params={params} />;
+    case 'panel':
+      return <PanelFrame params={params} />;
     case 'drawer':
       return <DrawerFrame params={params} />;
     case 'source':
       return <SourceFrame params={params} />;
+    case 'compact-controls':
+      return <CompactControlsFrame params={params} />;
+    case 'menu-host':
+      return <MenuHostFrame params={params} />;
+    case 'topbar':
+      return <TopBarFrame params={params} />;
     case 'menu':
       return <MenuFrame />;
     case 'notifications':
@@ -439,6 +611,13 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
 export function ShellSection() {
   return (
     <Section id="shell">
+      <FramePair title="Shared common top bar · React adapter" frame="topbar" height={400} />
+      <FramePair
+        title="Shared common top bar · native renderer"
+        frame="topbar"
+        params={{ renderer: 'native' }}
+        height={400}
+      />
       <FramePair
         title="BrowserShell · rail expanded with module menu"
         note="mountShell renders the rail and module menu; BrowserShell hosts React and its header through useShellBar."
@@ -499,6 +678,26 @@ export function OverlaysSection() {
   return (
     <Section id="overlays">
       <FramePair title="BrowserDialog" frame="dialog" height={360} />
+      <FramePair
+        title="BrowserDialog · wide"
+        frame="dialog"
+        params={{ size: 'wide' }}
+        height={360}
+      />
+      <FramePair
+        title="BrowserDialog · archive confirmation"
+        frame="dialog"
+        params={{ presentation: 'confirm' }}
+        height={360}
+      />
+      <FramePair
+        title="BrowserDialog · delete confirmation"
+        frame="dialog"
+        params={{ presentation: 'confirm', intent: 'delete' }}
+        height={360}
+      />
+      <FramePair title="BrowserPanel · non-modal card" frame="panel" width={1024} height={440} />
+      <FramePair title="BrowserPanel · non-modal sheet" frame="panel" width={390} height={500} />
       <FramePair title="BrowserDrawer" frame="drawer" height={420} />
       <FramePair title="BrowserDrawer · host header Save" frame="source" height={420} />
     </Section>

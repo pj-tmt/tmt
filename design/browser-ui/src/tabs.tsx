@@ -29,6 +29,8 @@ export interface BrowserTabsProps {
   /** `flat` only: the strip wraps into rows instead of scrolling sideways, for a list whose tabs
    * should all show on a phone. The arrow-key order stays the DOM order. Scroll stays the default. */
   wrap?: boolean;
+  /** Flat tabs only: website-sized labels/counts with a neutral selected surface. */
+  presentation?: 'compact';
   panelTabIndex?: 0 | -1;
   children(tab: BrowserTab): ReactNode;
 }
@@ -48,6 +50,7 @@ export function BrowserTabs({
   status,
   variant = 'boxed',
   wrap = false,
+  presentation,
   panelTabIndex,
   children,
 }: BrowserTabsProps) {
@@ -98,6 +101,7 @@ export function BrowserTabs({
     <div
       className={c.tabs}
       data-variant={variant}
+      data-presentation={variant === 'flat' ? presentation : undefined}
       data-wrap={wrap && variant === 'flat' ? '' : undefined}
     >
       <div className={c.tabsHeader}>

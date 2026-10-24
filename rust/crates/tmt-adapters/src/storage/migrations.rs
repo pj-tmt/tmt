@@ -36,6 +36,10 @@ mod prop_pack_tests;
 #[cfg(test)]
 mod receipt_tests;
 #[cfg(test)]
+mod remote_response_tests;
+#[cfg(test)]
+mod remote_route_tests;
+#[cfg(test)]
 mod request_delivery_mode_tests;
 #[cfg(test)]
 mod request_history_tests;
@@ -314,6 +318,16 @@ const MIGRATIONS: &[Migration] = &[
         "record refused runtime starts on their binding",
         "schema/063.sql"
     ),
+    migration!(
+        "index the passthrough turns an originator has had answered",
+        "schema/064.sql"
+    ),
+    migration!("let a request carry a remote route", "schema/065.sql"),
+    migration!("let a final answer a remote request", "schema/066.sql"),
+    migration!(
+        "retain early provider starts until exact launch admission",
+        "schema/067.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {
@@ -371,7 +385,7 @@ fn apply_through(connection: &mut Connection, last: usize) -> Result<(), Storage
     let current = validate_history(connection)?;
     for (index, migration) in MIGRATIONS.iter().enumerate().take(last).skip(current) {
         let version = index as u32 + 1;
-        if version == 9 || version == 41 {
+        if matches!(version, 9 | 41 | 65 | 66) {
             apply_without_foreign_keys(connection, version, migration)?;
         } else {
             apply_version(connection, version, migration)?;
@@ -455,7 +469,7 @@ fn apply_version(
             "INSERT INTO _migrations (version, name, applied_at) VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
             params![version, migration.name],
         ).map_err(|error| classify(error, "Record migration"))?;
-        if version == 9 || version == 39 || version == 41 {
+        if matches!(version, 9 | 39 | 41 | 65 | 66) {
             check_foreign_keys(&transaction)?;
         }
         Ok(())

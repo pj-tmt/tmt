@@ -362,6 +362,12 @@ fn captures() -> Value {
                 "agents-state-sorted",
                 "agents-header-hover",
                 "digest",
+                "digest-first-open",
+                "digest-busy-late",
+                "digest-retained-pick",
+                "digest-empty-flow",
+                "digest-unavailable-flow",
+                "digest-no-agents",
                 "digest-allowance",
                 "digest-allowance-tokens",
                 "empty",
@@ -385,6 +391,7 @@ fn captures() -> Value {
                 "unread-waiting",
                 "unread-squads",
                 "unread-cleared",
+                "unread-turn",
             ]
             .into_iter()
             .chain(
@@ -394,7 +401,17 @@ fn captures() -> Value {
             ) {
                 for width in [160, 100, 80, 60] {
                     for height in [36, 8] {
-                        let app = if state == "header-usage" {
+                        let app = if matches!(
+                            state,
+                            "digest-first-open"
+                                | "digest-busy-late"
+                                | "digest-retained-pick"
+                                | "digest-empty-flow"
+                                | "digest-unavailable-flow"
+                                | "digest-no-agents"
+                        ) {
+                            crate::board::digest_dashboard::tests::capture_case(state, look)
+                        } else if state == "header-usage" {
                             metered(look)
                         } else if crate::board::conversation::outgoing::tests::captures::SCENES
                             .contains(&state)
@@ -693,6 +710,20 @@ fn captures() -> Value {
                 }
             }
         }
+        for (look_name, look) in looks() {
+            for state in crate::board::member_links::tests::FILE_SCENES {
+                for width in [160, 100, 80, 60] {
+                    let app = crate::board::member_links::tests::capture_file_case(
+                        state, look, width, 36,
+                    );
+                    let mut captured =
+                        capture_frame(&app, state, look_name, width, 36, &mut styles);
+                    captured["references"] =
+                        json!(crate::board::member_links::tests::capture_file_hits(&app));
+                    frames.push(captured);
+                }
+            }
+        }
         // The Talk pane's live screen of the selected agent, in each state it can be in.
         for (look_name, look) in looks() {
             for state in crate::board::conversation::screen::tests::SCENES {
@@ -729,6 +760,24 @@ fn captures() -> Value {
                             &mut styles,
                         ));
                     }
+                }
+            }
+        }
+        // Exact reported Markdown sources through the live conversation projection.
+        for (look_name, look) in looks() {
+            for scene in crate::board::conversation::tests::markdown_packet::REPORTED_SCENES {
+                for width in [160, 100, 80, 60] {
+                    let app = crate::board::conversation::tests::markdown_packet::reported_case(
+                        scene, look,
+                    );
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        width,
+                        36,
+                        &mut styles,
+                    ));
                 }
             }
         }
@@ -773,6 +822,29 @@ fn captures() -> Value {
                         scene,
                         look_name,
                         width,
+                        36,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
+        // The Notes list overlay: additive scenes.
+        for (look_name, look) in looks() {
+            for scene in crate::board::conversation_notes::tests::overlay::LIST_SCENES {
+                // The list also paints where its title, host and author give way.
+                let widths: &[u16] = if *scene == "notes-list" {
+                    &[100, 160, 60]
+                } else {
+                    &[100]
+                };
+                for width in widths {
+                    let app =
+                        crate::board::conversation_notes::tests::overlay::list_case(scene, look);
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        *width,
                         36,
                         &mut styles,
                     ));
@@ -831,10 +903,25 @@ fn captures() -> Value {
             crate::board::switch_tool::tests::captures::SCENES,
             &mut styles,
         ));
+        frames.extend(idle_alert_frames(&mut styles));
         frames.extend(crud_frames(
             crate::board::app::workspace::tests::review_modal::CRUD_SCENES,
             &mut styles,
         ));
+        // The unread count under the pointer: one additive scene, appended so the style table keeps its order.
+        for (look_name, look) in looks() {
+            for width in [160, 100, 80, 60] {
+                let app = capture_case("unread-chip-hover", look);
+                frames.push(capture_frame(
+                    &app,
+                    "unread-chip-hover",
+                    look_name,
+                    width,
+                    36,
+                    &mut styles,
+                ));
+            }
+        }
         let styles = styles
             .0
             .into_iter()
@@ -1075,4 +1162,40 @@ fn dump_chat_fallback_oracle() {
         serde_json::to_string_pretty(&captured).unwrap() + "\n",
     )
     .unwrap();
+}
+
+fn idle_alert_frames(styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        for scene in crate::board::idle_alert_editor::tests::captures::SCENES {
+            for width in [160, 100, 80, 60] {
+                for height in [36, 8] {
+                    let app = crate::board::idle_alert_editor::tests::captures::case(scene, look);
+                    let mut frame = capture_frame(&app, scene, look_name, width, height, styles);
+                    frame["idleAlertEditor"] =
+                        crate::board::idle_alert_editor::tests::captures::metadata(&app);
+                    frames.push(frame);
+                }
+            }
+        }
+    }
+    frames
+}
+#[test]
+#[ignore = "exports only the revised idle-alert scenes, never records fixtures"]
+fn dump_idle_alert_editor_oracle() {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut styles = Styles::default();
+        let frames = idle_alert_frames(&mut styles);
+        let styles = styles
+            .0
+            .into_iter()
+            .map(|(text, id)| (id, text))
+            .collect::<BTreeMap<_, _>>();
+        fs::write(
+            std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path"),
+            serde_json::to_string_pretty(&json!({"styles":styles,"frames":frames})).unwrap() + "\n",
+        )
+        .unwrap();
+    });
 }

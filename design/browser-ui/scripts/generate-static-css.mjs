@@ -1,13 +1,10 @@
-import { readFile, writeFile } from 'node:fs/promises';
-import { format } from 'vite-plus/fmt';
+import { readFile, writeFile, realpath } from 'node:fs/promises';
+import { build } from 'vite-plus';
+import { pathToFileURL } from 'node:url';
 const home = new URL('../', import.meta.url);
 const tokens = JSON.parse(
   await readFile(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
 );
-const mode = process.argv[2];
-if (process.argv.length !== 3 || !['--write', '--check'].includes(mode)) {
-  throw new Error('Use --write or --check');
-}
 // Theme-invariant roles inherit from the root; nested theme switches never change them.
 const themed = (theme, indent = '  ', root = false) =>
   [
@@ -71,6 +68,7 @@ const fragments = await Promise.all(
     'facts',
     'list',
     'drawer',
+    'panel',
     'dialog',
     'menu',
     'count-chip',
@@ -86,7 +84,7 @@ const fragments = await Promise.all(
     'visually-hidden',
   ].map((name) => readFile(new URL(`src/${name}.css`, home), 'utf8')),
 );
-const css = `/* Generated: generate-static-css */
+const tokenCss = `/* Generated: generate-static-css */
 :root {\n${fixed}\n${themed('light', '  ', true)}\n}
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {\n${themed('dark', '    ')}\n  }
@@ -99,13 +97,60 @@ const css = `/* Generated: generate-static-css */
 @media (max-width: ${tokens.header['compact-max-width']}) {
   :root {
     --tmt-ui-header-height: var(--tmt-ui-header-compact-height);
+    --tmt-ui-header-padding-inline: var(--tmt-ui-header-compact-padding-inline);
   }
 }
-\n${fragments.map((s) => bare(s.replaceAll('\r\n', '\n').replaceAll('__compact-max-width__', tokens.header['compact-max-width']))).join('\n')}\n`;
-// Shipped as the repository formats it, so the checked file equals the generator output.
-const formatted = await format('generated/static.css', css, { singleQuote: true, printWidth: 100 });
-if (formatted.errors.length) throw new Error(JSON.stringify(formatted.errors));
-const output = new URL('generated/static.css', home);
-if (mode === '--write') await writeFile(output, formatted.code, 'utf8');
-else if ((await readFile(output, 'utf8')) !== formatted.code)
-  throw new Error('Generated static.css is stale');
+`;
+const componentCss = `${fragments.map((s) => bare(s.replaceAll('\r\n', '\n').replaceAll('__compact-max-width__', tokens.header['compact-max-width']))).join('\n')}\n`;
+export const authoredStaticCss = `${tokenCss}${componentCss}`;
+/** Use the pinned production CSS compiler; authored fragments remain formatted and readable. */
+async function compileStaticCss() {
+  const result = await build({
+    configFile: false,
+    publicDir: false,
+    logLevel: 'silent',
+    plugins: [
+      {
+        name: 'browser-leaf-static-css',
+        resolveId(id) {
+          if (id === 'virtual:browser-leaf.css') return '\0browser-leaf.css';
+        },
+        load(id) {
+          if (id === '\0browser-leaf.css') return componentCss;
+        },
+      },
+    ],
+    build: {
+      write: false,
+      emptyOutDir: false,
+      minify: false,
+      cssMinify: 'lightningcss',
+      cssTarget: 'esnext',
+      cssCodeSplit: true,
+      rolldownOptions: { input: 'virtual:browser-leaf.css' },
+    },
+  });
+  const asset = result.output.find(
+    (entry) => entry.type === 'asset' && entry.fileName.endsWith('.css'),
+  );
+  if (!asset || typeof asset.source !== 'string')
+    throw new Error('Static CSS compiler produced no stylesheet');
+  return `${tokenCss}${asset.source}`;
+}
+
+const isMain =
+  process.argv[1] &&
+  (await realpath(process.argv[1]).then(
+    (path) => pathToFileURL(path).href === import.meta.url,
+    () => false,
+  ));
+if (isMain) {
+  const mode = process.argv[2];
+  if (process.argv.length !== 3 || !['--write', '--check'].includes(mode))
+    throw new Error('Use --write or --check');
+  const css = await compileStaticCss();
+  const output = new URL('generated/static.css', home);
+  if (mode === '--write') await writeFile(output, css, 'utf8');
+  else if ((await readFile(output, 'utf8')) !== css)
+    throw new Error('Generated static.css is stale');
+}

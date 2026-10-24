@@ -9,6 +9,30 @@ fn prepared_cloud_command_is_bounded_json_and_closed_before_enrollment() {
         (
             {
                 let mut v = valid.clone();
+                v["target"].as_object_mut().unwrap().remove("id");
+                v
+            },
+            "REMOTE_CLOUD_UPGRADE_REQUIRED",
+        ),
+        (
+            {
+                let mut v = valid.clone();
+                v["target"]["id"] = Value::Null;
+                v
+            },
+            "REMOTE_INPUT_INVALID",
+        ),
+        (
+            {
+                let mut v = valid.clone();
+                v["target"]["name"] = serde_json::json!("");
+                v
+            },
+            "REMOTE_INPUT_INVALID",
+        ),
+        (
+            {
+                let mut v = valid.clone();
                 v["version"] = serde_json::json!(2);
                 v
             },

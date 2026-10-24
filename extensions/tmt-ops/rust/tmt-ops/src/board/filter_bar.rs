@@ -13,6 +13,7 @@ pub(in crate::board) fn paint(
     count: Option<&str>,
 ) -> Vec<chip_group::Hit> {
     let look = app.look();
+    let enabled = app.workspace_strip_enabled();
     let area = Rect {
         height: area.height.min(1),
         ..area
@@ -23,7 +24,7 @@ pub(in crate::board) fn paint(
     let key = super::keycap::key(app, toggle, "f");
     let prefix = key
         .as_deref()
-        .map(|key| super::keycap::span(key, false, look));
+        .map(|key| super::keycap::control_span(app, key, toggle));
     let prefix_width = prefix.as_ref().map_or(0, |span| span.width());
     let prefix_width = if prefix_width <= usize::from(area.width) {
         prefix_width
@@ -57,7 +58,7 @@ pub(in crate::board) fn paint(
                 text: format!(" {label} "),
                 gap: " ".into(),
                 selected: index == selected,
-                disabled: false,
+                disabled: !enabled,
                 cursor: false,
             })
             .collect(),

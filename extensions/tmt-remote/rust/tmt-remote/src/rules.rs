@@ -130,6 +130,7 @@ pub fn compose(
     let mut rules = String::from(
         "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n",
     );
+    rules.push_str(&crate::cloud_inbox::rules::namespace());
     for extension in &view.extensions {
         let name = extension.name.as_str();
         let Some(source) = supplied.get(name) else {

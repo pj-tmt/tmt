@@ -184,9 +184,12 @@ fn one_seat(limits: Option<Value>) -> (Value, Value, Vec<String>, BTreeMap<Strin
 }
 
 fn limits_of(five: Value) -> Value {
-    let (totals, series, ids, labels) = one_seat(Some(json!({
-        "observedAtMs": T, "windows": [five]
-    })));
+    limits_from(json!({"provider": "codex", "observedAtMs": T, "windows": [five]}))
+}
+
+/// The report's `limits` for one seat whose newest bucket carries exactly `rate_limits`.
+fn limits_from(rate_limits: Value) -> Value {
+    let (totals, series, ids, labels) = one_seat(Some(rate_limits));
     let report = Report {
         as_of_ms: AS_OF,
         since: "24h",
@@ -395,6 +398,79 @@ fn pace_is_exact_at_the_edges_of_a_window() {
         json!({"windowMinutes": 300, "usedPercent": 5.0, "resetsAtMs": AS_OF + 2 * length}),
     );
     assert_eq!(early[0]["elapsedPercent"], json!(0.0));
+}
+
+#[test]
+fn every_limit_names_the_provider_of_its_source() {
+    let window = json!({"windowMinutes": 300, "usedPercent": 12.5, "resetsAtMs": AS_OF + 1});
+    let limits =
+        limits_from(json!({"provider": "codex", "observedAtMs": T, "windows": [window.clone()]}));
+    assert_eq!(limits[0]["provider"], "codex", "{limits}");
+    // A provider is never inferred: a missing one (a Core from before the field) or one that is
+    // not a driver id drops the observation.
+    assert_eq!(
+        limits_from(json!({"observedAtMs": T, "windows": [window.clone()]})),
+        json!([])
+    );
+    for bad in [
+        json!(""),
+        json!("Codex"),
+        json!(1),
+        json!(null),
+        json!("a b"),
+    ] {
+        let limits =
+            limits_from(json!({"provider": bad, "observedAtMs": T, "windows": [window.clone()]}));
+        assert_eq!(limits, json!([]), "{bad}");
+    }
+}
+
+#[test]
+fn windows_of_different_providers_are_never_merged_even_when_length_and_reset_match() {
+    let bucket = |provider: &str, used: f64| {
+        json!({
+            "fromMs": T - DAY, "toMs": T, "inputTokens": 10, "outputTokens": 2, "cachedInputTokens": 4,
+            "coveredMs": DAY, "complete": true, "gap": false, "discontinuous": false,
+            "rateLimits": {"provider": provider, "observedAtMs": T, "windows": [
+                {"windowMinutes": 300, "usedPercent": used, "resetsAtMs": AS_OF + 1}]},
+        })
+    };
+    let document = |first: Value, second: Value| {
+        let seat = |id: &str, bucket: Value| {
+            json!({"id": id, "found": true, "windows": [{
+                "windowMs": DAY, "fromMs": T - DAY, "toMs": T, "bucketMs": DAY,
+                "availableFromMs": T - DAY, "buckets": [bucket]}]})
+        };
+        json!({"identities": [seat(A, first), seat(B, second)]})
+    };
+    let totals = document(bucket("codex", 10.0), bucket("other", 20.0));
+    let series = document(bucket("codex", 10.0), bucket("other", 20.0));
+    let ids = vec![A.to_owned(), B.to_owned()];
+    let labels = BTreeMap::from([A, B].map(|id| {
+        (
+            id.to_owned(),
+            Label {
+                id: id.to_owned(),
+                name: Some(id[id.len() - 1..].into()),
+                retired: false,
+            },
+        )
+    }));
+    let report = Report {
+        as_of_ms: AS_OF,
+        since: "24h",
+        usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
+        exchange: None,
+        warnings: vec![],
+    };
+    let limits = model::document(&report).unwrap()["limits"].clone();
+    let rows = limits.as_array().unwrap();
+    assert_eq!(rows.len(), 2, "{limits}");
+    let by = |provider: &str| rows.iter().find(|row| row["provider"] == provider).unwrap();
+    assert_eq!(by("codex")["usedPercent"], 10.0);
+    assert_eq!(by("codex")["seats"], json!([A]));
+    assert_eq!(by("other")["usedPercent"], 20.0);
+    assert_eq!(by("other")["seats"], json!([B]));
 }
 
 #[test]

@@ -298,8 +298,9 @@ right column shows the selected target as Talk (the conversation) or Measure (TO
 STATE, DIGEST and TIMERS cells, the soonest timers, the Digest table and who talks to
 whom). `f` cycles the left chips Squads / Agents / Pinned and `M` toggles Talk / Measure;
 both controls sit on their pane's top rule. The shell attention bar stays global.
-Digest keeps the same identity context and existing Core-owned policy controls. A
-squad's theme applies to Agents/Digest.
+Digest first opens on `all`. Switching destinations remembers each selection for
+this board session; explicit named views and reload restores keep their selected UUID.
+Existing Core-owned policy controls stay in place. A squad's theme applies to Agents/Digest.
 Member conversation status, selected-squad usage and the Measure Digest table show `Est. ctx avoided`: Digest's estimate of context input tokens avoided by batching,
 not billed tokens, cost or turns saved. In workspace settings (`,`), choose the shared
 Digest estimate window: 1d (default), 7d or all time. The saved preference is
@@ -425,7 +426,10 @@ Activity shows 24 hourly cells, scaled to each row's busiest hour; unknown is `?
 known zero is `·`. Whole optional columns yield on narrow terminals; details carry
 the hourly strip at 60 columns. Tab exposes Exchanges in the lower pane.
 Exchanges counts only talk and reply messages, with sender rows and recipient
-columns; self is blank, `·` observed none and `—` unavailable.
+columns, busiest first by sent plus received, then name and UUID. Up to five agents
+fit, fewer on narrow or short frames; a selected agent takes the last slot if needed.
+Self is blank, `·` observed none and `—` unavailable. An observed empty flow says
+`No exchanges in this range`; an empty roster says `No agents observed`.
 Enter opens the selected member's Agents conversation. D uses the existing
 Digest chooser; e toggles details, u opens usage controls and w stays Snapshots.
 Hints follow configured bindings. The `≈ $ in` column requires full input-model
@@ -461,13 +465,15 @@ replies to the selected incoming request, and authored bindings retain precedenc
 The active field uses Enter to send and Escape to retain its draft. Its fill is
 the boundary; there is no frame or heading rule. The Talk matrix is hidden until its data ships.
 
-A submitted reply you have not seen shows `● N unread` in STATE and squad team
+A submitted reply, or the captured turn of a message you typed straight to an agent, you have not seen shows `● N unread` in STATE and squad team
 strips, before working/idle/waiting state. Only the unread glyph is blue; NO_COLOR
 keeps the mark and words. The top bar shows your global unread count beside
-waiting. `N+` is a lower bound from the existing 50-result page, not an all-history
+waiting. `N+` is a lower bound from the 50-answer page, not an all-history
 count; zero observed unread never invents an unread state. Opening the agent's
 acquired conversation or successfully jumping with `j` advances your shared read
-marker. It survives restart, named views and reset-view. A save failure keeps the
+marker, and so does clicking `● N unread` in the composer line, the member
+menu entry "Mark read" or the `mark-read` action (no default key; bind it in Help
+or Settings). It survives restart, named views and reset-view. A save failure keeps the
 unread count and names the cause; reopen the conversation or jump to retry. These
 Ops markers never acknowledge Core results.
 
@@ -533,13 +539,26 @@ list sorts by AGENT, SQUAD, STATE, TOK and MODEL; the Squads tree by `SQUAD / AG
 on TOK the mark takes the blank cell before the word. A click changes only the saved
 order, never the selection or a message.
 In Agents, `n` opens New member on any row; `p` pins/unpins a squad. `N`
-creates a squad, `m` manages a squad or assigns a member, and `x` leaves only the
-selected squad membership. On member rows the footer offers `r rename`, `m move`,
-`R resume` and `d remove`, using effective bindings and dropping whole hints at
-narrow widths. `d` is a copy-only retirement review: stop the agent first and
+creates a squad on a squad row or the Common pool and opens the member's Notes on a
+member row, `m` manages a squad or assigns a member, and `x` leaves only the
+selected squad membership. On member rows the footer offers `m move`, `R resume`
+and `N notes`, using effective bindings and dropping whole hints at narrow widths.
+Right-click a visible Agents row to select it and open Actions, or open Settings
+(default comma) and choose Actions. With list focus, Rename agent and Remove member are named menu
+entries without default keys. Remove member is a copy-only retirement review: stop the agent first and
 recheck the displayed name before running the copied command. Retirement does
 not stop the agent or close its window. Member `S switch tool` is not
 available yet. `D` opens Digest and `c` opens Timers outside a modal.
+
+A squad member's header shows its Notes chip, `≡ Notes · 3 links · 2 todo · 1 done`
+(`≡ Notes · empty` for an empty list). `N` or a click on the chip opens the list: links
+first, then todos, each row with who added it and how long ago (`you`, the member's
+name, or nothing for an item stored before the board recorded it). `↑↓`/`jk` choose,
+Enter opens a link or ticks a todo, `a` adds (a web address becomes a link; `Tab` moves
+between the note and its link), `e` edits, `d` deletes after Enter confirms, `Shift+↑↓`
+moves an item among its group and Esc closes the list, keeping a form you have not sent.
+A change someone else made first is reported in one line and your words stay in the form.
+A retired member's list reads but takes no writes.
 `r` reviews Rename for
 the selected visible agent by UUID; compatible explicit bindings keep their meaning.
 Outside an editor or modal, `w` opens saved workspace snapshots on every tab;
@@ -617,9 +636,13 @@ Their Esc back action cannot be rebound. At the base list, Esc clears an active
 launch scope through the effective `clear-scope` binding; otherwise it stays put.
 Esc and Ctrl-C cannot be authored as bindings.
 Default `q` quits the board body, closes or backs out of an overlay, and types in
-an editor; Ctrl-C quits globally. In Member and conversation focus, default `v`
-opens the full response reader; compatible explicit bindings still win.
-Pointer controls use only their current visible rectangles.
+an editor; Ctrl-C quits globally. Rename, remove, annotate and view-reply have no
+default `r`, `d`, `a` or `v` binding; authored bindings can still use those actions.
+The configurable `f` and `M` hints live on their tab strips rather than in the
+footer. A shortcut unavailable in the current scope stays visible and disabled;
+loading, overlays, active search and typing disable the strip controls as well.
+Reader focus keeps mouse tab selection available. Explicitly unbound shortcuts
+show no fabricated key. Pointer controls use only their current visible rectangles.
 
 With Agents tree focus, `s` opens Add agent; configured bindings retain
 precedence. An empty Common pool offers the same visible action. Opening offers
@@ -1139,15 +1162,20 @@ Nothing about delivery is stored; the notice is in the lead's inbox.
 The scan is a second duty of the cron clock. A clock must run, with a board open or
 `tmt ops sq cron run` in a pane (`cron clock` shows it); with no clock there is no alert.
 
-The board shows the same facts without a new call. Press `,` with a squad selected and choose
-`Squad settings: <squad>` (last in the menu); Esc returns to the menu. There, Space on
-`idle_alert.enabled` flips it through the same writer as `config set`, and `idle_alert.after` edits
-with Enter. A
-squad row shows `idle alert 30m` (`alert 30m` in a narrow cell) only while the alert is on, and
-`◷ N idle` after its team marks while members are over. An over member shows `◷ idle 32m` in its
-state cell; an excepted member keeps the plain `◌ idle 32m`. `tmt ops sq ls` appends
-`idle alert 30m` to the squad header and `◷ idle 32m` to the over row. A UUID in the notice that
-names a known member opens that member's menu. With the alert off, none of these appear.
+In Agents, the squad row's MODEL / ALERT cell shows `◷ 30m` when enabled or `○ off`
+when disabled; Common pool has no setting. Hover highlights the editable cell. Click it, or
+press `i` on a squad or member, to open `Idle alert · <squad>`. A flat-list member in several
+squads first chooses one. Authored bindings take precedence. Use On/Off chips, type After or
+choose 15m/30m/1h/2h; ↑↓ changes rows and ←→ changes choices. The dialog previews who would
+no longer count as over. Invalid times refuse Save; Esc/Cancel changes nothing. Save uses the
+same settings writer as Settings, After first and then Alert. If only After saves, the dialog
+reports `After saved, Alert not changed` and keeps the draft. Settings remains available through
+`,` → `Squad settings: <squad>`.
+
+`◷ N idle` follows the squad's team marks while members are over. An over member shows
+`◷ idle 32m`; an excepted member keeps the plain `◌ idle 32m`. `tmt ops sq ls` retains its
+`idle alert 30m` squad header and `◷ idle 32m` over row only while enabled. A UUID in the
+notice that names a known member opens that member's menu.
 It reads one roster and one `ls` per enabled squad, at least 60 seconds apart; a squad with
 the alert off costs nothing. A clock's first look, and its first look after a pause of more
 than five minutes (a sleeping machine), only record the time: members are judged a minute

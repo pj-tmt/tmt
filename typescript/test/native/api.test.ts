@@ -777,6 +777,44 @@ describe('public local extension API', () => {
       expect(next.body.nextBefore).toBeNull();
       const all = await api(sandbox, 'requests.list', { ...input, limit: 50 });
       expect(all.body.items).toHaveLength(10);
+      // The answers view lists the same finals as metadata only, under its own cursor.
+      const answers = { originatorId: sender, view: 'answers' };
+      const answered = await api(sandbox, 'requests.list', { ...answers, limit: 50 });
+      expect(answered.status).toBe(0);
+      expect(answered.body.items.map((row: { requestId: string }) => row.requestId)).toEqual(
+        all.body.items.map((row: { requestId: string }) => row.requestId)
+      );
+      expect(answered.body.items[0]).toEqual({
+        requestId: ids[0],
+        kind: 'request',
+        sender: { kind: 'explicit', identityId: sender },
+        recipientId: recipients[0],
+        answeredAtMs: now - 989,
+        answer: 'final',
+      });
+      expect(answered.body.nextBefore).toBeNull();
+      const answerFirst = await api(sandbox, 'requests.list', { ...answers, limit: 3 });
+      expect(answerFirst.body.nextBefore).toEqual({ answeredAtMs: now - 992, requestId: ids[8] });
+      const answerNext = await api(sandbox, 'requests.list', {
+        ...answers,
+        limit: 50,
+        before: answerFirst.body.nextBefore,
+      });
+      expect(
+        [...answerFirst.body.items, ...answerNext.body.items].map(
+          (row: { requestId: string }) => row.requestId
+        )
+      ).toEqual(answered.body.items.map((row: { requestId: string }) => row.requestId));
+      for (const invalid of [
+        { ...answers, recipientId: recipients[0] },
+        { ...answers, roomId: randomUUID() },
+        { ...answers, limit: 51 },
+        { ...answers, before: { submittedAtMs: now, requestId: ids[0] } },
+      ]) {
+        const rejected = await api(sandbox, 'requests.list', invalid);
+        expect(rejected.status).toBe(1);
+        expect(rejected.body.error.code).toBe('API_INPUT_INVALID');
+      }
       // One recipient's finals, paged by the same submission cursor.
       const one = { ...input, recipientId: recipients[1] };
       const forOne = await api(sandbox, 'requests.list', { ...one, limit: 50 });

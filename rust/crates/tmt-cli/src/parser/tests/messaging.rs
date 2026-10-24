@@ -99,6 +99,90 @@ fn passthrough_is_one_flag_that_takes_no_reply_options() {
 }
 
 #[test]
+fn remote_talk_takes_a_peer_and_pins_a_uuid_target_with_its_expected_name() {
+    let id = "7f0c2f2e-2b1a-4c1e-9d2a-0a1b2c3d4e5f";
+    assert_eq!(
+        parsed(&[
+            "talk",
+            "reviewer",
+            "hello",
+            "--remote",
+            "bob",
+            "--identity",
+            "ben",
+            "--detach"
+        ])
+        .invocation,
+        Invocation::TalkRemote {
+            remote: "bob".into(),
+            target: "reviewer".into(),
+            expect_name: None,
+            message: "hello".into(),
+            originator: Some("ben".into()),
+        }
+    );
+    assert_eq!(
+        parsed(&[
+            "send",
+            id,
+            "hello",
+            "--remote",
+            "bob",
+            "--expect-name",
+            "reviewer"
+        ])
+        .invocation,
+        Invocation::TalkRemote {
+            remote: "bob".into(),
+            target: id.into(),
+            expect_name: Some("reviewer".into()),
+            message: "hello".into(),
+            originator: None,
+        }
+    );
+    for argv in [
+        &["talk", id, "hello", "--remote", "bob"][..],
+        &[
+            "talk",
+            "reviewer",
+            "hello",
+            "--remote",
+            "bob",
+            "--expect-name",
+            "reviewer",
+        ],
+    ] {
+        assert_usage_error(
+            argv,
+            "A UUID target needs --expect-name",
+            OutputMode::default(),
+        );
+    }
+    assert_usage_error(
+        &["talk", id, "hello", "--expect-name", "reviewer"],
+        "needs --remote",
+        OutputMode::default(),
+    );
+    for extra in [
+        &["--passthrough"][..],
+        &["--urgent"],
+        &["--no-preamble"],
+        &["--timeout", "5"],
+        &["--delay", "5"],
+        &["--room", "design"],
+        &["--kind", "review"],
+    ] {
+        let mut argv = vec!["talk", "reviewer", "hello", "--remote", "bob"];
+        argv.extend_from_slice(extra);
+        assert_usage_error(
+            &argv,
+            "--remote sends one request through Remote and returns at once",
+            OutputMode::default(),
+        );
+    }
+}
+
+#[test]
 fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
     let timeout = parsed(&["talk", "peer", "hello", "--timeout", "86400s"]);
     assert_eq!(

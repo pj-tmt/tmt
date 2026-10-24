@@ -1,3 +1,4 @@
+import { staticCss } from './static-css.js';
 import { monotonePath } from '../src/chart-math';
 import { expect, it } from 'vite-plus/test';
 import { readFileSync } from 'node:fs';
@@ -5,7 +6,7 @@ import { matrixModel } from '../src/chart-matrix-model';
 import { seriesModel } from '../src/chart-series-model';
 import { stripsModel } from '../src/chart-strips-model';
 
-const css = readFileSync(new URL('../generated/static.css', import.meta.url), 'utf8');
+const css = staticCss;
 const tokens = JSON.parse(
   readFileSync(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
 );

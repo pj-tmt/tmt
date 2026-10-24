@@ -13,6 +13,8 @@ pub enum OpsUiAction {
     MonitorDetails,
     MemberSession,
     SwitchTool,
+    MemberNotes,
+    MarkRead,
     Previous,
     Next,
     Fold,
@@ -40,6 +42,7 @@ pub enum OpsUiAction {
     Manage,
     CreateSquad,
     NewMember,
+    IdleAlert,
     RemoveMembership,
     MoveMembership,
     RenameMember,
@@ -79,6 +82,13 @@ const SPECS: &[OpsUiSpec] = &[
         13
     ),
     spec!(
+        IdleAlert,
+        "idle-alert",
+        "idle alert",
+        "edit the selected squad idle alert",
+        7
+    ),
+    spec!(
         NewMember,
         "new-member",
         "new",
@@ -90,6 +100,20 @@ const SPECS: &[OpsUiSpec] = &[
         "member-session",
         "Session…",
         "read the selected agent's host and remembered session, then review resume or move",
+        12
+    ),
+    spec!(
+        MemberNotes,
+        "member-notes",
+        "notes",
+        "read and edit the selected agent's Notes list",
+        12
+    ),
+    spec!(
+        MarkRead,
+        "mark-read",
+        "mark read",
+        "mark every answer of the selected agent's conversation read",
         12
     ),
     spec!(
@@ -343,6 +367,30 @@ impl OpsUiAction {
             .find(|spec| spec.action == self)
             .expect("every UI action has a catalog entry")
     }
+    /// Strip controls already carry their configured key beside the control.
+    pub fn footer_hint(self) -> bool {
+        !matches!(self, Self::AgentsFilter | Self::TalkMeasure)
+    }
+    pub fn strip_actions() -> impl Iterator<Item = Self> {
+        SPECS
+            .iter()
+            .map(|spec| spec.action)
+            .filter(|action| !action.footer_hint())
+    }
+    pub fn menu_label(self) -> Option<&'static str> {
+        match self {
+            Self::RenameMember => Some("Rename agent"),
+            Self::RemoveMember => Some("Remove member"),
+            _ => None,
+        }
+    }
+    /// These member actions remain discoverable without a keyboard binding.
+    pub fn menu_actions() -> impl Iterator<Item = Self> {
+        SPECS
+            .iter()
+            .map(|spec| spec.action)
+            .filter(|action| action.menu_label().is_some())
+    }
     pub fn acts_on_member(self) -> bool {
         matches!(
             self,
@@ -353,6 +401,8 @@ impl OpsUiAction {
                 | Self::MonitorDetails
                 | Self::MemberSession
                 | Self::SwitchTool
+                | Self::MemberNotes
+                | Self::MarkRead
         )
     }
 }

@@ -1,0 +1,33 @@
+/* The About drawer: sections with a heading and a rule between them, as the website's About does.
+ * Only this drawer: the reader's information panel keeps its own rows. */
+.tmt-ui-drawer[data-panel='about'] section + section {
+  margin-top: 23px;
+  padding-top: 22px;
+  border-top: 1px solid var(--tmt-ui-surface-rule);
+}
+.tmt-ui-drawer[data-panel='about'] h3 {
+  margin: 0 0 13px;
+  font: 600 13px/1.4 var(--tmt-ui-font-body);
+}
+.tmt-ui-drawer[data-panel='about'] section > p {
+  margin: 0 0 15px;
+  color: var(--c-muted);
+  font: 11px/1.8 var(--tmt-ui-font-body);
+}
+.tmt-ui-drawer[data-panel='about'] section > p:last-child {
+  margin-bottom: 0;
+}
+/* Original author and publisher: name and value side by side, the names aligned. */
+.tmt-ui-drawer[data-panel='about'] .page-attribution {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 14px 16px;
+  margin: 0 0 15px;
+  font: 12px/1.5 var(--tmt-ui-font-body);
+}
+.tmt-ui-drawer[data-panel='about'] .page-attribution dd {
+  margin: 0;
+}
+.tmt-ui-drawer[data-panel='about'] .page-attribution-note {
+  margin: 0;
+}

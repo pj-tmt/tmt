@@ -39,6 +39,7 @@ pub(super) enum Job {
     MemberSession(super::member_session::Task),
     NewMember(super::new_member::Task),
     SwitchTool(super::switch_tool::Task),
+    IdleAlert(super::idle_alert_editor::Task),
     Open(Opening),
     /// Save the header's token-rate window with no settings overlay open.
     TokenWindow(String),
@@ -76,6 +77,7 @@ impl Job {
             Self::Recovery(_) => "Reading or applying the selected workspace snapshot…",
             Self::MemberSession(_) => "Loading session…",
             Self::SwitchTool(_) => "Preparing or switching AI tool…",
+            Self::IdleAlert(_) => "Reading or saving idle alert…",
             Self::NewMember(_) => "Preparing or creating member…",
             Self::Discovery(_) => "Scanning or binding the selected agent…",
             Self::Open(Opening::Settings | Opening::SquadSettings(_) | Opening::HostAction(_)) => {
@@ -122,6 +124,9 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
         }
         Job::Recovery(task) => BoardEvent::Recovery(super::recovery::load::complete(core, task)),
         Job::SwitchTool(task) => BoardEvent::SwitchTool(super::switch_tool::complete(core, task)),
+        Job::IdleAlert(task) => {
+            BoardEvent::IdleAlert(super::idle_alert_editor::complete(core, task))
+        }
         Job::NewMember(task) => BoardEvent::NewMember(super::new_member::complete(core, task)),
         Job::MemberSession(task) => {
             BoardEvent::MemberSession(super::member_session::complete(core, task))

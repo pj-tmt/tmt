@@ -58,26 +58,45 @@ impl InboxDriver {
             self.sessions
                 .with_operation_store(|s| s.cloud_forget(&peer, &id, now))?;
         }
-        let peers = self.sessions.with_operation_store(|s| s.cloud_peers())?;
-        let from = self.sessions.with_operation_store(|store| {
-            peers
+        let (from, mut cursor, mut snapshot) = self.sessions.with_operation_store(|store| {
+            if let Some(checkpoint) = store.cloud_query_checkpoint()? {
+                return Ok(match checkpoint.continuation {
+                    Some(progress) => (
+                        progress.from_ms,
+                        Some(progress.cursor),
+                        Some(progress.read_ms),
+                    ),
+                    None => (checkpoint.completed.query_from_ms(), None, None),
+                });
+            }
+            // Old Stores have peer checkpoints only. Once a machine query starts,
+            // its own continuation/checkpoint owns progress, even for quiet peers.
+            let from = store
+                .cloud_peers()?
                 .iter()
+                // The machine UUID's legacy checkpoint belongs to enrollment (#4788).
+                .filter(|peer| peer.as_str() != self.provider.machine())
                 .map(|p| store.cloud_checkpoint(p).map(|c| c.query_from_ms()))
-                .collect::<Result<Vec<_>, _>>()
-                .map(|v| v.into_iter().min().unwrap_or(0))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .min()
+                .unwrap_or(0);
+            Ok((from, None, None))
         })?;
-        let mut cursor = None;
         let mut count = 0;
-        let mut snapshot = None;
+        // An empty minute poll reserves only one document plus the Rules lookups.
+        let mut limit = 1;
         loop {
-            // A one-document query costs at most 1 delivery + 2 Rules lookups, including idle.
-            let page = self.provider.inbox(from, 1, cursor.as_ref(), io).await?;
+            let page = self
+                .provider
+                .inbox(from, limit, cursor.as_ref(), io)
+                .await?;
             snapshot = Some(snapshot.map_or(page.read_ms, |old: u64| old.min(page.read_ms)));
             for document in page.documents {
                 if count >= crate::journal::OPERATIONS as usize {
                     return Err(RemoteError::new(
                         "REMOTE_CLOUD_CAPACITY",
-                        "Cloud catch-up reached its finite bound; the checkpoint was not advanced.",
+                        "Cloud catch-up reached its finite bound; progress is saved for the next poll.",
                     ));
                 }
                 count += 1;
@@ -85,16 +104,22 @@ impl InboxDriver {
                     if let Some(frozen) = self.receiver.receive(&document, now)? {
                         let frozen = Arc::new(frozen);
                         let publication = Arc::clone(&frozen);
-                        let observed = self.provider.create(
-                            document.peer(), "responses", document.id(), &frozen.bytes,
-                            Box::new(move || publication.claim_publication().map_err(|error| {
-                                if super::ingress::permanent(&error.code) {
-                                    crate::sealed_sync::SyncError::Denied
-                                } else {
-                                    crate::sealed_sync::SyncError::Unavailable
-                                }
-                            })), io,
-                        ).await;
+                        let observed = if frozen.publication_attempted()? {
+                            // Keep the current grant fence even though no second write can occur.
+                            frozen.claim_publication()?;
+                            self.provider.observe(document.peer(), "responses", document.id(), io).await
+                        } else {
+                            self.provider.create(
+                                document.peer(), "responses", document.id(), &frozen.bytes,
+                                Box::new(move || publication.claim_publication().map_err(|error| {
+                                    if super::ingress::permanent(&error.code) {
+                                        crate::sealed_sync::SyncError::Denied
+                                    } else {
+                                        crate::sealed_sync::SyncError::Unavailable
+                                    }
+                                })), io,
+                            ).await
+                        };
                         match observed {
                             Ok(Some(response)) if response.bytes() == frozen.bytes => {},
                             Ok(Some(_)) => return Err(RemoteError::new(
@@ -132,14 +157,26 @@ impl InboxDriver {
                     }
                     Err(error) => return Err(error),
                 }
+                // A later transient failure or finite cap must not erase this durable
+                // prefix. Preserve the exact server timestamp and ID tie-breaker.
+                self.sessions.with_operation_store(|store| {
+                    store.cloud_progress(&super::store::Continuation {
+                        from_ms: from,
+                        read_ms: snapshot.unwrap_or(page.read_ms),
+                        cursor: document.cursor().clone(),
+                    })
+                })?;
                 cursor = Some(document.cursor().clone());
             }
             if !page.full {
                 break;
             }
+            limit = self
+                .sessions
+                .with_operation_store(|store| store.cloud_inbox_page_limit(from))?;
         }
         self.sessions
-            .with_operation_store(|s| s.cloud_complete(&peers, snapshot.unwrap_or(0)))?;
+            .with_operation_store(|s| s.cloud_finish_query(snapshot.unwrap_or(0)))?;
         Ok(count)
     }
 }

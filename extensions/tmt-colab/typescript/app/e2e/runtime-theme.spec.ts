@@ -184,16 +184,17 @@ for (const mode of ['light', 'dark'] as const) {
     // The ring and outline utilities default to the focus colour.
     expect(await style(8, 'boxShadow')).toContain(role('color', 'focus', mode));
     expect(await style(9, 'outlineColor')).toBe(role('color', 'focus', mode));
-    // System fonts only: the token's leading web family is not in any stack.
+    // System stacks remain intact; a legacy leading quoted web family is omitted.
     for (const [index, name] of [
       [11, 'body'],
       [12, 'display'],
       [13, 'mono'],
     ] as const) {
-      const web = /^"([^"]+)"/.exec(tokens.font[name].stack)![1];
+      const web = /^"([^"]+)"/.exec(tokens.font[name].stack)?.[1];
       const family = await style(index, 'fontFamily');
       expect(family).toMatch(/system-ui|ui-monospace/);
-      expect(family).not.toContain(web);
+      if (web) expect(family).not.toContain(web);
+      else expect(family).toContain(tokens.font[name].stack.split(',')[0]);
     }
 
     // One focus frame: a single outline of the token width in the focus colour, with no gap.

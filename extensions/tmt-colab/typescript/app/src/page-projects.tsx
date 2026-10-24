@@ -1,3 +1,4 @@
+import { projectTone } from './projects.js';
 import { BrowserIconAction, BrowserMenu, useShellBar } from '@tmt/browser-ui/react';
 import { Alert, AlertDescription, UiTheme } from '@tmt/browser-ui/ui';
 import '@tmt/browser-ui/ui.css';
@@ -278,7 +279,11 @@ export function PageProjects({
             onClick={open}
           >
             {projects.slice(0, CHIPS).map((name) => (
-              <span key={name} className="page-header-project-chip">
+              <span
+                key={name}
+                className="page-header-project-chip"
+                data-project-tone={projectTone(name)}
+              >
                 {name}
               </span>
             ))}

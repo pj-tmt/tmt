@@ -43,6 +43,7 @@ export const covered = {
   BrandMark: 'brand',
   BrandLockup: 'brand',
   BrowserShell: 'shell',
+  BrowserTopBar: 'shell',
   HostedShell: 'shell',
   useShellBar: 'shell',
   useShellTools: 'shell',
@@ -75,6 +76,7 @@ export const covered = {
   BrowserNotice: 'notice',
   BrowserDialog: 'overlays',
   BrowserDrawer: 'overlays',
+  BrowserPanel: 'overlays',
   BusyMark: 'busy',
   BrowserNotifications: 'notifications',
 } as const satisfies Record<keyof typeof import('../src/react.js'), SectionId>;

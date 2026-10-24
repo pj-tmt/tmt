@@ -635,6 +635,8 @@ export const text = {
   },
   shellPage: {
     summary: 'Summary',
+    glance: 'Your pages, at a glance.',
+    selectedPage: 'Selected page',
     loading: 'Loading pages…',
     pagesUnavailable: 'The page list is unavailable, so titles are not shown.',
     empty: 'Nothing is here yet.',
@@ -654,7 +656,6 @@ export const text = {
     progressCount: 'In progress',
     todayCount: 'Updated today',
     chapters: 'Pages',
-    stage: { waiting: 'Waiting', 'in-progress': 'In progress' },
     audience: (audience: string) => `For ${audience}`,
     needKind: {
       review: 'To confirm',
@@ -790,7 +791,6 @@ export const text = {
     tabNeedsYou: 'Needs you',
     tabNeedsYouWaiting: 'waiting',
     newPage: 'New page',
-    newPageVisible: '+ New page',
     newPageTitle: 'New page',
     newPageClose: 'Close',
     newPageHint: 'Return to your TMT workspace after creating the page.',
@@ -798,7 +798,11 @@ export const text = {
     newPageCommand: 'tmt colab page create --title "Notes" --layout column',
     /** The list's count line: how many rows are drawn of how many match. */
     showing: (shown: number, total: number) =>
-      shown < total ? `Showing ${shown} of ${total}` : `${total} ${total === 1 ? 'page' : 'pages'}`,
+      shown < total
+        ? `Showing ${shown} of ${total}`
+        : `${total} ${total === 1 ? 'page' : 'pages'} in this view`,
+    ownerAccess: 'Owner space · Access shown per page',
+    viewerAccess: 'Access shown per page',
     tabArchived: 'Archived',
     /** The stage names the `stage:` search token takes, with their tab labels. */
     stageNames: {
@@ -998,6 +1002,8 @@ export const text = {
   more: 'More',
   managePage: 'Manage page',
   aboutPage: 'About this page',
+  aboutAuthor: 'Author and publisher',
+  aboutScripts: 'Page scripts',
   /** The About panel's Layout row (#3926): how Colab frames the page, never a prompt or a badge. */
   /** A question line: its eyebrow, and the state word, Needs your answer until answered. */
   questionLine: {
@@ -1070,8 +1076,9 @@ export const text = {
   source: 'Source',
   sourceSave: 'Save',
   sourceEditorLabel: 'Page source',
+  sourceFormat: 'HTML',
   sourceExplanation: 'Edit this page’s source. Changes remain in the draft until you save.',
-  sourceDraftChanged: 'Draft changed',
+  sourceDraftChanged: 'Unsaved changes',
   sourceDraftUnchanged: 'Draft unchanged',
   preview: 'Preview',
   loading: 'Opening page…',

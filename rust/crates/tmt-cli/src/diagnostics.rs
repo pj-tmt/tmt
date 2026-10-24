@@ -10,8 +10,15 @@ use crate::invocation::OutputMode;
 /// Arity and scope come from the same grammar; this never constructs requests,
 /// repairs invalid input, dispatches commands or inspects option-value contents.
 pub fn error_context(definition: &Command, argv: &[OsString]) -> (OutputMode, Vec<String>) {
-    let (mode, _, path, _) = inspect(definition, argv);
+    let (mode, _, path, _, _) = inspect(definition, argv);
     (mode, path)
+}
+
+/// Missing external commands recover flags through the same value boundaries.
+/// Even an unresolved help topic is read-only; installed tails never use this scan.
+pub fn missing_extension_context(definition: &Command, argv: &[OsString]) -> (OutputMode, bool) {
+    let (mode, _, _, _, requested_help) = inspect(definition, argv);
+    (mode, requested_help)
 }
 
 /// Remove only grammar-owned hidden candidates before Clap formats the error.
@@ -22,7 +29,7 @@ pub fn parser_error_context(
     argv: &[OsString],
     error: &mut clap::Error,
 ) -> (OutputMode, Vec<String>, bool) {
-    let (mode, _, path, command) = inspect(definition, argv);
+    let (mode, _, path, command, _) = inspect(definition, argv);
     let mut all_hidden = false;
     if let Some(ContextValue::Strings(suggestions)) = error.get(ContextKind::SuggestedSubcommand) {
         let public: Vec<_> = suggestions
@@ -52,16 +59,23 @@ pub fn parser_error_context(
 /// Help intent uses the same grammar-aware value boundaries as error mode.
 /// It never treats an option value or data after `--` as a help request.
 pub fn help_intent(definition: &Command, argv: &[OsString]) -> Option<(Vec<String>, OutputMode)> {
-    let (mode, path, _, _) = inspect(definition, argv);
+    let (mode, path, _, _, _) = inspect(definition, argv);
     path.map(|path| (path, mode))
 }
 
 fn inspect<'a>(
     definition: &'a Command,
     argv: &[OsString],
-) -> (OutputMode, Option<Vec<String>>, Vec<String>, &'a Command) {
+) -> (
+    OutputMode,
+    Option<Vec<String>>,
+    Vec<String>,
+    &'a Command,
+    bool,
+) {
     let mut mode = OutputMode::default();
     let mut help = None;
+    let mut requested_help = false;
     let mut valid = true;
     let mut options = Vec::new();
     let mut commands = vec![definition];
@@ -108,6 +122,7 @@ fn inspect<'a>(
                         }
                     }
                 } else if !inline {
+                    requested_help |= option.get_id() == "help";
                     record(&mut mode, option, &commands, valid, &mut help);
                 } else {
                     valid = false;
@@ -126,6 +141,7 @@ fn inspect<'a>(
                         }
                         break;
                     }
+                    requested_help |= option.get_id() == "help";
                     record(&mut mode, option, &commands, valid, &mut help);
                 } else {
                     valid = false;
@@ -181,6 +197,7 @@ fn inspect<'a>(
         if valid { help } else { None },
         public_path,
         commands.last().expect("root command is always present"),
+        requested_help,
     )
 }
 

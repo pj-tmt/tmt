@@ -17,7 +17,7 @@ There is no root entry. `@tmt/browser-ui/static.css` exports checked
 `loadShellAnswer` and the framework-free `mountShell` renderer, with Lucide icon data
 (`src/shell-icons.ts`, ISC, `src/LICENSE.lucide`); `@tmt/browser-ui/chart` exports the framework-free chart painters and their pure models ([Charts](../gui-style.md#charts)), including opt-in monotone areas and the six-colour `tmt-ui-chart-seats` palette; `@tmt/browser-ui/react`
 exports `BrandMark`, `BrandLockup`, `BrowserShell` (with `useShellBar`, the header slot, and `useShellTools`, the bar's search and chip slots), `BrowserHeader` (`inShell` draws no brand and keeps the product in its accessible name; `titleVisible={false}` draws no heading, for a page whose hero is its heading, and keeps `<product> · <title>` as the landmark's name), `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
-`BrowserToggle`, `BrowserCheckbox`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserDialog`, `BrowserMenu`, `BrowserTabs`, `BrowserNotifications`, `BrowserChips`, `BrowserChip` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
+`BrowserToggle`, `BrowserCheckbox`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserDialog`, `BrowserPanel`, `BrowserMenu`, `BrowserTabs`, `BrowserNotifications`, `BrowserChips`, `BrowserChip` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
 lucide-react 1.52.0. React components use built-in icons for controls such as Drawer
 and Notifications dismissal; IconAction also accepts a caller-supplied icon.
 Static serving requires neither peer.
@@ -40,7 +40,12 @@ node design/browser-ui/scripts/generate-static-css.mjs --write
 node design/browser-ui/scripts/generate-static-css.mjs --check
 ```
 
-The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
+The generator assembles the authored fragments and minifies component rules with the pinned
+Vite CSS compiler (Lightning CSS, with modern CSS retained). The token projection keeps
+its original declarations and spelling. Only that generated distribution
+is excluded from formatting; authored CSS remains formatted. Source-level policy tests inspect
+the assembled source, byte checks inspect the distribution, and browser comparisons verify
+that compilation preserves computed paint and layout. The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
 size (level 9) of `generated/static.css` plus `generated/ui.css` to +15% of the 18,824-byte pre-v2 baseline (21,647 bytes). The GUI lead approved this
 budget for the scoped v2 panel, dialog/confirm, ghost/icon action, tinted Notice and shell
 metrics work; the original 10% predates that scope. Class encapsulation is retained, and any
@@ -78,7 +83,7 @@ and 32 px and the full mark at 256 px.
 The leaf preserves differing product metrics through explicit custom properties;
 it does not guess a product profile or replace them with fallback values. The
 host defines every property used by its chosen components. Header sizes are
-56px/48px below the existing 479px threshold. Page positioning, body offset and full attribution disclosure remain host-owned; Drawer and Menu own their top-layer geometry and dismissal.
+62px/56px below the 760px threshold. Page positioning, body offset and full attribution disclosure remain host-owned; Drawer and Menu own their top-layer geometry and dismissal.
 
 | Host property suffix after `--tmt-ui-host-`                                             | Existing product values retained for adoption                                                           |
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -101,9 +106,79 @@ Thin notice/action borders use the accepted 1px browser metric; field/header
 borders remain 1px. This supersedes earlier shadow and opacity proposals only.
 Input autocomplete remains a host-owned listbox. No native select or new font loading enters this leaf.
 
+The shell and heading metrics follow the concept website: 232px rail, 45px module
+rows, 33px sub-items and a 45px brand mark. Body and display text use
+`Inter, -apple-system, system-ui, "Segoe UI", sans-serif`, without bundled fonts or
+external font requests. Rail sub-item text starts 8px beyond the parent's icon
+left edge (Ben direct). Labelled groups render as named nested lists with one extra
+8px indent; unlabelled entries stay flat and counts retain their right edge. The
+selected sub-item uses accent/on-accent fill without a gutter marker, with an
+on-accent focus frame. The parent module keeps its marker.
+
+The optional static `page` class (`tmt-ui-page`) applies shared content insets:
+33px/36px block/inline, 24px/18px through 760px. Hosts opt in on their content
+wrapper and retain width limits, layout and scrolling. Page titles are 37px/720
+(29px compact), and card titles are 19px/660; these come from browser metric tokens.
+
 ## Controlled input contracts
 
-Header has one h1. Optional `leading`, `headingPrefix` and `headingSuffix` slots place
+### Compact page-list controls
+
+`presentation="compact"` is an opt-in on flat `BrowserTabs`, `BrowserAction`, and textual
+field `BrowserMenu` triggers; `mountBrowserMenu` mirrors it when `triggerText` is present.
+Omitting it keeps all existing defaults, including the mint flat selection and Action's
+centered-label mark reservation. Compact does not change boxed/flush tabs or icon/count/crumb
+menu triggers. The menu controller and popup geometry remain unchanged.
+
+Compact flat tabs use 11px labels and 31px height, then 10px and 28px through 640px; counts
+are 9px. Selection uses the neutral hover surface with primary neutral ink for the label
+and count (secondary ink falls below 4.5:1 on the light fill). Tabs retain their named
+counts/state, roving focus, wrapping, host selection and mounted panels.
+
+Compact Actions use 12px labels and 37px height, then 10px and 35px through 640px. Their
+17px decorative mark sits adjacent to the label in the same slot the busy mark replaces;
+there is no trailing reservation. Busy timing, idle paint, focus and activation fences
+remain unchanged. Compact textual menu triggers are 164×39px, then 145×39px through
+640px, with 12px type, a single-line truncated value and the shared chevron. A host using
+`triggerText` must include the current value in the required accessible label; clipping
+the visible value never removes that full name. The host still owns sort state.
+
+Website-measured compact metrics stay local to the three component stylesheets; shared
+colour, radius and font roles and the global body scale remain unchanged. Gallery `?frame=compact-controls&presentation=compact` exercises
+both menu renderers, tab drafts and busy Actions. Product adoption stays with each host;
+no product overrides of leaf internals are needed.
+
+### Shared top bar
+
+The shell offers an opt-in shared top bar through the existing `./shell`, `./shell-host`
+and `./react` entries. The root installs `ShellControls.setCommonControls({ openSearch, remote })`;
+`ShellHost` delegates that setter, and `BrowserShell` accepts `commonControls`. These bindings
+belong to the root, never a route module. A route calls `ShellSlot.setTopBar()` and receives
+only `readonly actions: HTMLElement`; React's `BrowserTopBar({ actions })` portals into that
+same renderer. Common controls follow module actions in the order Theme, Search, Remote.
+No title or avatar is drawn in this bar; the host's content supplies its real `h1`.
+
+`openSearch(opener)` connects the one existing product switcher and its focus return. The
+root supplies module/section navigation entries; the leaf reads no page or provider data and
+creates no second search surface. The platform shortcut admits a trusted, fresh Command/Ctrl+K
+outside an editor; untrusted, composing, repeated or modified requests do nothing. Product
+switcher bridges and module-bar adoption are separate owning changes, not shipped by the leaf.
+
+Remote is `{ kind: 'confirmed', liveSessions, href }` or `{ kind: 'unconfirmed', href }`.
+The admitted projection counts live sessions, never devices or pages. Positive counts draw a
+badge; confirmed zero and unconfirmed draw only the rail's Remote glyph, with distinct truthful
+accessible names. The root retains acquisition, freshness and the existing target. Invalid
+counts are rejected before replacing the projection. Updates preserve
+the native link and its focus. Theme reuses the existing browser preference and menu owner;
+System follows the device and blocked storage still applies the current choice.
+
+The root must install common bindings before adopting the new bar. Route departure clears
+the action slot and transient common UI; root disposal releases listeners and pending route
+loads cannot install a new header. Legacy header/tools slots remain for existing consumers
+until their owning adoption removes them. Gallery `?frame=topbar&renderer=react|native|hosted`
+exercises the real renderer and adapter with demonstration root bindings, not product data.
+
+The legacy BrowserHeader has one h1. Optional `leading`, `headingPrefix` and `headingSuffix` slots place
 host-owned attribution before the brand, a separator before the title and a crumb or control
 after it; none supplies state or changes the default layout. A suffix turns the heading into
 one row in the header's title font: the title shrinks (ellipsis) before the suffix does, and a
@@ -123,7 +198,7 @@ adds the `tmt` / `terminal team` words for marketing surfaces.
 The header brand renders the small form at the header's mark size, `aria-hidden="true"`.
 Mark size and brand gap derive from the wordmark-size token using the handbook's 33/19 and
 12/19 ratios (about 24.32px and 8.84px with a 14px label); they stay equal at compact and wide
-widths, within the 48px/56px header. The product label and brand link use the normal text
+widths, within the 56px/62px header. The product label and brand link use the normal text
 colour. The screen title follows the brand as plain text, without a divider.
 `generated/brand-mark-static.svg` is the static-host copy of that header mark; static hosts embed it
 (with their own extra classes and gradient ids) and the shared stylesheet styles it. The
@@ -367,8 +442,7 @@ as products do; nothing is redrawn. It shows each demo in a light and a dark col
 onto gallery attributes (`gallery/force-states.ts`). The shell, dialog, drawer, open menu and
 notifications render in iframes of the gallery itself (`?frame=<name>&theme=<theme>`), because
 they need a viewport or the top layer; the phone shell is a 390px frame. `?frame=charts`
-shows the real chart demos without competing overlay frames for keyboard-focus checks. The gallery loads web
-fonts from Google Fonts and supplies Colab's host metrics.
+shows the real chart demos without competing overlay frames for keyboard-focus checks. The gallery uses the website's system font stack without font requests and supplies Colab's host metrics.
 
 When mounted as a local preview route, a side outline (wide screens) or a header dropdown
 lists the sections and follows the scroll; the section's name is the page heading's suffix.
@@ -385,12 +459,18 @@ from that map or is not rendered or called in the gallery source.
 It shares its private show/close/dismiss/focus-return lifetime with Drawer and
 renders in place, without a portal or body scroll lock. The opaque surface has one 1px
 edge, `radius-l` corners and the overlay shadow, and enters and leaves with the base motion
-(see Motion). Its width is at most 600px, with
-16px viewport/safe-area margins, reduced to 4px through 480px; its height is
+(see Motion). `size="regular"` (default) caps width at 590px; `size="wide"` caps it at
+800px. Both retain 16px viewport/safe-area margins; height is
 capped by the available viewport. The body scrolls with contained overscroll and
 stacks its children with the `space-l` gap (a bare action, icon action or menu keeps
 its own width). Optional `actions` render an end-aligned footer row with the
 `space-s` gap; Drawer takes the same `actions` prop.
+
+`presentation="confirm"` centers a decorative warning mark, the string title and
+body and centers its footer actions. The host supplies a secondary Cancel and
+primary archive action; delete-type confirmation uses the existing destructive
+action. It does not change admission, command ownership or
+the one-overlay rule; the separate `./ui Dialog` API is unchanged.
 
 The host supplies `open`, title, children and `onDismiss(reason, event)`.
 Children may consume Escape for a suggestion level before the dialog sees it.
@@ -403,6 +483,35 @@ new destination instead. `keepMounted` retains host content while closed; it is
 false by default. Values, admission, loading, listbox semantics and navigation
 remain host-owned.
 
+## Non-modal panel
+
+`BrowserPanel` is a controlled `aside` labelled by its string heading. It shares
+Drawer's heading, optional position caption and Close control. The host selects
+`mode="column" | "card" | "sheet"`; the panel does not infer a product breakpoint.
+Column mode leaves grid, reflow, dividers and sticky positioning to the host.
+The floating card is 330px wide, 12px from the right and bottom, and starts at the
+header token plus 13px. The sheet has 7px side/bottom insets and a 75dvh maximum
+height. Floating modes use the radius scale and single overlay shadow.
+
+Opening focuses the heading. This region creates no scrim, focus trap, top-layer
+modal or page inertness; keyboard and pointer navigation outside remain available.
+An unconsumed, trusted, unmodified, non-repeated Escape **inside** the region or
+Close requests `onDismiss('escape' | 'close', event)`. The host admits dismissal by
+changing `open`; refusal leaves content and focus intact. Admitted closure or
+unmount returns focus to the connected opener, or `focusFallback`, only when
+focus is still inside the panel or has fallen to the document body/null. A page
+control already holding focus keeps it during a host-driven close. Changing mode
+or other props while open does not refocus the heading. Drafts, selection,
+breakpoints and coordination with modal drawers remain host-owned.
+
+By default, a closed panel unmounts its content. Opt into `keepMounted` when the
+content owns work that must survive closure: the same aside and children remain
+mounted with `hidden` and scoped `display: none`. Closed content is absent from
+the accessibility tree and keyboard navigation; it does not focus its heading or
+handle Escape. The open-to-closed transition keeps the focus-return rule above;
+updates while already closed do not return focus again. The host still owns its
+draft and request lifetimes, including failure and retry behavior.
+
 ## Drawer and Menu
 
 Value-menu triggers use a centered ChevronDown icon in the shared icon box. A menu without a value
@@ -414,11 +523,13 @@ nothing); the menu then behaves as if its trigger had been pressed.
 Drawer and Menu render in place; native top-layer promotion keeps ancestor overflow and transforms from clipping them. Keep the mount point visible. Drawer uses native modal containment at every width, without body scroll locking.
 Its independently scrolling body uses `overscroll-behavior: contain`. It leaves
 8px below the shared header and at the right/bottom edges, 4px through 480px,
-including safe-area insets. Regular width is at most 440px; wide is 660px; compact
-fills the available width. The opaque surface has one 1px edge, `radius-l` corners and the
+including safe-area insets. Regular width is `min(430px, 100vw - 18px)` and through 640px uses
+`100vw - 12px`, with safe-area space retained. Wide uses `min(680px, 100vw - 18px)`
+and through 640px uses `100vw - 34px`, matching the website's rendered phone width; both retain the safe-area allowance. The opaque surface has one 1px edge, `radius-l` corners and the
 overlay shadow, and slides from its edge with the base motion (see Motion). Its scrim covers the header and iframe: a first outside
 press dismisses only, a second press acts on the uncovered control. Browser-only
-`scrim` starts at black 12% light / 32% dark.
+`scrim` is `#12332942` in light and `#030A11AE` in dark; modal drawers
+and BrowserDialog also blur the page behind by 3px.
 
 Optional `headerActions` renders host-owned controls immediately before Close in DOM
 and keyboard order, with shared spacing. Omitted, it adds no element or layout change;
@@ -494,6 +605,35 @@ existing modal live-region relocation with this suspension contract.
 The isolated fake-source fixture is `test/fixtures/notifications.html`. Its
 headless Chromium conformance spec uses the pinned Colab browser runner; no
 product sources or navigation are wired by the fixture.
+
+## Framework-free menu host
+
+`@tmt/browser-ui/menu-host` exports `mountBrowserMenu(container, options)` and its
+item/options/control types. It uses the same controller, menu CSS, native dialog,
+placement, keyboard navigation and visibility contract as `BrowserMenu`.
+Options provide `label`, keyed `items` and `onSelect(key, originalMouseEvent)`;
+optional `triggerText` replaces the default Ellipsis icon trigger, `icon` supplies
+a decorative node, and `description`, `disabled` and `onOpenChange` retain the
+menu contracts above. There are no extra sizes or visual variants. Items may
+supply checked roles, a separator, a disabled reason and passive `content` nodes.
+Keys must be unique. Strings render as text; supplied nodes belong to this
+presentation until update/disposal and must contain no second interactive owner.
+
+The returned `update(options)` retains a surviving focused key and reads current
+checked/disabled values without selecting anything. `open()` is a host request
+for presentation only, and `close()` returns focus to the trigger. `dispose()`
+closes without reclaiming route focus, releases observers/listeners and removes
+only its own nodes. Calls after disposal are inert. Commands, selected values,
+refusals and persistence remain host-owned. A trusted selection closes first and
+then delivers the original event to the callback captured for that selection,
+even if the close notification synchronously changes the host.
+
+One internal controller owns open/present state, typeahead, popup replacement and
+exactly-once visibility for both renderers. `BrowserMenu` retains its React API,
+JSX and original SyntheticEvent callbacks. The shared icon-tooltip binding is
+internal; IconAction's public API, busy fence, activation and presentation are
+unchanged. The gallery's `?frame=menu-host` exercises actual React/native parity,
+updates, replacement and drawer nesting in both themes.
 
 ## Chips
 

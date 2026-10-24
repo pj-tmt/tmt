@@ -55,6 +55,35 @@ pub(super) fn download_product(
     deadline: Instant,
     mut get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
 ) -> io::Result<DownloadedRelease> {
+    download_product_observed(product, channel, exact, target, deadline, &mut get, &|_| {})
+}
+
+pub(super) fn preview_product(
+    product: super::Product,
+    target: &str,
+    deadline: Instant,
+    get: &mut impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
+) -> io::Result<super::ReleasePreview> {
+    let (record, version) = discover_latest(product, Channel::Alpha, deadline, get)?;
+    let asset = record
+        .archives
+        .get(target)
+        .ok_or_else(|| invalid("Unsupported release-index target."))?;
+    Ok(super::ReleasePreview {
+        version: version.to_string(),
+        archive_bytes: asset.size as u64,
+    })
+}
+
+pub(super) fn download_product_observed(
+    product: super::Product,
+    channel: Channel,
+    exact: Option<&Version>,
+    target: &str,
+    deadline: Instant,
+    mut get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
+    progress: super::ProgressObserver<'_>,
+) -> io::Result<DownloadedRelease> {
     let record = if let Some(version) = exact {
         canonical_version(&version.to_string())?;
         let tag = format!("{}{version}", product.tag_prefix());
@@ -74,6 +103,10 @@ pub(super) fn download_product(
         .archives
         .get(target)
         .ok_or_else(|| invalid("Unsupported release-index target."))?;
+    progress(super::ProgressEvent::Selected {
+        version: &record.version.to_string(),
+        archive_bytes: selected.size as u64,
+    });
     let manifest = fetch_asset(
         &record.manifest,
         artifact::MANIFEST_LIMIT,
@@ -85,6 +118,7 @@ pub(super) fn download_product(
         return Err(invalid("Release index and cargo-dist manifest disagree."));
     }
     let archive = fetch_asset(selected, artifact::COMPRESSED_LIMIT, deadline, &mut get)?;
+    progress(super::ProgressEvent::Downloaded);
     Ok(DownloadedRelease {
         explicit_channel: false,
         version: record.version,

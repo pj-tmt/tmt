@@ -450,3 +450,27 @@ fn moving_an_identity_preserves_its_state_and_fences_the_captured_records() {
         }
     }
 }
+
+#[test]
+fn an_identity_uuid_removes_the_identity_and_a_retired_uuid_is_not_found() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let alice = create_or_resolve(&mut storage, "Alice", Lifetime::Saved)
+        .unwrap()
+        .identity;
+
+    assert!(matches!(
+        remove_identity(&mut storage, &mut endpoint, &alice.id, false),
+        Err(BindingError::ConfirmationRequired)
+    ));
+    let removed = remove_identity(&mut storage, &mut endpoint, &alice.id, true).unwrap();
+    assert_eq!(removed.identity.id, alice.id);
+    assert_eq!(storage.find_identity("alice").unwrap(), None);
+
+    match remove_identity(&mut storage, &mut endpoint, &alice.id, true) {
+        Err(BindingError::NameNotFound(named)) => assert_eq!(named, alice.id),
+        other => panic!("{other:?}"),
+    }
+    storage.close().unwrap();
+}

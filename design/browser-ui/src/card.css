@@ -20,8 +20,9 @@
 }
 .tmt-ui-card-title {
   margin: 0;
-  font-size: 1.125rem;
-  font-weight: 600;
+  font-size: var(--tmt-ui-card-title-size);
+  font-weight: var(--tmt-ui-card-title-weight);
+  line-height: var(--tmt-ui-card-title-line-height);
 }
 .tmt-ui-card-meta {
   color: var(--tmt-ui-color-secondary);

@@ -37,6 +37,7 @@
   margin: 0;
   padding: 16px;
   border: 0;
+  /* Square: a row of the ruled question band, as the website's question row is. */
   border-radius: 0;
   background: transparent;
   color: var(--tmt-ui-color-text);

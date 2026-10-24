@@ -1,9 +1,10 @@
+import { staticCss } from './static-css.js';
 import { expect, it } from 'vite-plus/test';
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { BrowserAvatar } from '../src/avatar.js';
 
-const css = readFileSync(new URL('../generated/static.css', import.meta.url), 'utf8');
+const css = staticCss;
 const tokens = JSON.parse(
   readFileSync(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
 );

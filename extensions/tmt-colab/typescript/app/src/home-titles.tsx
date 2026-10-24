@@ -1,6 +1,6 @@
 import { pageLinkKey } from './page-link.js';
 import { Link } from '@tanstack/react-router';
-import { useEffect, useRef, type MouseEvent } from 'react';
+import { useEffect, useRef, type MouseEvent, type RefObject } from 'react';
 import { pageTitle } from './page-index.js';
 import { visibleElement } from './visible-element.js';
 import type { PageSummary, PageTransport, TitleReadBudget } from './transport.js';
@@ -65,6 +65,28 @@ export class HomeTitleHints {
   }
 }
 
+/** Asks `hints` for the page's title once its element is on screen, when the list has none yet. */
+export function useTitleHint(
+  page: Pick<PageSummary, 'id' | 'titleMissing'>,
+  hints: HomeTitleHints | undefined,
+  element: RefObject<HTMLElement | null>,
+) {
+  useEffect(() => {
+    if (!page.titleMissing || !hints) return;
+    let intersecting = false;
+    const observer = new IntersectionObserver((entries) => {
+      intersecting = entries.some((entry) => entry.isIntersecting);
+      if (intersecting)
+        hints.enqueue(page.id, () => intersecting && visibleElement(element.current));
+    });
+    observer.observe(element.current!);
+    return () => {
+      intersecting = false;
+      observer.disconnect();
+    };
+  }, [page.id, page.titleMissing, hints, element]);
+}
+
 /** The existing page link also supplies the visibility fence for optional title reads. */
 export function HomeTitleLink({
   page,
@@ -79,19 +101,7 @@ export function HomeTitleLink({
   onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const link = useRef<HTMLAnchorElement>(null);
-  useEffect(() => {
-    if (!page.titleMissing || !hints) return;
-    let intersecting = false;
-    const observer = new IntersectionObserver((entries) => {
-      intersecting = entries.some((entry) => entry.isIntersecting);
-      if (intersecting) hints.enqueue(page.id, () => intersecting && visibleElement(link.current));
-    });
-    observer.observe(link.current!);
-    return () => {
-      intersecting = false;
-      observer.disconnect();
-    };
-  }, [page.id, page.titleMissing, hints]);
+  useTitleHint(page, hints, link);
   const title = pageTitle(page);
   return (
     <Link

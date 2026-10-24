@@ -36,7 +36,7 @@ use std::{
 
 pub const SOCKET: &str = "control.sock";
 /// Bound on one request line from a local client.
-const LINE_BYTES: usize = 4096;
+const LINE_BYTES: usize = crate::limits::CLOUD_PAIR_CONTROL_BYTES;
 const REQUEST_WAIT: Duration = Duration::from_secs(5);
 
 /// Contention is not activity: allow brief observations to finish, under one caller bound.
@@ -126,6 +126,7 @@ pub struct StatusViews {
     pub restart: Option<RestartView>,
     /// Explicit internal native-carrier activation, separate from observations.
     pub native: Option<Arc<dyn crate::object_service::NativeActivation>>,
+    pub cloud: Option<Arc<crate::cloud_pairing::service::Service>>,
 }
 impl Default for StatusViews {
     fn default() -> Self {
@@ -134,6 +135,7 @@ impl Default for StatusViews {
             layers: Arc::new(NotConfigured),
             restart: None,
             native: None,
+            cloud: None,
         }
     }
 }
@@ -317,6 +319,42 @@ fn session(
     ) else {
         return;
     };
+    if matches!(request["op"].as_str(), Some("cloud.invite" | "cloud.join")) {
+        let result = (|| {
+            let cloud = door
+                .views
+                .cloud
+                .as_ref()
+                .ok_or_else(crate::cloud_command::upgrade)?;
+            match request["op"].as_str().unwrap() {
+                "cloud.invite" => cloud.invite(request["remote"].as_str(), |event| {
+                    write_line(&mut stream, &event).map_err(io_error)?;
+                    if event["event"] != "candidate" {
+                        return Ok(None);
+                    }
+                    let answer = read_line(
+                        &mut stream,
+                        &mut buffer,
+                        stop,
+                        Instant::now() + crate::pairing::Timing::CONTRACT.lifetime,
+                    )
+                    .ok_or_else(|| io_error("Invite cancelled"))?;
+                    Ok(Some((answer["confirm"] == true, answer["talk"] == true)))
+                }),
+                "cloud.join" => cloud.join(
+                    request["code"]
+                        .as_str()
+                        .ok_or_else(crate::operations::invalid)?,
+                    |event| write_line(&mut stream, &event).map_err(io_error),
+                ),
+                _ => Err(crate::operations::invalid()),
+            }
+        })();
+        if let Err(error) = result {
+            let _ = write_line(&mut stream, &error.json_value());
+        }
+        return;
+    }
     if request == json!({"op":"stop"}) {
         // Same flag as SIGTERM: foreground owns all cleanup and lease release.
         serve_stop.store(true, Ordering::Release);
@@ -391,6 +429,9 @@ fn session(
             let approval =
                 approval.ok_or_else(|| io_error("restart activity observation unavailable"))?;
             let deadline = Instant::now() + crate::limits::RESTART_IDLE_WAIT;
+            if door.views.cloud.as_ref().is_some_and(|cloud| !cloud.idle()) {
+                return Ok(json!({"stopping":false}));
+            }
             let stopped = pairing.while_idle(deadline, || {
                 approval.while_idle(deadline, || {
                     door.views.objects.while_idle(deadline, serve_stop, || {
@@ -504,6 +545,14 @@ fn session(
                 .undesignate()
                 .map(|()| json!({"designatedClientId":null})),
         ),
+        Some("cloud.status") if request == json!({"op":"cloud.status"}) => Some(
+            door.views
+                .cloud
+                .as_ref()
+                .map_or(Ok(json!({"cleanupPending":false,"error":null})), |cloud| {
+                    cloud.status()
+                }),
+        ),
         Some("devices") => Some(devices.visible().map(|rows| json!({"devices":rows}))),
         Some("remove-others") if request.as_object().is_some_and(|row| row.len() == 2) => Some(
             request
@@ -516,7 +565,12 @@ fn session(
         Some("revoke") => Some(match request.get("clientId").and_then(Value::as_str) {
             Some(client_id) => devices
                 .revoke(client_id)
-                .and_then(|grant| devices.describe(&grant))
+                .and_then(|grant| {
+                    if let Some(cloud) = &door.views.cloud {
+                        cloud.request_reconcile();
+                    }
+                    devices.describe(&grant)
+                })
                 .map(|row| json!({"device":row})),
             None => Err(RemoteError::new(
                 "REMOTE_INPUT_INVALID",
@@ -1075,4 +1129,9 @@ fn request_connect_error(error: io::Error) -> Result<Option<Value>, RemoteError>
     } else {
         Err(io_error(error))
     }
+}
+
+/// Optional local-owner cloud status; older doors may refuse this projection.
+pub fn cloud_status(directory: &Path) -> Result<Option<Value>, RemoteError> {
+    request(directory, &json!({"op":"cloud.status"}))
 }

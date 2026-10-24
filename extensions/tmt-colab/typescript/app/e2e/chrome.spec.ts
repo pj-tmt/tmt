@@ -124,9 +124,8 @@ async function containment(page: Page) {
   const result = await page.evaluate(() => {
     const nested = Array.from(document.querySelectorAll<HTMLElement>('body *'))
       .filter((node) => {
-        // The page list is one screen whose rows scroll inside it (page-index.spec.ts owns that).
-        if (!node.getClientRects().length || node.classList.contains('page-list-scroll'))
-          return false;
+        // Home is the list viewport, including hero and controls (page-index.spec.ts owns that).
+        if (!node.getClientRects().length || node.hasAttribute('data-page-list')) return false;
         const style = getComputedStyle(node);
         return /^(auto|scroll)$/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 1;
       })
@@ -191,7 +190,11 @@ for (const width of [1440, 390, 320])
           if (!references.has(shelled)) references.set(shelled, frame);
           expect(frame, screen).toEqual({ ...references.get(shelled)!, gap: tokens.header.gap });
           expect(current.height).toBe(
-            parseFloat(width < 480 ? tokens.header['compact-height'] : tokens.header.height),
+            parseFloat(
+              width <= Number.parseFloat(tokens.header['compact-max-width'])
+                ? tokens.header['compact-height']
+                : tokens.header.height,
+            ),
           );
           if (screen === 'pages' || screen === 'archived' || screen === 'empty') {
             expect(title).toBeNull();

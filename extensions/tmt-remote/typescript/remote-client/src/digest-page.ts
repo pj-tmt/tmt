@@ -1,19 +1,13 @@
 /**
- * The Digest usage report follows the concept website: provider allowance rows, the token
- * chart and seat legend, activity beside messages, and a coverage/method footer. It depends
+ * The Digest usage report follows the concept website: provider allowance cards, the token
+ * chart and seat legend, a full-width Messages heatmap, and a coverage/method footer. It depends
  * only on DigestSource; product data comes from the existing owner reads. Samples are injected
  * by tests, the gallery and local development. Range and view state belong to this mounted page.
  */
-import {
-  compactCount,
-  createMatrix,
-  createSeriesChart,
-  createStrips,
-  topLayers,
-} from '@tmt/browser-ui/chart';
+import { compactCount, createSeriesChart, topLayers } from '@tmt/browser-ui/chart';
 import { pageLoading } from './page-loading.js';
 import {
-  digestSource,
+  createDigestSource,
   USAGE_RANGES,
   type DigestReport,
   type DigestSource,
@@ -21,9 +15,9 @@ import {
   type UsageRange,
 } from './digest-source.js';
 import {
-  activity,
   exchange,
-  providers,
+  providerGroups,
+  observedAgo,
   ranking,
   rankRows,
   resetsIn,
@@ -55,9 +49,31 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+type SeatOrder = 'usage' | 'name';
+const SEAT_ORDER_KEY = 'tmt-digest-seat-order';
+
+function readSeatOrder(): SeatOrder {
+  try {
+    return localStorage.getItem(SEAT_ORDER_KEY) === 'name' ? 'name' : 'usage';
+  } catch {
+    return 'usage';
+  }
+}
+
+function writeSeatOrder(value: SeatOrder): void {
+  try {
+    localStorage.setItem(SEAT_ORDER_KEY, value);
+  } catch {
+    // Persistence is optional; the mounted page keeps the reader's choice.
+  }
+}
+
 interface DigestViewState {
   share: boolean;
   allSeats: boolean;
+  lines: boolean;
+  order: SeatOrder;
+  dispose: (() => void)[];
 }
 
 /** A flat sheet with a sentence-case title and an optional right-hand slot in its head. */
@@ -83,12 +99,6 @@ function card(
   } else head.append(heading);
   if (options.actions) head.append(options.actions);
   node.append(head, ...body);
-  return node;
-}
-
-function row(className: string, ...cards: Node[]): HTMLElement {
-  const node = el('div', `digest-row ${className}`);
-  node.append(...cards);
   return node;
 }
 
@@ -188,7 +198,7 @@ function bareTiles(...tiles: HTMLElement[]): HTMLElement {
 
 function providerRow(view: ProviderView, nowMs: number): HTMLElement {
   const row = el('div', 'digest-provider');
-  row.id = `digest-provider-${view.line || 'account'}`;
+  row.id = `digest-window-${view.key}`;
   const label = el('div', 'digest-provider-label');
   label.append(
     el('strong', undefined, view.provider),
@@ -229,27 +239,135 @@ function providerRow(view: ProviderView, nowMs: number): HTMLElement {
       tile('Resets in', view.stale ? 'stale' : resetsIn(view.resetsAtMs, nowMs)),
     ),
   );
-  row.append(label, meter, details);
+  const observation = el(
+    'p',
+    'usage-note digest-window-observation',
+    `Observed ${observedAgo(view.observedAtMs, nowMs)}`,
+  );
+  observation.dataset.observedAt = String(view.observedAtMs);
+  const reset = new Date(view.resetsAtMs).toLocaleString('en-GB', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+  const metadata = el('div', 'digest-provider-metadata');
+  metadata.append(
+    observation,
+    el('p', 'usage-note', `Resets ${reset}`),
+    el(
+      'p',
+      'usage-note digest-reporters',
+      `Reported by ${view.reporters.join(', ') || 'unknown seats'}`,
+    ),
+  );
+  row.append(label, meter, metadata, details);
   return row;
 }
 
-function allowanceRow(doc: UsageDocument): HTMLElement {
-  const views = providers(doc);
+function allowanceRow(report: DigestReport, state: DigestViewState): HTMLElement {
+  const doc = report.allowance;
   const intro = el('div', 'digest-allowance-intro');
   intro.append(
     el('h2', ui.cardTitle, 'Allowance'),
-    el('p', 'digest-subtitle', 'Reported by each provider.'),
+    el('p', 'digest-subtitle', 'Latest known weekly windows. Independent of the usage range.'),
   );
   const node = el('section', `${ui.card} digest-card digest-allowance`);
   node.id = 'digest-allowance';
   intro.querySelector('h2')!.id = 'digest-allowance-title';
   node.setAttribute('aria-labelledby', 'digest-allowance-title');
-  node.dataset.providers = String(views.length);
-  node.append(intro, ...views.map((view) => providerRow(view, doc.observedAtMs)));
-  if (doc.limitsUnavailable.length)
-    node.append(el('p', 'usage-note', 'Some provider allowances are unavailable.'));
-  else if (!views.length)
-    node.append(el('p', 'usage-note', 'No weekly window has been observed yet.'));
+  const groups = el('div', 'digest-provider-groups');
+  groups.id = 'digest-provider-groups';
+  groups.setAttribute('role', 'region');
+  groups.setAttribute('aria-label', 'Provider allowances');
+  const providers = providerGroups(doc);
+  if (providers.length > 2) groups.dataset.many = '';
+  for (const group of providers) {
+    const host = el('div', 'digest-provider-group');
+    host.id = `digest-provider-${encodeURIComponent(group.source)}`;
+    if (group.primary) host.append(providerRow(group.primary, doc!.observedAtMs));
+    else {
+      const label = el('div', 'digest-provider-label');
+      label.append(el('strong', undefined, group.label), el('span', undefined, '○ not reported'));
+      host.append(
+        label,
+        el(
+          'p',
+          'usage-note',
+          group.source === 'claude'
+            ? 'Claude Code does not report its allowance to TMT.'
+            : (report.allowanceUnavailable ??
+                'No current seat has reported an active weekly window.'),
+        ),
+      );
+    }
+    if (group.other.length) {
+      const other = el('details', `${ui.disclosure} digest-other-windows`);
+      other.id = `${host.id}-other`;
+      const summary = el(
+        'summary',
+        undefined,
+        `Other ${group.label} windows seen this week (${group.other.length})`,
+      );
+      summary.id = `${other.id}-summary`;
+      other.append(summary, ...group.other.map((view) => providerRow(view, doc!.observedAtMs)));
+      host.append(other);
+    }
+    const symbol = el(
+      'span',
+      'digest-provider-symbol',
+      group.source === 'claude' ? '✳' : group.source === 'codex' ? '⌘' : '○',
+    );
+    symbol.setAttribute('aria-hidden', 'true');
+    host.querySelector('.digest-provider-label')?.prepend(symbol);
+    groups.append(host);
+  }
+  const controls = el('div', 'digest-carousel-controls');
+  const previous = el('button', ui.action, '←');
+  const next = el('button', ui.action, '→');
+  for (const [button, name, direction] of [
+    [previous, 'Previous provider', -1],
+    [next, 'Next provider', 1],
+  ] as const) {
+    button.type = 'button';
+    button.dataset.variant = 'secondary';
+    button.setAttribute('aria-label', name);
+    button.setAttribute('aria-controls', groups.id);
+    button.addEventListener('click', () => {
+      const first = groups.firstElementChild;
+      const step =
+        (first?.getBoundingClientRect().width ?? groups.clientWidth) +
+        Number.parseFloat(getComputedStyle(groups).columnGap);
+      groups.scrollBy({ left: direction * step, behavior: 'smooth' });
+    });
+  }
+  const sync = () => {
+    const overflow = groups.scrollWidth > groups.clientWidth + 1;
+    controls.hidden = !overflow;
+    groups.tabIndex = overflow ? 0 : -1;
+    previous.disabled = groups.scrollLeft <= 1;
+    next.disabled = groups.scrollLeft + groups.clientWidth >= groups.scrollWidth - 1;
+  };
+  groups.addEventListener('scroll', sync);
+  const observer = new ResizeObserver(sync);
+  observer.observe(groups);
+  state.dispose.push(() => {
+    observer.disconnect();
+    groups.removeEventListener('scroll', sync);
+  });
+  controls.append(previous, next);
+  intro.append(controls);
+  node.append(intro, groups);
+  if (report.allowanceUnavailable) node.append(el('p', 'usage-note', report.allowanceUnavailable));
+  else if (doc?.limits.some((limit) => !limit.provider))
+    node.append(
+      el(
+        'p',
+        'usage-note',
+        'Some allowance windows have no reported provider. Upgrade TMT on your machine to identify them.',
+      ),
+    );
   return node;
 }
 
@@ -269,17 +387,34 @@ function tokensCard(doc: UsageDocument, state: DigestViewState): HTMLElement {
   );
   const host = el('div');
   const draw = () => {
+    const layers = state.lines
+      ? topLayers(data.layers, data.layers.length)
+      : topLayers(data.layers, SERIES_KEPT);
+    const series =
+      state.lines && state.share
+        ? layers.map((layer) => ({
+            ...layer,
+            values: layer.values.map((value, at) => {
+              if (value === null) return null;
+              const total = layers.reduce((sum, item) => sum + (item.values[at] ?? 0), 0);
+              return total ? (value / total) * 100 : 0;
+            }),
+          }))
+        : layers;
     host.setAttribute(
       'aria-labelledby',
       `digest-tokens-chart-${state.share ? 'share' : 'absolute'}`,
     );
     host.replaceChildren(
       createSeriesChart({
-        title: state.share ? 'Share of tokens by seat' : 'Tokens by seat',
-        kind: state.share ? 'share' : 'stack',
+        title: `${state.share ? 'Share of tokens' : 'Tokens'} by seat${state.lines ? ' · Lines' : ''}`,
+        kind: state.lines ? 'line' : state.share ? 'share' : 'stack',
         curve: 'monotone',
         x: data.x,
-        series: topLayers(data.layers, SERIES_KEPT),
+        series,
+        ...(state.lines && state.share
+          ? { max: 100, format: (value: number) => `${Math.round(value)}%` }
+          : {}),
         empty: 'No token observations in this range.',
       }),
     );
@@ -288,7 +423,8 @@ function tokensCard(doc: UsageDocument, state: DigestViewState): HTMLElement {
   };
   draw();
   chart.append(host);
-  body.append(chart, legendTable(doc, state));
+  let legend = legendTable(doc, state);
+  body.append(chart, legend);
   if (data.partial)
     chart.append(
       el('p', 'usage-note', 'Some buckets are incomplete: they are lower bounds, not errors.'),
@@ -311,8 +447,26 @@ function tokensCard(doc: UsageDocument, state: DigestViewState): HTMLElement {
       draw();
     },
   );
+  const style = tabChoice(
+    'Chart style',
+    host.id,
+    [
+      { value: 'stacked', text: 'Stacked' },
+      { value: 'lines', text: 'Lines' },
+    ],
+    state.lines ? 'lines' : 'stacked',
+    (value) => {
+      state.lines = value === 'lines';
+      draw();
+      const next = legendTable(doc, state);
+      legend.replaceWith(next);
+      legend = next;
+    },
+  );
+  const controls = el('div', 'digest-chart-controls');
+  controls.append(control, style);
   return card('digest-tokens', 'Token usage', [body], {
-    actions: control,
+    actions: controls,
     subtitle: 'A shared view, seat by seat.',
   });
 }
@@ -326,13 +480,20 @@ function seatLabel(name: string, partial: boolean): HTMLElement {
 }
 
 function legendTable(doc: UsageDocument, state: DigestViewState): HTMLElement {
-  const rows = rankRows(doc);
-  const view = ranking(rows, SERIES_KEPT);
+  const ranked = rankRows(doc);
+  const rows = [...ranked].sort(
+    (a, b) =>
+      (state.order === 'usage' ? b.tokens - a.tokens : 0) ||
+      a.name.localeCompare(b.name) ||
+      a.id.localeCompare(b.id),
+  );
+  const view = ranking(ranked, SERIES_KEPT);
+  const chartLayers = state.lines
+    ? topLayers(tokenSeries(doc).layers, tokenSeries(doc).layers.length)
+    : topLayers(tokenSeries(doc).layers, SERIES_KEPT);
   // The seats the token chart draws as hues keep that hue here; the rest share the neutral step.
   const hue = new Map(
-    topLayers(tokenSeries(doc).layers, SERIES_KEPT)
-      .filter((layer) => layer.key !== 'other')
-      .map((layer, at) => [layer.key, at % 7]),
+    chartLayers.filter((layer) => layer.key !== 'other').map((layer, at) => [layer.key, at % 7]),
   );
   function legendSeat(id: string, name: string, partial: boolean): HTMLElement {
     const label = el('span', 'digest-legend-seat');
@@ -344,14 +505,15 @@ function legendTable(doc: UsageDocument, state: DigestViewState): HTMLElement {
   const host = el('div', 'digest-ranking-table');
   host.id = 'digest-ranking-rows';
   const draw = (all: boolean) => {
-    const listed = all ? rows : view.top;
+    const listed =
+      all || state.lines ? rows : rows.filter((row) => view.top.some((top) => top.id === row.id));
     const lines: (string | Node)[][] = listed.map((entry) => [
       legendSeat(entry.id, entry.name, entry.partial),
 
       compactCount(entry.tokens),
       `${entry.share}%`,
     ]);
-    if (!all && view.other)
+    if (!all && !state.lines && view.other)
       lines.push([
         legendSeat('other', `Other (${view.other.seats} seats)`, false),
         compactCount(view.other.tokens),
@@ -363,7 +525,7 @@ function legendTable(doc: UsageDocument, state: DigestViewState): HTMLElement {
   const body: Node[] = [host];
   if (view.partial)
     body.push(el('p', 'usage-note', '* Partial: some of this range has no data for the seat.'));
-  if (view.other) {
+  if (view.other && !state.lines) {
     const toggle = el('button', ui.action);
     toggle.dataset.variant = 'text';
     toggle.type = 'button';
@@ -388,59 +550,100 @@ function legendTable(doc: UsageDocument, state: DigestViewState): HTMLElement {
   return legend;
 }
 
-function activityCard(doc: UsageDocument): HTMLElement | undefined {
-  const view = activity(doc);
-  if (!view) return undefined;
-  const clock = (at: number) =>
-    new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  const day = (at: number) =>
-    new Date(at).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-  const hourly = doc.since === '24h';
-  const range = (at: number) => {
-    const start = view.starts[at]!;
-    return hourly
-      ? `${clock(start)}–${clock(view.ends[at]!)}`
-      : `${day(start)}–${day(view.ends[at]! - 1)}`;
-  };
-  return card('digest-activity', 'Activity by seat', [
-    createStrips({
-      layout: 'heatmap',
-      labels: view.starts.map((at) =>
-        hourly
-          ? clock(at)
-          : new Date(at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }),
-      ),
-      title: `Relative token activity · ${hourly ? '4-hour blocks' : doc.since === '7d' ? 'daily' : '5-day blocks'}`,
-      rows: view.rows,
-      slotCount: view.starts.length,
-      slotRange: range,
-      ends: [doc.since + ' ago', 'now'],
-      legend: false,
-    }),
-    el(
-      'p',
-      'usage-note',
-      'Edge blocks cover only the reported window. A block with any missing bucket stays hollow; incomplete buckets are lower bounds.',
+/** This one caller owns its count heatmap; report aggregation remains in exchange(). */
+function exchangeCard(doc: UsageDocument, state: DigestViewState): HTMLElement {
+  const flow = exchange(doc);
+  if (!flow)
+    return card('digest-exchange', 'Messages between seats', [
+      el('p', 'usage-note', 'Message traffic is not available in this read.'),
+    ]);
+  const totals = new Map(rankRows(doc).map((seat) => [seat.id, seat.tokens]));
+  const seats = [...flow.participants].sort(
+    (a, b) =>
+      (state.order === 'usage' ? (totals.get(b.id) ?? 0) - (totals.get(a.id) ?? 0) : 0) ||
+      a.label.localeCompare(b.label) ||
+      a.id.localeCompare(b.id),
+  );
+  const maximum = Math.max(
+    0,
+    ...seats.flatMap((from) =>
+      seats.map((to) => (from.id === to.id ? 0 : (flow.value(from.id, to.id) ?? 0))),
     ),
+  );
+  const matrix = el('table', 'digest-messages');
+  matrix.style.setProperty('--digest-message-columns', String(seats.length + 1));
+  if (seats.length > 6) matrix.dataset.large = '';
+  const caption = el('caption', 'digest-visually-hidden', `Messages, last ${doc.since}`);
+  const header = el('tr');
+  const corner = el('th', undefined, 'From →');
+  corner.scope = 'col';
+  header.append(corner);
+  for (const seat of seats) {
+    const cell = el('th');
+    cell.scope = 'col';
+    cell.dataset.seatId = seat.id;
+    cell.append(messageName(seat.label));
+    header.append(cell);
+  }
+  const head = el('thead');
+  head.append(header);
+  const body = el('tbody');
+  for (const from of seats) {
+    const row = el('tr');
+    const label = el('th');
+    label.scope = 'row';
+    label.dataset.seatId = from.id;
+    label.append(messageName(from.label));
+    row.append(label);
+    for (const to of seats) {
+      const self = from.id === to.id;
+      const count = self ? null : flow.value(from.id, to.id);
+      const cell = el('td', undefined, count === null ? '—' : compactCount(count));
+      cell.dataset.from = from.id;
+      cell.dataset.to = to.id;
+      if (self) cell.dataset.self = '';
+      else if (count === null) cell.dataset.missing = '';
+      else if (count > 0)
+        cell.dataset.level = String(Math.min(4, Math.ceil((count / maximum) * 4)));
+      const text = self ? 'same seat' : count === null ? 'not observed' : `${count} messages`;
+      cell.setAttribute('aria-label', `${from.label} to ${to.label}: ${text}`);
+      cell.title = `${from.label} to ${to.label}: ${text}`;
+      row.append(cell);
+    }
+    body.append(row);
+  }
+  matrix.append(caption, head, body);
+  const viewport = el('div', 'digest-messages-viewport');
+  const scroll = el('div', 'digest-messages-scroll');
+  scroll.id = 'digest-exchange-scroll';
+  scroll.setAttribute('role', 'region');
+  scroll.setAttribute('aria-label', `Messages, last ${doc.since}`);
+  scroll.append(matrix);
+  const edge = el('span', 'digest-messages-edge');
+  edge.setAttribute('aria-hidden', 'true');
+  const sync = () => {
+    const overflow = scroll.scrollWidth > scroll.clientWidth + 1;
+    scroll.tabIndex = overflow ? 0 : -1;
+    edge.hidden = !overflow || scroll.scrollLeft + scroll.clientWidth >= scroll.scrollWidth - 1;
+  };
+  scroll.addEventListener('scroll', sync);
+  const observer = new ResizeObserver(sync);
+  observer.observe(scroll);
+  state.dispose.push(() => {
+    observer.disconnect();
+    scroll.removeEventListener('scroll', sync);
+  });
+  viewport.append(scroll, edge);
+  return card('digest-exchange', 'Messages between seats', [
+    el('p', 'digest-subtitle', `Talk and reply messages · ${doc.since}`),
+    viewport,
   ]);
 }
 
-function exchangeCard(doc: UsageDocument): HTMLElement {
-  const flow = exchange(doc);
-  const matrix = flow
-    ? createMatrix({
-        title: `Messages, last ${doc.since}`,
-        participants: flow.participants,
-        value: flow.value,
-        numeric: true,
-      })
-    : el('p', 'usage-note', 'Message traffic is not available in this read.');
-  const scroll = matrix.querySelector<HTMLElement>('.tmt-ui-chart-scroll');
-  if (scroll) scroll.id = 'digest-exchange-scroll';
-  return card('digest-exchange', 'Messages between seats', [
-    el('p', 'digest-subtitle', `Talk and reply messages · ${doc.since}`),
-    matrix,
-  ]);
+function messageName(text: string): HTMLElement {
+  const label = el('span', 'digest-message-name', text);
+  label.title = text;
+  return label;
 }
 
 /** The sources the usage read does not carry yet, one line each, with the method below. */
@@ -465,12 +668,15 @@ function coverageCard(): HTMLElement {
     const line = el('div', 'digest-gap');
     const status = el('dd');
     status.append(el('span', 'digest-subtitle', 'Not connected'));
-    line.append(el('dt', undefined, term === 'Machine' ? 'Machine load' : term), status);
+    const name = el('dt', undefined, term === 'Machine' ? 'Machine load' : term);
+    const marker = el('span', 'digest-coverage-marker');
+    marker.setAttribute('aria-hidden', 'true');
+    name.prepend(marker);
+    line.append(name, status);
     line.title = source;
     list.append(line);
   }
   const method = el('details', ui.disclosure);
-  method.dataset.divided = '';
   method.id = 'digest-method';
   const summary = el('summary', undefined, 'Method & caveats');
   summary.id = 'digest-method-summary';
@@ -497,10 +703,20 @@ function fingerprint(report: DigestReport): string {
   return JSON.stringify({
     ...report,
     document: report.document && { ...report.document, observedAtMs: 0 },
+    allowance: report.allowance && {
+      ...report.allowance,
+      observedAtMs: 0,
+      limits: report.allowance.limits.filter(
+        (limit) => limit.resetsAtMs > report.allowance!.observedAtMs,
+      ),
+    },
   });
 }
 
-export function digestPage(source: DigestSource = digestSource, signal?: AbortSignal): void {
+export function digestPage(
+  source: DigestSource = createDigestSource(),
+  signal?: AbortSignal,
+): void {
   const tabs = document.getElementById('usage-ranges');
   const panel = document.getElementById('digest-sections');
   const note = document.getElementById('usage-note');
@@ -513,13 +729,52 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
   // The last good report on screen, for the range being shown.
   let good: DigestReport | undefined;
   // The token chart's Absolute/Share choice survives a refresh.
-  const state: DigestViewState = { share: false, allSeats: false };
+  const state: DigestViewState = {
+    share: false,
+    allSeats: false,
+    lines: false,
+    order: readSeatOrder(),
+    dispose: [],
+  };
+  signal?.addEventListener(
+    'abort',
+    () => {
+      state.dispose.splice(0).forEach((dispose) => dispose());
+    },
+    { once: true },
+  );
+  const sort = el('div', 'digest-seat-order');
+  const renderSort = () => {
+    sort.replaceChildren(
+      el('span', 'digest-sort-label', 'Seat order'),
+      tabChoice(
+        'Seat order',
+        'usage-panel',
+        [
+          { value: 'usage', text: 'Usage' },
+          { value: 'name', text: 'Name' },
+        ],
+        state.order,
+        (value) => {
+          state.order = value;
+          writeSeatOrder(value);
+          if (good?.range === current) paint(good, false);
+          renderSort();
+          document.getElementById(`usage-panel-${state.order}`)?.focus({ preventScroll: true });
+        },
+      ),
+    );
+  };
+  renderSort();
+  tabs.closest('.digest-controls')?.append(sort);
   const disclosures = new Map<string, boolean>();
   let matrixLeft = 0;
+  let providerLeft = 0;
   function rememberView() {
     for (const detail of panel!.querySelectorAll('details[id]'))
       disclosures.set(detail.id, detail.hasAttribute('open'));
     matrixLeft = document.getElementById('digest-exchange-scroll')?.scrollLeft ?? matrixLeft;
+    providerLeft = document.getElementById('digest-provider-groups')?.scrollLeft ?? providerLeft;
   }
   const buttons = USAGE_RANGES.map((range) => {
     const button = el('button', ui.tab, range);
@@ -540,7 +795,7 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
     return button;
   });
   tabs.replaceChildren(...buttons);
-  function paint(report: DigestReport) {
+  function paint(report: DigestReport, updateNotice = true) {
     rememberView();
     const focusId = panel!.contains(document.activeElement)
       ? document.activeElement?.id
@@ -550,26 +805,29 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
     badge!.hidden = true;
     badgeLabel.textContent = '';
     if (report.unavailable || !report.document) {
+      state.dispose.splice(0).forEach((dispose) => dispose());
       panel!.replaceChildren();
       return notAvailable(note!, report.unavailable ?? 'Usage is not available.');
     }
     good = report;
     const doc = report.document;
-    const activityBlock = activityCard(doc);
+    state.dispose.splice(0).forEach((dispose) => dispose());
     panel!.replaceChildren(
-      allowanceRow(doc),
+      allowanceRow(report, state),
       tokensCard(doc, state),
-      row('digest-row-activity', ...(activityBlock ? [activityBlock] : []), exchangeCard(doc)),
+      exchangeCard(doc, state),
       coverageCard(),
     );
     for (const detail of panel!.querySelectorAll<HTMLDetailsElement>('details[id]'))
       detail.open = disclosures.get(detail.id) ?? false;
     const scroll = document.getElementById('digest-exchange-scroll');
     if (scroll) scroll.scrollLeft = matrixLeft;
+    const providers = document.getElementById('digest-provider-groups');
+    if (providers) providers.scrollLeft = providerLeft;
     if (focusId) document.getElementById(focusId)?.focus({ preventScroll: true });
     if (report.sample) badgeLabel.textContent = 'Sample data';
     badge!.hidden = !report.sample;
-    ordinaryNote(report);
+    if (updateNotice) ordinaryNote(report);
   }
   /** The note a good report carries: the sample's preview line, else nothing. */
   function ordinaryNote(report: DigestReport) {
@@ -598,6 +856,8 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
     }
     if (fingerprint(report) !== shown) return paint(report);
     // The same report as before: nothing to repaint, only a stale note to clear.
+    for (const observation of panel!.querySelectorAll<HTMLElement>('.digest-window-observation'))
+      observation.textContent = `Observed ${observedAgo(Number(observation.dataset.observedAt), report.allowance!.observedAtMs)}`;
     ordinaryNote(report);
   }
   async function show(range: UsageRange) {
@@ -609,6 +869,7 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
       button.tabIndex = selected ? 0 : -1;
     }
     rememberView();
+    state.dispose.splice(0).forEach((dispose) => dispose());
     panel!.replaceChildren(pageLoading());
     const report = await source.report(range, signal);
     if (mine !== generation || signal?.aborted) return;
@@ -626,7 +887,7 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
       }
       const range = current;
       const mine = generation;
-      const report = await source.report(range, signal);
+      const report = await source.report(range, signal, true);
       if (signal.aborted || range !== current || mine !== generation) return true;
       refreshed(report);
       return !report.unavailable;

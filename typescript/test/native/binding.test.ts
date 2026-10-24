@@ -145,6 +145,7 @@ describe('native identity binding process contract', () => {
             driver: null,
             session: {
               unbound: null,
+              learning: null,
               activity: { state: 'unknown', sinceMs: null, lastActivityMs: null, providers: {} },
             },
           },
@@ -271,6 +272,7 @@ describe('native identity binding process contract', () => {
           driver: null,
           session: {
             unbound: null,
+            learning: null,
             activity: { state: 'unknown', sinceMs: null, lastActivityMs: null, providers: {} },
           },
         })),

@@ -199,7 +199,8 @@ the move is a bootstrap reinstall.
   recorded in the receipt exactly when present and re-verified by inspection like a companion. Its content
   is parsed at acquisition (`native_install::uses`), so a malformed file rejects the release. An older
   installer rejects the unknown path, so the supporting CLI must publish first.
-  Its optional `requiresCli` minimum is frozen in receipt `requires_cli`. Activation refuses an
+  Its optional `requiresCli` minimum is frozen in receipt `requires_cli`; optional
+  `messageProtocols` is read from the verified release file only. Activation refuses an
   incompatible candidate before layout creation; listing compares the verified receipt with the
   running CLI without acquisition. The [extension contract](../../../../contracts/extension-api.md#optional-cross-extension-uses)
   owns grammar, precedence, errors, JSON and publication ordering.
@@ -223,6 +224,12 @@ the move is a bootstrap reinstall.
   come from the fixed product table. Ops, Remote, Colab and Digest are registered for installation;
   an unavailable channel pointer is an acquisition failure, never confirmation that no release exists,
   and changes nothing. Digest remains unpublished until its release activation.
+- Missing-command offers reuse the explicit install composition after one human consent.
+  A three-second read-only metadata preview may fail soft to unknown version/size.
+  `native_install::ProgressEvent` observes acquisition, actual HTTP byte counts, verification
+  and publication; CLI maps it into the application-neutral `tmt-cli-style::progress`.
+  Observer output failure cannot affect activation. Successful publication precedes skill
+  settlement; skill warnings retain the active release and remain visible in the final result.
 - Install, upgrade and uninstall need consent (`--yes` or a prompt) and refuse non-interactive
   runs without it. `ls` inspects local state only: receipts plus the current activation,
   payload, command links and PATH shadowing. Only `--check` adds one bounded metadata

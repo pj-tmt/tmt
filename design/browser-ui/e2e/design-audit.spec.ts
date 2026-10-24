@@ -81,7 +81,7 @@ const frames: [string, string][] = [
   ]),
 ];
 for (const [frame, params] of frames)
-  for (const theme of ['light', 'dark'])
+  for (const theme of ['light', 'dark'] as const)
     test(`frame ${frame}${params} (${theme}): the same audits`, async ({ page }) => {
       await page.setViewportSize({ width: frame === 'ui-overlay' ? 560 : 1080, height: 620 });
       await page.goto(`/?frame=${frame}&theme=${theme}${params}`);
@@ -171,3 +171,159 @@ for (const scheme of ['light', 'dark'] as const) {
     );
   });
 }
+for (const width of [1586, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`website shell metrics at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 992 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+      const fontRequests: string[] = [];
+      page.on('request', (request) => {
+        if (
+          request.resourceType() === 'font' ||
+          /fonts\.(googleapis|gstatic)\.com/.test(request.url())
+        )
+          fontRequests.push(request.url());
+      });
+      await page.goto('/?frame=shell&theme=' + theme);
+      await expect(page.locator('.tmt-ui-page-title')).toBeVisible();
+      await expect(page.locator('.tmt-ui-header')).toHaveCSS(
+        'height',
+        width === 390 ? '56px' : '62px',
+      );
+      await expect(page.locator('.tmt-ui-page')).toHaveCSS(
+        'padding',
+        width === 390 ? '24px 18px' : '33px 36px',
+      );
+      await expect(page.locator('.tmt-ui-page-title')).toHaveCSS(
+        'font-size',
+        width === 390 ? '29px' : '37px',
+      );
+      await expect(page.locator('.tmt-ui-card-title')).toHaveCSS('font-size', '19px');
+      if (width === 1586) {
+        await expect(page.locator('.tmt-ui-rail')).toHaveCSS('width', '232px');
+        await expect(page.locator('.tmt-ui-rail')).toHaveCSS('padding', '22px 12px 17px');
+        await expect(page.locator('.tmt-ui-rail-item').first()).toHaveCSS('height', '45px');
+        await expect(page.locator('.tmt-ui-rail-sub-item').first()).toHaveCSS('height', '33px');
+        const indent = await page.evaluate(() => {
+          const parent = document.querySelector(
+            '.tmt-ui-rail-item[aria-current="page"] .tmt-ui-shell-icon',
+          )!;
+          const label = document.querySelector('.tmt-ui-rail-sub-item .tmt-ui-module-menu-label')!;
+          return label.getBoundingClientRect().x - parent.getBoundingClientRect().x;
+        });
+        expect(indent).toBeCloseTo(8, 1);
+        const icon = page.locator('.tmt-ui-rail-item').first().locator('svg');
+        const expandedX = (await icon.boundingBox())!.x;
+        await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
+        await expect(page.locator('.tmt-ui-rail')).toHaveCSS('width', '56px');
+        await expect.poll(async () => (await icon.boundingBox())!.x).toBe(expandedX);
+        const railBox = (await page.locator('.tmt-ui-rail').boundingBox())!;
+        const iconBox = (await icon.boundingBox())!;
+        expect(iconBox.x + iconBox.width).toBeLessThan(railBox.x + railBox.width);
+        const badgeInset = await page
+          .locator('.tmt-ui-rail-item .tmt-ui-shell-count')
+          .first()
+          .evaluate((badge) => {
+            const list = badge.closest('ul')!.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(badge);
+            const glyph = range.getBoundingClientRect();
+            return { left: glyph.left - list.left, right: list.right - glyph.right };
+          });
+        expect(badgeInset.left).toBeGreaterThanOrEqual(3);
+        expect(badgeInset.right).toBeGreaterThanOrEqual(3);
+      }
+      expect(fontRequests).toEqual([]);
+    });
+
+test('small avatar initials retain an inset with platform fallback fonts', async ({ page }) => {
+  await page.goto('/#avatar');
+  for (const family of ['Arial, sans-serif', 'Verdana, sans-serif']) {
+    await page.locator('.tmt-ui-avatar').evaluateAll((nodes, font) => {
+      for (const node of nodes) (node as HTMLElement).style.fontFamily = font;
+    }, family);
+    expect(await textAtSurfaceEdge(page, '#avatar')).toEqual([]);
+  }
+});
+
+for (const theme of ['light', 'dark'] as const)
+  for (const width of [1440, 390])
+    for (const selected of ['pages', 'project']) {
+      test(`side-menu hierarchy ${selected} ${width} ${theme}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 992 });
+        await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+        await page.goto(`/?frame=shell&counts&theme=${theme}&page=${selected}`);
+        const root = page.locator('.tmt-ui-rail-sub');
+        if (width === 390) {
+          await expect(root).toHaveCount(0);
+          const tabs = page.locator('.tmt-ui-module-menu-item');
+          await expect(tabs).toHaveCount(5);
+          await tabs.first().focus();
+          await page.keyboard.press('Tab');
+          await expect(tabs.nth(1)).toBeFocused();
+          await expect(page.locator('.tmt-ui-module-menu [aria-current="page"]')).toHaveAttribute(
+            'href',
+            selected === 'project' ? /\/colab\/p\/release$/ : /\/colab\/pages$/,
+          );
+          return;
+        }
+        const group = root.getByRole('list', { name: 'Projects', exact: true });
+        await expect(group.getByRole('link')).toHaveCount(2);
+        expect(await group.evaluate((node) => node.parentElement?.tagName)).toBe('LI');
+        const all = root.locator('a[href$="/colab/pages"]');
+        const project = group.locator('a[href$="/colab/p/release"]');
+        const settings = root.locator('a[href$="/colab/settings"]');
+        for (const flat of [all, settings])
+          expect(await flat.evaluate((node) => node.parentElement?.parentElement?.className)).toBe(
+            'tmt-ui-rail-sub',
+          );
+        const labelX = (link: typeof all) =>
+          link
+            .locator('.tmt-ui-module-menu-label')
+            .evaluate((node) => node.getBoundingClientRect().x);
+        expect((await labelX(project)) - (await labelX(all))).toBe(8);
+        expect(await labelX(settings)).toBe(await labelX(all));
+        const allBox = (await all.boundingBox())!;
+        const projectBox = (await project.boundingBox())!;
+        expect(projectBox.x + projectBox.width).toBe(allBox.x + allBox.width);
+        const current = root.locator('[aria-current="page"]');
+        await expect(current).toHaveAttribute(
+          'href',
+          selected === 'project' ? /\/colab\/p\/release$/ : /\/colab\/pages$/,
+        );
+        await current.focus();
+        const colors = await current.evaluate((node) => {
+          const style = getComputedStyle(node);
+          const luminance = (color: string) =>
+            color
+              .match(/[\d.]+/g)!
+              .slice(0, 3)
+              .map((n) => Number(n) / 255)
+              .map((n) => (n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4))
+              .reduce((sum, n, i) => sum + n * [0.2126, 0.7152, 0.0722][i]!, 0);
+          const a = luminance(style.color);
+          const b = luminance(style.backgroundColor);
+          return {
+            ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05),
+            outline: style.outlineColor,
+            ink: style.color,
+            marker: getComputedStyle(node, '::before').content,
+          };
+        });
+        expect(colors.ratio).toBeGreaterThanOrEqual(4.5);
+        expect(colors.outline).toBe(colors.ink);
+        expect(colors.marker).toBe('none');
+        expect(
+          await page
+            .locator('.tmt-ui-rail-item[aria-current="page"]')
+            .evaluate((node) => getComputedStyle(node, '::before').content),
+        ).not.toBe('none');
+        const frames = await focusFrames(page, '.tmt-ui-rail');
+        expect(frames.clipped).toEqual([]);
+        expect(frames.doubled).toEqual([]);
+        await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
+        await expect(root).toBeHidden();
+        await page.getByRole('button', { name: 'Expand sidebar', exact: true }).click();
+        await expect(group).toBeVisible();
+      });
+    }

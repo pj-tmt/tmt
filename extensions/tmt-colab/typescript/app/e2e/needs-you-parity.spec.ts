@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { commentsRegion } from '../test/comments-region.js';
 import vectors from '../../../contracts/vectors/needs-you-v1.json' with { type: 'json' };
 
 for (const vector of vectors.cases) {
@@ -58,9 +59,7 @@ for (const detached of [false, true]) {
     await expect(page.getByRole('menu').getByText('Please decide · 1')).toBeVisible();
     await page.getByRole('menuitem', { name: 'Choose release · Agent 1' }).click();
     await expect(page.getByRole('menu')).toHaveCount(0);
-    const target = detached
-      ? page.getByRole('dialog', { name: /^(Comments|Discussion)$/ })
-      : page.locator('[data-inline-proposal]');
+    const target = detached ? commentsRegion(page) : page.locator('[data-inline-proposal]');
     await expect(target).toBeVisible();
     if (!detached)
       await expect

@@ -23,6 +23,7 @@ use tmt_core::{
     endpoint::ProcessIncarnation,
 };
 
+pub(crate) mod admission;
 mod agent_name;
 mod channel;
 mod move_session;
@@ -55,6 +56,9 @@ pub struct Resume<'a> {
     pub retry: bool,
     /// Stop the exact old agent before moving this identity to the caller pane.
     pub move_running: bool,
+    /// Start the identity's driver with a fresh session, handed off from its
+    /// notes and open requests, instead of resuming the remembered one.
+    pub fresh: bool,
 }
 
 // The extension envelope (#324/#328) will supply registered observers here.
@@ -297,6 +301,7 @@ fn run_observed(
         request,
         &settings,
         effect,
+        || incarnation(std::process::id()),
     );
     // The child's status remains authoritative after it has actually run.
     // Closing local state cannot turn a successful child into a different exit.
@@ -500,6 +505,7 @@ mod tests {
         driver: None,
         retry: false,
         move_running: false,
+        fresh: false,
     });
 
     fn select_command(
@@ -520,6 +526,7 @@ mod tests {
                 channel: crate::invocation::ChannelMode::Default,
             },
             preferences,
+            None,
         )
     }
 
@@ -632,6 +639,7 @@ mod tests {
                 driver: None,
                 retry: true,
                 move_running: false,
+                fresh: false,
             }),
             &preferences,
         )
@@ -667,5 +675,135 @@ mod tests {
         assert!(!failure_is_trustworthy(130, true), "Ctrl-C (128 + SIGINT)");
         assert!(!failure_is_trustworthy(143, true), "SIGTERM");
         assert!(!failure_is_trustworthy(1, false), "hooks absent at launch");
+    }
+    #[test]
+    fn an_unconfirmed_provider_owner_refuses_before_launch_or_resume_pending() {
+        use tmt_core::{
+            binding::BindingRepository,
+            identity::{Lifetime, create_or_resolve},
+        };
+        struct Directory(std::path::PathBuf);
+        impl Drop for Directory {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        for provider in ["claude", "codex"] {
+            for resume in [false, true] {
+                assert!(
+                    std::env::var_os("TMUX").is_none(),
+                    "run with env -u TMUX -u TMUX_PANE"
+                );
+                assert!(
+                    std::env::var_os("TMUX_PANE").is_none(),
+                    "run with env -u TMUX -u TMUX_PANE"
+                );
+                let root = std::path::PathBuf::from("/tmp").join(format!(
+                    "tmt-owner-refusal-{}",
+                    tmt_core::operation::new_operation_id()
+                ));
+                std::fs::create_dir(&root).unwrap();
+                let _cleanup = Directory(root.clone());
+                let paths = ConfigPaths {
+                    global_dir: root.clone(),
+                    global_config: root.join("config.json"),
+                    local_config: root.join("local.json"),
+                    database: root.join("state.db"),
+                };
+                let mut storage = Storage::open(&paths.database).unwrap();
+                let identity = create_or_resolve(&mut storage, "Alpha", Lifetime::Saved)
+                    .unwrap()
+                    .identity;
+                let mode = if provider == "claude" {
+                    CLAUDE_MODE_DEFAULT
+                } else {
+                    CODEX_MODE_EMBEDDED
+                };
+                let expected = preferences(provider, mode, SESSION);
+                storage
+                    .with_binding_transaction(|records| {
+                        records.set_session_preferences(&identity.id, &expected)
+                    })
+                    .unwrap();
+                let marker = root.join("spawned");
+                let program = root.join(provider);
+                tmt_test_support::write_executable(
+                    &program,
+                    format!("#!/bin/sh\nprintf spawned > '{}'\n", marker.display()).as_bytes(),
+                    0o755,
+                )
+                .unwrap();
+                let command = [program.into_os_string()];
+                // Any host work is pinned to a missing private socket; it
+                // cannot discover or select the user's server.
+                let socket = root.join("private.sock");
+                // A newly created child of physical /tmp cannot be a host
+                // socket directory; the selected socket must not be default.
+                let physical_root = std::fs::canonicalize(&root).unwrap();
+                assert_eq!(
+                    physical_root.parent(),
+                    Some(std::fs::canonicalize("/tmp").unwrap().as_path())
+                );
+                assert_eq!(socket.parent(), Some(root.as_path()));
+                assert!(!socket.exists());
+                assert_ne!(socket.file_name(), Some(std::ffi::OsStr::new("default")));
+                let host = Host::for_server_with(
+                    &tmt_core::endpoint::ServerEvidence {
+                        host: tmt_core::host::HostKind::Tmux,
+                        server_id: tmt_core::operation::new_operation_id(),
+                        socket_path: socket.to_string_lossy().into(),
+                        server_pid: 1,
+                        server_start_time: "unstarted-private-fixture".into(),
+                    },
+                    UnixCommandRunner,
+                );
+                let mut effect = LaunchEffect::NotLaunched;
+                let result = run_bound(
+                    &mut storage,
+                    &paths,
+                    &host,
+                    "%1",
+                    RunRequest {
+                        name: "Alpha",
+                        options: &Default::default(),
+                        command: if resume { &[] } else { &command },
+                        resume: resume.then_some(Resume::default()),
+                        save: true,
+                        channel: crate::invocation::ChannelMode::Disabled,
+                    },
+                    &Default::default(),
+                    &mut effect,
+                    || None,
+                );
+                let error = result.unwrap_err();
+                assert_eq!(error.code, "RUNTIME_CONFLICT");
+                assert!(error.message.contains("No new agent was launched"));
+                assert!(
+                    error.document()["error"]["suggestion"]
+                        .as_str()
+                        .unwrap()
+                        .contains("rerun")
+                );
+                assert!(matches!(effect, LaunchEffect::NotLaunched));
+                assert!(!marker.exists(), "provider must not spawn");
+                let actual = storage
+                    .with_binding_transaction(|records| records.session_preferences(&identity.id))
+                    .unwrap();
+                assert_eq!(actual, expected, "resume must not become pending");
+                let db = rusqlite::Connection::open_with_flags(
+                    &paths.database,
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                )
+                .unwrap();
+                let rows: i64 = db
+                    .query_row("SELECT count(*) FROM launch_observations", [], |row| {
+                        row.get(0)
+                    })
+                    .unwrap();
+                assert_eq!(rows, 0, "no launch intent without an owner");
+                drop(db);
+                storage.close().unwrap();
+            }
+        }
     }
 }

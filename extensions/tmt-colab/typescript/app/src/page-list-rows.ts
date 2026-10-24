@@ -5,12 +5,13 @@ export const PAGE_LIST_STEP = 50;
 
 /**
  * How many of `total` rows the list draws. It starts at one step whenever `key` (the view, filter
- * and sort) changes, and adds a step while the scroller's last child, the count line, is within a
+ * and sort) changes, and adds a step while the explicit count-line sentinel is within a
  * screen of its bottom edge. The observer is made anew after each step, so a short screen that
  * still shows the count line keeps adding until it scrolls or every row is drawn.
  */
 export function useShownRows(
   scroller: RefObject<HTMLElement | null>,
+  sentinel: RefObject<HTMLElement | null>,
   total: number,
   key: string,
 ): number {
@@ -18,8 +19,11 @@ export function useShownRows(
   const shown = state.key === key ? state.shown : PAGE_LIST_STEP;
   if (state.key !== key) setState({ key, shown });
   useEffect(() => {
+    scroller.current?.scrollTo({ top: 0 });
+  }, [scroller, key]);
+  useEffect(() => {
     const root = scroller.current;
-    const end = root?.lastElementChild;
+    const end = sentinel.current;
     if (!root || !end || shown >= total) return;
     const observer = new IntersectionObserver(
       (entries) => {
@@ -32,6 +36,6 @@ export function useShownRows(
     );
     observer.observe(end);
     return () => observer.disconnect();
-  }, [scroller, total, key, shown]);
+  }, [scroller, sentinel, total, key, shown]);
   return shown;
 }

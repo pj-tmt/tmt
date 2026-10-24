@@ -17,7 +17,7 @@ fn the_digest_hold_migration_keeps_older_policies_unknown_and_guards_the_column(
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 63);
+    assert_eq!(storage.health().unwrap().schema_version, 67);
     storage.close().unwrap();
 
     let oracle = Connection::open(&path).unwrap();

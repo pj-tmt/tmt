@@ -10,6 +10,7 @@
     "./busy-mark": "./src/busy-mark-gate.ts",
     "./shell": "./src/shell.ts",
     "./shell-host": "./src/shell-host.ts",
+    "./menu-host": "./src/menu-host.ts",
     "./chart": "./src/chart.ts",
     "./react": "./src/react.ts",
     "./ui": "./src/ui/index.ts",
@@ -28,9 +29,13 @@
   },
   "peerDependencies": {
     "react": "19.2.8",
+    "react-dom": "19.2.8",
     "lucide-react": "1.52.0"
   },
   "peerDependenciesMeta": {
+    "react-dom": {
+      "optional": true
+    },
     "react": {
       "optional": true
     },

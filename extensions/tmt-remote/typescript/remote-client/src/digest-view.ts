@@ -4,7 +4,7 @@
  * it is never turned into a zero here.
  */
 import type { Layer, SeriesChartOptions } from '@tmt/browser-ui/chart';
-import type { UsageDocument, UsagePoint, UsageSeat } from './digest-source.js';
+import type { LimitWindow, UsageDocument, UsagePoint } from './digest-source.js';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -150,157 +150,148 @@ export function exchange(doc: UsageDocument): Exchange | null {
   return { participants, value: (from, to) => pairs.get(`${from}>${to}`) ?? 0 };
 }
 
-/** Seats by tokens in the window, largest first (ties by name), as `rankRows` orders them. */
-function ranked(seats: readonly UsageSeat[]): UsageSeat[] {
-  return [...seats].sort(
-    (a, b) => tokensOf(b.totals) - tokensOf(a.totals) || seatName(a).localeCompare(seatName(b)),
-  );
+const PROVIDER_LABELS: Record<string, string> = { claude: 'Claude', codex: 'OpenAI' };
+
+/** One hue per source, shared by its meter and history. */
+export function providerStyle(provider: string): number {
+  return provider === 'claude' ? 1 : provider === 'codex' ? 2 : 0;
 }
 
-export interface Activity {
-  rows: { id: string; label: string; slots: (number | null)[] }[];
-  /** Observed window clipped to clock-aligned presentation buckets. */
-  starts: number[];
-  ends: number[];
-}
-
-const SLOTS: Record<string, { count: number; stepMs: number; group: number }> = {
-  '24h': { count: 24, stepMs: HOUR, group: 4 },
-  '7d': { count: 7, stepMs: DAY, group: 1 },
-  '30d': { count: 30, stepMs: DAY, group: 5 },
-};
-
-/**
- * Group real hourly/daily reads into four-hour, daily or five-day activity bars. Bins align to
- * the displayed local four-hour clock (daily groups retain report boundaries). A rolling 24h
- * normally has seven clipped bars, with
- * partial first/last bins. No extra observations are invented. If any constituent is missing,
- * the whole bar is hollow; an observed zero remains zero. Incomplete reads remain lower bounds.
- */
-export function activity(doc: UsageDocument): Activity | null {
-  const shape = SLOTS[doc.since];
-  if (!shape) return null;
-  const latest = Math.max(
-    ...doc.usage.seats.flatMap((seat) => seat.series.map((point) => point.fromMs)),
-  );
-  if (!Number.isFinite(latest)) return null;
-  const first = latest - (shape.count - 1) * shape.stepMs;
-  const end = latest + shape.stepMs;
-  const stepMs = shape.stepMs * shape.group;
-  const groupAt = (at: number) =>
-    Math.floor(
-      (at - (doc.since === '24h' ? new Date(at).getTimezoneOffset() * 60_000 : 0)) / stepMs,
-    );
-  const bins: number[][] = [];
-  for (let at = first; at < end; at += shape.stepMs) {
-    const bucket = groupAt(at);
-    const previous = bins[bins.length - 1];
-    if (previous && groupAt(previous[0]!) === bucket) previous.push(at);
-    else bins.push([at]);
-  }
-  return {
-    starts: bins.map((bin) => bin[0]!),
-    ends: bins.map((bin) => bin[bin.length - 1]! + shape.stepMs),
-    rows: ranked(doc.usage.seats).map((seat) => {
-      const byStart = new Map(seat.series.map((point) => [point.fromMs, point]));
-      return {
-        id: seat.id,
-        label: seatName(seat),
-        slots: bins.map((bin) =>
-          bin.every((at) => byStart.has(at))
-            ? bin.reduce((sum, at) => sum + tokensOf(byStart.get(at)!), 0)
-            : null,
-        ),
-      };
-    }),
-  };
-}
-
-const LINE_LABELS: Record<string, string> = { claude: 'Claude', gpt: 'OpenAI' };
-
-/** A provider keeps one hue across its meter and its chart: orange for Claude, aqua for OpenAI. */
-export function lineStyle(line: string): number {
-  return line === 'claude' ? 1 : line === 'gpt' ? 2 : 0;
+/** Exact source/window/reset identity, also used for history and stable disclosure IDs. */
+export function windowKey(
+  window: Pick<LimitWindow, 'provider' | 'windowMinutes' | 'resetsAtMs'>,
+): string {
+  return `${encodeURIComponent(window.provider)}-${window.windowMinutes}-${window.resetsAtMs}`;
 }
 
 export interface AllowanceRow {
-  /** The model family the window belongs to (`claude`, `gpt`), empty when unknown. */
-  line: string;
+  key: string;
+  source: string;
   provider: string;
   leftPercent: number;
-  /** Share of the window elapsed, null for a stale window. */
+  /** Share of the window elapsed, null for a stale observation. */
   elapsedPercent: number | null;
   /** Used minus elapsed in points; negative is under an even pace. */
   paceDeltaPoints: number | null;
   resetsAtMs: number;
+  observedAtMs: number;
+  reporters: string[];
+  current: boolean;
   stale: boolean;
 }
 
-/** The weekly windows, one row each: how much is left and whether the pace is even. */
+/** Weekly windows still active at the owner's read time. Unknown sources stay explicit. */
 export function allowance(doc: UsageDocument): AllowanceRow[] {
-  const lines = new Map(doc.usage.seats.map((seat) => [seat.id, seat.lines[0] ?? '']));
+  const seats = new Map(
+    [...doc.usage.seats, ...doc.usage.unavailable].map((seat) => [seat.id, seat]),
+  );
+  // Core owns exact source/window/reset deduplication. The page only selects active weeks.
   return doc.limits
-    .filter((limit) => limit.windowMinutes === 10080)
-    .map((limit) => {
-      const line = limit.seats.map((id) => lines.get(id)).find(Boolean) ?? '';
-      return {
-        line,
-        provider: LINE_LABELS[line] ?? (line ? line[0]!.toUpperCase() + line.slice(1) : 'Account'),
-        leftPercent: Math.round((100 - limit.usedPercent) * 10) / 10,
-        elapsedPercent: limit.elapsedPercent,
-        paceDeltaPoints: limit.paceDeltaPoints,
-        resetsAtMs: limit.resetsAtMs,
-        stale: limit.stale,
-      };
-    })
-    .sort((a, b) => a.provider.localeCompare(b.provider) || a.resetsAtMs - b.resetsAtMs);
+    .filter(
+      (limit) =>
+        typeof limit.provider === 'string' &&
+        limit.provider.length > 0 &&
+        limit.windowMinutes === 10080 &&
+        limit.resetsAtMs > doc.observedAtMs,
+    )
+    .map((limit) => ({
+      key: windowKey(limit),
+      source: limit.provider,
+      provider: PROVIDER_LABELS[limit.provider] ?? limit.provider,
+      leftPercent: Math.round((100 - limit.usedPercent) * 10) / 10,
+      elapsedPercent: limit.elapsedPercent,
+      paceDeltaPoints: limit.paceDeltaPoints,
+      resetsAtMs: limit.resetsAtMs,
+      observedAtMs: limit.observedAtMs,
+      reporters: limit.seats
+        .map((id) => (seats.has(id) ? seatName(seats.get(id)!) : id.slice(0, 8)))
+        .sort(),
+      current: limit.seats.some((id) => seats.has(id) && !seats.get(id)!.retired),
+      stale: limit.stale,
+    }))
+    .sort((a, b) => b.observedAtMs - a.observedAtMs || a.key.localeCompare(b.key));
 }
 
-/** Weekly percent-left history charts, one per provider; none without the history field. */
+/** One chart per exact source/window/reset, never borrowed by another window. */
 export function historyCharts(doc: UsageDocument, zone?: string): SeriesChartOptions[] {
   return (doc.limitHistory ?? [])
     .filter((history) => history.points.length > 1)
-    .map((history) => {
-      const x = history.points.map((point) => stamp(point.atMs, '7d', zone));
-      const window = history.windowMinutes * 60_000;
-      return {
-        title: 'Weekly percent left',
-        kind: 'line' as const,
-        style: lineStyle(history.line),
-        x,
-        series: [
-          {
-            key: history.line,
-            label: 'left',
-            values: history.points.map((point) => point.percentLeft),
-          },
-        ],
-        reference: {
-          label: 'even pace',
-          values: history.points.map((point) =>
-            Math.max(0, Math.min(100, (100 * (history.resetsAtMs - point.atMs)) / window)),
-          ),
+    .map((history) => ({
+      title: 'Weekly percent left',
+      kind: 'line' as const,
+      style: providerStyle(history.provider),
+      x: history.points.map((point) => stamp(point.atMs, '7d', zone)),
+      series: [
+        {
+          key: windowKey(history),
+          label: 'left',
+          values: history.points.map((point) => point.percentLeft),
         },
-        max: 100,
-        format: (value: number) => `${Math.round(value)}%`,
-      };
-    });
+      ],
+      reference: {
+        label: 'even pace',
+        values: history.points.map((point) =>
+          Math.max(
+            0,
+            Math.min(
+              100,
+              (100 * (history.resetsAtMs - point.atMs)) / (history.windowMinutes * 60_000),
+            ),
+          ),
+        ),
+      },
+      max: 100,
+      format: (value: number) => `${Math.round(value)}%`,
+    }));
 }
 
 export interface ProviderView extends AllowanceRow {
   style: number;
-  /** The percent-left history, when the read serves it for this provider. */
   chart: SeriesChartOptions | undefined;
 }
 
-/** One entry per weekly window: its numbers beside its history chart, matched by provider. */
 export function providers(doc: UsageDocument, zone?: string): ProviderView[] {
   const charts = new Map(historyCharts(doc, zone).map((chart) => [chart.series[0]!.key, chart]));
   return allowance(doc).map((row) => ({
     ...row,
-    style: lineStyle(row.line),
-    chart: charts.get(row.line),
+    style: providerStyle(row.source),
+    chart: charts.get(row.key),
   }));
+}
+
+export interface ProviderGroup {
+  source: string;
+  label: string;
+  primary: ProviderView | undefined;
+  other: ProviderView[];
+}
+
+/** Most recent current-seat observation leads; retired-only windows remain in the disclosure. */
+export function providerGroups(doc?: UsageDocument): ProviderGroup[] {
+  const views = doc ? providers(doc) : [];
+  const sources = [...new Set(['codex', 'claude', ...views.map((view) => view.source)])];
+  return sources.map((source) => {
+    const windows = views.filter((view) => view.source === source);
+    const primary = windows.find((view) => view.current);
+    return {
+      source,
+      label: PROVIDER_LABELS[source] ?? source,
+      primary,
+      other: windows.filter((view) => view !== primary),
+    };
+  });
+}
+
+/** Age against the owner's clock, never the browser's possibly different wall clock. */
+export function observedAgo(observedAtMs: number, nowMs: number): string {
+  const minutes = Math.max(0, Math.floor((nowMs - observedAtMs) / 60_000));
+  return minutes < 1
+    ? 'just now'
+    : minutes < 60
+      ? `${minutes}m ago`
+      : minutes < 1440
+        ? `${Math.floor(minutes / 60)}h ago`
+        : `${Math.floor(minutes / 1440)}d ago`;
 }
 
 /** Days between two instants, for the page's "resets in" words. */

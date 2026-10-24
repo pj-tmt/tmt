@@ -8,7 +8,7 @@ use serde_json::json;
 use unicode_width::UnicodeWidthStr;
 
 mod finals;
-mod markdown_packet;
+pub(in crate::board) mod markdown_packet;
 pub(in crate::board) mod performance;
 mod question;
 mod recent_output_packet;
@@ -771,7 +771,7 @@ fn workspace(app: &mut App, width: u16, height: u16) {
 }
 
 #[test]
-fn switching_shell_keeps_uuid_and_link_while_the_flat_list_discusses_only_an_observed_question() {
+fn returning_to_agents_keeps_uuid_and_link_while_only_observed_questions_are_discussed() {
     use crate::board::shell::OpsTab;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = workspace_fixture();
@@ -830,7 +830,14 @@ fn switching_shell_keeps_uuid_and_link_while_the_flat_list_discusses_only_an_obs
         } else {
             unreachable!()
         }
-        assert_eq!(app.workspace.selected.as_ref(), Some(&selected));
+        if tab == OpsTab::Digest {
+            assert_eq!(
+                app.workspace.selected,
+                Some(crate::board::workspace::OpsTarget::DigestAll)
+            );
+        } else {
+            assert_eq!(app.workspace.selected.as_ref(), Some(&selected));
+        }
         assert!(app.conversation.borrow().pane.is_some());
     }
 }

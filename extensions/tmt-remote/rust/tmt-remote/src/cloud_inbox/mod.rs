@@ -1,6 +1,6 @@
 //! Firestore agent-carrier binding. Transport evidence grants no operation authority.
 use crate::{error::RemoteError, limits};
-mod document;
+pub(crate) mod document;
 mod driver;
 mod ingress;
 mod provider;
@@ -8,6 +8,7 @@ mod sender;
 mod store;
 pub use driver::{InboxDriver, poll_delay};
 pub use provider::Provider;
+pub(crate) use provider::stamp;
 pub use sender::Sender;
 pub mod rules;
 pub use ingress::Receiver;

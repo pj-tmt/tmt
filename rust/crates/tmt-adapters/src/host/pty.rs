@@ -81,12 +81,16 @@ struct State {
     idle: Option<u64>,
 }
 fn state(socket: &str, pane: &str, deadline: Instant) -> Result<State, HostError> {
+    decode_state(call(socket, pane, Control::Inspect, deadline)?)
+}
+
+fn decode_state(reply: ControlReply) -> Result<State, HostError> {
     let ControlReply::State {
         supervisor_pid,
         pane_pid,
         key_idle_ms,
         marker,
-    } = call(socket, pane, Control::Inspect, deadline)?
+    } = reply
     else {
         return Err(error("the supervisor did not return state"));
     };
@@ -300,6 +304,16 @@ impl<R: CommandRunner> PtyDriver<'_, R> {
             .and_then(|v| v.to_str())
             .ok_or_else(|| error("invalid socket path"))?;
         let answer = state(&server.socket_path, pane, self.deadline)?;
+        self.snapshot_from(server, pane, panes, answer)
+    }
+
+    fn snapshot_from(
+        &self,
+        server: &ServerEvidence,
+        pane: &str,
+        panes: &[String],
+        answer: State,
+    ) -> Result<EndpointSnapshot, HostError> {
         verify_pair(self.runner, &answer, self.deadline)?;
         let starts = runtime::observe_starts(
             self.runner,
@@ -341,6 +355,48 @@ impl<R: CommandRunner> PtyDriver<'_, R> {
             panes: found,
         })
     }
+}
+
+/// Admits the interactive connection itself, rather than verifying a separate
+/// socket and assuming its path is still the same member on reconnect.
+pub(super) fn attach<R: CommandRunner>(
+    runner: &R,
+    entry: &tmt_core::binding::BindingEntry,
+) -> Result<Connection, ActionError> {
+    use tmt_core::binding::{BindingEvidence, evaluate_binding};
+    let binding = entry.binding.as_ref().ok_or(ActionError::Unverified)?;
+    let deadline = Instant::now() + BUDGET;
+    let mut client = connection(&binding.server.socket_path, &binding.pane_id, deadline)
+        .map_err(ActionError::Evidence)?;
+    let answer = client
+        .control(
+            Control::Inspect,
+            deadline.saturating_duration_since(Instant::now()),
+        )
+        .map_err(|e| ActionError::Evidence(io_error(e)))?;
+    let driver = PtyDriver {
+        runner,
+        server: Some(&binding.server),
+        deadline,
+        enter_delay: Duration::ZERO,
+    };
+    let snapshot = driver
+        .snapshot_from(
+            &binding.server,
+            &binding.pane_id,
+            std::slice::from_ref(&binding.pane_id),
+            decode_state(answer).map_err(ActionError::Evidence)?,
+        )
+        .map_err(ActionError::Evidence)?;
+    if Instant::now() >= deadline
+        || !matches!(
+            evaluate_binding(entry, &EndpointProbe::Live(snapshot)),
+            BindingEvidence::Active(_)
+        )
+    {
+        return Err(ActionError::Unverified);
+    }
+    Ok(client)
 }
 
 pub(super) fn input(

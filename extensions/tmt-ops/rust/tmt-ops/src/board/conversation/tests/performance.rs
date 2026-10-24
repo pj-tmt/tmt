@@ -7,6 +7,18 @@ use std::time::{Duration, Instant};
 
 use crate::board::timing::probe::{measure, report};
 
+/// Keep the reported soft-break quote and quoted file path in every measured
+/// response projection; both compared revisions use this identical input.
+fn measured_response(lines: usize) -> String {
+    use crate::board::markdown::reported;
+    format!(
+        "{}\n\n{}\n\n{}",
+        reported::QUOTE,
+        reported::PATH,
+        body("response", lines)
+    )
+}
+
 /// Populate the measured surface through the real composer and typed completion
 /// ports. No lane, subprocess or source acquisition runs inside the probe.
 fn populated_conversation(rows: usize) -> (App, String, OpsTarget) {
@@ -37,7 +49,7 @@ fn populated_conversation(rows: usize) -> (App, String, OpsTarget) {
     );
     app.view.as_mut().unwrap().replies = vec![json!({
         "recipientId":member,"requestId":"req_77777777-7777-4777-8777-777777777777",
-        "response":body("response", 2_000)
+        "response":measured_response(2_000)
     })];
     for index in 0..3 {
         if app.input.is_none() {
@@ -582,7 +594,7 @@ fn conversation_scroll_cost() {
     crate::status::with_now_ms(1_791_600_000_000, || {
         for lines in [200usize, 2_000, 20_000] {
             let (mut app, ..) = populated_conversation(150);
-            app.view.as_mut().unwrap().replies[0]["response"] = json!(body("response", lines));
+            app.view.as_mut().unwrap().replies[0]["response"] = json!(measured_response(lines));
             scroll_samples(&format!("response-lines={lines}"), &mut app);
         }
         for turns in [200usize, 2_000] {
@@ -629,7 +641,7 @@ fn scrolling_leaves_the_input_the_footer_and_the_caret_alone() {
     use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
     crate::status::with_now_ms(1_791_600_000_000, || {
         let (mut app, ..) = populated_conversation(150);
-        app.view.as_mut().unwrap().replies[0]["response"] = json!(body("response", 2_000));
+        app.view.as_mut().unwrap().replies[0]["response"] = json!(measured_response(2_000));
         app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(app.input.is_some(), "the composer is open");
         let mut cells = Terminal::new(TestBackend::new(160, 50)).unwrap();

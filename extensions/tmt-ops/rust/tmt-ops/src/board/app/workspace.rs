@@ -530,6 +530,11 @@ impl App {
     ) -> Option<crate::board::conversation_notes::Key> {
         crate::board::conversation_notes::Key::of(self.workspace_selected_member()?)
     }
+    /// Base controls cannot activate behind an overlay, loading frame or active editor.
+    pub(in crate::board) fn workspace_strip_enabled(&self) -> bool {
+        !self.loading() && !self.modal_open() && self.input.is_none() && !self.searching
+    }
+
     pub(in crate::board) fn workspace_scope(&self) -> OpsKeyScope {
         if self.workspace_snapshot().is_none() {
             // The generic row surface has no Overview request context.
@@ -542,6 +547,10 @@ impl App {
         if self.focused_pane() == Some(Pane::Replies) {
             return OpsKeyScope::Reader;
         }
+        self.workspace_row_scope()
+    }
+    /// The list's configured scope remains visible while the Reader holds focus.
+    pub(in crate::board) fn workspace_row_scope(&self) -> OpsKeyScope {
         match self.workspace.selected {
             Some(OpsTarget::Squad(_)) => OpsKeyScope::Squad,
             Some(OpsTarget::Member { .. }) => OpsKeyScope::Member,
@@ -595,6 +604,7 @@ impl App {
                     action.verb,
                     Verb::Ui(
                         OpsUiAction::AgentsFilter
+                            | OpsUiAction::IdleAlert
                             | OpsUiAction::NewMember
                             | OpsUiAction::SwitchTool
                             | OpsUiAction::DiscoverAgents
@@ -667,8 +677,13 @@ impl App {
     pub(in crate::board) fn workspace_binding_sources(
         &self,
     ) -> Option<&std::collections::BTreeMap<String, String>> {
+        self.workspace_binding_sources_for(self.workspace_scope())
+    }
+    pub(in crate::board) fn workspace_binding_sources_for(
+        &self,
+        scope: OpsKeyScope,
+    ) -> Option<&std::collections::BTreeMap<String, String>> {
         let snapshot = self.workspace_snapshot()?;
-        let scope = self.workspace_scope();
         let section = self.workspace.selected.as_ref().filter(|target| {
             snapshot
                 .sections
@@ -708,7 +723,7 @@ impl App {
             for (event, action) in self.workspace_factory_actions() {
                 let source = sources.get(&event);
                 if source.is_some_and(|source| source == "workspace default")
-                    || (event == "e" && source.is_none())
+                    || (matches!(event.as_str(), "e" | "i") && source.is_none())
                 {
                     keys.insert(event, action);
                 }
@@ -726,6 +741,12 @@ impl App {
 
     fn workspace_factory_actions(&self) -> Bindings {
         let mut keys = Bindings::new();
+        if self.shell.tab == OpsTab::Agents && self.focused() == Pane::Rows {
+            keys.insert(
+                "i".into(),
+                Action::parse("idle-alert").expect("idle alert action"),
+            );
+        }
         if self.shell.tab == OpsTab::Digest && self.focused() == Pane::Rows {
             keys.insert(
                 "e".into(),
@@ -759,7 +780,7 @@ impl App {
             crate::config::workspace_defaults(self.workspace_scope()).remove("j")
         }
     }
-    fn workspace_selected_host(&self) -> Option<&str> {
+    pub(in crate::board) fn workspace_selected_host(&self) -> Option<&str> {
         let row = self
             .workspace_message_target()
             .and_then(|target| self.workspace_snapshot()?.rows.get(&target))
@@ -1005,7 +1026,11 @@ impl App {
                     Agents => '1',
                     _ => '2',
                 };
-                if !self.shell.select_digit(digit, self.workspace_input_owner()) {
+                let owner = self.workspace_input_owner();
+                if !self
+                    .shell
+                    .select_digit(digit, owner, &mut self.workspace.selected)
+                {
                     return Effect::None;
                 }
                 self.usage_chart.get_mut().release_focus();
@@ -1094,6 +1119,9 @@ impl App {
                 return self.workspace_save(next);
             }
             MemberSession => return self.open_member_session(),
+            MemberNotes => return self.open_notes(),
+            MarkRead => return self.mark_read_selected(),
+            IdleAlert => return self.open_idle_alert(None),
             NewMember => return self.open_new_member(),
             SwitchTool => return self.open_switch_tool(),
             MonitorDetails => return self.overview_details(),
@@ -1318,7 +1346,7 @@ impl App {
         use crate::board::shell::OpsInputOwner;
         let overlay = self.overlay();
         let editing = match overlay {
-            Some(Overlay::NewMember | Overlay::SwitchTool) => true,
+            Some(Overlay::NewMember | Overlay::SwitchTool | Overlay::IdleAlert) => true,
             Some(Overlay::Workspace) => self.input.is_some(),
             Some(Overlay::Settings) => self
                 .settings
@@ -1336,6 +1364,10 @@ impl App {
                 .discovery
                 .as_ref()
                 .is_some_and(|controller| controller.owns_typing()),
+            Some(Overlay::Notes) => self
+                .notes_overlay
+                .as_ref()
+                .is_some_and(|controller| controller.owns_typing(&self.notes)),
             Some(_) => false,
             None => self.menu.is_none() && self.input.is_some(),
         };

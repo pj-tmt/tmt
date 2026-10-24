@@ -118,7 +118,7 @@ pub(super) fn document(report: &Report) -> Value {
         }),
         Report::Listed { rows, .. } => json!({"identities": rows.iter().map(|row| {
             let mut value = presence_document(&row.presence);
-            value["session"] = json!({"activity":row.activity,"unbound":row.unbound});
+            value["session"] = json!({"activity":row.activity,"unbound":row.unbound,"learning":row.learning.as_ref().map(crate::session_learning::document)});
             if let Some(resume) = &row.resume {
                 value["resume"] = resume.clone();
             }
@@ -134,11 +134,16 @@ pub(super) fn document(report: &Report) -> Value {
             target,
             row,
             remembered,
-        } => with_address(
-            json!({"target": target, "identity": identity_document(&row.identity),
-            "presence": row.presence.as_str(), "pane": row.pane.as_ref().map(pane_document)}),
-            address(row, remembered.as_ref()),
-        ),
+            learning,
+        } => {
+            let mut value = json!({"target": target, "identity": identity_document(&row.identity),
+            "presence": row.presence.as_str(), "pane": row.pane.as_ref().map(pane_document)});
+            if let Some(learning) = learning {
+                value["session"] =
+                    json!({"unbound":true,"learning":crate::session_learning::document(learning)});
+            }
+            with_address(value, address(row, remembered.as_ref()))
+        }
         Report::Pane {
             target,
             pane,
@@ -595,19 +600,49 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
                 ),
                 None => Ok(()),
             }?;
+            for row in rows {
+                if let Some(learning) = &row.learning {
+                    message::warning(
+                        output,
+                        terminal,
+                        &format!(
+                            "The provider session for '{}' was not recorded ({}: {}). Resume may be unavailable.",
+                            row.presence.identity.name, learning.step, learning.reason
+                        ),
+                        Some(&learning.next_step),
+                    )?;
+                }
+            }
             for (what, fix) in agent_name_advice(rows) {
                 message::warning(output, terminal, &what, Some(&fix))?;
             }
             Ok(())
         }
         Report::Named {
-            row, remembered, ..
-        } => tmt_cli_style::detail::write(
-            output,
-            terminal,
-            &row.identity.name,
-            &identity_fields(row, remembered.as_ref()),
-        ),
+            row,
+            remembered,
+            learning,
+            ..
+        } => {
+            tmt_cli_style::detail::write(
+                output,
+                terminal,
+                &row.identity.name,
+                &identity_fields(row, remembered.as_ref()),
+            )?;
+            if let Some(learning) = learning {
+                message::warning(
+                    output,
+                    terminal,
+                    &format!(
+                        "The provider session was not recorded ({}: {}). Resume may be unavailable.",
+                        learning.step, learning.reason
+                    ),
+                    Some(&learning.next_step),
+                )?;
+            }
+            Ok(())
+        }
         Report::Pane {
             pane,
             identity,
@@ -684,13 +719,24 @@ pub(super) fn agent_name_warning(
     message::warning(output, terminal, &what, Some(&fix))
 }
 
+/// Adds the agent-name member, or its warning, to a bind's JSON document.
+pub(super) fn add_agent_name(document: &mut Value, outcome: &super::AgentNameOutcome) {
+    let (member, warning) = agent_name_json(outcome);
+    if let Some(member) = member {
+        document["agentName"] = member;
+    }
+    if let Some(warning) = warning {
+        document["warnings"] = json!([warning]);
+    }
+}
+
 /// The JSON of a bind or rename that asked the host for the agent name: the
 /// `agentName` member for a definite answer, or one `warnings` entry when
 /// there was no agent yet or the outcome is unknown. `set`: the host confirmed
 /// it. `not_linked`: the host has no agent names. `refused`: the host said no,
 /// and the agent keeps its earlier name. An unknown outcome is never reported
 /// as `set` or `refused`.
-pub(super) fn agent_name_json(outcome: &super::AgentNameOutcome) -> (Option<Value>, Option<Value>) {
+fn agent_name_json(outcome: &super::AgentNameOutcome) -> (Option<Value>, Option<Value>) {
     use tmt_adapters::host::{AgentNameRefusal, AgentNaming};
     let name = &outcome.name;
     let error = match &outcome.result {

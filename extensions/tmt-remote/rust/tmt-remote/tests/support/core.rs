@@ -7,7 +7,7 @@ use std::{
 };
 use tmt_remote::{core::CoreClient, operations::Operations, store::uuid_v4};
 #[path = "executable_fixture.rs"]
-mod executable_fixture;
+pub(crate) mod executable_fixture;
 pub struct Core {
     pub root: PathBuf,
 }
@@ -22,6 +22,21 @@ if args[0] in ('list','check','identity'):
     with (root/'calls').open('a') as f: f.write(json.dumps({'operation':args[0],'argv':args})+'\n')
 if args[0]=='list':
     print((root/'agents').read_text());sys.exit(0)
+if args[:3]==['identity','show','--json'] and args[3].startswith('--expect-name='):
+    assert len(args)==6 and args[4]=='--'
+    rows=[r for r in json.loads((root/'identities').read_text())['identities'] if r['id']==args[5]]
+    if not rows:
+        print(json.dumps({'error':{'code':'NAME_NOT_FOUND','message':'absent'}}));sys.exit(3)
+    row=rows[0]
+    if row.get('retired',False) or row['name'].lower()!=args[3].split('=',1)[1].lower():
+        print(json.dumps({'error':{'code':'IDENTITY_CHANGED','message':'changed'}}));sys.exit(5)
+    print(json.dumps({'identity':dict(row,presence='offline')}));sys.exit(0)
+if args[:4]==['identity','show','--json','--']:
+    rows=[r for r in json.loads((root/'identities').read_text())['identities'] if r['name']==args[4] and not r.get('retired',False)]
+    if len(rows)!=1:
+        code='NAME_NOT_FOUND' if not rows else 'NAME_AMBIGUOUS'
+        print(json.dumps({'error':{'code':code,'message':'name refused'}}));sys.exit(1)
+    print(json.dumps({'identity':rows[0]}));sys.exit(0)
 if args==['identity','list','--json']:
     print((root/'identities').read_text());sys.exit(0)
 if args[0]=='check':

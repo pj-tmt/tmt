@@ -7,10 +7,14 @@
 // This fixture uses only the shared private command environment.
 #[path = "external_host/caller_session.rs"]
 mod caller_session;
+#[path = "external_host/discovery.rs"]
+mod discovery;
 #[path = "external_host/driver_switch.rs"]
 mod driver_switch;
 #[path = "external_host/hand_resume.rs"]
 mod hand_resume;
+#[path = "external_host/identity_pin.rs"]
+mod identity_pin;
 #[path = "external_host/move_session.rs"]
 mod move_session;
 #[path = "external_host/nested_host.rs"]
@@ -19,14 +23,22 @@ mod nested_host;
 mod nested_provider;
 #[path = "external_host/passthrough.rs"]
 mod passthrough;
+#[path = "external_host/resume_new.rs"]
+mod resume_new;
 #[path = "external_host/run_exit.rs"]
 mod run_exit;
 #[path = "external_host/sampling.rs"]
 mod sampling;
 #[path = "external_host/send_now.rs"]
 mod send_now;
+#[path = "external_host/stop.rs"]
+mod stop;
 #[allow(dead_code)]
 mod support;
+#[path = "external_host/unrecoverable_session.rs"]
+mod unrecoverable_session;
+#[path = "external_host/uuid_selectors.rs"]
+mod uuid_selectors;
 
 use serde_json::Value;
 use std::{
@@ -65,7 +77,11 @@ marker="$d/marker"
 case "$input" in *'"paneId":"fake-2"'*) marker="$d/marker-2" ;; esac
 case "$3" in
   capabilities) cat "$d/capabilities" ;;
-  server) cat "$d/server" ;;
+  server)
+    printf 'server %s\n' "$input" >> "$d/inventory"
+    # With `server-default`, a request with no socket gets that other server.
+    case "$input" in *'"socket":null'*) if [ -f "$d/server-default" ]; then cat "$d/server-default"; exit 0; fi ;; esac
+    cat "$d/server" ;;
   publish)
     printf '%s' "$input" | sed -n 's/.*"marker":\({[^}]*}\).*/\1/p' > "$marker"
     printf '{"ok":{}}' ;;
@@ -102,6 +118,10 @@ case "$3" in
     if [ -f "$d/capture-answer" ]; then cat "$d/capture-answer"
     else printf '{"ok":{"text":"captured line"}}'; fi ;;
   focus) printf '{"ok":{}}' ;;
+  close)
+    printf '%s\n' "$input" >> "$d/closed"
+    # `close-answer`, when present, replaces the answer.
+    if [ -f "$d/close-answer" ]; then cat "$d/close-answer"; else printf '{"ok":{}}'; fi ;;
   name-agent)
     printf '%s\n' "$input" >> "$d/named"
     # A held call blocks, never honoring its deadline, until the test
@@ -133,6 +153,7 @@ case "$3" in
       *) printf '{"ok":{"paneId":null}}' ;;
     esac ;;
   snapshot)
+    printf 'snapshot %s\n' "$input" >> "$d/inventory"
     if [ -f "$d/unreachable" ]; then printf '{"error":{"code":"unavailable","message":"server offline"}}'; exit 0; fi
     if [ -f "$d/absent" ]; then printf '{"ok":{"panes":[]}}'; exit 0; fi
     # A sampling fixture logs each snapshot with its caller and requested
@@ -153,14 +174,30 @@ case "$3" in
       echo "pid=$$ ppid=$PPID caller=$r $v panes=${p:-null}" >> "$d/snapshots"
       if [ "$v" = denied ]; then printf '{"error":{"code":"failed","message":"gated"}}'; exit 0; fi
     fi
+    # Discovery switches: `slow-snapshot` answers late, `big-snapshot` too
+    # much; `target` moves the pane; after `swap-after` snapshots the pane's
+    # shell is `pid-swapped`.
+    if [ -f "$d/slow-snapshot" ]; then sleep 3; fi
+    if [ -f "$d/big-snapshot" ]; then printf '{"ok":{"panes":[{"id":"fake-1","cwd":"'; head -c 1100000 /dev/zero | tr '\0' a; printf '"}]}}'; exit 0; fi
+    n=$(( $(cat "$d/snapshot-count" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$d/snapshot-count"
+    pid=$(cat "$d/pid")
+    if [ -f "$d/swap-after" ] && [ "$n" -gt "$(cat "$d/swap-after")" ]; then pid=$(cat "$d/pid-swapped"); fi
+    t=$(cat "$d/target" 2>/dev/null); [ -n "$t" ] || t=f1
     m=$(cat "$d/marker" 2>/dev/null); [ -n "$m" ] || m=null
     a=$(cat "$d/agentname" 2>/dev/null); if [ -n "$a" ]; then a=",\"agentName\":\"$a\""; fi
+    # `opened` holds true or false when the host reports whether tmt opened the pane.
+    o=$(cat "$d/opened" 2>/dev/null); if [ -n "$o" ]; then a="$a,\"openedByTmt\":$o"; fi
+    # Only the panes asked about, as the protocol requires.
+    p1=$(printf '{"id":"fake-1","target":"%s","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s%s}' "$t" "$pid" "$m" "$a")
+    case "$input" in *'"panes":["fake-2"]'*) p1= ;; esac
     p2=
     if [ -f "$d/two-panes" ]; then
       m2=$(cat "$d/marker-2" 2>/dev/null); [ -n "$m2" ] || m2=null
-      p2=$(printf ',{"id":"fake-2","target":"f2","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s}' "$(cat "$d/pid-2")" "$m2")
+      p2=$(printf '{"id":"fake-2","target":"f2","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s}' "$(cat "$d/pid-2")" "$m2")
+      case "$input" in *'"panes":["fake-1"]'*) p2= ;; esac
     fi
-    printf '{"ok":{"panes":[{"id":"fake-1","target":"f1","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s%s}%s]}}' "$(cat "$d/pid")" "$m" "$a" "$p2" ;;
+    if [ -n "$p1" ] && [ -n "$p2" ]; then p1="$p1,"; fi
+    printf '{"ok":{"panes":[%s%s]}}' "$p1" "$p2" ;;
   *) printf '{"error":{"code":"unsupported","message":"no %s"}}' "$3" ;;
 esac
 "#;
@@ -220,6 +257,18 @@ impl Fixture {
         fs::write(
             fixture.root.join("driver/capabilities"),
             r#"{"ok":{"protocols":[1],"kind":"host","name":"fake","version":"0.0.0-test","ops":["caller","server","resolve-target","snapshot","publish","clear","input","prompt","capture","focus"],"paneId":{"prefix":"fake-"},"target":"f{n}","callerEnv":["FAKE_PANE_ID"]}}"#,
+        )
+        .unwrap();
+        fixture
+    }
+
+    /// A driver that can also close a pane. What it says about who opened the
+    /// pane is in `opened`: `true`, `false`, or no file at all.
+    fn closing(name: &str) -> Self {
+        let fixture = Self::new(name);
+        fs::write(
+            fixture.root.join("driver/capabilities"),
+            r#"{"ok":{"protocols":[1],"kind":"host","name":"fake","version":"0.0.0-test","ops":["caller","server","resolve-target","snapshot","publish","clear","close"],"paneId":{"prefix":"fake-"},"target":"f{n}","callerEnv":["FAKE_PANE_ID"]}}"#,
         )
         .unwrap();
         fixture
@@ -1144,6 +1193,22 @@ fn run_names_the_agent_it_started_after_the_host_sees_it() {
 /// through a stand-in `claude` on `PATH`.
 #[test]
 fn resume_names_the_agent_it_started() {
+    resume_names_the_agent("resume-names", false, false);
+}
+
+/// The same resume, selecting the member by its identity UUID.
+#[test]
+fn resume_by_identity_uuid_names_the_agent_it_started() {
+    resume_names_the_agent("resume-names-uuid", true, false);
+}
+
+/// The member is selected by its UUID after a rename, while another identity holds its old name.
+#[test]
+fn resume_by_identity_uuid_follows_a_rename() {
+    resume_names_the_agent("resume-names-renamed", true, true);
+}
+
+fn resume_names_the_agent(label: &str, by_uuid: bool, renamed: bool) {
     use tmt_core::{
         binding::{
             BindingRepository,
@@ -1152,7 +1217,7 @@ fn resume_names_the_agent_it_started() {
         identity::IdentityReader,
     };
     register();
-    let fixture = naming("resume-names", &[]);
+    let fixture = naming(label, &[]);
     fixture.approve();
     let bound = fixture.tmt_in(Some("f1"), &["name", "worker", "--save"]);
     assert!(bound.status.success(), "{bound:?}");
@@ -1182,7 +1247,18 @@ fn resume_names_the_agent_it_started() {
     let claude = bin.join("claude");
     fs::write(&claude, format!("#!/bin/sh\n{AGENT}\n")).unwrap();
     fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
-    let mut command = fixture.command_in(Some("f1"), &["resume", "worker"]);
+    if renamed {
+        let moved = fixture.tmt(&["mv", &identity.id, "renamed"]);
+        assert!(moved.status.success(), "{moved:?}");
+        let namesake = fixture.tmt(&["identity", "create", "worker", "--json"]);
+        assert!(namesake.status.success(), "{namesake:?}");
+    }
+    let selector = if by_uuid {
+        identity.id.as_str()
+    } else {
+        "worker"
+    };
+    let mut command = fixture.command_in(Some("f1"), &["resume", selector]);
     command.env(
         "PATH",
         format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", bin.display()),
@@ -1191,10 +1267,30 @@ fn resume_names_the_agent_it_started() {
     resume.adopt("agent.pid", false);
     let agent_name = fixture.root.join("driver/agentname");
     wait_until("the resumed agent is named", || agent_name.exists());
-    assert_eq!(fs::read_to_string(&agent_name).unwrap(), "worker");
+    let expected = if renamed { "renamed" } else { "worker" };
+    assert_eq!(fs::read_to_string(&agent_name).unwrap(), expected);
     let (code, stderr) = resume.finish();
     assert_eq!(code, Some(7), "{stderr}");
     assert_eq!(named(&fixture).len(), 1, "{:?}", named(&fixture));
+    if renamed {
+        // The namesake was never bound: the resume stayed on the selected identity.
+        let listed = fixture.json(&["ls", "--json"]).to_string();
+        assert!(
+            listed.contains("\"renamed\"") && listed.contains("\"worker\""),
+            "{listed}"
+        );
+        let mut storage = Storage::open(fixture.state().join("tmt.db")).unwrap();
+        let namesake = storage.find_identity("worker").unwrap().unwrap();
+        assert_ne!(namesake.id, identity.id);
+        let entry = storage
+            .with_binding_transaction::<_, tmt_adapters::storage::StorageError>(|records| {
+                records.entry_by_id(&namesake.id)
+            })
+            .unwrap()
+            .unwrap();
+        assert!(entry.binding.is_none(), "{entry:?}");
+        storage.close().unwrap();
+    }
 }
 
 /// A command that exits at once gets no naming call, whether or not its

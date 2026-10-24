@@ -29,8 +29,17 @@ header slot its `ColabHeader` portals into, and Remote's served pages through th
 shell reads only Remote's composed module descriptions; each product supplies its own module
 menu and keeps its routing.
 
+The opt-in [shared top bar](browser-ui/README.md#shared-top-bar) is rendered once by the shell;
+`BrowserTopBar` is its React action-slot adapter. Common Search/Remote bindings and the theme
+control stay root-owned. Existing product bars remain until their owning adoption PRs.
+
+Framework-free hosts use the leaf's [`menu-host`](browser-ui/README.md#framework-free-menu-host)
+entry; it shares BrowserMenu's controller and owns transient popup presentation only.
+
 Colab uses `BrowserMenu` for choice/action menus and `BrowserDrawer` for shared
-page drawers. The leaf's [Drawer and Menu contract](browser-ui/README.md#drawer-and-menu)
+page drawers. For non-modal side regions the leaf provides `BrowserPanel`; hosts retain their grid,
+breakpoints, content and coordination with modal surfaces. Its opt-in `keepMounted` preserves
+child state in a hidden, non-interactive region while closed; the default unmounts content. The leaf's [Drawer and Menu contract](browser-ui/README.md#drawer-and-menu)
 owns their presentation, placement and dismissal. Colab retains commands,
 checked values, admission and draft lifetimes. The [Chips contract](browser-ui/README.md#chips) owns removable items and their
 scoped search popup; page-list tokens reuse its item inside the host editor. Other
@@ -65,3 +74,7 @@ starts work. Copy success has visible **Copied.** feedback; denial leaves the
 exact value available for manual selection. Hosts retain asynchronous lifetime
 and permission rules. Author HTML, handbook command presentation and terminal/TUI
 presentation retain their own owners.
+
+The leaf's [compact page-list controls](browser-ui/README.md#compact-page-list-controls)
+are opt-in presentations of Tabs, Action and textual Menu; their defaults and state owners
+are unchanged. Product hosts adopt through that public input rather than internal CSS selectors.

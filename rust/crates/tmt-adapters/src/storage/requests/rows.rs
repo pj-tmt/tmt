@@ -21,8 +21,9 @@ pub(super) const ATTEMPT_COLUMNS: &str = "
     expires_at_ms, retention_days, retention_expires_at_ms,
     attention_revision, attention_acknowledged_revision,
     recipient_attention_revision, recipient_attention_acknowledged_revision, request_kind, room_id,
-    host, withdrawn_at_ms, withdrawal_reason, origin";
-pub(super) const ATTEMPT_COLUMN_COUNT: usize = 37;
+    host, withdrawn_at_ms, withdrawal_reason, origin,
+    remote_ref, remote_target_id, remote_target_name, remote_sender_name";
+pub(super) const ATTEMPT_COLUMN_COUNT: usize = 41;
 pub(super) fn qualified_attempt_columns() -> String {
     ATTEMPT_COLUMNS
         .split(',')
@@ -30,10 +31,17 @@ pub(super) fn qualified_attempt_columns() -> String {
         .collect::<Vec<_>>()
         .join(", ")
 }
+/// A final's own columns, then the route columns of its attempt: a remote final keeps its route
+/// on the attempt row, so the join reaches it by `attempt_id` and no other final needs it. An
+/// attempt is deleted only once its last unexpired final is gone, so a remote final the join
+/// cannot complete has expired and the reader treats it as absent.
 pub(super) const RESPONSE_COLUMNS: &str = "
-    request_id, attempt_id, route_kind, route_recipient_identity_id,
-    server_id, socket_path, server_pid, server_start_time,
-    pane_id, pane_pid, body, body_bytes, submitted_at_ms, response_expires_at_ms, host";
+    r.request_id, r.attempt_id, r.route_kind, r.route_recipient_identity_id,
+    r.server_id, r.socket_path, r.server_pid, r.server_start_time,
+    r.pane_id, r.pane_pid, r.body, r.body_bytes, r.submitted_at_ms, r.response_expires_at_ms,
+    r.host, a.remote_ref, a.remote_target_id, a.remote_target_name, a.remote_sender_name";
+pub(super) const RESPONSE_FROM: &str = "request_responses r
+    LEFT JOIN request_attempts a ON a.attempt_id = r.attempt_id AND r.route_kind = 'remote'";
 
 fn invalid_row() -> rusqlite::Error {
     rusqlite::Error::InvalidQuery
@@ -91,6 +99,12 @@ pub(super) fn attempt_row(row: &Row<'_>) -> rusqlite::Result<RequestAttempt> {
         "pane" => pane_route_at(row, 8, 33)?,
         "inbox" => RequestRoute::Inbox {
             recipient_identity_id: row.get::<_, Option<String>>(4)?.ok_or_else(invalid_row)?,
+        },
+        "remote" => RequestRoute::Remote {
+            remote: row.get::<_, Option<String>>(37)?.ok_or_else(invalid_row)?,
+            target_id: row.get(38)?,
+            target_name: row.get::<_, Option<String>>(39)?.ok_or_else(invalid_row)?,
+            sender_name: row.get::<_, Option<String>>(40)?.ok_or_else(invalid_row)?,
         },
         _ => return Err(invalid_row()),
     };
@@ -174,6 +188,12 @@ pub(super) fn response_row(row: &Row<'_>) -> rusqlite::Result<FinalResponse> {
             "pane" => pane_route_at(row, 4, 14)?,
             "inbox" => RequestRoute::Inbox {
                 recipient_identity_id: row.get::<_, Option<String>>(3)?.ok_or_else(invalid_row)?,
+            },
+            "remote" => RequestRoute::Remote {
+                remote: row.get::<_, Option<String>>(15)?.ok_or_else(invalid_row)?,
+                target_id: row.get(16)?,
+                target_name: row.get::<_, Option<String>>(17)?.ok_or_else(invalid_row)?,
+                sender_name: row.get::<_, Option<String>>(18)?.ok_or_else(invalid_row)?,
             },
             _ => return Err(invalid_row()),
         },

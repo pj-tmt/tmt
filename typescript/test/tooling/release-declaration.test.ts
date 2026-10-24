@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vite-plus/test';
 import {
   DECLARATION_OUTPUT,
   DECLARATION_SUPPORT,
+  MESSAGE_PROTOCOLS_SUPPORT,
   declarationBytes,
   captureDeclaration,
   readDeclarationReleases,
@@ -112,6 +113,61 @@ function fixture() {
 }
 
 describe('generated minimum CLI declarations', () => {
+  it('copies authored messageProtocols into the declaration and adds the installer floor only then', () => {
+    const f = fixture();
+    const generated = (map: typeof f.context.map) =>
+      JSON.parse(declarationBytes({ ...f.context, map, record: f.record }).toString());
+    const without = generated(f.context.map);
+    expect(Object.keys(without)).toEqual(['version', 'requiresCli', 'uses']);
+    const authored = parseComponentMap(
+      f.mapText.replace('"package":"tmt-ops"', '"package":"tmt-ops","messageProtocols":[1,3]')
+    );
+    expect(generated(authored)).toEqual({ ...without, messageProtocols: [1, 3] });
+    expect(Object.keys(generated(authored))).toEqual([
+      'version',
+      'requiresCli',
+      'messageProtocols',
+      'uses',
+    ]);
+    // A CLI that predates the installer's admission commit cannot be the declared minimum.
+    const asked: string[] = [];
+    const observeCli = gitDeclarationAncestry((args) => {
+      if (args[0] === 'tag' && args[1] === '--contains') asked.push(args[2]);
+      return f.git(
+        args.map((arg) =>
+          arg === DECLARATION_SUPPORT || arg === MESSAGE_PROTOCOLS_SUPPORT ? f.registration : arg
+        )
+      );
+    });
+    resolveDeclaration({ ...f.context, map: authored, observeCli });
+    expect(asked).toContain(MESSAGE_PROTOCOLS_SUPPORT);
+    const none: string[] = [];
+    resolveDeclaration({
+      ...f.context,
+      observeCli: gitDeclarationAncestry((args) => {
+        if (args[0] === 'tag' && args[1] === '--contains') none.push(args[2]);
+        return f.git(args.map((arg) => (arg === DECLARATION_SUPPORT ? f.registration : arg)));
+      }),
+    });
+    expect(none).not.toContain(MESSAGE_PROTOCOLS_SUPPORT);
+  });
+
+  it.each([[[]], [[0]], [[256]], [[2, 1]], [[1, 1]], [['1']], [1], [[1, 2, 3, 4, 5, 6, 7, 8, 9]]])(
+    'refuses authored messageProtocols %j',
+    (value) => {
+      expect(() =>
+        parseComponentMap(
+          JSON.stringify({
+            components: {
+              cli: { owns: ['rust'], package: 'tmt-cli' },
+              ops: { owns: ['ops'], package: 'tmt-ops', messageProtocols: value },
+            },
+          })
+        )
+      ).toThrow(/messageProtocols needs one to eight ascending versions/);
+    }
+  );
+
   it.each([2, 1000])(
     'bounds declaration Git work for %i CLI releases, including rechecks',
     (count) => {

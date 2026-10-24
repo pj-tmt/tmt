@@ -13,6 +13,8 @@ channels and the driver protocol. The owner map is in
   are read-only: no marker initialization or ambient fallback; an explicitly
   empty pane scope reads only server evidence. Default caller
   snapshots and explicit binding discovery retain their existing adoption rules.
+  Discovery of an external host's panes uses only its driver's `server` and
+  `snapshot` (all panes, or one).
 
 - A running-command handle separates launch from wait but keeps the original deadline and
   cleanup; an abandoned handle stops and reaps its child. There is no second runner.
@@ -207,8 +209,13 @@ channels and the driver protocol. The owner map is in
   capability) is data core publishes and never runs: Ops expands and runs it. The tmux
   template is the constant in `tmt-adapters::tmux::launch`; `host::launch::launch_templates`
   composes it with each approved driver's (an `ok` driver only) for `tmt host templates`.
-  The mark a template leaves is `openedByTmt` evidence; `tmt stop --close` (#4579) is its
-  reader, and it still runs the verified stop first.
+  The mark a template leaves is `openedByTmt` evidence; `tmt stop --close` is its reader. It
+  runs the verified stop first (`verified_stop`, shared with `resume --move`), then asks the
+  host to close that one pane (`HostDriver::{close_preflight, opened_by_tmt, close_pane}`,
+  policy in `host::driver::close_opened_pane`). The op is optional and capability-gated: tmux
+  closes through `Tmux::close_opened_pane` (one `kill-pane`, never a session's only pane),
+  an external driver through its `close` op, and a host without either leaves the pane open.
+  An unmarked, unknown or unlisted pane is never closed, and no close is retried.
 - A runtime driver's hook path is declarative (`RuntimeDeclaration` plus `decode_hook`, no
   process); only `locations`, `resume` and `usage` run the driver. The client validates the
   `locations` answer and calls `within(home)` before admitting write targets; approval alone
@@ -256,6 +263,21 @@ Attach/focus and the Ops stream are not yet shipped.
   then submit Enter separately; Core owns the `!` rewrite, delay and SQLite delivery stages.
   Control clients drain output and disconnect promptly, including between paste and Enter;
   they never resize. Failed post-paste transport is uncertain and never replayed.
+- **Interactive attach.** `tmt attach <name-or-UUID> [-d]` resolves the existing
+  binding and admits one connection through `Host`, checking the supervisor/pane
+  incarnations and marker before terminal input. SQLite closes before the relay.
+  The CLI owns crossterm raw mode, alternate-screen entry and restoration;
+  `pty::attach` polls that input, the admitted socket and invocation-owned signal
+  notifications without a surviving input thread. Live program output passes
+  unchanged; there is no replay, redraw nudge or initial-screen frame, so entry
+  may stay blank until the program draws. Ctrl-\ detaches without stopping the
+  member; Ctrl-C goes to the program. EOF detaches; TERM/HUP/external INT restore
+  the terminal without signalling the member. SIGKILL cannot restore a terminal.
+  `-d` uses the existing `TakeSole` frame. Eviction, exit and transport failure
+  restore before explaining the outcome; connection loss never proves agent exit.
+  Local dimensions are clamped before entry/resize frames; `Resized` reports the
+  shared size and never emits a physical-window resize escape. Plain `focus`
+  delegates here only for a built-in target; JSON focus never acquires raw mode.
 - **Managed startup.** `pty::start_member` uses the existing detached-process owner
   to await the supervisor readiness line, retaining kill/reap ownership until that line.
   Child-only locators replace inherited host variables. The ordinary managed launcher

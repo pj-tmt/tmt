@@ -57,6 +57,16 @@ fn prompt_status(prompt: &RequestPrompt) -> &'static str {
     }
 }
 
+/// The state word, then Core's own wording when it says more than the word does.
+fn message_row(view: &tmt_core::request::delivery::DeliveryView) -> String {
+    let state = view.state.as_str();
+    if view.reason_text == state {
+        state.to_owned()
+    } else {
+        format!("{state}: {}", view.reason_text)
+    }
+}
+
 fn exchange_document<T>(
     exchange: &Exchange<T>,
     content: impl FnOnce(&T) -> Option<Value>,
@@ -69,6 +79,7 @@ fn exchange_document<T>(
         "recipientIdentityId": exchange.recipient_identity_id,
         "preparedAtMs": exchange.prepared_at_ms,
         "delivery": exchange.delivery.as_str(),
+        "messageState": tmt_adapters::request_history::message_state(&exchange.message_state),
         "final": final_document(&exchange.final_state, content),
         "revision": exchange.revision,
         "acknowledged": exchange.acknowledged,
@@ -174,9 +185,9 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                             Token::Dim,
                         ),
                         Cell::from(if item.delivery_policy.urgent {
-                            format!("{} urgent", item.delivery.as_str())
+                            format!("{} urgent", item.message_state.state.as_str())
                         } else {
-                            item.delivery.as_str().to_owned()
+                            item.message_state.state.as_str().to_owned()
                         }),
                         Cell::from(item.final_state.as_str()),
                         Cell::styled(format!("r{}", item.revision), Token::Dim),
@@ -204,7 +215,7 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
         ResultKind::Show { detail, receipt } => {
             let item = &detail.exchange;
             let mut rows = vec![
-                ("delivery", item.delivery.as_str().to_owned()),
+                ("message", message_row(&item.message_state)),
                 ("urgent", item.delivery_policy.urgent.to_string()),
                 ("digest kind", item.delivery_policy.kind.as_str().to_owned()),
             ];

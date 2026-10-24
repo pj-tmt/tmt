@@ -77,12 +77,26 @@ impl<'a> RecordedHostServers<'a> {
     }
 }
 
-impl HostServerIds for RecordedHostServers<'_> {
-    type Error = StorageError;
-
-    fn server_id(&mut self, server: &HostServerIncarnation<'_>) -> Result<String, StorageError> {
+impl RecordedHostServers<'_> {
+    /// The ID a bind recorded for this incarnation, or `None`: unrecorded, or
+    /// no database yet (none is created). Open, schema and busy failures stay
+    /// errors, never `None`.
+    pub fn lookup(
+        &self,
+        server: &HostServerIncarnation<'_>,
+    ) -> Result<Option<String>, StorageError> {
         let pid = i64::try_from(server.server_pid)
             .map_err(|_| StorageError::new(StorageErrorCode::Unknown, "Invalid server PID"))?;
+        match std::fs::symlink_metadata(self.database) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => {
+                return Err(super::errors::classify_io(
+                    error,
+                    "Inspect recorded host servers",
+                ));
+            }
+            Ok(_) => {}
+        }
         let mut connection =
             Connection::open_with_flags(self.database, OpenFlags::SQLITE_OPEN_READ_ONLY)
                 .map_err(|error| classify(error, "Open recorded host servers read-only"))?;
@@ -106,7 +120,15 @@ impl HostServerIds for RecordedHostServers<'_> {
                 |row| row.get(0),
             )
             .optional()
-            .map_err(|error| classify(error, "Read recorded host server"))?
+            .map_err(|error| classify(error, "Read recorded host server"))
+    }
+}
+
+impl HostServerIds for RecordedHostServers<'_> {
+    type Error = StorageError;
+
+    fn server_id(&mut self, server: &HostServerIncarnation<'_>) -> Result<String, StorageError> {
+        self.lookup(server)?
             .ok_or_else(|| StorageError::new(StorageErrorCode::Unknown, "Unrecorded host server"))
     }
 }
@@ -217,6 +239,32 @@ mod tests {
         assert!(ids.server_id(&herdr(41, "Tue 23:00")).is_err());
         writer.execute_batch("ROLLBACK").unwrap();
         assert_eq!(schema(&writer), before);
+    }
+
+    #[test]
+    fn a_lookup_reads_without_creating_and_keeps_failures_apart_from_absence() {
+        let directory = TestDirectory::new();
+        let database = directory.path.join("state.db");
+        let ids = RecordedHostServers::new(&database);
+        // No database: nothing recorded, and none is created.
+        assert_eq!(ids.lookup(&herdr(41, "Tue 22:09")).unwrap(), None);
+        assert!(!database.exists());
+        let mut storage = Storage::open(&database).unwrap();
+        let recorded = storage.host_server_id(&herdr(41, "Tue 22:09"), 1).unwrap();
+        storage.close().unwrap();
+        assert_eq!(ids.lookup(&herdr(41, "Tue 22:09")).unwrap(), Some(recorded));
+        assert_eq!(ids.lookup(&herdr(41, "Tue 23:00")).unwrap(), None);
+        // A database that cannot be opened is an error, never "unrecorded".
+        let unopenable = RecordedHostServers::new(&directory.path);
+        assert!(unopenable.lookup(&herdr(41, "Tue 22:09")).is_err());
+        // So is a database of another schema.
+        let writer = rusqlite::Connection::open(&database).unwrap();
+        writer
+            .execute_batch(
+                "DELETE FROM _migrations WHERE version = (SELECT max(version) FROM _migrations)",
+            )
+            .unwrap();
+        assert!(ids.lookup(&herdr(41, "Tue 22:09")).is_err());
     }
 
     #[test]

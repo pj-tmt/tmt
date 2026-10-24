@@ -1,6 +1,7 @@
 mod answer_command;
 mod api_command;
 mod appearance;
+mod attach_command;
 mod binding_command;
 mod binding_error;
 mod caller_context;
@@ -55,12 +56,15 @@ mod response_command;
 mod room_command;
 mod run_command;
 mod send_now_command;
+mod session_learning;
 mod setup_command;
 mod skill_refresh_command;
 mod skill_reminder;
+mod stop_command;
 mod talk_command;
 mod target;
 mod uninstall_command;
+mod verified_stop;
 mod workspace_command;
 mod workspace_hook;
 mod workspace_restore_command;
@@ -300,6 +304,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             name,
             driver,
             move_running,
+            fresh,
             show,
             forget_launch,
             model,
@@ -318,6 +323,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
                     driver: driver.as_deref(),
                     retry,
                     move_running,
+                    fresh,
                 },
                 options: tmt_adapters::runtime::launch_preset::LaunchSettings { model, effort },
                 channel,
@@ -404,6 +410,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         request @ Invocation::Talk { .. } => {
             return talk_command::execute(request, parsed.mode);
         }
+        request @ Invocation::TalkRemote { .. } => {
+            return talk_command::remote::execute(request, parsed.mode);
+        }
         request @ (Invocation::Role { .. } | Invocation::Preamble(_)) => {
             return profile_command::execute(request, parsed.mode);
         }
@@ -414,11 +423,20 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         } => {
             return check_command::execute(target, lines, capture_only, parsed.mode);
         }
+        Invocation::Stop { name, close } => {
+            return stop_command::execute(name, close, parsed.mode);
+        }
         Invocation::Focus { target, into } => {
             return focus_command::execute(target, into, parsed.mode);
         }
         Invocation::FocusClient => {
             return focus_command::client(parsed.mode);
+        }
+        Invocation::Attach {
+            target,
+            detach_others,
+        } => {
+            return attach_command::execute(target, detach_others, parsed.mode);
         }
         request @ (Invocation::Reply { .. } | Invocation::Result { .. }) => {
             return response_command::execute(request, parsed.mode);

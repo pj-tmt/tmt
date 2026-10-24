@@ -4,6 +4,8 @@ mod artifact;
 mod former_prefix;
 pub mod handoff;
 mod online;
+mod progress;
+pub use progress::{ProgressEvent, ProgressObserver, ReleasePreview};
 mod post_upgrade;
 pub use former_prefix::{in_moved_prefix, retained_former_hint};
 pub use post_upgrade::{
@@ -12,7 +14,8 @@ pub use post_upgrade::{
 mod remove;
 mod retired_squad;
 pub use online::{
-    ReleaseInstallRequest, default_install_prefix, install_release, latest_release_version,
+    ReleaseInstallRequest, default_install_prefix, install_release, install_release_observed,
+    latest_release_version, preview_release,
 };
 pub use remove::{ProductRemoval, plan_product_removal, remove_product, uninstall_extension};
 pub use retired_squad::{RetiredSquad, retired_squad};
@@ -47,7 +50,7 @@ mod uses;
 pub use uses::{
     Affected, CheckError, CliCompatibility, CliRequired, Unavailable, Use, UseStatus, affected,
     check as check_use, cli_required, declared as declared_uses, extension_named,
-    statuses as use_statuses, valid_feature,
+    message_protocols, statuses as use_statuses, valid_feature,
 };
 mod upgrade;
 pub use upgrade::{

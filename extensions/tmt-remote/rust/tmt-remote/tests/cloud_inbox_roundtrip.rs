@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_remote::{
-    canonical::{self, Envelope},
+    canonical,
     cloud_inbox::{InboxDriver, Provider, Sender},
     error::RemoteError,
     firebase_auth::{
@@ -96,6 +96,7 @@ impl NativeBudgetPort for Budget {
         Ok(())
     }
 }
+#[derive(Default)]
 struct Wire {
     documents: Mutex<BTreeMap<String, Value>>,
     owner: Mutex<Weak<InboxDriver>>,
@@ -114,10 +115,6 @@ impl Wire {
 }
 impl Http for Wire {
     fn send(&self, request: &Request, _: u64, _: &dyn Cancellation) -> Result<Response, AuthError> {
-        assert_eq!(
-            request.response_bytes(),
-            tmt_remote::limits::CLOUD_PROVIDER_BYTES
-        );
         let path = request
             .url()
             .strip_prefix("https://firestore.googleapis.com/v1/")
@@ -131,6 +128,11 @@ impl Http for Wire {
         } else {
             serde_json::from_slice(request.body()).unwrap()
         };
+        let page_limit = input["structuredQuery"]["limit"].as_u64().unwrap_or(1) as usize;
+        assert_eq!(
+            request.response_bytes(),
+            tmt_remote::limits::CLOUD_PROVIDER_BYTES * page_limit
+        );
         let (status, answer) = match request.operation() {
             Operation::Read
                 if path.contains("/responses/")
@@ -197,24 +199,42 @@ impl Http for Wire {
                     request.url().ends_with(&format!("/m/{MACHINE}:runQuery")),
                     "machine remains the parent"
                 );
-                assert_eq!(input["structuredQuery"]["limit"], 1);
+                assert!((1..=4).contains(&page_limit));
                 assert_eq!(
                     input["structuredQuery"]["from"],
                     json!([{"collectionId":"inbox","allDescendants":false}])
                 );
-                let after =
-                    input["structuredQuery"]["startAt"]["values"][1]["referenceValue"].as_str();
-                let rows: Vec<_> = self
-                    .documents
-                    .lock()
-                    .unwrap()
+                let query = &input["structuredQuery"];
+                let from = query["where"]["fieldFilter"]["value"]["timestampValue"]
+                    .as_str()
+                    .unwrap();
+                let after = query["startAt"]["values"][0]["timestampValue"]
+                    .as_str()
+                    .zip(query["startAt"]["values"][1]["referenceValue"].as_str());
+                let documents = self.documents.lock().unwrap();
+                let mut ordered: Vec<_> = documents
                     .iter()
-                    .filter(|(name, _)| {
+                    .filter(|(name, doc)| {
+                        let timestamp = doc["fields"]["createdAt"]["timestampValue"]
+                            .as_str()
+                            .unwrap();
                         name.starts_with(&format!("{ROOT}/m/{MACHINE}/"))
                             && name.contains("/inbox/")
-                            && after.is_none_or(|after| name.as_str() > after)
+                            && timestamp >= from
+                            && after.is_none_or(|after| (timestamp, name.as_str()) > after)
                     })
-                    .take(1)
+                    .collect();
+                ordered.sort_by_key(|(name, doc)| {
+                    (
+                        doc["fields"]["createdAt"]["timestampValue"]
+                            .as_str()
+                            .unwrap(),
+                        name.as_str(),
+                    )
+                });
+                let rows: Vec<_> = ordered
+                    .into_iter()
+                    .take(page_limit)
                     .map(|(_, doc)| json!({"document":doc,"readTime":STAMP}))
                     .collect();
                 (
@@ -228,9 +248,14 @@ impl Http for Wire {
             }
             _ => panic!("no Auth/network bootstrap in the fixture"),
         };
+        let body = serde_json::to_vec(&answer).unwrap();
+        assert!(
+            body.len() <= request.response_bytes(),
+            "fixture response exceeded its admitted byte bound"
+        );
         Ok(Response {
             status,
-            body: serde_json::to_vec(&answer).unwrap(),
+            body,
             retry_after_ms: None,
         })
     }
@@ -247,7 +272,7 @@ fn provider(wire: Arc<Wire>, uid: &'static str) -> Provider {
     provider_clock(wire, uid, Arc::new(ClockPort))
 }
 fn provider_clock(
-    wire: Arc<Wire>,
+    wire: Arc<dyn Http + Send + Sync>,
     uid: &'static str,
     clock: Arc<dyn Clock + Send + Sync>,
 ) -> Provider {
@@ -271,24 +296,18 @@ fn request(key: &MachineKey, id: &str) -> Vec<u8> {
     signed_request(key, id, "dispatch.create", &payload)
 }
 fn signed_request(key: &MachineKey, id: &str, operation: &str, payload: &str) -> Vec<u8> {
-    let window = "22222222-2222-4222-8222-222222222222";
-    let session = "55555555-5555-4555-8555-555555555555";
-    let envelope = Envelope {
-        kind: "request",
-        id,
-        correlation_id: None,
-        machine_id: MACHINE,
-        window_id: window,
-        client_id: PEER,
-        session_id: session,
-        sequence: "1",
-        timestamp_ms: NOW,
-        origin: "cli",
-        operation,
-        payload: payload.as_bytes(),
-    };
-    json!({"version":1,"profile":"local-v1","kind":"request","id":id,"correlationId":null,"machineId":MACHINE,"windowId":window,"clientId":PEER,"sessionId":session,"sequence":"1","timestampMs":NOW,"origin":"cli","operation":operation,"payload":canonical::base64url(payload.as_bytes()),"signature":canonical::base64url(&key.sign(&canonical::envelope(&envelope).unwrap()))}).to_string().into_bytes()
+    signed_request_as(PEER, id, operation, payload, |bytes| key.sign(bytes))
 }
+fn signed_request_as(
+    peer: &str,
+    id: &str,
+    operation: &str,
+    payload: &str,
+    sign: impl FnOnce(&[u8]) -> [u8; 64],
+) -> Vec<u8> {
+    cloud_fixture::signed_request_as(peer, id, operation, payload, NOW, sign)
+}
+
 #[test]
 fn sender_restart_recovers_frozen_outcomes_after_lost_create_answer_or_response_post() {
     for lose_response in [false, true] {
@@ -421,9 +440,149 @@ impl tmt_remote::core::CloudIdentityQuery for RenamedIdentity {
     }
 }
 #[test]
+fn prepared_reply_is_private_durable_and_frozen_before_publication() {
+    use rusqlite::{Connection, OpenFlags};
+    use std::{path::PathBuf, sync::atomic::AtomicUsize};
+    const RECEIPT: &str = "v2_PRIVATE_REPLY_CANARY";
+    struct Inspect {
+        wire: Arc<Wire>,
+        database: PathBuf,
+        creates: Arc<AtomicUsize>,
+    }
+    impl Http for Inspect {
+        fn send(
+            &self,
+            request: &Request,
+            deadline: u64,
+            cancel: &dyn Cancellation,
+        ) -> Result<Response, AuthError> {
+            assert!(!String::from_utf8_lossy(request.body()).contains(RECEIPT));
+            if request.operation() == Operation::Commit {
+                let body: Value = serde_json::from_slice(request.body()).unwrap();
+                if body["writes"][0]["update"]["name"] == format!("{ROOT}/m/{MACHINE}/inbox/{ID}") {
+                    let db = Connection::open_with_flags(
+                        &self.database,
+                        OpenFlags::SQLITE_OPEN_READ_ONLY,
+                    )
+                    .unwrap();
+                    let (binding, attempted): (String, bool) = db.query_row(
+                        "SELECT binding,attempted FROM cloud_transport WHERE peer_id=?1 AND kind='outbox' AND id=?2",
+                        [PEER,ID], |row| Ok((row.get(0)?,row.get(1)?)),
+                    ).unwrap();
+                    assert!(attempted);
+                    let binding: Value = serde_json::from_str(&binding).unwrap();
+                    assert_eq!(
+                        binding,
+                        json!({"machine":MACHINE,"remote":"team","senderId":PEER,
+                        "reply":{"requestId":format!("req_{ID}"),"receipt":RECEIPT}})
+                    );
+                    self.creates.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+            self.wire.send(request, deadline, cancel)
+        }
+    }
+    let mut world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+    let wire = Arc::new(Wire {
+        documents: Mutex::new(BTreeMap::new()),
+        owner: Mutex::new(Weak::new()),
+        cancel_after_create: Mutex::new(None),
+        requests: Mutex::new(vec![]),
+        deny_responses: AtomicBool::new(false),
+        fail_queries: AtomicBool::new(false),
+        lose_response_for: Mutex::new(None),
+    });
+    let driver = world.driver(provider(wire.clone(), "owner"));
+    *wire.owner.lock().unwrap() = Arc::downgrade(&driver);
+    let creates = Arc::new(AtomicUsize::new(0));
+    let http = Arc::new(Inspect {
+        wire: wire.clone(),
+        database: world.sender_layout.directory.join("remote.db"),
+        creates: creates.clone(),
+    });
+    let store = Arc::new(Mutex::new(world.sender_store.take().unwrap()));
+    let sender = Sender::new(
+        provider_clock(http.clone(), "peer", Arc::new(ClockPort)),
+        store.clone(),
+        PEER,
+        world.key.clone(),
+    )
+    .unwrap();
+    let stopped = AtomicBool::new(false);
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(10),
+        cancelled: &stopped,
+    };
+    let raw = json!({"version":1,"remote":null,"createdAtMs":NOW,"requestId":ID,
+        "from":{"id":PEER,"name":"peer"},"target":{"id":TARGET,"name":"target"},
+        "message":"one private reply binding","reply":{"requestId":format!("req_{ID}"),"receipt":RECEIPT}}).to_string();
+    let answer =
+        ready(sender.prepared(raw.as_bytes(), &world.descriptor, "team", NOW, &io)).unwrap();
+    assert_eq!(answer.state, tmt_remote::cloud_command::State::Sent);
+    assert!(!serde_json::to_string(&answer).unwrap().contains(RECEIPT));
+    assert_eq!(creates.load(Ordering::SeqCst), 1);
+    assert_eq!(world.core.sends(), 1);
+    assert!(
+        world
+            .core
+            .calls()
+            .iter()
+            .all(|call| !call.to_string().contains(RECEIPT))
+    );
+    drop(sender);
+    drop(store);
+    let sender = Sender::new(
+        provider_clock(http, "peer", Arc::new(ClockPort)),
+        Arc::new(Mutex::new(Store::open(&world.sender_lease).unwrap())),
+        PEER,
+        world.key.clone(),
+    )
+    .unwrap();
+    ready(sender.prepared(raw.as_bytes(), &world.descriptor, "team", NOW, &io)).unwrap();
+    let calls = wire.requests.lock().unwrap().len();
+    assert_eq!(
+        ready(sender.prepared(raw.as_bytes(), &world.descriptor, "other", NOW, &io))
+            .err()
+            .unwrap()
+            .code,
+        "REMOTE_INTENT_CONFLICT"
+    );
+    assert_eq!(wire.requests.lock().unwrap().len(), calls);
+    assert_eq!(creates.load(Ordering::SeqCst), 1);
+    assert_eq!(world.core.sends(), 1);
+    for layout in [&world.sender_layout, &world.owner_layout] {
+        let db = Connection::open_with_flags(
+            layout.directory.join("remote.db"),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let audit: String = db.query_row("SELECT COALESCE(group_concat(client_id||envelope_id||operation||COALESCE(operation_id,'')||resources_json||decision||code,''),'') FROM audit", [], |row| row.get(0)).unwrap();
+        assert!(!audit.contains(RECEIPT));
+    }
+}
+
+#[test]
 fn prepared_core_boundary_delivers_or_refuses_the_uuid_query_without_a_name_fallback() {
     use tmt_remote::{cloud_command::State, core::CoreClient};
-    let cases: Vec<(
+    let public_cores: Vec<_> = [
+        json!({"id":TARGET,"name":"target"}),
+        json!({"id":TARGET,"name":"renamed"}),
+        json!({"id":TARGET,"name":"target","retired":true}),
+        json!(null),
+    ]
+    .into_iter()
+    .map(|row| {
+        let core = cloud_fixture::core_fixture::Core::new();
+        let rows = if row.is_null() { vec![] } else { vec![row] };
+        std::fs::write(
+            core.root.join("identities"),
+            json!({"identities":rows}).to_string(),
+        )
+        .unwrap();
+        core
+    })
+    .collect();
+    let mut cases: Vec<(
         Arc<dyn tmt_remote::core::CloudIdentityQuery>,
         State,
         Option<&str>,
@@ -434,12 +593,23 @@ fn prepared_core_boundary_delivers_or_refuses_the_uuid_query_without_a_name_fall
             State::Refused,
             Some("REMOTE_AGENT_STALE"),
         ),
-        (
-            Arc::new(CoreClient::at("/never-invoked-cloud-identity".into()).unwrap()),
-            State::Refused,
-            Some("REMOTE_CLOUD_UPGRADE_REQUIRED"),
-        ),
     ];
+    for (core, state, reason) in [
+        (&public_cores[0], State::Sent, None),
+        (&public_cores[1], State::Refused, Some("REMOTE_AGENT_STALE")),
+        (&public_cores[2], State::Refused, Some("REMOTE_AGENT_STALE")),
+        (
+            &public_cores[3],
+            State::Refused,
+            Some("REMOTE_AGENT_NOT_FOUND"),
+        ),
+    ] {
+        cases.push((
+            Arc::new(CoreClient::at(core.root.join("tmt")).unwrap()),
+            state,
+            reason,
+        ));
+    }
     for (identity, state, reason) in cases {
         let mut world = cloud_fixture::World::new(NOW, identity);
         let wire = Arc::new(Wire {
@@ -470,6 +640,10 @@ fn prepared_core_boundary_delivers_or_refuses_the_uuid_query_without_a_name_fall
             ready(sender.prepared(raw.as_bytes(), &world.descriptor, "team", NOW, &io)).unwrap();
         assert_eq!(answer.state, state);
         assert_eq!(answer.reason.as_deref(), reason);
+        assert_eq!(
+            serde_json::to_value(&answer).unwrap()["target"],
+            json!({"id":TARGET,"name":"target"})
+        );
         assert_eq!(world.core.sends(), usize::from(state == State::Sent));
         let mut local: Value = serde_json::from_str(&raw).unwrap();
         local["remote"] = json!("local");
@@ -539,6 +713,25 @@ fn prepared_core_boundary_delivers_or_refuses_the_uuid_query_without_a_name_fall
             "never use a name-addressed capture as a UUID query"
         );
     }
+    for core in &public_cores {
+        let calls = core.calls();
+        assert!(
+            !calls.is_empty(),
+            "the real CoreClient must invoke the public process"
+        );
+        assert!(
+            calls.iter().all(|call| call["argv"]
+                == json!([
+                    "identity",
+                    "show",
+                    "--json",
+                    "--expect-name=target",
+                    "--",
+                    TARGET
+                ])),
+            "UUID checks must never fall back to name lookup or capture: {calls:?}"
+        );
+    }
 }
 
 #[test]
@@ -573,6 +766,244 @@ fn unreadable_response_after_a_confirmed_request_is_unconfirmed_not_refused() {
     assert_eq!(answer.state, tmt_remote::cloud_command::State::Unconfirmed);
     assert_eq!(answer.reason.as_deref(), Some("REMOTE_CLOUD_UNCONFIRMED"));
     assert_eq!(world.core.sends(), 1);
+}
+
+#[test]
+fn dense_backlog_over_the_round_cap_drains_after_restart_without_repeating_effects() {
+    use ed25519_dalek::Signer;
+    let mut world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+    std::fs::write(world.core.root.join("multi"), b"per-operation receipts").unwrap();
+    let wire = Arc::new(Wire {
+        documents: Mutex::new(BTreeMap::new()),
+        owner: Mutex::new(Weak::new()),
+        cancel_after_create: Mutex::new(None),
+        requests: Mutex::new(vec![]),
+        deny_responses: AtomicBool::new(false),
+        fail_queries: AtomicBool::new(false),
+        lose_response_for: Mutex::new(None),
+    });
+    let bound = tmt_remote::journal::OPERATIONS as usize;
+    let total = bound + 3;
+    // Keep the real per-peer sending budget and transport-storage cap intact. The
+    // original peer stays quiet, so its checkpoint cannot pin machine progress.
+    for first in (0..total).step_by(tmt_remote::budgets::SENDS as usize) {
+        let group = first / tmt_remote::budgets::SENDS as usize;
+        let peer = format!("00000000-0000-4000-8000-{:012x}", group + 1);
+        let key = ed25519_dalek::SigningKey::from_bytes(&[(group + 100) as u8; 32]);
+        let public = key.verifying_key().to_bytes();
+        world
+            .owner_store
+            .lock()
+            .unwrap()
+            .insert_grant(&tmt_remote::store::Grant {
+                client_id: peer.clone(),
+                public_key: public,
+                kind: "cli".into(),
+                origin: "cli".into(),
+                name: format!("Backlog peer {group}"),
+                agents: "all".into(),
+                scopes: vec!["talk".into()],
+                mode: "direct".into(),
+                issued_at_ms: 1,
+                expires_at_ms: None,
+                revision: 1,
+                disabled: false,
+            })
+            .unwrap();
+        for ordinal in first..(first + tmt_remote::budgets::SENDS as usize).min(total) {
+            let id = format!("99999999-9999-4999-8999-{:012x}", ordinal + 1);
+            let payload = json!({"version":1,"operation":"dispatch.create","originator":"anonymous","createdAtMs":NOW,"input":{"operationId":id,"recipientIds":[TARGET],"expectedName":"target","message":"one backlog effect","kind":"request"}}).to_string();
+            let exact = signed_request_as(&peer, &id, "dispatch.create", &payload, |bytes| {
+                key.sign(bytes).to_bytes()
+            });
+            let (carrier, _) = tmt_remote::cloud_inbox::seal_native(
+                &exact,
+                &world.descriptor,
+                NOW,
+                tmt_remote::cloud_hpke::Sender {
+                    client_id: &peer,
+                    authentication_key: &public,
+                },
+                |bytes| key.sign(bytes).to_bytes(),
+            )
+            .unwrap();
+            wire.seed_inbox(&id, &carrier);
+            // Every document has the exact same indexed/create time. Timestamp-only
+            // progress cannot distinguish the prefix from its unprocessed suffix.
+            wire.documents
+                .lock()
+                .unwrap()
+                .get_mut(&format!("{ROOT}/m/{MACHINE}/inbox/{id}"))
+                .unwrap()["fields"]["peer"] = json!({"stringValue":peer});
+        }
+    }
+    let stopped = AtomicBool::new(false);
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(300),
+        cancelled: &stopped,
+    };
+    let driver = world.driver(provider(wire.clone(), "owner"));
+    assert_eq!(
+        ready(driver.reconcile(NOW, &io)).unwrap_err().code,
+        "REMOTE_CLOUD_CAPACITY"
+    );
+    assert_eq!(
+        world.core.sends(),
+        bound,
+        "the first round performs only its bounded prefix"
+    );
+    drop(driver);
+    world = world.reopen(NOW, Arc::new(CurrentIdentity));
+    let driver = world.driver(provider(wire.clone(), "owner"));
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(30),
+        cancelled: &stopped,
+    };
+    assert_eq!(
+        ready(driver.reconcile(NOW, &io)).unwrap(),
+        total - bound,
+        "restart must continue after the durable prefix, including tied timestamps"
+    );
+    assert_eq!(world.core.sends(), total);
+    let mut effects = BTreeMap::new();
+    for call in world
+        .core
+        .calls()
+        .into_iter()
+        .filter(|call| call["operation"] == "dispatch.create")
+    {
+        *effects
+            .entry(call["input"]["operationId"].as_str().unwrap().to_owned())
+            .or_insert(0) += 1;
+    }
+    assert_eq!(effects.len(), total);
+    assert!(
+        effects.values().all(|count| *count == 1),
+        "every operation has exactly one effect"
+    );
+}
+
+#[test]
+fn transient_stop_resumes_after_unconfirmed_prefix_then_durable_poison() {
+    struct FailSecondQuery {
+        wire: Arc<Wire>,
+        queries: std::sync::atomic::AtomicUsize,
+    }
+    impl Http for FailSecondQuery {
+        fn send(
+            &self,
+            request: &Request,
+            deadline: u64,
+            cancelled: &dyn Cancellation,
+        ) -> Result<Response, AuthError> {
+            if request.operation() == Operation::Query
+                && self.queries.fetch_add(1, Ordering::SeqCst) == 1
+            {
+                return Err(AuthError::unavailable());
+            }
+            self.wire.send(request, deadline, cancelled)
+        }
+    }
+    let mut world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+    std::fs::write(world.core.root.join("multi"), b"per-operation receipts").unwrap();
+    let wire = Arc::new(Wire {
+        documents: Mutex::new(BTreeMap::new()),
+        owner: Mutex::new(Weak::new()),
+        cancel_after_create: Mutex::new(None),
+        requests: Mutex::new(vec![]),
+        deny_responses: AtomicBool::new(false),
+        fail_queries: AtomicBool::new(false),
+        lose_response_for: Mutex::new(Some(format!("{ROOT}/m/{MACHINE}/responses/{ID}"))),
+    });
+    let bad = "55555555-5555-4555-8555-555555555555";
+    let good2 = "77777777-7777-4777-8777-777777777777";
+    for id in [ID, bad, good2] {
+        let carrier = if id == bad {
+            b"{}".to_vec()
+        } else {
+            tmt_remote::cloud_inbox::seal_native(
+                &request(&world.key, id),
+                &world.descriptor,
+                NOW,
+                tmt_remote::cloud_hpke::Sender {
+                    client_id: PEER,
+                    authentication_key: &world.key.public(),
+                },
+                |bytes| world.key.sign(bytes),
+            )
+            .unwrap()
+            .0
+        };
+        wire.seed_inbox(id, &carrier);
+    }
+    let fault = Arc::new(FailSecondQuery {
+        wire: wire.clone(),
+        queries: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let stopped = AtomicBool::new(false);
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(10),
+        cancelled: &stopped,
+    };
+    let driver = world.driver(provider_clock(fault.clone(), "owner", Arc::new(ClockPort)));
+    assert_eq!(
+        ready(driver.reconcile(NOW, &io)).unwrap_err().code,
+        "REMOTE_STATE_UNAVAILABLE"
+    );
+    assert_eq!(fault.queries.load(Ordering::SeqCst), 2);
+    assert_eq!(world.core.sends(), 1);
+    drop(driver);
+    world = world.reopen(NOW, Arc::new(CurrentIdentity));
+    let driver = world.driver(provider_clock(fault, "owner", Arc::new(ClockPort)));
+    assert_eq!(
+        ready(driver.reconcile(NOW, &io)).unwrap(),
+        2,
+        "the resumed query skips its durable unconfirmed prefix"
+    );
+    assert_eq!(world.core.sends(), 2);
+    let database = rusqlite::Connection::open_with_flags(
+        world.owner_layout.directory.join("remote.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )
+    .unwrap();
+    assert_eq!(
+        database
+            .query_row(
+                "SELECT refusal FROM cloud_transport WHERE peer_id=?1 AND id=?2",
+                [PEER, bad],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+        "REMOTE_CLOUD_CARRIER_INVALID"
+    );
+    assert!(
+        database
+            .query_row(
+                "SELECT attempted FROM cloud_transport WHERE peer_id=?1 AND id=?2",
+                [PEER, ID],
+                |r| r.get::<_, bool>(0)
+            )
+            .unwrap()
+    );
+    assert!(
+        !wire
+            .documents
+            .lock()
+            .unwrap()
+            .contains_key(&format!("{ROOT}/m/{MACHINE}/responses/{ID}")),
+        "advancing never retries an unconfirmed response mutation"
+    );
+    let continuation: Vec<u8> = database
+        .query_row(
+            "SELECT carrier FROM cloud_transport WHERE kind='checkpoint' AND peer_id='inbox-query' AND id=''",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(
+        continuation.is_empty(),
+        "only a fully drained query clears the continuation"
+    );
 }
 
 #[test]
@@ -621,7 +1052,7 @@ fn poison_between_good_carriers_is_durable_per_document_and_transient_reads_do_n
         inspect()
             .query_row(
                 "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint'",
-                [PEER],
+                ["inbox-query"],
                 |r| r.get::<_, i64>(0),
             )
             .optional()
@@ -842,7 +1273,7 @@ fn lost_response_post_does_not_block_later_carriers_or_repeat_after_restart() {
         inspect()
             .query_row(
                 "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint'",
-                [PEER],
+                ["inbox-query"],
                 |row| row.get::<_, i64>(0)
             )
             .unwrap(),
@@ -1005,7 +1436,7 @@ fn response_budget_refusal_before_claim_holds_the_checkpoint_and_retries_without
         inspect()
             .query_row(
                 "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint'",
-                [PEER],
+                ["inbox-query"],
                 |row| row.get::<_, i64>(0)
             )
             .unwrap(),
@@ -1111,7 +1542,7 @@ fn unknown_owned_lookup_is_permanent_but_real_store_failure_holds_the_checkpoint
     assert_eq!(
         db.query_row(
             "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint'",
-            [PEER],
+            ["inbox-query"],
             |row| row.get::<_, i64>(0)
         )
         .unwrap(),
@@ -1302,5 +1733,291 @@ fn missing_response_then_owner_reply_within_the_call_returns_the_confirmed_outco
             .count(),
         3,
         "sender observes missing then present, plus the owner's publication readback"
+    );
+}
+
+#[test]
+fn prepared_name_targets_resolve_once_or_record_a_per_document_refusal() {
+    use tmt_remote::cloud_command::State;
+    for (rows, expected, reason) in [
+        (json!([{"id":TARGET,"name":"target"}]), State::Sent, None),
+        (json!([]), State::Refused, Some("REMOTE_AGENT_NOT_FOUND")),
+        (
+            json!([{"id":TARGET,"name":"target"},{"id":ID,"name":"target"}]),
+            State::Refused,
+            Some("REMOTE_AGENT_AMBIGUOUS"),
+        ),
+    ] {
+        let mut world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+        std::fs::write(
+            world.core.root.join("identities"),
+            json!({"identities":rows}).to_string(),
+        )
+        .unwrap();
+        let wire = Arc::new(Wire {
+            documents: Mutex::new(BTreeMap::new()),
+            owner: Mutex::new(Weak::new()),
+            cancel_after_create: Mutex::new(None),
+            requests: Mutex::new(vec![]),
+            deny_responses: AtomicBool::new(false),
+            fail_queries: AtomicBool::new(false),
+            lose_response_for: Mutex::new(None),
+        });
+        let driver = world.driver(provider(wire.clone(), "owner"));
+        *wire.owner.lock().unwrap() = Arc::downgrade(&driver);
+        let sender = Sender::new(
+            provider(wire.clone(), "peer"),
+            Arc::new(Mutex::new(world.sender_store.take().unwrap())),
+            PEER,
+            world.key.clone(),
+        )
+        .unwrap();
+        let stopped = AtomicBool::new(false);
+        let io = IoBudget {
+            deadline: Instant::now() + Duration::from_secs(10),
+            cancelled: &stopped,
+        };
+        let raw = json!({"version":1,"remote":"team","createdAtMs":NOW,"requestId":ID,"from":{"id":PEER,"name":"peer"},"target":{"name":"target"},"message":"resolve at receiver"}).to_string();
+        let answer =
+            ready(sender.prepared(raw.as_bytes(), &world.descriptor, "team", NOW, &io)).unwrap();
+        assert_eq!(answer.state, expected);
+        assert_eq!(answer.reason.as_deref(), reason);
+        assert_eq!(
+            serde_json::to_value(&answer).unwrap()["target"],
+            json!({"name":"target"})
+        );
+        assert_eq!(world.core.sends(), usize::from(expected == State::Sent));
+        if expected == State::Sent {
+            let calls = world.core.calls();
+            let created = calls
+                .iter()
+                .find(|c| c["operation"] == "dispatch.create")
+                .unwrap();
+            assert_eq!(created["input"]["recipientIds"], json!([TARGET]));
+            assert_eq!(
+                created["input"]["message"],
+                "[remote: Peer]\nresolve at receiver"
+            );
+        }
+        if let Some(reason) = reason {
+            let db =
+                rusqlite::Connection::open(world.owner_layout.directory.join("remote.db")).unwrap();
+            let stored: String = db
+                .query_row(
+                    "SELECT refusal FROM cloud_transport WHERE id=?1 AND kind='inbox'",
+                    [ID],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(stored, reason);
+        }
+        let calls = world.core.calls().len();
+        ready(driver.reconcile(NOW, &io)).unwrap();
+        assert_eq!(
+            world.core.calls().len(),
+            calls,
+            "duplicates never resolve or dispatch again"
+        );
+    }
+}
+
+/// Frozen workload: one two-minute active burst (24 five-second rounds), then
+/// 1,438 empty minute polls. This projects modeled guard units, never billing.
+#[test]
+fn polling_cost_for_idle_single_and_burst_keeps_budget_and_effect_bounds() {
+    for messages in [0, 1, 4] {
+        let world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+        std::fs::write(world.core.root.join("multi"), b"per-operation receipts").unwrap();
+        let wire = Arc::new(Wire::default());
+        for index in 0..messages {
+            let id = format!("00000000-0000-4000-8000-{index:012x}");
+            let carrier = tmt_remote::cloud_inbox::seal_native(
+                &request(&world.key, &id),
+                &world.descriptor,
+                NOW,
+                tmt_remote::cloud_hpke::Sender {
+                    client_id: PEER,
+                    authentication_key: &world.key.public(),
+                },
+                |bytes| world.key.sign(bytes),
+            )
+            .unwrap()
+            .0;
+            wire.seed_inbox(&id, &carrier);
+        }
+        let budget = Arc::new(Budget(Mutex::new(NativeUsage::new(NOW))));
+        let runtime = Arc::new(NativeRuntime::new(
+            wire.clone(),
+            Arc::new(ClockPort),
+            Arc::new(ClockPort),
+            budget.clone(),
+        ));
+        let owner = Provider::new(
+            Arc::new(Auth("owner")),
+            runtime,
+            Model::new(4, 4).unwrap(),
+            MACHINE,
+        )
+        .unwrap();
+        let driver = world.driver(owner);
+        let stopped = AtomicBool::new(false);
+        let io = IoBudget {
+            deadline: Instant::now() + Duration::from_secs(20),
+            cancelled: &stopped,
+        };
+        let mut returned = 0;
+        for _ in 0..24 {
+            returned += ready(driver.reconcile(NOW, &io)).unwrap();
+        }
+        assert_eq!(returned, messages * 24);
+        assert_eq!(world.core.sends(), messages);
+        let reads = budget.0.lock().unwrap().reads;
+        let requests = wire.requests.lock().unwrap();
+        let queries = requests
+            .iter()
+            .filter(|(op, _)| *op == Operation::Query)
+            .count();
+        let response_reads = requests
+            .iter()
+            .filter(|(op, path)| *op == Operation::Read && path.contains("/responses/"))
+            .count();
+        let writes = requests
+            .iter()
+            .filter(|(op, _)| *op == Operation::Commit)
+            .count();
+        let (query_ceiling, read_ceiling) = match messages {
+            0 => (24, 72),
+            1 => (48, 220),
+            4 => (49, 522),
+            _ => unreachable!(),
+        };
+        assert!(queries <= query_ceiling, "query calls regressed: {queries}");
+        assert!(reads <= read_ceiling, "guard charges regressed: {reads}");
+        assert_eq!(writes, messages, "only new frozen responses may post");
+        assert!(response_reads <= messages * 24);
+        if messages == 0 {
+            assert_eq!((queries, reads), (24, 72));
+            assert_eq!(response_reads, 0);
+        }
+        println!(
+            "poll-cost-measured {}",
+            json!({
+                "distinctDeliveries": messages, "returnedDocuments": returned,
+                "queryCalls": queries, "responseReads": response_reads,
+                "responseWrites": writes, "activeRoundGuardReads": reads,
+                "idleGuardReadsPerDay": 1440 * 3,
+                "oneBurstThenIdleGuardReadsPerDay": if messages == 0 { 1440 * 3 } else { reads + 1438 * 3 },
+            })
+        );
+    }
+}
+
+#[test]
+fn idle_inbox_keeps_one_query_per_minute_without_effects() {
+    let world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+    let wire = Arc::new(Wire::default());
+    let stopped = Arc::new(AtomicBool::new(false));
+    let clock = Arc::new(BackoffClock {
+        stopped: stopped.clone(),
+        ticks: std::sync::atomic::AtomicU64::new(0),
+        waits: Mutex::new(vec![]),
+    });
+    let driver = world.driver(provider_clock(wire.clone(), "owner", clock.clone()));
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(180),
+        cancelled: &stopped,
+    };
+    assert!(ready(driver.run(&io)).is_err());
+    assert!(stopped.load(Ordering::SeqCst));
+    assert_eq!(*clock.waits.lock().unwrap(), vec![60_000, 60_000]);
+    assert_eq!(
+        wire.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(operation, _)| *operation == Operation::Query)
+            .count(),
+        2
+    );
+    assert_eq!(world.core.sends(), 0);
+}
+
+#[test]
+fn bounded_followup_pages_retain_maximum_carriers_and_a_later_effect() {
+    use std::sync::atomic::AtomicUsize;
+    struct Measured {
+        wire: Arc<Wire>,
+        maximum: AtomicUsize,
+    }
+    impl Http for Measured {
+        fn send(
+            &self,
+            request: &Request,
+            deadline: u64,
+            cancel: &dyn Cancellation,
+        ) -> Result<Response, AuthError> {
+            let response = self.wire.send(request, deadline, cancel)?;
+            if request.operation() == Operation::Query {
+                self.maximum
+                    .fetch_max(response.body.len(), Ordering::SeqCst);
+            }
+            Ok(response)
+        }
+    }
+    let mut world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+    std::fs::write(world.core.root.join("multi"), b"per-operation receipts").unwrap();
+    let wire = Arc::new(Wire::default());
+    for index in 0..7 {
+        let id = format!("00000000-0000-4000-8000-{index:012x}");
+        let carrier = if (2..6).contains(&index) {
+            vec![b'x'; tmt_remote::limits::CLOUD_CARRIER_BYTES]
+        } else {
+            tmt_remote::cloud_inbox::seal_native(
+                &request(&world.key, &id),
+                &world.descriptor,
+                NOW,
+                tmt_remote::cloud_hpke::Sender {
+                    client_id: PEER,
+                    authentication_key: &world.key.public(),
+                },
+                |bytes| world.key.sign(bytes),
+            )
+            .unwrap()
+            .0
+        };
+        wire.seed_inbox(&id, &carrier);
+    }
+    let measured = Arc::new(Measured {
+        wire: wire.clone(),
+        maximum: AtomicUsize::new(0),
+    });
+    let driver = world.driver(provider_clock(
+        measured.clone(),
+        "owner",
+        Arc::new(ClockPort),
+    ));
+    let stopped = AtomicBool::new(false);
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(20),
+        cancelled: &stopped,
+    };
+    assert_eq!(ready(driver.reconcile(NOW, &io)).unwrap(), 7);
+    assert_eq!(
+        world.core.sends(),
+        3,
+        "a maximum-size poison page cannot hide the later valid effect"
+    );
+    assert!(measured.maximum.load(Ordering::SeqCst) > tmt_remote::limits::CLOUD_PROVIDER_BYTES);
+    assert!(
+        measured.maximum.load(Ordering::SeqCst) <= 4 * tmt_remote::limits::CLOUD_PROVIDER_BYTES
+    );
+    drop(driver);
+    world = world.reopen(NOW, Arc::new(CurrentIdentity));
+    let driver = world.driver(provider_clock(measured, "owner", Arc::new(ClockPort)));
+    assert_eq!(ready(driver.reconcile(NOW, &io)).unwrap(), 7);
+    assert_eq!(
+        world.core.sends(),
+        3,
+        "restart keeps all earlier outcomes frozen"
     );
 }

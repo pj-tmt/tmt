@@ -8,6 +8,12 @@ use super::output::Exact;
 pub const EXACT_BODIES: &[Exact] = &[
     Exact {
         package: "tmt-cli",
+        file: "attach_command.rs",
+        function: "restore",
+        reason: "attachment terminal-protocol cleanup after unchanged live provider output",
+    },
+    Exact {
+        package: "tmt-cli",
         file: "api_command.rs",
         function: "execute",
         reason: "the versioned `tmt api` JSON response body",

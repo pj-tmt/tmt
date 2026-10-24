@@ -40,6 +40,7 @@ describe('tmt inbox and tmt answer', () => {
               canonicalName: 'alice',
             },
             delivery: 'queued',
+            messageState: { state: 'sent' },
             preview: 'merge it?\nsecond line',
           },
           { requestId: second },

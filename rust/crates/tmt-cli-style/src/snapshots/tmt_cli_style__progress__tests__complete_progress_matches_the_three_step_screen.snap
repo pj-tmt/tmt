@@ -1,0 +1,8 @@
+---
+source: crates/tmt-cli-style/src/progress.rs
+expression: "String::from_utf8(output).unwrap()"
+---
+  Installing example 0.1.0-alpha.2
+  ✓ Download     ━━━━━━━━━━━━━━━━━━━━━━━━  6.4 MB of 6.4 MB
+  ✓ Verify       checksum matches the release record; archive checked
+  ⠹ Activate     settling bundled agent skills

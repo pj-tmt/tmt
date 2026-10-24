@@ -12,11 +12,12 @@ export function sampleShape(search = location.search): MockShape {
   return { ...(seats > 0 ? { seats } : {}), oneProvider: params.has('one-provider') };
 }
 
-export const digestSource: DigestSource = {
+const sampleSource: DigestSource = {
   async report(range) {
     const document = mockDocument(range, sampleShape());
+    const allowance = mockDocument('7d', sampleShape());
     if (new URLSearchParams(location.search).has('stale-allowance'))
-      for (const limit of document.limits) {
+      for (const limit of allowance.limits) {
         limit.stale = true;
         limit.elapsedPercent = null;
         limit.paceDeltaPoints = null;
@@ -30,9 +31,17 @@ export const digestSource: DigestSource = {
       document.usage.unavailable = [
         { id: 'missing-seat', name: 'missing-seat', retired: false, reason: 'not_sampled' },
       ];
-      document.limits = [];
+      allowance.limits = [];
       document.limitsUnavailable = [{ line: 'claude', reason: 'not_sampled' }];
     }
-    return { range, sample: true, document };
+    const count = Number(new URLSearchParams(location.search).get('providers'));
+    for (let at = 2; at < count; at++)
+      allowance.limits = [
+        ...allowance.limits,
+        { ...allowance.limits[0]!, provider: `sample-provider-${at}` },
+      ];
+    return { range, sample: true, document, allowance };
   },
 };
+
+export const createDigestSource = (): DigestSource => sampleSource;

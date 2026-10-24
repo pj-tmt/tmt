@@ -149,6 +149,13 @@ fn discover_and_guarded_add_use_one_binder_and_validate_selectors_as_usage_error
             ..
         }
     ));
+    // A driver's pane ID parses; the command checks it against the approved
+    // drivers' syntax once it is registered.
+    let parsed = super::parsed(&["add", "term_7", "worker", "--expect", &digest]);
+    assert!(matches!(
+        parsed.invocation,
+        Invocation::GuardedBind { ref pane, .. } if pane == "term_7"
+    ));
     let uuid = "123e4567-e89b-42d3-a456-426614174000";
     let parsed = super::parsed(&["add", "%3", "--identity", uuid, "--expect", &digest]);
     assert!(matches!(
@@ -174,6 +181,8 @@ fn discover_and_guarded_add_use_one_binder_and_validate_selectors_as_usage_error
         vec!["add", "%3", "--identity", uuid],
         vec!["add", "%3", "worker", "--expect", "bad"],
         vec!["add", "window:1", "worker", "--expect", &digest],
+        vec!["add", "w3:p5", "worker", "--expect", &digest],
+        vec!["add", "term_", "worker", "--expect", &digest],
         vec!["add", "%3", "--identity", "worker", "--expect", &digest],
     ] {
         let error = parse_error(&args);

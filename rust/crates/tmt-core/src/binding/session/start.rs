@@ -10,6 +10,7 @@ pub enum StartRefusalReason {
     SharedRuntime,
     PaneProcess,
     AdmissionRefused,
+    SessionNotLearned,
 }
 
 impl StartRefusalReason {
@@ -22,6 +23,7 @@ impl StartRefusalReason {
             Self::SharedRuntime => "shared_runtime",
             Self::PaneProcess => "pane_process",
             Self::AdmissionRefused => "admission_refused",
+            Self::SessionNotLearned => "session_not_learned",
         }
     }
 
@@ -36,6 +38,7 @@ impl StartRefusalReason {
             Self::SharedRuntime => "a shared runtime cannot be adopted from pane evidence",
             Self::PaneProcess => "the provider is the pane process itself",
             Self::AdmissionRefused => "the session admission was refused",
+            Self::SessionNotLearned => "the provider start was not learned for this launch",
         }
     }
 
@@ -48,6 +51,7 @@ impl StartRefusalReason {
             "shared_runtime" => Self::SharedRuntime,
             "pane_process" => Self::PaneProcess,
             "admission_refused" => Self::AdmissionRefused,
+            "session_not_learned" => Self::SessionNotLearned,
             _ => return None,
         })
     }
@@ -91,6 +95,7 @@ mod tests {
             StartRefusalReason::SharedRuntime,
             StartRefusalReason::PaneProcess,
             StartRefusalReason::AdmissionRefused,
+            StartRefusalReason::SessionNotLearned,
         ] {
             assert_eq!(StartRefusalReason::parse(reason.as_str()), Some(reason));
         }

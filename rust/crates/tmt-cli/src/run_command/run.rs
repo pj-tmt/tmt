@@ -3,10 +3,9 @@
 use super::{
     LaunchEffect, RunRequest, agent_name,
     channel::{
-        HeldLease, admitted_key, claim_is_current, enrollment_failure, paste_notice, preflight,
-        verify_claim, verify_plain_fallback,
+        HeldLease, enrollment_failure, paste_notice, preflight, verify_claim, verify_plain_fallback,
     },
-    diagnostic, incarnation, observe, observe_admission,
+    diagnostic, observe, observe_admission,
     resume::{ResumeExit, mark_resume_pending, select_command, settle_resume},
     storage_failure,
 };
@@ -35,15 +34,36 @@ use tmt_adapters::{
 use tmt_core::{
     binding::{
         self, Binding, BindingRepository,
-        session::{ObservedSessionKey, RuntimeLiveness, SessionPreferences, SessionTransition},
+        session::{ObservedSessionKey, RuntimeLiveness, SessionPreferences},
     },
     driver::HookEvent,
     endpoint::ProcessIncarnation,
-    identity::IdentityReader,
+    identity::{Identity, IdentityReader},
     names::normalize_name,
     settings::{PaneBadge, Settings},
 };
 
+/// The identity a launch selects before anything changes. A resume names its member by display
+/// name or identity UUID (Ops hands members off by UUID); both resolve through the one shared
+/// selector, and an unknown or retired UUID is `NAME_NOT_FOUND` naming it. Everything after
+/// works on the found identity, so a rename in between cannot retarget the launch.
+fn selected_identity(
+    storage: &mut Storage,
+    request: &RunRequest<'_>,
+) -> Result<Option<Identity>, Failure> {
+    if request.resume.is_some() && tmt_core::dispatch::canonical_id(request.name) {
+        return storage
+            .resolve_identity(request.name)
+            .map_err(storage_failure)?
+            .map(Some)
+            .ok_or_else(|| crate::output::identity_missing(request.name));
+    }
+    storage
+        .find_identity(&normalize_name(request.name))
+        .map_err(storage_failure)
+}
+
+#[allow(clippy::too_many_arguments)] // Native owner observation is invocation-local and injectable.
 pub(super) fn run_bound(
     storage: &mut Storage,
     paths: &ConfigPaths,
@@ -52,6 +72,7 @@ pub(super) fn run_bound(
     request: RunRequest<'_>,
     settings: &Settings,
     effect: &mut LaunchEffect,
+    observe_owner: impl FnOnce() -> Option<ProcessIncarnation>,
 ) -> Result<u8, Failure> {
     let observer = &mut super::EmptyObserver;
     let RunRequest {
@@ -64,14 +85,29 @@ pub(super) fn run_bound(
     } = request;
     let switching = resume.and_then(|resume| resume.driver);
     let moving = resume.is_some_and(|resume| resume.move_running || resume.driver.is_some());
+    let fresh = resume.is_some_and(|resume| resume.fresh);
+    // A switch and a fresh start both open their new session with a handoff.
+    let handing_off = switching.is_some() || fresh;
     let mut registry = RuntimeRegistry::first_party();
-    let existing = storage
-        .find_identity(&normalize_name(name))
-        .map_err(storage_failure)?;
+    let existing = selected_identity(storage, &request)?;
+    // A UUID operand is shown by the identity's display name from here on.
+    let name = match &existing {
+        Some(identity) if resume.is_some() && tmt_core::dispatch::canonical_id(name) => {
+            identity.name.as_str()
+        }
+        _ => name,
+    };
     if switching.is_some() && existing.is_none() {
         return Err(Failure::new(
             "NAME_NOT_FOUND",
             "The identity to switch does not exist; no agent was stopped or launched.",
+            3,
+        ));
+    }
+    if fresh && existing.is_none() {
+        return Err(Failure::new(
+            "NAME_NOT_FOUND",
+            "The identity to start fresh does not exist; no agent was launched.",
             3,
         ));
     }
@@ -159,6 +195,15 @@ pub(super) fn run_bound(
         })
         .map_err(storage_failure)?;
     let selected_preferences = super::switch_driver::selection(&preferences, switching)?;
+    // The preset a resume replays decides whose provider tree the session
+    // probe may read, so it is read before the selection.
+    let preset = match (&existing, &selected_preferences.remembered) {
+        (Some(identity), Some(session)) if resume.is_some() => {
+            tmt_adapters::runtime::launch_preset::read_for_session(storage, &identity.id, session)
+                .map_err(storage_failure)?
+        }
+        _ => None,
+    };
     let mut launch = select_command(
         &mut registry,
         RunRequest {
@@ -167,23 +212,13 @@ pub(super) fn run_bound(
             ..request
         },
         &selected_preferences,
+        preset.as_ref(),
     )?;
-    let preset = existing
-        .as_ref()
-        .map(|identity| match launch.resumed.as_ref() {
-            Some(session) => tmt_adapters::runtime::launch_preset::read_for_session(
-                storage,
-                &identity.id,
-                session,
-            ),
-            None => Ok(None),
-        })
-        .transpose()
-        .map_err(storage_failure)?
-        .flatten();
+    // A fresh start keeps the old session's launcher: a wrapper may own the account.
     let replay = launch
         .resumed
         .as_ref()
+        .or(selected_preferences.remembered.as_ref().filter(|_| fresh))
         .and_then(|session| preset.as_ref().filter(|preset| preset.matches(session)));
     let environment = replay
         .map(|preset| preset.environment(|key| std::env::var_os(key).is_some()))
@@ -233,6 +268,17 @@ pub(super) fn run_bound(
         .as_ref()
         .map(|session| session.harness.clone())
         .or_else(|| registry.claim(&launch.command.executable));
+    let owner = observe_owner();
+    if claim.is_some() && owner.is_none() {
+        return Err(Failure::new(
+            "RUNTIME_CONFLICT",
+            "TMT could not confirm this launch's owner process. No new agent was launched.",
+            5,
+        )
+        .suggestion(
+            "Check that this process can be inspected, then rerun the same command.".into(),
+        ));
+    }
     let lifecycle = claim
         .as_ref()
         .and_then(|harness| registry.lifecycle(harness))
@@ -247,10 +293,27 @@ pub(super) fn run_bound(
             1,
         ));
     }
+    if fresh {
+        let mut settings = replay.map(|preset| preset.settings()).unwrap_or_default();
+        if options.model.is_some() {
+            settings.model = options.model.clone();
+        }
+        if options.effort.is_some() {
+            settings.effort = options.effort.clone();
+        }
+        if !lifecycle.resume_settings(&mut launch.command, &settings) {
+            return Err(Failure::new(
+                "RESUME_SETTINGS_INVALID",
+                "The driver cannot use the selected launch settings; no new agent was launched.",
+                1,
+            ));
+        }
+        if let Some(preset) = replay {
+            launch.command.executable = preset.executable.clone().into();
+        }
+    }
     let before_handoff = launch.command.clone();
-    if switching.is_some()
-        && !lifecycle.initial_message(&mut launch.command, "TMT driver-switch handoff")
-    {
+    if handing_off && !lifecycle.initial_message(&mut launch.command, "TMT driver-switch handoff") {
         return Err(Failure::new(
             "RESUME_UNSUPPORTED",
             "The selected driver cannot accept a handoff as first input; no new agent was launched.",
@@ -272,19 +335,17 @@ pub(super) fn run_bound(
         launch.resumed.is_none() || channel != crate::invocation::ChannelMode::Default;
     let mut channel =
         preflight(&registry, mode, claim.as_ref(), &launch.command, paths).map_err(|error| {
-            if let Some(driver) = switching
+            if handing_off
                 && channel == crate::invocation::ChannelMode::Default
                 && mode == crate::invocation::ChannelMode::Required
             {
-                error.suggestion(super::switch_driver::channel_retry(request, driver))
+                error.suggestion(super::switch_driver::channel_retry(request, switching))
             } else {
                 channel_preflight_failure(error, channel, mode, name)
             }
         })?;
-    if let Some(driver) = switching
-        && channel.channel.is_some()
-    {
-        return Err(super::switch_driver::channel_refusal(request, driver));
+    if handing_off && channel.channel.is_some() {
+        return Err(super::switch_driver::channel_refusal(request, switching));
     }
     host.resolve_servers(storage).map_err(endpoint_failure)?;
     let mut handoff_request = |binding: &Binding| {
@@ -323,15 +384,17 @@ pub(super) fn run_bound(
     } else {
         None
     };
-    if switching.is_some() {
-        *effect = if moved.is_some() {
-            LaunchEffect::BoundHere
-        } else {
-            LaunchEffect::OldEnded
-        };
+    if handing_off {
+        if switching.is_some() {
+            *effect = if moved.is_some() {
+                LaunchEffect::BoundHere
+            } else {
+                LaunchEffect::OldEnded
+            };
+        }
         let identity = existing
             .as_ref()
-            .expect("an explicit switch has an identity");
+            .expect("a switch or fresh start has an identity");
         let handoff = super::switch_driver::context(storage, paths, identity)?;
         launch.command = before_handoff;
         if !lifecycle.initial_message(&mut launch.command, &handoff) {
@@ -355,6 +418,10 @@ pub(super) fn run_bound(
     }
     let bound = if let Some(bound) = moved {
         Ok(bound)
+    } else if resume.is_some()
+        && let Some(identity) = &existing
+    {
+        binding::bind_existing_identity(storage, &mut host.session(), pane, &identity.id, save)
     } else if auto_named {
         binding::bind_auto_identity(storage, &mut host.session(), pane, name, save)
     } else {
@@ -462,7 +529,6 @@ pub(super) fn run_bound(
             .is_some_and(start_hook_installed),
         None => false,
     };
-    let owner = incarnation(std::process::id());
     let hook_command = match prepare_launch_hooks(
         lifecycle,
         &launch.command,
@@ -561,19 +627,64 @@ pub(super) fn run_bound(
     let mut planned = lease.command(launch_command).clone();
     lifecycle.prepare_launch(&mut planned, &paths.global_dir, launch.resumed.is_some());
     tmt_adapters::workspace::refresh_server(paths, host, &binding.server);
+    let learning = if let (Some(owner), Some(driver)) = (&owner, &claim) {
+        let recorded = storage
+            .with_binding_transaction(|records| {
+                records.begin_launch_observation(
+                    binding,
+                    owner,
+                    driver,
+                    tmt_adapters::request_runtime::wall_time_ms(),
+                )
+            })
+            .map_err(storage_failure)?;
+        if !recorded {
+            return Err(Failure::new(
+                "RUNTIME_CONFLICT",
+                "The binding changed before launch. No new agent was launched; inspect the member and rerun this command.",
+                1,
+            ));
+        }
+        Some(tmt_adapters::runtime::hook_protocol::HookLaunch {
+            identity_id: binding.identity_id.clone(),
+            binding_id: binding.id.clone(),
+            owner_pid: owner.pid(),
+            owner_start: owner.start_identity().into(),
+        })
+    } else {
+        None
+    };
     let child_environment = environment
         .iter()
         .cloned()
         .chain(lease.environment().iter().cloned())
         .chain(std::iter::once(("TMT_AGENT".into(), "1".into())))
+        .chain(learning.as_ref().map(|launch| {
+            (
+                crate::session_learning::ENVIRONMENT.into(),
+                serde_json::to_string(launch)
+                    .expect("bounded launch coordinates serialize")
+                    .into(),
+            )
+        }))
         .collect::<Vec<_>>();
-    let captured_preset = if switching.is_some() && launch.resumed.is_some() {
+    let rebound = if switching.is_some() {
+        launch.resumed.as_ref()
+    } else {
+        // A fresh start rebinds the old launcher only when it replays one.
+        selected_preferences
+            .remembered
+            .as_ref()
+            .filter(|_| fresh && replay.is_some())
+    };
+    let captured_preset = if let Some(session) = rebound {
         replay.zip(owner.as_ref()).map(|(preset, owner)| {
+            // A fresh start ran the preset's own model, not the old session's.
             super::switch_driver::rebound_preset(
                 preset,
                 binding,
                 owner,
-                launch.resumed.as_ref().unwrap(),
+                switching.is_some().then_some(session),
                 lifecycle,
                 options,
             )
@@ -596,6 +707,13 @@ pub(super) fn run_bound(
     let child =
         InteractiveChild::start_with(&planned.executable, &planned.args, &child_environment)
             .map_err(|error| {
+                if let Some(owner)=&owner
+                    && let Err(error)=crate::session_learning::finish_launch(storage,&binding.id,owner,
+                        Some(tmt_core::binding::session::launch::SessionLearningDiagnostic {
+                            step:tmt_core::binding::session::launch::SessionLearningStep::Input,
+                            reason:tmt_core::binding::session::launch::SessionLearningReason::SpawnFailed})) {
+                        diagnostic(&format!("could not settle this failed launch's session diagnostic: {error}"));
+                }
                 // No child exists, so nothing ran and the enrollment ends.
                 lease.never_spawned();
                 if auto_named && bound.created
@@ -628,99 +746,27 @@ pub(super) fn run_bound(
         _ => None,
     };
     let already_exited = matches!(child_evidence, ProcessObservation::UnreapedZombie(_));
-    let already_stopped = matches!(child_evidence, ProcessObservation::Stopped(_));
     // The driver records the exact foreground before admission; if it cannot, the
     // enrollment stays unconfirmed (never "ended") and the child keeps running.
     if let Some(note) = lease.foreground_started(child_incarnation.as_ref()) {
         diagnostic(&note);
     }
-    let admitted = storage
-        .with_binding_transaction::<_, StorageError>(|records| {
-            let Some(current) = records
-                .entry_by_id(&binding.identity_id)?
-                .and_then(|entry| entry.binding)
-                .filter(|current| current.id == binding.id)
-            else {
-                return Ok(None);
-            };
-            if !claim_is_current(&current, binding)
-                && !current
-                    .session
-                    .key
-                    .as_ref()
-                    .is_some_and(|key| Some(&key.incarnation) == child_incarnation.as_ref())
-            {
-                return Ok(None);
-            }
-            // A confirmed spawn remembers the pure driver claim even when
-            // the process exits before live admission. It never writes a
-            // session (hooks own that); another driver's record becomes
-            // inactive while this identity still has one current runtime.
-            if let Some(harness) = &claim {
-                let mut preferences = records.session_preferences(&binding.identity_id)?;
-                preferences.launched(harness);
-                records.set_session_preferences(&binding.identity_id, &preferences)?;
-            }
-            let (true, Some(owner), Some(child)) = (can_admit, &owner, &child_incarnation) else {
-                return Ok(None);
-            };
-            // A hook may have attached its provider session before this probe.
-            // Exact resume coordinates came from the driver-owned remembered
-            // record, a channel launch's from its lease: never from user argv or
-            // a hook pane. A session conflicting with hook evidence is not admitted.
-            let Some(key) = admitted_key(
-                current.session.key.as_ref(),
-                child,
-                launch
-                    .resumed
-                    .as_ref()
-                    .filter(|session| Some(&session.harness) == claim.as_ref())
-                    .map(|session| session.provider_session.clone()),
-                lease.provider_session(),
-            ) else {
-                return Ok(None);
-            };
-            let next = if already_exited {
-                lifecycle.client_exit(&current.session, key, owner.clone(), &preferences)
-            } else if already_stopped {
-                // Keep exact ownership for duplicate refusal, without treating
-                // a stopped child as live evidence or authorizing delivery.
-                current.session.record_stopped_launch(
-                    key,
-                    owner.clone(),
-                    if launch.resumed.is_some() {
-                        SessionTransition::Resumed
-                    } else {
-                        SessionTransition::Started
-                    },
-                )
-            } else {
-                current.session.admit_launched(
-                    key,
-                    owner.clone(),
-                    if launch.resumed.is_some() {
-                        SessionTransition::Resumed
-                    } else {
-                        SessionTransition::Started
-                    },
-                    RuntimeLiveness::Alive,
-                    RuntimeLiveness::Alive,
-                )
-            };
-            let Some(next) = next else {
-                return Ok(None);
-            };
-            if !records.set_session_state(&binding.id, &current.session, &next)? {
-                return Ok(None);
-            }
-            if remember_channel && claim.is_some() {
-                let mut preferences = records.session_preferences(&binding.identity_id)?;
-                preferences.channel = Some(lease.enrolled());
-                records.set_session_preferences(&binding.identity_id, &preferences)?;
-            }
-            Ok(next.key.map(|key| (key, next.state)))
-        })
-        .unwrap_or(None);
+    let admitted = super::admission::admit_foreground(
+        storage,
+        super::admission::ForegroundAdmission {
+            binding,
+            owner: owner.as_ref(),
+            child: &child_evidence,
+            driver: claim.as_ref(),
+            resumed: launch.resumed.as_ref(),
+            lifecycle,
+            preferences: &preferences,
+            lease_session: lease.provider_session(),
+            channel: remember_channel.then(|| lease.enrolled()),
+            can_admit,
+        },
+    )
+    .unwrap_or(None);
     if admitted.is_none() {
         diagnostic(
             "command started, but runtime ownership could not be recorded; automatic delivery is not established.",
@@ -849,6 +895,29 @@ pub(super) fn run_bound(
         )
         .caused_by(error)
     })?;
+    if admitted.is_none()
+        && let Some(owner) = &owner
+    {
+        match Storage::open(&paths.database) {
+            Ok(mut state) => {
+                if let Err(error) =
+                    crate::session_learning::finish_launch(&mut state, &binding.id, owner, None)
+                {
+                    diagnostic(&format!(
+                        "could not settle session-learning state after exit: {error}"
+                    ));
+                }
+                if let Err(error) = state.close() {
+                    diagnostic(&format!(
+                        "could not close session-learning storage after exit: {error}"
+                    ));
+                }
+            }
+            Err(error) => diagnostic(&format!(
+                "could not open session-learning storage after exit: {error}"
+            )),
+        }
+    }
     if let Some(session) = &launch.resumed {
         settle_resume(
             paths,
@@ -922,6 +991,7 @@ fn finish(
     lifecycle: &dyn RuntimeLifecycle,
 ) -> Result<Finished, StorageError> {
     storage.with_binding_transaction(|records| {
+        crate::session_learning::finish_records(records, &binding.id, owner, None)?;
         let Some(current) = records
             .entry_by_id(&binding.identity_id)?
             .and_then(|entry| entry.binding)

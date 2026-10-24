@@ -275,8 +275,11 @@ pub enum Effect {
     Recovery(super::recovery::load::Task),
     Discovery(super::discovery::load::Task),
     MemberSession(super::member_session::Task),
+    /// A read or a write of the Notes of the conversation on screen.
+    Notes(super::conversation_notes::Task),
     NewMember(super::new_member::Task),
     SwitchTool(super::switch_tool::Task),
+    IdleAlert(super::idle_alert_editor::Task),
     Foreground(super::member_session::Foreground),
 }
 
@@ -300,10 +303,17 @@ pub enum Choice {
         url: String,
         anchor: ratatui::layout::Rect,
     },
+    FileCopy(std::sync::Arc<str>),
+    FileShow {
+        path: String,
+        anchor: ratatui::layout::Rect,
+    },
     AgentsFilter(super::workspace::AgentsFilter),
     /// A click on a Talk/Measure chip selects that pane; the `M` key toggles.
     RightTab(super::shell::RightTab),
     WorkspaceTarget(super::workspace::OpsTarget),
+    /// A click on the Notes chip of a member's header: opens the list.
+    MemberNotes,
     WorkspaceBegin(super::workspace::manage::Kind),
     WorkspaceRoom {
         kind: super::workspace::manage::Kind,
@@ -314,6 +324,7 @@ pub enum Choice {
     LaunchTemplates,
     /// Opens the squad settings overlay for this squad from the Workspace settings menu.
     SquadSettings(String),
+    IdleAlert(String),
     /// A rule between menu groups: painted, never chosen.
     Rule,
     /// The muted line above a menu's rows: painted, never chosen, not counted.
@@ -589,8 +600,10 @@ pub(super) enum Overlay {
     QuotaDetails,
     Discovery,
     MemberSession,
+    Notes,
     NewMember,
     SwitchTool,
+    IdleAlert,
     UsageControls,
     PastePreview,
 }
@@ -612,8 +625,10 @@ impl Overlay {
                 Self::QuotaDetails => "quota-details",
                 Self::Discovery => "discovery",
                 Self::MemberSession => "member-session",
+                Self::Notes => "notes",
                 Self::NewMember => "new-member",
                 Self::SwitchTool => "switch-tool",
+                Self::IdleAlert => "idle-alert",
                 Self::UsageControls => "usage-controls",
                 Self::PastePreview => "paste-preview",
             }
@@ -722,10 +737,13 @@ pub struct App {
     pub(super) discovery: Option<super::discovery::Controller>,
     pub(super) member_session: Option<super::member_session::Controller>,
     pub(super) member_session_generation: u64,
+    pub(super) notes_overlay: Option<super::conversation_notes::overlay::Controller>,
     pub(super) new_member: Option<super::new_member::Controller>,
     pub(super) new_member_generation: u64,
     pub(super) switch_tool: Option<super::switch_tool::Controller>,
     pub(super) switch_tool_generation: u64,
+    pub(super) idle_alert_editor: Option<super::idle_alert_editor::Controller>,
+    pub(super) idle_alert_generation: u64,
     pub(super) foreground: Option<super::member_session::Foreground>,
     pub(super) discovered_uuid: Option<String>,
     pub(super) checklist_generation: u64,
@@ -756,6 +774,7 @@ pub struct App {
     pub(super) meter_hover: Option<Option<usize>>,
     /// The Agents column header under the pointer.
     pub(super) header_hover: Option<super::header_sort::Control>,
+    pub(super) idle_alert_hover: Option<String>,
     squad_keys: Vec<String>,
     pub tabs: Vec<String>,
     pub hidden: Vec<String>,
@@ -1852,6 +1871,7 @@ impl App {
         }
         self.meter_hover = None;
         self.header_hover = None;
+        self.idle_alert_hover = None;
         if Some(&next) == self.current.as_ref() {
             return Effect::None;
         }
@@ -2554,10 +2574,28 @@ impl App {
             })
             .map(|(key, action)| MenuEntry {
                 key,
-                label: action.text.clone(),
+                label: match action.verb {
+                    Verb::Ui(ui) => ui.menu_label().unwrap_or(&action.text).to_owned(),
+                    _ => action.text.clone(),
+                },
                 choice: Choice::Action(action),
             })
             .collect();
+        if self.shell.tab == super::shell::OpsTab::Agents
+            && self.workspace_scope() == crate::config::OpsKeyScope::Member
+            && !self.loading()
+            && self.workspace_selected_member().is_some()
+        {
+            for ui in crate::action::OpsUiAction::menu_actions() {
+                if !entries.iter().any(|entry| matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::Ui(ui))) {
+                    entries.push(MenuEntry {
+                        key: String::new(),
+                        label: ui.menu_label().expect("catalog menu action").into(),
+                        choice: Choice::Action(Action::parse(ui.spec().name).expect("catalog action")),
+                    });
+                }
+            }
+        }
         if self.selected_row().is_some_and(|row| row["id"].is_string())
             && self.view.as_ref().and_then(|view| view.me_id.as_ref()).is_some()
             && !entries.iter().any(|entry| matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::UpdateStatus))
@@ -2566,6 +2604,21 @@ impl App {
             entries.push(MenuEntry {
                 key: String::new(), label: "Update status".into(),
                 choice: Choice::Action(Action::parse("update-status").expect("status action")),
+            });
+        }
+        // Mark read has no default key: the menu is where an unbound action is found.
+        if let Some(super::workspace::OpsTarget::Member { identity_id, .. }) =
+            self.workspace_selected_member()
+            && self.unread_count(identity_id).total > 0
+            && !entries.iter().any(|entry| {
+                matches!(&entry.choice, Choice::Action(action)
+                    if action.verb == Verb::Ui(crate::action::OpsUiAction::MarkRead))
+            })
+        {
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: "Mark read".into(),
+                choice: Choice::Action(Action::parse("mark-read").expect("mark-read action")),
             });
         }
         entries.sort_by_key(|entry| match &entry.choice {
@@ -2902,7 +2955,8 @@ impl App {
         {
             // The admitted UUID remains the recipient; the existing conversation
             // and draft owners move together to their Agents host.
-            self.shell.tab = super::shell::OpsTab::Agents;
+            self.shell
+                .select(super::shell::OpsTab::Agents, &mut self.workspace.selected);
             self.right_tab = super::shell::RightTab::Talk;
             self.workspace.selected = match &send.target {
                 RowTarget::Workspace(target) => Some(target.clone()),
@@ -3005,10 +3059,13 @@ impl App {
             Choice::MemberLinkAction { target, action } => {
                 self.member_link_command(&target, &action)
             }
+            Choice::IdleAlert(room) => self.open_idle_alert(Some(room)),
             Choice::Unavailable(reason) => self.say(reason),
             Choice::LinkOpen(url) => self.link_open(url),
             Choice::LinkCopy(url) => self.link_copy(url),
             Choice::LinkShow { url, anchor } => self.link_show(&url, anchor),
+            Choice::FileCopy(path) => self.link_copy(path.to_string()),
+            Choice::FileShow { path, anchor } => self.file_show(&path, anchor),
             Choice::AgentsFilter(filter) => self.agents_filter(filter),
             Choice::RightTab(tab) => self.select_right_tab(tab),
             Choice::WorkspaceTarget(target) => {
@@ -3061,6 +3118,7 @@ impl App {
             }
             Choice::Panels => self.open_panels(),
             Choice::Checklist => self.open_checklist(),
+            Choice::MemberNotes => self.open_notes(),
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
             Choice::Dismiss => Effect::None,
@@ -3154,7 +3212,9 @@ impl App {
             || self.discovery_shown()
             || self.new_member.is_some()
             || self.switch_tool_shown()
+            || self.idle_alert_editor.is_some()
             || self.member_session.is_some()
+            || self.notes_overlay.is_some()
         {
             return self
                 .overlay_event(&Event::Paste(text.to_owned()))
@@ -3569,9 +3629,13 @@ impl App {
         }
 
         if key.code == KeyCode::Esc
-            && let Some((url, anchor)) = self.link_full_menu()
+            && let Some((target, anchor)) = self.destination_full_menu()
         {
-            return self.link_popover(&url, anchor);
+            return match target {
+                super::member_links::Target::Url(url) => self.link_popover(&url, anchor),
+                super::member_links::Target::File(path) => self.file_popover(&path, anchor),
+                super::member_links::Target::Member(_) => Effect::None,
+            };
         }
         let Some(menu) = &mut self.menu else {
             return Effect::None;
@@ -3715,10 +3779,14 @@ impl App {
             Some(Overlay::QuotaDetails)
         } else if self.switch_tool_shown() {
             Some(Overlay::SwitchTool)
+        } else if self.idle_alert_editor.is_some() {
+            Some(Overlay::IdleAlert)
         } else if self.new_member.is_some() {
             Some(Overlay::NewMember)
         } else if self.member_session.is_some() {
             Some(Overlay::MemberSession)
+        } else if self.notes_overlay.is_some() {
+            Some(Overlay::Notes)
         } else if self.discovery_shown() {
             Some(Overlay::Discovery)
         } else if self.help {
@@ -3777,6 +3845,8 @@ impl App {
                 Some(Effect::None)
             }
             Overlay::MemberSession => self.member_session_event(event),
+            Overlay::Notes => self.notes_event(event),
+            Overlay::IdleAlert => self.idle_alert_event(event),
             Overlay::NewMember => self.new_member_event(event),
             Overlay::SwitchTool => self.switch_tool_event(event),
             Overlay::Discovery => self.discovery_event(event),
@@ -3862,6 +3932,8 @@ impl App {
         self.buttons.clear_hover();
         self.meter_hover = None;
         self.header_hover = None;
+        self.composer.unread_hover.set(false);
+        self.idle_alert_hover = None;
         if key.kind == ratatui::crossterm::event::KeyEventKind::Release {
             return Effect::None;
         }
@@ -4094,11 +4166,17 @@ impl App {
         if let Some(switch) = &self.switch_tool {
             switch.invalidate();
         }
+        if let Some(editor) = &self.idle_alert_editor {
+            editor.invalidate();
+        }
         if let Some(member) = &self.new_member {
             member.invalidate();
         }
         if let Some(session) = &self.member_session {
             session.invalidate();
+        }
+        if let Some(notes) = &self.notes_overlay {
+            notes.invalidate();
         }
         if let Some(discovery) = &self.discovery {
             discovery.invalidate();
@@ -4196,33 +4274,49 @@ impl App {
             (event.column, event.row).into(),
             !self.modal_open() && !self.loading(),
         );
-        let header = if self.loading()
-            || self.overlay().is_some()
-            || self.menu.is_some()
-            || self.input.is_some()
-            || self.searching
-        {
-            None
-        } else {
-            self.workspace_strip_hits
-                .borrow()
-                .iter()
-                .find(|(area, _)| area.contains((event.column, event.row).into()))
-                .and_then(|(_, choice)| match choice {
-                    Choice::SortBy(header) => Some(super::header_sort::Control::Sort(*header)),
-                    Choice::TokUnit => Some(super::header_sort::Control::Unit),
-                    Choice::TokRange(_) => Some(super::header_sort::Control::Window),
-                    _ => None,
-                })
+        let control =
+            if self.loading() || self.modal_open() || self.input.is_some() || self.searching {
+                None
+            } else {
+                self.workspace_strip_hits
+                    .borrow()
+                    .iter()
+                    .find(|(area, _)| area.contains((event.column, event.row).into()))
+                    .map(|(_, choice)| choice.clone())
+            };
+        let header = match &control {
+            Some(Choice::SortBy(header)) => Some(super::header_sort::Control::Sort(*header)),
+            Some(Choice::TokUnit) => Some(super::header_sort::Control::Unit),
+            Some(Choice::TokRange(_)) => Some(super::header_sort::Control::Window),
+            _ => None,
         };
+        let idle_alert_hover = match control {
+            Some(Choice::IdleAlert(room)) => Some(room),
+            _ => None,
+        };
+        let unread = !self.loading()
+            && self.overlay().is_none()
+            && self.menu.is_none()
+            && self.input.is_none()
+            && !self.searching
+            && self
+                .composer
+                .unread_hit
+                .borrow()
+                .as_ref()
+                .is_some_and(|hit| hit.area.contains((event.column, event.row).into()));
+        let unread_changed = unread != self.composer.unread_hover.replace(unread);
         let changed = chart_changed
             || resize_changed
             || buttons_changed
             || links_changed
+            || unread_changed
             || next != self.meter_hover
-            || header != self.header_hover;
+            || header != self.header_hover
+            || idle_alert_hover != self.idle_alert_hover;
         self.meter_hover = next;
         self.header_hover = header;
+        self.idle_alert_hover = idle_alert_hover;
         changed
     }
 
@@ -4284,7 +4378,10 @@ impl App {
         self.buttons.clear_hover();
         // A button/wheel event carries the current position too. Reconcile an
         // existing hover, without inventing hover on terminals lacking motion.
-        if self.meter_hover.is_some() || self.header_hover.is_some() {
+        if self.meter_hover.is_some()
+            || self.header_hover.is_some()
+            || self.composer.unread_hover.get()
+        {
             self.move_pointer(event);
         }
         // A peek window closes on an outside press and the press goes on below.
@@ -4313,6 +4410,29 @@ impl App {
         }
         if self.mention_mouse(event) {
             return Effect::None;
+        }
+        let unread = self
+            .composer
+            .unread_hit
+            .borrow()
+            .clone()
+            .filter(|hit| hit.area.contains((event.column, event.row).into()));
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && let Some(hit) = unread
+        {
+            if self
+                .composer_projection()
+                .and_then(|projection| projection.key)
+                .as_ref()
+                != Some(&hit.key)
+            {
+                return self.say("The painted unread count changed; repaint before marking read.");
+            }
+            return if self.mark_read(&hit.key.1) {
+                Effect::None
+            } else {
+                self.say("Nothing unread here.")
+            };
         }
         if event.kind == MouseEventKind::Down(MouseButton::Left) {
             let send = self
@@ -4580,7 +4700,14 @@ impl App {
             self.focus = 0;
             return self.workspace_action(action);
         }
-        if event.kind != MouseEventKind::Down(MouseButton::Left) {
+        let right_click = event.kind == MouseEventKind::Down(MouseButton::Right);
+        if event.kind != MouseEventKind::Down(MouseButton::Left)
+            && !(right_click
+                && self.shell.tab == super::shell::OpsTab::Agents
+                && !self.loading()
+                && !self.modal_open()
+                && !self.searching)
+        {
             return Effect::None;
         }
         self.focus_at(event.column, event.row);
@@ -4595,6 +4722,10 @@ impl App {
         self.set_notice(None, false);
         let row = hit.row().unwrap();
         self.select(row);
+        if right_click {
+            self.last_click = None;
+            return self.context_menu();
+        }
         let double = self.last_click.is_some_and(|(previous, at)| {
             previous == row && now.duration_since(at) <= DOUBLE_CLICK
         });

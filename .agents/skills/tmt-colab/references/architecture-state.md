@@ -591,6 +591,9 @@ is added.
   The app keeps the owner's order for pinned pages (`pinnedFirst` in `projects.ts`, the quick switcher's
   `pin` rank when nothing is typed), `ManagementPort.setPinned` signs the request, and Home's
   `PagePinAction` and the page header's pin control (hidden on a phone, where the title needs the room) call it. `cli_pins.rs` is `pin`/`unpin`.
+  Browser discovery preserves this display order, validates visible page IDs for uniqueness, and
+  compares their membership with the sorted historical `pageIds` catalog independently of order.
+
 - Projects (`projects.rs`, `projects` and `page_projects` in schema 13) are display-only owner-store
   state; a project exists on its own, so one may hold no page. Schema 13 turned every earlier page
   label into a project of the same name. The two writes, `page.projects` (whole-set replacements for
@@ -732,15 +735,13 @@ The list follows the concept website’s `/#/colab/pages` composition: a hero wi
 then view tabs, project-scope pills, search and Sort, then the list. `page-list-items.tsx`
 owns display-only pinned cards and rows; Home retains filtering, selection and all write lifetimes.
 Pins wrap after three on a wide screen and stack on compact screens; no pins means no card block.
-Project membership remains plural and neutral; missing summaries never become a fabricated stage.
-Wide rows have Title, Project, Stage, Updated, Author and Access columns, with comment counts
-under the title; compact rows stack the same metadata without sideways overflow. The shared
+Project membership remains plural; `projectTone` maps exact names deterministically to existing role tints for header, pin and row tags; missing summaries never become a fabricated stage.
+Wide rows have Title, Project, Stage, Updated, Author and Access columns, with compact task-count words under the title; compact rows stack metadata without sideways overflow. Unknown authors stay absent. The shared
 flat tabs show separate numeric counts and wrap on compact screens, without a horizontal scroller. The `New page` action (`new-page-dialog.tsx`) still gives the
 `tmt colab page create` command with `CopyCommand`; the browser creates no page.
-The list fills the shell content pane. Rows scroll in `.page-list-scroll`; tall wrapped pin groups
-or compact controls may also scroll the containing home vertically so every control stays reachable.
+The list fills the shell content pane using the shared `tmt-ui-page` insets. Home is its one vertical viewport: hero, pins, controls, rows and footer scroll together; `.page-list-scroll` adds no nested scroller. Successful action feedback stays in a visually hidden live region; refusals remain visible.
 `useShownRows` (`page-list-rows.ts`) draws 50 rows and 50 more each time the count line
-(`Showing N of M`) comes within a screen of the list's end. Selection and its header checkbox
+(`Showing N of M`) comes within a screen of Home's end. Home passes the count line explicitly as the observer sentinel; changing a filter/view/sort resets drawing and Home scroll to the top. Selection and its header checkbox
 operate on the current matching pages, including rows not yet drawn.
 
 `NewPageDialog` adds Close through the shared dialog footer; it offers the literal machine command,
@@ -752,7 +753,7 @@ names the first five titles for bulk actions; Home retains statement submission,
 and verified, awaiting or refused outcomes. The shared dialog owns the divider and action layout.
 
 The views are the tabs All, Needs you, Discussion, In progress, Done and Archived, in that order
-(`BrowserTabs variant="flush"`); `list-stage.ts` owns the stage vocabulary (`HOME_STAGES`,
+(`BrowserTabs variant="flat"` with wrapping); `list-stage.ts` owns the stage vocabulary (`HOME_STAGES`,
 `DEFAULT_VIEW`, `HomeView`, `pageStage`, `stageCounts`, `takeStage`). `stage` in the route search selects a stage or `all`, `archived`
 selects Archived and wins over `needs`, which selects Needs you, and the absent key is `DEFAULT_VIEW`, All (a list without the
 management port has no tabs and is every active page). A mounted address names the list as `/colab/` and carries none of this search, so `keepListSearch` (`list-history.ts`) stores it in the history entry's state and `parseLocation` reads it back: a reload, Back and Forward return to the list as it was left, and a fresh visit opens `DEFAULT_VIEW`. Each label counts what the scope holds: an archived page
@@ -760,12 +761,12 @@ counts only under Archived, and a page whose summary has not arrived (`pageStage
 fresh summary without `work` is in discussion) under no stage, so it is in All only. A stage is one
 state with the search: a typed `stage:<name>` (`takeStage`, applied with Enter) or a suggestion pick
 selects the tab and leaves the search text, and a tab click removes one still typed. A row shows its
-progress and who works (`page-work.tsx`: a `<progress>`, the count in digits and at most three
+progress and who works (`page-work.tsx`: the count as `done of total tasks done` and at most three
 assignees from `summary.work`, the rest counted); an empty stage tab names its stage, an empty
 In progress offers Discussion and All and never opens another tab by itself, and a stage tab says
 `Reading page details…` while `useSummaryFill` is still reading (at most 15 re-reads) and a page in
 the scope has not reported, so a cold start never claims a tab is empty. A page waiting on the viewer
-shows `◆ Needs you · N`: the badge uses the waiting colour for both the ◆ and its readable word/count, so
+shows a waiting-colour dot with `Needs you · N`: the badge retains its readable word/count, so
 the state remains explicit without colour. The row's actions (open in a new tab, projects, archive, the ⋯
 menu with `Manage page`, `Archive…` (or `Restore…` when archived) and `Delete…`) show on hover or focus where there is a pointer
 and stay on touch; under 480px the new-tab and archive icons give way to the ⋯ menu. `Home` owns the open `ManagePage` dialog and its captured page ID/title above the rows: a list refresh that removes a row, including the last page after deletion, does not discard its pending request. Explicit Close or leaving the list ends that dialog. Archive and
@@ -883,9 +884,11 @@ Code identifiers, files and stored values keep the older name `shell` (`ShellPag
 `meta.shell`); the UI, the CLI and the contract say dashboard.
 
 A dashboard opens in the owner app as `ShellPage` (`shell-page.tsx`), mounted by the page route in place
-of the HTML frame; the app owns every pixel and the document supplies only data. The look is the v4
-design (#4082): a greeting, three counts, numbered chapters joined by hairlines, and a list of older
-pages. `shell-grid.ts` is the plain per-item view: `shellCells` matches each item, in `order`, to its
+of the HTML frame; the app owns every pixel and the document supplies only data. The look follows the
+concept website's Team dashboard (#4784): the page's own head (its title as the h1, the greeting as
+the subtitle), then one card ("Your pages, at a glance.") holding the maintainer agent's lines, three
+count tiles and, below them, the Pages list beside the selected page. `shell-grid.ts` is the plain
+per-item view: `shellCells` matches each item, in `order`, to its
 source page in the space list (title, archived, last edit, Needs you count, author, first project); a
 page the list does not show is `unavailable`, never linked, and a reference grants no access.
 `shellByline` names the summary writer only by the Core-resolved display agent, never by identity,
@@ -900,16 +903,21 @@ the dashboard's `order` as the tie-break; older pages fold into `earlier`. A cha
 pending item an item names (a reading ID or an anchor equal to a pending ID), else the first pending
 item by rank (review, question, reading, proposal), else the latest comment, else the item note;
 `pending` only while a waiting page's details are unanswered. `shell-sections.tsx` draws the parts
-(`ShellGreeting`, `ShellCounts`, `ShellChapter`, `ShellEarlier`); the counts jump to the first row
-they count.
+(`ShellHead`, `ShellSummary`, `ShellCounts`, `ShellPages`, `ShellAside`). The Pages list numbers the
+chapters, then the older pages under their own heading; each row is a button that selects its page
+(`aria-current`; Enter or Space selects, the arrows only move focus), and the selected page beside the
+list (the first one until a row is chosen, or the one a return from its page names) shows who and when,
+its passage and the ways to open it: deciding first when something waits, else the page. The counts
+select and focus the first row they count; where the two columns stack, choosing a row brings the
+selected page into view.
 
 A chapter's panel (`shell-panel.tsx`, `ChapterPanel` in the app's `BrowserDrawer`) opens from the
-passage's "Open to decide" button when the window is at least 900 px wide (`useWide` in
+selected page's "Open to decide" button when the window is at least 900 px wide (`useWide` in
 `shell-page.tsx`); narrower, that action is the same link to the page as before. It is the page
 route's `open` search parameter (`openSearch` in `reading-link.ts`, a page ID, dropped otherwise), and
 only a chapter of the dashboard opens one. Opening pushes a history entry; closing from a panel this
 window opened steps back, and one that arrived by link only drops the parameter. The drawer returns
-focus to the trigger (or the chapter title after a reload). `withViewTransition` wraps open and close
+focus to the trigger (or the chapter's row after a reload). `withViewTransition` wraps open and close
 in the browser's view transition when it exists and motion is not reduced. The panel shows the chapter
 details' `needs` and `latest` as text and links to the page, the passage and the anchor, and holds no
 page session of its own. Its first action, "Decide here", swaps that body for the page itself
@@ -923,16 +931,16 @@ modal, viewport-level dialogs (top layer; Esc closes the topmost only); its `Pag
 no tab title or thread fragment and its `PageRouting` has no home link or crumb.
 
 The page reads the space list once (`spaceHome()` through `useHomeSpace`, so a missing title is
-filled by the same bounded hint read as the list); a failed read keeps every page as a link in the
-older list with a notice. Links are real `Link`s (`pageLinkKey` keeps the modified-open behaviour); a
+filled by the same bounded hint read as the list); a failed read keeps every page as a row in the
+older list with a notice. The selected page's actions are real `Link`s (`pageLinkKey` keeps the modified-open behaviour); a
 passage that names a reading adds the page route's `read` hint, and an anchor item's element adds the
 `anchor` search parameter (`pageSearch` in `reading-link.ts`). The page route then asks the renderer
 to `reveal` it: the frame counts the elements with that exact id and, only when exactly one exists,
 reports its top so the host scrolls there, finishing the scroll if the frame grows within two
 seconds and the reader has not moved; anything else leaves the page open at the top with a short
 notice. Before it leaves for a chapter the page records the page in its own history entry
-(`shellFocus`), and the dashboard restores focus to it when the browser comes back. The layout is
-borderless and full bleed (no card or shadow) and holds no per-user state; a dashboard whose value
+(`shellFocus`), and the dashboard selects that page and restores focus to its row when the browser
+comes back. The layout holds no per-user state; a dashboard whose value
 was not admitted shows one state line instead of an empty page.
 
 Passages come from the owner chapter details (`reading-details.ts`, the optional owner-only

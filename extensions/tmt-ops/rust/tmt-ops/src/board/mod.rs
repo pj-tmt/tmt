@@ -44,6 +44,7 @@ mod switch_tool;
 mod tool_choices;
 pub(crate) use limits::history::document as limits_history;
 mod conversation_notes;
+mod idle_alert_editor;
 mod markdown;
 mod member_links;
 mod mentions;
@@ -149,6 +150,7 @@ pub(in crate::board) enum BoardEvent {
     MemberSession(member_session::Completed),
     NewMember(new_member::Completed),
     SwitchTool(switch_tool::Completed),
+    IdleAlert(idle_alert_editor::Completed),
     Input(Event),
     InputClosed,
     Snapshot {
@@ -762,6 +764,11 @@ fn session(
                 dirty = true;
                 app.finished_switch_tool(completed)
             }
+            Ok(BoardEvent::IdleAlert(completed)) => {
+                app.in_flight = app.in_flight.saturating_sub(1);
+                dirty = true;
+                app.finished_idle_alert(completed)
+            }
             Ok(BoardEvent::NewMember(completed)) => {
                 app.in_flight = app.in_flight.saturating_sub(1);
                 dirty = true;
@@ -1099,7 +1106,7 @@ fn session(
             }
             Ok(BoardEvent::ViewStatePublished) => Effect::None,
             Ok(BoardEvent::NotesRead(completed)) => {
-                app.notes.finished(completed, Instant::now());
+                app.finished_notes(completed, Instant::now());
                 dirty = true;
                 Effect::None
             }
@@ -1185,6 +1192,10 @@ fn session(
                 app.in_flight += 1;
                 io(lane::Job::SwitchTool(task));
             }
+            Effect::IdleAlert(task) => {
+                app.in_flight += 1;
+                io(lane::Job::IdleAlert(task));
+            }
             Effect::NewMember(task) => {
                 app.in_flight += 1;
                 io(lane::Job::NewMember(task));
@@ -1193,6 +1204,7 @@ fn session(
                 app.in_flight += 1;
                 io(lane::Job::MemberSession(task));
             }
+            Effect::Notes(task) => io(lane::Job::Notes(task)),
             Effect::Discovery(task) => {
                 app.in_flight += 1;
                 io(lane::Job::Discovery(task));
@@ -1522,7 +1534,7 @@ pub fn run(
     app.keyboard_enhanced = keyboard_enhanced;
     app.invoker_tmux = invoker_tmux;
     if let Some(tab) = cold_tab {
-        app.shell.tab = tab;
+        app.shell.select(tab, &mut app.workspace.selected);
     }
     let room_id = scope.first().map(|squad| squad.room_id.clone());
     app.workspace_startup = if room_id.is_some() || cold_tab.is_some() {

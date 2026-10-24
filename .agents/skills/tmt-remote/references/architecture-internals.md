@@ -9,6 +9,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `http`, `routes`, `site`, `limits`               | Loopback door framing and bounds, `/r/` binding routes, route dispatch; every bound is named in `limits`                                                                                                                                            |
 | `wire`, `canonical`, `crypto`                    | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                                                                                         |
 | `cloud_hpke`, `cloud_keys`                       | Fixed native HPKE descriptors/carriers and consuming response contexts; private Document keyring renewed at serve startup and existing Site maintenance; no transport, peer authority or replay ledger                                              |
+| `cloud_pairing`                                  | Native invite/join, proofs, mailbox and uid routing; Store confirmation/receipts under the serve lease; shared project Auth/runtime/budget                                                                                                          |
 | `session`, `admission`                           | `session.open`, one normal message in flight per session, durable sequence consumption and admitted permits                                                                                                                                         |
 | `message`                                        | Common signed-message receive service: session admission, operation/journal hand-off and signed refusal/audit responses; foreground composition owns the service, not a backend                                                                     |
 | `transport`                                      | Pure envelope/result driver port (`append`, finite `subscribe`, explicit `ack`); loopback `routes` forwards to the injected common service, never owns admission/effects                                                                            |
@@ -272,16 +273,51 @@ its prior admitted keyring on uncertainty. Its named bounds live in `limits`; th
 maintenance callback renews without adding a worker and a failure never stops local pairing.
 `cloud_inbox` is the emulator-only native carrier driver: `document` admits provider fields/createTime;
 `provider` reuses `NativeRuntime` Auth/HTTP/budget; `ingress` alone constructs a verified hand-off into
-`MessageService`; `driver` reconciles one machine query with peer checkpoints; `sender` freezes before
+`MessageService`; `driver` reconciles one machine query with a durable machine continuation; `sender` freezes before
 HTTP and recovers a lost context with a fresh signed ID lookup. `store` uses the authoritative Store
 connection/lease and existing journal effect owner, never a second replay ledger. Permanent carrier
 refusals share that row and the existing audit transaction. Attempted response uncertainty cannot
-block later recovery; pre-claim transient polls back off without advancing. The journal owns typed
+block later recovery; pre-claim transient failures keep the affected carrier pending. The journal owns typed
 owned-read provenance; the message layer preserves it internally without changing signed wire bytes.
-`cloud_command`
-owns the provisional public JSON schema; the production UUID query remains refused until Core's seam
-is agreed. Cross-person enrollment and production activation stay separate; `serve::native_factory::ProjectOwner::prepare`
-is the future composition point. No cloud poll starts in production now. The contract owns all bounds.
+The existing checkpoint owner also saves one machine-wide query continuation in `cloud_transport`
+(`kind=checkpoint`, reserved non-UUID `peer_id=inbox-query`, empty `id`). Its bounded private bytes retain the query lower
+bound, earliest provider snapshot time, exact indexed timestamp and document-ID tie-breaker after
+each durable outcome. A capacity stop, transient failure or restart resumes that prefix without
+changing operation authority or replaying an effect. A fully drained query clears the continuation
+and advances the machine timestamp; the next query uses the normal overlap. Legacy peer-only
+checkpoints seed the first query except the machine UUID, which belongs to enrollment. Inbox completion never updates those peer keys; a quiet peer cannot hold subsequent machine progress back.
+The first query always probes one document. A full page can use bounded follow-up pages, sized by
+`store::cloud_inbox_page_limit` from existing retained rows, without skipping any overlap timestamp
+or ID. `provider` bounds retained response bytes by the admitted page count; `limits` owns the cap.
+Empty idle polls retain their one-minute cadence and one-document reservation. `driver` observes
+an already-attempted response by exact ID after its current grant fence, avoiding another unsent
+commit reservation; ambiguous observations preserve the same frozen uncertainty and progress rules.
+
+Core's message contract (#4831, `contracts/remote-message-v1.md`) owns the versioned schema.
+`cloud_command` admits the local request and preserves the target echo. Its optional reply capability
+is retained with the destination and originator in `cloud_inbox::store`'s existing private outbox
+before publication can be claimed. The association is immutable across repeats and restarts;
+the receipt never enters dispatch payloads, envelopes, answers or audit. Core retains final authority.
+A target may carry only a name;
+`Operations` resolves it with Core's public `identity show --json -- <name>` before adoption, freezes
+the returned UUID/current name, and applies the same recipient grant and UUID-pinned effect check.
+Missing/ambiguous names are durable per-document refusals. Explicit UUID targets never perform a
+name lookup, and adopted targets never resolve again. The UUID-pinned check uses public
+`identity show --json --expect-name=<expected-name> -- <uuid>`; Core owns normalization and the
+atomic name/lifetime check. Changed identities map to `REMOTE_AGENT_STALE`, absent UUIDs to
+`REMOTE_AGENT_NOT_FOUND`; offline/unknown presence is not a refusal. Native pairing composes it in
+`serve`, sharing `native_sync::projects::Projects` with extension sync; public Core delivery activation
+remains gated.
+No enrolled peer means no provider poll. The contract owns all bounds.
+
+`cloud_pairing::wire` owns domain-separated invite/reroute capabilities. The Store persists the
+owner's hash with grant/receipt/route adoption; the private joiner connection retains the separate
+reroute token. Provider publication commits route changes, capability changes and an optional
+child uid-only update together. The native Rules asset owns invitation/owner gates and immutable
+inviter provenance; common native possession, generation and effect fences remain unchanged.
+`deploy_firestore::owner` reuses ordinary Auth and control/serve-lease identity access for the
+explicit digest-bound owner-access step. The helper uses the authorized deploy credential for
+conditional registration/recovery; Verify never writes. The contract owns predicates and bounds.
 
 `tests/cloud_hpke.rs` pins RFC 9180 A.3.1; `tests/fixtures/cloud-hpke-reference.mjs` independently
 checks application framing/signatures/AAD/response bytes only, without implementing HPKE.
@@ -293,3 +329,41 @@ cloud_inbox_emulator -- --ignored --nocapture` from `rust/`, in an Infra-approve
 both emulator hosts set to loopback and the fixture's `demo-cloud-inbox` project. It has no real-provider
 fallback; without the explicit feature the test contains no executable case. Fixture setup alone seeds
 registrations. The maintained ordinary-user driver uses `ProductionHttp`, common admission and the journal.
+
+## Native pairing
+
+`cloud_pairing` separates byte proofs from local-owner confirmation. Its distinct transcript binds
+project, owner UUID/key, offer/challenge/generation/expiry, peer UUID/key, authenticated uid, name
+and candidate nonce. One-shot reroutes sign the target machine UUID/key, peer, new uid, generation
+and timestamp; the provider createTime supplies the 60-second freshness reference. It reuses local pairing MAC, possession, fingerprint and receipt-proof primitives.
+A verified proof alone grants nothing. `pairing_cli` adapts the owner-only control socket to explicit
+terminal consent; `cloud_pairing::service` owns policy and reconciliation, and its `provider` extends
+the ordinary-user carrier provider. Byte proofs have no I/O; none of these modules prepares Core work.
+
+The additive `cloud_pairing` migration uses the existing Store/lease. Explicit owner confirmation
+atomically saves the default read-only grant (or the same ceremony's explicit talk choice), original receipt/proof and desired route. Exact lost-join
+observation needs possession plus the saved candidate digest before the original expiry; it retains
+no raw code or response key. The sender reserves its counter durably before signing. A native-key proof with a strictly greater
+generation replaces a uid only under the current grant fence, without changing permissions. Revoke
+marks routes for cleanup inside the existing revoker transaction.
+Provider publication must apply each peer's desired route swap atomically; acknowledgments compare
+project/uid/peer/generation/revocation, so stale completion cannot hide newer changes. Offline work
+stays pending. This state is not a second operation ledger.
+
+`native_sync::Projects` owns one cached Auth/runtime/budget per project, shared with extension sync.
+Only explicit pairing can sign in. A replaced persisted uid changes the native Auth owner while
+keeping the runtime/budget; old extension consumers stop without inheriting membership. The joined
+pairing worker reuses finite inbox reconciliation and stops/flushes before the serve lease is released.
+Machine bootstrap is create-only with an immutable owner uid/key; both sides check the native pin.
+The contract owns the mailbox paths, bounds, recovery window and route proof.
+
+Pairing qualification is `cargo test --offline --locked -p tmt-remote --features test-emulator --lib
+ordinary_user_pairing_rules_restart_reroute_and_revoke -- --ignored --nocapture` from `rust/`.
+Both emulator hosts must be numeric loopback addresses, in an Infra-approved slot. It uses ordinary
+Firebase Auth plus `ProductionHttp`; Admin installs Rules only. The injected fake Core query keeps
+this proof independent of #4536/#4757; full public CLI talk is #4539/#4540 acceptance. Default tests
+keep this qualifier ignored and cover local ceremony/reopen/revoke with injected provider ports.
+The library and binary test roots share `test_isolation::isolated_case` for native serve,
+factory and two-owner pairing fixtures. It executes before project files or locks open, so sibling
+fixture-publication forks cannot inherit their credential/budget locks; `tmt_invoke` bounds the
+child, captures failures and reaps its process group. The ceremony keeps its assertions and deadlines.

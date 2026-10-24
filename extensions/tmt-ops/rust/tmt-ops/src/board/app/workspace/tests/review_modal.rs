@@ -367,8 +367,8 @@ fn capture_fitted_management_reviews() {
 fn crud_keys_keep_create_uppercase_and_remove_distinct_from_leave() {
     let mut app = board();
     assert_eq!(app.bindings()["n"].text, "new-member");
-    assert_eq!(app.bindings()["N"].text, "create-squad");
-    assert_eq!(app.bindings()["d"].text, "remove-member");
+    assert_eq!(app.bindings()["N"].text, "member-notes");
+    assert!(!app.bindings().contains_key("d"));
     assert_eq!(app.bindings()["x"].text, "remove-membership");
     for target in [OpsTarget::Squad(ROOM.into()), OpsTarget::Pool] {
         app.workspace.selected = Some(target);
@@ -381,8 +381,11 @@ fn crud_keys_keep_create_uppercase_and_remove_distinct_from_leave() {
 #[test]
 fn remove_member_is_copy_only_cancel_default_and_frozen_to_the_displayed_name() {
     let mut app = board();
-    key(&mut app, KeyCode::Char('d'));
-    assert!(app.workspace_form.is_some(), "d opens remove member");
+    member_menu_action(&mut app, OpsUiAction::RemoveMember);
+    assert!(
+        app.workspace_form.is_some(),
+        "the named menu entry opens remove member"
+    );
     for width in [80, 150] {
         let text = paint(&app, width, 43).join("\n");
         assert!(text.contains("Remove member"));
@@ -414,7 +417,7 @@ fn removal_quoting_is_literal_and_never_leaks_into_other_scopes() {
         .rows
         .get_mut(&selected)
         .unwrap()["name"] = json!("worker's-name");
-    key(&mut app, KeyCode::Char('d'));
+    member_menu_action(&mut app, OpsUiAction::RemoveMember);
     paint(&app, 80, 43);
     let Effect::Act(Request::Copy { text, .. }) = key(&mut app, KeyCode::Char('c')) else {
         panic!("copy");
@@ -584,17 +587,12 @@ pub(in crate::board) fn crud_capture_case(scene: &str, look: crate::look::Look) 
 fn member_footer_uses_effective_crud_bindings_and_never_advertises_future_actions() {
     let mut app = board();
     let text = paint(&app, 150, 43).join("\n");
-    for hint in [
-        "n new",
-        "r rename",
-        "m move",
-        "R resume",
-        "d remove",
-        "x leave squad",
-    ] {
+    for hint in ["n new", "m move", "R resume", "x leave squad"] {
         assert!(text.contains(hint), "{hint}: {text}");
     }
     assert!(text.contains("S switch tool"));
+    assert!(!text.contains("r rename"));
+    assert!(!text.contains("d remove"));
     app.shell.tab = OpsTab::Digest;
     let digest = paint(&app, 150, 43).join("\n");
     assert!(!digest.contains("d remove"));

@@ -89,7 +89,9 @@ Extension archives carry generated `TMT-USES.json`; Core owns its format and ins
 validation in [`extension-api.md`](../../../../contracts/extension-api.md#optional-cross-extension-uses).
 Historical archives without it remain valid. The single authored feature source is each
 product's `uses` array in `.github/components.json` (absent means `[]`); never commit a
-`TMT-USES.json` or hand-write `requiresCli`.
+`TMT-USES.json` or hand-write `requiresCli`. A component's optional `messageProtocols` is copied
+into the generated file and adds `MESSAGE_PROTOCOLS_SUPPORT` (the installer's admission commit)
+as a CLI floor.
 
 The first delivery of #3552 covers **product registration and declaration-format support
 only**, not every API operation an extension calls. `release-declaration.mjs` selects the

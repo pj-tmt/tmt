@@ -9,14 +9,14 @@ use tmt_core::{
     },
 };
 
-fn identity(f: &mut Fixture, name: &str) -> String {
+pub(super) fn identity(f: &mut Fixture, name: &str) -> String {
     create_or_resolve(&mut f.storage, name, Lifetime::Saved)
         .unwrap()
         .identity
         .id
 }
 
-fn mark_user(f: &Fixture, id: &str) {
+pub(super) fn mark_user(f: &Fixture, id: &str) {
     rusqlite::Connection::open(&f.database)
         .unwrap()
         .execute(
@@ -26,7 +26,7 @@ fn mark_user(f: &Fixture, id: &str) {
         .unwrap();
 }
 
-fn request(target: &str, sender: &str, id: &str) -> PrepareRequest {
+pub(super) fn request(target: &str, sender: &str, id: &str) -> PrepareRequest {
     PrepareRequest {
         origin: tmt_core::request::RequestOrigin::Person,
         room_id: None,
@@ -44,7 +44,7 @@ fn request(target: &str, sender: &str, id: &str) -> PrepareRequest {
     }
 }
 
-fn policy(mode: DeliveryMode) -> DeliveryPolicy {
+pub(super) fn policy(mode: DeliveryMode) -> DeliveryPolicy {
     DeliveryPolicy {
         mode,
         ..DeliveryPolicy::default()
@@ -227,7 +227,13 @@ fn a_passthrough_takes_no_reply_and_requires_no_final() {
 }
 
 /// A passthrough prepared as the CLI does and claimed for its one delivery attempt.
-fn claimed_passthrough(f: &mut Fixture, agent: &str, person: &str, id: &str, text: &str) {
+pub(super) fn claimed_passthrough(
+    f: &mut Fixture,
+    agent: &str,
+    person: &str,
+    id: &str,
+    text: &str,
+) {
     let mut typed = request(agent, person, id);
     typed.message = text.into();
     let policy = DeliveryPolicy {

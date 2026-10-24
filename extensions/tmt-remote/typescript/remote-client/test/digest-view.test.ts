@@ -3,11 +3,13 @@ import { expect, it } from 'vite-plus/test';
 import { mockDocument } from '../src/digest-mock.js';
 import type { UsageDocument } from '../src/digest-source.js';
 import {
-  activity,
   allowance,
   exchange,
   historyCharts,
   providers,
+  providerGroups,
+  windowKey,
+  observedAgo,
   ranking,
   rankRows,
   resetsIn,
@@ -108,15 +110,10 @@ it('a large team ranks the top 8 and folds the rest into one Other row', () => {
   expect(ranking(team.map((row) => ({ ...row, partial: false }))).partial).toBe(false);
 });
 
-it('activity lists seats in the ranking order: most tokens first', () => {
-  for (const doc of [day, mockDocument('7d', { seats: 24 })])
-    expect(activity(doc)!.rows.map((row) => row.id)).toEqual(rankRows(doc).map((row) => row.id));
-});
-
 it('a one-provider sample has only the OpenAI weekly window and history', () => {
   const one = mockDocument('24h', { oneProvider: true });
   expect(providers(one).map((view) => view.provider)).toEqual(['OpenAI']);
-  expect(one.limitHistory!.map((history) => history.line)).toEqual(['gpt']);
+  expect(one.limitHistory!.map((history) => history.provider)).toEqual(['codex']);
 });
 
 it('exchange counts talk and reply only, ranks by traffic and keeps a known none at zero', () => {
@@ -151,42 +148,12 @@ it('exchange retains every seat instead of silently keeping only the busiest eig
   );
 });
 
-it('activity aggregates observed buckets without turning missing reads into quiet blocks', () => {
-  for (const range of ['24h', '7d', '30d'] as const) {
-    const doc = mockDocument(range);
-    const view = activity(doc)!;
-    expect(view.starts.length).toBeGreaterThanOrEqual(6);
-    expect(view.starts.length).toBeLessThanOrEqual(7);
-    expect(view.rows.every((row) => row.slots.length === view.starts.length)).toBe(true);
-    if (range === '24h')
-      expect(view.starts.slice(1).every((at) => new Date(at).getHours() % 4 === 0)).toBe(true);
-    for (const row of view.rows) {
-      const seat = doc.usage.seats.find((seat) => seat.id === row.id)!;
-      row.slots.forEach((value, i) => {
-        const points = seat.series.filter(
-          (point) => point.fromMs >= view.starts[i]! && point.fromMs < view.ends[i]!,
-        );
-        const expectedCount =
-          (view.ends[i]! - view.starts[i]!) / (range === '24h' ? 3_600_000 : 86_400_000);
-        expect(value).toBe(
-          points.length === expectedCount
-            ? points.reduce((sum, point) => sum + point.input + point.output, 0)
-            : null,
-        );
-      });
-    }
-    expect(view.ends[view.ends.length - 1]! - view.starts[0]!).toBe(
-      (range === '24h' ? 1 : range === '7d' ? 7 : 30) * 86_400_000,
-    );
-    expect(view.rows.find((row) => row.label === 'night-1')!.slots).toContain(null);
-  }
-});
-
 it('allowance lists the weekly windows only, left = 100 - used, with the provider named', () => {
   const rows = allowance(day);
   expect(rows.map((row) => [row.provider, row.leftPercent])).toEqual([
-    ['Claude', 26],
     ['OpenAI', 55],
+    ['OpenAI', 26],
+    ['OpenAI', 62],
   ]);
   const stale = allowance({
     ...day,
@@ -200,7 +167,7 @@ it('allowance lists the weekly windows only, left = 100 - used, with the provide
 
 it('history charts exist only when the history field is served', () => {
   const charts = historyCharts(day, 'UTC');
-  expect(charts).toHaveLength(2);
+  expect(charts).toHaveLength(3);
   expect(charts[0]!.series[0]!.values.length).toBe(charts[0]!.x.length);
   expect(charts[0]!.reference!.values.every((v) => v !== null && v >= 0 && v <= 100)).toBe(true);
   expect(historyCharts({ ...day, limitHistory: undefined })).toEqual([]);
@@ -209,11 +176,12 @@ it('history charts exist only when the history field is served', () => {
 it('providers pair each weekly window with its history chart and a stable hue', () => {
   const views = providers(day, 'UTC');
   expect(views.map((view) => [view.provider, view.style])).toEqual([
-    ['Claude', 1],
+    ['OpenAI', 2],
+    ['OpenAI', 2],
     ['OpenAI', 2],
   ]);
-  expect(views.every((view) => view.chart?.series[0]!.key === view.line)).toBe(true);
-  expect(views[0]!.chart!.style).toBe(1);
+  expect(views.every((view) => view.chart?.series[0]!.key === view.key)).toBe(true);
+  expect(views[0]!.chart!.style).toBe(2);
   expect(providers({ ...day, limitHistory: undefined }).every((view) => !view.chart)).toBe(true);
 });
 
@@ -222,4 +190,73 @@ it('the product entry never pulls in the sample: no import of the mock from page
     const source = readFileSync(new URL(`../src/${file}.ts`, import.meta.url), 'utf8');
     expect(source, file).not.toMatch(/from '\.\/digest-mock/);
   }
+});
+
+it('titles limits from their source even on Claude-model seats, and never infers a missing provider', () => {
+  const doc = { ...day, limits: [{ ...day.limits[0]! }] };
+  expect(doc.usage.seats.find((seat) => seat.id === doc.limits[0]!.seats[0])!.lines).toEqual([
+    'claude',
+  ]);
+  expect(allowance(doc)[0]!.provider).toBe('OpenAI');
+  expect(
+    allowance({ ...doc, limits: [{ ...doc.limits[0]!, provider: undefined as never }] }),
+  ).toEqual([]);
+  expect(
+    allowance({ ...doc, limits: [{ ...doc.limits[0]!, provider: 'future-source' }] })[0]!.provider,
+  ).toBe('future-source');
+  expect(providerGroups(doc).find((group) => group.source === 'claude')!.primary).toBeUndefined();
+});
+
+it('chooses the latest current-seat window and drops resets already passed', () => {
+  const [older, current] = day.limits;
+  const retired = { ...day.usage.seats[0]!, retired: true };
+  const doc = {
+    ...day,
+    usage: { ...day.usage, seats: [retired, ...day.usage.seats.slice(1)] },
+    limits: [
+      { ...older!, seats: [retired.id], observedAtMs: day.observedAtMs - 1 },
+      { ...current!, seats: [...current!.seats, retired.id] },
+      { ...older!, resetsAtMs: day.observedAtMs },
+    ],
+  };
+  const group = providerGroups(doc)[0]!;
+  expect(group.primary!.leftPercent).toBe(55);
+  expect(group.primary!.reporters).toContain('tmt-lead (retired)');
+  expect(group.other).toHaveLength(1);
+  expect(group.other[0]!.reporters).toEqual(['tmt-lead (retired)']);
+  expect(
+    providerGroups({
+      ...doc,
+      usage: {
+        seats: [],
+        unavailable: [
+          { id: current!.seats[0]!, name: 'unread', retired: false, reason: 'not_sampled' },
+        ],
+      },
+    })[0]!.primary,
+  ).toBeDefined();
+  expect(providerGroups({ ...doc, limits: [doc.limits[0]!] })[0]!.primary).toBeUndefined();
+});
+
+it('matches history only to the same source, duration and reset, keeping multiple windows distinct', () => {
+  const views = providers(day, 'UTC');
+  expect(new Set(views.map((view) => view.key)).size).toBe(3);
+  for (const view of views) {
+    expect(view.chart!.series[0]!.key).toBe(view.key);
+    expect(view.chart!.series[0]!.values.at(-1)).toBe(view.leftPercent);
+  }
+  const first = day.limitHistory![0]!;
+  for (const mismatched of [
+    { ...first, provider: 'claude' },
+    { ...first, windowMinutes: 300 },
+    { ...first, resetsAtMs: first.resetsAtMs + 1 },
+  ])
+    expect(providers({ ...day, limitHistory: [mismatched] }).every((view) => !view.chart)).toBe(
+      true,
+    );
+  expect(windowKey({ provider: 'codex', windowMinutes: 10080, resetsAtMs: 1 })).not.toBe(
+    windowKey({ provider: 'codex', windowMinutes: 300, resetsAtMs: 1 }),
+  );
+  expect(observedAgo(day.observedAtMs - 600_000, day.observedAtMs)).toBe('10m ago');
+  expect(observedAgo(day.observedAtMs + 1, day.observedAtMs)).toBe('just now');
 });

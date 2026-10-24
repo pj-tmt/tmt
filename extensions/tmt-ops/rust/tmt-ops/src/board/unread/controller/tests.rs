@@ -606,3 +606,288 @@ fn moving_onto_an_unread_row_never_marks_it_read() {
     app.unread_drawn();
     assert!(app.unread.writer.offer().is_some());
 }
+
+/// A direct send answered by a captured turn alone: the member's list holds no final reply.
+fn turn_app(settled: u64) -> App {
+    let mut app = board();
+    app.home_leads.test_pages(
+        ACTOR,
+        json!({"items":[],"nextBefore":null}),
+        json!({"items":[{
+            "requestId":"direct", "kind":"request", "sender":{"identityId":ACTOR},
+            "recipientId":MEMBER, "answeredAtMs":settled, "answer":"turn"
+        }],"nextBefore":null}),
+    );
+    app.overview_rows.borrow_mut().clear();
+    app
+}
+
+/// The conversation lists the captured turn of that send, settled at `settled`.
+fn show_turn(app: &mut App, request: &str, settled: u64) {
+    let owner = app.conversation_finals().expect("a conversation owner");
+    app.apply_sent(
+        crate::board::home_leads::SentKey {
+            sender: owner.sender,
+            agent: owner.agent,
+        },
+        Ok(vec![json!({
+            "requestId":request, "preparedAtMs":settled - 5_000, "text":"please check", "truncated":false,
+            "mode":"passthrough",
+            "messageState":{"state":"delivered","reason":{"text":"delivered"}},
+            "passthrough":{"state":"answered","boundAtMs":settled - 4_000,"settledAtMs":settled,
+                "answer":{"text":"the turn output","truncated":false,"provider":"claude","endedMs":settled}}
+        })]),
+    );
+}
+
+const SETTLED: u64 = 1_000_000;
+
+#[test]
+fn a_captured_turn_alone_is_unread_and_reading_it_marks_it_read() {
+    let fixture = Fixture::new();
+    let mut app = turn_app(SETTLED);
+    assert_eq!(
+        app.unread_count(MEMBER).total,
+        1,
+        "the answer is a turn; there is no final reply"
+    );
+    assert!(
+        draw(&app).contains("● 1 unread"),
+        "the indicator shows it\n{}",
+        draw(&app)
+    );
+    press(&mut app, KeyCode::Tab);
+    assert_eq!(app.focused_pane(), Some(Pane::Replies));
+    draw(&app);
+    app.unread_drawn();
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "no capture is shown yet, so nothing is read"
+    );
+    show_turn(&mut app, "direct", SETTLED);
+    assert!(draw(&app).contains("the turn output"));
+    app.unread_drawn();
+    let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
+    assert!(result.is_ok());
+    app.finished_unread(result);
+    assert_eq!(app.unread_count(MEMBER).total, 0);
+    assert_eq!(
+        fixture.config().read_markers().unwrap().get(ACTOR, MEMBER),
+        SETTLED
+    );
+}
+
+#[test]
+fn a_hidden_or_unfocused_turn_marks_nothing_and_a_turn_not_on_the_page_marks_nothing() {
+    let mut app = turn_app(SETTLED);
+    press(&mut app, KeyCode::Tab);
+    draw(&app);
+    show_turn(&mut app, "direct", SETTLED);
+    draw(&app);
+    app.help = true;
+    app.unread_drawn();
+    assert!(app.unread.writer.offer().is_none(), "a modal covers it");
+    app.help = false;
+    press(&mut app, KeyCode::Esc);
+    draw(&app);
+    app.unread_drawn();
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "the reader does not hold focus"
+    );
+    // A capture of a request the answers page does not list is not evidence.
+    let mut other = turn_app(SETTLED);
+    press(&mut other, KeyCode::Tab);
+    draw(&other);
+    show_turn(&mut other, "elsewhere", SETTLED + 500_000);
+    draw(&other);
+    other.unread_drawn();
+    assert!(other.unread.writer.offer().is_none());
+    assert_eq!(other.unread_count(MEMBER).total, 1);
+}
+
+mod mark_read {
+    use super::*;
+    use ratatui::buffer::Buffer;
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+
+    fn paint(app: &App) -> Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(148, 51)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, app))
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+    fn mouse(kind: MouseEventKind, area: ratatui::layout::Rect) -> MouseEvent {
+        MouseEvent {
+            kind,
+            column: area.x,
+            row: area.y,
+            modifiers: KeyModifiers::NONE,
+        }
+    }
+    fn chip(app: &App) -> Option<ratatui::layout::Rect> {
+        app.composer
+            .unread_hit
+            .borrow()
+            .as_ref()
+            .map(|hit| hit.area)
+    }
+    fn text(buffer: &Buffer, area: ratatui::layout::Rect) -> String {
+        (area.x..area.right())
+            .map(|x| buffer[(x, area.y)].symbol())
+            .collect()
+    }
+
+    #[test]
+    fn clicking_the_unread_count_marks_the_conversation_read_after_the_durable_save() {
+        let fixture = Fixture::new();
+        let mut app = unread_app();
+        let buffer = paint(&app);
+        let area = chip(&app).expect("the unread count is a target");
+        assert_eq!(text(&buffer, area), "● 1 unread");
+        assert!(app.input.is_none(), "the composer is not focused");
+        app.mouse(
+            mouse(MouseEventKind::Down(MouseButton::Left), area),
+            std::time::Instant::now(),
+        );
+        assert!(
+            app.input.is_none(),
+            "marking read does not focus the composer"
+        );
+        assert_eq!(app.unread_count(MEMBER).total, 1, "queued is not saved");
+        let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
+        assert!(result.is_ok());
+        app.finished_unread(result);
+        assert_eq!(app.unread_count(MEMBER).total, 0);
+        assert_eq!(
+            fixture.config().read_markers().unwrap().get(ACTOR, MEMBER),
+            100
+        );
+        let buffer = paint(&app);
+        assert!(chip(&app).is_none(), "● 0 unread is not a target");
+        assert!(
+            buffer
+                .content
+                .iter()
+                .map(|c| c.symbol())
+                .collect::<String>()
+                .contains("0 unread")
+        );
+    }
+
+    #[test]
+    fn a_failed_save_keeps_the_count_and_says_so() {
+        let fixture = Fixture::new();
+        let mut app = unread_app();
+        paint(&app);
+        let area = chip(&app).unwrap();
+        app.mouse(
+            mouse(MouseEventKind::Down(MouseButton::Left), area),
+            std::time::Instant::now(),
+        );
+        fs::write(fixture.0.join("ops.toml"), "[broken").unwrap();
+        let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
+        assert!(result.is_err());
+        app.finished_unread(result);
+        assert_eq!(app.unread_count(MEMBER).total, 1);
+        assert!(
+            app.notice
+                .as_deref()
+                .is_some_and(|notice| notice.contains("Read marker not saved"))
+        );
+    }
+
+    #[test]
+    fn a_newer_answer_after_marking_read_is_unread_again() {
+        let fixture = Fixture::new();
+        let mut app = unread_app();
+        assert!(app.mark_read(MEMBER));
+        let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
+        app.finished_unread(result);
+        assert_eq!(app.unread_count(MEMBER).total, 0);
+        assert!(!app.mark_read(MEMBER), "nothing left to mark");
+        app.home_leads.test_results(ACTOR, json!({"items":[{
+            "requestId":"answer", "kind":"request", "sender":{"identityId":ACTOR}, "recipientId":MEMBER,
+            "final":{"status":"retained","submittedAtMs":100}, "responsePreview":"Exact answer", "recipientAcknowledged":true
+        },{
+            "requestId":"later", "kind":"request", "sender":{"identityId":ACTOR}, "recipientId":MEMBER,
+            "final":{"status":"retained","submittedAtMs":200}, "responsePreview":"Later answer", "recipientAcknowledged":true
+        }],"nextBefore":null}));
+        assert_eq!(app.unread_count(MEMBER).total, 1);
+    }
+
+    #[test]
+    fn hovering_the_count_restyles_it_and_a_zero_count_is_not_a_target() {
+        let fixture = Fixture::new();
+        let mut app = unread_app();
+        let idle = paint(&app);
+        let area = chip(&app).unwrap();
+        assert!(app.move_pointer(mouse(MouseEventKind::Moved, area)));
+        let hot = paint(&app);
+        assert_ne!(
+            idle[(area.x, area.y)].style(),
+            hot[(area.x, area.y)].style()
+        );
+        assert_eq!(
+            text(&idle, area),
+            text(&hot, area),
+            "only the style changes"
+        );
+        assert!(
+            !app.move_pointer(mouse(MouseEventKind::Moved, area)),
+            "unchanged hover repaints nothing"
+        );
+        app.mark_read(MEMBER);
+        let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
+        app.finished_unread(result);
+        app.move_pointer(mouse(
+            MouseEventKind::Moved,
+            ratatui::layout::Rect::new(0, 0, 1, 1),
+        ));
+        paint(&app);
+        let zero = chip(&app);
+        assert!(zero.is_none(), "● 0 unread has no hit");
+        if let Some(area) = zero {
+            assert!(!app.move_pointer(mouse(MouseEventKind::Moved, area)));
+        }
+    }
+
+    #[test]
+    fn the_action_and_the_menu_entry_do_the_same_and_nothing_unread_says_so() {
+        let fixture = Fixture::new();
+        let mut app = unread_app();
+        assert!(
+            !app.bindings()
+                .iter()
+                .any(|(_, action)| action.text == "mark-read"),
+            "no default key"
+        );
+        app.context_menu();
+        let menu = app.menu.take().unwrap();
+        let entry = menu
+            .entries
+            .iter()
+            .find(|entry| entry.label == "Mark read")
+            .expect("the menu offers it while something is unread");
+        assert!(
+            matches!(&entry.choice, crate::board::app::Choice::Action(action)
+            if action.verb == crate::action::Verb::Ui(crate::action::OpsUiAction::MarkRead))
+        );
+        app.mark_read_selected();
+        let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
+        app.finished_unread(result);
+        assert_eq!(app.unread_count(MEMBER).total, 0);
+        app.mark_read_selected();
+        assert_eq!(app.notice.as_deref(), Some("Nothing unread here."));
+        app.context_menu();
+        assert!(
+            app.menu
+                .as_ref()
+                .unwrap()
+                .entries
+                .iter()
+                .all(|entry| entry.label != "Mark read")
+        );
+    }
+}

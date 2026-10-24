@@ -67,6 +67,22 @@ shipped SDK bundle's guard through real appends: it refuses below the modeled al
 emulator stores exactly the allowed appends, and the refused update is sent unchanged after the
 Pacific reset.
 
+## Native inbox polling
+
+The inbox driver shares the same persisted project budget; it has no separate allowance.
+An empty idle receiver uses one one-document query per `CLOUD_POLL_IDLE_MS`, so its modeled
+attempted cost is `(86,400,000 / 60,000) × (1 + READ_LOOKUPS) = 4,320` read units per day.
+This excludes enrollment, other native consumers, response observations and cleanup; it is not
+measured project billing or remaining quota. Activity and failures retain the existing adaptive
+cadence and backoff.
+
+Follow-up query pages reserve their bounded document limit plus Rules lookups before HTTP;
+unused request maxima are never refunded. Retained transport rows only size those pages and
+never remove unseen documents from the overlap query. An already-attempted response uses an
+exact-ID observation without reserving another commit that cannot be sent. The
+[native carrier contract](../../../../contracts/remote-channel-v1.md#native-firestore-agent-binding-emulator-only)
+owns query, checkpoint and publication behavior; scenario measurements belong in the issue/PR.
+
 ## Recorded readiness
 
 The [status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery) owns record projection,

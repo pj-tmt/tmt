@@ -160,9 +160,11 @@ hidden names with attention marks/counts, waiting before blocked before quiet; t
 final ellipsis are dim. Stored tab order, pin and hide are independent of this
 display grouping.
 
-A `Terminal` carries the stream's theme and depth; `paint` and table cells use
+A `Terminal` carries the stream's theme and depth; `paint` styles with
 `Token::themed`, and a stream without a theme renders exactly the 16-color
-output above. The executable sets the process theme once at startup
+output above. Table cells are painted by `paint` after layout, so a token has
+one escape sequence in a table and beside it, and its style covers the cell's
+text, not the column padding. The executable sets the process theme once at startup
 (`theme::configure`; a second call is a bug), and `Terminal::stdout` and
 `Terminal::stderr` apply it to colored streams only. Help keeps the 16-color
 styles: clap builds it before any configuration is read. Tests pass a theme in

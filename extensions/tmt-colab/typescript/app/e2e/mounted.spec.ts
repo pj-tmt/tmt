@@ -275,6 +275,90 @@ async function fixture(
   return { space, ownerKey, genesis, shared, head, signed, deviceKey: () => deviceKey };
 }
 
+for (const width of [1440, 390]) {
+  test(`mounted owner opens out-of-ID-order pins and retains their order at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const f = await fixture(page);
+    const pins = ['00000000-0000-4000-8000-000000000104', '00000000-0000-4000-8000-000000000103'];
+    const log = [f.genesis, f.shared];
+    let head = f.head.head;
+    for (const pin of pins) {
+      const shared = await f.signed(
+        'page.share',
+        { pageId: pin, mode: 'private', epoch: '1' },
+        head,
+      );
+      head = (await shared.verifyNext(f.space, f.ownerKey, head)).head;
+      log.push(shared);
+    }
+    const rows = [
+      { pageId: pins[0], pinned: true, title: 'First owner pin' },
+      { pageId: pins[1], pinned: true, title: 'Second owner pin' },
+      { pageId, title: 'Unpinned page' },
+    ].map((row) => ({
+      ...row,
+      epoch: '1',
+      sharing: 'private',
+      history: 'current',
+      archived: false,
+      retentionDays: 30,
+      lastUpdateAtMs: null,
+      expiresAtMs: null,
+      warnings: [],
+      projects: [],
+    }));
+    await page.route(`**${mount}api/pages`, (route) =>
+      route.fulfill({
+        json: {
+          spaceId: f.space,
+          ownerKey: c.encodeBinary(f.ownerKey),
+          revision: String(head.revision),
+          projects: [],
+          pages: rows,
+          pageIds: [pageId, ...pins].sort().map((id) => ({ pageId: id, deleted: false })),
+        },
+      }),
+    );
+    await page.routeWebSocket(`**${mount}sync`, (socket) =>
+      socket.onMessage((message) => {
+        const hello = JSON.parse(String(message));
+        if (hello.type !== 'hello') return;
+        socket.send(
+          JSON.stringify({
+            version: 1,
+            type: 'catchup',
+            space: f.space,
+            page: hello.page,
+            epoch: '1',
+            streams: [],
+            more: true,
+            baseline: null,
+            membershipHead: {
+              revision: String(head.revision),
+              statementHash: c.encodeBinary(head.hash),
+              ownerKey: c.encodeBinary(f.ownerKey),
+              statements: log
+                .slice(Number(hello.membershipRevision))
+                .map((value) => c.encodeBinary(value.toJson())),
+              more: false,
+            },
+          }),
+        );
+      }),
+    );
+    await page.goto(mount);
+    const pinnedTitles = page.locator('.page-pins a');
+    await expect(homeList(page)).toBeVisible();
+    await expect(pinnedTitles).toHaveText(['First owner pin', 'Second owner pin']);
+    await expect(page.locator('.page-row[data-page-id]')).toHaveCount(3);
+    await page.reload();
+    await expect(pinnedTitles).toHaveText(['First owner pin', 'Second owner pin']);
+    await expect(page.locator('.page-row[data-page-id]')).toHaveCount(3);
+  });
+}
+
 test('mounted owner discovers a pinned space; registration failure stays blocked', async ({
   page,
 }) => {
@@ -572,6 +656,19 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
     await managementBody.evaluate((node) => (node.scrollTop = 0));
     await expect(closeManagement).toBeInViewport({ ratio: 1 });
     const closeAtTop = await closeManagement.boundingBox();
+    // The "Keep on this computer" checkbox is a checkbox beside its label, not a full-width field
+    // that pushes the label out of the dialog.
+    const keepLabel = dialog.locator('.checkbox-label');
+    await keepLabel.scrollIntoViewIfNeeded();
+    const [labelBox, checkBox, bodyBox] = await Promise.all([
+      keepLabel.boundingBox(),
+      keepLabel.locator('input').boundingBox(),
+      managementBody.boundingBox(),
+    ]);
+    expect(checkBox!.width).toBeLessThan(48);
+    expect(labelBox!.x + labelBox!.width).toBeLessThanOrEqual(bodyBox!.x + bodyBox!.width + 1);
+    await expect(keepLabel).toContainText('Keep on this computer until I delete it');
+    await managementBody.evaluate((node) => (node.scrollTop = 0));
     if (scrollCaptures)
       await page.screenshot({ path: `${scrollCaptures}/manage-top-${width}-${theme}.png` });
     await managementBody.evaluate((node) => (node.scrollTop = node.scrollHeight));

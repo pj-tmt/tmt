@@ -8,6 +8,7 @@
   --tmt-ui-shell-lead: 0px;
   /* The width of the bar's right-hand cluster; mountShell measures it. */
   --tmt-ui-shell-tools-width: 0px;
+  font: var(--tmt-ui-page-body-size) / 1.5 var(--tmt-ui-font-body);
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   grid-template-rows: auto 1fr;
@@ -75,25 +76,26 @@
   display: flex;
   flex: none;
   align-items: center;
-  gap: var(--tmt-ui-space-m);
+  gap: var(--tmt-ui-rail-brand-gap);
   box-sizing: border-box;
-  height: var(--tmt-ui-header-height);
-  padding: 0 calc((var(--tmt-ui-rail-collapsed-width) - 32px) / 2);
+  height: calc(var(--tmt-ui-rail-brand-height) + var(--tmt-ui-rail-brand-after));
+  padding: 0 var(--tmt-ui-rail-brand-padding-inline) var(--tmt-ui-rail-brand-after);
   color: var(--tmt-ui-color-selected-text);
   white-space: nowrap;
 }
 .tmt-ui-shell-brand > .tmt-brand-mark {
   flex: none;
-  width: 32px;
-  height: 32px;
+  width: var(--tmt-ui-rail-brand-height);
+  height: var(--tmt-ui-rail-brand-height);
 }
 .tmt-ui-shell-brand-text {
   display: grid;
   line-height: 1.1;
 }
 .tmt-ui-shell-brand-word {
-  font: 700 22px/1.1 var(--tmt-ui-font-display);
-  letter-spacing: -0.01em;
+  font: var(--tmt-ui-rail-wordmark-weight) var(--tmt-ui-rail-wordmark-size)/1
+    var(--tmt-ui-font-display);
+  letter-spacing: var(--tmt-ui-rail-wordmark-tracking);
 }
 .tmt-ui-shell-brand-sub {
   color: var(--tmt-ui-color-secondary);
@@ -156,15 +158,26 @@
   flex-direction: column;
   box-sizing: border-box;
   width: var(--tmt-ui-rail-width);
+  padding: var(--tmt-ui-rail-padding-top) var(--tmt-ui-rail-padding-inline)
+    var(--tmt-ui-rail-padding-bottom);
   height: 100dvh;
   overflow: hidden;
   border-right: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   background: var(--tmt-ui-surface-rail);
-  font: var(--tmt-ui-command-size)/1.3 var(--tmt-ui-font-body);
+  font: var(--tmt-ui-rail-item-size)/1.3 var(--tmt-ui-font-body);
   transition: width var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
 }
 .tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail {
   width: var(--tmt-ui-rail-collapsed-width);
+  /* Keep the expanded icon column; reserve the narrow rail's remaining space on its right. */
+  padding-right: 0;
+}
+.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-shell-brand {
+  padding-inline: 0;
+}
+.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-shell-brand > .tmt-brand-mark {
+  width: calc(var(--tmt-ui-rail-collapsed-width) - 2 * var(--tmt-ui-rail-padding-inline));
+  height: auto;
 }
 /* The module menu's tab strip belongs to the phone; a wide screen nests the same pages in the rail. */
 .tmt-ui-module-menu {
@@ -224,8 +237,8 @@
 .tmt-ui-shell-icon {
   flex: none;
   /* The header's wide icon size; the rail keeps it at every width. */
-  width: 18px;
-  height: 18px;
+  width: var(--tmt-ui-rail-icon-size);
+  height: var(--tmt-ui-rail-icon-size);
   fill: none;
   stroke: currentColor;
   stroke-width: var(--tmt-ui-header-icon-stroke);
@@ -240,10 +253,11 @@
   list-style: none;
 }
 .tmt-ui-rail-items {
-  padding: var(--tmt-ui-space-s);
+  padding: 0;
 }
 .tmt-ui-rail-items:not(.tmt-ui-rail-bottom) {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   flex: 1 1 auto;
   align-content: start;
   gap: 2px;
@@ -265,13 +279,11 @@
   white-space: nowrap;
 }
 .tmt-ui-rail-item {
-  gap: var(--tmt-ui-space-m);
-  min-height: var(--tmt-ui-control-size);
+  gap: var(--tmt-ui-rail-item-gap);
+  min-height: var(--tmt-ui-rail-item-height);
   box-sizing: border-box;
   border-radius: var(--tmt-ui-radius);
-  /* The icon sits where the collapsed rail centres it, so it stays put as the rail slides. */
-  padding: var(--tmt-ui-space-s)
-    calc((var(--tmt-ui-rail-collapsed-width) - 2 * var(--tmt-ui-space-s) - 18px) / 2);
+  padding: var(--tmt-ui-rail-item-padding-block) var(--tmt-ui-rail-item-padding-inline);
 }
 /* Hover lightly tints the row; the current module is a soft mint pill with a mint edge. */
 .tmt-ui-rail-item:hover,
@@ -306,8 +318,21 @@
 .tmt-ui-rail-sub {
   display: grid;
   gap: 2px;
-  margin: var(--tmt-ui-space-xs) 0 var(--tmt-ui-space-s) calc(var(--tmt-ui-space-s) + 18px);
-  padding-left: var(--tmt-ui-space-m);
+  /* Ben direct: text starts 8px past the parent icon, independent of its label. */
+  margin: var(--tmt-ui-space-xs) 0 var(--tmt-ui-space-s)
+    calc(
+      var(--tmt-ui-rail-item-padding-inline) + var(--tmt-ui-rail-sub-indent) -
+        var(--tmt-ui-rail-sub-padding-inline)
+    );
+  padding-left: 0;
+}
+.tmt-ui-rail-sub-items {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  /* Ben direct: one more indent for named groups, retaining the counts' right edge. */
+  padding: 0 0 0 var(--tmt-ui-rail-sub-indent);
+  list-style: none;
 }
 .tmt-ui-rail-sub-group {
   padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m) var(--tmt-ui-space-xs);
@@ -320,37 +345,33 @@
 .tmt-ui-rail-sub-item {
   gap: var(--tmt-ui-space-s);
   box-sizing: border-box;
-  min-height: 30px;
-  padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-m);
+  min-height: var(--tmt-ui-rail-sub-height);
+  padding: var(--tmt-ui-rail-sub-padding-block) var(--tmt-ui-rail-sub-padding-inline);
   border-radius: var(--tmt-ui-radius);
   color: var(--tmt-ui-color-secondary);
-  font-size: 13px;
+  font-size: var(--tmt-ui-rail-sub-size);
+  line-height: 1.25;
 }
-/* The page you are on: the rail's normal current style, a selection fill and a straight marker in
-   the gutter outside the rounded row. */
+/* The current page is a filled row; only the parent module keeps its gutter marker. */
 .tmt-ui-rail-sub-item[aria-current='page'],
 .tmt-ui-rail-sub-item[aria-current='location'] {
-  background: var(--tmt-ui-surface-selection);
-  color: var(--tmt-ui-color-selected-text);
+  background: var(--tmt-ui-color-accent);
+  color: var(--tmt-ui-color-on-accent);
   font-weight: 600;
 }
-.tmt-ui-rail-sub-item[aria-current='page']::before,
-.tmt-ui-rail-sub-item[aria-current='location']::before {
-  position: absolute;
-  inset: var(--tmt-ui-space-xs) auto var(--tmt-ui-space-xs) calc(-1 * var(--tmt-ui-space-s));
-  width: var(--tmt-ui-indicator-width);
-  background: var(--tmt-ui-color-accent);
-  content: '';
+.tmt-ui-rail-sub-item[aria-current='page']:focus-visible,
+.tmt-ui-rail-sub-item[aria-current='location']:focus-visible {
+  outline-color: var(--tmt-ui-color-on-accent);
 }
 .tmt-ui-shell-count {
   box-sizing: border-box;
   min-width: 20px;
   margin-left: auto;
-  padding: 3px 5px;
+  padding: var(--tmt-ui-rail-count-padding-block) 5px;
   border-radius: var(--tmt-ui-radius-s);
   background: var(--tmt-ui-surface-hover);
   color: var(--tmt-ui-color-secondary);
-  font: var(--tmt-ui-caption-size)/1 var(--tmt-ui-font-mono);
+  font: var(--tmt-ui-rail-count-size)/1 var(--tmt-ui-font-mono);
   text-align: center;
 }
 .tmt-ui-shell-counts {
@@ -387,7 +408,8 @@
   /* A compact numeral at the icon's top-right corner, offset past the glyph so the icon stays whole. */
   position: absolute;
   top: -2px;
-  left: calc(50% + 9px);
+  left: auto;
+  right: 0;
   box-sizing: border-box;
   min-width: 16px;
   height: 16px;
@@ -419,10 +441,67 @@
 .tmt-ui-shell-open {
   display: none;
 }
+/* Opt-in shared header. Legacy module bars remain until their owning adoption. */
+.tmt-ui-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tmt-ui-header-gap);
+  box-sizing: border-box;
+  height: var(--tmt-ui-header-height);
+  padding-inline: var(--tmt-ui-header-padding-inline);
+  background: color-mix(in srgb, var(--tmt-ui-surface-paper) 95%, var(--tmt-ui-surface-sheet));
+}
+.tmt-ui-topbar-navigation,
+.tmt-ui-topbar-controls,
+.tmt-ui-topbar-actions,
+.tmt-ui-topbar-common {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-header-gap);
+  min-width: 0;
+}
+.tmt-ui-shell[data-topbar] > .tmt-ui-shell-content > .tmt-ui-shell-tools {
+  display: none;
+}
+.tmt-ui-topbar-search,
+.tmt-ui-topbar-remote {
+  width: auto;
+  gap: var(--tmt-ui-space-xs);
+  padding-inline: var(--tmt-ui-space-s);
+  text-decoration: none;
+}
+.tmt-ui-topbar-search > .tmt-ui-icon-action-icon {
+  width: auto;
+  gap: var(--tmt-ui-space-s);
+}
+.tmt-ui-topbar-search .tmt-ui-icon-action-icon > svg {
+  width: var(--tmt-ui-header-icon-size);
+  height: var(--tmt-ui-header-icon-size);
+  flex: none;
+}
+.tmt-ui-topbar-search kbd {
+  font: var(--tmt-ui-caption-size)/1 var(--tmt-ui-font-body);
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-topbar-remote .tmt-ui-count[hidden] {
+  display: none;
+}
 /* Phone (the shell's own breakpoint, under the rail plus a readable column): the rail becomes a
    top-left menu button that opens it as a drawer; the current module's pages become tabs under
    the title bar. */
 @media (max-width: 900px) {
+  .tmt-ui-topbar {
+    padding-inline: var(--tmt-ui-header-compact-padding-inline);
+  }
+  .tmt-ui-topbar .tmt-ui-shell-open {
+    position: static;
+  }
+  .tmt-ui-topbar-controls,
+  .tmt-ui-topbar-actions,
+  .tmt-ui-topbar-common {
+    gap: var(--tmt-ui-space-s);
+  }
   .tmt-ui-shell {
     display: block;
   }
@@ -434,7 +513,7 @@
   }
   .tmt-ui-shell-open {
     position: fixed;
-    top: calc((var(--tmt-ui-header-compact-height) - var(--tmt-ui-control-size)) / 2);
+    top: calc((var(--tmt-ui-header-height) - var(--tmt-ui-control-size)) / 2);
     left: var(--tmt-ui-space-s);
     z-index: 53;
     display: flex;
