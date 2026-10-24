@@ -711,7 +711,10 @@ fn render_inner(
         paint_node(child, area, buffer, theme, depth, &mut *selection)?;
     }
     let mut position = scene.position.clone();
-    position.text = Some(scroll.position());
+    position.text = Some(
+        list.as_ref()
+            .map_or_else(|| scroll.position(), selectable_position),
+    );
     paint_node(
         &position,
         areas.position,
@@ -726,6 +729,38 @@ fn render_inner(
         list,
         query,
     })
+}
+
+/// A list's counter counts its selectable rows: a disabled heading is no item, and an empty list
+/// has no counter. The window is the first to the last selectable row painted, numbered among
+/// the selectable rows.
+fn selectable_position(list: &ListFrame) -> String {
+    let selectable: Vec<&str> = list
+        .rows
+        .iter()
+        .filter(|row| !row.disabled)
+        .map(|row| row.id.as_str())
+        .collect();
+    let shown: Vec<usize> = list
+        .geometry
+        .iter()
+        .filter(|row| row.visible.height > 0)
+        .filter_map(|row| selectable.iter().position(|id| *id == row.id))
+        .collect();
+    let (Some(first), Some(last)) = (shown.iter().min(), shown.iter().max()) else {
+        return String::new();
+    };
+    let below = selectable.len() - last - 1;
+    if below > 0 {
+        format!(
+            "{}–{} of {} · {below} more ↓",
+            first + 1,
+            last + 1,
+            selectable.len()
+        )
+    } else {
+        format!("{}–{} of {}", first + 1, last + 1, selectable.len())
+    }
 }
 
 #[cfg(test)]
