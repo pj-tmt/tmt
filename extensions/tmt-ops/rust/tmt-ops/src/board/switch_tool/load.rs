@@ -71,6 +71,17 @@ pub(super) fn launch(
         budget.min(Duration::from_secs(10)),
         65536,
     );
+    // A later observation failure must not erase a known launch refusal.
+    let launch_error = match launched {
+        Ok(done) if !done.success => Some(
+            serde_json::from_slice::<serde_json::Value>(&done.stdout)
+                .ok()
+                .and_then(|v| v["error"]["message"].as_str().map(str::to_owned))
+                .unwrap_or_else(|| "Host command failed; a partial launch may exist.".into()),
+        ),
+        Ok(_) => None,
+        Err(_) => Some("Host command timed out or failed; a partial launch may exist.".into()),
+    };
     // A host failure can follow a partial launch. Always inspect public state;
     // an exit status or pane ID cannot stand in for the requested driver's evidence.
     loop {
@@ -80,7 +91,7 @@ pub(super) fn launch(
         }
         let listed = match core.json_within(&["ls"], remaining.min(Duration::from_secs(5))) {
             Ok(v) => v,
-            Err(e) => return Ok(unknown(&e.message)),
+            Err(e) => return Ok(unknown(launch_error.as_deref().unwrap_or(&e.message))),
         };
         if let Some(row) = listed["identities"]
             .as_array()
@@ -99,15 +110,7 @@ pub(super) fn launch(
         }
         std::thread::sleep(remaining.min(Duration::from_millis(100)));
     }
-    let detail = match launched {
-        Ok(done) if !done.success => serde_json::from_slice::<serde_json::Value>(&done.stdout)
-            .ok()
-            .and_then(|v| v["error"]["message"].as_str().map(str::to_owned))
-            .unwrap_or_else(|| "Host command failed; a partial launch may exist.".into()),
-        Ok(_) => {
-            "No same-UUID running-driver observation arrived within the observation window.".into()
-        }
-        Err(_) => "Host command timed out or failed; a partial launch may exist.".into(),
-    };
-    Ok(unknown(&detail))
+    Ok(unknown(launch_error.as_deref().unwrap_or(
+        "No same-UUID running-driver observation arrived within the observation window.",
+    )))
 }

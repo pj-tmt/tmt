@@ -24,7 +24,10 @@ if a[:2]==['host','templates']:
  print(json.dumps({'version':1,'hosts':[{'host':'tmux','state':'builtin','launch':{'argv':[host,'{session}','{command}'],'placeholders':['session','command']}}]}))
 elif a[:2]==['config','show']:print(json.dumps({'paths':{'global':str(r/'config.json')},'resolved':{}}))
 elif a[:1]==['api']:json.load(sys.stdin);print(json.dumps({'dataRoot':str(r/'data')}))
-elif a[:1]==['ls']:print(json.dumps({'identities':[json.loads((r/'row.json').read_text())]}))
+elif a[:1]==['ls']:
+ if (r/'launches').exists() and (r/'fail-observation').exists():
+  print(json.dumps({'error':{'code':'READ_FAILED','message':'Observation unavailable.'}}));sys.exit(1)
+ print(json.dumps({'identities':[json.loads((r/'row.json').read_text())]}))
 else:raise Exception(a)
 "#).unwrap();
         let core = root.join("core");
@@ -132,6 +135,7 @@ fn failed_host_reports_uncertainty_with_exact_error_text_and_no_retry() {
     let f = Fixture::new();
     let review = f.review();
     std::fs::write(f.root.join("fail-host"), "").unwrap();
+    std::fs::write(f.root.join("fail-observation"), "").unwrap();
     let Outcome::Unknown(text) = load::launch(&f.core, &review, OBSERVE_BUDGET).unwrap() else {
         panic!("A refused host cannot prove a completed switch");
     };
