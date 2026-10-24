@@ -372,19 +372,9 @@ fn summary(
     writeln!(
         output,
         "{} {}",
-        like_the_table(terminal, mark)?,
+        terminal.paint(mark.token(), mark.symbol()),
         parts.join(" · ")
     )
-}
-
-/// A mark painted the way the table paints its cells, so the summary's `✓` and the table's are
-/// one colour in every terminal (the table and `Terminal::paint` encode a token differently).
-fn like_the_table(terminal: Terminal, mark: Mark) -> io::Result<String> {
-    let mut cell = Table::new(&[Column::Fixed]).indent(0);
-    cell.row([Cell::styled(mark.symbol(), mark.token())]);
-    let mut bytes = Vec::new();
-    cell.write(&mut bytes, terminal)?;
-    Ok(String::from_utf8_lossy(&bytes).trim_end().to_owned())
 }
 
 fn skills_changed(skills: &Value) -> bool {
