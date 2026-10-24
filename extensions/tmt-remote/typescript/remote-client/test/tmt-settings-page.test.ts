@@ -42,9 +42,10 @@ class Node {
   prepend(...nodes: Node[]) {
     this.children.unshift(...nodes);
   }
-  replaceChildren(...nodes: Node[]) {
+  replaceChildren(...nodes: (Node | string)[]) {
     this.own = '';
-    this.children = nodes;
+    this.children = [];
+    this.append(...nodes);
   }
   setAttribute(name: string, value: string) {
     this.attributes.set(name, value);
@@ -132,7 +133,11 @@ const section = () => ids.get('tmt-settings-section')!;
 const note = () => ids.get('tmt-settings-note')!;
 const rowTitles = () =>
   section()
-    .all((node) => node.className === 'tmt-ui-list-label')
+    .all((node) =>
+      node.className
+        .split(' ')
+        .some((name) => ['tmt-ui-list-label', 'tmt-settings-identity-name'].includes(name)),
+    )
     .map((node) => node.textContent);
 
 const sample: TmtSettings = {
@@ -288,13 +293,14 @@ it('says why a section is empty, and marks sample data', async () => {
   await settle();
   hash = '#identities';
   hashchange!();
-  expect(section().textContent).toBe('Identities could not be read.');
+  expect(section().textContent).toContain('Identities could not be read.');
   const mock = await mockSettingsSource.read();
   expect(mock.sample).toBe(true);
   tmtSettingsPage(shell(), mockSettingsSource);
   await settle();
-  expect(note().hidden).toBe(false);
-  expect(note().textContent).toContain('Sample data');
+  expect(note().hidden).toBe(true);
+  expect(section().textContent).toContain('Sample identities');
+  expect(section().textContent).toContain('These sample records are not this machine.');
 });
 
 it('reports a failed read and stops painting once cleaned up', async () => {
@@ -374,3 +380,100 @@ for (const denied of [false, true])
       denied ? 'Copy failed. Select the command and copy it manually.' : 'Copied.',
     );
   });
+
+it('renders Identities with the approved inventory and local selected detail', async () => {
+  hash = '#identities';
+  const read = vi.fn(async () => sample);
+  tmtSettingsPage(shell(), { read });
+  await settle();
+  expect(section().textContent).toContain('Identity management');
+  expect(section().textContent).toContain('Lifetime');
+  expect(section().textContent).toContain('Presence');
+  const names = section().all((node) =>
+    node.className.split(' ').includes('tmt-settings-identity-name'),
+  );
+  expect(names.map((node) => node.textContent)).toEqual(['alpha', 'beta', 'zed']);
+  expect(names[0]!.attributes.get('aria-current')).toBe('true');
+  names[1]!.fire('click');
+  expect(names[1]!.attributes.get('aria-current')).toBe('true');
+  expect(names[0]!.attributes.get('aria-current')).toBe('false');
+  expect(read).toHaveBeenCalledTimes(1);
+});
+
+it('keeps Identities unavailable and empty states distinct without invented records', async () => {
+  hash = '#identities';
+  tmtSettingsPage(shell());
+  await settle();
+  expect(section().textContent).toContain('Web data connection pending');
+  expect(section().textContent).toContain('Identity inventory unavailable');
+  expect(section().all((node) => node.tag === 'tbody')).toHaveLength(0);
+  expect(
+    section()
+      .all((node) => node.tag === 'code')
+      .map((node) => node.textContent),
+  ).toEqual(['tmt ls']);
+  expect(note().hidden).toBe(true);
+  route.abort();
+  route = new AbortController();
+  tmtSettingsPage(shell(), { read: async () => ({ ...sample, identities: { rows: [] } }) });
+  await settle();
+  expect(section().textContent).toContain('No identities yet.');
+  expect(section().textContent).not.toContain('Web data connection pending');
+});
+
+it('uses product provider labels, a truthful missing value and one source read for local selection', async () => {
+  hash = '#identities';
+  const read = vi.fn(async () => sample);
+  tmtSettingsPage(shell(), { read });
+  await settle();
+  expect(section().textContent).toContain('Codex');
+  expect(section().textContent).toContain('Claude');
+  expect(section().textContent).toContain('Not reported');
+  expect(section().textContent).not.toContain('codex');
+  expect(section().textContent).not.toContain('claude');
+  const names = section().all((node) =>
+    node.className.split(' ').includes('tmt-settings-identity-name'),
+  );
+  names[1]!.fire('click');
+  const selected = section().all((node) => node.tag === 'tr' && 'selected' in node.dataset);
+  expect(selected).toHaveLength(1);
+  expect(selected[0]!.textContent).toContain('beta');
+  const detail = section().all((node) => node.tag === 'aside')[0]!;
+  expect(detail.textContent).toContain('Temporary');
+  expect(detail.textContent).toContain('Codex');
+  expect(detail.textContent).toContain('Active');
+  names[2]!.fire('click');
+  expect(detail.textContent).toContain('Saved');
+  expect(detail.textContent).toContain('Offline');
+  expect(detail.textContent).toContain('Not reported');
+  expect(read).toHaveBeenCalledTimes(1);
+});
+
+it('renders remaining sample command references as code when changing sections', async () => {
+  tmtSettingsPage(shell(), mockSettingsSource);
+  await settle();
+  expect(note().hidden).toBe(false);
+  expect(note().textContent).not.toContain('`');
+  expect(
+    note()
+      .all((node) => node.tag === 'code')
+      .map((node) => node.textContent),
+  ).toEqual(['tmt ls', 'tmt extension ls', 'tmt driver ls']);
+  hash = '#identities';
+  hashchange!();
+  expect(note().hidden).toBe(true);
+  expect(note().textContent).toBe('');
+});
+
+it('keeps a supplied warning beside retained identity rows', async () => {
+  hash = '#identities';
+  tmtSettingsPage(shell(), {
+    read: async () => ({
+      ...sample,
+      identities: { ...sample.identities, unavailable: 'Some identity records were refused.' },
+    }),
+  });
+  await settle();
+  expect(section().textContent).toContain('Some identity records were refused.');
+  expect(rowTitles()).toEqual(['alpha', 'beta', 'zed']);
+});
