@@ -963,10 +963,31 @@ test.describe('the Ops route on the owner read', () => {
     await page.context().grantPermissions(['clipboard-write'], { origin });
     await page.getByRole('button', { name: 'Copy tmt ops ui' }).click();
     await expect(page.locator('#ops-section .tmt-ui-command-feedback')).toHaveText('Copied.');
+    // A ruled line over the foot, as on every Ops page.
+    await expect(page.locator('#ops-section .ops-foot')).toHaveCSS('border-top-style', 'solid');
     await page.goto(`${origin}/ops#settings`);
-    await expect(page.locator('#ops-section')).toContainText(
-      'The Ops settings page is not in the browser yet.',
+    // The settings have no browser read: where they are, then the views that are here.
+    await expect(page.locator('#ops-section .tmt-ui-page-title')).toHaveText('Ops settings');
+    await expect(page.locator('#ops-section .tmt-ui-page-subtitle')).toHaveText(
+      'Manage your workspace from the terminal.',
     );
+    const hero = page.locator('#ops-section .tmt-ui-card[data-hero]');
+    await expect(hero.getByRole('heading', { level: 3 })).toHaveText(
+      'The right controls, in your terminal.',
+    );
+    await expect(hero).toContainText(
+      'Ops settings are not available in the browser yet. Open the terminal workspace to view and manage them.',
+    );
+    await expect(hero.locator('.tmt-ui-command-text')).toHaveText('tmt ops ui');
+    await hero.getByRole('button', { name: 'Copy tmt ops ui' }).click();
+    await expect(hero.locator('.tmt-ui-command-feedback')).toHaveText('Copied.');
+    await expect(page.locator('#ops-section .ops-foot')).toHaveText('CLI-managed settings');
+    await page.getByRole('link', { name: 'View squads' }).click();
+    await expect(page).toHaveURL(`${origin}/ops#squads`);
+    await expect(page.locator('#ops-section .tmt-ui-page-title')).not.toHaveText('Ops settings');
+    await page.goBack();
+    await page.getByRole('link', { name: 'View agents' }).click();
+    await expect(page).toHaveURL(`${origin}/ops#agents`);
     await page.locator('nav.tmt-ui-rail a[data-id="digest"]').click();
     await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'digest');
     const left = reads.length;

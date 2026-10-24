@@ -3,9 +3,9 @@
  * the board's refreshes. */
 import { pageLoading } from './page-loading.js';
 import type { RemoteShell } from './remote-shell.js';
-import { notAvailable, notInBrowser } from './not-available.js';
+import { notAvailable } from './not-available.js';
 import { agentsView } from './ops-agents.js';
-import { sentence } from './ops-parts.js';
+import { settingsView } from './ops-settings.js';
 import { squadsView } from './ops-squads.js';
 import { timersView } from './ops-timers.js';
 import { opsSource, type OpsBoard, type OpsSource } from './ops-source.js';
@@ -38,6 +38,7 @@ export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void
     squads: squadsView(),
     schedules: timersView(),
   };
+  let settings: HTMLElement | undefined;
   const paint = () => {
     const section = current();
     if (section !== 'squads') views.squads.close();
@@ -66,10 +67,11 @@ export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void
     });
     if (title) title.textContent = SECTIONS.find((item) => item.id === section)!.label;
     if (!board) main.replaceChildren(pageLoading());
-    else if (section === 'settings')
+    else if (section === 'settings') {
       // The board's settings have no browser read: the page says where they are.
-      main.replaceChildren(sentence(notInBrowser('The Ops settings page', 'tmt ops ui')));
-    else {
+      settings ??= settingsView(href);
+      if (settings.parentElement !== main) main.replaceChildren(settings);
+    } else {
       const view = views[section];
       if (view.node.parentElement !== main) main.replaceChildren(view.node);
       view.update(board);

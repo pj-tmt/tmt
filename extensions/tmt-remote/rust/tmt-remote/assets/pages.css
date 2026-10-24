@@ -467,7 +467,8 @@ body:not(:has(.tmt-ui-shell)) {
 }
 .ops-agents-page,
 .ops-squads-page,
-.ops-timers-page {
+.ops-timers-page,
+.ops-settings-page {
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -532,7 +533,8 @@ body:not(:has(.tmt-ui-shell)) {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0;
+  padding: 16px 0 0;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   font-size: var(--tmt-ui-caption-size);
 }
 /* The squads page: a card per squad, side by side, each with its head, its people and its footer. */
@@ -622,6 +624,44 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-timers-page .tmt-ui-card > p {
   margin: 0;
   color: var(--tmt-ui-color-secondary);
+}
+/* The settings page: where the settings are (one centred card), then the views that are here. */
+.ops-settings-page > .tmt-ui-card > p,
+.ops-settings-note {
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+}
+.ops-settings-page > .tmt-ui-card[data-hero] {
+  justify-items: center;
+  align-content: center;
+  min-height: 19.75rem;
+  padding: 3.875rem 1.875rem;
+  text-align: center;
+}
+.ops-settings-page > .tmt-ui-card[data-hero] > p {
+  max-width: 33rem;
+}
+.ops-settings-page > .tmt-ui-card[data-hero] > .tmt-ui-command {
+  width: min(100%, 32rem);
+  text-align: start;
+}
+.ops-settings-keep {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.ops-settings-keep .ops-settings-note {
+  margin-top: 6px;
+}
+.ops-settings-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ops-settings-links > .tmt-ui-action {
+  text-decoration: none;
 }
 .ops-note {
   margin: 0;
