@@ -1240,7 +1240,14 @@ renameSync(output+'.tmp',output);
       const memberRow = (screen: string) =>
         screen.split('\n').find((line) => /^[ \t]*[├└][^│\n]*auth-fix\b/.test(line));
       await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
-      fixture.tmux(['send-keys', '-t', shell.pane, '1', '/', 'auth-fix', 'Enter', 'End']);
+      fixture.tmux(['send-keys', '-t', shell.pane, '1']);
+      await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, '/', 'auth-fix', 'Enter']);
+      await fixture.waitForCapture(
+        (screen) => /\/[ \t]+auth-fix[ \t]+1 of 1[ \t]+×/.test(screen),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'End']);
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('○ 1 todo') &&
