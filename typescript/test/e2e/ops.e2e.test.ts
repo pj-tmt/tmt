@@ -1710,14 +1710,16 @@ renameSync(output+'.tmp',output);
             (current) => current.includes(`step ${round} is done`),
             shell.pane
           );
-          grow.run(`step ${round} is done and the agent keeps writing`, agent.id);
-          // The Selection box covers the middle of the grown row. Observe both visible
-          // ends on the same line so an older round cannot satisfy the growth check.
+          grow.run(`step ${round} is done and the agent keeps writing · growth ${round}`, agent.id);
+          // The Selection box covers the middle of the grown row. Its longer Checklist
+          // label still leaves the round's suffix visible beyond the box on the same line.
           await fixture.waitForCapture(
             (current) =>
               current
                 .split('\n')
-                .some((row) => row.includes(`step ${round} is done`) && row.includes('writing')),
+                .some(
+                  (row) => row.includes(`step ${round} is done`) && row.includes(`growth ${round}`)
+                ),
             shell.pane
           );
           expect(screen(), `Quote stays after round ${round}:\n${screen()}`).toContain('q› Quote');
