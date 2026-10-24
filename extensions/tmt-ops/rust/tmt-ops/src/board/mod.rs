@@ -1117,7 +1117,9 @@ fn session(
             }
             Ok(BoardEvent::Input(Event::Key(key))) if key.kind == KeyEventKind::Press => {
                 dirty = true;
-                app.key(key)
+                view_state::input(state.as_deref_mut(), app, Some(key.code), |app| {
+                    app.key(key)
+                })
             }
             Ok(BoardEvent::Input(Event::Mouse(mouse))) => {
                 if mouse.kind == MouseEventKind::Moved {
@@ -1126,14 +1128,16 @@ fn session(
                 } else {
                     dirty = true;
                     let (effect, next) =
-                        coalesce_wheel(mouse, input, |event| app.mouse(event, Instant::now()));
+                        view_state::input(state.as_deref_mut(), app, None, |app| {
+                            coalesce_wheel(mouse, input, |event| app.mouse(event, Instant::now()))
+                        });
                     deferred = next;
                     effect
                 }
             }
             Ok(BoardEvent::Input(Event::Paste(text))) => {
                 dirty = true;
-                app.paste(&text)
+                view_state::input(state.as_deref_mut(), app, None, |app| app.paste(&text))
             }
             Ok(BoardEvent::Input(Event::FocusGained)) => {
                 capture_lost = true;
