@@ -89,6 +89,7 @@ import type { QuoteSelector } from './thread-records.js';
 import { Home, validateHomeSearch, type HomeSearch } from './home.js';
 import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
+import './about-drawer.css';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import { framedLayout } from './page-layout.js';
 import type { AnchorPosition, RenderState, SelectionRect } from './renderer.js';
@@ -1910,13 +1911,19 @@ function OpenPage({
         panel="about"
         onDismiss={() => close()}
       >
-        <PageAttribution
-          originalAuthor={view.originalAuthor}
-          publisherAgent={view.publisherAgent}
-        />
+        <section aria-labelledby="about-author-heading">
+          <h3 id="about-author-heading">{text.aboutAuthor}</h3>
+          <PageAttribution
+            originalAuthor={view.originalAuthor}
+            publisherAgent={view.publisherAgent}
+          />
+        </section>
         <PageLayoutSection layout={view.layout} reason={view.layoutReason} />
         <PageSizeSection size={size} exportPage={() => show('export')} />
-        <p>{text.warning}</p>
+        <section aria-labelledby="about-scripts-heading">
+          <h3 id="about-scripts-heading">{text.aboutScripts}</h3>
+          <p>{text.warning}</p>
+        </section>
       </BrowserDrawer>
       <div
         className="workspace"

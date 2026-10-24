@@ -139,7 +139,7 @@ export function PageSizeActions({
     <BrowserAction
       type="button"
       label={text.pageSize.export}
-      variant="text"
+      variant={why ? 'secondary' : 'text'}
       onActivate={() => exportPage()}
     />
   );
@@ -147,7 +147,7 @@ export function PageSizeActions({
     <BrowserAction
       type="button"
       label={text.pageSize.compact}
-      variant="text"
+      variant={why ? 'secondary' : 'text'}
       onActivate={() => void size.compact()}
     />
   );
