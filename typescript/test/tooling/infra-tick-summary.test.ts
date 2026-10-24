@@ -2233,16 +2233,27 @@ describe('local CI watcher heartbeat (#4872)', () => {
     ]);
     expect(renderInfraTick(report)).toContain('CI failure watcher unhealthy');
   });
-  it('reports a coverage-gap note even when the heartbeat is fresh', () => {
+  it('reports a current coverage-gap note even when the heartbeat is fresh', () => {
+    const checkedAt = '2026-10-24T13:00:00Z';
     const gap = {
-      updatedAt: '2026-10-18T00:59:00Z',
+      updatedAt: '2026-10-24T12:59:00Z',
       message: 'cursor backlog before the 24 h lookback is unknown',
     };
-    const { report } = collect({ updatedAt: options.until, status: 'ok', coverageGaps: [gap] });
+    const report = collectInfraTick(fixture(), {
+      ...options,
+      local: {
+        ...options.local,
+        watcherHeartbeat: {
+          path: heartbeatPath,
+          checkedAt,
+          heartbeat: { updatedAt: checkedAt, status: 'ok', coverageGaps: [gap] },
+        },
+      },
+    });
     expect(report.anomalies).toEqual([
       expect.objectContaining({
         kind: 'CI failure watcher coverage gap',
-        updatedAt: options.until,
+        updatedAt: checkedAt,
         coverageGaps: [gap],
       }),
     ]);

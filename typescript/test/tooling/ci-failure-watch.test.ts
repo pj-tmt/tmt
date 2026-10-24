@@ -641,3 +641,30 @@ it('reads only the shared state-directory heartbeat and reports missing or malfo
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+it.each([
+  [0, true],
+  [WATCH_LIMITS.lookbackMs - 1, true],
+  [WATCH_LIMITS.lookbackMs, false],
+  [WATCH_LIMITS.lookbackMs + 1, false],
+  [-1, false],
+])(
+  'coverage notes expire at the producer without removing retained alerts (age %i)',
+  (age, included) => {
+    const result = collectWatchCycle({
+      state: newWatchState(now),
+      api: apiFor([]).api,
+      routing,
+      now,
+      initial: true,
+    });
+    const alert = Object.values(result.state.alerts).find((alert) => alert.coverage)!;
+    alert.lastSeen = now - age;
+    const retained = structuredClone(result.state);
+    const heartbeat = watchHeartbeat(result.state, now, 'ok');
+    expect(heartbeat.coverageGaps).toEqual(
+      included ? [{ updatedAt: iso(now - age), message: alert.job }] : []
+    );
+    expect(result.state).toEqual(retained);
+  }
+);

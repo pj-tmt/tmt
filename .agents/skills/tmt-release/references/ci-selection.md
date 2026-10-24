@@ -337,7 +337,7 @@ selection never substitutes for runtime/archive/browser proof.
 hourly Infra lead tick. Run it manually beside the existing tick before changing
 its cron prompt; the lead compares the two reports after the script lands.
 The script does not judge reviews, attribute causes, arm PRs or publish releases.
-Export the same `TMT_CI_WATCH_STATE` directory for watcher and tick: its local heartbeat adds timestamped anomalies for missing/stale (>2 h)/invalid/error evidence or coverage gaps, without API reads or changes to REST `INCOMPLETE` semantics.
+Export the same `TMT_CI_WATCH_STATE` directory for watcher and tick: its local heartbeat adds timestamped anomalies for missing/stale (>2 h)/invalid/error evidence or coverage notes younger than 24 h, without API reads or changes to REST `INCOMPLETE` semantics.
 A new output directory establishes a zero-call bootstrap boundary, not a health
 report. Run the command again for evidence after that boundary:
 

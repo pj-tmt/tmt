@@ -218,7 +218,10 @@ export function watchHeartbeat(state, now, status, extra = {}) {
     cursor: state.cursor,
     pending: Object.values(state.alerts).filter((alert) => alert.pending).length,
     coverageGaps: Object.values(state.alerts)
-      .filter((alert) => alert.coverage)
+      .filter(
+        (alert) =>
+          alert.coverage && now >= alert.lastSeen && now - alert.lastSeen < WATCH_LIMITS.lookbackMs
+      )
       .map((alert) => ({ updatedAt: new Date(alert.lastSeen).toISOString(), message: alert.job })),
     ...extra,
   };
