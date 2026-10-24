@@ -378,7 +378,7 @@ fn flat_header_words_counts_and_missing_evidence_are_text_while_marks_keep_roles
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        for word in ["Nothing", "blocked", "idle"] {
+        for word in ["Agents", "blocked", "idle"] {
             let x = text[..text.find(word).unwrap()].width() as u16;
             assert_eq!(buffer[(x, 0)].fg, fg(Role::Text), "{word}");
         }

@@ -92,7 +92,7 @@ pub(crate) fn glyph_error(text: &str) -> Option<String> {
 fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced_states() {
     for bad in [
         "① squads",
-        "② needs you",
+        "② todos",
         "③ squads",
         "⑤ cron",
         "⏱ cron",

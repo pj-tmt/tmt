@@ -273,15 +273,6 @@ fn aggregate_model_keeps_summary_and_acquired_squad_order() {
         }
     );
     assert_eq!(home.squads[0].squad, "shown");
-    assert_eq!(
-        home.squads[0].counts,
-        Counts {
-            members: 2,
-            review: 1,
-            idle: 1,
-            ..Default::default()
-        }
-    );
     assert_eq!(home.squads[1].squad, "hidden");
     assert_eq!(home.squads[0].lead.as_ref().unwrap()["name"], "lead");
 }
@@ -310,11 +301,7 @@ fn acquired_squad_counts_deduplicate_authored_rows_and_keep_distinct_memberships
     assert_eq!(home.summary.waiting, 3);
     assert_eq!(home.summary.blocked, 3);
     assert_eq!(home.squads[0].squad, "a");
-    assert_eq!(home.squads[0].counts.members, 3);
-    assert_eq!(home.squads[0].counts.waiting, 2);
-    assert_eq!(home.squads[0].counts.blocked, 2);
     assert_eq!(home.squads[1].squad, "b");
-    assert_eq!(home.squads[1].counts.members, 1);
     assert_eq!(acquired.documents["a"]["sections"][1]["rows"][0]["id"], "A");
     assert_eq!(acquired.documents["b"]["sections"][0]["rows"][0]["id"], "A");
 }
@@ -636,6 +623,6 @@ fn aggregate_state_counts_preserve_public_attention_semantics_including_the_lead
         document("a", Value::Null, vec![row("W", "worker", "idle")]),
     )]);
     let home = model(&["a".into()], &acquired);
-    assert_eq!(home.squads[0].counts.members, 1);
-    assert_eq!(home.squads[0].counts.idle, 1);
+    assert_eq!(home.summary.members, 1);
+    assert_eq!(home.summary.idle, 1);
 }

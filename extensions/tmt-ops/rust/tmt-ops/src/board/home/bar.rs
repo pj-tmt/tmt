@@ -93,27 +93,10 @@ pub(super) fn paint(key: &Key, file: &str, template: &Template<()>) -> Painted {
 }
 
 fn summary_pieces(home: &Home, width: u16, stale: bool) -> Vec<Piece> {
-    let names = home
-        .squads
-        .iter()
-        .filter(|squad| squad.counts.waiting > 0)
-        .map(|squad| escape(&squad.squad))
-        .collect::<Vec<_>>();
-    let needs = if names.is_empty() {
-        if home.failures.is_empty() && !home.incomplete {
-            "✓ Nothing needs you".into()
-        } else {
-            "Needs you: partial reading".into()
-        }
-    } else if width < super::SM.cells {
-        format!(
-            "◆ {} need{} you {}",
-            names.len(),
-            if names.len() == 1 { "s" } else { "" },
-            names.join(" ")
-        )
+    let summary = if home.failures.is_empty() && !home.incomplete {
+        "Agents"
     } else {
-        format!("◆ Needs you  {}", names.join(" · "))
+        "Agents: partial reading"
     };
     // A stale core read counts nobody as working or idle.
     let agents = home.workspace.roster.members.len();
@@ -133,24 +116,13 @@ fn summary_pieces(home: &Home, width: u16, stale: bool) -> Vec<Piece> {
     };
     let available =
         usize::from(width).saturating_sub(totals.width() + usize::from(!totals.is_empty()) * 2);
-    let needs = fit(&needs, available).trim_end().to_owned();
+    let summary = fit(summary, available).trim_end().to_owned();
     let gap = if totals.is_empty() {
         String::new()
     } else {
-        " ".repeat(usize::from(width).saturating_sub(needs.width() + totals.width()))
+        " ".repeat(usize::from(width).saturating_sub(summary.width() + totals.width()))
     };
-    let (mark, words, role) = if let Some(words) = needs.strip_prefix("◆") {
-        ("◆", words, Role::Waiting)
-    } else if let Some(words) = needs.strip_prefix("✓") {
-        ("✓", words, Role::Muted)
-    } else {
-        ("", needs.as_str(), Role::Text)
-    };
-    let mut pieces = vec![
-        (mark.into(), Some(role)),
-        (words.into(), Some(Role::Text)),
-        (gap, None),
-    ];
+    let mut pieces = vec![(summary, Some(Role::Text)), (gap, None)];
     for (index, group) in totals
         .split("  ")
         .filter(|group| !group.is_empty())
@@ -190,7 +162,7 @@ pub(super) fn lines(painted: Painted) -> Option<Line<'static>> {
     Some(line)
 }
 
-/// Needs-you names lead; state totals use the remaining space.
+/// Neutral roster summary; state totals use the remaining space.
 #[cfg(test)]
 pub(crate) fn summary(home: &Home, width: u16, look: Look) -> Line<'static> {
     summary_in(&mut Kept::default(), home, width, look, false)

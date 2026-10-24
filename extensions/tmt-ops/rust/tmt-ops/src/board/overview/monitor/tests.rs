@@ -278,7 +278,11 @@ fn waiting_is_request_attention_not_a_state_word_or_blocked_status() {
         .state = Some("waiting".into());
     app.overview_rows.borrow_mut().clear();
     assert_eq!(
-        scene(&app, app.workspace_snapshot().unwrap()).waiting,
+        scene(&app, app.workspace_snapshot().unwrap())
+            .rows
+            .iter()
+            .filter(|row| waits(app.workspace_snapshot().unwrap(), row))
+            .count(),
         2,
         "an authored word cannot manufacture a pending request"
     );
@@ -628,7 +632,10 @@ fn global_waiting_does_not_attribute_an_unobserved_room_membership() {
         !waits(snapshot, row),
         "global waiting must not be attributed to this unobserved membership"
     );
-    assert_eq!(scene.waiting, 1);
+    assert_eq!(
+        scene.rows.iter().filter(|row| waits(snapshot, row)).count(),
+        1
+    );
     assert!(
         snapshot.roster.shell_counts().waiting > 0,
         "global evidence stays in its own scope"

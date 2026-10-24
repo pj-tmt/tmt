@@ -49,7 +49,6 @@ fn observation_home(leads: Vec<Lead>) -> super::super::home::Home {
             .map(|lead| super::super::home::SquadLine {
                 squad: lead.squad,
                 lead: Some(lead.row),
-                counts: Default::default(),
             })
             .collect(),
         failures: vec![],
@@ -318,7 +317,6 @@ fn exchanges_sort_before_empty_leads_through_read_reconcile_and_replace() {
             .map(|lead| super::super::home::SquadLine {
                 squad: lead.squad.clone(),
                 lead: Some(lead.row.clone()),
-                counts: Default::default(),
             })
             .collect(),
         failures: vec![],
@@ -592,7 +590,6 @@ fn failed_reads_are_not_empty_evidence_and_changed_sender_drops_observations() {
         squads: vec![super::super::home::SquadLine {
             squad: "squad".into(),
             lead: Some(lead("a", "squad").row),
-            counts: Default::default(),
         }],
         failures: vec![],
         incomplete: false,

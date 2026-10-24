@@ -255,11 +255,6 @@ pub(in crate::board) fn metered(look: crate::look::Look) -> App {
     home.squads = vec![SquadLine {
         squad: "product".into(),
         lead: Some(row),
-        counts: Counts {
-            members: 1,
-            working: 1,
-            ..Default::default()
-        },
     }];
     view.home_rate.insert(
         "product".into(),
@@ -914,6 +909,34 @@ fn captures() -> Value {
                     look_name,
                     width,
                     36,
+                    &mut styles,
+                ));
+            }
+        }
+        for (look_name, look) in looks() {
+            for scene in crate::board::conversation_notes::tests::captures::SCENES {
+                for (width, height) in [(160, 36), (120, 40), (100, 32)] {
+                    let app = crate::board::conversation_notes::tests::captures::case(scene, look);
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        width,
+                        height,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
+        for (look_name, look) in looks() {
+            for (width, height) in [(160, 36), (120, 40), (100, 32)] {
+                let app = crate::board::recovery::tests::action_needed_case(look);
+                frames.push(capture_frame(
+                    &app,
+                    "action-needed",
+                    look_name,
+                    width,
+                    height,
                     &mut styles,
                 ));
             }

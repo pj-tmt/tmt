@@ -268,7 +268,7 @@ impl Controller {
                         safe(unknown)
                     ));
                 }
-                notes.push("Started means the agent was asked to start; check it before relying on it. Items marked Needs you say what to do. Nothing is retried automatically.".into());
+                notes.push("Started means the agent was asked to start; check it before relying on it. Items marked Action needed say what to do. Nothing is retried automatically.".into());
             }
         }
         if matches!(self.screen, Screen::Preview | Screen::Results)
@@ -469,6 +469,7 @@ fn status(value: &str) -> String {
         "created" | "merged" | "started" | "relaunched" => {
             format!("{} Applied", Mark::Done.symbol())
         }
+        "needs_you" => "◆ Action needed".into(),
         "skip_existing" | "skipped" | "shell" => {
             format!("{} Not applied", Mark::Offline.symbol())
         }
@@ -620,7 +621,14 @@ pub(super) fn results(r: &Restore) -> Vec<String> {
             p.name
                 .as_ref()
                 .map_or(String::new(), |n| format!(" ({})", safe(n))),
-            safe(&p.message)
+            safe(if p.status == "needs_you" {
+                p.message
+                    .strip_prefix("needs you ")
+                    .or_else(|| p.message.strip_prefix("Needs you "))
+                    .unwrap_or(&p.message)
+            } else {
+                &p.message
+            })
         ));
     }
     let mut failures = std::collections::BTreeMap::<&str, usize>::new();
@@ -652,9 +660,9 @@ fn pane_action(action: &str) -> &'static str {
         "shell" => "Shell",
         "relaunch_command" => "Recorded command eligible",
         "resumable" => "Remembered session eligible",
-        "identity_missing" => "Needs you: original identity missing",
-        "no_remembered_session" => "Needs you: no remembered session",
-        "stale_requires_retry" => "Needs you: stale remembered session; no automatic retry",
+        "identity_missing" => "◆ Action needed: original identity missing",
+        "no_remembered_session" => "◆ Action needed: no remembered session",
+        "stale_requires_retry" => "◆ Action needed: stale remembered session; no automatic retry",
         "floating" => "Floating pane: not restored",
         _ => "Unknown",
     }

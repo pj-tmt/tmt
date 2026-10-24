@@ -440,10 +440,6 @@ mod tests {
             home.squads = vec![crate::board::home::SquadLine {
                 squad: "product".into(),
                 lead: None,
-                counts: crate::board::home::Counts {
-                    waiting: 1,
-                    ..Default::default()
-                },
             }];
             home.workspace
                 .roster
@@ -451,6 +447,26 @@ mod tests {
                 .values_mut()
                 .for_each(|member| member.state = Some("waiting".into()));
             app.overview_rows.borrow_mut().clear();
+            let notes_key = app
+                .workspace_snapshot()
+                .unwrap()
+                .rows
+                .keys()
+                .find_map(crate::board::conversation_notes::Key::of)
+                .unwrap();
+            app.notes = crate::board::conversation_notes::State::reading();
+            let now = std::time::Instant::now();
+            let task = app.notes.offer(Some(&notes_key), now).unwrap();
+            app.notes.finished(
+                crate::board::conversation_notes::tests::reading(
+                    &task,
+                    Ok(crate::board::conversation_notes::Counts {
+                        todo: 2,
+                        ..Default::default()
+                    }),
+                ),
+                now,
+            );
             app.theme_picker = Some(Picker::open(config, Some("product".into())).unwrap());
             for _ in 0..3 {
                 app.key(key(KeyCode::Down));
@@ -487,16 +503,8 @@ mod tests {
                     .iter()
                     .all(|hit| hit.target != crate::board::app::HitTarget::AllRoomTimers)
             );
-            // The count line under the list carries the waiting note.
-            let summary_y = (0..buffer.area.height)
-                .find(|y| {
-                    (0..110)
-                        .map(|x| buffer[(x, *y)].symbol())
-                        .collect::<String>()
-                        .contains("need you first")
-                })
-                .expect("actual Agents count line");
-            assert_eq!(buffer[(find(summary_y, "◆"), summary_y)].fg, expected);
+            // Positive todo counts use the existing attention role under the preview.
+            assert_eq!(buffer[(find(0, "○"), 0)].fg, expected);
             let tabs: String = (0..110).map(|x| buffer[(x, tabs_y)].symbol()).collect();
             assert!(!tabs.contains('◆'));
             if override_text.is_empty() {

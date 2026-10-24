@@ -1194,6 +1194,101 @@ renameSync(output+'.tmp',output);
     });
   });
 
+  it('publishes Notes completion to its chip, member row and global todo count', async () => {
+    await withE2EFixture(async (fixture) => {
+      await squadWithMember(fixture);
+      const shown = expectJsonResult(
+        await fixture.runJsonCli<{ room: { id: string } }>(['room', 'show', 'squad-product'])
+      );
+      const item = randomUUID();
+      const created = expectJsonResult(
+        await squadCli<{ current: { member: { id: string } } }>(fixture, [
+          'checklist',
+          'create',
+          '--room',
+          shown.room.id,
+          '--member',
+          'auth-fix',
+          '--item',
+          item,
+          '--expect-inventory',
+          'absent',
+          'Finish the causal Notes check',
+        ])
+      );
+      const database = path.join(fixture.globalDir, 'ops', 'ops.db');
+      const read = () =>
+        JSON.parse(
+          storedDocument(
+            database,
+            'checklist',
+            `${shown.room.id}/${created.current.member.id}`
+          )!.toString('utf8')
+        );
+      expect(read().items[0]).toMatchObject({ id: item, completion: 'open', revision: 1 });
+      const beforeRequests = requestAttempts(fixture);
+      await fixture.attachSessionClient('e2e');
+      const shell = fixture.createShellPane('notes-count-board');
+      fixture.tmux(['select-window', '-t', shell.pane]);
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        shell.pane,
+        'tmt ops ui --squad product; echo NOTES_COUNT_BOARD_EXIT=$?',
+        'Enter',
+      ]);
+      const memberRow = (screen: string) =>
+        screen
+          .split('\n')
+          .find((line) => /^[ \t]*[├└][^│\n]*auth-fix\b/.test(line))
+          ?.split('│')[0];
+      await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, '1']);
+      await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, '/', 'auth-fix', 'Enter']);
+      await fixture.waitForCapture(
+        (screen) => /\/[ \t]+auth-fix[ \t]+1 of 1[ \t]+×/.test(screen),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'End']);
+      await fixture.waitForCapture(
+        (screen) =>
+          screen.includes('○ 1 todo') &&
+          memberRow(screen)?.includes('· 1 todo') === true &&
+          screen.includes('1 todo · 0 done'),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'N']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('Finish the causal Notes check'),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      await fixture.waitFor(
+        () => read().items[0].completion === 'complete',
+        5_000,
+        'Notes Done publication'
+      );
+      expect(read().items[0]).toMatchObject({ id: item, completion: 'complete', revision: 2 });
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitForCapture((screen) => {
+        const row = memberRow(screen);
+        return (
+          row !== undefined &&
+          !row.includes('todo') &&
+          screen.includes('○ 0 todo') &&
+          screen.includes('0 todo · 1 done')
+        );
+      }, shell.pane);
+      expect(requestAttempts(fixture)).toEqual(beforeRequests);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('NOTES_COUNT_BOARD_EXIT=0'),
+        shell.pane
+      );
+    });
+  });
+
   it('asks the terminal for the mouse again after a resize or a closed overlay, so the wheel stays with the board', async () => {
     await withE2EFixture(async (fixture) => {
       installSquad(fixture);

@@ -4,7 +4,7 @@ pub(crate) mod load;
 mod model;
 mod surface;
 #[cfg(test)]
-mod tests;
+pub(in crate::board) mod tests;
 
 use super::picker_surface;
 use crate::core::SquadError;

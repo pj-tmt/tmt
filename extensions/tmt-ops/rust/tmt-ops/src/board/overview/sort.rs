@@ -63,10 +63,6 @@ pub fn compare(left: &Row<'_>, right: &Row<'_>, sort: Sort) -> Ordering {
     order.then_with(|| left.id.cmp(right.id))
 }
 
-pub fn needs_attention(state: Option<&str>) -> bool {
-    matches!(state, Some("blocked" | "waiting"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

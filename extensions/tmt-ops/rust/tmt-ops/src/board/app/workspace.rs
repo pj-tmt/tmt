@@ -28,6 +28,14 @@ impl Drop for FrameRows<'_> {
 }
 
 impl App {
+    /// Membership publication, not a frame or cursor turn, updates Notes admission.
+    pub(in crate::board) fn reconcile_notes_scope(&mut self) {
+        let Some(home) = self.view.as_ref().and_then(|view| view.home.as_ref()) else {
+            return;
+        };
+        self.notes.observe_roster(home.workspace.rows.keys());
+    }
+
     pub(in crate::board) fn workspace_order(&self) -> crate::board::view_state::Order {
         self.workspace.order.unwrap_or_else(|| {
             self.workspace_snapshot()

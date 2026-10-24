@@ -35,12 +35,22 @@ fn paint_shell(buffer: &mut ratatui::buffer::Buffer, app: &App, area: Rect, now:
                 "?".into()
             }
         };
+        let todo = app.notes.total().map(|total| {
+            if snapshot.roster.complete() {
+                total
+            } else {
+                total.incomplete()
+            }
+        });
         crate::board::top_bar::Attention {
             online: number(counts.online),
             unread: app.unread_global(),
-            waiting: number(counts.waiting),
+            todo: todo.map_or_else(
+                || "… todo".into(),
+                crate::board::conversation_notes::Total::label,
+            ),
             blocked: number(counts.blocked),
-            waiting_positive: counts.waiting > 0,
+            todo_positive: app.notes.total().is_some_and(|total| total.todo > 0),
             blocked_positive: counts.blocked > 0,
             complete,
             ascii: matches!(
@@ -191,20 +201,12 @@ pub(super) fn render_visibility(frame: &mut Frame, app: &App, area: Rect) {
                 app.cron_glyphs,
                 crate::board::overview::cron_counts::GlyphSet::Ascii
             );
-            for (count, glyph, word, role) in [
-                (
-                    counts.waiting,
-                    if ascii { "!" } else { "◆" },
-                    "need you",
-                    Role::Waiting,
-                ),
-                (
-                    counts.blocked,
-                    if ascii { "x" } else { "✗" },
-                    "blocked",
-                    Role::Blocked,
-                ),
-            ] {
+            for (count, glyph, word, role) in [(
+                counts.blocked,
+                if ascii { "x" } else { "✗" },
+                "blocked",
+                Role::Blocked,
+            )] {
                 if count > 0 {
                     spans.push(Span::styled(" · ", look.role(Role::Muted)));
                     spans.push(Span::styled(
@@ -502,17 +504,6 @@ pub(super) fn summary_line(app: &App) -> Line<'_> {
         format!("{lead} · {}", plural(count, "member", "members"))
     };
     let mut spans = vec![Span::styled(summary, look.role(Role::Text))];
-    let waiting = app
-        .current
-        .as_ref()
-        .and_then(|squad| app.attention.get(squad))
-        .map_or(0, |attention| attention.waiting);
-    if waiting > 0 {
-        spans.push(Span::styled(
-            format!(" · {waiting} need you"),
-            look.role(Role::Text),
-        ));
-    }
     if view.document["olderRequestsNotShown"] == true {
         spans.push(Span::styled(
             " · older requests not shown",

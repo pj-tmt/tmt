@@ -64,20 +64,10 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             look.role(Role::Muted),
         )
     } else {
-        let mut spans = vec![Span::styled(
+        let spans = vec![Span::styled(
             format!("{} {}", observed(rows.len()), agent_noun(rows.len())),
             look.role(Role::Muted),
         )];
-        if scene.waiting > 0 {
-            spans.extend([
-                Span::styled(" · ", look.role(Role::Muted)),
-                state_cell::mark(Some("waiting"), look),
-                Span::styled(
-                    format!(" {} need you first", observed(scene.waiting)),
-                    look.role(Role::Muted),
-                ),
-            ]);
-        }
         Line::from(spans)
     };
     let header_height = (LIST_HEADER_ROWS as u16).min(area.height.saturating_sub(1));
@@ -334,14 +324,14 @@ fn state_spans(app: &App, row: &OpsTreeRow, look: Look, width: u16) -> Vec<Span<
             }
         },
         |label| {
-            let (primary, task) = crate::board::workspace::columns::activity_spans(
+            let (primary, task, todo) = crate::board::workspace::columns::activity_spans(
                 app,
                 row,
                 &label,
                 usize::from(width),
                 false,
             );
-            primary.into_iter().chain(task).collect()
+            primary.into_iter().chain(task).chain(todo).collect()
         },
     )
 }

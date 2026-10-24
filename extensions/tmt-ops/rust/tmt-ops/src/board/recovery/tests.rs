@@ -655,13 +655,13 @@ fn full_restore_retains_live_skip_needs_you_and_uncertain_startup_per_item() {
         assert!(
             lines
                 .iter()
-                .any(|s| s.contains("Unknown") && s.contains("needs you") && s.contains(name))
+                .any(|s| s.contains("Action needed") && s.contains(name))
         );
     }
     assert!(
         lines
             .iter()
-            .any(|s| s.contains("Unknown") && s.contains("startup result lost"))
+            .any(|s| s.contains("Action needed") && s.contains("startup result lost"))
     );
     assert_eq!(
         std::fs::read_to_string(f.0.join("argv")).unwrap(),
@@ -1320,4 +1320,33 @@ fn capture_fitted_recovery_reviews() {
             }
         }
     });
+}
+
+/// Typed Core refusal and uncertain-startup observations, painted as action prompts.
+pub(in crate::board) fn action_needed_case(look: crate::look::Look) -> crate::board::app::App {
+    let mut value = restore_value(DIGEST, "partial");
+    value["layoutOnly"] = json!(false);
+    value["revival"] = json!([
+        {"recorded":"%2","native":null,"name":"worker","status":"needs_you","message":"needs you (identity name changed; resume it explicitly)"},
+        {"recorded":"%5","native":"%9","name":"launch","status":"needs_you","message":"needs you (startup refused or uncertain: startup result lost)"}
+    ]);
+    let restored = model::Restore::decode(&value).unwrap();
+    let mut c = controller();
+    c.screen = Screen::Results;
+    c.preview = None;
+    c.details = surface::results(&restored);
+    c.restored = Some(restored);
+    let mut app = crate::board::app::workspace::tests::board();
+    app.view.as_mut().unwrap().look = look;
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .squad_looks
+        .clear();
+    app.recovery = Some(c);
+    app
 }

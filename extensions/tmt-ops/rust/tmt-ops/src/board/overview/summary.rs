@@ -15,7 +15,6 @@ pub(in crate::board) struct Summary {
     pub digest_available: bool,
     /// Agents core observes as working, each identity once.
     pub working: usize,
-    pub needs_you: usize,
     /// Agents whose activity core could not observe.
     pub unknown_activity: usize,
     pub auto: usize,
@@ -76,9 +75,6 @@ pub(super) fn project(
         }
         // Agent activity is core's observation; the task state stays a human fact.
         activity.add(member.activity, activity_stale);
-        if super::sort::needs_attention(member.state.as_deref()) {
-            summary.needs_you += 1;
-        }
         if let Some(status) = digest.and_then(|status| status.members.get(id)) {
             match status.mode {
                 Mode::Auto => summary.auto += 1,
@@ -290,13 +286,8 @@ mod tests {
         snapshot.roster.observation = OpsObservation::Partial;
         let summary = project(&snapshot, &Supplied::default());
         assert_eq!(
-            (
-                summary.total,
-                summary.working,
-                summary.needs_you,
-                summary.unknown_activity
-            ),
-            (4, 1, 1, 1)
+            (summary.total, summary.working, summary.unknown_activity),
+            (4, 1, 1)
         );
         assert!(!summary.complete);
         assert_eq!(
