@@ -59,10 +59,39 @@ const providers: Provider[] = [
 const session = '55555555-5555-4555-8555-555555555555';
 const other = '66666666-6666-4666-8666-666666666666';
 
+// Usage is read only where the turn-end hook is installed (consent, #4914): the provider's
+// settings file holds the owned Stop entry, as `tmt setup` leaves it.
+function installTurnEndHook(fixture: E2EFixture, provider: Provider, home: string) {
+  const settings = path.join(
+    home,
+    provider.name === 'claude' ? '.claude/settings.json' : '.codex/hooks.json'
+  );
+  fs.mkdirSync(path.dirname(settings), { recursive: true });
+  fs.writeFileSync(
+    settings,
+    JSON.stringify({
+      hooks: {
+        Stop: [
+          {
+            hooks: [
+              {
+                type: 'command',
+                command: `'${fixture.executables.cli.executable}' __hook ${provider.name}`,
+                timeout: 3,
+              },
+            ],
+          },
+        ],
+      },
+    })
+  );
+}
+
 async function runScenario(fixture: E2EFixture, provider: Provider, historyBaseline = false) {
   const home = path.join(fixture.root, `${provider.name} home`);
   const tree = path.join(home, provider.tree);
   fs.mkdirSync(tree, { recursive: true });
+  installTurnEndHook(fixture, provider, home);
   const transcript = path.join(tree, `${session}.jsonl`);
   fs.writeFileSync(transcript, `{"type":"user"}\n${provider.line}`);
   const outside = path.join(fixture.root, 'outside.jsonl');
@@ -271,28 +300,7 @@ for (const provider of providers) {
         provider.name === 'codex' ? `rollout-2026-10-04-${session}.jsonl` : `${session}.jsonl`
       );
       fs.writeFileSync(transcript, provider.line);
-      const settings = path.join(
-        home,
-        provider.name === 'claude' ? '.claude/settings.json' : '.codex/hooks.json'
-      );
-      fs.writeFileSync(
-        settings,
-        JSON.stringify({
-          hooks: {
-            Stop: [
-              {
-                hooks: [
-                  {
-                    type: 'command',
-                    command: `'${fixture.executables.cli.executable}' __hook ${provider.name}`,
-                    timeout: 3,
-                  },
-                ],
-              },
-            ],
-          },
-        })
-      );
+      installTurnEndHook(fixture, provider, home);
       const fake = path.join(fixture.wrapperDir, provider.name);
       writeExecutable(fake, `#!/bin/sh\nexec ${quote(provider.runtime)} "$@"\n`, 0o700);
       const appendReady = path.join(fixture.root, 'append-ready');

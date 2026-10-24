@@ -94,10 +94,12 @@ to 50 with no continuation fetch just to count; it is read by the same Leads job
 reads the results page, which still feeds the reply list. A request is one item, so a
 final and a turn never count twice. Request IDs deduplicate repeated room evidence;
 squad/global counts deduplicate member UUIDs. Only the originator page supplies this
-count, never blended recipient histories or pane output. Optional failed/malformed reads retain the previous page for the same
-actor; actor changes discard it. A member's count is `N+ unread` only when
-`nextBefore` is present and that pair's marker precedes the page's oldest
-`answeredAtMs`. Aggregate `+` is the OR of eligible members' partial flags;
+count, never blended recipient histories or pane output. Core's `acknowledged: false`
+counts as unread for either answer kind, bound to its positive safe `revision`.
+Optional failed/malformed reads retain the previous page for the same actor; actor
+changes discard it. A member's count is `N+ unread` only when `nextBefore` is present and that
+member's oldest answer on the page is unacknowledged.
+Aggregate `+` is the OR of eligible members' partial flags;
 observed zero renders no unread state, even when older replies are possible.
 
 StateCell supplies `● N unread` in place of the glyph and activity words
@@ -112,11 +114,11 @@ whole labels or its existing overflow mark. A visible unread squad reserves a
 the shared header and TOK/NOW columns move together. With no visible unread
 squad, the existing ten-cell TEAM column remains. Unread members sort first in the flat list
 and within Agents tree sibling groups without rewriting raw state or waiting
-permission. Marker/page updates invalidate the existing row cache and reconcile
+permission. Acknowledgment/page updates invalidate the existing row cache and reconcile
 the retained selected UUID. TopBar sums the global workspace independently of
 scope, hiding and the active tab, beside its waiting count. At narrow widths the
 partial `≥` counts take precedence over the redundant totals-unknown suffix and
-named layer caption. Conversation admission and shared marker publication belong
+named layer caption. Conversation admission and acknowledgment publication belong
 to [the reply owner](board-notebooks.md#replies-and-verification).
 
 Member CRUD uses the existing frozen `workspace::manage` review and ordered
@@ -251,7 +253,8 @@ Attention keeps priority over a truncated named-layer caption.
 projects the selected member or squad through the shared board components.
 Conversation, editor, drafts, reply reader and Send keep their existing owners. Digest projects the
 Core usage/traffic and supplier-owned Digest status through `digest_dashboard`:
-range summary, TOK-ranked table with read-only `all`, six-level 24-hour activity,
+three reserved rows (Usage, Impact and its dim estimate definition), TOK-ranked
+table with read-only `all`, six-level 24-hour activity,
 Exchanges and details. The existing Digest report/query/scope cache also holds the
 full admitted exchange ranking: shared `exchange_matrix::by_traffic` orders by
 sent plus received, then name and UUID before the shared painter fits at most five
@@ -261,6 +264,19 @@ Wide frames place Exchanges above details; narrower frames
 stack the table and details, with Tab exposing Exchanges. Enter on a real member
 opens its Agents Talk pane; `all` grants no recipient or Digest mutation.
 The canonical roster owns membership and action admission.
+Digest's Impact band reads the saved `workspace.digest_window`, independently of
+the TOK range, and shows context and list-price equivalent with separate member
+coverage. A money field that cannot fit whole stays in Details; it is never
+clipped into a partial amount. Details keeps impact amounts once in its Impact
+block; Estimate basis carries model/rate/price-table and window/coverage evidence
+without repeating the amounts. Basis opens the existing Details evidence section
+(and reveals hidden Details through its existing preference CAS). The window chip
+and the Actions menu use the existing window choices and CAS. Configure is deferred
+to the delivery-settings panel; no placeholder control is painted. These figures
+do not change `savings_unit` or the Agents TOK display. Missing/stale evidence,
+confirmed zero and incompatible price versions remain distinct; all time means
+collection lifetime, with no percent or extrapolation.
+
 Agents and Digest use the selected squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
 not a second editor or a revival of factory board views. An explicit message
 focuses the selected agent's conversation: a compact Agents tab shows the conversation
@@ -527,13 +543,13 @@ cells/styles/hits/oracle diff is approved by the UX primary reviewer. Regenerati
 
 ## Checklist todo projection
 
-`conversation_notes::State` owns held room and conversation counts and the global
+`conversation_checklist::State` owns held room and conversation counts and the global
 admission set: each squad room once, alongside its exact room/member conversations.
 Its explicit subject keeps conversation drafts/writes separate from room-list writes.
 The existing quiet lane admits one read at a
 time, selected first at five seconds and other keys at most once per minute.
 Background deliveries contain counts only; full previews remain with the selected
-Notes overlay. The existing write epoch fences late reads. Scope publication and
+conversation checklist overlay. The existing write epoch fences late reads. Scope publication and
 delivery update the cached header total, so paint does not scan every list.
 An admitted room-modal observation updates its room summary and fences older quiet reads.
 Shared completion counts treat references as attributes, including linked open items.

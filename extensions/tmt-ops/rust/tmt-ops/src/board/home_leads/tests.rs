@@ -725,9 +725,9 @@ fn unread_uses_only_the_originators_answers_page_and_holds_it_across_failed_or_l
                 );
                 Ok(json!({"items":[
                     {"requestId":"turn","kind":"request","sender":{"identityId":"me"},
-                     "recipientId":"a","answeredAtMs":150,"answer":"turn"},
+                     "recipientId":"a","answeredAtMs":150,"answer":"turn","revision":1,"acknowledged":false},
                     {"requestId":"new","kind":"request","sender":{"identityId":"me"},
-                     "recipientId":"a","answeredAtMs":100,"answer":"final"}
+                     "recipientId":"a","answeredAtMs":100,"answer":"final","revision":1,"acknowledged":false}
                 ], "nextBefore":null}))
             }
             _ => Ok(json!({"items":[reply("older", "a", 90, Some("older"))], "nextBefore":null})),
@@ -745,7 +745,7 @@ fn unread_uses_only_the_originators_answers_page_and_holds_it_across_failed_or_l
         "conversation metadata still includes history"
     );
     assert_eq!(
-        state.unread("me").unwrap().count("a", 0).total,
+        state.unread("me").unwrap().count("a").total,
         2,
         "a captured turn counts beside the final"
     );
@@ -769,7 +769,7 @@ fn unread_uses_only_the_originators_answers_page_and_holds_it_across_failed_or_l
     let mut replacement = fetch(vec![]);
     replacement.sender.as_mut().unwrap().id = "other".into();
     state.replace(replacement.read(|_| Ok(json!({"items":[], "nextBefore":null})), 200));
-    assert_eq!(state.unread("other").unwrap().count("a", 0).total, 0);
+    assert_eq!(state.unread("other").unwrap().count("a").total, 0);
 }
 
 /// What Core's `answers` view says of a `results` page: each submitted final is an answer at
@@ -784,7 +784,7 @@ fn answers_of(results: &Value) -> Value {
             json!({
                 "requestId":item["requestId"], "kind":item["kind"], "sender":item["sender"],
                 "recipientId":item["recipientId"], "answeredAtMs":item["final"]["submittedAtMs"],
-                "answer":"final"
+                "answer":"final", "revision":1, "acknowledged":false
             })
         })
         .collect();

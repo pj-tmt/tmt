@@ -276,7 +276,7 @@ pub enum Effect {
     Discovery(super::discovery::load::Task),
     MemberSession(super::member_session::Task),
     /// A read or a write of the Notes of the conversation on screen.
-    Notes(super::conversation_notes::Task),
+    Notes(super::conversation_checklist::Task),
     NewMember(super::new_member::Task),
     SwitchTool(super::switch_tool::Task),
     IdleAlert(super::idle_alert_editor::Task),
@@ -312,9 +312,9 @@ pub enum Choice {
     /// A click on a Talk/Measure chip selects that pane; the `M` key toggles.
     RightTab(super::shell::RightTab),
     WorkspaceTarget(super::workspace::OpsTarget),
-    /// A click on the Notes chip of a member's header: opens the list.
+    /// A click on the Checklist chip of a member's header: opens the list.
     MemberNotes,
-    AddToNotes(super::conversation_notes::Seed),
+    AddToNotes(super::conversation_checklist::Seed),
     WorkspaceBegin(super::workspace::manage::Kind),
     WorkspaceRoom {
         kind: super::workspace::manage::Kind,
@@ -332,6 +332,8 @@ pub enum Choice {
     Heading,
     WorkspaceLayout(crate::config::OpsLayout),
     DigestWindow(crate::config::DigestWindow),
+    DigestWindowMenu,
+    DigestBasis,
     /// The shared saved TOK range for Agents and Digest.
     TokRange(crate::config::TokRange),
     /// A click on an Agents column header: sort by it, or reverse it.
@@ -740,7 +742,7 @@ pub struct App {
     pub(super) discovery: Option<super::discovery::Controller>,
     pub(super) member_session: Option<super::member_session::Controller>,
     pub(super) member_session_generation: u64,
-    pub(super) notes_overlay: Option<super::conversation_notes::overlay::Controller>,
+    pub(super) notes_overlay: Option<super::conversation_checklist::overlay::Controller>,
     pub(super) new_member: Option<super::new_member::Controller>,
     pub(super) new_member_generation: u64,
     pub(super) switch_tool: Option<super::switch_tool::Controller>,
@@ -819,8 +821,8 @@ pub struct App {
     pub(super) references: super::inventory::Inventory,
     /// Lane jobs submitted whose events have not arrived.
     pub(super) in_flight: usize,
-    /// The Notes summaries of the conversations shown, read on the lane.
-    pub(in crate::board) notes: super::conversation_notes::State,
+    /// The Checklist summaries of the conversations shown, read on the lane.
+    pub(in crate::board) notes: super::conversation_checklist::State,
     /// The running versions, read once on the lane; none until then or when unreadable.
     pub(in crate::board) versions: Option<super::versions::Versions>,
     /// Current-frame inline band, reserved by the row painter.
@@ -1524,6 +1526,7 @@ impl App {
 
     pub(super) fn apply_home_leads(&mut self, read: super::home_leads::Read) {
         self.home_leads.replace(read);
+        self.unread_observed();
         self.overview_rows.borrow_mut().clear();
         self.clamp();
     }
@@ -1593,6 +1596,12 @@ impl App {
             self.project_usage(now);
         }
         changed
+    }
+
+    /// Ordinary refresh effects align answers; only the explicit action requests a rebuild.
+    pub(in crate::board) fn prepare_snapshot_refresh(&mut self) {
+        self.conversation.borrow_mut().refresh_pane_output();
+        self.selected_request = super::refresh::SelectedRequest::AwaitingSnapshot;
     }
 
     pub fn apply(&mut self, mut snapshot: Snapshot) {
@@ -1746,8 +1755,12 @@ impl App {
                 self.usage_document = None;
                 // A refresh can reorder rows; the cursor follows its member.
                 let anchor = (!changed).then(|| self.row_target(self.selected)).flatten();
-                if let Some(home) = &view.home {
-                    self.unread.writer.observed(&home.workspace.read_markers);
+                if let Some(home) = &view.home
+                    && let Some(actor) = view.me_id.as_deref()
+                {
+                    self.unread
+                        .writer
+                        .legacy(actor, &home.workspace.read_markers);
                 }
                 let previous = self.view.replace(view);
                 let previous_squad = std::mem::replace(&mut self.shown, self.current.clone());
@@ -2467,6 +2480,7 @@ impl App {
                 return Effect::None;
             }
             Verb::Refresh => {
+                self.conversation.borrow_mut().rebuild_pane_output();
                 self.set_notice(Some("Refreshing…".into()), false);
                 return Effect::Refresh;
             }
@@ -2647,6 +2661,18 @@ impl App {
                 key: String::new(),
                 label: "Quota details".into(),
                 choice: Choice::Action(Action::parse("quota-details").expect("quota action")),
+            });
+        }
+        if self.shell.tab == super::shell::OpsTab::Digest {
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: "Estimate window…".into(),
+                choice: Choice::DigestWindowMenu,
+            });
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: "Estimate basis…".into(),
+                choice: Choice::DigestBasis,
             });
         }
         // The estimate answers a click and an authored key; the menu is the
@@ -3108,6 +3134,8 @@ impl App {
             Choice::Rule | Choice::Heading => Effect::None,
             Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
             Choice::DigestWindow(window) => self.select_digest_window(window),
+            Choice::DigestWindowMenu => self.digest_window_menu(),
+            Choice::DigestBasis => super::digest_dashboard::open_basis(self),
             Choice::TokRange(range) => self.select_tok_range(range),
             Choice::SortBy(header) => self.sort_by_header(header),
             Choice::ExchangeCell { sender, recipient } => {
@@ -4798,7 +4826,7 @@ impl App {
         if let Some(key) = self.detail_read() {
             return Some(super::refresh::SelectedRead::Message(key));
         }
-        self.pane_output_read()
+        self.pane_output_plan()
             .map(super::refresh::SelectedRead::PaneOutput)
     }
 

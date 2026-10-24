@@ -28,7 +28,7 @@ impl Drop for FrameRows<'_> {
 }
 
 impl App {
-    /// Membership publication, not a frame or cursor turn, updates Notes admission.
+    /// Membership publication, not a frame or cursor turn, updates checklist admission.
     pub(in crate::board) fn reconcile_notes_scope(&mut self) {
         let Some(home) = self.view.as_ref().and_then(|view| view.home.as_ref()) else {
             return;
@@ -191,6 +191,39 @@ impl App {
                     std::sync::Arc::clone(&snapshot.identity_ids),
                 )
             })
+    }
+    pub(in crate::board) fn digest_window_menu(&mut self) -> Effect {
+        let entries = [
+            crate::config::DigestWindow::Day,
+            crate::config::DigestWindow::Week,
+            crate::config::DigestWindow::AllTime,
+        ]
+        .into_iter()
+        .map(|window| MenuEntry {
+            key: String::new(),
+            label: format!(
+                "{}{}",
+                window.label(),
+                if self.digest_window() == window {
+                    " (current)"
+                } else {
+                    ""
+                }
+            ),
+            choice: Choice::DigestWindow(window),
+        })
+        .collect();
+        self.menu = Some(Menu {
+            row_send: None,
+            link: None,
+            prefill: String::new(),
+            title: "Digest estimate window".into(),
+            entries,
+            selected: 0,
+            anchor: None,
+            surface: Default::default(),
+        });
+        Effect::None
     }
     pub(in crate::board) fn select_digest_window(
         &mut self,
@@ -533,10 +566,10 @@ impl App {
     }
     /// The conversation on screen: the selected member in its squad's room. A member of the
     /// Common pool has no room, so no list.
-    pub(in crate::board) fn conversation_notes_key(
+    pub(in crate::board) fn conversation_checklist_key(
         &self,
-    ) -> Option<crate::board::conversation_notes::Key> {
-        crate::board::conversation_notes::Key::of(self.workspace_selected_member()?)
+    ) -> Option<crate::board::conversation_checklist::Key> {
+        crate::board::conversation_checklist::Key::of(self.workspace_selected_member()?)
     }
     /// Base controls cannot activate behind an overlay, loading frame or active editor.
     pub(in crate::board) fn workspace_strip_enabled(&self) -> bool {
@@ -1170,7 +1203,7 @@ impl App {
                         }
                         self.workspace_reconcile();
                         self.focus = 1;
-                        self.unread.displayed = None;
+                        self.unread.displayed.clear();
                     }
                 } else {
                     let expanded = match &target {

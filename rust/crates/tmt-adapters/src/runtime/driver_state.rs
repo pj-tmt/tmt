@@ -132,7 +132,7 @@ impl ObservedModel {
 
 /// A provider model slug, safe to pass as one argv value: bounded, no
 /// whitespace or controls, and never option-like.
-pub(super) fn valid_model(model: &str) -> bool {
+pub(crate) fn valid_model(model: &str) -> bool {
     (1..=128).contains(&model.len())
         && !model.starts_with('-')
         && model

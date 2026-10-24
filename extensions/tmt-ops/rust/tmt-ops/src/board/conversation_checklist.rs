@@ -515,15 +515,15 @@ impl Entry {
     }
 }
 
-/// The chip's words: `≡ Notes · 3 links · 2 todo · 1 done`, `≡ Notes · empty`, or the mark alone
+/// The chip's words: `≡ Checklist · 3 links · 2 todo · 1 done`, `≡ Checklist · empty`, or the mark alone
 /// until the first read answers.
 pub(in crate::board) fn chip(summary: Option<&Summary>) -> String {
     match summary {
-        None | Some(Summary::Pending) => "≡ Notes".into(),
-        Some(Summary::Unavailable(_)) => "≡ Notes · unavailable".into(),
-        Some(Summary::Counts(counts)) if counts.is_empty() => "≡ Notes · empty".into(),
+        None | Some(Summary::Pending) => "≡ Checklist".into(),
+        Some(Summary::Unavailable(_)) => "≡ Checklist · unavailable".into(),
+        Some(Summary::Counts(counts)) if counts.is_empty() => "≡ Checklist · empty".into(),
         Some(Summary::Counts(counts)) => format!(
-            "≡ Notes · {} {} · {} todo · {} done",
+            "≡ Checklist · {} {} · {} todo · {} done",
             counts.links,
             if counts.links == 1 { "link" } else { "links" },
             counts.todo,

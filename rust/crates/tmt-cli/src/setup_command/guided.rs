@@ -90,15 +90,17 @@ fn plan(
             .map_err(failure)?
             .to_path_buf();
         let before = setup::read_settings(&path).map_err(failure)?;
+        let opted_out = record::usage_opted_out(&recorded, driver.name(), &path);
         let usage = record::usage_policy(&recorded, driver.name(), &path, usage);
         hooks.push(
-            setup::plan(
+            setup::plan_with_choice(
                 driver,
                 path,
                 before,
                 environment.launcher.clone(),
                 false,
                 usage,
+                opted_out,
             )
             .map_err(failure)?,
         );
@@ -201,6 +203,9 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
     list::write(output, terminal, &sections)?;
     for hooks in plan.hooks.iter().filter(|hooks| !hooks.usage) {
         writeln!(output, "{}", super::collection_off(hooks.provider))?;
+    }
+    if plan.hook_changes().any(|hooks| !hooks.usage) {
+        writeln!(output, "{}", super::ANSWERS_NOTE)?;
     }
     if plan.hook_changes().any(|hooks| hooks.usage) {
         writeln!(output, "{USAGE_NOTE}")?;

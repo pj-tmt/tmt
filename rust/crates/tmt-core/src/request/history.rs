@@ -150,6 +150,10 @@ pub struct AnsweredRequest {
     pub recipient_identity_id: Option<String>,
     pub answered_at_ms: u64,
     pub answer: AnswerKind,
+    /// The originator's attention revision for this request and whether they have acknowledged
+    /// it; a final and an answered turn raise it alike (#4915).
+    pub revision: u64,
+    pub acknowledged: bool,
 }
 
 pub struct AnswersPage {

@@ -1,7 +1,7 @@
 //! Selection-driven Agents focus over the acquired workspace and existing sessions.
 use super::{
     app::{App, RowTarget},
-    conversation, conversation_notes, identity_line, input_field, key_value,
+    conversation, conversation_checklist, identity_line, input_field, key_value,
     overview::{cron_counts::CronCountScope, timers},
     section_rule, spark_row,
     stat_tiles::{self, Tile},

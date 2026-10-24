@@ -195,40 +195,65 @@ retain their role without parsing member names or changing layout.
 nothing. Layout uses terminal cells and degrades side/stack preferences to one
 focused pane when dimensions cannot support a split.
 In Agents member focus, the same selected worker reads [recent pane output](../../../../contracts/extension-api.md#recent-agent-responses)
-after capability discovery, by exact identity UUID. Each session projects at most
-ten provider-final captures, oldest capture first without a timestamp sort. It
-stably merges the exchange and capture heads by their literal times, exchange
-first on ties. Final message blocks use their settled times; capture order stays
-as returned by Core through clock rollback. A capture never absorbs a final,
-even when both contain identical text.
-Neutral `agent · pane output · time` headers use the exchange age wording, including `ago`; a muted `… truncated` caption
-separate these observations from replies. Pending and observed-empty pane reads add no line; unsupported/failed reads remain distinct. A failed read says `Recent pane output unavailable`;
-an empty conversation requires both sources observed empty. Pane text creates no
-request-source, reply, acknowledgment or annotation authority. The existing
-UUID/revision/cancellation fences reject obsolete reads, and the shared viewport
-keeps long captures scrollable without displacing the composer. The flat Agents list keeps its
-question-only presentation and does not acquire or paint these captures.
+after capability discovery, by exact identity UUID. A session starts with one public
+page; deliberate upward scrolling at its oldest loaded answer requests the next
+`before=nextBefore` page on the same selected lane, one read in flight. Core owns
+retention; the client neither expires nor count-prunes answers. Captures keep their
+returned order, including identical text and clock rollback. The transcript merges
+exchange and capture heads by literal times, exchanges first on ties, without
+absorbing a final into a capture.
 
-Unread markers are separate from Core acknowledgments. After a successful draw,
-App admits only the exact actor/member/request submission of an acquired displayed
-reply, or the answered turn of a send the answers page lists, in the Agents conversation
-while the reader holds focus; moving the list
-selection onto a row never reads it, and leaving the reader makes the next opening
-a fresh one. Loading, hidden, modal-covered or paused newer text cannot mark
-unseen output. A guarded `j` seals the actor/member and newest observed
-submission before leaving the UI; only successful focus publishes that marker.
-The existing ordered lane max-merges shared Config markers. Quiet coalesced writes
-own no action-progress overlay; visible unread clears only after successful
-publication. A failure retains unread evidence and pending updates for an explicit
-reopen/j retry, without an automatic retry loop. The composer info line's
-`● N unread` is also a target: a left click, the catalog action `mark-read` (no
-default key; the member menu lists it while something is unread, and it is
-bindable) or the menu entry seals the newest answer of the painted or selected
-recipient from the held answers page, without focusing the composer, and takes
-the same lane and failure path. `● 0 unread` is no target; paint and hover do no
-I/O. Shutdown drains admitted writes
-after restoring the terminal. Shared markers survive restart, named-view changes,
-reset-view and exec reload. Pane captures never supply request read watermarks.
+`recent_responses` admits page metadata and reconciles cursor chains. An ordinary
+latest read splices at one exact held-newest answer record (including provider and
+truncation metadata). Ambiguous/missing alignment (including an unalignable retention cut)
+or an explicit refresh key/action rebuilds only the held window serially and cancellably:
+stop at the first page boundary that covers the held item count or reaches the oldest
+held capture's `endedMs`, keeping `nextBefore` for deliberate older paging. Ordinary
+snapshot, theme and member refresh effects keep the anchored read. Old content stays
+held until the coherent result arrives. Coverage changes update the held history caption
+without re-walking an otherwise aligned chain. Failed reads retain loaded answers and the cursor;
+a failed older page waits for another deliberate scroll or refresh, without a retry
+loop. Actor/member/revision/cursor fences reject obsolete completions.
+
+Neutral `agent · pane output · time` headers use the exchange age wording. A
+truncated answer has `answer truncated · full text in the agent's pane` as its
+last muted line inside the answer gutter. History captions are inset one cell
+and carry a registered state mark. Only the final page can show `older answers not kept` at the top of history;
+Core's supplied time is qualified as `at or before`, including migrated floors.
+`capture.enabled=false` adds `answers are not captured for this agent: run tmt setup`
+while keeping retained answers; absent capture metadata adds no hint and never
+causes setup. Pending/observed-empty, unsupported and failed reads remain distinct.
+A failed latest read says `Recent pane output unavailable`; a failed older page
+names the failure and scroll retry at the older-history boundary. An empty conversation requires both sources
+observed empty. Pane text creates no request-source, reply, acknowledgment or
+annotation authority. The shared anchor/viewport keeps prepended answers readable
+without moving the composer. The flat Agents list keeps its question-only
+presentation and does not acquire or paint these captures.
+
+Core acknowledgment is the only unread projection. After a successful draw, the
+conversation owner admits exact body rows inside the clipped viewport: final or
+captured answer, actor/member/request, public submission or settle timestamp and
+held attention revision. Both conversation painters reuse that provenance helper.
+Headings, separators, live screens and provider pane output grant no acknowledgment.
+Loading, hidden, modal-covered, unfocused or failed draws admit nothing; moving the
+list selection or jumping with `j` does not mark unseen answers read.
+
+The existing ordered action lane batches 1–50 distinct request/revision pairs through
+public `requests.ack`, with at most one batch in flight until its result is adopted.
+Acknowledged/already settle the exact revision; notFound settles without retry;
+conflict adopts current and keeps it unread until fresh body evidence exists. A late
+page cannot regress a held revision or its successful acknowledgment. Failures never
+claim read and do not cause an automatic retry. Reopening the reader or explicit
+Mark read supplies a new admission. Failed work does not block other conversations.
+
+The composer info line's `● N unread`, catalog action `mark-read` and member menu
+explicitly acknowledge the selected conversation's unread answers without focusing
+the composer. `● 0 unread` is not a target. Counts use one bounded summary page;
+explicit Mark read and a visible older body resolve further metadata in bounded public
+pages, yielding between lane steps, without a history cache or per-item show calls.
+Paint and hover do no I/O. Shutdown joins the lane before draining admitted writes and
+reporting unresolved failures. Legacy-cutoff consumption belongs to
+[the Config owner](config-and-effects.md), never a second unread authority.
 
 Agents focus titles its currently actor-only history `Exchanges with you`; an
 all-party title waits for #3217's read contract. It creates no other-pair rows or
@@ -272,7 +297,7 @@ at the edge does not keep scrolling. The selection ends on Esc, an outside press
 new drag, a conversation switch, or when it can no longer be shown: its lines are
 gone, an end's text changed before its end, or a resize re-wrapped the transcript.
 A selection opens the Selection menu (`conversation/source/menu.rs`): a bordered box with
-`q› Quote`, `y  Copy` and `n  Add to Notes` on their own lines and a dim `Esc clears`, directly below the
+`q› Quote`, `y  Copy` and `n  Add to checklist` on their own lines and a dim `Esc clears`, directly below the
 selection end. It flips left of the end near the right edge and opens above the first
 selected row near the bottom, so it never covers selected text; it stays inside the
 pane and falls back to the frame when the pane is too short (no room at all, no menu; the
@@ -310,15 +335,24 @@ each room list and each admitted room/member conversation once, independent of s
 collapse or viewport. Unknown and partial totals retain their existing presentation.
 [Acquisition ownership](board-home.md#checklist-todo-projection) stays on the existing lane.
 
-`n Add to Notes` in the conversation Link popover or Selection menu opens the existing
-Notes draft. Links preselect Link and keep the full URL, with its last path segment
+The conversation entry is `≡ Checklist · …`; its modal is `Checklist · <member>`
+(with the item count), and a source form is `Add to checklist · <member>`. Captions
+resolve held preview/roster data by the frozen room/member UUID, falling back to
+`member <short UUID>` when no name is held. Rendering never reads Core or borrows
+another selected member's name. Both form variants label the first field Title.
+The canonical authored action is `member-checklist`, still bound to `N` for members
+and the Reader. This breaking rename before launch has no `member-notes` alias;
+an authored former action gets the ordinary unknown-action notice.
+
+`n Add to checklist` in the conversation Link popover or Selection menu opens the existing
+checklist draft. Links preselect Link and keep the full URL, with its last path segment
 (or host) as the editable title; selections preselect Todo with the selected source
-text flattened into the title. Kind, Title, Link and From share the Notes modal;
+text flattened into the title. Kind, Title, Link and From share the conversation checklist modal;
 Tab changes fields; Kind uses the shared flat chips, with Left/Right or a current
 chip click selecting the explicit kind. An existing
 unsent draft is retained instead of being replaced. The held room/member/actor
-must still match at entry and submission; unread Notes cannot be written.
-Conversation Notes records descriptive message provenance in the existing item body;
+must still match at entry and submission; an unread checklist cannot be written.
+The conversation checklist records descriptive message provenance in the existing item body;
 its render metadata grants no request authority and introduces no schema or store.
 `conversation::note_source` maps rendered rows to held message metadata, separately
 from exact response/quote authority. From shows author, kind and time; the existing
@@ -327,7 +361,7 @@ pane-observation context and timestamp. Mixed and missing sources stay explicit.
 The link popover retains its opened source through Show full/back while the transcript
 refreshes; another clicked hit replaces it even for the same URL. No URL/text
 matching chooses a message source, and source descriptions grant no jump-back
-authority. All reads and writes retain the existing Notes worker, revision and
+authority. All reads and writes retain the existing checklist worker, revision and
 failure ownership.
 
 `board::conversation::screen` shows the selected agent's `pane.screen` in the Talk

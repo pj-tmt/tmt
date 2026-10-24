@@ -1,4 +1,4 @@
-//! Counts and their known/unknown presentation, shared by Notes, rows and the header.
+//! Counts and their known/unknown presentation, shared by the checklist, rows and the header.
 use crate::checklist::{ItemView, model::Completion};
 
 /// What the summary counts; archived items belong to neither.

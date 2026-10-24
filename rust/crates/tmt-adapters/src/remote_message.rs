@@ -134,14 +134,22 @@ pub fn send(
             code: "REMOTE_MESSAGE_INVALID".into(),
         };
     };
+    let Ok(tmt) = crate::core_executable::selected() else {
+        return RemoteMessageOutcome::NotSent {
+            code: "REMOTE_UNAVAILABLE".into(),
+        };
+    };
     let args = [OsString::from("message"), OsString::from("--json")];
-    let result = runner.execute(CommandRequest {
-        program,
-        args: &args,
-        input: &input,
-        deadline,
-        max_output_bytes: MAX_OUTPUT_BYTES,
-    });
+    let result = runner.execute_with_environment(
+        CommandRequest {
+            program,
+            args: &args,
+            input: &input,
+            deadline,
+            max_output_bytes: MAX_OUTPUT_BYTES,
+        },
+        &crate::extension_command::environment(&tmt),
+    );
     match result {
         Ok(output) => classify(message, &output.stdout),
         Err(error) => match error.kind {

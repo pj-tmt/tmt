@@ -50,8 +50,9 @@ independent of storage access.
 | `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`/`"answers"`; `limit`, `before`  | `items`, `nextBefore`                                                                                                                                             |
 | `requests.show`          | `requestId`                                                                                         | Request detail including retained prompt/final state; a passthrough adds its turn-output capture ([Passthrough](request-response-v1.md#passthrough))              |
 | `requests.sendNow`       | `requestId`; the envelope names the caller (originator or the user)                                 | `status` (`sent`/`already`), `requestId`, `state`; a refusal is a `SEND_NOW_*` or `DELIVERY_*` fault ([Send now](request-response-v1.md#send-now))                |
+| `requests.ack`           | `items`: 1–50 of `{requestId, revision}`; the envelope names the originator                         | `items`: per request `{requestId, revision, status}`; `status` is `acknowledged`, `already`, `conflict` (with `current`) or `notFound`                            |
 | `workspace.capture`      | Empty object                                                                                        | Bounded `attempted`, `published`, `skipped` counts for recorded sockets only (see [Workspace recovery](workspace-v1.md#capture-triggers-and-public-backstop))     |
-| `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–10, default 10)                                  | `identityId`, `items`: locally retained provider-final pane output (see below)                                                                                    |
+| `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–50, default 10), optional `before` (cursor)      | `identityId`, `items`, `coverage`, `capture?`, `nextBefore?`: locally retained provider-final pane output (see below)                                             |
 | `pane.screen`            | `identityId` (canonical UUID)                                                                       | `identityId`, `host`, `format`, `text`: the identity's current visible pane screen, read-only (see below)                                                         |
 | `dispatch.show`          | `operationId`                                                                                       | Immutable acceptance receipt                                                                                                                                      |
 | `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`, `mode`                 | Acceptance receipt; optional independent `wake` on first direct request (see [Passthrough](#passthrough-dispatch))                                                |
@@ -84,31 +85,52 @@ create the root or read its files. `capabilities` remains a constant document.
 ## Recent agent responses
 
 `responses.recent` reads one exact identity's locally retained provider-final
-text. Input is `{identityId, limit?}`: a required canonical identity UUID and an
-optional integer from 1 through 10, default 10. Names, unknown fields and envelope
-originator attribution are not accepted. Invalid input, including an explicit
-out-of-range limit, is `API_INPUT_INVALID`.
-The resource is `{identityId, items:[...]}`, with no pagination. A valid UUID
+text, newest first. Input is `{identityId, limit?, before?}`: a required canonical
+identity UUID, an optional integer `limit` from 1 through 50 (default 10) and an
+optional `before` cursor, the `nextBefore` an earlier page returned (a non-negative
+integer; JSON null is refused). Names, unknown fields and envelope originator
+attribution are not accepted. Invalid input, including an explicit out-of-range
+limit, is `API_INPUT_INVALID`.
+The resource is `{identityId, items:[...], coverage, nextBefore?}`. `nextBefore` is
+present exactly when an older retained answer exists; passing it as `before` reads
+the next page, and a cursor past the oldest answer reads an empty page. A valid UUID
 with no retained entries, including an unknown or retired UUID, returns an empty
 `items` array; a same-name successor never inherits the previous UUID's entries.
+`coverage` is `{olderDropped, droppedThroughMs?}` and is the same on every page:
+`olderDropped` is true exactly when an answer of this identity was pruned (past the
+age or the count below) or has expired and not yet been pruned, and `droppedThroughMs`
+is then the newest `endedMs` among those dropped answers. A client that reaches the
+last page with `olderDropped` true says that older answers were not kept. An identity
+that was at the former cap of 10 when this field began reports `olderDropped` true
+from that moment, with `droppedThroughMs` the oldest kept answer's `endedMs` (the
+newest dropped one is not known).
+`capture` is `{enabled}` and is present only when the identity's remembered driver
+has hooks: `enabled` is whether that driver's turn-end hook is installed, so `false`
+means its answers are not captured until the user runs `tmt setup`. An absent
+`capture` says nothing (an agent that never ran a driver with hooks).
 
-Each item is `{text, endedMs, provider, truncated, sessionId?}`:
+Each item is `{text, endedMs, provider, truncated, originalBytes, sessionId?}`:
 
 - `text` is the provider's final assistant text, preserving its text and line
-  endings. It contains at most 8,192 UTF-8 bytes, cut on a Unicode scalar boundary.
+  endings. It contains at most 16,384 UTF-8 bytes, cut on a Unicode scalar boundary.
   `truncated` is always a boolean and is true exactly when the byte cap omitted
-  text. Core appends no in-band marker and applies no display normalization.
+  text. `originalBytes` is the length the provider gave, in UTF-8 bytes (the stored
+  length for an answer captured before the field existed). Core appends no in-band
+  marker and applies no display normalization.
 - `endedMs` is Core's observed turn-end time in Unix milliseconds, not a provider
   timestamp or a delivery/completion proof. Newest means capture order; an
   internal committed sequence breaks equal timestamps and wall-clock rollback.
 - `provider` is `claude` or `codex`. `sessionId`, when available, is the admitted
   provider session identifier; otherwise the field is omitted, not null.
 
-Capture uses only the turn-end hook TMT already installs: Claude `Stop` and
-Codex `Stop`/notify. It requires the existing verified current binding/session
-admission and enabled usage collection (`tmt setup --usage`, rather than
-`--no-usage`). There is no new setting. Disabled capture stores no new entries;
-previously captured entries retain their original expiry. A stale session,
+Capture uses only the turn-end hook TMT installs: Claude `Stop` and Codex
+`Stop`/notify. It requires the existing verified current binding/session admission
+and that hook, which every consented `tmt setup` installs, `--no-usage` included.
+Usage collection is separate: with `--no-usage` the hook keeps the agent's answers,
+taking the final text from the hook payload alone, and reads no transcript, token
+or consumption data. An install made with `--no-usage` before this was so has no
+turn-end hook until the user runs `tmt setup` again, and captures no answers until
+then. Previously captured entries retain their original expiry. A stale session,
 subagent event, malformed payload or missing admissible final text creates no
 entry, not an empty replacement. Hooks keep their existing finite budgets and
 best-effort, non-veto behavior.
@@ -122,16 +144,18 @@ read for this feature. User text, tools and thinking are excluded. Neither drive
 scrapes pane text or follows an unverified transcript path. This is bounded turn-end observation, not a
 complete transcript backup or a guarantee that an identity has prior text.
 
-Core's SQLite store retains at most the newest 10 captures per identity. Capture
+Core's SQLite store retains each capture for 7 days after its turn ended, and at
+most the newest 1,000 captures per identity; the writer prunes the oldest first, in
+the capture's transaction, and records the newest answer it pruned for `coverage`.
+These numbers belong to the conversation and do not follow `exchange.retentionDays`. Capture
 occurs only when the existing Stop admission commits a turn end, in that same
 CAS transaction; a duplicate Stop treated as a no-op captures nothing. A Stop
 reported while the provider continues because a Stop hook blocked an earlier one
 (`stop_hook_active`, for example a Digest checklist) ends that continuation: it is
 admitted after the earlier end, and its text is captured. Text is
 not deduplicated: two distinct committed turns with identical text are retained
-separately. The transaction appends the capture and removes overflow. Each
-capture freezes the current global `exchange.retentionDays` policy (default 90,
-allowed 1–3650) and expires at `endedMs + retentionDays * 86,400,000`.
+separately. The transaction appends the capture and removes overflow and expired
+entries. A capture expires at `endedMs + 7 * 86,400,000`.
 At equality it is expired: reads omit it even before opportunistic cleanup.
 Reads and config changes never renew an existing entry's deadline.
 Identity removal/retirement deletes these entries; retained exchanges are
@@ -565,8 +589,9 @@ Collection runs every five seconds in the `tmt run`/`resume` foreground child
 wait, using a bounded supervised worker and the existing consented usage hooks.
 There are no listing-time provider reads or detached sampling services. Old
 wrappers and hook-only launches remain Stop-only until relaunched through the
-new foreground owner. `--no-usage` suppresses sampling and Stop collection;
-legacy lifecycle-only installations remain disabled until explicitly enabled.
+new foreground owner. `--no-usage` suppresses sampling and usage collection on the Stop hook (which stays for
+the agent's answers); legacy lifecycle-only installations remain disabled until
+explicitly enabled.
 Exactly-once accounting covers sampling/Stop races and supported contiguous
 provider groups; Claude's existing noncontiguous repeated-message limitation
 remains. No new per-request deduplication store is introduced. A cursor outside
@@ -662,7 +687,7 @@ from stored facts only (no probe), so a client can offer the action. `reason` is
 agent ended) or `awaiting_approval` (it is waiting on its user, so the delivery would be
 refused). The set is open: treat an unknown reason as unavailable. It is a hint, not a
 lease: the send verifies the pane again. Whether the answer can be captured is not part
-of it; without the usage or hook evidence the answer reads `no_answer` and the send still works.
+of it; without the turn-end hook the answer reads `no_answer` and the send still works.
 
 ### Admission, wake and completion
 
@@ -873,8 +898,8 @@ submitted final (`answer:"final"`, at its submission time) or a passthrough's ca
 turn in state `answered` (`answer:"turn"`, at its settle time;
 [Passthrough](request-response-v1.md#passthrough)). A request is one or the other. An
 unanswered, refused, pending or `no_answer` request is absent. Items carry metadata
-only, `{requestId, kind, sender, recipientId, answeredAtMs, answer}`, never a prompt,
-reply or captured text; `requests.show` returns those. Limits, snapshot and housekeeping
+only, `{requestId, kind, sender, recipientId, answeredAtMs, answer, revision, acknowledged}`,
+never a prompt, reply or captured text; `requests.show` returns those. Limits, snapshot and housekeeping
 follow the results view (default 8, `limit` 1 through 50). One cursor orders both kinds by
 `(answeredAtMs, requestId)` descending: `nextBefore` is null at the end or
 `{answeredAtMs, requestId}`, passed unchanged as `before`; any other cursor field is
@@ -926,6 +951,25 @@ Example conditional room write (replace the UUIDs with actual identities):
   }
 }
 ```
+
+### Answers and acknowledgment
+
+Each `answers` item also carries `revision`, the sender's attention revision for the request,
+and `acknowledged`, whether the sender has acknowledged that revision (one request at a time
+with `tmt x ack`, or through the `x ackall` watermark). `acknowledged: false` is unread, for a
+final and a captured turn alike: both raise the revision when the answer arrives, so an answer
+on a request the sender had already acknowledged reads unread again.
+
+`requests.ack` is a write whose envelope `identity` names the originator (anonymous is
+`API_INPUT_INVALID`). For each `{requestId, revision}` it makes the acknowledgment `tmt x ack`
+makes, one request at its exact revision, and settles the items independently, in order:
+`acknowledged`, `already` (nothing to change), `conflict` with the request's `current`
+revision (a newer answer arrived, so it stays unread) or `notFound` (unknown, expired or not
+the caller's request). A call names 1 to 50 distinct requests, each with a positive
+safe-integer revision, and any other input is `API_INPUT_INVALID` before anything changes.
+A failure part-way (`API_UNAVAILABLE`) keeps the earlier items; repeating the whole call
+reports them `already`. There is no acknowledge-all or acknowledge-through operation:
+`x ackall` stays the CLI's explicit user command.
 
 ## Optional cross-extension uses
 
@@ -1091,8 +1135,8 @@ supplies end events. For Codex, an interrupted turn ends through its turn-correl
 `Interrupt` hook, which is activity only and installed with the lifecycle hooks. It runs
 as Codex's hook trust policy allows: an ordinary unmanaged definition runs only after the
 user trusts it in `/hooks`, and TMT never grants or bypasses that trust. While Codex skips
-it, the last admitted activity stays unchanged. `--no-usage` disables usage and
-response collection (not this activity observer) and preserves that choice;
+it, the last admitted activity stays unchanged. `--no-usage` disables usage
+collection (not this activity observer, nor the agent's answers) and preserves that choice;
 `--usage` re-enables it. Legacy recorded lifecycle-only installs remain disabled
 until explicitly enabled. `tmt setup [provider] --status` reports the installed
 collection state without changing it. Absent end events never cause an inferred

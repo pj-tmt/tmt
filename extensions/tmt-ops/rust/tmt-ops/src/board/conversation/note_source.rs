@@ -1,4 +1,4 @@
-//! Descriptive message provenance for Notes. Held render metadata never grants request authority.
+//! Descriptive message provenance for the checklist. Held render metadata never grants request authority.
 use super::{App, Reply, Session};
 use crate::board::{home_leads::Kind, row_detail::Capture};
 use ratatui::layout::Position;

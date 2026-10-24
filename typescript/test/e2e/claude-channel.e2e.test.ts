@@ -127,9 +127,15 @@ const pasted = (session: Session, requests: number) =>
  * Waits for a mock event. The mock logs `hook-error` when its lifecycle hook fails; that ends the
  * wait at once, and every failure carries the mock's events and the pane so a timeout names its cause.
  */
-async function waitForEvent(fixture: E2EFixture, session: Session, event: string): Promise<void> {
+async function waitForEvent(
+  fixture: E2EFixture,
+  session: Session,
+  event: string,
+  /** Extra stored state a failure should show, such as a claim the hook never settled (#4871). */
+  stored: () => unknown = () => undefined
+): Promise<void> {
   const evidence = () =>
-    `Mock events: ${JSON.stringify(events(session))}\nBindings: ${JSON.stringify(bindings(fixture))}\n${fixture.capture(40, session.pane)}`;
+    `Mock events: ${JSON.stringify(events(session))}\nBindings: ${JSON.stringify(bindings(fixture))}\nStored: ${JSON.stringify(stored())}\n${fixture.capture(40, session.pane)}`;
   try {
     await fixture.waitFor(
       () => named(session, event).length > 0 || named(session, 'hook-error').length > 0,
@@ -986,7 +992,15 @@ describe('Claude channel delivery', { concurrent: false }, () => {
             ).toEqual({ count: 3 });
           }
           await digestStep('boundary-stop');
-          await waitForEvent(fixture, worker, 'recursive-stop');
+          await waitForEvent(fixture, worker, 'recursive-stop', () =>
+            oracle((db) =>
+              db
+                .prepare(
+                  'SELECT id,state,opportunity,created_at_ms,settled_at_ms,confirmed_at_ms FROM focus_checklists ORDER BY created_at_ms,id'
+                )
+                .all()
+            )
+          );
           const feedback = named(worker, 'digest-continuation');
           expect(feedback).toHaveLength(1);
           expect(notices()).toHaveLength(legacy ? 1 : 0);

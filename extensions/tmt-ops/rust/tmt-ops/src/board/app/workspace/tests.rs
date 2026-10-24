@@ -2679,6 +2679,27 @@ pub(in crate::board) fn measure_exchanges(
 /// One literal fixture owner for private capture packets and the frozen HOME oracle.
 /// It configures only an isolated test model; rendering stays on the actual App path.
 pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {
+    if scene == "unread-core-capture" {
+        let now = crate::status::now_ms();
+        let mut app = crate::board::conversation::outgoing::tests::captures::fixture(
+            "chat-answered",
+            look,
+            now,
+        );
+        let actor = app.view.as_ref().unwrap().me_id.clone().unwrap();
+        let request = crate::board::conversation::outgoing::tests::captures::REQUEST;
+        app.home_leads.test_pages(
+            &actor,
+            json!({"items":[],"nextBefore":null}),
+            json!({"items":[{
+            "requestId":request,"kind":"request","sender":{"identityId":actor},"recipientId":MEMBER,
+            "answeredAtMs":now-500,"answer":"turn","revision":2,"acknowledged":false
+        }],"nextBefore":null}),
+        );
+        app.overview_rows.borrow_mut().clear();
+        app.workspace_reconcile();
+        return app;
+    }
     let mut app = match scene {
         "squads-eight" => populated_board(8, 150),
         "squads-thirty-six" => populated_board(36, 150),
@@ -2968,7 +2989,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             // A direct send answered by a captured turn alone: no final reply exists.
             let turn = json!({
                 "requestId":"unread-turn", "kind":"request", "sender":{"identityId":actor},
-                "recipientId":MEMBER, "answeredAtMs":101, "answer":"turn"
+                "recipientId":MEMBER, "answeredAtMs":101, "answer":"turn", "revision":1, "acknowledged":false
             });
             app.home_leads.test_pages(
                 &actor,
@@ -2978,6 +2999,40 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         } else {
             app.home_leads
                 .test_results(&actor, json!({"items":items,"nextBefore":next}));
+        }
+        if matches!(scene, "unread-core-final" | "unread-core-conflict") {
+            app.view.as_mut().unwrap().replies = vec![
+                json!({"recipientId":MEMBER,"requestId":"unread-1","submittedAtMs":101,"response":"An acquired final stays read across views."}),
+                json!({"recipientId":MEMBER,"requestId":"unread-2","submittedAtMs":102,"response":"A newer answer remains unread until its body is seen."}),
+            ];
+            let answer = app
+                .home_leads
+                .unread(&actor)
+                .unwrap()
+                .answer(MEMBER, "unread-1")
+                .unwrap()
+                .clone();
+            let outcome = if scene == "unread-core-conflict" {
+                crate::board::unread::publish::Outcome::Conflict(2)
+            } else {
+                crate::board::unread::publish::Outcome::Acknowledged
+            };
+            app.finished_unread(Ok(crate::board::unread::publish::Completed {
+                actor: actor.clone(),
+                items: vec![(answer, outcome)],
+            }));
+            // A legacy watermark no longer overrides Core's current unread revision.
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .read_markers
+                .advance(&actor, MEMBER, 1_000_000)
+                .unwrap();
+            app.focus = 1;
         }
         if scene == "unread-idle" {
             let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
@@ -3016,9 +3071,18 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             app.composer.unread_hover.set(true);
         }
         if scene == "unread-cleared" {
-            let mut marks = crate::config::ReadMarkers::default();
-            marks.advance(&actor, MEMBER, 102).unwrap();
-            app.finished_unread(Ok(marks));
+            let items = app
+                .home_leads
+                .unread(&actor)
+                .unwrap()
+                .answers(MEMBER)
+                .cloned()
+                .map(|answer| (answer, crate::board::unread::publish::Outcome::Acknowledged))
+                .collect();
+            app.finished_unread(Ok(crate::board::unread::publish::Completed {
+                actor: actor.clone(),
+                items,
+            }));
         }
         app.overview_rows.borrow_mut().clear();
         app.workspace_reconcile();
@@ -3259,7 +3323,7 @@ fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() 
                             depth,
                         };
                         let mut app = board();
-                        crate::board::conversation_notes::tests::admit_empty(&mut app);
+                        crate::board::conversation_checklist::tests::admit_empty(&mut app);
                         app.view.as_mut().unwrap().look = look;
                         let snapshot =
                             &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
@@ -3586,7 +3650,7 @@ fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
         ] {
             for selected in [false, true] {
                 let mut app = board();
-                crate::board::conversation_notes::tests::admit_empty(&mut app);
+                crate::board::conversation_checklist::tests::admit_empty(&mut app);
                 app.view.as_mut().unwrap().look = look;
                 let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
                 snapshot.squad_looks.clear();
@@ -4118,9 +4182,9 @@ fn nondefault_layer_caption_changes_only_the_header_and_never_overlaps_attention
                     depth,
                 };
                 let mut default = capture_case("agents", look);
-                crate::board::conversation_notes::tests::admit_empty(&mut default);
+                crate::board::conversation_checklist::tests::admit_empty(&mut default);
                 let mut named = capture_case("agents", look);
-                crate::board::conversation_notes::tests::admit_empty(&mut named);
+                crate::board::conversation_checklist::tests::admit_empty(&mut named);
                 named.view_layer = crate::board::ViewLayer::parse("popup").unwrap();
                 let draw = |app: &App| {
                     let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
@@ -5485,7 +5549,7 @@ fn a_zero_width_state_cell_paints_nothing_and_records_no_area() {
 /// or without a request waiting on the user.
 fn disagreeing_board(waiting: bool, look: crate::look::Look) -> App {
     let mut app = board();
-    crate::board::conversation_notes::tests::admit_empty(&mut app);
+    crate::board::conversation_checklist::tests::admit_empty(&mut app);
     app.view.as_mut().unwrap().look = look;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     snapshot.squad_looks.clear();
@@ -5649,7 +5713,7 @@ fn overview_state_is_as_wide_as_the_widest_cell_of_the_list() {
                 Some(_) => disagreeing_board(false, look),
             };
             app.view.as_mut().unwrap().look = look;
-            crate::board::conversation_notes::tests::admit_empty(&mut app);
+            crate::board::conversation_checklist::tests::admit_empty(&mut app);
             if let Some(task) = task.filter(|task| *task != "blocked") {
                 let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
                 snapshot.roster.squads[0]

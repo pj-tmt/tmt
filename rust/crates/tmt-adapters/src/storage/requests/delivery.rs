@@ -58,6 +58,10 @@ pub(super) fn facts(
         .transpose()?
         .unwrap_or_default();
     Ok(DeliveryFacts {
+        recipient_is_user: recipient
+            .map(|id| RequestRows(db).identity_is_user(id))
+            .transpose()?
+            .unwrap_or(false),
         recipient_start_refusal: context.0,
         recipient_name: context.1,
         recipient_session_recovery: context.2,

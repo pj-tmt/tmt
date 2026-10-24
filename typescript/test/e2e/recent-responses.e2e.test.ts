@@ -17,7 +17,7 @@ const source = JSON.parse(
 );
 
 it.each(['claude', 'codex'] as const)(
-  '%s retains only newly admitted final turns and honors usage consent',
+  '%s retains only newly admitted final turns and reads no usage data without consent',
   async (provider) => {
     await withE2EFixture(
       async (fixture) => {
@@ -57,7 +57,7 @@ it.each(['claude', 'codex'] as const)(
           i >= 10
             ? 'same text in two distinct turns'
             : i === 9
-              ? 'x'.repeat(8190) + '🦀tail'
+              ? 'x'.repeat(16382) + '🦀tail'
               : `final-${i}\r\nline\n`
         );
         const checkpoints = texts.map((_, i) => path.join(fixture.root, `before-stop-${i}`));
@@ -128,21 +128,34 @@ it.each(['claude', 'codex'] as const)(
           const expected = texts.slice(Math.max(0, i - 9), i + 1).reverse();
           expect(resource.identityId).toBe(identityId);
           expect(resource.items).toHaveLength(expected.length);
+          expect(resource.coverage).toEqual({ olderDropped: false });
           for (let n = 0; n < expected.length; n++) {
             const text = expected[n];
             expect(resource.items[n]).toEqual({
-              text: Buffer.byteLength(text) > 8192 ? 'x'.repeat(8190) : text,
+              text: Buffer.byteLength(text) > 16384 ? 'x'.repeat(16382) : text,
               endedMs: expect.any(Number),
               provider,
-              truncated: Buffer.byteLength(text) > 8192,
+              truncated: Buffer.byteLength(text) > 16384,
+              originalBytes: Buffer.byteLength(text),
               sessionId: session,
             });
           }
         }
         const final = JSON.parse(results[reads[11]].stdout);
-        for (const index of [retained + 1, retained + 3, retained + 7]) {
+        for (const index of [retained + 1, retained + 3]) {
           expect(JSON.parse(results[index].stdout)).toEqual(final);
         }
+        // --no-usage keeps the turn-end hook for the agent's answers: the payload text is kept
+        // (a Stop after the opt-out is captured) and no transcript or usage data is read.
+        const afterOptOut = JSON.parse(results[retained + 7].stdout);
+        expect(afterOptOut.capture).toEqual({ enabled: true });
+        expect(afterOptOut.items[0]).toMatchObject({
+          text: 'disabled capture',
+          provider,
+          sessionId: session,
+          originalBytes: Buffer.byteLength('disabled capture'),
+        });
+        expect(afterOptOut.items.slice(1)).toEqual(final.items.slice(0, 9));
         const database = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
         try {
           const preferences = database
@@ -153,7 +166,7 @@ it.each(['claude', 'codex'] as const)(
             database
               .prepare('SELECT count(*) AS n FROM recent_responses WHERE identity_id=?')
               .get(identityId)
-          ).toEqual({ n: 10 });
+          ).toEqual({ n: 13 });
         } finally {
           database.close();
         }

@@ -52,11 +52,13 @@ pub fn execute(
     let mut failure_reason = Reason::WorkerError;
     // A turn end fires after every turn; its failures stay silent.
     let mut turn_end = false;
+    let mut empty_hook_output = "";
     let mut publication_deadline = started;
     let result = (|| {
         let registry = RuntimeRegistry::first_party();
         let harness = HarnessId::new(provider).map_err(|_| ())?;
         let lifecycle = registry.lifecycle(&harness).ok_or(())?;
+        empty_hook_output = lifecycle.empty_hook_output();
         let channel_duration = (!worker).then(|| lifecycle.hook_work_duration()).flatten();
         let duration = if worker {
             crate::invocation::hook_worker_duration(work_budget_ms)
@@ -135,10 +137,13 @@ pub fn execute(
         }
     }
     match result {
-        Ok(observation) => {
+        Ok(mut observation) => {
             if worker {
                 let _ = io::stdout().lock().write_all(&observation.encode());
             } else {
+                if observation.context.is_empty() && !empty_hook_output.is_empty() {
+                    observation.context = empty_hook_output.to_owned();
+                }
                 crate::workspace_hook::publish(
                     &mut io::stdout().lock(),
                     observation,
@@ -151,6 +156,8 @@ pub fn execute(
                 // Cleanup must precede worker exit: the supervisor cannot
                 // safely signal a group after reaping its numeric leader.
                 let _ = SupervisedProbeRunner::abort_worker_group();
+            } else if !empty_hook_output.is_empty() {
+                let _ = io::stdout().lock().write_all(empty_hook_output.as_bytes());
             }
             if !turn_end {
                 let _ = writeln!(io::stderr().lock(), "{ERROR_LINE}");
@@ -224,7 +231,12 @@ fn observe_turn(
     };
     let environment = ProviderEnvironment::capture().map_err(|_| ())?;
     let now_ms = tmt_adapters::request_runtime::wall_time_ms();
-    let observation = (!activity_only).then(|| {
+    // Usage data is read only with consent; the agent's answers need only the turn-end hook (#4914).
+    let usage_on = !activity_only
+        && tmt_adapters::drivers::Registry::builtin()
+            .find(provider)
+            .is_some_and(tmt_adapters::setup::usage_consented);
+    let observation = usage_on.then(|| {
         lifecycle.turn_observation(
             turn,
             &environment,
@@ -240,7 +252,7 @@ fn observe_turn(
     let locator = turn
         .transcript
         .as_ref()
-        .filter(|_| !activity_only)
+        .filter(|_| usage_on)
         .and_then(|path| {
             lifecycle.consumption_locator(
                 serde_json::json!({"transcript_path":path})
@@ -260,28 +272,15 @@ fn observe_turn(
         .and_then(|event| {
             lifecycle.activity_state(event, &turn.session, &process, previous, now_ms)
         });
-    let response = if transition.is_some()
-        && !activity_only
-        && tmt_adapters::drivers::Registry::builtin()
-            .find(provider)
-            .is_some_and(tmt_adapters::setup::usage_hook_installed)
-    {
-        observation
-            .and_then(|value| value.final_text)
-            .and_then(|text| {
-                let retention_days = tmt_adapters::config::ConfigFiles {
-                    paths: paths.clone(),
-                }
-                .global_retention_days()
-                .ok()?;
-                Some(tmt_adapters::storage::ResponseCapture {
-                    text,
-                    retention_days,
-                })
-            })
-    } else {
-        None
-    };
+    // An admitted turn end prefers the usage observation's final answer, then the Stop
+    // payload's `last_assistant_message`. With usage off no observation is made and
+    // nothing beyond the payload is read.
+    let response = kept_answer(
+        transition.is_some() && !activity_only,
+        observation.map(|value| value.final_text),
+        turn.final_text.as_ref(),
+    )
+    .map(|text| tmt_adapters::storage::ResponseCapture { text });
     // An admitted turn end settles the passthrough that turn was bound to, with its final
     // message when one was read and without an answer otherwise (an interrupted turn too).
     let boundary = transition
@@ -303,7 +302,7 @@ fn observe_turn(
         &paths,
         &stored,
         next,
-        (!activity_only).then_some(reading),
+        usage_on.then_some(reading),
         response,
         boundary,
         deadline,
@@ -314,6 +313,20 @@ fn observe_turn(
         });
     }
     Ok(Observation::default())
+}
+
+/// Prefer the observed final when usage is on; otherwise keep the Stop payload's own
+/// final text, including when the observation found none. With usage off no observation
+/// is made. A turn end that was not admitted, or an interrupted one, keeps nothing.
+fn kept_answer(
+    admitted: bool,
+    observed: Option<Option<tmt_core::responses::FinalText>>,
+    payload: Option<&tmt_core::responses::FinalText>,
+) -> Option<tmt_core::responses::FinalText> {
+    if !admitted {
+        return None;
+    }
+    observed.flatten().or_else(|| payload.cloned())
 }
 
 /// The caller a hook event came from, verified the same way for every event.
@@ -728,6 +741,26 @@ fn observe(
         );
     }
     let event = lifecycle.decode(input.as_bytes()).ok_or(())?;
+    observe_lifecycle_event(
+        provider,
+        harness,
+        lifecycle,
+        input.as_bytes(),
+        event,
+        deadline,
+        learning,
+    )
+}
+
+fn observe_lifecycle_event(
+    provider: &str,
+    harness: HarnessId,
+    lifecycle: &dyn RuntimeLifecycle,
+    input: &[u8],
+    event: Box<dyn tmt_adapters::runtime::lifecycle::LifecycleObservation>,
+    deadline: Instant,
+    learning: Option<&Learning>,
+) -> Result<Observation, ()> {
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
         return Ok(Observation::default());
@@ -890,7 +923,7 @@ fn observe(
             &binding.id,
             owner,
             session,
-            &registry,
+            &RuntimeRegistry::first_party(),
         )
         .map_err(|_| ())?;
     }
@@ -899,7 +932,7 @@ fn observe(
         && let Ok(environment) = ProviderEnvironment::capture()
         && tmt_adapters::drivers::Registry::builtin()
             .find(provider)
-            .is_some_and(tmt_adapters::setup::usage_hook_installed)
+            .is_some_and(tmt_adapters::setup::usage_consented)
         && let Some(refreshed) = Storage::context_by_identity(
             &paths.database,
             &binding.identity_id,
@@ -917,7 +950,7 @@ fn observe(
             .as_ref()
             .is_some_and(|r| r.harness == harness && &r.provider_session == event.session())
     {
-        let locator = lifecycle.consumption_locator(input.as_bytes(), &environment);
+        let locator = lifecycle.consumption_locator(input, &environment);
         storage
             .commit_runtime_observation(tmt_adapters::storage::RuntimeObservation {
                 expected: &refreshed,
@@ -1321,6 +1354,27 @@ fn observe_main_event(
             BindingEvidence::Active(_)
         )
     {
+        if let Some(bytes) = payload
+            && let Some(event) = lifecycle.decode(bytes)
+            && event.starting()
+            && stored
+                .preferences
+                .remembered
+                .as_ref()
+                .is_some_and(|remembered| {
+                    &remembered.harness == harness && &remembered.provider_session == session
+                })
+        {
+            return observe_lifecycle_event(
+                provider,
+                harness.clone(),
+                lifecycle,
+                bytes,
+                event,
+                deadline,
+                None,
+            );
+        }
         return Ok(Observation::default());
     }
     let context = if payload.is_some() {
@@ -1367,7 +1421,7 @@ fn observe_main_event(
             .is_none()
         && tmt_adapters::drivers::Registry::builtin()
             .find(provider)
-            .is_some_and(tmt_adapters::setup::usage_hook_installed)
+            .is_some_and(tmt_adapters::setup::usage_consented)
     {
         ProviderEnvironment::capture().ok().and_then(|environment| {
             let locator = lifecycle.consumption_locator(payload?, &environment);
@@ -1412,7 +1466,7 @@ fn observe_main_event(
             activity.event.kind == tmt_core::binding::session::activity::EventKind::TurnStarted
         })
         .and(payload)
-        .and_then(tmt_adapters::runtime::hook_protocol::decode_prompt_text);
+        .and_then(|bytes| lifecycle.decode_prompt_text(bytes));
     let boundary = prompt
         .as_deref()
         .map(|prompt| tmt_adapters::storage::TurnBoundary::Started {
@@ -1482,7 +1536,10 @@ fn commit_observation(
         family: None,
         response,
         boundary,
-        now_ms: reading.as_ref().map_or(0, |r| r.now_ms),
+        // A kept answer is stamped even when no usage was read.
+        now_ms: reading
+            .as_ref()
+            .map_or_else(tmt_adapters::request_runtime::wall_time_ms, |r| r.now_ms),
         deadline,
     });
     let cleanup = storage.close();
@@ -1567,5 +1624,53 @@ mod budget_tests {
         let args = worker_arguments("claude", Duration::from_micros(1_999)).unwrap();
         assert_eq!(args[4], "1");
         assert!(worker_arguments("claude", Duration::from_micros(999)).is_err());
+    }
+}
+
+#[cfg(test)]
+mod answer_tests {
+    use super::kept_answer;
+    use tmt_core::responses::FinalText;
+
+    #[test]
+    fn observed_final_takes_precedence_over_the_stop_payload() {
+        let payload = FinalText::new("from the payload").unwrap();
+        let observed = FinalText::new("from the transcript").unwrap();
+        assert_eq!(
+            kept_answer(true, Some(Some(observed.clone())), Some(&payload)),
+            Some(observed.clone())
+        );
+        assert_eq!(
+            kept_answer(true, Some(Some(observed.clone())), None),
+            Some(observed)
+        );
+    }
+
+    #[test]
+    fn missing_observed_final_falls_back_to_the_stop_payload() {
+        let payload = FinalText::new("from the payload").unwrap();
+        // Usage on: an observation was made but found no final text.
+        assert_eq!(
+            kept_answer(true, Some(None), Some(&payload)),
+            Some(payload.clone())
+        );
+        // Usage off: the observation was not made.
+        assert_eq!(kept_answer(true, None, Some(&payload)), Some(payload));
+    }
+
+    #[test]
+    fn a_turn_without_either_final_source_keeps_nothing() {
+        assert_eq!(kept_answer(true, Some(None), None), None);
+        assert_eq!(kept_answer(true, None, None), None);
+    }
+
+    #[test]
+    fn a_turn_that_was_not_admitted_keeps_neither_final_source() {
+        let payload = FinalText::new("from the payload").unwrap();
+        let observed = FinalText::new("from the transcript").unwrap();
+        // Stale, duplicate and interrupted ends never reach answer capture.
+        for observation in [None, Some(None), Some(Some(observed))] {
+            assert_eq!(kept_answer(false, observation, Some(&payload)), None);
+        }
     }
 }

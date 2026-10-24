@@ -55,20 +55,25 @@ and reveals Core's current template. Core stores none of these overrides. The
 [public host template contract](../../../../contracts/driver-protocol-v1.md#launch-templates)
 owns slot syntax and bounds; display/copy and execution use the same frozen argv.
 
-Shared unread markers live in `[workspace.read_markers.<actor-uuid>]`, keyed by
-member UUID with a positive safe-integer submission timestamp. `config::unread`
-validates canonical UUID pairs and max-merges updates into a freshly read document
-under the same document lock. Separate layouts cannot regress or erase one another's
-markers or unrelated authored settings. The field is separate from `OpsPreferences`,
-so a quiet read update cannot invalidate a panel/pin preference comparison. It is
-shared Config data, never a named-layer ViewState hint; reset-view and exec reload
-leave it intact. The existing ordered action lane owns these writes and their
-visible failure/retry outcome. Failed saves remain pending without an automatic
-retry; quitting or exec reload reports an unresolved save after restoring the
-terminal, even if its lane event was not consumed. A popup stays open after a
-successful jump whose marker save failed. Fresh shared Config observations also
-resolve a pending failure when another layout already saved that exact watermark.
-No Core acknowledgment is changed.
+Core owns unread attention revisions. The ordered acknowledgment lane sends only
+`requests.ack` pairs admitted by painted answer bodies or explicit Mark read; no
+normal read writes an Ops watermark. Failures retain unread evidence and retry only
+on a new explicit admission, never a paint loop. Shutdown joins the lane and reports
+unresolved acknowledgment failures after restoring the terminal. Exit drains admitted
+writes, but starts no new history page; unfinished migration retains its cutoffs for
+restart.
+
+Legacy `[workspace.read_markers.<actor-uuid>]` values are migration input only.
+`config::unread` validates canonical actor/member UUIDs and safe positive cutoffs.
+The same acknowledgment lane walks the originator's public answers in bounded pages:
+cutoff compares answeredAtMs; conservative by construction. This uses final submission
+or captured settle time, with no per-item show calls. Newer answers and conversations
+without a cutoff stay unread. Only after every eligible item settles does the Config
+owner remove exact held cutoffs under its fresh document lock. Concurrently advanced
+cutoffs, other actors and authored preferences survive. A crash before removal repeats
+idempotently. A revision conflict adopts current, leaves that answer unread and
+continues migration; real failures keep the cutoffs and retry on board restart.
+No separate migration flag or history cache is stored.
 
 ## Ops path migration
 
@@ -158,7 +163,10 @@ for every Digest estimate surface, through the same format-preserving Config CAS
 same write. `SavingsUnit::shown` reads percent as tokens for lifetime, and `next` skips
 it there. The `savings-unit` action ships without a default key so that no frozen
 binding table moves; a click on a painted estimate (`Choice::SavingsUnit`) and the Actions
-menu reach it, and the footer hint appears only while a frame painted an estimate.
+menu reach it, and the footer hint appears only while a frame painted a unit-switchable
+estimate. Digest's fixed Impact band instead shows context and cost together,
+without changing this preference; its window chip saves `digest_window` independently
+of the TOK range.
 The Agents TOK figures read the same preference (`App::tok_money`: unit `cost`); a click on a
 painted figure (`Choice::TokMoney`) or on the unit word of the column heading (`Choice::TokUnit`) writes tokens or cost through the same CAS and skips percent.
 Money comes from the shared usage report through `usage_report::valuation` (the Digest table

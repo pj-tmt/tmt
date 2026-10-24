@@ -38,6 +38,8 @@ pub const SOCKET: &str = "control.sock";
 /// Bound on one request line from a local client.
 const LINE_BYTES: usize = crate::limits::CLOUD_PAIR_CONTROL_BYTES;
 const REQUEST_WAIT: Duration = Duration::from_secs(5);
+mod cloud_message;
+pub use cloud_message::cloud_message;
 
 /// Contention is not activity: allow brief observations to finish, under one caller bound.
 /// Callers preserve offer -> live -> Store ordering and retain their own busy checks.
@@ -311,14 +313,20 @@ fn session(
 ) {
     let _ = stream.set_nonblocking(true);
     let mut buffer = Vec::new();
-    let Some(request) = read_line(
+    let Some(request) = read_line_bounded(
         &mut stream,
         &mut buffer,
         stop,
         Instant::now() + REQUEST_WAIT,
+        true,
     ) else {
         return;
     };
+    if request["op"] == "cloud.message" {
+        let answer = cloud_message::serve(&request, door.views.cloud.as_deref());
+        let _ = write_line(&mut stream, &answer);
+        return;
+    }
     if matches!(request["op"].as_str(), Some("cloud.invite" | "cloud.join")) {
         let result = (|| {
             let cloud = door
@@ -719,8 +727,17 @@ fn read_line(
     stop: &AtomicBool,
     deadline: Instant,
 ) -> Option<Value> {
+    read_line_bounded(stream, buffer, stop, deadline, false)
+}
+fn read_line_bounded(
+    stream: &mut UnixStream,
+    buffer: &mut Vec<u8>,
+    stop: &AtomicBool,
+    deadline: Instant,
+    messages: bool,
+) -> Option<Value> {
     while Instant::now() < deadline && !stop.load(Ordering::Acquire) {
-        match poll_line(stream, buffer) {
+        match poll_line_bounded(stream, buffer, messages) {
             Ok(Some(value)) => return Some(value),
             Ok(None) => thread::sleep(Duration::from_millis(10)),
             Err(_) => return None,
@@ -730,6 +747,13 @@ fn read_line(
 }
 /// Nonblocking: a complete line, nothing yet, or an error for EOF/oversize.
 fn poll_line(stream: &mut UnixStream, buffer: &mut Vec<u8>) -> io::Result<Option<Value>> {
+    poll_line_bounded(stream, buffer, false)
+}
+fn poll_line_bounded(
+    stream: &mut UnixStream,
+    buffer: &mut Vec<u8>,
+    messages: bool,
+) -> io::Result<Option<Value>> {
     let mut events = [PollFd::new(stream.as_fd(), PollFlags::POLLIN)];
     let ready = poll(&mut events, 0u16).map_err(io::Error::from)? > 0;
     if ready {
@@ -742,15 +766,25 @@ fn poll_line(stream: &mut UnixStream, buffer: &mut Vec<u8>) -> io::Result<Option
         }
     }
     if let Some(end) = buffer.iter().position(|b| *b == b'\n') {
-        if end > LINE_BYTES {
+        let line: Vec<u8> = buffer.drain(..=end).collect();
+        let value = crate::wire::strict_json(&line[..end]).ok_or(io::ErrorKind::InvalidData)?;
+        let limit = if messages && value["op"] == "cloud.message" {
+            crate::limits::CLOUD_MESSAGE_CONTROL_BYTES
+        } else {
+            LINE_BYTES
+        };
+        if end > limit {
             return Err(io::ErrorKind::InvalidData.into());
         }
-        let line: Vec<u8> = buffer.drain(..=end).collect();
-        return crate::wire::strict_json(&line[..end])
-            .map(Some)
-            .ok_or_else(|| io::ErrorKind::InvalidData.into());
+        return Ok(Some(value));
     }
-    if buffer.len() > LINE_BYTES {
+    if buffer.len()
+        > if messages {
+            crate::limits::CLOUD_MESSAGE_CONTROL_BYTES
+        } else {
+            LINE_BYTES
+        }
+    {
         return Err(io::ErrorKind::InvalidData.into());
     }
     Ok(None)
@@ -994,45 +1028,9 @@ fn request_with_deadline(
     value: &Value,
     until: Option<Instant>,
 ) -> Result<Option<Value>, RemoteError> {
-    use nix::sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, socket};
-    let path = match socket_path(remote_directory) {
-        Ok(path) => path,
-        Err(error) if error.code == "REMOTE_NOT_RUNNING" => return Ok(None),
-        Err(error) => return Err(error),
+    let Some(mut stream) = connect_until(remote_directory, until)? else {
+        return Ok(None);
     };
-    let fd = socket(
-        AddressFamily::Unix,
-        SockType::Stream,
-        SockFlag::empty(),
-        None,
-    )
-    .map_err(io_error)?;
-    nix::fcntl::fcntl(
-        &fd,
-        nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
-    )
-    .map_err(io_error)?;
-    let mut stream = UnixStream::from(fd);
-    stream.set_nonblocking(true).map_err(io_error)?;
-    let address = UnixAddr::new(&path).map_err(io_error)?;
-    match connect(stream.as_raw_fd(), &address) {
-        Ok(()) => {}
-        Err(nix::errno::Errno::EINPROGRESS) => {
-            let mut events = [PollFd::new(stream.as_fd(), PollFlags::POLLOUT)];
-            let left = until
-                .map(|until| until.saturating_duration_since(Instant::now()))
-                .unwrap_or(REQUEST_WAIT)
-                .min(REQUEST_WAIT);
-            if left.is_zero() || poll(&mut events, left.as_millis() as u16).map_err(io_error)? == 0
-            {
-                return Err(io_error("control connection timed out"));
-            }
-            if let Some(error) = stream.take_error().map_err(io_error)? {
-                return request_connect_error(error);
-            }
-        }
-        Err(error) => return request_connect_error(error.into()),
-    }
     write_line_until(
         &mut stream,
         value,
@@ -1057,6 +1055,52 @@ fn request_with_deadline(
         return Err(io_error("invalid control error document"));
     }
     Ok(Some(answer))
+}
+
+fn connect_until(
+    remote_directory: &Path,
+    until: Option<Instant>,
+) -> Result<Option<UnixStream>, RemoteError> {
+    use nix::sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, socket};
+    let path = match socket_path(remote_directory) {
+        Ok(path) => path,
+        Err(error) if error.code == "REMOTE_NOT_RUNNING" => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let fd = socket(
+        AddressFamily::Unix,
+        SockType::Stream,
+        SockFlag::empty(),
+        None,
+    )
+    .map_err(io_error)?;
+    nix::fcntl::fcntl(
+        &fd,
+        nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
+    )
+    .map_err(io_error)?;
+    let stream = UnixStream::from(fd);
+    stream.set_nonblocking(true).map_err(io_error)?;
+    let address = UnixAddr::new(&path).map_err(io_error)?;
+    match connect(stream.as_raw_fd(), &address) {
+        Ok(()) => {}
+        Err(nix::errno::Errno::EINPROGRESS) => {
+            let mut events = [PollFd::new(stream.as_fd(), PollFlags::POLLOUT)];
+            let left = until
+                .map(|until| until.saturating_duration_since(Instant::now()))
+                .unwrap_or(REQUEST_WAIT)
+                .min(REQUEST_WAIT);
+            if left.is_zero() || poll(&mut events, left.as_millis() as u16).map_err(io_error)? == 0
+            {
+                return Err(io_error("control connection timed out"));
+            }
+            if let Some(error) = stream.take_error().map_err(io_error)? {
+                return request_connect_error(error);
+            }
+        }
+        Err(error) => return request_connect_error(error.into()),
+    }
+    Ok(Some(stream))
 }
 
 /// Remote-internal invocation only; Colab reaches this owner through __activate,
@@ -1133,7 +1177,7 @@ pub fn activate_native_until(
 
 /// Absence is a transport observation, distinct from a connected peer's
 /// error document (including a peer reporting REMOTE_NOT_RUNNING).
-fn request_connect_error(error: io::Error) -> Result<Option<Value>, RemoteError> {
+fn request_connect_error<T>(error: io::Error) -> Result<Option<T>, RemoteError> {
     if matches!(
         error.kind(),
         io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused

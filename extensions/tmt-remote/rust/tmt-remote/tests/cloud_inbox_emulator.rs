@@ -1,6 +1,9 @@
 //! Explicit emulator qualification: ordinary-user ProductionHttp drives the real driver.
 //! Run only in an Infra slot with both test-emulator hosts set to loopback addresses.
 #![cfg(feature = "test-emulator")]
+#[path = "support/emulator_http.rs"]
+mod emulator_http;
+use emulator_http::EMULATOR_HTTP_TIMEOUT;
 #[allow(dead_code)]
 #[path = "support/cloud_inbox.rs"]
 mod fixture;
@@ -292,7 +295,7 @@ impl Admin {
             agent: ureq::Agent::config_builder()
                 .proxy(None)
                 .http_status_as_error(false)
-                .timeout_global(Some(Duration::from_secs(20)))
+                .timeout_global(Some(EMULATOR_HTTP_TIMEOUT))
                 .build()
                 .into(),
             base: format!("http://{address}"),

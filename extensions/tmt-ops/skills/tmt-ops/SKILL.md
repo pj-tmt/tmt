@@ -106,7 +106,7 @@ workspace's tree, conversation or pending-continuation geometry.
   answer) and `blocked` (members in the `blocked` state). These remain CLI/source
   facts; the Agents Usage band and Measure view own the dashboard aggregate, while the squad tree displays
   observed membership state. The common shell shows UUID-deduplicated online/blocked observations and the
-  global conversation Notes todo total on every tab; tab labels have no attention badge.
+  global checklist todo total on every tab; tab labels have no attention badge.
 - `sections`: always a list. Unless the user defined sections, it holds exactly
   one section with `title: null` containing every member except the lead. With
   user sections, members that match none follow in a final `title: null`
@@ -468,13 +468,16 @@ A submitted reply, or the captured turn of a message you typed straight to an ag
 strips, before working/idle/waiting state. Only the unread glyph is blue; NO_COLOR
 keeps the mark and words. The top bar shows your global unread count beside
 waiting. `N+` is a lower bound from the 50-answer page, not an all-history
-count; zero observed unread never invents an unread state. Opening the agent's
-acquired conversation or successfully jumping with `j` advances your shared read
-marker, and so does clicking `● N unread` in the composer line, the member
-menu entry "Mark read" or the `mark-read` action (no default key; bind it in Help
-or Settings). It survives restart, named views and reset-view. A save failure keeps the
-unread count and names the cause; reopen the conversation or jump to retry. These
-Ops markers never acknowledge Core results.
+count; zero observed unread never invents an unread state. Only answer body rows
+actually visible in the focused conversation are acknowledged in Core. Opening a
+conversation or jumping with `j` does not mark offscreen answers read. Clicking
+`● N unread`, the member menu's "Mark read" or the `mark-read` action (no default
+key; bind it in Help or Settings) explicitly acknowledges the conversation's unread
+answers. Core keeps this state across restart, named views and reset-view. A failure
+keeps unread evidence and names the cause; reopen the conversation or use Mark read
+to retry. A newer answer revision stays unread until that answer is seen. Existing
+local read cutoffs migrate once; the cutoff compares answeredAtMs, conservatively
+keeping a capture settled after the cutoff unread.
 
 The Agents tree keeps SQUAD / AGENT, STATE, TOK 1h, ◷ and MODEL. A Muted `*`
 directly before the name marks a lead. Model cells show the observed completed-turn
@@ -538,10 +541,10 @@ list sorts by AGENT, SQUAD, STATE, TOK and MODEL; the Squads tree by `SQUAD / AG
 on TOK the mark takes the blank cell before the word. A click changes only the saved
 order, never the selection or a message.
 In Agents, `n` opens New member on any row; `p` pins/unpins a squad. `N`
-creates a squad on a squad row or the Common pool and opens the member's Notes on a
+creates a squad on a squad row or the Common pool and opens the member's Checklist on a
 member row, `m` manages a squad or assigns a member, and `x` leaves only the
 selected squad membership. On member rows the footer offers `m move`, `R resume`
-and `N notes`, using effective bindings and dropping whole hints at narrow widths.
+and `N checklist`, using effective bindings and dropping whole hints at narrow widths.
 Right-click a visible Agents row to select it and open Actions, or open Settings
 (default comma) and choose Actions. With list focus, Rename agent and Remove member are named menu
 entries without default keys. Remove member is a copy-only retirement review: stop the agent first and
@@ -549,21 +552,26 @@ recheck the displayed name before running the copied command. Retirement does
 not stop the agent or close its window. Member `S switch tool` is not
 available yet. `D` opens Digest and `c` opens Timers outside a modal.
 
-A squad member's header shows its Notes chip, `≡ Notes · 3 links · 2 todo · 1 done`
-(`≡ Notes · empty` for an empty list). `N` or a click on the chip opens the list: links
+A squad member's header shows its Checklist chip, `≡ Checklist · 3 links · 2 todo · 1 done`
+(`≡ Checklist · empty` for an empty list). `N` or a click on the chip opens the list: links
 first, then items without links, each row with who added it and how long ago (`you`, the member's
 name, or nothing for an item stored before the board recorded it). `↑↓`/`jk` choose,
 Enter opens a link or ticks a todo, `a` adds (a web address becomes a link; `Tab` moves
-between the note and its link), `e` edits, `d` deletes after Enter confirms, `Shift+↑↓`
+between Title and Link), `e` edits, `d` deletes after Enter confirms, `Shift+↑↓`
 moves an item among its group and Esc closes the list, keeping a form you have not sent.
 A change someone else made first is reported in one line and your words stay in the form.
 A retired member's list reads but takes no writes.
-The conversation Link popover and Selection menu also offer `n Add to Notes`.
+The list is titled `Checklist · <member>` and the source form `Add to checklist · <member>`.
+Authored bindings use `member-checklist` (default `N` in member/Reader scopes).
+This is a breaking rename before launch: replace the former `member-notes` action;
+it has no alias and receives the ordinary unknown-action notice. The private identity
+`tmt notes` command is separate.
+The conversation Link popover and Selection menu also offer `n Add to checklist`.
 A link starts as Link with its full address and an editable last-segment title;
 a selection starts as Todo with its selected text. Tab chooses Kind, Title or Link;
 Left/Right on Kind switches Todo/Link, Enter saves and Esc keeps the draft. From
 shows the held message's author, kind and time; the item's body keeps its Source
-reference. Multiple or missing message sources say so. Existing unsent Notes drafts
+reference. Multiple or missing message sources say so. Existing unsent checklist drafts
 are preserved, and these source descriptions grant no request or navigation authority.
 
 Member STATE cells append `· N todo`; squad STATE cells append their room list's
@@ -1371,6 +1379,12 @@ Each acquired settled reply is a separate message with its own author and age,
 correlated to its request. Single line breaks remain visible in replies and pane
 output. Pane output stays in a separate labelled block, even when it repeats a
 reply's text; reading older messages holds position while later replies arrive.
+Scrolling upward at the oldest loaded pane answer loads an older page without
+blocking the board. A truncated answer says `answer truncated · full text in the
+agent's pane`. When Core reports that older answers were dropped, the top of the
+last page says `older answers not kept`, with Core's time when supplied. If Core
+reports capture disabled, the board says `answers are not captured for this agent:
+run tmt setup` and keeps any retained answers. The board never runs setup for you.
 
 The composer stays at the conversation bottom when an agent is shown: a box of at
 least three rows, a blank padding row above and below the text, growing upward

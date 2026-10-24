@@ -2,7 +2,6 @@
 //! Full request documents live only for this refresh; Session retains the presentation.
 use super::{
     app::App,
-    conversation::ConversationKey,
     home_leads::{FinalsKey, Kind, MessageKey, SentKey, SentTexts},
     recent_responses,
     row_detail::Target,
@@ -25,7 +24,7 @@ pub(super) struct Plan {
     finals: bool,
     sent: bool,
     messages: Vec<Message>,
-    pane: Option<ConversationKey>,
+    pane: Option<recent_responses::AnswerRead>,
 }
 
 pub(super) struct Projection {
@@ -65,11 +64,13 @@ impl Plan {
                 .collect(),
             pane: self.pane.as_ref().map(|_| {
                 pane.map_or(recent_responses::Observation::Unavailable, |text| {
-                    recent_responses::Observation::Observed(vec![recent_responses::Item {
+                    recent_responses::Observation::observed(vec![recent_responses::Item {
                         provider: "codex".into(),
                         text: text.into(),
                         ended_ms: crate::status::now_ms().saturating_sub(60_000),
                         truncated: false,
+                        original_bytes: 0,
+                        session: None,
                     }])
                 })
             }),
@@ -151,7 +152,7 @@ impl Plan {
             .pane
             .as_ref()
             .filter(|_| !cancellation.cancelled())
-            .map(|key| recent_responses::read(core, &key.1));
+            .map(|read| read.read(core, cancellation));
         Projection {
             finals,
             sent,
@@ -178,7 +179,7 @@ impl App {
                 })
             })
             .collect();
-        let pane = self.pane_output_read();
+        let pane = self.pane_output_plan();
         if !finals && !sent && pane.is_none() && messages.iter().all(|message| message.acquired) {
             return None;
         }
@@ -213,8 +214,8 @@ impl App {
         for (key, body) in projection.bodies {
             self.apply_message(&key, body);
         }
-        if let Some((key, observation)) = plan.pane.zip(projection.pane) {
-            self.apply_pane_output(key, observation);
+        if let Some((read, observation)) = plan.pane.zip(projection.pane) {
+            self.apply_answer_read(&read, observation);
         }
     }
 }

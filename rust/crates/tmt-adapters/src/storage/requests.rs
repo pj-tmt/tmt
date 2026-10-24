@@ -358,6 +358,30 @@ impl RequestRecords for RequestRows<'_> {
     ) -> Result<u64, Self::Error> {
         digest::release_unconfirmed(self.0, id, sequences)
     }
+    fn retire_unconfirmed_digest(
+        &mut self,
+        id: &str,
+        open: &[u64],
+        scanned_through: u64,
+        now: u64,
+    ) -> Result<u64, Self::Error> {
+        digest::retire_unconfirmed(self.0, id, open, scanned_through, now)
+    }
+    fn stale_turn_boundary_claim(
+        &self,
+        id: &str,
+        claimed_before: u64,
+    ) -> Result<Option<tmt_core::request::digest::DigestChecklist>, Self::Error> {
+        digest::stale_turn_boundary_claim(self.0, id, claimed_before)
+    }
+    fn reap_digest_claim(
+        &mut self,
+        b: &tmt_core::request::digest::DigestChecklist,
+        release: &[u64],
+        now: u64,
+    ) -> Result<(), Self::Error> {
+        digest::reap_claim(self.0, b, release, now)
+    }
     fn digest_checklist(
         &self,
         id: &str,

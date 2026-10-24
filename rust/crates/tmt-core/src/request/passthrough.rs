@@ -12,6 +12,10 @@
 
 use crate::driver::pane_input_text;
 
+/// The answer a passthrough capture keeps, in UTF-8 bytes: the turn's final message cut on a
+/// scalar boundary. The agent's own answers keep more (`responses::MAX_TEXT_BYTES`).
+pub const ANSWER_BYTES: usize = 8_192;
+
 /// A passthrough no turn started for within this long can no longer bind. Once bound, the
 /// turn is awaited however long it runs.
 pub const BIND_WINDOW_MS: u64 = 600_000;

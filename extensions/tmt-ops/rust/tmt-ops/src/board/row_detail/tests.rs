@@ -1163,18 +1163,22 @@ fn only_the_exact_captured_observation_is_suppressed_from_recent_output() {
         let key = app.pane_output_read().expect("visible selected agent");
         app.apply_pane_output(
             key,
-            Observation::Observed(vec![
+            Observation::observed(vec![
                 Item {
                     text: "The scheduler is **ready**.".into(),
                     provider: "codex".into(),
                     ended_ms: now,
                     truncated: true,
+                    original_bytes: 0,
+                    session: None,
                 },
                 Item {
                     text: "Unrelated final remains visible".into(),
                     provider: "codex".into(),
                     ended_ms: now + 1,
                     truncated: false,
+                    original_bytes: 0,
+                    session: None,
                 },
             ]),
         );

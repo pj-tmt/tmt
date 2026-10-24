@@ -7,7 +7,7 @@ pub struct PeerIdentity {
     pub id: String,
     pub name: String,
 }
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Target {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -36,7 +36,7 @@ pub struct Request {
     #[serde(default)]
     pub reply: Option<Reply>,
 }
-#[derive(Serialize, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum State {
     Sent,
@@ -45,7 +45,8 @@ pub enum State {
     Unconfirmed,
     Unavailable,
 }
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Answer {
     pub version: u64,
     pub state: State,
@@ -55,6 +56,43 @@ pub struct Answer {
     pub reason: Option<String>,
 }
 impl Request {
+    /// Core resolves its default before preparing the request; Remote never guesses a peer.
+    pub fn selected<'a>(&'a self, explicit: Option<&'a str>) -> Result<&'a str, RemoteError> {
+        if explicit.is_some()
+            && self.remote.as_deref().is_some()
+            && explicit != self.remote.as_deref()
+        {
+            return Err(RemoteError::new(
+                "REMOTE_SELECTOR_INVALID",
+                "The command and prepared request name different remotes.",
+            ));
+        }
+        let selected = explicit.or(self.remote.as_deref()).ok_or_else(|| {
+            RemoteError::new("REMOTE_CLOUD_UNAVAILABLE", "No cloud peer was selected.")
+        })?;
+        if selected == "local" {
+            return Err(RemoteError::new(
+                "REMOTE_CLOUD_UNAVAILABLE",
+                "The selected target does not use the cloud message driver.",
+            ));
+        }
+        if !crate::remote_catalog::name_ok(selected) {
+            return Err(RemoteError::new(
+                "REMOTE_SELECTOR_INVALID",
+                "Invalid remote name.",
+            ));
+        }
+        Ok(selected)
+    }
+    pub(crate) fn unconfirmed(&self, selected: &str) -> Answer {
+        Answer {
+            version: 1,
+            state: State::Unconfirmed,
+            remote: selected.into(),
+            target: self.target.clone(),
+            reason: Some("REMOTE_CLOUD_UNCONFIRMED".into()),
+        }
+    }
     pub fn read(bytes: &[u8]) -> Result<Self, RemoteError> {
         if bytes.len() > limits::CLOUD_COMMAND_BYTES {
             return Err(too_large());
@@ -126,6 +164,12 @@ pub(crate) fn dispatch_created_at(
         .and_then(serde_json::Value::as_u64)
         .map(Some)
         .ok_or_else(upgrade)
+}
+pub(crate) fn fixed_code(value: &str) -> bool {
+    (1..=64).contains(&value.len())
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
 }
 pub fn upgrade() -> RemoteError {
     RemoteError::new(

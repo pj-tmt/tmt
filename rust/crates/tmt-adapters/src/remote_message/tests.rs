@@ -75,6 +75,32 @@ fn the_request_is_one_json_document_on_stdin_and_the_command_is_message_json() {
 }
 
 #[test]
+fn the_remote_child_receives_the_absolute_selected_core_callback() {
+    let inherited = std::env::var_os("TMT_EXECUTABLE");
+    let expected = crate::core_executable::selected().unwrap();
+    assert!(expected.is_absolute());
+    let directory = TestDirectory::new();
+    let body = format!(
+        "printf '%s' \"$TMT_EXECUTABLE\" > \"{}/callback\"\n{}",
+        directory.path.display(),
+        answer("sent")
+    );
+    let program = script(&directory.path, &body);
+    let outcome = send(
+        &UnixCommandRunner,
+        program.as_os_str(),
+        &MESSAGE,
+        Instant::now() + Duration::from_secs(10),
+    );
+    assert_eq!(outcome, RemoteMessageOutcome::Sent);
+    assert_eq!(
+        std::path::PathBuf::from(fs::read_to_string(directory.path.join("callback")).unwrap()),
+        expected
+    );
+    assert_eq!(std::env::var_os("TMT_EXECUTABLE"), inherited);
+}
+
+#[test]
 fn a_target_named_by_uuid_carries_its_id_and_expected_name() {
     let message = RemoteMessage {
         target_id: Some("7f0c2f2e-2b1a-4c1e-9d2a-0a1b2c3d4e5f"),

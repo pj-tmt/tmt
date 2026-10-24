@@ -387,6 +387,9 @@ fn captures() -> Value {
                 "unread-squads",
                 "unread-cleared",
                 "unread-turn",
+                "unread-core-final",
+                "unread-core-capture",
+                "unread-core-conflict",
             ]
             .into_iter()
             .chain(
@@ -807,11 +810,12 @@ fn captures() -> Value {
                 }
             }
         }
-        // The Notes chip once its read has answered: additive scenes.
+        // The Checklist chip once its read has answered: additive scenes.
         for (look_name, look) in looks() {
-            for scene in crate::board::conversation_notes::tests::SCENES {
+            for scene in crate::board::conversation_checklist::tests::SCENES {
                 for width in [100, 80] {
-                    let app = crate::board::conversation_notes::tests::capture_case(scene, look);
+                    let app =
+                        crate::board::conversation_checklist::tests::capture_case(scene, look);
                     frames.push(capture_frame(
                         &app,
                         scene,
@@ -824,9 +828,9 @@ fn captures() -> Value {
             }
         }
         frames.extend(add_note_frames(&mut styles));
-        // The Notes list overlay: additive scenes.
+        // The conversation checklist overlay: additive scenes.
         for (look_name, look) in looks() {
-            for scene in crate::board::conversation_notes::tests::overlay::LIST_SCENES {
+            for scene in crate::board::conversation_checklist::tests::overlay::LIST_SCENES {
                 // The list also paints where its title, host and author give way.
                 let widths: &[u16] = if *scene == "notes-list" {
                     &[100, 160, 60]
@@ -834,8 +838,9 @@ fn captures() -> Value {
                     &[100]
                 };
                 for width in widths {
-                    let app =
-                        crate::board::conversation_notes::tests::overlay::list_case(scene, look);
+                    let app = crate::board::conversation_checklist::tests::overlay::list_case(
+                        scene, look,
+                    );
                     frames.push(capture_frame(
                         &app,
                         scene,
@@ -919,9 +924,10 @@ fn captures() -> Value {
             }
         }
         for (look_name, look) in looks() {
-            for scene in crate::board::conversation_notes::tests::captures::SCENES {
+            for scene in crate::board::conversation_checklist::tests::captures::SCENES {
                 for (width, height) in [(160, 36), (120, 40), (100, 32)] {
-                    let app = crate::board::conversation_notes::tests::captures::case(scene, look);
+                    let app =
+                        crate::board::conversation_checklist::tests::captures::case(scene, look);
                     frames.push(capture_frame(
                         &app,
                         scene,
@@ -932,10 +938,11 @@ fn captures() -> Value {
                     ));
                 }
             }
-            for scene in crate::board::conversation_notes::tests::captures::ROOM_SCENES {
+            for scene in crate::board::conversation_checklist::tests::captures::ROOM_SCENES {
                 for (width, height) in [(160, 36), (100, 36), (80, 36), (60, 36)] {
-                    let app =
-                        crate::board::conversation_notes::tests::captures::room_case(scene, look);
+                    let app = crate::board::conversation_checklist::tests::captures::room_case(
+                        scene, look,
+                    );
                     let mut captured =
                         capture_frame(&app, scene, look_name, width, height, &mut styles);
                     captured["stripHits"] =
@@ -955,6 +962,39 @@ fn captures() -> Value {
                     height,
                     &mut styles,
                 ));
+            }
+        }
+        for (look_name, look) in looks() {
+            for scene in crate::board::digest_dashboard::tests::impact::SCENES {
+                for (width, height) in [(160, 50), (120, 40), (100, 32)] {
+                    let mut app =
+                        crate::board::digest_dashboard::tests::impact::capture_case(scene, look);
+                    if *scene == "impact-basis" {
+                        let _ = capture_frame(&app, scene, look_name, width, height, &mut styles);
+                        app.choose(crate::board::app::Choice::DigestBasis);
+                    }
+                    let mut captured =
+                        capture_frame(&app, scene, look_name, width, height, &mut styles);
+                    captured["stripHits"] =
+                        json!(format!("{:?}", app.workspace_strip_hits.borrow()));
+                    frames.push(captured);
+                }
+            }
+        }
+        for (look_name, look) in looks() {
+            for scene in crate::board::conversation::tests::answer_paging::SCENES {
+                for width in [160, 100, 80, 60] {
+                    let app =
+                        crate::board::conversation::tests::answer_paging::capture_case(scene, look);
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        width,
+                        36,
+                        &mut styles,
+                    ));
+                }
             }
         }
         let styles = styles
@@ -1012,9 +1052,10 @@ fn dump_switch_revision_oracle() {
 fn add_note_frames(styles: &mut Styles) -> Vec<Value> {
     let mut frames = Vec::new();
     for (look_name, look) in looks() {
-        for scene in crate::board::conversation_notes::tests::overlay::ADD_SCENES {
+        for scene in crate::board::conversation_checklist::tests::overlay::ADD_SCENES {
             for width in [160, 100, 80, 60] {
-                let app = crate::board::conversation_notes::tests::overlay::add_case(scene, look);
+                let app =
+                    crate::board::conversation_checklist::tests::overlay::add_case(scene, look);
                 frames.push(capture_frame(&app, scene, look_name, width, 36, styles));
             }
         }
@@ -1040,7 +1081,7 @@ fn crud_frames(scenes: &[&str], styles: &mut Styles) -> Vec<Value> {
 }
 
 #[test]
-#[ignore = "exports only the Add to Notes forms to HOME_ORACLE_OUT; never records fixtures"]
+#[ignore = "exports only the Add to checklist forms to HOME_ORACLE_OUT; never records fixtures"]
 fn dump_add_to_notes_oracle() {
     let path = std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path");
     let captured = crate::status::with_now_ms(1_791_600_000_000, || {

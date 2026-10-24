@@ -1,15 +1,15 @@
 use crate::{
-    board::savings::{percent_text, usd_text},
+    board::savings::percent_text,
     labels::{Supplied, digest::SettingSource},
 };
 use tmt_cli_style::mark::Mark;
 
-pub(in crate::board) fn summary(
+pub(in crate::board) fn held_text(
     supplied: &Supplied,
     identities: Option<&std::collections::BTreeSet<&str>>,
 ) -> String {
     let Some((status, stale)) = supplied.digest() else {
-        return "Digest status unavailable".into();
+        return "unavailable".into();
     };
     let mut held = 0u128;
     let mut unknown = identities.map_or(0, |ids| {
@@ -36,14 +36,14 @@ pub(in crate::board) fn summary(
         String::new()
     };
     let count = if known == 0 && unknown > 0 {
-        "held unavailable".into()
+        "unavailable".into()
     } else if unknown > 0 {
-        format!("≥{held} observed held")
+        format!("≥{held} observed")
     } else {
-        format!("{held} held")
+        format!("{held}")
     };
     format!(
-        "Digest · {count}{suffix}{}",
+        "{count}{suffix}{}",
         if stale { " · stale observation" } else { "" }
     )
 }
@@ -163,18 +163,17 @@ pub(in crate::board) fn details(
     }
     if let Some(savings) = &member.savings {
         fields.push(format!(
-            "Supplier context avoided {}: {} · {}{}",
+            "Context evidence {}: {} · {}",
             savings.window.label(),
-            savings
-                .tokens
-                .map_or("—".into(), |tokens| crate::source::tokens(u128::from(
-                    tokens
-                ))),
             human_window(savings.from_ms, savings.through_ms),
-            if savings.complete { "" } else { " · partial" }
+            if savings.complete {
+                "complete"
+            } else {
+                "partial"
+            }
         ));
     }
-    fields.extend(valuation_details(member));
+    fields.extend(valuation_basis(member));
     fields
 }
 
@@ -184,33 +183,43 @@ pub(super) fn observation_time(
     now_ms: u64,
     zone: &jiff::tz::TimeZone,
 ) -> String {
-    let Some(at_ms) = at_ms.filter(|at| *at > 0 && *at <= now_ms) else {
-        return "unknown".into();
-    };
-    let Some(at) = i64::try_from(at_ms)
-        .ok()
-        .and_then(|at| jiff::Timestamp::from_millisecond(at).ok())
-    else {
+    let Some(at) = observation(at_ms, now_ms) else {
         return "unknown".into();
     };
     format!(
         "{} ({})",
-        tmt_cli_style::value::relative_time(now_ms - at_ms),
+        tmt_cli_style::value::relative_time(now_ms - at.as_millisecond() as u64),
         at.to_zoned(zone.clone()).strftime("%H:%M")
     )
 }
 
-/// What stands behind the cost and share figures of one member, so each can be
-/// traced to its own quote and interval. Both are estimates, never bills.
-fn valuation_details(member: &crate::labels::digest::Member) -> Vec<String> {
+pub(super) fn observation_clock(
+    at_ms: Option<u64>,
+    now_ms: u64,
+    zone: &jiff::tz::TimeZone,
+) -> String {
+    observation(at_ms, now_ms).map_or_else(
+        || "unknown".into(),
+        |at| at.to_zoned(zone.clone()).strftime("%H:%M").to_string(),
+    )
+}
+
+fn observation(at_ms: Option<u64>, now_ms: u64) -> Option<jiff::Timestamp> {
+    at_ms
+        .filter(|at| *at > 0 && *at <= now_ms)
+        .and_then(|at| i64::try_from(at).ok())
+        .and_then(|at| jiff::Timestamp::from_millisecond(at).ok())
+}
+
+/// Evidence behind the Impact block; amounts belong to that block alone.
+fn valuation_basis(member: &crate::labels::digest::Member) -> Vec<String> {
     let mut fields = Vec::new();
     let Some(savings) = &member.savings else {
         return fields;
     };
     if let Some(cost) = &savings.cost {
         fields.push(format!(
-            "Cost quote: {} at list price · {} at {} per 1M input tokens · price table {}",
-            usd_text(cost.usd_micros).trim_start_matches("≈ "),
+            "Quote basis: {} at {} per 1M input tokens · price table {}",
             cost.model_id,
             rate_text(cost.usd_micros_per_million_input_tokens),
             cost.pricing_version
@@ -218,17 +227,14 @@ fn valuation_details(member: &crate::labels::digest::Member) -> Vec<String> {
     }
     if let Some(percent) = &savings.percent {
         fields.push(format!(
-            "Share of input: {} ({} of {} input tokens) over {}",
-            detail_percent(percent.basis_points),
-            crate::source::tokens(u128::from(percent.avoided)),
-            crate::source::tokens(u128::from(percent.avoided) + u128::from(percent.observed)),
+            "Input-reduction window: {}",
             human_window(percent.from_ms, percent.through_ms)
         ));
     }
     fields
 }
 
-fn detail_percent(points: u16) -> String {
+pub(super) fn detail_percent(points: u16) -> String {
     match points {
         0 => "0%".into(),
         1..=4 => "<0.1%".into(),

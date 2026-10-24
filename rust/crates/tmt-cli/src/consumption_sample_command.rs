@@ -15,7 +15,7 @@ use tmt_adapters::{
     },
     response_input::read_stdin_bounded,
     runtime::RuntimeRegistry,
-    setup::usage_hook_installed,
+    setup::usage_consented,
     skill_installation::ProviderEnvironment,
     storage::{RuntimeObservation, Storage},
 };
@@ -94,7 +94,7 @@ fn sample(deadline: Instant) -> Result<(), ()> {
     };
     if !Registry::builtin()
         .find(remembered.harness.as_str())
-        .is_some_and(usage_hook_installed)
+        .is_some_and(usage_consented)
     {
         return Ok(());
     }

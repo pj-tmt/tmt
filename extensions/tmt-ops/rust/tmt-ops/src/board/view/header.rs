@@ -47,7 +47,7 @@ fn paint_shell(buffer: &mut ratatui::buffer::Buffer, app: &App, area: Rect, now:
             unread: app.unread_global(),
             todo: todo.map_or_else(
                 || "… todo".into(),
-                crate::board::conversation_notes::Total::label,
+                crate::board::conversation_checklist::Total::label,
             ),
             blocked: number(counts.blocked),
             todo_positive: app.notes.total().is_some_and(|total| total.todo > 0),

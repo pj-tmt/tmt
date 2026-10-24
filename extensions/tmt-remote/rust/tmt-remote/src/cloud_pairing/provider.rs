@@ -184,6 +184,75 @@ impl Provider {
             Err(status(&response))
         }
     }
+    /// Maintenance reads one expired gate at a time under the same ordinary-user budget.
+    pub(super) async fn expired_invite(
+        &self,
+        now: u64,
+        io: &IoBudget<'_>,
+    ) -> Result<Option<String>, RemoteError> {
+        let query = json!({"structuredQuery":{
+            "from":[{"collectionId":"invites","allDescendants":false}],
+            "where":{"fieldFilter":{"field":{"fieldPath":"expiresAt"},"op":"LESS_THAN_OR_EQUAL","value":{"timestampValue":stamp(now)}}},
+            "orderBy":[{"field":{"fieldPath":"expiresAt"},"direction":"ASCENDING"}],
+            "limit":1
+        }});
+        let response = self
+            .call(
+                Operation::Query,
+                &format!("/m/{}:runQuery", self.machine()),
+                query,
+                1 + READ_LOOKUPS,
+                None,
+                io,
+            )
+            .await?
+            .ok_or_else(invalid)?;
+        if response.status != 200 {
+            return Err(status(&response));
+        }
+        let rows = crate::wire::strict_json(&response.body)
+            .and_then(|v| v.as_array().cloned())
+            .filter(|v| v.len() <= 2)
+            .ok_or_else(invalid)?;
+        let mut documents = rows.iter().filter_map(|row| row.get("document"));
+        let Some(document) = documents.next() else {
+            return Ok(None);
+        };
+        if documents.next().is_some() {
+            return Err(invalid());
+        }
+        let prefix = format!("{}/m/{}/invites/", self.root(), self.machine());
+        let id = document["name"]
+            .as_str()
+            .and_then(|name| name.strip_prefix(&prefix))
+            .ok_or_else(invalid)?;
+        canonical::uuid(id).map_err(|_| invalid())?;
+        let fields = document["fields"]
+            .as_object()
+            .filter(|v| v.len() == 2)
+            .ok_or_else(invalid)?;
+        let expiry = fields
+            .get("expiresAt")
+            .and_then(Value::as_object)
+            .filter(|v| v.len() == 1)
+            .and_then(|v| v.get("timestampValue"))
+            .and_then(Value::as_str)
+            .ok_or_else(invalid)?;
+        let expiry = crate::cloud_inbox::document::timestamp(expiry)?;
+        let hash = fields
+            .get("tokenHash")
+            .and_then(Value::as_object)
+            .filter(|v| v.len() == 1)
+            .and_then(|v| v.get("bytesValue"))
+            .and_then(Value::as_str)
+            .filter(|v| v.len() == 44)
+            .ok_or_else(invalid)?;
+        let decoded = STANDARD.decode(hash).map_err(|_| invalid())?;
+        if expiry > now || decoded.len() != 32 || STANDARD.encode(&decoded) != hash {
+            return Err(invalid());
+        }
+        Ok(Some(id.to_owned()))
+    }
     pub async fn enrollment_get(
         &self,
         id: &str,

@@ -52,7 +52,7 @@ service cloud.firestore {
     }
     match /m/{machine} {
       allow create: if request.auth != null && machine.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}') && machineFields(machine) && request.resource.data.uid == request.auth.uid &&
-        (exists(/databases/$(database)/documents/owners/$(request.auth.uid)) || invitedMachine(machine));
+        (get(/databases/$(database)/documents/owners/$(request.auth.uid)).data.machine == machine || invitedMachine(machine));
       allow update: if request.auth != null && machineFields(machine) &&
         ((resource.data.uid == request.auth.uid && request.resource.data.uid == resource.data.uid && request.resource.data.authenticationKey == resource.data.authenticationKey && request.resource.data.get('invitingOwner', null) == resource.data.get('invitingOwner', null)) || inviterMovesUid(machine));
       allow get: if request.auth != null;
@@ -67,6 +67,7 @@ service cloud.firestore {
         request.resource.data.keys().hasOnly(['tokenHash','expiresAt']) && request.resource.data.keys().hasAll(['tokenHash','expiresAt']) &&
         request.resource.data.tokenHash is bytes && request.resource.data.tokenHash.size() == 32 && request.resource.data.expiresAt is timestamp && request.resource.data.expiresAt > request.time;
       allow get, delete: if machineOwner(machine);
+      allow list: if machineOwner(machine) && request.query.limit == 1;
     }
     match /m/{machine}/reroutes/{peer} {
       allow create, update: if machineOwner(machine) && peer.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}') &&

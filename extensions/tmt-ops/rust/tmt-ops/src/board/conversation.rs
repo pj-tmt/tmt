@@ -160,11 +160,13 @@ pub(super) struct State {
     response_area: Option<Rect>,
     /// The selected pane's live screen in place of the chat (`v`), until toggled back.
     pub(in crate::board) screen_mode: bool,
+    pub(in crate::board) painted_answers: Vec<super::unread::walk::Body>,
     pub area: Rect,
     pub pane: Option<Rect>,
 }
 
 struct Rendered {
+    pane_start: Option<usize>,
     width: usize,
     gutter: usize,
     look: Look,
@@ -174,6 +176,7 @@ struct Rendered {
     anchor_sources: Vec<usize>,
     response_sources: Option<Vec<Option<usize>>>,
     final_spans: Vec<(std::ops::Range<usize>, usize)>,
+    capture_spans: Vec<(std::ops::Range<usize>, String, u64)>,
     /// What each displayed line was written as, for copying a selection as source.
     copy: copy::Map,
     note_sources: note_source::Map,
@@ -199,6 +202,12 @@ impl AuthoredLine {
             _ => Role::Muted,
         }
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AnswerFailure {
+    Latest,
+    Older,
 }
 
 struct Session {
@@ -227,9 +236,13 @@ struct Session {
     )>,
     authored_lines: BTreeMap<usize, AuthoredLine>,
     outgoing_note_sources: note_source::Map,
+    capture_body_spans: Vec<(std::ops::Range<usize>, String, u64)>,
     compact_separators: std::collections::BTreeSet<usize>,
     pane_output: super::recent_responses::Observation,
     pane_output_fresh: bool,
+    older_demand: bool,
+    pane_rebuild: bool,
+    pane_failure: Option<AnswerFailure>,
     transcript_context: transcript::Context,
     /// When the exchanges first went unanswered, for the delayed loading line.
     pending_since_ms: Option<u64>,
@@ -266,9 +279,13 @@ impl Default for Session {
             response_spans: Default::default(),
             authored_lines: Default::default(),
             outgoing_note_sources: Default::default(),
+            capture_body_spans: Vec::new(),
             compact_separators: Default::default(),
             pane_output: Default::default(),
             pane_output_fresh: false,
+            older_demand: false,
+            pane_rebuild: false,
+            pane_failure: None,
             transcript_context: Default::default(),
             pending_since_ms: None,
             refreshing_since_ms: None,
@@ -535,6 +552,7 @@ impl Session {
                 .collect();
             self.anchor.reconcile(&anchor_text);
             self.rendered = Some(Rendered {
+                pane_start: transcript.pane_start,
                 width,
                 gutter,
                 look,
@@ -547,6 +565,7 @@ impl Session {
                 anchor_sources,
                 response_sources: Some(response_sources),
                 final_spans: transcript.final_spans,
+                capture_spans: transcript.capture_spans,
                 copy: transcript.copy,
                 note_sources: transcript.note_sources,
             });
@@ -575,24 +594,6 @@ impl App {
         let state = self.conversation.borrow();
         let identity = (self.view.as_ref()?.me_id.clone(), id.to_owned());
         state.sessions.get(&identity)?.reply.clone()
-    }
-
-    /// The member shown and the requests whose answered turn the conversation shows.
-    pub(super) fn conversation_turns(&self) -> Option<(String, Vec<String>)> {
-        if !self.scrolls.visible(Pane::Replies) {
-            return None;
-        }
-        let target = self.conversation_target()?;
-        let id = self.target_row(&target)?["id"].as_str()?;
-        let state = self.conversation.borrow();
-        let identity = (self.view.as_ref()?.me_id.clone(), id.to_owned());
-        let turns = state
-            .sessions
-            .get(&identity)?
-            .answered_turns()
-            .map(str::to_owned)
-            .collect();
-        Some((id.to_owned(), turns))
     }
 
     pub(super) fn conversation_input_area(&self) -> Option<Rect> {
@@ -629,6 +630,7 @@ impl App {
         let Some(identity) = state.active.clone() else {
             return;
         };
+        let screen_mode = state.screen_mode;
         state.source_surfaces.clear();
         let response_area = state
             .response_area
@@ -640,6 +642,19 @@ impl App {
             return;
         }
         let forward = matches!(step, Step::Lines(lines) | Step::Pages(lines) if lines > 0);
+        let upward = matches!(step, Step::Top)
+            || matches!(step, Step::Lines(lines) | Step::Pages(lines) if lines < 0);
+        if upward
+            && self.pane_output_enabled()
+            && !screen_mode
+            && matches!(&session.pane_output, super::recent_responses::Observation::Observed(page)
+                if page.next_before.is_some())
+            && session.rendered.as_ref().is_some_and(|rendered| {
+                self.scrolls.offset(pane) <= rendered.pane_start.unwrap_or(0)
+            })
+        {
+            session.older_demand = true;
+        }
         let at_bottom =
             response_area
                 .zip(session.rendered.as_ref())
@@ -729,6 +744,7 @@ fn render_target(
     app.conversation.borrow_mut().header_hits.clear();
     app.conversation.borrow_mut().send_now_hit = None;
     app.conversation.borrow_mut().response_area = None;
+    app.conversation.borrow_mut().painted_answers.clear();
     let row = target
         .as_ref()
         .and_then(|target| app.target_row(target))
@@ -1283,6 +1299,11 @@ fn render_target(
     for index in offset..offset.saturating_add(shown).min(mapped.lines.len()) {
         session.admit_feedback_clock(app, mapped.sources[index], &mapped.lines[index]);
     }
+    let painted_answers = session.painted_answers(
+        app,
+        row["id"].as_str().unwrap(),
+        offset..offset.saturating_add(shown).min(mapped.lines.len()),
+    );
     if switched || rebuilt || previous != offset {
         session.anchor.select_visual(
             &session.rendered.as_ref().unwrap().anchor_text,
@@ -1290,6 +1311,7 @@ fn render_target(
             offset,
         );
     }
+    state.painted_answers = painted_answers;
     state.response_area = Some(body);
     state.header_hits = painted_controls;
     state.send_now_hit = send_now_hit;

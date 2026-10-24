@@ -92,6 +92,11 @@ impl State {
     pub fn invalidate(&mut self) {
         self.frame = None;
     }
+    /// Re-materialize changed embedded markup without resetting the picker or scroll position.
+    pub fn template_changed(&mut self) {
+        self.invalidate();
+        self.scene = None;
+    }
     /// Scrolls the list so the group heading `group`, the row `row` and `after` more lines are in
     /// view, if they fit. Only painted rows have geometry, so the lines after `row` are counted,
     /// not looked up. None until a list frame has painted `row`; Some(whether the offset moved).

@@ -416,6 +416,7 @@ own module/drawing boundaries and verification.
   No Ops data enters `config.json` or Core's database.
 - **Workspace.** Agents/Digest share one acquired roster; the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
+  `board::unread` projects Core answer revisions; its ordered lane acknowledges painted body rows and explicit Mark read through public `requests.ack`, and consumes legacy cutoffs through bounded pages under Config's lock.
   `board::selected_conversation` publishes one bounded refresh per selection on the selected worker lane; the [acquisition guide](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker) owns its lifecycle.
   `board::buttons` owns chip paint and hover, including ChipGroup selectors, through neutral Strip paint and shared screen styles; callers keep activation authority.
   The quiet cache lane owns retained per-name view state, kept apart from shared Config preferences: [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
@@ -542,10 +543,10 @@ Home/Remote/SDK; read-only auto-pair; no companions/skills; [release gates](.age
 
 [Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
 settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
-Remote: authority, native invite/join, uid routes; UI grants none.
+Remote: authority, invite/join, uid routes; UI grants none.
 Firestore: Auth/Rules only; Core never uses Remote trust.
 `message`: wire/grants/scope/allowlist/hold/uncertainty/audit; UUID/name checks.
-`talk --remote` → [message v1](contracts/remote-message-v1.md) → Remote.
+`talk --remote` → [message v1](contracts/remote-message-v1.md) → serving owner.
 `message` → `session`/`operations`: same-ID Core dispatch/recovery; cloud finals → receipt-bound `reply`.
 Door: `remote-v1.js` ([SDK](extensions/tmt-remote/typescript/remote-client/README.md));
 owner-installed [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`; public CLI/SDK/`tmt-extension-objects` elsewhere; never Remote state files.

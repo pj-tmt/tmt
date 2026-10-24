@@ -66,35 +66,34 @@ pub fn discover(search_path: &OsStr) -> io::Result<BTreeMap<String, PathBuf>> {
     Ok(found)
 }
 
+/// The selected Core callback is child-local, including for bounded extension calls.
+pub(crate) fn environment(tmt: &Path) -> [(OsString, OsString); 1] {
+    [("TMT_EXECUTABLE".into(), tmt.as_os_str().to_owned())]
+}
+
 /// Success replaces this process. No wrapper owns signals, TTY or exit status.
 pub fn execute(executable: &Path, args: &[OsString], tmt: &Path) -> io::Error {
     Command::new(executable)
         .args(args)
-        .env("TMT_EXECUTABLE", tmt)
+        .envs(environment(tmt))
         .exec()
 }
 
 /// Optional completion v1: literal UTF-8 lines only; failure means file fallback.
 pub fn complete(executable: &Path, words: &[OsString], tmt: &Path) -> Option<Vec<String>> {
-    let mut environment = OsString::from("TMT_EXECUTABLE=");
-    environment.push(tmt);
-    let mut args = vec![
-        environment,
-        executable.as_os_str().to_owned(),
-        "__complete".into(),
-        "--".into(),
-    ];
+    let mut args = vec!["__complete".into(), "--".into()];
     args.extend_from_slice(words);
-    // The shared bounded runner owns timeout/output-limit cleanup. env only sets
-    // this child's variable; no process-global environment is mutated.
     let output = UnixCommandRunner
-        .execute(CommandRequest {
-            program: OsStr::new("/usr/bin/env"),
-            args: &args,
-            input: b"",
-            deadline: Instant::now() + Duration::from_secs(1),
-            max_output_bytes: 65_536,
-        })
+        .execute_with_environment(
+            CommandRequest {
+                program: executable.as_os_str(),
+                args: &args,
+                input: b"",
+                deadline: Instant::now() + Duration::from_secs(1),
+                max_output_bytes: 65_536,
+            },
+            &environment(tmt),
+        )
         .ok()?;
     let text = String::from_utf8(output.stdout).ok()?;
     let candidates: Vec<_> = text
@@ -113,6 +112,26 @@ pub fn complete(executable: &Path, words: &[OsString], tmt: &Path) -> Option<Vec
 mod tests {
     use super::*;
     use crate::test_support::TestDirectory;
+
+    #[test]
+    fn completion_receives_the_literal_core_callback_without_mutating_the_parent() {
+        let directory = TestDirectory::new();
+        let program = directory.path.join("tmt-example");
+        tmt_test_support::write_executable(
+            &program,
+            b"#!/bin/sh\nprintf '%s\\n' \"$TMT_EXECUTABLE\"\n",
+            0o700,
+        )
+        .unwrap();
+        let inherited = std::env::var_os("TMT_EXECUTABLE");
+        let tmt = directory.path.join("Core path with spaces");
+        assert!(tmt.is_absolute());
+        assert_eq!(
+            complete(&program, &[], &tmt),
+            Some(vec![tmt.to_str().unwrap().to_owned()])
+        );
+        assert_eq!(std::env::var_os("TMT_EXECUTABLE"), inherited);
+    }
 
     #[test]
     fn names_are_lowercase_ascii_commands_not_paths_or_options() {

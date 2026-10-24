@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'vite-plus/test';
 import { openSession } from '../src/device.js';
-import { ClientError, RefusalError, operations, type ClientErrorCode } from '../src/operations.js';
+import {
+  ClientError,
+  RefusalError,
+  operations,
+  type ClientErrorCode,
+  type MessageState,
+} from '../src/operations.js';
 import { Door, paired } from './door.js';
 
 async function ready(door = new Door(), timeoutMs?: number) {
@@ -124,11 +130,55 @@ test('a pending result forwards Core message state exactly, and says nothing whe
   assert.equal(quiet.messageState?.canSendNow, false);
   assert.equal(quiet.messageState?.latestMs, null);
 });
+// Core owns these strings; the SDK preserves its text and does not infer completion.
+for (const [state, code, text] of [
+  ['answered', 'answered_by_reply', 'answered'],
+  ['answered', 'answered_by_turn', "answered, the agent's turn ended with this reply"],
+  [
+    'answered',
+    'answered_by_folded_turn',
+    'answered together with the earlier message: it was typed into the running turn',
+  ],
+  [
+    'unconfirmed',
+    'no_turn_started',
+    'no answer captured: no turn started with this text, the agent may have taken it into a running turn',
+  ],
+  [
+    'unconfirmed',
+    'turn_ended_without_answer',
+    "no answer captured: the agent's turn ended without a final message",
+  ],
+  ['answered', 'future_answer_reason', 'A future Core sentence, preserved exactly.'],
+] as const) {
+  test(`result and sendNow preserve Core message state ${state}/${code}`, async () => {
+    const { door, client } = await ready();
+    const messageState: MessageState = {
+      state,
+      reason: { code, text },
+      latestMs: null,
+      remainingMs: null,
+      canSendNow: false,
+    };
+    door.replyState = 'pending';
+    door.messageState = messageState;
+    const id = request();
+    assert.deepEqual(await client.result(id), { state: 'pending', requestId: id, messageState });
+    const sendState = state === 'answered' ? 'already' : 'unconfirmed';
+    door.sendNowReply = { state: sendState, messageState };
+    assert.deepEqual(await client.sendNow(id), { state: sendState, requestId: id, messageState });
+    assert.deepEqual(
+      door.calls.map((call) => call.envelope.operation),
+      ['result', 'requests.sendNow'],
+    );
+  });
+}
 test('a malformed message state is an unverifiable reply, never a partial one', async () => {
   const bad: unknown[] = [
     'sent',
     [],
     { ...heldState, canSendNow: 'yes' },
+    { ...heldState, state: 'answered', canSendNow: 'yes' },
     { ...heldState, latestMs: -1 },
     { ...heldState, remainingMs: 1.5 },
     { ...heldState, reason: 'held' },
@@ -150,14 +200,18 @@ test('a malformed message state is an unverifiable reply, never a partial one', 
   }
 });
 test('a message state this SDK does not know is left out and the rest of the reply is kept', async () => {
-  const { door, client } = await ready();
-  door.replyState = 'pending';
-  door.messageState = { ...heldState, state: 'future_state', futureField: true };
-  const id = request();
-  assert.deepEqual(await client.result(id), { state: 'pending', requestId: id });
-  door.sendNowReply = { state: 'sent', messageState: { ...heldState, state: 'future_state' } };
-  assert.deepEqual(await client.sendNow(id), { state: 'sent', requestId: id });
+  for (const additive of [{}, { futureField: true }]) {
+    const { door, client } = await ready();
+    door.replyState = 'pending';
+    const futureState = { ...heldState, state: 'future_state', ...additive };
+    door.messageState = futureState;
+    const id = request();
+    assert.deepEqual(await client.result(id), { state: 'pending', requestId: id });
+    door.sendNowReply = { state: 'sent', messageState: futureState };
+    assert.deepEqual(await client.sendNow(id), { state: 'sent', requestId: id });
+  }
 });
+
 for (const [reply, expected] of [
   [{ state: 'sent' }, { state: 'sent' }],
   [

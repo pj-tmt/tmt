@@ -5,6 +5,7 @@ fn facts(status: AttemptStatus) -> DeliveryFacts {
     DeliveryFacts {
         status,
         inbox: false,
+        recipient_is_user: false,
         wake: WakeState::NotAttempted,
         prepared_at_ms: 0,
         settled_at_ms: None,
@@ -457,4 +458,45 @@ fn what_came_back_outranks_how_the_hand_over_went() {
     // A capture still waiting changes nothing.
     typed.answer = ReturnedAnswer::None;
     assert_eq!(shown(&typed), ("working", "agent_working", false));
+}
+
+#[test]
+fn a_person_waits_for_their_reply_not_an_agent_turn_or_stale_digest() {
+    let mut person = through_inbox(WakeState::Unavailable);
+    person.recipient_is_user = true;
+    person.recipient = activity(ActivityPhase::Working, 500);
+    person.hold = Some(DigestHold::Open { since_ms: 1 });
+    person.max_hold_ms = Some(10);
+    person.oldest_held_at_ms = Some(1);
+    let view = delivery_view(&person, 100);
+    assert_eq!(
+        (view.state, view.reason),
+        (DeliveryState::Delivered, DeliveryReason::WaitingForPerson)
+    );
+    assert_eq!(view.reason_text, "waiting for the person");
+    assert_eq!(
+        (view.latest_ms, view.remaining_ms, view.can_send_now),
+        (None, None, false)
+    );
+    for hold in [
+        Some(DigestHold::Claimed),
+        Some(DigestHold::Uncertain),
+        Some(DigestHold::Delivered),
+        None,
+    ] {
+        person.hold = hold;
+        assert_eq!(shown(&person), ("delivered", "waiting_for_person", false));
+    }
+    // A person does not inherit the agent turn recorded before it was marked.
+    person.wake = WakeState::Sent;
+    for turn in [HandoverTurn::Started { at_ms: 1 }, HandoverTurn::Ended] {
+        person.turn = turn;
+        assert_eq!(shown(&person), ("delivered", "waiting_for_person", false));
+    }
+    person.answer = ReturnedAnswer::Final;
+    assert_eq!(shown(&person), ("answered", "answered_by_reply", false));
+    person.answer = ReturnedAnswer::None;
+    person.status = AttemptStatus::DefinitelyFailed;
+    person.inbox = false;
+    assert_eq!(shown(&person), ("not_sent", "refused", false));
 }

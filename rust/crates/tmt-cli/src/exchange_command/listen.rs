@@ -439,10 +439,16 @@ mod tests {
                 recipient_identity_id: Some(identity.id.clone()),
                 prepared_at_ms: 1,
                 delivery: AttemptStatus::Queued,
-                message_state: tmt_core::request::delivery::DeliveryView::of(
-                    tmt_core::request::delivery::DeliveryState::Sent,
-                    tmt_core::request::delivery::DeliveryReason::WaitingForDelivery,
-                ),
+                message_state: tmt_core::request::delivery::DeliveryView {
+                    state: tmt_core::request::delivery::DeliveryState::Sent,
+                    reason: tmt_core::request::delivery::DeliveryReason::WaitingForDelivery,
+                    reason_text: tmt_core::request::delivery::DeliveryReason::WaitingForDelivery
+                        .text()
+                        .into(),
+                    latest_ms: None,
+                    remaining_ms: None,
+                    can_send_now: false,
+                },
                 final_state: FinalState::NotSubmitted,
                 revision: 1,
                 acknowledged: false,

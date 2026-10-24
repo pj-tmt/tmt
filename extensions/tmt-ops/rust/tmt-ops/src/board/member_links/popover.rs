@@ -1,5 +1,5 @@
 //! Destination popovers name the held target before any action. Web/mail links offer
-//! Open, Copy and Show full, plus Add to Notes in a conversation. Local files offer
+//! Open, Copy and Show full, plus Add to checklist in a conversation. Local files offer
 //! only Copy full path and Show full.
 use super::{Hit, Target, menu_area};
 use crate::board::app::{App, Choice, CopyFeedback, Effect, Menu, MenuEntry, Request};
@@ -106,13 +106,13 @@ impl App {
             return Effect::None;
         };
         let note = self.note_source_at(hit.area.as_position()).map(|source| {
-            self.conversation_notes_key().map_or_else(
-                || Choice::Unavailable("Select a squad member to add to Notes.".into()),
+            self.conversation_checklist_key().map_or_else(
+                || Choice::Unavailable("Select a squad member to add to checklist.".into()),
                 |key| {
-                    Choice::AddToNotes(crate::board::conversation_notes::Seed {
+                    Choice::AddToNotes(crate::board::conversation_checklist::Seed {
                         key,
                         actor: self.view.as_ref().and_then(|view| view.me_id.clone()),
-                        kind: crate::board::conversation_notes::NoteKind::Link,
+                        kind: crate::board::conversation_checklist::NoteKind::Link,
                         title: link_title(url),
                         reference: url.into(),
                         source,
@@ -161,7 +161,7 @@ impl App {
         {
             entries.push(MenuEntry {
                 key: "n".into(),
-                label: "Add to Notes".into(),
+                label: "Add to checklist".into(),
                 choice: choice.clone(),
             });
         }
@@ -430,12 +430,15 @@ mod tests {
         let (area, url) = url_hits(&app).remove(0);
         click(&mut app, area);
         app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
-        let key = app.conversation_notes_key().unwrap();
-        let draft = app.notes.draft(&key).expect("n opens Add to Notes");
+        let key = app.conversation_checklist_key().unwrap();
+        let draft = app.notes.draft(&key).expect("n opens Add to checklist");
         assert_eq!(draft.text(0), "a_b");
         assert_eq!(draft.text(1), url);
         let seed = draft.seed.as_ref().unwrap();
-        assert_eq!(seed.kind, crate::board::conversation_notes::NoteKind::Link);
+        assert_eq!(
+            seed.kind,
+            crate::board::conversation_checklist::NoteKind::Link
+        );
         assert!(
             seed.source.body().contains("request link"),
             "{:?}",
@@ -519,7 +522,7 @@ mod tests {
             "back restores the held source, not the row now at the anchor"
         );
         app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
-        let key = app.conversation_notes_key().unwrap();
+        let key = app.conversation_checklist_key().unwrap();
         let source = &app.notes.draft(&key).unwrap().seed.as_ref().unwrap().source;
         assert!(source.body().contains("request link"));
         assert!(!source.body().contains("replacement-request"));
@@ -602,7 +605,7 @@ mod tests {
                 "Open",
                 "Copy",
                 "Show full",
-                "Add to Notes"
+                "Add to checklist"
             ]
         );
         assert_eq!(menu.anchor, Some(area));

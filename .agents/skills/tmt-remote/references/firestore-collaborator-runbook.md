@@ -1,10 +1,11 @@
 # Talk between two paired machines
 
-Public `tmt talk --remote` is blocked by Remote's
-[message-command activation (#4900)](https://github.com/pj-tmt/tmt/issues/4900), which connects
-prepared requests to the serving owner. Core's send and UUID-query paths are merged. This
-reference describes the two-machine flow after that gate opens; preserve the pairing on an
-upgrade refusal and never bypass it.
+Public `tmt talk --remote` sends a prepared message through this machine's running Remote
+owner to an already joined peer. It does not start serve, sign in or pair implicitly. A lost
+or invalid owner answer stays unconfirmed; keep the request ID and never resend automatically.
+The [activation contract](../../../../contracts/remote-channel-v1.md#public-native-agent-activation)
+owns this handoff. One-way public delivery is qualified separately from the composed exact final
+in originating `tmt result` (#4540); the owner's real-account acceptance remains #4539.
 
 ## Install and prepare
 

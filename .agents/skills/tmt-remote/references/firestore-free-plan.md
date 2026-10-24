@@ -80,7 +80,7 @@ Follow-up query pages reserve their bounded document limit plus Rules lookups be
 unused request maxima are never refunded. Retained transport rows only size those pages and
 never remove unseen documents from the overlap query. An already-attempted response uses an
 exact-ID observation without reserving another commit that cannot be sent. The
-[native carrier contract](../../../../contracts/remote-channel-v1.md#native-firestore-agent-binding-emulator-only)
+[native carrier contract](../../../../contracts/remote-channel-v1.md#native-firestore-agent-binding)
 owns query, checkpoint and publication behavior; scenario measurements belong in the issue/PR.
 
 ## Recorded readiness
@@ -121,7 +121,6 @@ is one write plus its resource's Rules lookups; the continuing member log append
 page-share guard remains a guard, not a hint or aggregate project enforcement.
 Native polling/read costs are in [door and discovery](door-and-discovery.md#native-firestore-sign-in-and-transport); this payload profile adds none.
 
-The native agent inbox is an [emulator-only binding](../../../../contracts/remote-channel-v1.md#native-firestore-agent-binding-emulator-only).
+The native agent inbox is a [native binding](../../../../contracts/remote-channel-v1.md#native-firestore-agent-binding).
 Its polling and carrier calls reuse the native project guard. That contract owns the idle-read model;
 qualification records actual HTTP read/commit counts separately from modeled Rules-dependent reads.
-Production enrollment and the Core UUID query are separate activation dependencies.

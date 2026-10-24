@@ -127,6 +127,25 @@ pub trait CommandRunner {
     }
 
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError>;
+
+    /// Child-only overrides. Runners without this capability refuse before any spawn.
+    fn execute_with_environment(
+        &self,
+        request: CommandRequest<'_>,
+        environment: &[(OsString, OsString)],
+    ) -> Result<CommandOutput, CommandError> {
+        if environment.is_empty() {
+            self.execute(request)
+        } else {
+            Err(CommandError::io(
+                CommandFailure::Spawn,
+                io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "Child environment overrides unsupported",
+                ),
+            ))
+        }
+    }
 }
 
 /// A borrowed runner, so a short-lived caller (one external host driver per
@@ -150,6 +169,14 @@ impl<R: CommandRunner + ?Sized> CommandRunner for &R {
 
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
         (**self).execute(request)
+    }
+
+    fn execute_with_environment(
+        &self,
+        request: CommandRequest<'_>,
+        environment: &[(OsString, OsString)],
+    ) -> Result<CommandOutput, CommandError> {
+        (**self).execute_with_environment(request, environment)
     }
 }
 
@@ -229,6 +256,14 @@ impl CommandRunner for UnixCommandRunner {
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
         self.start(request)?.wait()
     }
+
+    fn execute_with_environment(
+        &self,
+        request: CommandRequest<'_>,
+        environment: &[(OsString, OsString)],
+    ) -> Result<CommandOutput, CommandError> {
+        start_command_with_environment(request, true, environment)?.wait()
+    }
 }
 
 impl UnixCommandRunner {
@@ -242,8 +277,17 @@ fn start_command(
     request: CommandRequest<'_>,
     owns_group: bool,
 ) -> Result<RunningCommand, CommandError> {
+    start_command_with_environment(request, owns_group, &[])
+}
+
+fn start_command_with_environment(
+    request: CommandRequest<'_>,
+    owns_group: bool,
+    environment: &[(OsString, OsString)],
+) -> Result<RunningCommand, CommandError> {
     remaining(request.deadline)?;
     let command = Exec::cmd(request.program)
+        .env_extend(environment.iter().cloned())
         .args(request.args.iter().cloned())
         .stdin(request.input.to_vec())
         .stdout(Redirection::Pipe)

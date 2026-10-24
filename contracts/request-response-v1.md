@@ -643,9 +643,12 @@ and `requests.show` items with `mode: "passthrough"` carry
   leave a capture `bound` for ever.
 - `answered`: the turn ended with a final message, stored as
   `answer: {text, truncated, provider, endedMs}`: plain untrusted text of at most 8,192 UTF-8
-  bytes, never a reply and never an instruction. It is attached once.
-- `no_answer`: the turn ended without a final (interrupted, or none was read, as when provider
-  usage collection is off), or the provider session was replaced or overtaken by a later turn
+  bytes, never a reply and never an instruction. It is attached once. Settling it also gives the
+  sender a new attention revision, as a submitted final does, so the request reads as unread
+  in `x` and in the [answers view](extension-api.md#answers-and-acknowledgment) until the
+  sender acknowledges that revision; `no_answer` changes no revision.
+- `no_answer`: the turn ended without a final (interrupted, or none was read, as when the turn-end
+  hook is not installed), or the provider session was replaced or overtaken by a later turn
   before it ended, or the six hours passed. A final is
   never taken from `responses.recent` or the pane.
 
@@ -793,11 +796,17 @@ raw attempt status: a request held by Digest stays `queued` after its checklist 
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | `sent`        | Accepted and waiting to be typed, or its Digest checklist is in flight                                                                                                                                            | true unless in flight or the recipient waits on an approval prompt |
 | `batched`     | Held by the recipient's Digest for the next checklist                                                                                                                                                             | true unless the recipient waits on an approval prompt              |
-| `delivered`   | Typed into the recipient's pane (or its checklist was), and no turn has begun on it                                                                                                                               | false                                                              |
+| `delivered`   | Typed into the recipient's pane (or its checklist was), and no turn has begun on it; or available in a person's inbox                                                                                             | false                                                              |
 | `working`     | Typed, and the bound session reports a turn begun after the message was prepared (after the hand-over for a pane route); for an inbox request only until that turn ends, and for at most six hours                | false                                                              |
 | `unconfirmed` | The hand-over may have reached the pane (`uncertain`), or a Digest checklist typed at an idle opportunity has not been carried by a prompt yet, or a turn ended with no final answer or a reply; never resendable | false                                                              |
 | `not_sent`    | Nothing reached the agent: `refused` (a pane route failed for certain) or `unreachable` (an identified recipient had no live pane)                                                                                | true only for `unreachable`                                        |
 | `answered`    | A reply was submitted, or the turn a passthrough started ended with a final message. Terminal: nothing moves it, and it outranks every other state                                                                | false                                                              |
+
+A recipient carrying the active reserved `user=true` mark is a person, even without a pane.
+An unanswered request available in that person's inbox reads `delivered` with
+`waiting_for_person` (`waiting for the person`), no countdown and no send-now action.
+A submitted reply reads `answered`. Stale Digest holds or agent activity never override
+these person states; absence of a pane alone does not make an agent a person.
 
 `messageState` is `{state, reason:{code, text}, latestMs, remainingMs, canSendNow}`. `reason.text`
 is the one wording for the state, from the table below; a client may add the recipient's name or a
@@ -816,6 +825,7 @@ retained, so `not_sent` carries one of the two generic reasons.
 | `waiting_for_delivery`      | `sent`        | waiting for delivery                                                                                |
 | `awaiting_approval`         | `sent`        | waiting for the agent's approval prompt to clear                                                    |
 | `held_to_save_usage`        | `batched`     | batched to save usage, sends when the agent finishes this turn                                      |
+| `waiting_for_person`        | `delivered`   | waiting for the person                                                                              |
 | `reached_the_agent`         | `delivered`   | delivered                                                                                           |
 | `agent_working`             | `working`     | the agent has started on it                                                                         |
 | `handed_over`               | `unconfirmed` | handed to the agent, delivery unconfirmed, do not resend                                            |
@@ -826,7 +836,7 @@ retained, so `not_sent` carries one of the two generic reasons.
 | `answered_by_folded_turn`   | `answered`    | answered together with the earlier message: it was typed into the running turn                      |
 | `no_turn_started`           | `unconfirmed` | no answer captured: no turn started with this text, the agent may have taken it into a running turn |
 | `turn_ended_without_answer` | `unconfirmed` | no answer captured: the agent's turn ended without a final message                                  |
-| `turn_ended_without_reply`  | `unconfirmed` | no reply: the agent's turn ended without one                                                        |
+| `turn_ended_without_reply`  | `unconfirmed` | no reply yet: the agent's turn ended without one                                                    |
 
 A delivered message has reason `session_not_bound` when its current binding records
 an unadmitted provider SessionStart newer than its admitted session. Core supplies
@@ -971,6 +981,10 @@ core validates active UUIDs and compare-and-set revisions through the
 [local API](extension-api.md#digest-policy-and-checklist).
 There is no cadence, rotation, timer, daemon or detached Digest worker.
 
+A request addressed to a person is never held, independently of the sender or policy.
+Legacy Digest references for a person retain their history but yield no checklist items
+and no claim or reoffer permission; an answered request cannot leak into a later checklist.
+
 Normal automatic identity requests are prepared, registered for detached result
 notices, published as queued, and held under one IMMEDIATE transaction. They own
 no live waiter and attempt no channel write or paste. Text reports remaining
@@ -1031,7 +1045,12 @@ identity/checklist/attempt token may settle `delivered`, `definitely_unsent` or
 `uncertain`; identical settlement retries are no-ops. Definite non-delivery
 releases the members, uncertainty never does. A lost process after claim leaves
 an active claim discoverable through policy/read output, never an automatic retry
-lease. Ordinary wake and queued-notice paths cannot replay checklist-owned items.
+lease, with one exception: a claim made at a turn boundary that the Stop hook never
+settled, still claimed 10 seconds later (the provider stops a hook long before that),
+is stranded. The next claim settles it `uncertain` and confirmed, so it opens no
+continuation and is never typed again, and returns its items that still admit a first
+final, and any notice, to the held pool to be offered again by request id. An idle
+claim is never taken over. Ordinary wake and queued-notice paths cannot replay checklist-owned items.
 A checklist typed at an idle opportunity settles `delivered` but stays _unconfirmed_ until the
 recipient's next admitted prompt submission names one of its requests: the hook compares the prompt
 text with the checklist's request ids in the transaction that admits the turn start. The typed text
@@ -1039,7 +1058,8 @@ can land in a turn the provider never announced (a background-task wake, a sched
 continuation), where it never becomes a prompt. The next turn-boundary claim returns the
 unconfirmed items to the held pool and seals them again, in sequence order, in that Stop-hook
 checklist, keyed by the same request ids so the receipt reply stays idempotent. A request that no longer admits
-a first final (answered, withdrawn or expired) is not offered again; a result or timeout notice is.
+a first final (answered, withdrawn or expired) is not offered again; a result or timeout notice is. A
+typed checklist with no such item left is confirmed by the claim that skips it, so it is not looked at again.
 An idle opportunity never offers them again and nothing is typed twice. A checklist handed to a Stop hook starts a
 continuation the activity record cannot see: the provider carries on with no new prompt while its
 activity reads idle. Until that continuation's own Stop (`stop_hook_active`), a new prompt, or the end of the provider

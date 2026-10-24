@@ -35,7 +35,7 @@ export type SendState = (
  * the owner's browser sees Core's answer, every other device sees `false`, and the server refuses a
  * send-now from it regardless. `reason.code` is an open set; show `reason.text` for an unknown one. */
 export interface MessageState {
-  state: 'sent' | 'batched' | 'delivered' | 'working' | 'unconfirmed' | 'not_sent';
+  state: 'sent' | 'batched' | 'delivered' | 'working' | 'unconfirmed' | 'not_sent' | 'answered';
   reason: { code: string; text: string };
   latestMs: number | null;
   remainingMs: number | null;
@@ -196,7 +196,15 @@ function reasonText(value: Record<string, unknown>): { reasonText?: string } {
   );
   return { reasonText: text };
 }
-const MESSAGE_STATES = ['sent', 'batched', 'delivered', 'working', 'unconfirmed', 'not_sent'];
+const MESSAGE_STATES = [
+  'sent',
+  'batched',
+  'delivered',
+  'working',
+  'unconfirmed',
+  'not_sent',
+  'answered',
+];
 const timestamp = (value: unknown): value is number | null =>
   value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0);
 /** Optional, and exact when present: a state that does not parse makes the whole reply unverifiable.

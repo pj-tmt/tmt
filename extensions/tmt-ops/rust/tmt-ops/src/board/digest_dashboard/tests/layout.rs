@@ -13,7 +13,7 @@ use crate::{
 };
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-fn fixture() -> App {
+pub(super) fn fixture() -> App {
     let mut app = board();
     app.shell.tab = OpsTab::Digest;
     app.labels = supplied(serde_json::json!(3), false);
@@ -256,7 +256,7 @@ fn cursor_and_viewport_changes_reuse_ranked_facts_without_freezing_live_supplier
     app.labels = supplied(serde_json::json!(9), false);
     let shown = paint(&mut app, 160, 40);
     assert!(
-        shown.contains("9 observed held"),
+        shown.contains("Held now: ≥9 observed"),
         "supplier facts must stay live, including unknown member coverage: {shown}"
     );
     assert!(Rc::ptr_eq(&before, &app.workspace_rows()));
@@ -398,8 +398,8 @@ fn short_range_never_relabels_supplier_savings_and_absent_digest_keeps_core_evid
         .preferences
         .tok_range = TokRange::Hour;
     let shown = paint(&mut app, 160, 40);
-    assert!(shown.contains("Range 1h"));
-    assert!(shown.contains("unavailable for this range"));
+    assert!(shown.contains("Usage 1h"));
+    assert!(shown.contains("Est. ctx avoided —"));
 }
 
 #[test]
@@ -713,7 +713,7 @@ fn input_price_qualification_is_shown_once_by_the_visible_amount() {
             "width={width}: {shown}"
         );
         if width < 100 {
-            assert!(shown.contains("Input list-price estimate: —"));
+            assert!(shown.contains("Observed input quote: —"));
         }
         // The columns a narrow pane drops are named once; a pane that has them says nothing.
         assert_eq!(

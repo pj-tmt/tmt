@@ -1,5 +1,5 @@
 //! The Selection menu: a small bordered box with one action per line (`q› Quote`,
-//! `y  Copy`, `n  Add to Notes`) and a dim `Esc clears` line, opened directly below the end of a selection
+//! `y  Copy`, `n  Add to checklist`) and a dim `Esc clears` line, opened directly below the end of a selection
 //! so it is clear which text it acts on.
 use crate::board::app::App;
 use ratatui::{
@@ -18,7 +18,7 @@ const HINT: &str = "Esc clears";
 const ENTRIES: [(Entry, &str, &str); 3] = [
     (Entry::Quote, "q›", "Quote"),
     (Entry::Copy, "y ", "Copy"),
-    (Entry::Note, "n ", "Add to Notes"),
+    (Entry::Note, "n ", "Add to checklist"),
 ];
 
 /// What a menu entry does.
@@ -127,7 +127,7 @@ pub(super) fn paint(
         bounds.width - 2,
         bounds.height - 2,
     );
-    let can_note = app.conversation_notes_key().is_some() && !app.loading();
+    let can_note = app.conversation_checklist_key().is_some() && !app.loading();
     let mut lines = Vec::new();
     for (index, (entry, key, word)) in ENTRIES.iter().enumerate() {
         let line = Rect::new(inner.x, inner.y + index as u16, inner.width, 1);
@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn the_box_is_as_wide_as_its_widest_line_and_holds_every_entry() {
-        assert_eq!((width(), height()), (19, 6));
+        assert_eq!((width(), height()), (23, 6));
         assert!(TITLE.width() as u16 + 4 <= width());
     }
 
@@ -188,7 +188,7 @@ mod tests {
     fn the_menu_opens_below_the_selection_end() {
         let menu = at((30, 8), 8);
         assert_eq!((menu.x, menu.y), (30, 9));
-        assert_eq!((menu.width, menu.height), (19, 6));
+        assert_eq!((menu.width, menu.height), (23, 6));
     }
 
     #[test]

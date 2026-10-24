@@ -48,6 +48,14 @@ pub fn usage_policy(
     }
 }
 
+/// Whether the user turned usage collection off for this provider's settings file. The turn-end
+/// hook may still be there for the agent's answers (#4914); it then reads no usage data.
+pub fn usage_opted_out(entries: &[RecordedHooks], driver: &str, settings: &Path) -> bool {
+    entries.iter().any(|entry| {
+        entry.driver == driver && entry.settings == settings && entry.usage == Some(false)
+    })
+}
+
 pub fn path(global: &Path) -> PathBuf {
     global.join("setup-record.json")
 }

@@ -268,7 +268,8 @@ pub fn encode_answers_page(page: &AnswersPage) -> Vec<u8> {
             "requestId":answer.request_id,"kind":answer.kind.as_str(),
             "sender":{"kind":answer.originator.as_str(),"identityId":answer.originator.identity_id()},
             "recipientId":answer.recipient_identity_id,
-            "answeredAtMs":answer.answered_at_ms,"answer":answer.answer.as_str()
+            "answeredAtMs":answer.answered_at_ms,"answer":answer.answer.as_str(),
+            "revision":answer.revision,"acknowledged":answer.acknowledged
         })).collect::<Vec<_>>(),
         "nextBefore":page.next_before.as_ref().map(|cursor| json!({
             "answeredAtMs":cursor.answered_at_ms,"requestId":cursor.request_id

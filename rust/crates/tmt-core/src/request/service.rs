@@ -458,6 +458,19 @@ fn route_valid<E>(route: &RequestRoute) -> Result<(), RequestError<E>> {
     }
 }
 
+/// Gives a request's originator a new attention revision. A submitted final and an answered
+/// passthrough capture both raise it, so each reads as unread until the originator acknowledges it
+/// at that revision.
+pub fn raise_attention<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    request_id: &str,
+    originator: &str,
+) -> Result<u64, RequestError<E>> {
+    let revision = reserve_revision(records, originator)?;
+    records.set_attention_revision(request_id, revision)?;
+    Ok(revision)
+}
+
 fn reserve_revision<E>(
     records: &mut dyn RequestRecords<Error = E>,
     id: &str,

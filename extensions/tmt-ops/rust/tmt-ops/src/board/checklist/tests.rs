@@ -48,7 +48,7 @@ fn a_room_shortcut_never_opens_another_rooms_retained_draft() {
 }
 #[test]
 fn admitted_room_reads_and_writes_update_the_held_header_count() {
-    use crate::board::{conversation_notes, workspace::OpsTarget};
+    use crate::board::{conversation_checklist, workspace::OpsTarget};
     use crate::checklist::model::Request;
     let f = Fixture::new();
     f.service()
@@ -69,7 +69,7 @@ fn admitted_room_reads_and_writes_update_the_held_header_count() {
         })
         .unwrap();
     let mut app = crate::board::app::workspace::tests::board();
-    app.notes = conversation_notes::State::reading();
+    app.notes = conversation_checklist::State::reading();
     app.notes
         .observe_roster([OpsTarget::Squad(ROOM.into())].iter());
     let mut c = controller(&f);
