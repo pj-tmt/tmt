@@ -224,7 +224,12 @@ fn observe_turn(
     };
     let environment = ProviderEnvironment::capture().map_err(|_| ())?;
     let now_ms = tmt_adapters::request_runtime::wall_time_ms();
-    let observation = (!activity_only).then(|| {
+    // Usage data is read only with consent; the agent's answers need only the turn-end hook (#4914).
+    let usage_on = !activity_only
+        && tmt_adapters::drivers::Registry::builtin()
+            .find(provider)
+            .is_some_and(tmt_adapters::setup::usage_consented);
+    let observation = usage_on.then(|| {
         lifecycle.turn_observation(
             turn,
             &environment,
@@ -240,7 +245,7 @@ fn observe_turn(
     let locator = turn
         .transcript
         .as_ref()
-        .filter(|_| !activity_only)
+        .filter(|_| usage_on)
         .and_then(|path| {
             lifecycle.consumption_locator(
                 serde_json::json!({"transcript_path":path})
@@ -260,18 +265,15 @@ fn observe_turn(
         .and_then(|event| {
             lifecycle.activity_state(event, &turn.session, &process, previous, now_ms)
         });
-    let response = if transition.is_some()
-        && !activity_only
-        && tmt_adapters::drivers::Registry::builtin()
-            .find(provider)
-            .is_some_and(tmt_adapters::setup::usage_hook_installed)
-    {
-        observation
-            .and_then(|value| value.final_text)
-            .map(|text| tmt_adapters::storage::ResponseCapture { text })
-    } else {
-        None
-    };
+    // An admitted turn end keeps the agent's final answer. With usage on it comes from the
+    // observation (which may read the transcript); with usage off it is the Stop payload's own
+    // `last_assistant_message`, and nothing else is read.
+    let response = kept_answer(
+        transition.is_some() && !activity_only,
+        observation.map(|value| value.final_text),
+        turn.final_text.as_ref(),
+    )
+    .map(|text| tmt_adapters::storage::ResponseCapture { text });
     // An admitted turn end settles the passthrough that turn was bound to, with its final
     // message when one was read and without an answer otherwise (an interrupted turn too).
     let boundary = transition
@@ -293,7 +295,7 @@ fn observe_turn(
         &paths,
         &stored,
         next,
-        (!activity_only).then_some(reading),
+        usage_on.then_some(reading),
         response,
         boundary,
         deadline,
@@ -304,6 +306,23 @@ fn observe_turn(
         });
     }
     Ok(Observation::default())
+}
+
+/// The answer an admitted turn end keeps. With usage on the observation (which may read the
+/// transcript) decides; with usage off there is no observation and the Stop payload's own final
+/// text is all there is. A turn end that was not admitted, or an interrupted one, keeps nothing.
+fn kept_answer(
+    admitted: bool,
+    observed: Option<Option<tmt_core::responses::FinalText>>,
+    payload: Option<&tmt_core::responses::FinalText>,
+) -> Option<tmt_core::responses::FinalText> {
+    if !admitted {
+        return None;
+    }
+    match observed {
+        Some(observed) => observed,
+        None => payload.cloned(),
+    }
 }
 
 /// The caller a hook event came from, verified the same way for every event.
@@ -889,7 +908,7 @@ fn observe(
         && let Ok(environment) = ProviderEnvironment::capture()
         && tmt_adapters::drivers::Registry::builtin()
             .find(provider)
-            .is_some_and(tmt_adapters::setup::usage_hook_installed)
+            .is_some_and(tmt_adapters::setup::usage_consented)
         && let Some(refreshed) = Storage::context_by_identity(
             &paths.database,
             &binding.identity_id,
@@ -1357,7 +1376,7 @@ fn observe_main_event(
             .is_none()
         && tmt_adapters::drivers::Registry::builtin()
             .find(provider)
-            .is_some_and(tmt_adapters::setup::usage_hook_installed)
+            .is_some_and(tmt_adapters::setup::usage_consented)
     {
         ProviderEnvironment::capture().ok().and_then(|environment| {
             let locator = lifecycle.consumption_locator(payload?, &environment);
@@ -1472,7 +1491,10 @@ fn commit_observation(
         family: None,
         response,
         boundary,
-        now_ms: reading.as_ref().map_or(0, |r| r.now_ms),
+        // A kept answer is stamped even when no usage was read.
+        now_ms: reading
+            .as_ref()
+            .map_or_else(tmt_adapters::request_runtime::wall_time_ms, |r| r.now_ms),
         deadline,
     });
     let cleanup = storage.close();
@@ -1557,5 +1579,35 @@ mod budget_tests {
         let args = worker_arguments("claude", Duration::from_micros(1_999)).unwrap();
         assert_eq!(args[4], "1");
         assert!(worker_arguments("claude", Duration::from_micros(999)).is_err());
+    }
+}
+
+#[cfg(test)]
+mod answer_tests {
+    use super::kept_answer;
+    use tmt_core::responses::FinalText;
+
+    #[test]
+    fn usage_off_keeps_the_payload_text_and_usage_on_keeps_what_was_observed() {
+        let payload = FinalText::new("from the payload").unwrap();
+        let observed = FinalText::new("from the transcript").unwrap();
+        // Usage on: the observation decides, even when it found nothing.
+        assert_eq!(
+            kept_answer(true, Some(Some(observed.clone())), Some(&payload)),
+            Some(observed)
+        );
+        assert_eq!(kept_answer(true, Some(None), Some(&payload)), None);
+        // Usage off: no observation was made, so the payload's own text is the answer.
+        assert_eq!(
+            kept_answer(true, None, Some(&payload)),
+            Some(payload.clone())
+        );
+        assert_eq!(kept_answer(true, None, None), None);
+        // A turn end that was not admitted (stale, duplicate, interrupted) keeps nothing.
+        assert_eq!(kept_answer(false, None, Some(&payload)), None);
+        assert_eq!(
+            kept_answer(false, Some(Some(payload.clone())), Some(&payload)),
+            None
+        );
     }
 }

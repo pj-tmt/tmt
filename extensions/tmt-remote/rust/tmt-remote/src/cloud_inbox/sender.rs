@@ -124,13 +124,7 @@ impl Sender {
             }
             _ => (State::Unavailable, Some("REMOTE_CLOUD_UNAVAILABLE")),
         };
-        if reason.is_some_and(|r| {
-            r.is_empty()
-                || r.len() > 64
-                || !r
-                    .bytes()
-                    .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
-        }) {
+        if reason.is_some_and(|reason| !crate::cloud_command::fixed_code(reason)) {
             return Err(invalid());
         }
         Ok(Answer {
@@ -217,7 +211,11 @@ impl Sender {
             };
             match observed {
                 Some(doc) if doc.bytes() == old.carrier => {
-                    return self.recover(e.id, descriptor, now, io).await;
+                    // A failed recovery control says nothing about the original dispatch's effect.
+                    return self
+                        .recover(e.id, descriptor, now, io)
+                        .await
+                        .map_err(|_| unconfirmed());
                 }
                 Some(_) => return Err(conflict()),
                 None => return Err(unconfirmed()),

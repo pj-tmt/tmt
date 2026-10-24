@@ -2,7 +2,7 @@
 //! transaction. They are kept 7 days, at most 1,000 per agent and 16 KiB each (#4914); the newest
 //! pruned answer is remembered so a read can say that older answers were not kept.
 use super::{Storage, StorageError, StorageErrorCode, classify};
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 use tmt_core::responses::{FinalText, MAX_KEPT, MAX_PAGE, RETENTION_MS};
 
@@ -47,6 +47,19 @@ pub(super) fn append(
 }
 
 impl Storage {
+    /// The driver this identity's remembered session belongs to, if it has one.
+    pub fn remembered_driver(&mut self, id: &str) -> Result<Option<String>, StorageError> {
+        self.connection_mut()?
+            .query_row(
+                "SELECT remembered_harness FROM identity_session_preferences WHERE identity_id=?",
+                [id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .map(Option::flatten)
+            .map_err(|e| classify(e, "Read the remembered driver"))
+    }
+
     /// One read snapshot. No hook refresh, acknowledgement, pruning or renewal. `before` is the
     /// `nextBefore` an earlier page returned: only answers captured before it are read.
     pub fn recent_responses(

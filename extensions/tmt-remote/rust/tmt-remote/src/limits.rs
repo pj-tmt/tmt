@@ -293,6 +293,11 @@ pub const CLOUD_RECONCILE_CALL: Duration = Duration::from_secs(60);
 /// Worst-case JSON escaping and signed-envelope base64 must fit one cloud carrier.
 pub const CLOUD_MESSAGE_BYTES: usize = (CLOUD_ENVELOPE_BYTES - METADATA_BYTES) / 8;
 pub const CLOUD_COMMAND_BYTES: usize = CLOUD_MESSAGE_BYTES * 6 + METADATA_BYTES;
+/// Exact prepared bytes in a base64 owner-control frame; other operations keep their smaller cap.
+pub const CLOUD_MESSAGE_CONTROL_BYTES: usize = CLOUD_COMMAND_BYTES.div_ceil(3) * 4 + METADATA_BYTES;
+/// One existing finite sender call plus its control reply; never a renewed provider budget.
+pub const CLOUD_MESSAGE_CONTROL_WAIT: Duration =
+    CLOUD_RECONCILE_CALL.saturating_add(Duration::from_secs(5));
 
 /// Maximum atomic route replacement batch (Firestore commit limit).
 pub const CLOUD_ROUTE_BATCH: usize = 500;

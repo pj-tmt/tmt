@@ -12,6 +12,77 @@ use crate::{
 use std::sync::{Weak, atomic::AtomicUsize, mpsc};
 const PROJECT: &str = "demo-native-pairing";
 const TARGET: &str = "66666666-6666-4666-8666-666666666666";
+#[test]
+fn serving_sender_preserves_a_typed_owner_refusal_even_with_a_prior_claim() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::serving_sender_preserves_a_typed_owner_refusal_even_with_a_prior_claim",
+    ) {
+        return;
+    }
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let root = core.root.join("sender");
+    let make_ports = || ProjectPorts {
+        http: ports.clone(),
+        clock: ports.clone(),
+        jitter: ports.clone(),
+    };
+    let (sender, lease) = service(&root, &core, make_ports());
+    let raw = prepared("missing");
+    let request = crate::cloud_command::Request::read(&raw).unwrap();
+    assert_eq!(
+        sender.send(&raw, None).unwrap_err().code,
+        "REMOTE_CLOUD_UNAVAILABLE"
+    );
+    sender
+        .store()
+        .unwrap()
+        .cloud_freeze_outgoing(
+            &sender.machine,
+            &request.request_id,
+            b"frozen-intent",
+            b"frozen-carrier",
+            request.created_at_ms,
+        )
+        .unwrap();
+    assert_eq!(
+        sender.send(&raw, None).unwrap_err().code,
+        "REMOTE_CLOUD_UNAVAILABLE",
+        "unclaimed bytes prove no mutation was attempted"
+    );
+    assert!(
+        sender
+            .store()
+            .unwrap()
+            .cloud_claim_outgoing(&sender.machine, &request.request_id)
+            .unwrap()
+    );
+    assert_eq!(
+        sender.send(&raw, None).unwrap_err().code,
+        "REMOTE_CLOUD_UNAVAILABLE",
+        "the Service must preserve the typed sender-preparation refusal"
+    );
+    drop(sender);
+    drop(lease);
+    let (sender, _lease) = service(&root, &core, make_ports());
+    assert_eq!(
+        sender.send(&raw, None).unwrap_err().code,
+        "REMOTE_CLOUD_UNAVAILABLE",
+        "restart must not turn a typed owner refusal into blanket uncertainty"
+    );
+    assert!(wire.docs.lock().unwrap().is_empty());
+    assert!(wire.commits.lock().unwrap().is_empty());
+    assert_eq!(
+        wire.next.load(Ordering::SeqCst),
+        0,
+        "no sign-in or credential bootstrap"
+    );
+    assert_eq!(core.sends(), 0);
+}
 fn config() -> Value {
     json!({"projectId":PROJECT,"appId":"1:12345:web:fixture","apiKey":"public-test","authDomain":format!("{PROJECT}.firebaseapp.com")})
 }
@@ -65,20 +136,28 @@ impl Http for Ports {
 struct Wire {
     docs: Mutex<BTreeMap<String, Value>>,
     commits: Mutex<Vec<Value>>,
+    queries: Mutex<Vec<Value>>,
     reads: Mutex<Vec<String>>,
     next: AtomicUsize,
     receivers: Mutex<BTreeMap<String, Weak<Service>>>,
     fail_invite_delete: AtomicBool,
+    lost_invite_delete_reply: AtomicBool,
+    invite_answer: Mutex<Option<Value>>,
+    deny_invite_queries: AtomicBool,
 }
 impl Wire {
     fn new() -> Self {
         Self {
             docs: Mutex::new(BTreeMap::new()),
             commits: Mutex::new(Vec::new()),
+            queries: Mutex::new(Vec::new()),
             reads: Mutex::new(Vec::new()),
             next: AtomicUsize::new(0),
             receivers: Mutex::new(BTreeMap::new()),
             fail_invite_delete: AtomicBool::new(false),
+            lost_invite_delete_reply: AtomicBool::new(false),
+            invite_answer: Mutex::new(None),
+            deny_invite_queries: AtomicBool::new(false),
         }
     }
     fn route(&self, service: &Arc<Service>) {
@@ -86,6 +165,19 @@ impl Wire {
             .lock()
             .unwrap()
             .insert(service.machine.clone(), Arc::downgrade(service));
+    }
+}
+/// Synchronous fixture notification models the worker: a per-operation diagnostic does not
+/// turn a successful provider commit into a lost HTTP answer. Shared failures still fail the test.
+fn reconcile_notified(service: &Service) {
+    let outcome = service.reconcile();
+    *service.last_error.lock().unwrap() = outcome.as_ref().err().map(|error| error.code.clone());
+    if let Err(error) = outcome {
+        assert!(
+            crate::cloud_inbox::permanent(&error.code),
+            "unexpected reconciliation failure: {}",
+            error.code
+        );
     }
 }
 fn token(uid: &str) -> String {
@@ -142,10 +234,55 @@ impl Http for Wire {
         }
         let input: Value = serde_json::from_slice(request.body()).unwrap();
         if request.operation() == Operation::Query {
+            self.queries.lock().unwrap().push(input.clone());
             let parent = name.strip_suffix(":runQuery").unwrap();
             let q = &input["structuredQuery"];
             let collection = q["from"][0]["collectionId"].as_str().unwrap();
             let prefix = format!("{parent}/{collection}/");
+            if collection == "invites" {
+                if self.deny_invite_queries.load(Ordering::Acquire) {
+                    return response(403, json!({"error":{"status":"PERMISSION_DENIED"}}));
+                }
+                assert_eq!(q["limit"], 1);
+                assert_eq!(q["from"][0]["allDescendants"], false);
+                assert_eq!(q["where"]["fieldFilter"]["field"]["fieldPath"], "expiresAt");
+                assert_eq!(q["where"]["fieldFilter"]["op"], "LESS_THAN_OR_EQUAL");
+                assert_eq!(
+                    q["orderBy"],
+                    json!([{"field":{"fieldPath":"expiresAt"},"direction":"ASCENDING"}])
+                );
+                if let Some(answer) = self.invite_answer.lock().unwrap().as_ref() {
+                    return response(200, answer.clone());
+                }
+                let cutoff = q["where"]["fieldFilter"]["value"]["timestampValue"]
+                    .as_str()
+                    .unwrap();
+                let mut rows: Vec<_> = docs
+                    .values()
+                    .filter(|v| {
+                        v["name"]
+                            .as_str()
+                            .unwrap()
+                            .strip_prefix(&prefix)
+                            .is_some_and(|id| !id.contains('/'))
+                            && v["fields"]["expiresAt"]["timestampValue"].as_str().unwrap()
+                                <= cutoff
+                    })
+                    .collect();
+                rows.sort_by_key(|v| {
+                    (
+                        v["fields"]["expiresAt"]["timestampValue"].as_str().unwrap(),
+                        v["name"].as_str().unwrap(),
+                    )
+                });
+                return response(
+                    200,
+                    rows.first().map_or_else(
+                        || json!([{"readTime":stamp}]),
+                        |v| json!([{"document":v,"readTime":stamp}]),
+                    ),
+                );
+            }
             let from = q["where"]["fieldFilter"]["value"]["timestampValue"]
                 .as_str()
                 .unwrap();
@@ -259,6 +396,15 @@ impl Http for Wire {
             docs.insert(name.into(), doc);
         }
         drop(docs);
+        if self.lost_invite_delete_reply.swap(false, Ordering::AcqRel)
+            && writes.iter().any(|w| {
+                w["delete"]
+                    .as_str()
+                    .is_some_and(|n| n.contains("/invites/"))
+            })
+        {
+            return response(503, json!({}));
+        }
         for machine in notify {
             let receiver = self
                 .receivers
@@ -267,7 +413,7 @@ impl Http for Wire {
                 .get(&machine)
                 .and_then(Weak::upgrade);
             if let Some(receiver) = receiver {
-                receiver.reconcile().unwrap();
+                reconcile_notified(&receiver);
             }
         }
         response(200, json!({"commitTime":stamp,"writeResults":[]}))
@@ -338,6 +484,281 @@ fn service_with_identity(
 fn prepared(remote: &str) -> Vec<u8> {
     let operation = crate::store::uuid_v4().unwrap();
     json!({"version":1,"remote":remote,"requestId":operation,"createdAtMs":crate::pairing::now_ms().unwrap(),"from":{"id":"77777777-7777-4777-8777-777777777777","name":"sender"},"target":{"id":TARGET,"name":"target"},"message":"causal cloud pairing effect","reply":{"requestId":format!("req_{operation}"),"receipt":"PRIVATE_PAIRING_RECEIPT"}}).to_string().into_bytes()
+}
+
+fn message_control(sender: &Arc<Service>, lease: &Serving) -> crate::control::Control {
+    let pairing = Arc::new(crate::pairing::Pairing::new(
+        sender.machine.clone(),
+        crate::store::uuid_v4().unwrap(),
+        sender.key.public(),
+        "http://127.0.0.1:1".into(),
+        sender.store.clone(),
+        crate::pairing::Timing::CONTRACT,
+    ));
+    let devices = Arc::new(crate::devices::Devices::new(
+        sender.store.clone(),
+        Some(sender.sessions.clone()),
+    ));
+    crate::control::Control::start_with_views(
+        lease,
+        pairing,
+        devices,
+        crate::control::Door {
+            origin: "http://127.0.0.1:1".into(),
+            prefix: "/r/fixture/".into(),
+        },
+        None,
+        sender.stop.clone(),
+        crate::control::StatusViews {
+            cloud: Some(sender.clone()),
+            ..Default::default()
+        },
+    )
+    .unwrap()
+}
+
+/// The maintained native sandbox owns CLI ancestry, private Core state and child cleanup.
+fn public_message(
+    core: &core_fixture::Core,
+    state: &str,
+    capture: &std::path::Path,
+    peer: &str,
+) -> (Vec<u8>, Value) {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../..")
+        .canonicalize()
+        .unwrap();
+    let node = tmt_invoke::find_executable(
+        std::ffi::OsStr::new("node"),
+        &std::env::var_os("PATH").unwrap(),
+    )
+    .expect("pinned Node must be available");
+    let script = root.join(
+        "extensions/tmt-remote/rust/tmt-remote/tests/fixtures/cloud-message-core-acceptance.mjs",
+    );
+    let input=json!({"remoteExecutable":root.join("rust/target/debug/tmt-remote"),"peer":peer,"discovery":core.root.join("tmt"),"capture":capture,"target":TARGET,"state":state}).to_string();
+    let output = tmt_invoke::invoke(
+        tmt_invoke::Request {
+            program: &node,
+            args: &[script.into_os_string()],
+            input: input.as_bytes(),
+            deadline: Instant::now() + Duration::from_secs(120),
+            max_stream_bytes: 65536,
+            launch: tmt_invoke::LaunchOptions::default(),
+        },
+        None,
+    )
+    .expect("bounded public Core proof and confirmed cleanup");
+    assert!(
+        output.status.success(),
+        "public Core proof failed: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let summary: Value =
+        serde_json::from_slice(&output.stdout).expect("one content-free proof summary");
+    (std::fs::read(capture).unwrap(), summary)
+}
+
+#[test]
+#[ignore = "explicit built Core/Remote public-command acceptance; offline HTTP fixture"]
+fn public_core_message_reaches_the_serving_owner_and_a_lost_answer_stays_uncertain() {
+    use std::{
+        io::{BufRead, BufReader, Write},
+        os::unix::net::{UnixListener, UnixStream},
+    };
+    let core = core_fixture::Core::new();
+    std::fs::write(core.root.join("multi"), "").unwrap();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let make_ports = || ProjectPorts {
+        http: ports.clone(),
+        clock: ports.clone(),
+        jitter: ports.clone(),
+    };
+    let (owner, _owner_lease) = service(&core.root.join("owner"), &core, make_ports());
+    let (sender, sender_lease) = service(&core.root.join("sender"), &core, make_ports());
+    let owner_provider = owner.provider(&config(), &owner.machine, true).unwrap();
+    let sender_provider = sender.provider(&config(), &owner.machine, true).unwrap();
+    let descriptor = owner
+        .keys
+        .advertised(crate::pairing::now_ms().unwrap())
+        .unwrap();
+    run(
+        owner_provider.register_machine(&owner.key.public(), descriptor.bytes(), None, &owner.io()),
+        &owner.io(),
+    )
+    .unwrap();
+    owner
+        .store()
+        .unwrap()
+        .insert_grant(&crate::store::Grant {
+            client_id: sender.machine.clone(),
+            public_key: sender.key.public(),
+            kind: "cli".into(),
+            origin: "cli".into(),
+            name: "Sender".into(),
+            agents: "all".into(),
+            scopes: vec!["results.read".into(), "talk".into()],
+            mode: "direct".into(),
+            issued_at_ms: 1,
+            expires_at_ms: None,
+            revision: 1,
+            disabled: false,
+        })
+        .unwrap();
+    owner
+        .store()
+        .unwrap()
+        .remember_cloud_owner(PROJECT, &config())
+        .unwrap();
+    owner.store().unwrap().connection.execute("INSERT INTO cloud_peers(project,client_id,owner,owner_key,generation) VALUES(?1,?2,?3,?4,1)",rusqlite::params![PROJECT,sender.machine,owner.machine,owner.key.public().as_slice()]).unwrap();
+    sender
+        .store()
+        .unwrap()
+        .save_cloud_connection(&Connection {
+            version: 1,
+            name: "peer".into(),
+            owner: owner.machine.clone(),
+            owner_key: owner.key.public(),
+            config: config(),
+            peer: sender.machine.clone(),
+            uid: sender_provider.uid().into(),
+            request: vec![],
+            confirmed: true,
+            descriptor: descriptor.bytes().to_vec(),
+            reroute_token: None,
+        })
+        .unwrap();
+    wire.route(&owner);
+    let control = message_control(&sender, &sender_lease);
+    for (index, (expected_state, lost, narrow)) in [
+        ("sent", false, false),
+        ("unconfirmed", true, false),
+        ("refused", false, false),
+        ("refused", false, true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if expected_state == "refused" {
+            owner.store().unwrap().talk(&sender.machine, false).unwrap();
+        }
+        if narrow {
+            owner.store().unwrap().talk(&sender.machine, true).unwrap();
+            owner
+                .store()
+                .unwrap()
+                .connection
+                .execute(
+                    "UPDATE grants SET agents='[]',revision=revision+1 WHERE client_id=?1",
+                    [&sender.machine],
+                )
+                .unwrap();
+        }
+        let proxy_root = core.root.join(format!("proxy{index}"));
+        let directory = proxy_root.join("remote");
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join(crate::control::SOCKET);
+        let socket = UnixListener::bind(&path).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::write(core.root.join("storage-root"), proxy_root.to_str().unwrap()).unwrap();
+        let actual = sender.layout.directory.clone();
+        let capture = core.root.join(format!("public-{index}.json"));
+        let (request, summary) = std::thread::scope(|scope| {
+            let (cancel, watch) = UnixStream::pair().unwrap();
+            let bridge = scope.spawn(move || {
+                use std::os::fd::AsFd;
+                let mut ready = [
+                    nix::poll::PollFd::new(socket.as_fd(), nix::poll::PollFlags::POLLIN),
+                    nix::poll::PollFd::new(watch.as_fd(), nix::poll::PollFlags::POLLIN),
+                ];
+                assert!(
+                    nix::poll::poll(&mut ready, 60000u16).unwrap() > 0,
+                    "bounded public-command connection"
+                );
+                if ready[1].revents().is_some_and(|flags| !flags.is_empty()) {
+                    return false;
+                }
+                let (mut client, _) = socket.accept().unwrap();
+                client
+                    .set_read_timeout(Some(Duration::from_secs(70)))
+                    .unwrap();
+                let mut raw = String::new();
+                BufReader::new(client.try_clone().unwrap())
+                    .read_line(&mut raw)
+                    .unwrap();
+                let mut destination =
+                    UnixStream::connect(actual.join(crate::control::SOCKET)).unwrap();
+                destination
+                    .set_read_timeout(Some(Duration::from_secs(70)))
+                    .unwrap();
+                destination.write_all(raw.as_bytes()).unwrap();
+                let mut answer = String::new();
+                BufReader::new(destination).read_line(&mut answer).unwrap();
+                assert_eq!(
+                    serde_json::from_str::<Value>(&answer).unwrap()["state"],
+                    if expected_state == "refused" {
+                        "refused"
+                    } else {
+                        "sent"
+                    }
+                );
+                if !lost {
+                    client.write_all(answer.as_bytes()).unwrap();
+                }
+                true
+            });
+            let result = public_message(&core, expected_state, &capture, "peer");
+            drop(cancel);
+            assert!(
+                bridge.join().unwrap(),
+                "public command must reach the real owner"
+            );
+            result
+        });
+        assert_eq!(
+            core.sends(),
+            (index + 1).min(2),
+            "one effect through the existing inbox/dispatch owner"
+        );
+        assert_eq!(
+            owner.status().unwrap()["error"],
+            if narrow {
+                json!("REMOTE_SCOPE_DENIED")
+            } else {
+                Value::Null
+            },
+            "narrowing the original recipient records the final diagnostic without losing the new refusal"
+        );
+        assert_eq!(
+            summary["deliveryState"],
+            if lost {
+                json!("uncertain")
+            } else {
+                Value::Null
+            }
+        );
+        assert_eq!(
+            sender.send(&request, None).unwrap()["state"],
+            if expected_state == "refused" {
+                "refused"
+            } else {
+                "sent"
+            },
+            "same ID is observed through the existing recovery owner"
+        );
+        assert_eq!(
+            core.sends(),
+            (index + 1).min(2),
+            "no second effect or automatic resend"
+        );
+    }
+    control.stop();
 }
 
 #[test]
@@ -1424,4 +1845,489 @@ fn paired_machines_push_exact_finals_both_ways_and_reply_without_reverse_talk_pe
     drop(collaborator);
     drop(owner_lease);
     drop(collaborator_lease);
+}
+
+fn saved_gate(machine: &str, id: &str, expires: u64) -> Value {
+    json!({"name":format!("projects/{PROJECT}/databases/(default)/documents/m/{machine}/invites/{id}"),"fields":{
+        "tokenHash":{"bytesValue":base64::Engine::encode(&base64::engine::general_purpose::STANDARD,[7;32])},
+        "expiresAt":{"timestampValue":crate::cloud_inbox::stamp(expires)}
+    }})
+}
+
+#[test]
+fn expired_invite_gates_are_collected_after_reopen_without_repeating_deletes() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::expired_invite_gates_are_collected_after_reopen_without_repeating_deletes",
+    ) {
+        return;
+    }
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let root = core.root.join("owner");
+    let (owner, lease) = service(
+        &root,
+        &core,
+        ProjectPorts {
+            http: ports.clone(),
+            clock: ports.clone(),
+            jitter: ports.clone(),
+        },
+    );
+    let machine = owner.machine.clone();
+    let now = crate::pairing::now_ms().unwrap();
+    let mut names = Vec::new();
+    for (machine, expires) in [
+        (machine.as_str(), now - 1),
+        (machine.as_str(), now),
+        (machine.as_str(), now + 60_000),
+        (TARGET, now - 1),
+    ] {
+        let doc = saved_gate(machine, &crate::store::uuid_v4().unwrap(), expires);
+        let name = doc["name"].as_str().unwrap().to_owned();
+        names.push(name.clone());
+        wire.docs.lock().unwrap().insert(name, doc);
+    }
+    drop(owner);
+    drop(lease);
+    let (owner, _lease) = service(
+        &root,
+        &core,
+        ProjectPorts {
+            http: ports.clone(),
+            clock: ports.clone(),
+            jitter: ports.clone(),
+        },
+    );
+    assert_eq!(owner.machine, machine);
+    let provider = owner.provider(&config(), &machine, true).unwrap();
+    owner
+        .cleanup_enrollment(&provider, now, &owner.io())
+        .unwrap();
+    let docs = wire.docs.lock().unwrap();
+    assert!(
+        !docs.contains_key(&names[0]),
+        "a crashed invite's expired gate must be collected"
+    );
+    assert!(
+        !docs.contains_key(&names[1]),
+        "expiry is inclusive at the pass boundary"
+    );
+    assert!(
+        docs.contains_key(&names[2]),
+        "the live invite stays authoritative"
+    );
+    assert!(
+        docs.contains_key(&names[3]),
+        "another machine is never scanned"
+    );
+    drop(docs);
+    let queries = wire.queries.lock().unwrap().len();
+    owner
+        .cleanup_enrollment(&provider, now, &owner.io())
+        .unwrap();
+    assert_eq!(
+        wire.queries.lock().unwrap().len(),
+        queries,
+        "the existing hourly gate suppresses another scan"
+    );
+    owner.cleanup.lock().unwrap().clear();
+    owner
+        .cleanup_enrollment(&provider, now, &owner.io())
+        .unwrap();
+    let deletes: Vec<_> = wire
+        .commits
+        .lock()
+        .unwrap()
+        .iter()
+        .flat_map(|v| v["writes"].as_array().unwrap().clone())
+        .filter_map(|v| v["delete"].as_str().map(str::to_owned))
+        .collect();
+    assert_eq!(
+        deletes.len(),
+        2,
+        "a repeated pass never deletes an already absent gate"
+    );
+    assert!(owner.store().unwrap().active_grants().unwrap().is_empty());
+}
+
+#[test]
+fn expired_invite_cleanup_is_bounded_and_leaves_the_backlog_for_the_next_pass() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::expired_invite_cleanup_is_bounded_and_leaves_the_backlog_for_the_next_pass",
+    ) {
+        return;
+    }
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let (owner, _lease) = service(
+        &core.root.join("owner"),
+        &core,
+        ProjectPorts {
+            http: ports.clone(),
+            clock: ports.clone(),
+            jitter: ports.clone(),
+        },
+    );
+    let provider = owner.provider(&config(), &owner.machine, true).unwrap();
+    let now = crate::pairing::now_ms().unwrap();
+    for i in 0..=crate::journal::OPERATIONS {
+        let doc = saved_gate(
+            &owner.machine,
+            &format!("{i:08x}-0000-4000-8000-000000000000"),
+            now - 1,
+        );
+        wire.docs
+            .lock()
+            .unwrap()
+            .insert(doc["name"].as_str().unwrap().into(), doc);
+    }
+    let result = owner.cleanup_enrollment(&provider, now, &owner.io());
+    assert!(
+        result.is_ok(),
+        "{result:?}; queries={}, commits={}, remaining={}, signups={}",
+        wire.queries.lock().unwrap().len(),
+        wire.commits.lock().unwrap().len(),
+        wire.docs.lock().unwrap().len(),
+        wire.next.load(Ordering::Acquire)
+    );
+    assert_eq!(
+        wire.docs.lock().unwrap().len(),
+        1,
+        "one pass deletes at most the existing operation cap"
+    );
+    assert_eq!(
+        wire.queries
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|q| q["structuredQuery"]["from"][0]["collectionId"] == "invites")
+            .count(),
+        crate::journal::OPERATIONS as usize
+    );
+    owner.cleanup.lock().unwrap().clear();
+    owner
+        .cleanup_enrollment(&provider, now, &owner.io())
+        .unwrap();
+    assert!(wire.docs.lock().unwrap().is_empty());
+    assert_eq!(
+        wire.commits.lock().unwrap().len(),
+        crate::journal::OPERATIONS as usize + 1
+    );
+}
+
+#[test]
+fn failed_invite_cleanup_preserves_expiry_and_observes_a_lost_delete_before_another_mutation() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::failed_invite_cleanup_preserves_expiry_and_observes_a_lost_delete_before_another_mutation",
+    ) {
+        return;
+    }
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let (owner, _lease) = service(
+        &core.root.join("owner"),
+        &core,
+        ProjectPorts {
+            http: ports.clone(),
+            clock: ports.clone(),
+            jitter: ports.clone(),
+        },
+    );
+    let provider = owner.provider(&config(), &owner.machine, true).unwrap();
+    let now = crate::pairing::now_ms().unwrap();
+    let gate = saved_gate(&owner.machine, &crate::store::uuid_v4().unwrap(), now - 1);
+    let name = gate["name"].as_str().unwrap().to_owned();
+    wire.docs.lock().unwrap().insert(name.clone(), gate);
+    wire.fail_invite_delete.store(true, Ordering::Release);
+    assert!(owner.cleanup_invites(&provider, now, &owner.io()).is_err());
+    assert!(wire.docs.lock().unwrap().contains_key(&name));
+    assert!(
+        owner.cleanup.lock().unwrap().is_empty(),
+        "a failed pass does not record completion"
+    );
+    wire.fail_invite_delete.store(false, Ordering::Release);
+    wire.lost_invite_delete_reply.store(true, Ordering::Release);
+    assert!(owner.cleanup_invites(&provider, now, &owner.io()).is_err());
+    assert!(
+        !wire.docs.lock().unwrap().contains_key(&name),
+        "the delete effect preceded its missing confirmation"
+    );
+    let count = wire.commits.lock().unwrap().len();
+    owner.cleanup_invites(&provider, now, &owner.io()).unwrap();
+    assert_eq!(
+        wire.commits.lock().unwrap().len(),
+        count,
+        "observation, never a blind repeat of the delete"
+    );
+    assert!(owner.store().unwrap().active_grants().unwrap().is_empty());
+}
+
+#[test]
+fn malformed_invite_query_evidence_never_selects_a_delete() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::malformed_invite_query_evidence_never_selects_a_delete",
+    ) {
+        return;
+    }
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let (owner, _lease) = service(
+        &core.root.join("owner"),
+        &core,
+        ProjectPorts {
+            http: ports.clone(),
+            clock: ports.clone(),
+            jitter: ports.clone(),
+        },
+    );
+    let provider = owner.provider(&config(), &owner.machine, true).unwrap();
+    let now = crate::pairing::now_ms().unwrap();
+    let valid = saved_gate(&owner.machine, &crate::store::uuid_v4().unwrap(), now - 1);
+    let mut cases = Vec::new();
+    let mut foreign = valid.clone();
+    foreign["name"] =
+        saved_gate(TARGET, &crate::store::uuid_v4().unwrap(), now - 1)["name"].clone();
+    cases.push(json!([{"document":foreign}]));
+    let mut future = valid.clone();
+    future["fields"]["expiresAt"]["timestampValue"] = crate::cloud_inbox::stamp(now + 1).into();
+    cases.push(json!([{"document":future}]));
+    let mut fields = valid.clone();
+    fields["fields"]["extra"] = json!({"booleanValue":true});
+    cases.push(json!([{"document":fields}]));
+    let mut hash = valid.clone();
+    hash["fields"]["tokenHash"] = json!({"bytesValue":"AA=="});
+    cases.push(json!([{"document":hash}]));
+    cases.push(json!([{"document":valid.clone()},{"document":valid.clone()}]));
+    let mut nested = valid.clone();
+    nested["name"] = format!("{}/child", valid["name"].as_str().unwrap()).into();
+    cases.push(json!([{"document":nested}]));
+    for answer in cases {
+        *wire.invite_answer.lock().unwrap() = Some(answer);
+        assert!(owner.cleanup_invites(&provider, now, &owner.io()).is_err());
+        assert!(wire.commits.lock().unwrap().is_empty());
+        assert!(owner.cleanup.lock().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn next_explicit_invite_collects_a_killed_first_invite_best_effort_without_peer_polling() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::next_explicit_invite_collects_a_killed_first_invite_best_effort_without_peer_polling",
+    ) {
+        return;
+    }
+    for cleanup_fails in [false, true] {
+        let core = core_fixture::Core::new();
+        let wire = Arc::new(Wire::new());
+        let ports = Arc::new(Ports {
+            wire: wire.clone(),
+            clock: SystemClock::default(),
+        });
+        let make_ports = || ProjectPorts {
+            http: ports.clone(),
+            clock: ports.clone(),
+            jitter: ports.clone(),
+        };
+        let root = core.root.join("owner");
+        let (owner, lease) = service(&root, &core, make_ports());
+        wire.fail_invite_delete.store(true, Ordering::Release);
+        assert_eq!(
+            owner
+                .invite_selected(PROJECT, config(), |event| {
+                    assert_eq!(event["event"], "invite");
+                    Err(RemoteError::new(
+                        "FIXTURE_CANCEL",
+                        "Stop before a peer confirms.",
+                    ))
+                })
+                .unwrap_err()
+                .code,
+            "FIXTURE_CANCEL"
+        );
+        assert!(
+            owner
+                .store()
+                .unwrap()
+                .cloud_owner_configs()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(owner.store().unwrap().active_grants().unwrap().is_empty());
+        let old_gate = {
+            let mut docs = wire.docs.lock().unwrap();
+            let (name, doc) = docs
+                .iter_mut()
+                .find(|(name, _)| name.contains("/invites/"))
+                .unwrap();
+            // The gate expired while the process was stopped, without a clock sleep.
+            doc["fields"]["expiresAt"]["timestampValue"] =
+                crate::cloud_inbox::stamp(crate::pairing::now_ms().unwrap() - 1).into();
+            name.clone()
+        };
+        drop(owner);
+        drop(lease);
+        let signups = wire.next.load(Ordering::Acquire);
+        let (owner, _lease) = service(&root, &core, make_ports());
+        let queries = wire.queries.lock().unwrap().len();
+        let commits = wire.commits.lock().unwrap().len();
+        owner.reconcile().unwrap();
+        assert_eq!(
+            wire.queries.lock().unwrap().len(),
+            queries,
+            "no enrolled peer means no provider poll"
+        );
+        assert_eq!(wire.commits.lock().unwrap().len(), commits);
+        assert!(
+            wire.docs.lock().unwrap().contains_key(&old_gate),
+            "expiry is authoritative even if the owner never invites again"
+        );
+        wire.fail_invite_delete
+            .store(cleanup_fails, Ordering::Release);
+        let mut emitted = false;
+        let result = owner.invite_selected(PROJECT, config(), |event| {
+            assert_eq!(event["event"], "invite");
+            emitted = true;
+            assert_eq!(
+                wire.docs.lock().unwrap().contains_key(&old_gate),
+                cleanup_fails,
+                "the next explicit invite collects a stale first gate before exposing its new code"
+            );
+            Err(RemoteError::new(
+                "FIXTURE_CANCEL",
+                "Cancel the new ceremony after its code is ready.",
+            ))
+        });
+        assert_eq!(
+            result.unwrap_err().code,
+            "FIXTURE_CANCEL",
+            "cleanup never replaces the new ceremony result"
+        );
+        assert!(emitted, "cleanup failure never blocks the new invitation");
+        assert_eq!(
+            wire.next.load(Ordering::Acquire),
+            signups,
+            "the saved sign-in survives reopen"
+        );
+        let attempts = wire.commits.lock().unwrap()[commits..]
+            .iter()
+            .flat_map(|v| v["writes"].as_array().unwrap())
+            .filter(|w| w["delete"] == old_gate)
+            .count();
+        assert_eq!(
+            attempts, 1,
+            "no retry of a failed stale-gate deletion in this invocation"
+        );
+        assert!(owner.store().unwrap().active_grants().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn denied_invite_cleanup_does_not_block_enrolled_reconciliation_or_receipt_pruning() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::denied_invite_cleanup_does_not_block_enrolled_reconciliation_or_receipt_pruning",
+    ) {
+        return;
+    }
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let make_ports = || ProjectPorts {
+        http: ports.clone(),
+        clock: ports.clone(),
+        jitter: ports.clone(),
+    };
+    let (owner, _owner_lease) = service(&core.root.join("owner"), &core, make_ports());
+    let (collaborator, _collaborator_lease) =
+        service(&core.root.join("collaborator"), &core, make_ports());
+    let events = pair_with_reciprocal_choice(&owner, &collaborator, false);
+    let remote = events
+        .iter()
+        .find(|event| event["event"] == "connected")
+        .unwrap()["remote"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(!owner.store().unwrap().active_grants().unwrap().is_empty());
+    assert!(
+        owner
+            .store()
+            .unwrap()
+            .connection
+            .execute("UPDATE cloud_pair_receipts SET deadline_ms=0", [])
+            .unwrap()
+            > 0
+    );
+    owner.cleanup.lock().unwrap().clear();
+    wire.queries.lock().unwrap().clear();
+    wire.deny_invite_queries.store(true, Ordering::Release);
+    owner
+        .reconcile()
+        .expect("an old-Rules invite-list denial cannot stop enrolled reconciliation");
+    let receipts: i64 = owner
+        .store()
+        .unwrap()
+        .connection
+        .query_row("SELECT count(*) FROM cloud_pair_receipts", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(
+        receipts, 0,
+        "receipt pruning is independent of gate cleanup"
+    );
+    assert!(
+        owner.cleanup.lock().unwrap().contains_key(PROJECT),
+        "a denied gate pass still records the hourly attempt"
+    );
+    let invite_queries = || {
+        wire.queries
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|q| q["structuredQuery"]["from"][0]["collectionId"] == "invites")
+            .count()
+    };
+    assert_eq!(
+        invite_queries(),
+        1,
+        "stop the gate pass at its first denial"
+    );
+    wire.route(&owner);
+    let sends = core.sends();
+    assert_eq!(
+        collaborator
+            .send(&prepared(&remote), Some(&remote))
+            .unwrap()["state"],
+        "sent"
+    );
+    assert_eq!(
+        core.sends(),
+        sends + 1,
+        "the enrolled inbox still delivers exactly once"
+    );
+    owner.reconcile().unwrap();
+    assert_eq!(
+        invite_queries(),
+        1,
+        "the next tick within the hour does not retry the gate query"
+    );
 }

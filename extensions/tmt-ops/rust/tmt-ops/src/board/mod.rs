@@ -40,7 +40,7 @@ mod limits;
 mod member_session;
 mod new_member;
 pub(crate) use limits::history::document as limits_history;
-mod conversation_notes;
+mod conversation_checklist;
 mod idle_alert_editor;
 mod markdown;
 mod member_links;
@@ -239,8 +239,8 @@ pub(in crate::board) enum BoardEvent {
     /// A quiet cache publication; it owns no user action or progress notice.
     ViewStatePublished,
     ReadMarkersPublished(Result<crate::config::ReadMarkers, String>),
-    /// A conversation's Notes summary was read; it owns no user action or progress notice.
-    NotesRead(conversation_notes::Completed),
+    /// A conversation's checklist summary was read; it owns no user action or progress notice.
+    NotesRead(conversation_checklist::Completed),
     /// The running versions, read once at start; they own no user action or progress notice.
     VersionsRead(Option<versions::Versions>),
 }
@@ -638,12 +638,12 @@ fn session(
         if let Some(writer) = app.unread.writer.offer() {
             io(lane::Job::ReadMarkers(writer));
         }
-        let shown = app.conversation_notes_key().or_else(|| {
+        let shown = app.conversation_checklist_key().or_else(|| {
             if app.loading() || !app.workspace_selection_visible() {
                 return None;
             }
             match app.workspace.selected.as_ref()? {
-                workspace::OpsTarget::Squad(room) => Some(conversation_notes::Key::room(room)),
+                workspace::OpsTarget::Squad(room) => Some(conversation_checklist::Key::room(room)),
                 _ => None,
             }
         });

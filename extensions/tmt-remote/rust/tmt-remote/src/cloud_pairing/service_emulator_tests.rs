@@ -54,7 +54,7 @@ impl Http for Emulator {
                     .get(&target)
                     .and_then(Weak::upgrade);
                 if let Some(receiver) = receiver {
-                    receiver.reconcile().unwrap();
+                    reconcile_notified(&receiver);
                 }
             }
         }
@@ -351,16 +351,21 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
         403,
         "peer cannot write route"
     );
-    assert_eq!(
-        sender.send(&prepared(&remote), Some(&remote)).unwrap()["state"],
-        "refused"
+    std::fs::write(
+        core.root.join("storage-root"),
+        core.root.join("sender").to_str().unwrap(),
+    )
+    .unwrap();
+    let control = message_control(&sender, &sender_lease);
+    public_message(
+        &core,
+        "refused",
+        &core.root.join("public-refused.json"),
+        &remote,
     );
     assert_eq!(core.sends(), 0);
     owner.store().unwrap().talk(&sender.machine, true).unwrap();
-    assert_eq!(
-        sender.send(&prepared(&remote), Some(&remote)).unwrap()["state"],
-        "sent"
-    );
+    public_message(&core, "sent", &core.root.join("public-sent.json"), &remote);
     assert_eq!(core.sends(), 1);
     owner
         .store()
@@ -371,10 +376,7 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
             [&sender.machine],
         )
         .unwrap();
-    assert_eq!(
-        sender.send(&prepared(&remote), Some(&remote)).unwrap()["state"],
-        "held"
-    );
+    public_message(&core, "held", &core.root.join("public-held.json"), &remote);
     assert_eq!(core.sends(), 1, "held work does not dispatch");
     owner
         .store()
@@ -385,14 +387,21 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
             [&sender.machine],
         )
         .unwrap();
-    assert_eq!(
-        sender.send(&prepared(&remote), Some(&remote)).unwrap()["state"],
-        "refused"
+    public_message(
+        &core,
+        "refused",
+        &core.root.join("public-refused.json"),
+        &remote,
     );
     assert_eq!(
         core.sends(),
         1,
         "agent allowlist still fences native ingress"
+    );
+    assert_eq!(
+        owner.status().unwrap()["error"],
+        "REMOTE_SCOPE_DENIED",
+        "final diagnostic is recorded without losing the new allowlist refusal"
     );
     owner
         .store()
@@ -403,6 +412,15 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
             [&sender.machine],
         )
         .unwrap();
+
+    control.stop();
+    assert!(
+        !sender
+            .layout
+            .directory
+            .join(crate::control::SOCKET)
+            .exists()
+    );
 
     let owner_id = owner.machine.clone();
     let sender_key = sender.key.public();
@@ -544,6 +562,19 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
         &owner.io(),
     )
     .unwrap();
+    assert_eq!(
+        emulator.commit(
+            &owner_token,
+            &format!("m/{}", crate::store::uuid_v4().unwrap()),
+            json!({
+                "uid":{"stringValue":owner_provider.uid()},
+                "authenticationKey":{"bytesValue":STANDARD.encode(owner.key.public())},
+                "descriptor":{"bytesValue":STANDARD.encode(descriptor.bytes())}
+            })
+        ),
+        403,
+        "an allowlisted uid cannot create a different native machine"
+    );
     let child_descriptor = child
         .keys
         .advertised(crate::pairing::now_ms().unwrap())
@@ -664,6 +695,68 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
         403,
         "an existing expired gate cannot authorize enrollment"
     );
+    let now = crate::pairing::now_ms().unwrap();
+    let query = json!({"structuredQuery":{
+        "from":[{"collectionId":"invites","allDescendants":false}],
+        "where":{"fieldFilter":{"field":{"fieldPath":"expiresAt"},"op":"LESS_THAN_OR_EQUAL","value":{"timestampValue":crate::cloud_inbox::stamp(now)}}},
+        "orderBy":[{"field":{"fieldPath":"expiresAt"},"direction":"ASCENDING"}],"limit":1
+    }});
+    let query_path = format!("/{owner_path}:runQuery");
+    assert_eq!(
+        emulator.raw(&owner_token, Operation::Query, &query_path, query.clone()),
+        200,
+        "owner's bounded expired-gate query"
+    );
+    assert_eq!(
+        emulator.raw(
+            &stranger_token,
+            Operation::Query,
+            &query_path,
+            query.clone()
+        ),
+        403,
+        "a stranger cannot list gates"
+    );
+    let mut oversized = query.clone();
+    oversized["structuredQuery"]["limit"] = 2.into();
+    assert_eq!(
+        emulator.raw(&owner_token, Operation::Query, &query_path, oversized),
+        403,
+        "owner scans stay bounded to one result"
+    );
+    owner
+        .cleanup_enrollment(&owner_provider, now, &owner.io())
+        .unwrap();
+    assert_eq!(
+        emulator.raw(
+            &owner_token,
+            Operation::Read,
+            &format!("/{owner_path}/invites/{expired}"),
+            Value::Null
+        ),
+        404,
+        "collect the gate left by a crashed ceremony"
+    );
+    assert_eq!(
+        emulator.raw(
+            &owner_token,
+            Operation::Read,
+            &format!("/{owner_path}/invites/{offer}"),
+            Value::Null
+        ),
+        200,
+        "retain the live gate"
+    );
+    let calls = emulator.calls.lock().unwrap().clone();
+    owner
+        .cleanup_enrollment(&owner_provider, now, &owner.io())
+        .unwrap();
+    assert_eq!(
+        *emulator.calls.lock().unwrap(),
+        calls,
+        "the same hourly pass does not repeat provider work"
+    );
+
     let reroute_id = crate::store::uuid_v4().unwrap();
     assert_eq!(
         submit(

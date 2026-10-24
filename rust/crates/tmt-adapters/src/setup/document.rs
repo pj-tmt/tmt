@@ -286,8 +286,9 @@ pub(super) fn settings(
     };
     let turn_end = match usage {
         _ if removing => Action::Remove,
-        UsageHook::Default | UsageHook::Install => Action::Ensure,
-        UsageHook::Remove => Action::Remove,
+        // Turning usage off keeps the turn-end hook: it carries the agent's answers (#4914),
+        // and whether it reads usage is the setup record's choice, not the hook's presence.
+        UsageHook::Default | UsageHook::Install | UsageHook::Remove => Action::Ensure,
         UsageHook::Keep if has_owned_hook(provider, text, USAGE) => Action::Ensure,
         UsageHook::Keep => Action::Skip,
     };
@@ -335,19 +336,6 @@ pub(super) fn removed(
         .chain(LIFECYCLE.into_iter().rev())
         .collect();
     trim_inserted(text, result, &inserted).map(Some)
-}
-
-/// Removes only the usage hook, restoring the bytes it was installed into.
-pub(super) fn usage_removed(
-    provider: &DriverDefinition,
-    text: &str,
-    launcher: &str,
-) -> Result<String, PlanError> {
-    let result = settings(provider, text, launcher, false, super::UsageHook::Remove)?;
-    if result == text {
-        return Ok(result);
-    }
-    trim_inserted(text, result, &[USAGE])
 }
 
 /// Drops each of `events` (latest inserted first) that removal emptied, and
@@ -454,14 +442,16 @@ mod tests {
                 let moved = settings(driver, &usage, "/new/tmt", false, Keep).unwrap();
                 assert!(has_owned_hook(driver, &moved, USAGE));
                 assert!(moved.contains("/new/tmt") && !moved.contains("/stable/tmt"));
-                // --no-usage restores the lifecycle-only bytes; --remove all.
+                // --no-usage keeps the turn-end hook (it carries the agent's answers; the
+                // setup record holds the usage choice); --remove removes all.
+                use crate::setup::UsageHook::Remove;
                 assert_eq!(
-                    usage_removed(driver, &usage, "/stable/tmt").unwrap(),
-                    lifecycle
+                    settings(driver, &usage, "/stable/tmt", false, Remove).unwrap(),
+                    usage
                 );
                 assert_eq!(
-                    usage_removed(driver, &lifecycle, "/stable/tmt").unwrap(),
-                    lifecycle
+                    settings(driver, &lifecycle, "/stable/tmt", false, Remove).unwrap(),
+                    usage
                 );
                 assert_eq!(
                     removed(driver, &usage).unwrap().as_deref(),
@@ -676,10 +666,17 @@ mod tests {
                 "Stop"
             ]
         );
-        // Removing only the usage hook keeps the activity observer.
-        let no_usage = usage_removed(&codex::DRIVER, &installed, "/stable/tmt").unwrap();
+        // Turning usage off keeps the activity observer and the turn-end hook.
+        let no_usage = settings(
+            &codex::DRIVER,
+            &installed,
+            "/stable/tmt",
+            false,
+            crate::setup::UsageHook::Remove,
+        )
+        .unwrap();
         assert!(has_owned_hook(&codex::DRIVER, &no_usage, "Interrupt"));
-        assert!(!has_owned_hook(&codex::DRIVER, &no_usage, USAGE));
+        assert!(has_owned_hook(&codex::DRIVER, &no_usage, USAGE));
         // Full removal restores the earlier bytes.
         assert_eq!(
             removed(&codex::DRIVER, &installed).unwrap().as_deref(),

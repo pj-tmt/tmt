@@ -24,6 +24,8 @@ impl SetupPlan {
     /// The TMT hooks this plan writes or removes, for its preview.
     pub fn events(&self) -> String {
         const USAGE: &str = "Stop (context usage, consumption, activity and recent responses)";
+        const ANSWERS: &str = "Stop (turn end: activity and chat answers, no usage data)";
+        let stop = |usage: bool| if usage { USAGE } else { ANSWERS };
         let lifecycle = ["SessionStart", "SessionEnd", "UserPromptSubmit"]
             .into_iter()
             .map(str::to_owned)
@@ -32,27 +34,17 @@ impl SetupPlan {
                     .iter()
                     .map(|event| format!("{event} (activity only)")),
             );
-        let listed = |names: Vec<String>| match names.split_last() {
+        let names: Vec<String> = if self.removing {
+            lifecycle
+                .chain(self.stop_before.then(|| stop(self.usage_before).to_owned()))
+                .collect()
+        } else {
+            lifecycle.chain([stop(self.usage).to_owned()]).collect()
+        };
+        match names.split_last() {
             Some((last, [])) => format!("{last} hook"),
             Some((last, rest)) => format!("{} and {last} hooks", rest.join(", ")),
             None => String::new(),
-        };
-        match (self.removing, self.usage_before, self.usage) {
-            (true, true, _) | (false, _, true) => {
-                listed(lifecycle.chain([USAGE.to_owned()]).collect())
-            }
-            (false, true, false) if self.activity_added => format!(
-                "{}; it also adds the {}",
-                listed(vec![USAGE.to_owned()]),
-                listed(
-                    self.activity
-                        .iter()
-                        .map(|event| format!("{event} (activity only)"))
-                        .collect()
-                )
-            ),
-            (false, true, false) => listed(vec![USAGE.to_owned()]),
-            _ => listed(lifecycle.collect()),
         }
     }
 }
@@ -68,13 +60,15 @@ pub struct SetupPlan {
     pub provider: &'static str,
     pub launcher: PathBuf,
     pub removing: bool,
-    /// Whether the file holds the turn-end hook (#519) before and
-    /// after the plan.
+    /// Whether usage collection (#519) is on before and after the plan: the turn-end hook is in
+    /// the file and the user has not turned usage off. The hook itself also carries the agent's
+    /// answers with usage off.
     pub usage_before: bool,
     pub usage: bool,
+    /// Whether the file holds the turn-end hook before the plan, whatever the usage choice.
+    pub stop_before: bool,
     /// The driver's activity-only events, and whether this plan adds one.
     pub activity: &'static [&'static str],
-    pub activity_added: bool,
     pub change: FileChange,
 }
 
@@ -126,14 +120,28 @@ pub fn start_hook_installed(provider: &DriverDefinition) -> bool {
         .is_some_and(|text| document::has_owned_hook(provider, &text, "SessionStart"))
 }
 
-/// Effective owned Stop installation is the existing collection consent evidence.
-/// Legacy lifecycle-only and explicit opt-outs do not enable foreground sampling.
-pub fn usage_hook_installed(provider: &DriverDefinition) -> bool {
+/// Whether the provider's TMT turn-end (`Stop`) hook is installed. It carries the agent's answers
+/// whatever the usage choice (#4914).
+pub fn stop_hook_installed(provider: &DriverDefinition) -> bool {
     provider_settings(provider)
         .and_then(|path| read_settings(&path))
         .ok()
         .flatten()
         .is_some_and(|text| document::has_owned_hook(provider, &text, document::USAGE))
+}
+
+/// Usage collection is consented: the turn-end hook is installed and the setup record does not
+/// say the user turned usage off for this settings file. Legacy lifecycle-only installs have no
+/// hook, and an unreadable record counts as an opt-out, so neither reads usage data.
+pub fn usage_consented(provider: &DriverDefinition) -> bool {
+    let Ok(settings) = provider_settings(provider) else {
+        return false;
+    };
+    stop_hook_installed(provider)
+        && crate::config::ConfigPaths::discover()
+            .ok()
+            .and_then(|paths| record::read(&paths.global_dir).ok())
+            .is_some_and(|entries| !record::usage_opted_out(&entries, provider.name(), &settings))
 }
 
 pub fn plan(
@@ -144,6 +152,19 @@ pub fn plan(
     removing: bool,
     usage: UsageHook,
 ) -> Result<SetupPlan, PlanError> {
+    plan_with_choice(provider, path, before, launcher, removing, usage, false)
+}
+
+/// [`plan`] for a settings file whose setup record says whether the user had turned usage off.
+pub fn plan_with_choice(
+    provider: &DriverDefinition,
+    path: PathBuf,
+    before: Option<String>,
+    launcher: PathBuf,
+    removing: bool,
+    usage: UsageHook,
+    usage_opted_out_before: bool,
+) -> Result<SetupPlan, PlanError> {
     let selected = launcher
         .to_str()
         .filter(|value| launcher.is_absolute() && !value.chars().any(char::is_control))
@@ -152,22 +173,28 @@ pub fn plan(
     // Removal is the exact inverse of setup's own edits where it can be.
     let after = if removing {
         document::removed(provider, text)?.unwrap_or_else(|| text.to_owned())
-    } else if usage == UsageHook::Remove {
-        document::usage_removed(provider, text, selected)?
     } else {
         document::settings(provider, text, selected, false, usage)?
     };
+    // Usage collection is the user's choice, held in the setup record; the turn-end hook is there
+    // either way (it carries the agent's answers, #4914). Usage was on before when the hook was
+    // there and the user had not turned it off.
+    let usage_before =
+        document::has_owned_hook(provider, text, document::USAGE) && !usage_opted_out_before;
+    let usage_after = !removing
+        && match usage {
+            UsageHook::Default | UsageHook::Install => true,
+            UsageHook::Remove => false,
+            UsageHook::Keep => usage_before,
+        };
     Ok(SetupPlan {
         provider: provider.name(),
         launcher,
         removing,
-        usage_before: document::has_owned_hook(provider, text, document::USAGE),
-        usage: document::has_owned_hook(provider, &after, document::USAGE),
+        usage_before,
+        usage: usage_after,
+        stop_before: document::has_owned_hook(provider, text, document::USAGE),
         activity: document::activity_events(provider),
-        activity_added: document::activity_events(provider).iter().any(|event| {
-            !document::has_owned_hook(provider, text, event)
-                && document::has_owned_hook(provider, &after, event)
-        }),
         change: FileChange {
             path,
             before,
@@ -204,6 +231,7 @@ mod preview_tests {
     fn the_preview_names_the_codex_interrupt_observer_only_for_codex() {
         const ALL: &str = "SessionStart, SessionEnd, UserPromptSubmit, Notification (activity only), PostToolUse (activity only), PostToolUseFailure (activity only) and Stop (context usage, consumption, activity and recent responses) hooks";
         const CODEX_ALL: &str = "SessionStart, SessionEnd, UserPromptSubmit, Interrupt (activity only) and Stop (context usage, consumption, activity and recent responses) hooks";
+        const ANSWERS: &str = "Stop (turn end: activity and chat answers, no usage data)";
         assert_eq!(
             events(&claude::DRIVER, "{}", false, UsageHook::Default),
             ALL
@@ -212,13 +240,18 @@ mod preview_tests {
             events(&codex::DRIVER, "{}", false, UsageHook::Default),
             CODEX_ALL
         );
+        // Turning usage off keeps the turn-end hook and says what it still does.
         assert_eq!(
             events(&claude::DRIVER, "{}", false, UsageHook::Remove),
-            "SessionStart, SessionEnd, UserPromptSubmit, Notification (activity only), PostToolUse (activity only) and PostToolUseFailure (activity only) hooks"
+            format!(
+                "SessionStart, SessionEnd, UserPromptSubmit, Notification (activity only), PostToolUse (activity only), PostToolUseFailure (activity only) and {ANSWERS} hooks"
+            )
         );
         assert_eq!(
             events(&codex::DRIVER, "{}", false, UsageHook::Remove),
-            "SessionStart, SessionEnd, UserPromptSubmit and Interrupt (activity only) hooks"
+            format!(
+                "SessionStart, SessionEnd, UserPromptSubmit, Interrupt (activity only) and {ANSWERS} hooks"
+            )
         );
         let installed = document::settings(
             &codex::DRIVER,
@@ -232,20 +265,90 @@ mod preview_tests {
             events(&codex::DRIVER, &installed, true, UsageHook::Keep),
             CODEX_ALL
         );
-        let stop = "Stop (context usage, consumption, activity and recent responses) hook";
+        // An install that already holds every hook shows the same words with usage off.
         assert_eq!(
             events(&codex::DRIVER, &installed, false, UsageHook::Remove),
-            stop
+            format!(
+                "SessionStart, SessionEnd, UserPromptSubmit, Interrupt (activity only) and {ANSWERS} hooks"
+            )
         );
-        // An install from before the observer: removing usage also adds it.
+        // An install from before the observer gains it, and keeps the turn-end hook.
         let legacy = {
             let mut value: serde_json::Value = serde_json::from_str(&installed).unwrap();
             value["hooks"].as_object_mut().unwrap().remove("Interrupt");
             value.to_string()
         };
-        assert_eq!(
-            events(&codex::DRIVER, &legacy, false, UsageHook::Remove),
-            format!("{stop}; it also adds the Interrupt (activity only) hook")
-        );
+        let migrated = document::settings(
+            &codex::DRIVER,
+            &legacy,
+            "/stable/tmt",
+            false,
+            UsageHook::Remove,
+        )
+        .unwrap();
+        assert!(document::has_owned_hook(
+            &codex::DRIVER,
+            &migrated,
+            "Interrupt"
+        ));
+        assert!(document::has_owned_hook(&codex::DRIVER, &migrated, "Stop"));
+    }
+
+    /// Usage is the setup record's choice; the turn-end hook is in the file either way.
+    #[test]
+    fn usage_follows_the_recorded_choice_while_the_turn_end_hook_stays() {
+        let on = document::settings(
+            &claude::DRIVER,
+            "{}",
+            "/stable/tmt",
+            false,
+            UsageHook::Install,
+        )
+        .unwrap();
+        let lifecycle_only =
+            document::settings(&claude::DRIVER, "{}", "/stable/tmt", false, UsageHook::Keep)
+                .unwrap();
+        assert!(!document::has_owned_hook(
+            &claude::DRIVER,
+            &lifecycle_only,
+            "Stop"
+        ));
+        let planned = |before: &str, usage: UsageHook, opted_out: bool| {
+            plan_with_choice(
+                &claude::DRIVER,
+                PathBuf::from("/settings.json"),
+                Some(before.into()),
+                PathBuf::from("/stable/tmt"),
+                false,
+                usage,
+                opted_out,
+            )
+            .unwrap()
+        };
+        // Usage on, then turned off: nothing is removed, only the choice changes.
+        let off = planned(&on, UsageHook::Remove, false);
+        assert!(off.usage_before && !off.usage && off.stop_before);
+        assert!(!off.change.changed(), "the hook stays");
+        // Opted out earlier: a rerun without a choice keeps it off, and `--usage` turns it on.
+        let kept = planned(&on, UsageHook::Keep, true);
+        assert!(!kept.usage_before && !kept.usage && !kept.change.changed());
+        let again = planned(&on, UsageHook::Install, true);
+        assert!(!again.usage_before && again.usage && !again.change.changed());
+        // A first setup with usage off installs the hook for the answers alone.
+        let first = planned("{}", UsageHook::Remove, false);
+        assert!(!first.usage_before && !first.usage && !first.stop_before);
+        assert!(document::has_owned_hook(
+            &claude::DRIVER,
+            &first.change.after,
+            "Stop"
+        ));
+        // A legacy lifecycle-only install stays without the hook until usage is asked for.
+        let legacy = planned(&lifecycle_only, UsageHook::Keep, false);
+        assert!(!legacy.usage && !legacy.change.changed());
+        assert!(!document::has_owned_hook(
+            &claude::DRIVER,
+            &legacy.change.after,
+            "Stop"
+        ));
     }
 }

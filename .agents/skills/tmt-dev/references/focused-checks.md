@@ -73,7 +73,7 @@ and the original nonzero child status. Run one focused selection of affected Doc
 infra heavy slot with isolated HOME/provider roots; run it twice only when a
 lifecycle or transport change needs repeat evidence. Never sample a real account. Old wrappers
 and hook-only launches stay Stop-only until relaunched, and `--no-usage` or the legacy opt-out
-must suppress foreground collection too.
+must suppress foreground usage collection too (the Stop hook then carries answers only).
 
 ## Targets, hosts and setup
 

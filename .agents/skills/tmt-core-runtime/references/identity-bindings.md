@@ -356,9 +356,10 @@ delivery. They install and launch nothing.
 
 ## Consumption and context usage
 
-- Usage, consumption and [recent final responses](../../../../contracts/extension-api.md#recent-agent-responses) share the consented `tmt setup` plan; `--no-usage` removes the TMT
-  `Stop` entry and records the choice, legacy records keep the installed state, new installs
-  default on.
+- Usage, consumption and [recent final responses](../../../../contracts/extension-api.md#recent-agent-responses) share the consented `tmt setup` plan; the TMT `Stop` entry is installed
+  by every setup and carries the agent's answers, while usage and consumption need the setup record not to say
+  `usage: false` (`setup::usage_consented`; `--no-usage` records that choice and keeps the entry; an unreadable
+  record counts as an opt-out). Legacy records keep the installed state, new installs default on.
 - Drivers read only their own provider's transcript (`runtime::transcript`): a regular `.jsonl`
   under the driver's tree, opened without following a final symlink and without blocking, with
   tail reads bounded to one MiB. Unusable usage writes nothing for that value.

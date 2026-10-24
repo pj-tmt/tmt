@@ -122,6 +122,10 @@ Status makes no provider call. Its meaning and limitations belong to the
 [status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery);
 it does not establish project-wide quota headroom or prove a guest can use the deployment.
 
+For native agent messages after owner registration, follow the
+[paired-machine runbook](firestore-collaborator-runbook.md). The existing serving owner carries
+prepared requests; the command does not start serve or pair implicitly.
+
 ## If a step stops
 
 Use the printed code and outcome, not a guessed provider response. An early read failure's

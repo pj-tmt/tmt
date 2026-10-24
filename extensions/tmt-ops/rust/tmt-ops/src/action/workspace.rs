@@ -96,9 +96,9 @@ const SPECS: &[OpsUiSpec] = &[
     ),
     spec!(
         MemberNotes,
-        "member-notes",
-        "notes",
-        "read and edit the selected agent's Notes list",
+        "member-checklist",
+        "checklist",
+        "read and edit the selected agent's Checklist",
         12
     ),
     spec!(

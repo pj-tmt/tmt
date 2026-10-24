@@ -677,7 +677,7 @@ impl App {
         drop(state);
         Some(self.run_selection_entry(entry, passage))
     }
-    /// Quote, copy or add the selection to Notes: keys and pointer share these entries.
+    /// Quote, copy or add the selection to the checklist: keys and pointer share these entries.
     fn run_selection_entry(&mut self, entry: Entry, passage: String) -> Effect {
         match entry {
             Entry::Note => {
@@ -689,9 +689,9 @@ impl App {
                     drop(state);
                     return self.say("The conversation changed; select the text again.");
                 }
-                let Some(key) = self.conversation_notes_key() else {
+                let Some(key) = self.conversation_checklist_key() else {
                     drop(state);
-                    return self.say("Select a squad member to add to Notes.");
+                    return self.say("Select a squad member to add to checklist.");
                 };
                 let source = match selection {
                     Selection::Cells(_) => super::note_source::Source::Unavailable,
@@ -710,10 +710,10 @@ impl App {
                                 })
                         }),
                 };
-                let seed = crate::board::conversation_notes::Seed {
+                let seed = crate::board::conversation_checklist::Seed {
                     key,
                     actor: self.view.as_ref().and_then(|view| view.me_id.clone()),
-                    kind: crate::board::conversation_notes::NoteKind::Todo,
+                    kind: crate::board::conversation_checklist::NoteKind::Todo,
                     title: crate::board::notes::single_line(&passage),
                     reference: String::new(),
                     source,

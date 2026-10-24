@@ -541,13 +541,13 @@ cells/styles/hits/oracle diff is approved by the UX primary reviewer. Regenerati
 
 ## Checklist todo projection
 
-`conversation_notes::State` owns held room and conversation counts and the global
+`conversation_checklist::State` owns held room and conversation counts and the global
 admission set: each squad room once, alongside its exact room/member conversations.
 Its explicit subject keeps conversation drafts/writes separate from room-list writes.
 The existing quiet lane admits one read at a
 time, selected first at five seconds and other keys at most once per minute.
 Background deliveries contain counts only; full previews remain with the selected
-Notes overlay. The existing write epoch fences late reads. Scope publication and
+conversation checklist overlay. The existing write epoch fences late reads. Scope publication and
 delivery update the cached header total, so paint does not scan every list.
 An admitted room-modal observation updates its room summary and fences older quiet reads.
 Shared completion counts treat references as attributes, including linked open items.
