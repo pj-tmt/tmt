@@ -577,11 +577,19 @@ IFS= read -r line
         provider.to_str().unwrap(),
     ]);
     assert!(started.status.success(), "{started:?}");
-    let wait_hook = |world: &World, deadline: Instant| {
+    let wait_hook = |world: &World, deadline: Instant, phase: &str| {
         while !world.root.join("hook.status").is_file() {
             assert!(
                 Instant::now() < deadline,
-                "hook did not publish its exit status"
+                "{phase} hook did not publish its exit status; root={:?}; \
+                 provider argv={:?}; provider pid={:?}; peer pid={:?}; \
+                 hook stdout={:?}; hook stderr={:?}",
+                world.root,
+                fs::read_to_string(world.root.join("provider-argv")),
+                fs::read_to_string(world.root.join("alpha.pid")),
+                fs::read_to_string(world.root.join("alpha-peer.pid")),
+                fs::read_to_string(world.root.join("hook.out")),
+                fs::read_to_string(world.root.join("hook.err"))
             );
             std::thread::sleep(Duration::from_millis(10));
         }
@@ -591,7 +599,7 @@ IFS= read -r line
         );
     };
     let deadline = Instant::now() + Duration::from_secs(10);
-    wait_hook(&world, deadline);
+    wait_hook(&world, deadline, "initial");
     let db = rusqlite::Connection::open_with_flags(
         support::state_dir(&world.root).join("tmt.db"),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -617,7 +625,7 @@ IFS= read -r line
              last row {row:?}; hook diagnostics: {}",
             fs::read_to_string(world.root.join("hook.err")).unwrap()
         );
-        std::thread::yield_now();
+        std::thread::sleep(Duration::from_millis(10));
     };
     let (identity, pane, recorded) = wait_session(&world, None, deadline);
     assert_eq!(
@@ -650,7 +658,7 @@ IFS= read -r line
     let resumed = world.run(&["resume", "--host", "pty", "--no-channel", "alpha"]);
     assert!(resumed.status.success(), "{resumed:?}");
     let deadline = Instant::now() + Duration::from_secs(10);
-    wait_hook(&world, deadline);
+    wait_hook(&world, deadline, "resumed");
     let (after_identity, after_pane, after_session) = wait_session(&world, Some(&pane), deadline);
     assert_eq!(after_identity, identity);
     assert_ne!(after_pane, pane);
