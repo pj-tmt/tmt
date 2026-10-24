@@ -324,6 +324,7 @@ impl Session {
                 anchor_text: self.text.clone(),
                 response_sources: None,
                 final_spans: Vec::new(),
+                capture_spans: Vec::new(),
                 copy,
                 note_sources,
             };
@@ -409,6 +410,7 @@ impl Session {
         let mut original = Vec::new();
         let mut anchor_text = String::new();
         let mut final_spans = Vec::new();
+        let mut capture_spans = Vec::new();
         let mut copy_messages = vec![self.text.clone()];
         let mut copy_rows: Vec<super::copy::Row> = Vec::new();
         let next_copy = std::cell::RefCell::new(None);
@@ -625,8 +627,25 @@ impl Session {
                                 look,
                                 None,
                             );
-                            for line in content.lines {
-                                append(super::super::exchange_view::body(line, look), vec![], None);
+                            let mut body_range = None;
+                            for (line, source) in content.lines.into_iter().zip(content.sources) {
+                                let index = append(
+                                    super::super::exchange_view::body(line, look),
+                                    vec![],
+                                    None,
+                                );
+                                if source >= 2 {
+                                    let start = body_range.map_or(index, |(start, _)| start);
+                                    body_range = Some((start, index + 1));
+                                }
+                            }
+                            if let Some((start, end)) = body_range
+                                && let super::super::row_detail::Capture::Answered {
+                                    settled_ms: Some(at),
+                                    ..
+                                } = capture
+                            {
+                                capture_spans.push((start..end, request.to_owned(), *at));
                             }
                         }
                         if send.truncated {
@@ -833,6 +852,7 @@ impl Session {
             anchor_text,
             response_sources: Some(original),
             final_spans,
+            capture_spans,
             note_sources: note_sources.into_inner(),
             copy: super::copy::Map {
                 messages: copy_messages,
@@ -872,6 +892,7 @@ pub(super) struct RenderedTranscript {
     pub anchor_text: String,
     pub response_sources: Option<Vec<Option<usize>>>,
     pub final_spans: Vec<(std::ops::Range<usize>, usize)>,
+    pub capture_spans: Vec<(std::ops::Range<usize>, String, u64)>,
     pub copy: super::copy::Map,
     pub note_sources: super::note_source::Map,
 }

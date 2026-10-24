@@ -238,7 +238,7 @@ pub(in crate::board) enum BoardEvent {
     TokenWindowSaved(Result<Config, String>),
     /// A quiet cache publication; it owns no user action or progress notice.
     ViewStatePublished,
-    ReadMarkersPublished(Result<crate::config::ReadMarkers, String>),
+    AnswersAcknowledged(Result<unread::publish::Completed, String>),
     /// A conversation's checklist summary was read; it owns no user action or progress notice.
     NotesRead(conversation_checklist::Completed),
     /// The running versions, read once at start; they own no user action or progress notice.
@@ -293,10 +293,6 @@ pub(super) enum ActionOutcome {
     Workspace(Box<Result<crate::membership::Outcome, crate::core::SquadError>>),
     RenameMember(Box<workspace::rename_member::Completed>),
     Message(String),
-    JumpRead {
-        message: String,
-        markers: Result<crate::config::ReadMarkers, String>,
-    },
     WorkspacePreferences(Box<(crate::config::OpsPreferences, String)>),
     Send(Box<conversation::outgoing::Completed>),
     SendNow(Box<conversation::SendNowDone>),
@@ -573,14 +569,7 @@ fn session(
     // Hands a job to the lane and says so at once; the event that comes back says how it ended.
     let submit = |app: &mut App, job: lane::Job| {
         let job = match job {
-            lane::Job::Act(Request::Jump(member)) => {
-                let seen = app.unread_jump(&member);
-                lane::Job::Jump {
-                    member,
-                    seen,
-                    publisher: app.unread.writer.clone(),
-                }
-            }
+            lane::Job::Act(Request::Jump(member)) => lane::Job::Jump { member },
             other => other,
         };
         // An overlay opens once: a second request for one waits for the first.
@@ -636,7 +625,7 @@ fn session(
             }
         }
         if let Some(writer) = app.unread.writer.offer() {
-            io(lane::Job::ReadMarkers(writer));
+            io(lane::Job::AcknowledgeAnswers(writer));
         }
         let shown = app.conversation_checklist_key().or_else(|| {
             if app.loading() || !app.workspace_selection_visible() {
@@ -1006,10 +995,6 @@ fn session(
                     }
                     Ok(ActionOutcome::Status(outcome)) => app.finished_status(*outcome),
                     Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
-                    Ok(ActionOutcome::JumpRead { message, markers }) => {
-                        app.finished(Ok(message));
-                        app.finished_unread(markers);
-                    }
                     Ok(ActionOutcome::WorkspacePreferences(completed)) => {
                         let (preferences, message) = *completed;
                         app.finished_workspace_preferences(preferences, message);
@@ -1118,7 +1103,7 @@ fn session(
                 dirty = true;
                 Effect::None
             }
-            Ok(BoardEvent::ReadMarkersPublished(result)) => {
+            Ok(BoardEvent::AnswersAcknowledged(result)) => {
                 app.finished_unread(result);
                 dirty = true;
                 Effect::None
@@ -2064,9 +2049,7 @@ mod tests {
                     events.send(key(KeyCode::Char('j'))).unwrap();
                 }
                 lane::Job::Jump {
-                    member: identity,
-                    seen: None,
-                    ..
+                    member: identity, ..
                 } => {
                     assert_eq!(identity, app::workspace::tests::MEMBER);
                     jumps.set(jumps.get() + 1);
@@ -2159,9 +2142,7 @@ mod tests {
                         events.send(key(code)).unwrap();
                     }
                 }
-                lane::Job::Jump {
-                    member, seen: None, ..
-                } => {
+                lane::Job::Jump { member, .. } => {
                     assert_eq!(member, app::workspace::tests::MEMBER);
                     actions.set(actions.get() + 1);
                     events.send(acted(true, false, Ok("Jumped"))).unwrap();
@@ -2696,10 +2677,7 @@ print(json.dumps(out))
                 |_, _| {},
                 |_| {},
                 |job| {
-                    let lane::Job::Jump {
-                        member, seen: None, ..
-                    } = job
-                    else {
+                    let lane::Job::Jump { member, .. } = job else {
                         panic!("unexpected {job:?}")
                     };
                     assert_eq!(member, app::workspace::tests::MEMBER);

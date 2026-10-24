@@ -40,6 +40,11 @@
   refuses a new send while one is in flight so no text is lost. Picker and overlay
   saves are bounded local file writes through the compare-and-set config writer and stay
   on the session thread; they start no command.
+- Unread acknowledgments use the same ordered action lane, never the refresh or
+  paint thread. It publishes one result for each bounded batch/page step and admits
+  no second batch before the UI adopts it. Counts remain the held Core answers page;
+  [the reply owner](board-notebooks.md#replies-and-verification) owns viewport admission,
+  explicit Mark read and conflict/failure behavior.
 - Extension labels: a dedicated `labels::Reader` thread, started by the
   board next to the refresh worker (never inside it, so a slow extension cannot hold up a
   reload), asks each `[labels] sources` entry `tmt <name> status --json` through `Core` with

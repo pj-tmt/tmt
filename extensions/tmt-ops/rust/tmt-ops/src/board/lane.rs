@@ -27,8 +27,6 @@ pub(super) enum Job {
     Act(Request),
     Jump {
         member: String,
-        seen: Option<super::unread::publish::Seen>,
-        publisher: super::unread::publish::Writer,
     },
     Send {
         request: Request,
@@ -43,7 +41,7 @@ pub(super) enum Job {
     /// Save the header's token-rate window with no settings overlay open.
     TokenWindow(String),
     ViewState(super::view_state::Writer),
-    ReadMarkers(super::unread::publish::Writer),
+    AcknowledgeAnswers(super::unread::publish::Writer),
     /// Read the checklist summary of the conversation on screen.
     Notes(super::conversation_checklist::Task),
     /// Read the running versions once, at start.
@@ -59,7 +57,7 @@ impl Job {
             Self::Recovery(_)
                 | Self::TokenWindow(_)
                 | Self::ViewState(_)
-                | Self::ReadMarkers(_)
+                | Self::AcknowledgeAnswers(_)
                 | Self::Notes(_)
                 | Self::Versions
         )
@@ -70,7 +68,7 @@ impl Job {
         match self {
             Self::Act(request) | Self::Send { request, .. } => request.progress(),
             Self::Jump { .. } => "Jumping…",
-            Self::ReadMarkers(_) => "Saving read markers…",
+            Self::AcknowledgeAnswers(_) => "Acknowledging answers…",
             Self::Notes(_) => "Reading the checklist…",
             Self::Versions => "Reading the versions…",
             Self::Recovery(_) => "Reading or applying the selected workspace snapshot…",
@@ -91,33 +89,16 @@ impl Job {
 /// The result of one job.
 pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent {
     match job {
-        Job::ReadMarkers(writer) => BoardEvent::ReadMarkersPublished(writer.publish(core)),
+        Job::AcknowledgeAnswers(writer) => BoardEvent::AnswersAcknowledged(writer.publish(core)),
         Job::Notes(task) => {
             BoardEvent::NotesRead(super::conversation_checklist::complete(core, task))
         }
         Job::Versions => BoardEvent::VersionsRead(super::versions::Versions::read(core)),
-        Job::Jump {
-            member,
-            seen,
-            publisher,
-        } => {
-            let seen = seen.filter(|seen| seen.matches_member(&member));
-            let outcome = execute(core, Request::Jump(member));
-            let outcome = match (outcome, seen) {
-                (Ok(super::ActionOutcome::Message(message)), Some(seen)) => {
-                    Ok(super::ActionOutcome::JumpRead {
-                        message,
-                        markers: publisher.publish_seen(&seen, core),
-                    })
-                }
-                (outcome, _) => outcome,
-            };
-            BoardEvent::Acted {
-                jump: true,
-                sends: false,
-                outcome,
-            }
-        }
+        Job::Jump { member } => BoardEvent::Acted {
+            jump: true,
+            sends: false,
+            outcome: execute(core, Request::Jump(member)),
+        },
         Job::ViewState(writer) => {
             writer.publish(std::time::Instant::now(), false);
             BoardEvent::ViewStatePublished

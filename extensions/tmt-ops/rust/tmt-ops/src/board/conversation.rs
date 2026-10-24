@@ -160,6 +160,7 @@ pub(super) struct State {
     response_area: Option<Rect>,
     /// The selected pane's live screen in place of the chat (`v`), until toggled back.
     pub(in crate::board) screen_mode: bool,
+    pub(in crate::board) painted_answers: Vec<super::unread::walk::Body>,
     pub area: Rect,
     pub pane: Option<Rect>,
 }
@@ -174,6 +175,7 @@ struct Rendered {
     anchor_sources: Vec<usize>,
     response_sources: Option<Vec<Option<usize>>>,
     final_spans: Vec<(std::ops::Range<usize>, usize)>,
+    capture_spans: Vec<(std::ops::Range<usize>, String, u64)>,
     /// What each displayed line was written as, for copying a selection as source.
     copy: copy::Map,
     note_sources: note_source::Map,
@@ -227,6 +229,7 @@ struct Session {
     )>,
     authored_lines: BTreeMap<usize, AuthoredLine>,
     outgoing_note_sources: note_source::Map,
+    capture_body_spans: Vec<(std::ops::Range<usize>, String, u64)>,
     compact_separators: std::collections::BTreeSet<usize>,
     pane_output: super::recent_responses::Observation,
     pane_output_fresh: bool,
@@ -266,6 +269,7 @@ impl Default for Session {
             response_spans: Default::default(),
             authored_lines: Default::default(),
             outgoing_note_sources: Default::default(),
+            capture_body_spans: Vec::new(),
             compact_separators: Default::default(),
             pane_output: Default::default(),
             pane_output_fresh: false,
@@ -547,6 +551,7 @@ impl Session {
                 anchor_sources,
                 response_sources: Some(response_sources),
                 final_spans: transcript.final_spans,
+                capture_spans: transcript.capture_spans,
                 copy: transcript.copy,
                 note_sources: transcript.note_sources,
             });
@@ -575,24 +580,6 @@ impl App {
         let state = self.conversation.borrow();
         let identity = (self.view.as_ref()?.me_id.clone(), id.to_owned());
         state.sessions.get(&identity)?.reply.clone()
-    }
-
-    /// The member shown and the requests whose answered turn the conversation shows.
-    pub(super) fn conversation_turns(&self) -> Option<(String, Vec<String>)> {
-        if !self.scrolls.visible(Pane::Replies) {
-            return None;
-        }
-        let target = self.conversation_target()?;
-        let id = self.target_row(&target)?["id"].as_str()?;
-        let state = self.conversation.borrow();
-        let identity = (self.view.as_ref()?.me_id.clone(), id.to_owned());
-        let turns = state
-            .sessions
-            .get(&identity)?
-            .answered_turns()
-            .map(str::to_owned)
-            .collect();
-        Some((id.to_owned(), turns))
     }
 
     pub(super) fn conversation_input_area(&self) -> Option<Rect> {
@@ -729,6 +716,7 @@ fn render_target(
     app.conversation.borrow_mut().header_hits.clear();
     app.conversation.borrow_mut().send_now_hit = None;
     app.conversation.borrow_mut().response_area = None;
+    app.conversation.borrow_mut().painted_answers.clear();
     let row = target
         .as_ref()
         .and_then(|target| app.target_row(target))
@@ -1283,6 +1271,11 @@ fn render_target(
     for index in offset..offset.saturating_add(shown).min(mapped.lines.len()) {
         session.admit_feedback_clock(app, mapped.sources[index], &mapped.lines[index]);
     }
+    let painted_answers = session.painted_answers(
+        app,
+        row["id"].as_str().unwrap(),
+        offset..offset.saturating_add(shown).min(mapped.lines.len()),
+    );
     if switched || rebuilt || previous != offset {
         session.anchor.select_visual(
             &session.rendered.as_ref().unwrap().anchor_text,
@@ -1290,6 +1283,7 @@ fn render_target(
             offset,
         );
     }
+    state.painted_answers = painted_answers;
     state.response_area = Some(body);
     state.header_hits = painted_controls;
     state.send_now_hit = send_now_hit;

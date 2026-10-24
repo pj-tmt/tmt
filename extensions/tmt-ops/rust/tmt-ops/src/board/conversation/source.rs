@@ -133,6 +133,7 @@ impl State {
         }
     }
     pub(in crate::board) fn invalidate_source_geometry(&mut self) {
+        self.painted_answers.clear();
         self.source_surfaces.clear();
         self.source_areas.clear();
         self.response_area = None;
@@ -183,6 +184,7 @@ pub(in crate::board) fn publish(app: &App, target: RowTarget, area: Rect) {
 pub(in crate::board) fn begin_frame(app: &App) {
     let mut state = app.conversation.borrow_mut();
     state.response_area = None;
+    state.painted_answers.clear();
     state.source_areas.clear();
     state.source_surfaces.clear();
     if let Some(selection) = &mut state.selection {
@@ -415,6 +417,106 @@ pub(in crate::board) fn paint(frame: &mut Frame, app: &App) {
 }
 
 impl Session {
+    pub(super) fn painted_answers(
+        &self,
+        app: &App,
+        member: &str,
+        rows: std::ops::Range<usize>,
+    ) -> Vec<super::super::unread::walk::Body> {
+        use super::super::unread::walk::Body;
+        let Some(actor) = app.view.as_ref().and_then(|view| view.me_id.as_deref()) else {
+            return Vec::new();
+        };
+        let page = app.home_leads.unread(actor);
+        let mut painted: Vec<Body> = Vec::new();
+        for row in rows {
+            let Some((request, kind, at_ms)) = self.answer_body_at(row) else {
+                continue;
+            };
+            if painted
+                .iter()
+                .any(|body| body.request == request && body.kind == kind && body.at_ms == at_ms)
+            {
+                continue;
+            }
+            let revision = if let Some(answer) = page.and_then(|page| page.answer(member, request))
+            {
+                if answer.acknowledged
+                    || answer.kind != Some(kind)
+                    || answer.answered_at_ms != at_ms
+                {
+                    continue;
+                }
+                Some(answer.revision)
+            } else {
+                None
+            };
+            let body = Body {
+                actor: actor.into(),
+                member: member.into(),
+                request: request.into(),
+                kind,
+                at_ms,
+                revision,
+            };
+            if !painted.contains(&body) {
+                painted.push(body);
+            }
+        }
+        painted
+    }
+
+    /// Authority comes from an acquired body range and its public answer timestamp,
+    /// never a heading, delivery status, pane output or a neighbouring message.
+    pub(super) fn answer_body_at(
+        &self,
+        line: usize,
+    ) -> Option<(&str, super::super::unread::AnswerKind, u64)> {
+        if let Some((key, _)) = self.response_key_at(line)
+            && key.kind == crate::board::home_leads::Kind::Reply
+        {
+            let reply = self
+                .finals
+                .iter()
+                .chain(self.reply.iter())
+                .chain(self.local_finals())
+                .chain(self.before_send.iter())
+                .find(|reply| {
+                    reply.acquired
+                        && reply.source
+                        && reply.key.as_ref().is_some_and(|held| held.same_source(key))
+                })?;
+            return Some((
+                &key.request,
+                super::super::unread::AnswerKind::Final,
+                reply.at_ms?,
+            ));
+        }
+        let rendered = self.rendered.as_ref()?;
+        let original = *rendered.anchor_sources.get(line)?;
+        if let Some((_, request, at)) = rendered
+            .capture_spans
+            .iter()
+            .find(|(range, _, _)| range.contains(&original))
+        {
+            return Some((request, super::super::unread::AnswerKind::Turn, *at));
+        }
+        let line = match rendered.response_sources.as_ref() {
+            Some(rows) => rows.get(line).copied().flatten()?,
+            None => line,
+        };
+        self.capture_body_spans
+            .iter()
+            .find(|(range, _, _)| range.contains(&line))
+            .map(|(_, request, at)| {
+                (
+                    request.as_str(),
+                    super::super::unread::AnswerKind::Turn,
+                    *at,
+                )
+            })
+    }
+
     pub(super) fn response_key_at(&self, line: usize) -> Option<(&MessageKey, Option<u64>)> {
         if let Some((_, index)) = self.rendered.as_ref().and_then(|rendered| {
             let original = *rendered.anchor_sources.get(line)?;

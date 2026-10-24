@@ -387,6 +387,9 @@ fn captures() -> Value {
                 "unread-squads",
                 "unread-cleared",
                 "unread-turn",
+                "unread-core-final",
+                "unread-core-capture",
+                "unread-core-conflict",
             ]
             .into_iter()
             .chain(

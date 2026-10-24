@@ -1159,7 +1159,7 @@ impl App {
                         }
                         self.workspace_reconcile();
                         self.focus = 1;
-                        self.unread.displayed = None;
+                        self.unread.displayed.clear();
                     }
                 } else {
                     let expanded = match &target {

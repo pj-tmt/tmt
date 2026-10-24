@@ -2679,6 +2679,27 @@ pub(in crate::board) fn measure_exchanges(
 /// One literal fixture owner for private capture packets and the frozen HOME oracle.
 /// It configures only an isolated test model; rendering stays on the actual App path.
 pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {
+    if scene == "unread-core-capture" {
+        let now = crate::status::now_ms();
+        let mut app = crate::board::conversation::outgoing::tests::captures::fixture(
+            "chat-answered",
+            look,
+            now,
+        );
+        let actor = app.view.as_ref().unwrap().me_id.clone().unwrap();
+        let request = crate::board::conversation::outgoing::tests::captures::REQUEST;
+        app.home_leads.test_pages(
+            &actor,
+            json!({"items":[],"nextBefore":null}),
+            json!({"items":[{
+            "requestId":request,"kind":"request","sender":{"identityId":actor},"recipientId":MEMBER,
+            "answeredAtMs":now-500,"answer":"turn","revision":2,"acknowledged":false
+        }],"nextBefore":null}),
+        );
+        app.overview_rows.borrow_mut().clear();
+        app.workspace_reconcile();
+        return app;
+    }
     let mut app = match scene {
         "squads-eight" => populated_board(8, 150),
         "squads-thirty-six" => populated_board(36, 150),
@@ -2968,7 +2989,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             // A direct send answered by a captured turn alone: no final reply exists.
             let turn = json!({
                 "requestId":"unread-turn", "kind":"request", "sender":{"identityId":actor},
-                "recipientId":MEMBER, "answeredAtMs":101, "answer":"turn"
+                "recipientId":MEMBER, "answeredAtMs":101, "answer":"turn", "revision":1, "acknowledged":false
             });
             app.home_leads.test_pages(
                 &actor,
@@ -2978,6 +2999,40 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         } else {
             app.home_leads
                 .test_results(&actor, json!({"items":items,"nextBefore":next}));
+        }
+        if matches!(scene, "unread-core-final" | "unread-core-conflict") {
+            app.view.as_mut().unwrap().replies = vec![
+                json!({"recipientId":MEMBER,"requestId":"unread-1","submittedAtMs":101,"response":"An acquired final stays read across views."}),
+                json!({"recipientId":MEMBER,"requestId":"unread-2","submittedAtMs":102,"response":"A newer answer remains unread until its body is seen."}),
+            ];
+            let answer = app
+                .home_leads
+                .unread(&actor)
+                .unwrap()
+                .answer(MEMBER, "unread-1")
+                .unwrap()
+                .clone();
+            let outcome = if scene == "unread-core-conflict" {
+                crate::board::unread::publish::Outcome::Conflict(2)
+            } else {
+                crate::board::unread::publish::Outcome::Acknowledged
+            };
+            app.finished_unread(Ok(crate::board::unread::publish::Completed {
+                actor: actor.clone(),
+                items: vec![(answer, outcome)],
+            }));
+            // A legacy watermark no longer overrides Core's current unread revision.
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .read_markers
+                .advance(&actor, MEMBER, 1_000_000)
+                .unwrap();
+            app.focus = 1;
         }
         if scene == "unread-idle" {
             let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
@@ -3016,9 +3071,18 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             app.composer.unread_hover.set(true);
         }
         if scene == "unread-cleared" {
-            let mut marks = crate::config::ReadMarkers::default();
-            marks.advance(&actor, MEMBER, 102).unwrap();
-            app.finished_unread(Ok(marks));
+            let items = app
+                .home_leads
+                .unread(&actor)
+                .unwrap()
+                .answers(MEMBER)
+                .cloned()
+                .map(|answer| (answer, crate::board::unread::publish::Outcome::Acknowledged))
+                .collect();
+            app.finished_unread(Ok(crate::board::unread::publish::Completed {
+                actor: actor.clone(),
+                items,
+            }));
         }
         app.overview_rows.borrow_mut().clear();
         app.workspace_reconcile();

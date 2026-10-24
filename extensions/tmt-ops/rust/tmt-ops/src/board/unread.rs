@@ -1,5 +1,5 @@
-//! Unread answers from one bounded originator page of Core's `answers` view, never Core acks:
-//! a submitted final and a passthrough's answered turn count alike.
+//! One actor-fenced page of Core answers and their acknowledgment revisions.
+//! Immutable finals and captured turns share the same unread projection.
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -24,85 +24,154 @@ impl Count {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AnswerKind {
+    Final,
+    Turn,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Answer {
+    pub request: String,
+    pub member: String,
+    pub answered_at_ms: u64,
+    pub kind: Option<AnswerKind>,
+    pub revision: u64,
+    pub acknowledged: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Page {
     pub actor: String,
-    replies: BTreeMap<String, Vec<(String, u64)>>,
-    oldest: Option<u64>,
-    has_older: bool,
+    replies: BTreeMap<String, Vec<Answer>>,
+    pub next_before: Option<Value>,
 }
 
 impl Page {
-    /// Missing or malformed optional observations cannot erase a held page.
+    /// Missing or malformed observations cannot erase a held page.
     pub fn read(actor: &str, document: &Value) -> Option<Self> {
         let items = document["items"].as_array()?;
         if actor.is_empty() || items.len() > ANSWERS_LIMIT {
             return None;
         }
-        let has_older = match document.get("nextBefore")? {
-            Value::Null => false,
+        let next_before = match document.get("nextBefore")? {
+            Value::Null => None,
             cursor => {
                 timestamp(&cursor["answeredAtMs"])?;
                 nonempty(&cursor["requestId"])?;
                 if items.is_empty() {
                     return None;
                 }
-                true
+                Some(cursor.clone())
             }
         };
         let mut requests = BTreeMap::new();
-        let mut oldest = None;
         for item in items {
             if !matches!(item["kind"].as_str()?, "request" | "announcement")
                 || item["sender"]["identityId"].as_str()? != actor
-                || !matches!(item["answer"].as_str()?, "final" | "turn")
             {
                 return None;
             }
-            let request = nonempty(&item["requestId"])?;
-            let member = nonempty(&item["recipientId"])?;
-            let at = timestamp(&item["answeredAtMs"])?;
-            oldest = Some(oldest.map_or(at, |previous: u64| previous.min(at)));
-            if let Some(previous) = requests.insert(request, (member, at))
-                && previous != (member, at)
+            let answer = Answer {
+                request: nonempty(&item["requestId"])?.into(),
+                member: nonempty(&item["recipientId"])?.into(),
+                answered_at_ms: timestamp(&item["answeredAtMs"])?,
+                kind: Some(match item["answer"].as_str()? {
+                    "final" => AnswerKind::Final,
+                    "turn" => AnswerKind::Turn,
+                    _ => return None,
+                }),
+                revision: timestamp(&item["revision"])?,
+                acknowledged: item["acknowledged"].as_bool()?,
+            };
+            if let Some(previous) = requests.insert(answer.request.clone(), answer.clone())
+                && previous != answer
             {
                 return None;
             }
         }
-        let mut replies: BTreeMap<String, Vec<(String, u64)>> = BTreeMap::new();
-        for (request, (member, at)) in requests {
+        let mut replies: BTreeMap<String, Vec<Answer>> = BTreeMap::new();
+        for answer in requests.into_values() {
             replies
-                .entry(member.into())
+                .entry(answer.member.clone())
                 .or_default()
-                .push((request.into(), at));
+                .push(answer);
         }
         Some(Self {
             actor: actor.into(),
             replies,
-            oldest,
-            has_older,
+            next_before,
         })
     }
 
-    pub fn newest(&self, member: &str) -> Option<u64> {
-        self.replies.get(member)?.iter().map(|(_, at)| *at).max()
+    pub fn answers(&self, member: &str) -> impl Iterator<Item = &Answer> {
+        self.replies.get(member).into_iter().flatten()
     }
 
-    pub fn submitted(&self, member: &str, request: &str) -> Option<u64> {
-        self.replies
-            .get(member)?
-            .iter()
-            .find_map(|(id, at)| (id == request).then_some(*at))
+    pub fn answer(&self, member: &str, request: &str) -> Option<&Answer> {
+        self.answers(member)
+            .find(|answer| answer.request == request)
     }
 
-    pub fn count(&self, member: &str, seen_at: u64) -> Count {
+    /// An ack may complete after a newer answer/page; only the exact revision settles.
+    pub fn acknowledged(&mut self, completed: &publish::Completed) {
+        if self.actor != completed.actor {
+            return;
+        }
+        for (sent, outcome) in &completed.items {
+            let Some(answers) = self.replies.get_mut(&sent.member) else {
+                continue;
+            };
+            if matches!(outcome, publish::Outcome::NotFound) {
+                answers.retain(|answer| {
+                    answer.request != sent.request || answer.revision != sent.revision
+                });
+                continue;
+            }
+            let Some(answer) = answers
+                .iter_mut()
+                .find(|answer| answer.request == sent.request && answer.revision == sent.revision)
+            else {
+                continue;
+            };
+            match outcome {
+                publish::Outcome::Acknowledged => answer.acknowledged = true,
+                publish::Outcome::Conflict(current) => {
+                    answer.revision = *current;
+                    answer.acknowledged = false;
+                    // No source observation for this newer revision has been acquired yet.
+                    answer.kind = None;
+                }
+                publish::Outcome::NotFound => unreachable!(),
+            }
+        }
+    }
+
+    /// A pre-ack read arriving late cannot turn the same revision unread again.
+    pub fn retain_acknowledged(&mut self, held: &Self) {
+        if self.actor != held.actor {
+            return;
+        }
+        for answers in self.replies.values_mut() {
+            for answer in answers {
+                if let Some(old) = held.answer(&answer.member, &answer.request) {
+                    if old.revision > answer.revision {
+                        *answer = old.clone();
+                    } else if old.revision == answer.revision && old.acknowledged {
+                        answer.acknowledged = true;
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn count(&self, member: &str) -> Count {
         Count {
-            total: self.replies.get(member).map_or(0, |times| {
-                times.iter().filter(|(_, at)| *at > seen_at).count()
-            }),
-            // This boundary belongs to each member's marker, not to the actor
-            // who happened to submit the last item on the shared page.
-            more: self.has_older && self.oldest.is_some_and(|at| seen_at < at),
+            total: self
+                .answers(member)
+                .filter(|answer| !answer.acknowledged)
+                .count(),
+            more: self.next_before.is_some(),
         }
     }
 }
@@ -116,7 +185,10 @@ fn nonempty(value: &Value) -> Option<&str> {
 }
 
 #[cfg(test)]
+mod test_support;
+#[cfg(test)]
 mod tests;
 
 mod controller;
 pub(super) mod publish;
+pub(super) mod walk;

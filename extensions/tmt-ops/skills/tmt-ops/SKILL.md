@@ -468,13 +468,16 @@ A submitted reply, or the captured turn of a message you typed straight to an ag
 strips, before working/idle/waiting state. Only the unread glyph is blue; NO_COLOR
 keeps the mark and words. The top bar shows your global unread count beside
 waiting. `N+` is a lower bound from the 50-answer page, not an all-history
-count; zero observed unread never invents an unread state. Opening the agent's
-acquired conversation or successfully jumping with `j` advances your shared read
-marker, and so does clicking `● N unread` in the composer line, the member
-menu entry "Mark read" or the `mark-read` action (no default key; bind it in Help
-or Settings). It survives restart, named views and reset-view. A save failure keeps the
-unread count and names the cause; reopen the conversation or jump to retry. These
-Ops markers never acknowledge Core results.
+count; zero observed unread never invents an unread state. Only answer body rows
+actually visible in the focused conversation are acknowledged in Core. Opening a
+conversation or jumping with `j` does not mark offscreen answers read. Clicking
+`● N unread`, the member menu's "Mark read" or the `mark-read` action (no default
+key; bind it in Help or Settings) explicitly acknowledges the conversation's unread
+answers. Core keeps this state across restart, named views and reset-view. A failure
+keeps unread evidence and names the cause; reopen the conversation or use Mark read
+to retry. A newer answer revision stays unread until that answer is seen. Existing
+local read cutoffs migrate once; the cutoff compares answeredAtMs, conservatively
+keeping a capture settled after the cutoff unread.
 
 The Agents tree keeps SQUAD / AGENT, STATE, TOK 1h, ◷ and MODEL. A Muted `*`
 directly before the name marks a lead. Model cells show the observed completed-turn

@@ -24,7 +24,7 @@ pub(in crate::board) const SCENES: [&str; 15] = [
 ];
 const QUESTION: &str = "Can you rerun the picker tests on main?";
 const REPLY: &str = "Yes. All 14 picker tests pass on main 6899a9f2.";
-const REQUEST: &str = "req_55555555-5555-4555-8555-555555555555";
+pub(in crate::board) const REQUEST: &str = "req_55555555-5555-4555-8555-555555555555";
 const UNBOUND_REASON: &str = "session not bound · run: tmt resume -- night-2";
 
 pub(in crate::board) fn fixture(scene: &str, look: Look, now_ms: u64) -> App {
@@ -182,7 +182,7 @@ fn chat_fixture(scene: &str, look: Look, now_ms: u64) -> App {
         app.apply_sent(crate::board::home_leads::SentKey { sender, agent: MEMBER.into() }, Ok(vec![json!({
             "requestId":REQUEST,"preparedAtMs":at,"text":QUESTION,"truncated":false,"mode":"passthrough",
             "messageState":{"state":if scene=="chat-bound" {"working"} else {"delivered"},"reason":{"text":if scene=="chat-bound" {"the agent has started on it"} else if scene=="chat-unbound" {UNBOUND_REASON} else {"delivered"}}},
-            "passthrough":{"state":state,"boundAtMs":at+1,"answer":{"text":REPLY,"truncated":scene=="chat-truncated","provider":"codex","endedMs":now_ms-1000}}
+            "passthrough":{"state":state,"boundAtMs":at+1,"settledAtMs":if state=="answered" {json!(now_ms-500)} else {serde_json::Value::Null},"answer":{"text":REPLY,"truncated":scene=="chat-truncated","provider":"codex","endedMs":now_ms-1000}}
         })]));
     }
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));

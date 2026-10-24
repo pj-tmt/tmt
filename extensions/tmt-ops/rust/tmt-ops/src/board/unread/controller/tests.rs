@@ -1,55 +1,18 @@
 //! Real frame admission and private Config files; no host tmux, browser or store.
+use super::super::test_support::Fixture;
 use super::*;
-use crate::config::Pane;
-use crate::{
-    board::{
-        ActionOutcome, BoardEvent,
-        app::workspace::tests::{MEMBER, ROOM, board},
-        lane,
-    },
-    config::Config,
-    core::Core,
+use crate::board::{
+    ActionOutcome, BoardEvent,
+    app::workspace::tests::{MEMBER, ROOM, board},
+    lane,
 };
+use crate::config::Pane;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
 use serde_json::json;
-use std::{fs, path::PathBuf};
+use std::fs;
 
 const ACTOR: &str = "33333333-3333-4333-8333-333333333333";
-
-struct Fixture(PathBuf);
-impl Fixture {
-    fn new() -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "ops-unread-opening-{}",
-            crate::id::new_v4().unwrap()
-        ));
-        fs::create_dir(&path).unwrap();
-        fs::write(path.join("ops.toml"), "# authored preferences\n").unwrap();
-        fs::write(path.join(".ops-paths-v1"), "{}").unwrap();
-        let config = json!({"paths":{"global":path.join("config.json")},"resolved":{}}).to_string();
-        crate::test_support::write_ready_executable(
-            &path.join("tmt"),
-            &format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{log}'\ncase \"$1\" in\nconfig) printf '%s\\n' '{config}' ;;\nfocus) if [ -e '{fail}' ]; then echo '{{\"error\":{{\"code\":\"STALE\",\"message\":\"Target changed\"}}}}'; exit 5; fi; echo '{{\"focused\":{{\"pane\":\"%7\"}}}}' ;;\n*) exit 99 ;;\nesac\n",
-                log = path.join("calls").display(),
-                fail = path.join("fail").display(),
-            ),
-        );
-        Self(path)
-    }
-    fn core(&self) -> Core {
-        Core::at(self.0.join("tmt"))
-    }
-    fn config(&self) -> Config {
-        Config::read(self.0.join("ops.toml")).unwrap()
-    }
-}
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        fs::remove_dir_all(&self.0).unwrap();
-    }
-}
 
 fn unread_app() -> App {
     let mut app = board();
@@ -78,59 +41,50 @@ fn draw(app: &App) -> String {
 }
 
 #[test]
-fn unread_opening_requires_a_drawn_acquired_reply_and_a_successful_durable_save() {
+fn unread_opening_requires_a_drawn_acquired_reply_and_a_successful_core_ack() {
     let fixture = Fixture::new();
     let mut app = unread_app();
     assert_eq!(app.unread_count(MEMBER).total, 1);
     press(&mut app, KeyCode::Tab);
-    assert_eq!(app.focused_pane(), Some(Pane::Replies));
     draw(&app);
     app.unread_drawn();
-    assert!(
-        app.unread.writer.offer().is_none(),
-        "loading source is not seen"
-    );
+    assert!(app.unread.writer.offer().is_none(), "loading is not read");
     let key = app.detail_read().unwrap();
     app.apply_message(&key, Ok("Exact answer".into()));
-    draw(&app);
+    assert!(draw(&app).contains("Exact answer"));
     app.help = true;
     app.unread_drawn();
     assert!(
         app.unread.writer.offer().is_none(),
-        "a modal cannot mark the covered conversation"
+        "covered content is not read"
     );
     app.help = false;
-    assert!(draw(&app).contains("Exact answer"));
+    draw(&app);
     {
         let _no_commands = crate::runner::forbid_commands();
         app.unread_drawn();
     }
-    assert_eq!(app.unread_count(MEMBER).total, 1, "queued is not saved");
-    let writer = app.unread.writer.offer().unwrap();
-    fs::write(fixture.0.join("ops.toml"), "[broken").unwrap();
-    let result = writer.publish(&fixture.core());
-    assert!(result.is_err());
-    app.finished_unread(result);
     assert_eq!(
         app.unread_count(MEMBER).total,
         1,
-        "failed publication keeps unread evidence"
+        "admission is not acknowledgment"
     );
+    fs::write(fixture.0.join("fail"), "").unwrap();
+    let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
+    assert!(result.is_err());
+    app.finished_unread(result);
+    assert_eq!(app.unread_count(MEMBER).total, 1);
     assert!(
         app.notice
             .as_deref()
-            .is_some_and(|notice| notice.contains("Reopen the conversation or jump to retry"))
+            .unwrap()
+            .contains("Answers not acknowledged")
     );
     assert!(app.unread.writer.offer().is_none(), "no automatic retry");
-    fs::write(fixture.0.join("ops.toml"), "# authored preferences\n").unwrap();
-    // Leave the reader and open it again: the ordinary unchanged frame cannot retry.
+    fs::remove_file(fixture.0.join("fail")).unwrap();
     press(&mut app, KeyCode::Esc);
     draw(&app);
     app.unread_drawn();
-    assert!(
-        app.unread.writer.offer().is_none(),
-        "a closed reader marks nothing"
-    );
     press(&mut app, KeyCode::Tab);
     draw(&app);
     app.unread_drawn();
@@ -139,112 +93,70 @@ fn unread_opening_requires_a_drawn_acquired_reply_and_a_successful_durable_save(
     app.finished_unread(result);
     assert_eq!(app.unread_count(MEMBER).total, 0);
     assert_eq!(
-        fixture.config().read_markers().unwrap().get(ACTOR, MEMBER),
-        100
+        fs::read_to_string(fixture.0.join("ops.toml")).unwrap(),
+        "# authored preferences\n"
     );
-    let mut restarted = unread_app();
-    restarted
-        .view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .read_markers = fixture.config().read_markers().unwrap();
-    assert_eq!(
-        restarted.unread_count(MEMBER).total,
-        0,
-        "a new App restores the shared marker"
-    );
+    let calls = fs::read_to_string(fixture.0.join("calls")).unwrap();
+    let envelopes = calls
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
     assert!(
-        !fs::read_to_string(fixture.0.join("calls"))
-            .unwrap()
-            .contains("ack")
+        envelopes.iter().all(
+            |envelope| envelope["identity"] == ACTOR && envelope["operation"] == "requests.ack"
+        )
     );
+    // Repeated unchanged paints cannot re-submit an already admitted revision.
+    draw(&app);
+    app.unread_drawn();
+    assert!(app.unread.writer.offer().is_none());
 }
 
 #[test]
-fn unread_jump_writes_only_after_success_and_keeps_the_admitted_actor() {
+fn jumping_never_acknowledges_answers_even_after_success() {
     let fixture = Fixture::new();
-    let mut app = unread_app();
-    let seen = app.unread_jump(MEMBER).unwrap();
-    let before = fs::read(fixture.0.join("ops.toml")).unwrap();
+    let app = unread_app();
     fs::write(fixture.0.join("fail"), "").unwrap();
-    let event = lane::run(
+    let failed = lane::run(
         &fixture.core(),
         None,
         lane::Job::Jump {
             member: MEMBER.into(),
-            seen: Some(seen.clone()),
-            publisher: app.unread.writer.clone(),
         },
     );
     assert!(matches!(
-        event,
+        failed,
         BoardEvent::Acted {
             jump: true,
             outcome: Err(_),
             ..
         }
     ));
-    assert_eq!(fs::read(fixture.0.join("ops.toml")).unwrap(), before);
-    assert_eq!(
-        fs::read_to_string(fixture.0.join("calls"))
-            .unwrap()
-            .lines()
-            .count(),
-        1,
-        "failed jump never loads Config"
-    );
     fs::remove_file(fixture.0.join("fail")).unwrap();
-    let mismatch = lane::run(
+    let success = lane::run(
         &fixture.core(),
         None,
         lane::Job::Jump {
-            member: "44444444-4444-4444-8444-444444444444".into(),
-            seen: Some(seen.clone()),
-            publisher: app.unread.writer.clone(),
+            member: MEMBER.into(),
         },
     );
     assert!(matches!(
-        mismatch,
+        success,
         BoardEvent::Acted {
             jump: true,
             outcome: Ok(ActionOutcome::Message(_)),
             ..
         }
     ));
+    assert_eq!(app.unread_count(MEMBER).total, 1);
+    assert!(app.unread.writer.offer().is_none());
     assert_eq!(
-        fs::read(fixture.0.join("ops.toml")).unwrap(),
-        before,
-        "a different focus target cannot inherit the read marker"
+        fs::read_to_string(fixture.0.join("calls")).unwrap(),
+        "focus\nfocus\n"
     );
-    app.view.as_mut().unwrap().me_id = Some("44444444-4444-4444-8444-444444444444".into());
-    let event = lane::run(
-        &fixture.core(),
-        None,
-        lane::Job::Jump {
-            member: MEMBER.into(),
-            seen: Some(seen),
-            publisher: app.unread.writer.clone(),
-        },
-    );
-    let BoardEvent::Acted {
-        jump: true,
-        outcome: Ok(ActionOutcome::JumpRead { markers, .. }),
-        ..
-    } = event
-    else {
-        panic!("expected successful jump");
-    };
-    app.finished_unread(markers);
-    let saved = fixture.config().read_markers().unwrap();
-    assert_eq!(saved.get(ACTOR, MEMBER), 100);
     assert_eq!(
-        saved.get("44444444-4444-4444-8444-444444444444", MEMBER),
-        0,
-        "late completion retains its admitted actor"
+        fs::read_to_string(fixture.0.join("ops.toml")).unwrap(),
+        "# authored preferences\n"
     );
 }
 
@@ -296,7 +208,6 @@ fn unread_projections_require_a_nonempty_page_for_the_current_actor() {
     for target in &targets {
         assert_eq!(app.unread_target(target), Count::default());
     }
-    assert!(app.unread_jump(MEMBER).is_none());
     app.view.as_mut().unwrap().me_id = Some(ACTOR.into());
     assert_eq!(
         app.unread_global().total,
@@ -310,7 +221,6 @@ fn unread_projections_require_a_nonempty_page_for_the_current_actor() {
     for target in &targets {
         assert_eq!(app.unread_target(target), Count::default());
     }
-    assert!(app.unread_jump(MEMBER).is_none());
     let shown = draw(&app);
     assert!(
         shown.contains("● 0 unread"),
@@ -323,7 +233,7 @@ fn unread_projections_require_a_nonempty_page_for_the_current_actor() {
 }
 
 #[test]
-fn unread_sorts_before_waiting_and_preserves_selected_uuid_when_the_marker_clears() {
+fn unread_sorts_before_waiting_and_preserves_selected_uuid_after_core_ack() {
     let mut app = unread_app();
     assert_eq!(
         app.unread_identities(),
@@ -375,9 +285,10 @@ fn unread_sorts_before_waiting_and_preserves_selected_uuid_when_the_marker_clear
         );
         assert_eq!(app.workspace.selected, Some(target.clone()));
     }
-    let mut markers = crate::config::ReadMarkers::default();
-    markers.advance(ACTOR, MEMBER, 100).unwrap();
-    app.finished_unread(Ok(markers));
+    let fixture = Fixture::new();
+    assert!(app.mark_read(MEMBER));
+    let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
+    app.finished_unread(result);
     assert_eq!(app.workspace.selected, Some(target.clone()));
     assert_eq!(app.workspace_rows()[app.selected].target, target);
     assert_eq!(app.unread_count(MEMBER).total, 0);
@@ -387,12 +298,12 @@ fn unread_sorts_before_waiting_and_preserves_selected_uuid_when_the_marker_clear
 }
 
 #[test]
-fn unread_markers_survive_resetting_each_named_layer() {
+fn resetting_named_layers_does_not_change_core_acknowledgment() {
     let fixture = Fixture::new();
-    let seen = unread_app().unread_jump(MEMBER).unwrap();
-    super::super::publish::Writer::default()
-        .publish_seen(&seen, &fixture.core())
-        .unwrap();
+    let mut app = unread_app();
+    app.mark_read(MEMBER);
+    let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
+    app.finished_unread(result);
     for layer in ["default", "popup"] {
         let directory = fixture.0.join(layer);
         fs::create_dir(&directory).unwrap();
@@ -400,11 +311,8 @@ fn unread_markers_survive_resetting_each_named_layer() {
         fs::write(&path, "{}").unwrap();
         let _layer =
             crate::board::view_state::Session::open(path.clone(), false, false, true).unwrap();
-        assert!(!path.exists(), "reset actually removes the per-layer hints");
-        assert_eq!(
-            fixture.config().read_markers().unwrap().get(ACTOR, MEMBER),
-            100
-        );
+        assert!(!path.exists());
+        assert_eq!(app.unread_count(MEMBER).total, 0);
     }
 }
 
@@ -463,116 +371,30 @@ fn unread_squad_maximum_label_is_whole_and_tokens_align_with_the_header() {
 }
 
 #[test]
-fn unread_shutdown_reports_unconsumed_lane_failure_and_drains_only_an_explicit_retry() {
-    let fixture = Fixture::new();
-    let app = unread_app();
-    let writer = app.unread.writer.clone();
-    let seen = app.unread_jump(MEMBER).unwrap();
-    writer.seen(&seen);
-    fs::write(fixture.0.join("ops.toml"), "[broken").unwrap();
-    let (events, _unconsumed) = std::sync::mpsc::channel();
-    let lane = lane::Lane::spawn(fixture.core(), None, events);
-    lane.submit(lane::Job::ReadMarkers(writer.offer().unwrap()));
-    lane.finish();
-    // The UI quit before receiving ReadMarkersPublished. Shutdown still sees it.
-    let before = fs::read_to_string(fixture.0.join("calls")).unwrap();
-    let error = writer.finish(&fixture.core()).unwrap_err();
-    assert_eq!(error.code, "SQUAD_CONFIG_WRITE_FAILED");
-    assert!(
-        error
-            .message
-            .contains("Reopen the conversation or jump to retry")
-    );
-    assert_eq!(
-        fs::read_to_string(fixture.0.join("calls")).unwrap(),
-        before,
-        "failure alone cannot cause an automatic shutdown retry"
-    );
-    assert_eq!(app.unread_count(MEMBER).total, 1);
-    fs::write(fixture.0.join("ops.toml"), "# authored preferences\n").unwrap();
-    assert!(
-        writer.finish(&fixture.core()).is_err(),
-        "repairing the file alone is not a retry"
-    );
-    writer.seen(&seen);
-    writer.finish(&fixture.core()).unwrap();
-    assert!(writer.failure().is_none());
-    assert_eq!(
-        fixture.config().read_markers().unwrap().get(ACTOR, MEMBER),
-        100
-    );
-}
-
-#[test]
-fn unread_popup_paints_a_failed_marker_save_after_successful_focus_instead_of_closing() {
-    use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-    use std::{
-        cell::RefCell,
-        sync::{atomic::AtomicUsize, mpsc::channel},
-    };
+fn shutdown_reports_unconsumed_ack_failure_without_an_automatic_retry() {
     let fixture = Fixture::new();
     let mut app = unread_app();
-    app.popup = true;
-    fs::write(fixture.0.join("ops.toml"), "[broken").unwrap();
-    let event = lane::run(
-        &fixture.core(),
-        None,
-        lane::Job::Jump {
-            member: MEMBER.into(),
-            seen: app.unread_jump(MEMBER),
-            publisher: app.unread.writer.clone(),
-        },
-    );
-    assert!(matches!(
-        &event,
-        BoardEvent::Acted {
-            outcome: Ok(ActionOutcome::JumpRead {
-                markers: Err(_),
-                ..
-            }),
-            ..
-        }
-    ));
-    let pending = RefCell::new(Some(event));
-    let (events, input) = channel();
-    events
-        .send(BoardEvent::Input(Event::Key(KeyEvent::new(
-            KeyCode::Char('j'),
-            KeyModifiers::NONE,
-        ))))
-        .unwrap();
-    let mut notices = Vec::new();
-    let ended = crate::board::tests::session(
-        &mut app,
-        &AtomicUsize::new(0),
-        &input,
-        |_, _, _, _| {},
-        |_, _| {},
-        |_| {},
-        |job| {
-            assert!(matches!(job, lane::Job::Jump { .. }));
-            events.send(pending.borrow_mut().take().unwrap()).unwrap();
-            events.send(BoardEvent::InputClosed).unwrap();
-        },
-        |app| {
-            notices.push(app.notice.clone());
-            Ok(())
-        },
-    )
-    .unwrap();
+    app.mark_read(MEMBER);
+    let writer = app.unread.writer.clone();
+    fs::write(fixture.0.join("fail"), "").unwrap();
+    let (events, _unconsumed) = std::sync::mpsc::channel();
+    let lane = lane::Lane::spawn(fixture.core(), None, events);
+    lane.submit(lane::Job::AcknowledgeAnswers(writer.offer().unwrap()));
+    lane.finish();
+    let before = fs::read_to_string(fixture.0.join("calls")).unwrap();
     assert_eq!(
-        ended,
-        Some(signal_hook::consts::SIGHUP),
-        "only input closure ends this popup"
+        writer.finish(&fixture.core()).unwrap_err().code,
+        "SQUAD_ACK_FAILED"
     );
+    assert_eq!(fs::read_to_string(fixture.0.join("calls")).unwrap(), before);
+    fs::remove_file(fixture.0.join("fail")).unwrap();
     assert!(
-        notices
-            .iter()
-            .flatten()
-            .any(|text| text.contains("Read marker not saved"))
+        writer.finish(&fixture.core()).is_err(),
+        "repair alone is not a retry"
     );
-    assert_eq!(app.unread_count(MEMBER).total, 1);
-    assert!(app.unread.writer.finish(&fixture.core()).is_err());
+    app.mark_read(MEMBER);
+    writer.finish(&fixture.core()).unwrap();
+    assert!(writer.failure().is_none());
 }
 
 #[test]
@@ -597,14 +419,23 @@ fn moving_onto_an_unread_row_never_marks_it_read() {
     assert!(draw(&app).contains("Exact answer"));
     app.unread_drawn();
     assert_eq!(app.unread_count(MEMBER).total, 1, "the count is stable");
-    assert!(app.unread.displayed.is_none(), "nothing is admitted");
+    assert!(app.unread.displayed.is_empty(), "nothing is admitted");
     assert!(app.unread.writer.offer().is_none(), "nothing is queued");
-    assert_eq!(app.unread.writer.confirmed(ACTOR, MEMBER), 0);
     // Only opening the reader reads it.
     press(&mut app, KeyCode::Tab);
     draw(&app);
     app.unread_drawn();
-    assert!(app.unread.writer.offer().is_some());
+    assert!(
+        app.unread.writer.offer().is_some(),
+        "painted={:?}; reply={:?}",
+        app.conversation.borrow().painted_answers,
+        app.conversation_reply().map(|reply| (
+            reply.at_ms,
+            reply.acquired,
+            reply.source,
+            reply.key
+        ))
+    );
 }
 
 /// A direct send answered by a captured turn alone: the member's list holds no final reply.
@@ -615,7 +446,7 @@ fn turn_app(settled: u64) -> App {
         json!({"items":[],"nextBefore":null}),
         json!({"items":[{
             "requestId":"direct", "kind":"request", "sender":{"identityId":ACTOR},
-            "recipientId":MEMBER, "answeredAtMs":settled, "answer":"turn"
+            "recipientId":MEMBER, "answeredAtMs":settled, "answer":"turn", "revision":1,"acknowledged":false
         }],"nextBefore":null}),
     );
     app.overview_rows.borrow_mut().clear();
@@ -635,7 +466,7 @@ fn show_turn(app: &mut App, request: &str, settled: u64) {
             "mode":"passthrough",
             "messageState":{"state":"delivered","reason":{"text":"delivered"}},
             "passthrough":{"state":"answered","boundAtMs":settled - 4_000,"settledAtMs":settled,
-                "answer":{"text":"the turn output","truncated":false,"provider":"claude","endedMs":settled}}
+                "answer":{"text":"the turn output","truncated":false,"provider":"claude","endedMs":settled-1_000}}
         })]),
     );
 }
@@ -673,7 +504,7 @@ fn a_captured_turn_alone_is_unread_and_reading_it_marks_it_read() {
     assert_eq!(app.unread_count(MEMBER).total, 0);
     assert_eq!(
         fixture.config().read_markers().unwrap().get(ACTOR, MEMBER),
-        SETTLED
+        0
     );
 }
 
@@ -702,8 +533,22 @@ fn a_hidden_or_unfocused_turn_marks_nothing_and_a_turn_not_on_the_page_marks_not
     show_turn(&mut other, "elsewhere", SETTLED + 500_000);
     draw(&other);
     other.unread_drawn();
-    assert!(other.unread.writer.offer().is_none());
+    let fixture = Fixture::new();
+    let result = other
+        .unread
+        .writer
+        .offer()
+        .unwrap()
+        .publish(&fixture.core())
+        .unwrap();
+    assert!(result.items.is_empty());
+    other.finished_unread(Ok(result));
     assert_eq!(other.unread_count(MEMBER).total, 1);
+    assert!(
+        !fs::read_to_string(fixture.0.join("calls"))
+            .unwrap()
+            .contains("requests.ack")
+    );
 }
 
 mod mark_read {
@@ -762,7 +607,7 @@ mod mark_read {
         assert_eq!(app.unread_count(MEMBER).total, 0);
         assert_eq!(
             fixture.config().read_markers().unwrap().get(ACTOR, MEMBER),
-            100
+            0
         );
         let buffer = paint(&app);
         assert!(chip(&app).is_none(), "● 0 unread is not a target");
@@ -786,7 +631,7 @@ mod mark_read {
             mouse(MouseEventKind::Down(MouseButton::Left), area),
             std::time::Instant::now(),
         );
-        fs::write(fixture.0.join("ops.toml"), "[broken").unwrap();
+        fs::write(fixture.0.join("fail"), "").unwrap();
         let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
         assert!(result.is_err());
         app.finished_unread(result);
@@ -794,7 +639,7 @@ mod mark_read {
         assert!(
             app.notice
                 .as_deref()
-                .is_some_and(|notice| notice.contains("Read marker not saved"))
+                .is_some_and(|notice| notice.contains("Answers not acknowledged"))
         );
     }
 
@@ -890,4 +735,105 @@ mod mark_read {
                 .all(|entry| entry.label != "Mark read")
         );
     }
+}
+
+#[test]
+fn a_capture_below_the_viewport_is_not_acknowledged() {
+    let mut app = turn_app(SETTLED);
+    press(&mut app, KeyCode::Tab);
+    draw(&app);
+    let owner = app.conversation_finals().unwrap();
+    app.apply_sent(
+        crate::board::home_leads::SentKey { sender: owner.sender, agent: owner.agent },
+        Ok(vec![json!({
+            "requestId":"direct", "preparedAtMs":SETTLED-5000,
+            "text":(0..100).map(|n|format!("outgoing line {n}\n")).collect::<String>(),
+            "truncated":false,"mode":"passthrough",
+            "messageState":{"state":"delivered","reason":{"text":"delivered"}},
+            "passthrough":{"state":"answered","boundAtMs":SETTLED-4000,"settledAtMs":SETTLED,
+                "answer":{"text":"the hidden captured answer","truncated":false,"provider":"claude","endedMs":SETTLED}}
+        })]),
+    );
+    draw(&app);
+    press(&mut app, KeyCode::Home);
+    let frame = draw(&app);
+    assert!(frame.contains("outgoing line"));
+    assert!(!frame.contains("the hidden captured answer"));
+    app.unread_drawn();
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "an offscreen capture was not read"
+    );
+}
+
+#[test]
+fn clipped_exchange_header_is_not_read_but_one_visible_wrapped_body_row_is() {
+    use crate::board::app::RowTarget;
+    use crate::board::conversation::{exchange, source};
+    use ratatui::layout::Rect;
+    for width in [80, 150] {
+        let mut app = unread_app();
+        press(&mut app, KeyCode::Tab);
+        draw(&app);
+        let key = app.detail_read().unwrap();
+        app.apply_message(&key, Ok("one long answer ".repeat(100)));
+        draw(&app);
+        app.scroll_pane(Pane::Replies, crate::board::scroll::Step::Top);
+        let target = RowTarget::Workspace(app.workspace.selected.clone().unwrap());
+        let surface = exchange::Surface {
+            target,
+            interactive: true,
+        };
+        let mut terminal = Terminal::new(TestBackend::new(width, 3)).unwrap();
+        terminal
+            .draw(|frame| {
+                source::begin_frame(&app);
+                exchange::render(frame, &app, Rect::new(0, 0, width, 1), &surface);
+            })
+            .unwrap();
+        app.unread_drawn();
+        assert!(
+            app.unread.writer.offer().is_none(),
+            "a header alone is not an answer, width={width}"
+        );
+        terminal
+            .draw(|frame| {
+                source::begin_frame(&app);
+                exchange::render(frame, &app, Rect::new(0, 0, width, 3), &surface);
+            })
+            .unwrap();
+        let painted = app.conversation.borrow().painted_answers.clone();
+        assert_eq!(
+            painted.len(),
+            1,
+            "one clipped body row suffices, width={width}"
+        );
+        assert_eq!(painted[0].request, "answer");
+        assert_eq!(painted[0].revision, Some(1));
+        app.unread_drawn();
+        assert!(app.unread.writer.offer().is_some());
+    }
+}
+
+#[test]
+fn actor_change_and_invalidated_or_failed_draw_cannot_publish_old_frame_evidence() {
+    let mut app = unread_app();
+    press(&mut app, KeyCode::Tab);
+    draw(&app);
+    let key = app.detail_read().unwrap();
+    app.apply_message(&key, Ok("Exact answer".into()));
+    draw(&app);
+    assert!(!app.conversation.borrow().painted_answers.is_empty());
+    // A failed draw never calls unread_drawn; invalidating geometry also retires its proof.
+    assert!(app.unread.writer.offer().is_none());
+    app.conversation.borrow_mut().invalidate_source_geometry();
+    app.unread_drawn();
+    assert!(app.unread.writer.offer().is_none());
+    draw(&app);
+    app.view.as_mut().unwrap().me_id = Some("44444444-4444-4444-8444-444444444444".into());
+    app.unread_drawn();
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "a frame is bound to its actor"
+    );
 }

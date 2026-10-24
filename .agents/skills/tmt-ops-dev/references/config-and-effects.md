@@ -55,20 +55,22 @@ and reveals Core's current template. Core stores none of these overrides. The
 [public host template contract](../../../../contracts/driver-protocol-v1.md#launch-templates)
 owns slot syntax and bounds; display/copy and execution use the same frozen argv.
 
-Shared unread markers live in `[workspace.read_markers.<actor-uuid>]`, keyed by
-member UUID with a positive safe-integer submission timestamp. `config::unread`
-validates canonical UUID pairs and max-merges updates into a freshly read document
-under the same document lock. Separate layouts cannot regress or erase one another's
-markers or unrelated authored settings. The field is separate from `OpsPreferences`,
-so a quiet read update cannot invalidate a panel/pin preference comparison. It is
-shared Config data, never a named-layer ViewState hint; reset-view and exec reload
-leave it intact. The existing ordered action lane owns these writes and their
-visible failure/retry outcome. Failed saves remain pending without an automatic
-retry; quitting or exec reload reports an unresolved save after restoring the
-terminal, even if its lane event was not consumed. A popup stays open after a
-successful jump whose marker save failed. Fresh shared Config observations also
-resolve a pending failure when another layout already saved that exact watermark.
-No Core acknowledgment is changed.
+Core owns unread attention revisions. The ordered acknowledgment lane sends only
+`requests.ack` pairs admitted by painted answer bodies or explicit Mark read; no
+normal read writes an Ops watermark. Failures retain unread evidence and retry only
+on a new explicit admission, never a paint loop. Shutdown joins the lane and reports
+unresolved acknowledgment failures after restoring the terminal.
+
+Legacy `[workspace.read_markers.<actor-uuid>]` values are migration input only.
+`config::unread` validates canonical actor/member UUIDs and safe positive cutoffs.
+The same acknowledgment lane walks the originator's public answers in bounded pages:
+cutoff compares answeredAtMs; conservative by construction. This uses final submission
+or captured settle time, with no per-item show calls. Newer answers and conversations
+without a cutoff stay unread. Only after every eligible item settles does the Config
+owner remove exact held cutoffs under its fresh document lock. Concurrently advanced
+cutoffs, other actors and authored preferences survive. A crash before removal repeats
+idempotently; a failed or conflicting migration keeps the cutoffs and is retried on
+board restart. No separate migration flag or history cache is stored.
 
 ## Ops path migration
 

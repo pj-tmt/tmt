@@ -209,26 +209,30 @@ UUID/revision/cancellation fences reject obsolete reads, and the shared viewport
 keeps long captures scrollable without displacing the composer. The flat Agents list keeps its
 question-only presentation and does not acquire or paint these captures.
 
-Unread markers are separate from Core acknowledgments. After a successful draw,
-App admits only the exact actor/member/request submission of an acquired displayed
-reply, or the answered turn of a send the answers page lists, in the Agents conversation
-while the reader holds focus; moving the list
-selection onto a row never reads it, and leaving the reader makes the next opening
-a fresh one. Loading, hidden, modal-covered or paused newer text cannot mark
-unseen output. A guarded `j` seals the actor/member and newest observed
-submission before leaving the UI; only successful focus publishes that marker.
-The existing ordered lane max-merges shared Config markers. Quiet coalesced writes
-own no action-progress overlay; visible unread clears only after successful
-publication. A failure retains unread evidence and pending updates for an explicit
-reopen/j retry, without an automatic retry loop. The composer info line's
-`● N unread` is also a target: a left click, the catalog action `mark-read` (no
-default key; the member menu lists it while something is unread, and it is
-bindable) or the menu entry seals the newest answer of the painted or selected
-recipient from the held answers page, without focusing the composer, and takes
-the same lane and failure path. `● 0 unread` is no target; paint and hover do no
-I/O. Shutdown drains admitted writes
-after restoring the terminal. Shared markers survive restart, named-view changes,
-reset-view and exec reload. Pane captures never supply request read watermarks.
+Core acknowledgment is the only unread projection. After a successful draw, the
+conversation owner admits exact body rows inside the clipped viewport: final or
+captured answer, actor/member/request, public submission or settle timestamp and
+held attention revision. Both conversation painters reuse that provenance helper.
+Headings, separators, live screens and provider pane output grant no acknowledgment.
+Loading, hidden, modal-covered, unfocused or failed draws admit nothing; moving the
+list selection or jumping with `j` does not mark unseen answers read.
+
+The existing ordered action lane batches 1–50 distinct request/revision pairs through
+public `requests.ack`, with at most one batch in flight until its result is adopted.
+Acknowledged/already settle the exact revision; notFound settles without retry;
+conflict adopts current and keeps it unread until fresh body evidence exists. A late
+page cannot regress a held revision or its successful acknowledgment. Failures never
+claim read and do not cause an automatic retry. Reopening the reader or explicit
+Mark read supplies a new admission. Failed work does not block other conversations.
+
+The composer info line's `● N unread`, catalog action `mark-read` and member menu
+explicitly acknowledge the selected conversation's unread answers without focusing
+the composer. `● 0 unread` is not a target. Counts use one bounded summary page;
+explicit Mark read and a visible older body resolve further metadata in bounded public
+pages, yielding between lane steps, without a history cache or per-item show calls.
+Paint and hover do no I/O. Shutdown joins the lane before draining admitted writes and
+reporting unresolved failures. Legacy-cutoff consumption belongs to
+[the Config owner](config-and-effects.md), never a second unread authority.
 
 Agents focus titles its currently actor-only history `Exchanges with you`; an
 all-party title waits for #3217's read contract. It creates no other-pair rows or

@@ -94,10 +94,11 @@ to 50 with no continuation fetch just to count; it is read by the same Leads job
 reads the results page, which still feeds the reply list. A request is one item, so a
 final and a turn never count twice. Request IDs deduplicate repeated room evidence;
 squad/global counts deduplicate member UUIDs. Only the originator page supplies this
-count, never blended recipient histories or pane output. Optional failed/malformed reads retain the previous page for the same
-actor; actor changes discard it. A member's count is `N+ unread` only when
-`nextBefore` is present and that pair's marker precedes the page's oldest
-`answeredAtMs`. Aggregate `+` is the OR of eligible members' partial flags;
+count, never blended recipient histories or pane output. Core's `acknowledged: false`
+counts as unread for either answer kind, bound to its positive safe `revision`.
+Optional failed/malformed reads retain the previous page for the same actor; actor
+changes discard it. A member's count is `N+ unread` when `nextBefore` is present.
+Aggregate `+` is the OR of eligible members' partial flags;
 observed zero renders no unread state, even when older replies are possible.
 
 StateCell supplies `● N unread` in place of the glyph and activity words
@@ -112,11 +113,11 @@ whole labels or its existing overflow mark. A visible unread squad reserves a
 the shared header and TOK/NOW columns move together. With no visible unread
 squad, the existing ten-cell TEAM column remains. Unread members sort first in the flat list
 and within Agents tree sibling groups without rewriting raw state or waiting
-permission. Marker/page updates invalidate the existing row cache and reconcile
+permission. Acknowledgment/page updates invalidate the existing row cache and reconcile
 the retained selected UUID. TopBar sums the global workspace independently of
 scope, hiding and the active tab, beside its waiting count. At narrow widths the
 partial `≥` counts take precedence over the redundant totals-unknown suffix and
-named layer caption. Conversation admission and shared marker publication belong
+named layer caption. Conversation admission and acknowledgment publication belong
 to [the reply owner](board-notebooks.md#replies-and-verification).
 
 Member CRUD uses the existing frozen `workspace::manage` review and ordered
