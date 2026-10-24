@@ -433,7 +433,9 @@ own module/drawing boundaries and verification.
 - **Checklist.** `checklist_command` uses the existing caller/room admission and
   versioned room-UUID JSON in `ops.db`. Reads create no files;
   failed prepublication preserves bytes; uncertainty remains Unknown after
-  readback. The board consumes the same typed service.
+  readback. The board consumes the same typed service. Conversation Notes records
+  descriptive message provenance in the existing item body; its render metadata
+  grants no request authority and introduces no schema or store.
 - **Contracts.** The [embedded skill](extensions/tmt-ops/skills/tmt-ops/SKILL.md)
   owns `sq ls`, `config`, `checklist` and `cron` JSON; native `ops.test.ts` verifies
   them. Row JSON changes update that skill and its native regression in the same

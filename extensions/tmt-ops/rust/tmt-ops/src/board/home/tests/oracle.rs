@@ -828,6 +828,23 @@ fn captures() -> Value {
                 }
             }
         }
+        // Add to Notes shares the existing draft and keeps its held source visible.
+        for (look_name, look) in looks() {
+            for scene in crate::board::conversation_notes::tests::overlay::ADD_SCENES {
+                for width in [160, 100, 80, 60] {
+                    let app =
+                        crate::board::conversation_notes::tests::overlay::add_case(scene, look);
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        width,
+                        36,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
         // The Notes list overlay: additive scenes.
         for (look_name, look) in looks() {
             for scene in crate::board::conversation_notes::tests::overlay::LIST_SCENES {

@@ -1,5 +1,5 @@
 //! The Selection menu: a small bordered box with one action per line (`q› Quote`,
-//! `y  Copy`) and a dim `Esc clears` line, opened directly below the end of a selection
+//! `y  Copy`, `n  Add to Notes`) and a dim `Esc clears` line, opened directly below the end of a selection
 //! so it is clear which text it acts on.
 use crate::board::app::App;
 use ratatui::{
@@ -15,14 +15,18 @@ use unicode_width::UnicodeWidthStr;
 const TITLE: &str = "Selection";
 const HINT: &str = "Esc clears";
 /// Each entry is its key cell, then its word; the key cell marks the Enter default with `›`.
-const ENTRIES: [(Entry, &str, &str); 2] =
-    [(Entry::Quote, "q›", "Quote"), (Entry::Copy, "y ", "Copy")];
+const ENTRIES: [(Entry, &str, &str); 3] = [
+    (Entry::Quote, "q›", "Quote"),
+    (Entry::Copy, "y ", "Copy"),
+    (Entry::Note, "n ", "Add to Notes"),
+];
 
 /// What a menu entry does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Entry {
     Quote,
     Copy,
+    Note,
 }
 
 /// The painted box and its entry lines of the last frame, for hit testing.
@@ -31,6 +35,7 @@ pub(in crate::board::conversation) struct Menu {
     pub(super) bounds: Rect,
     pub(super) quote: Rect,
     pub(super) copy: Rect,
+    pub(super) note: Rect,
 }
 
 impl Menu {
@@ -43,6 +48,8 @@ impl Menu {
             Some(Entry::Quote)
         } else if self.copy.contains(point) {
             Some(Entry::Copy)
+        } else if self.note.contains(point) {
+            Some(Entry::Note)
         } else {
             None
         }
@@ -120,8 +127,9 @@ pub(super) fn paint(
         bounds.width - 2,
         bounds.height - 2,
     );
+    let can_note = app.conversation_notes_key().is_some() && !app.loading();
     let mut lines = Vec::new();
-    for (index, (_, key, word)) in ENTRIES.iter().enumerate() {
+    for (index, (entry, key, word)) in ENTRIES.iter().enumerate() {
         let line = Rect::new(inner.x, inner.y + index as u16, inner.width, 1);
         // The chip pads its label by a cell on each side, so the hover fills the line.
         let text = format!(
@@ -133,7 +141,9 @@ pub(super) fn paint(
             app,
             frame.buffer_mut(),
             line,
-            &[crate::board::buttons::Button::secondary(&text).idle(Style::default())],
+            &[crate::board::buttons::Button::secondary(&text)
+                .enabled(*entry != Entry::Note || can_note)
+                .idle(Style::default())],
             Align::Left,
             None,
         );
@@ -153,6 +163,7 @@ pub(super) fn paint(
         bounds,
         quote: lines[0],
         copy: lines[1],
+        note: if can_note { lines[2] } else { Rect::default() },
     })
 }
 
@@ -169,7 +180,7 @@ mod tests {
 
     #[test]
     fn the_box_is_as_wide_as_its_widest_line_and_holds_every_entry() {
-        assert_eq!((width(), height()), (14, 5));
+        assert_eq!((width(), height()), (19, 6));
         assert!(TITLE.width() as u16 + 4 <= width());
     }
 
@@ -177,7 +188,7 @@ mod tests {
     fn the_menu_opens_below_the_selection_end() {
         let menu = at((30, 8), 8);
         assert_eq!((menu.x, menu.y), (30, 9));
-        assert_eq!((menu.width, menu.height), (14, 5));
+        assert_eq!((menu.width, menu.height), (19, 6));
     }
 
     #[test]
@@ -201,7 +212,7 @@ mod tests {
     fn a_pane_without_room_falls_back_to_the_frame_and_then_to_no_menu() {
         let short = Rect::new(10, 5, 60, 6);
         let menu = place(short, FRAME, (30, 8), 8).unwrap();
-        assert_eq!((menu.y, menu.bottom()), (9, 14), "below, over the frame");
+        assert_eq!((menu.y, menu.bottom()), (9, 15), "below, over the frame");
         let tiny = Rect::new(0, 0, 60, 6);
         let menu = place(tiny, tiny, (30, 3), 3);
         assert_eq!(menu, None);

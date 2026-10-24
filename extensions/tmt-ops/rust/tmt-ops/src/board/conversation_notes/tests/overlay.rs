@@ -214,6 +214,7 @@ fn a_adds_a_todo_or_a_link_and_the_cursor_follows_the_new_item() {
     assert_eq!(
         write,
         Write::Add {
+            body: None,
             title: "write the plan".into(),
             reference: None,
             inventory: Some(1)
@@ -240,6 +241,7 @@ fn a_adds_a_todo_or_a_link_and_the_cursor_follows_the_new_item() {
     assert_eq!(
         write,
         Write::Add {
+            body: None,
             title: "https://example.com/pr".into(),
             reference: Some("https://example.com/pr".into()),
             inventory: Some(1)
@@ -259,6 +261,7 @@ fn a_link_in_the_second_field_titles_by_the_note() {
     assert_eq!(
         write,
         Write::Add {
+            body: None,
             title: "design review".into(),
             reference: Some("https://example.com/d".into()),
             inventory: Some(1)
@@ -574,4 +577,291 @@ fn the_counter_counts_items_not_headings_and_an_empty_list_has_none() {
         !screen.contains("–1 of 1") && !screen.contains("of 0"),
         "no counter on an empty list\n{screen}"
     );
+}
+
+fn note_seed(app: &App, kind: NoteKind) -> Seed {
+    Seed {
+        key: app.conversation_notes_key().unwrap(),
+        actor: app.view.as_ref().and_then(|view| view.me_id.clone()),
+        kind,
+        title: "review_the_build".into(),
+        reference: "https://example.com/review_the_build?ref=chat#jobs".into(),
+        source: crate::board::conversation::note_source::Source::Message {
+            author: "worker".into(),
+            kind: "final",
+            at_ms: Some(1_000),
+            reference: "request aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".into(),
+        },
+    }
+}
+
+#[test]
+fn add_to_notes_prefills_an_editable_link_and_freezes_the_source_in_the_write() {
+    let (mut app, key) = read_with(vec![]);
+    let seed = note_seed(&app, NoteKind::Link);
+    let body = seed.source.body();
+    app.add_to_notes(seed);
+    let screen = paint(&app);
+    assert!(screen.contains("Add to Notes · worker"), "{screen}");
+    assert!(screen.contains("Kind    Todo  ‹ Link ›"), "{screen}");
+    assert!(screen.contains("Title › review_the_build▏"), "{screen}");
+    assert!(screen.contains("From   worker · final"), "{screen}");
+    assert!(
+        !screen.contains("No notes yet"),
+        "the add form contains no list"
+    );
+    type_text(&mut app, " today");
+    let (_, write) = write_of(press(&mut app, KeyCode::Enter));
+    assert_eq!(
+        write,
+        Write::Add {
+            title: "review_the_build today".into(),
+            reference: Some("https://example.com/review_the_build?ref=chat#jobs".into()),
+            body: Some(body),
+            inventory: Some(1),
+        }
+    );
+    assert!(app.notes.draft(&key).unwrap().sent());
+    assert_eq!(
+        press(&mut app, KeyCode::Enter),
+        Effect::None,
+        "saving cannot duplicate the write"
+    );
+}
+
+#[test]
+fn the_explicit_todo_kind_does_not_infer_a_link_from_its_title() {
+    let (mut app, key) = read_with(vec![]);
+    let mut seed = note_seed(&app, NoteKind::Todo);
+    seed.title = "https://example.com/todo".into();
+    seed.reference.clear();
+    app.add_to_notes(seed);
+    assert!(
+        app.notes
+            .draft(&key)
+            .unwrap()
+            .content()
+            .unwrap()
+            .reference
+            .is_none()
+    );
+    press_with(&mut app, KeyCode::BackTab, KeyModifiers::SHIFT);
+    press(&mut app, KeyCode::Right);
+    assert_eq!(
+        app.notes.draft(&key).unwrap().seed.as_ref().unwrap().kind,
+        NoteKind::Link
+    );
+    assert_eq!(
+        press(&mut app, KeyCode::Enter),
+        Effect::None,
+        "a Link requires its Link field"
+    );
+    assert!(paint(&app).contains("Type a link first"));
+    press(&mut app, KeyCode::Tab);
+    press(&mut app, KeyCode::Tab);
+    type_text(&mut app, "https://example.com/full?q=1");
+    let (_, write) = write_of(press(&mut app, KeyCode::Enter));
+    assert!(
+        matches!(write, Write::Add { reference: Some(url), .. } if url == "https://example.com/full?q=1")
+    );
+}
+
+#[test]
+fn existing_drafts_are_preserved_and_esc_keeps_a_prefilled_source() {
+    let (mut app, key) = read_with(vec![]);
+    let first = note_seed(&app, NoteKind::Todo);
+    let mut next = first.clone();
+    next.title = "another message".into();
+    app.add_to_notes(first.clone());
+    press(&mut app, KeyCode::Esc);
+    assert!(app.notes_overlay.is_none());
+    app.add_to_notes(next);
+    assert_eq!(app.notes.draft(&key).unwrap().text(0), first.title);
+    assert_eq!(app.notes.draft(&key).unwrap().seed.as_ref(), Some(&first));
+    assert!(paint(&app).contains("Your existing Notes draft is kept"));
+}
+
+#[test]
+fn loading_and_a_replaced_conversation_never_submit_a_seed_to_another_member() {
+    let (mut app, key) = read_with(vec![]);
+    let seed = note_seed(&app, NoteKind::Todo);
+    app.add_to_notes(seed.clone());
+    app.select(0);
+    assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+    assert!(!app.notes.draft(&key).unwrap().sent());
+    assert!(paint(&app).contains("The conversation changed"));
+
+    let (mut app, _) = read_with(vec![]);
+    let seed = note_seed(&app, NoteKind::Todo);
+    app.notes = State::reading();
+    app.add_to_notes(seed.clone());
+    assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+    assert!(paint(&app).contains("The Notes have not been read yet"));
+    assert!(!app.notes.draft(&seed.key).unwrap().sent());
+}
+
+#[test]
+fn notes_writes_persist_the_exact_source_body_and_url_across_a_fresh_service_read() {
+    use crate::checklist::test_support::{Fixture, ROOM, WORKER};
+    let fixture = Fixture::new();
+    let key = Key {
+        room: ROOM.into(),
+        member: WORKER.into(),
+    };
+    let source = crate::board::conversation::note_source::Source::Message {
+        author: "Worker".into(),
+        kind: "final",
+        at_ms: Some(1_000),
+        reference: "request aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".into(),
+    };
+    let body = source.body();
+    assert_eq!(
+        body,
+        "Source: Worker · final · request aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa · 1970-01-01T00:00:01Z"
+    );
+    let url = "https://example.com/a_b?q=one%20two#frag";
+    let result = super::super::work::complete(
+        &fixture.core,
+        Task {
+            key,
+            epoch: 0,
+            work: Work::Write(Write::Add {
+                title: "Review a_b".into(),
+                body: Some(body.clone()),
+                reference: Some(url.into()),
+                inventory: None,
+            }),
+        },
+    );
+    assert!(
+        matches!(result.outcome, Outcome::Write(Ok(_))),
+        "{result:?}"
+    );
+    let literal = fixture.conversation_literal(WORKER);
+    assert_eq!(literal["items"][0]["body"], body);
+    assert_eq!(literal["items"][0]["reference"], url);
+    let current = fixture.conversation(WORKER).preview().unwrap().current;
+    assert_eq!(current.items.len(), 1);
+    assert_eq!(
+        current.items[0].item.content.body.as_deref(),
+        Some(body.as_str())
+    );
+    assert_eq!(
+        current.items[0].item.content.reference.as_deref(),
+        Some(url)
+    );
+}
+
+pub(in crate::board) const ADD_SCENES: &[&str] = &[
+    "notes-add-link",
+    "notes-add-todo",
+    "notes-add-mixed",
+    "notes-add-unavailable",
+    "notes-add-conflict",
+];
+
+pub(in crate::board) fn add_case(scene: &str, look: crate::look::Look) -> App {
+    use crate::board::conversation::note_source::Source;
+    let (mut app, _) = read_with(vec![]);
+    app.view.as_mut().unwrap().look = look;
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .squad_looks
+        .clear();
+    let mut seed = note_seed(
+        &app,
+        if scene == "notes-add-link" {
+            NoteKind::Link
+        } else {
+            NoteKind::Todo
+        },
+    );
+    if let Source::Message { at_ms, .. } = &mut seed.source {
+        *at_ms = Some(crate::status::now_ms() - 150_000);
+    }
+    if scene != "notes-add-link" {
+        seed.title = "Rerun P02 on the final head in a quiet window".into();
+        seed.reference.clear();
+    }
+    match scene {
+        "notes-add-mixed" => seed.source = Source::Mixed,
+        "notes-add-unavailable" => seed.source = Source::Unavailable,
+        _ => {}
+    }
+    // The form comes from the reader; its background holds the same synthetic message
+    // the Source line names, rather than an unrelated empty conversation.
+    app.focus = 1;
+    app.view.as_mut().unwrap().replies = vec![serde_json::json!({
+        "recipientId": crate::board::app::workspace::tests::MEMBER,
+        "requestId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "submittedAtMs": crate::status::now_ms() - 150_000,
+        "response": "Read [review_the_build](https://example.com/review_the_build?ref=chat#jobs) before shipping.\nRerun P02 on the final head in a quiet window.",
+    })];
+    app.add_to_notes(seed);
+    if scene == "notes-add-conflict" {
+        let (task, _) = write_of(press(&mut app, KeyCode::Enter));
+        refused(
+            &mut app,
+            &task,
+            Error {
+                code: Code::Conflict,
+                message: "Changed elsewhere".into(),
+                current: Some(Box::new(preview(vec![]).current)),
+            },
+        );
+    }
+    app
+}
+
+#[test]
+fn add_forms_show_their_kind_and_source_at_every_width_and_keep_low_height_maps_inert() {
+    for look in crate::board::picker_surface::evidence::looks() {
+        for width in [160, 100, 80, 60] {
+            for height in [36, 8] {
+                for scene in ADD_SCENES {
+                    let app = add_case(scene, look);
+                    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                    terminal
+                        .draw(|frame| crate::board::view::render(frame, &app))
+                        .unwrap();
+                    let buffer = terminal.backend().buffer();
+                    let text = buffer
+                        .content
+                        .iter()
+                        .map(|cell| cell.symbol())
+                        .collect::<String>();
+                    if height == 36 {
+                        assert!(
+                            text.contains("Add to Notes"),
+                            "{scene} {look:?} {width}: {text}"
+                        );
+                        assert!(text.contains("Kind "), "{scene} {look:?} {width}: {text}");
+                        assert!(text.contains("From "), "{scene} {look:?} {width}: {text}");
+                        assert!(!text.contains("No notes yet"), "the add form has no list");
+                    }
+                    let frame = app.notes_overlay.as_ref().unwrap().ui.borrow();
+                    assert!(
+                        frame.frame.as_ref().unwrap().list.is_none(),
+                        "no hidden list row can act: {scene} {width}x{height}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn an_oversize_prefill_is_refused_without_truncating_a_selection_into_a_different_note() {
+    let (mut app, key) = read_with(vec![]);
+    let mut seed = note_seed(&app, NoteKind::Todo);
+    // Three-byte characters exercise the byte bound without splitting UTF-8.
+    seed.title = "界".repeat(1_400);
+    app.add_to_notes(seed);
+    assert!(app.notes.draft(&key).is_none());
+    assert!(app.notes_overlay.is_none());
 }

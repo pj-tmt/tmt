@@ -32,6 +32,7 @@ pub(super) struct Context {
     pub final_ages: Vec<String>,
     pub sent_ages: Vec<String>,
     pub reader: String,
+    pub member: String,
 }
 
 impl State {
@@ -204,6 +205,7 @@ impl Session {
                 .and_then(|view| view.me.clone())
                 .unwrap_or_else(|| "you".into()),
             exchanges: self.exchanges(app, agent),
+            member: id.into(),
         };
         if self.transcript_context != context {
             self.transcript_context = context;
@@ -293,6 +295,7 @@ impl Session {
         look: Look,
         inventory: &super::super::inventory::Inventory,
     ) -> RenderedTranscript {
+        let original_notes = self.original_note_sources();
         let Context {
             enabled,
             name,
@@ -302,6 +305,7 @@ impl Session {
             final_ages,
             sent_ages,
             reader,
+            member: _,
         } = &self.transcript_context;
         let sends: Vec<_> = self.restored_sends().collect();
         if self.finals.is_empty()
@@ -314,12 +318,14 @@ impl Session {
                         || !self.outgoing.is_empty()))
         {
             let copy = self.copy_of_text(&mapped);
+            let note_sources = original_notes.project(mapped.sources.iter().copied());
             return RenderedTranscript {
                 mapped,
                 anchor_text: self.text.clone(),
                 response_sources: None,
                 final_spans: Vec::new(),
                 copy,
+                note_sources,
             };
         }
         let mut starts = vec![0];
@@ -392,6 +398,11 @@ impl Session {
             Observation::Observed(items) if *enabled => items.as_slice(),
             _ => &[],
         };
+        let note_sources = std::cell::RefCell::new(super::note_source::Map::default());
+        let unavailable = note_sources
+            .borrow_mut()
+            .add(super::note_source::Source::Unavailable);
+        let next_note = std::cell::Cell::new(unavailable);
         let mut lines = Vec::new();
         let mut sources = Vec::new();
         let mut mentions = Vec::new();
@@ -413,6 +424,7 @@ impl Session {
                           links: Vec<super::super::member_links::Link>,
                           source: Option<usize>| {
             let index = lines.len();
+            note_sources.borrow_mut().row(index, next_note.get());
             if index > 0 {
                 anchor_text.push('\n');
             }
@@ -501,6 +513,9 @@ impl Session {
                 Source::Exchange(block) => {
                     if let super::history::Block::Sent(index) = messages[block].1 {
                         let send = sends[index];
+                        next_note.set(note_sources.borrow_mut().add(
+                            super::note_source::Source::request(reader, &send.request, send.at_ms),
+                        ));
                         let place = &places[index];
                         if place.header() {
                             let header = append(
@@ -579,20 +594,31 @@ impl Session {
                             }
                         }
                         // A lone send keeps its own answer; a block's answer follows its last send.
-                        let own = send.capture.as_ref().filter(|capture| {
-                            place.role == super::answer_order::Role::Single
-                                && (send.message_state_label.is_none()
-                                    || !matches!(
-                                        capture,
-                                        super::super::row_detail::Capture::Pending
-                                            | super::super::row_detail::Capture::Bound
-                                    ))
+                        let own = send
+                            .capture
+                            .as_ref()
+                            .filter(|capture| {
+                                place.role == super::answer_order::Role::Single
+                                    && (send.message_state_label.is_none()
+                                        || !matches!(
+                                            capture,
+                                            super::super::row_detail::Capture::Pending
+                                                | super::super::row_detail::Capture::Bound
+                                        ))
+                            })
+                            .map(|capture| (send.request.as_str(), capture));
+                        let held = place.answers.iter().filter_map(|answered| {
+                            let send = sends[*answered];
+                            Some((send.request.as_str(), send.capture.as_ref()?))
                         });
-                        let held = place
-                            .answers
-                            .iter()
-                            .filter_map(|answered| sends[*answered].capture.as_ref());
-                        for capture in own.into_iter().chain(held) {
+                        for (request, capture) in own.into_iter().chain(held) {
+                            next_note.set(
+                                note_sources
+                                    .borrow_mut()
+                                    .add(super::note_source::Source::capture(
+                                        name, request, capture,
+                                    )),
+                            );
                             let content = markdown::render_output_with_members(
                                 &capture.markdown(),
                                 width.saturating_sub(3).max(1),
@@ -620,6 +646,11 @@ impl Session {
                     }
                     if let super::history::Block::Final(index) = messages[block].1 {
                         let reply = &self.finals[index];
+                        next_note.set(
+                            note_sources
+                                .borrow_mut()
+                                .add(super::note_source::Source::reply(reply)),
+                        );
                         let header = append(
                             super::super::exchange_view::header(
                                 super::super::exchange_view::Sender::Agent(&reply.from),
@@ -693,6 +724,11 @@ impl Session {
                         .rposition(|index| mapped.lines[*index].width() > 0)
                         .map_or(first, |index| index + 1);
                     for &index in &rows[first..end] {
+                        next_note.set(
+                            note_sources
+                                .borrow_mut()
+                                .import(&original_notes, mapped.sources[index]),
+                        );
                         next_copy.replace(Some(super::copy::Row::new(
                             (mapped.lines[index].width() > 0
                                 && !self.authored_lines.contains_key(&mapped.sources[index]))
@@ -712,6 +748,19 @@ impl Session {
                 }
                 Source::Pane(index) => {
                     let item = &items[index];
+                    next_note.set(note_sources.borrow_mut().add(
+                        super::note_source::Source::Message {
+                            author: name.clone(),
+                            kind: "pane output",
+                            at_ms: Some(item.ended_ms),
+                            reference: format!(
+                                "member {} · provider {} · observation {}",
+                                self.transcript_context.member,
+                                item.provider,
+                                index + 1
+                            ),
+                        },
+                    ));
                     let stamp = output_ages.get(index).map_or("—", String::as_str);
                     append(
                         Line::styled(
@@ -757,10 +806,12 @@ impl Session {
                 Exchanges::Pending { loading: true } => Some("Loading exchanges…"),
             };
             if let Some(note) = note {
+                next_note.set(unavailable);
                 append(Line::styled(note, look.role(Role::Muted)), vec![], None);
             }
         }
         if matches!(self.pane_output, Observation::Unavailable) {
+            next_note.set(unavailable);
             append(
                 Line::styled("Recent pane output unavailable", look.role(Role::Muted)),
                 vec![],
@@ -782,6 +833,7 @@ impl Session {
             anchor_text,
             response_sources: Some(original),
             final_spans,
+            note_sources: note_sources.into_inner(),
             copy: super::copy::Map {
                 messages: copy_messages,
                 rows: copy_rows,
@@ -821,4 +873,5 @@ pub(super) struct RenderedTranscript {
     pub response_sources: Option<Vec<Option<usize>>>,
     pub final_spans: Vec<(std::ops::Range<usize>, usize)>,
     pub copy: super::copy::Map,
+    pub note_sources: super::note_source::Map,
 }

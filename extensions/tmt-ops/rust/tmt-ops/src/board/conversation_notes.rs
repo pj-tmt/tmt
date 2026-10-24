@@ -15,7 +15,7 @@ mod rows;
 mod surface;
 mod work;
 
-pub(in crate::board) use draft::Draft;
+pub(in crate::board) use draft::{Draft, NoteKind, Seed};
 pub(in crate::board) use work::{Write, complete};
 
 /// How long a read stays current while its conversation is on screen: an agent can edit the

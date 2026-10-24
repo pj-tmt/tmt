@@ -559,6 +559,14 @@ between the note and its link), `e` edits, `d` deletes after Enter confirms, `Sh
 moves an item among its group and Esc closes the list, keeping a form you have not sent.
 A change someone else made first is reported in one line and your words stay in the form.
 A retired member's list reads but takes no writes.
+The conversation Link popover and Selection menu also offer `n Add to Notes`.
+A link starts as Link with its full address and an editable last-segment title;
+a selection starts as Todo with its selected text. Tab chooses Kind, Title or Link;
+Left/Right on Kind switches Todo/Link, Enter saves and Esc keeps the draft. From
+shows the held message's author, kind and time; the item's body keeps its Source
+reference. Multiple or missing message sources say so. Existing unsent Notes drafts
+are preserved, and these source descriptions grant no request or navigation authority.
+
 `r` reviews Rename for
 the selected visible agent by UUID; compatible explicit bindings keep their meaning.
 Outside an editor or modal, `w` opens saved workspace snapshots on every tab;
