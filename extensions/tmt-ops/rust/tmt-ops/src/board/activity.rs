@@ -274,6 +274,23 @@ mod tests {
     }
 
     #[test]
+    fn waiting_requests_do_not_replace_the_observed_activity() {
+        for (phase, state) in [
+            (Phase::Working, "working"),
+            (Phase::Idle, "idle"),
+            (Phase::Ended, "ended"),
+            (Phase::Unknown, "unknown"),
+        ] {
+            let observed = Member {
+                waiting: true,
+                ..member(phase, Some(NOW - 60_000), Some(NOW - 30_000), None)
+            };
+            assert_eq!(observed.label(false, NOW).state, state);
+            assert_eq!(observed.label(true, NOW).state, "stale");
+        }
+    }
+
+    #[test]
     fn labels_put_core_activity_first_and_the_task_second() {
         let working = member(
             Phase::Working,

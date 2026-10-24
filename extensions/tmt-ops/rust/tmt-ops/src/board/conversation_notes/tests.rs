@@ -345,6 +345,19 @@ mod header {
     }
 
     #[test]
+    fn todo_counts_reach_the_global_header_and_member_state_together() {
+        let mut app = board();
+        let key = select_member(&mut app);
+        answer(&mut app, &key, Ok(Counts { links: 3, todo: 2, done: 1 }));
+        let text = screen(&app);
+        let header = text.lines().next().unwrap();
+        assert!(header.contains("○ 2 todo"), "{header}");
+        let member = text.lines().find(|line| line.contains("worker") && line.contains("working")).unwrap();
+        assert!(member.contains("· 2 todo"), "{member}");
+        assert!(!text.contains("need you"), "{text}");
+    }
+
+    #[test]
     fn the_member_header_shows_the_notes_summary_where_the_link_line_was() {
         let mut app = board();
         let key = select_member(&mut app);
