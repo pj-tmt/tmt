@@ -1038,7 +1038,7 @@ mod tests {
             .unwrap()
             .bindings;
         assert_eq!(scoped["j"].verb, Verb::Run);
-        assert!(!scoped.contains_key("S")); // Authored keys still participate in admission.
+        assert_eq!(scoped["S"].text, "switch-tool");
         for (event, action) in scoped {
             assert!(!event.is_empty());
             assert!(!action.description().is_empty());
