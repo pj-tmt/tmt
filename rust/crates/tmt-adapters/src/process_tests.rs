@@ -20,6 +20,41 @@ const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const CLEANUP_WAIT: Duration = Duration::from_secs(2);
 
 #[test]
+fn environment_overrides_never_fall_back_to_an_unconfigured_spawn() {
+    struct Unsupported;
+    impl CommandRunner for Unsupported {
+        fn execute(&self, _: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            panic!("an unsupported environment must refuse before execute");
+        }
+    }
+    let request = || CommandRequest {
+        program: OsStr::new("/nonexistent/environment-test"),
+        args: &[],
+        input: &[],
+        deadline: Instant::now() + Duration::from_secs(2),
+        max_output_bytes: 128,
+    };
+    let environment = [("TMT_EXECUTABLE".into(), "/absolute/core".into())];
+    assert_eq!(
+        Unsupported
+            .execute_with_environment(request(), &environment)
+            .unwrap_err()
+            .kind,
+        CommandFailure::Spawn
+    );
+    // Borrowing the real runner must retain both the environment entry point
+    // and native spawn classification, without an environment-launcher process.
+    let borrowed = &UnixCommandRunner;
+    assert_eq!(
+        (&borrowed)
+            .execute_with_environment(request(), &environment)
+            .unwrap_err()
+            .kind,
+        CommandFailure::Spawn
+    );
+}
+
+#[test]
 fn runtime_observer_detects_child_exit_without_a_provider_end_hook() {
     use crate::process::runtime::{ProcessObservation, observe_runtime_process};
     let directory = TestDirectory::new();
