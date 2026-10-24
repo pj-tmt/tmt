@@ -275,7 +275,8 @@ and skipped jobs, exclusions and the shared REST-core ledger before/after.
 Each invocation caps all GET attempts at 800, including retries/rate snapshots;
 it refuses data reads below 2500 initial core remaining. Persistent 100-row jobs
 HTTP 502s discard the partial run and restart at page one with 50 rows, requiring
-unchanged count and exactly that many unique IDs. Unreadable runs name the run/count;
+unchanged count and exactly that many unique IDs. Exact earlier terminal copies,
+including failures, count once. Unreadable runs name the run/count;
 no partial census, sampling or resume. Collect 72 hours as twelve exact six-hour
 windows, at most four windows/hour; sum occupancy/counts and recompute quantiles
 from samples, never average percentiles. Seven-day extension needs Infra approval.

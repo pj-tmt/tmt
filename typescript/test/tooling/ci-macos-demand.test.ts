@@ -423,3 +423,44 @@ it('rejects a seven-day invocation before any data reads', () => {
   );
   expect(f.calls).toEqual([]);
 });
+
+it('counts an exactly retained failed execution once and still refuses a changed fingerprint', () => {
+  // Observed run39672372202: attempt2 copied a failed Linux worker with new ID/created_at,
+  // but old started/completed timestamps and identical25steps. Synthetic macOS labels
+  // also pin occupancy, which must count the original execution once.
+  const collectCopy = (changed: boolean, linux = false) =>
+    collect({
+      runs: [{ ...run, run_attempt: 2 }],
+      override: (path) => {
+        const m = /attempts\/(\d+)$/.exec(path);
+        if (m)
+          return {
+            id: 21,
+            run_attempt: Number(m[1]),
+            run_started_at: `2026-10-21T0${Number(m[1]) - 1}:00:00Z`,
+          };
+        if (path.includes('/jobs?'))
+          return {
+            total_count: 2,
+            jobs: [
+              { ...job, id: 31, run_attempt: 1, labels: linux ? ['ubuntu-24.04'] : job.labels },
+              {
+                ...job,
+                id: 32,
+                run_attempt: 2,
+                created_at: '2026-10-21T01:00:01Z',
+                labels: linux ? ['ubuntu-24.04'] : job.labels,
+                ...(changed ? { steps: [{ name: 'different' }] } : {}),
+              },
+            ],
+          };
+        return undefined;
+      },
+    }).result;
+  const result = collectCopy(false);
+  expect(result.measurements.map((j) => [j.job, j.attempt])).toEqual([[31, 1]]);
+  expect(result.retainedCopies).toBe(1);
+  expect(result.rows[0]).toMatchObject({ jobs: 1, runnerMinutes: 2 });
+  expect(collectCopy(false, true).measurements).toEqual([]);
+  expect(() => collectCopy(true)).toThrow(/run 21.*job count 2.*unproved retained/);
+});

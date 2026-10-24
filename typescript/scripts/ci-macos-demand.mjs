@@ -258,39 +258,46 @@ function actualJobs(read, run) {
   let retained = 0;
   let previousStart = -Infinity;
   const allJobs = runJobs(read, run);
-  for (let attempt = 1; attempt <= run.run_attempt; attempt++) {
-    let start;
-    if (run.run_attempt > 1) {
-      const context = read(`actions/runs/${run.id}/attempts/${attempt}`);
-      assert.ok(context.id === run.id && context.run_attempt === attempt, 'foreign attempt');
-      start = time(context.run_started_at);
-      assert.ok(Number.isFinite(start) && start > previousStart, 'invalid attempt chronology');
-      previousStart = start;
-    }
-    const jobs = allJobs.filter((job) => job.run_attempt === attempt);
-    for (const job of jobs) {
-      if (job.conclusion === 'skipped') {
+  try {
+    for (let attempt = 1; attempt <= run.run_attempt; attempt++) {
+      let start;
+      if (run.run_attempt > 1) {
+        const context = read(`actions/runs/${run.id}/attempts/${attempt}`);
+        assert.ok(context.id === run.id && context.run_attempt === attempt, 'foreign attempt');
+        start = time(context.run_started_at);
+        assert.ok(Number.isFinite(start) && start > previousStart, 'invalid attempt chronology');
+        previousStart = start;
+      }
+      const jobs = allJobs.filter((job) => job.run_attempt === attempt);
+      for (const job of jobs) {
+        if (job.conclusion === 'skipped') {
+          actual.push(job);
+          continue;
+        }
+        if (start !== undefined && time(job.started_at) < start) {
+          assert.ok(
+            typeof job.conclusion === 'string' &&
+              job.conclusion.length > 0 &&
+              job.status === 'completed' &&
+              time(job.completed_at) <= start &&
+              prior.has(job.name) &&
+              Array.isArray(job.steps) &&
+              isDeepStrictEqual(fingerprint(job), fingerprint(prior.get(job.name))),
+            `unproved retained result: ${job.name}`
+          );
+          retained++;
+          continue;
+        }
         actual.push(job);
-        continue;
+        prior.set(job.name, job);
       }
-      if (start !== undefined && time(job.started_at) < start) {
-        assert.ok(
-          job.conclusion === 'success' &&
-            job.status === 'completed' &&
-            time(job.completed_at) <= start &&
-            prior.has(job.name) &&
-            Array.isArray(job.steps) &&
-            isDeepStrictEqual(fingerprint(job), fingerprint(prior.get(job.name))),
-          `unproved retained success: ${job.name}`
-        );
-        retained++;
-        continue;
-      }
-      actual.push(job);
-      prior.set(job.name, job);
     }
+    return { jobs: actual, retained };
+  } catch (error) {
+    throw new Error(
+      `Unreadable run ${run.id} (${run.workflow ?? 'fixture'}); job count ${allJobs.length}: ${error.message}`
+    );
   }
-  return { jobs: actual, retained };
 }
 
 /** Collection returns no aggregate if any page or attempt cannot be proved complete. */
