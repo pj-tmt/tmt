@@ -1,40 +1,25 @@
-/* The Source drawer: the owner's page editor and an editor link's reader share it. */
-.source > span {
-  color: var(--c-muted);
-  font: 11px var(--f-mono);
-}
+/* Source presentation only: draft, save and request ownership remain with each caller. */
 .source {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
+  gap: 12px;
+  min-width: 0;
 }
-.source > span {
+.source-explanation {
+  margin: 0;
+  color: var(--c-muted);
+  font: 12px/1.8 var(--tmt-ui-font-body);
+}
+.source-metadata {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 10px 16px;
-  background: var(--c-sheet);
-  border-bottom: 1px solid var(--c-rule);
-}
-/* Toolbar actions use the standard action text; the Source label remains compact metadata. */
-.source > span button {
-  font: var(--tmt-ui-host-action-weight) var(--tmt-ui-host-action-size) /
-    var(--tmt-ui-host-action-line-height) var(--tmt-ui-host-action-font);
-}
-.source > span button:disabled {
-  color: var(--tmt-ui-color-disabled-text);
-  cursor: default;
-}
-/* A save in flight fences the action; it keeps its idle look under the pointer. */
-.source > span button.tmt-ui-action[aria-busy='true'] {
-  color: var(--tmt-ui-color-text);
-  background: transparent;
-  cursor: default;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--c-muted);
+  font: 11px/1.5 var(--f-mono);
 }
 .source-notice {
-  padding: 12px 16px 0;
+  padding: 0;
 }
 .source-notice .tmt-ui-notice {
   width: auto;
@@ -74,18 +59,23 @@
   letter-spacing: 0;
 }
 .source textarea {
+  display: block;
+  box-sizing: border-box;
   width: 100%;
-  height: 100%;
-  min-height: 500px;
-  border: none;
-  resize: none;
-  padding: 16px;
-  background: var(--c-sheet);
+  max-width: 100%;
+  min-height: calc(100dvh - 260px);
+  border: 1px solid var(--c-rule);
+  border-radius: var(--tmt-ui-radius);
+  resize: vertical;
+  overflow: auto;
+  padding: 18px;
+  background: var(--tmt-ui-surface-paper);
   color: var(--c-text);
-  font: 12px/1.65 var(--f-mono);
+  font: 11px/1.9 var(--f-mono);
+  tab-size: 2;
+  white-space: pre;
 }
-@media (max-width: 800px) {
-  .source textarea {
-    min-height: 220px;
-  }
+.source textarea:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: none;
 }
