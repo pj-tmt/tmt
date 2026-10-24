@@ -577,8 +577,7 @@ IFS= read -r line
         provider.to_str().unwrap(),
     ]);
     assert!(started.status.success(), "{started:?}");
-    let wait_hook = |world: &World| {
-        let deadline = Instant::now() + Duration::from_secs(10);
+    let wait_hook = |world: &World, deadline: Instant| {
         while !world.root.join("hook.status").is_file() {
             assert!(
                 Instant::now() < deadline,
@@ -591,14 +590,36 @@ IFS= read -r line
             "0"
         );
     };
-    wait_hook(&world);
     let deadline = Instant::now() + Duration::from_secs(10);
+    wait_hook(&world, deadline);
     let db = rusqlite::Connection::open_with_flags(
         support::state_dir(&world.root).join("tmt.db"),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
     )
     .unwrap();
-    let (identity,pane,recorded):(String,String,String)=db.query_row("SELECT i.id,b.pane_id,b.observed_provider_session_id FROM identities i JOIN bindings b ON b.identity_id=i.id WHERE i.canonical_name='alpha'",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+    // A zero-exit hook is best-effort; readiness is the committed session, not
+    // the hook's status file. Each query owns a fresh read snapshot.
+    let wait_session = |world: &World, previous_pane: Option<&str>, deadline: Instant| loop {
+        let row: (String, String, Option<String>) = db
+            .query_row(
+                "SELECT i.id,b.pane_id,b.observed_provider_session_id FROM identities i \
+                 JOIN bindings b ON b.identity_id=i.id WHERE i.canonical_name='alpha'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        if row.2.as_deref() == Some(session) && previous_pane.is_none_or(|pane| row.1 != pane) {
+            break (row.0, row.1, row.2.unwrap());
+        }
+        assert!(
+            Instant::now() < deadline,
+            "expected committed session {session}, previous pane {previous_pane:?}, \
+             last row {row:?}; hook diagnostics: {}",
+            fs::read_to_string(world.root.join("hook.err")).unwrap()
+        );
+        std::thread::yield_now();
+    };
+    let (identity, pane, recorded) = wait_session(&world, None, deadline);
     assert_eq!(
         recorded,
         session,
@@ -614,6 +635,7 @@ IFS= read -r line
         Connection::connect(&support::state_dir(&world.root).join("pty"), &pane).unwrap();
     terminal.input(b"\r").unwrap();
     drop(terminal);
+    let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         if matches!(
             observe_runtime_process(&UnixCommandRunner, old_program, deadline),
@@ -627,8 +649,9 @@ IFS= read -r line
     fs::remove_file(world.root.join("hook.status")).unwrap();
     let resumed = world.run(&["resume", "--host", "pty", "--no-channel", "alpha"]);
     assert!(resumed.status.success(), "{resumed:?}");
-    wait_hook(&world);
-    let (after_identity,after_pane,after_session):(String,String,String)=db.query_row("SELECT i.id,b.pane_id,b.observed_provider_session_id FROM identities i JOIN bindings b ON b.identity_id=i.id WHERE i.canonical_name='alpha'",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    wait_hook(&world, deadline);
+    let (after_identity, after_pane, after_session) = wait_session(&world, Some(&pane), deadline);
     assert_eq!(after_identity, identity);
     assert_ne!(after_pane, pane);
     assert_eq!(after_session, session);
