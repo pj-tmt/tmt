@@ -1,10 +1,12 @@
 //! Provider switches use public CLI commands in an owned external host world.
 use super::move_session::{destination, remembered, start};
 use super::*;
+use tmt_core::{binding::session::RuntimeState, endpoint::ProcessIncarnation};
 const SESSION: &str = "4f8c2a7e-0d3b-4c61-9a52-7b1e6d0c9f13";
 
 fn switch_provider(fixture: &Fixture, provider: &str, session: &str, source: &str) {
     let executable = fixture.root.join("bin").join(provider);
+    fs::create_dir_all(executable.parent().unwrap()).unwrap();
     if executable.exists() {
         fs::remove_file(&executable).unwrap();
     }
@@ -18,7 +20,7 @@ fn switch_provider(fixture: &Fixture, provider: &str, session: &str, source: &st
     // A shebang script is `sh` to native comm. The provider-named shell
     // reuses SteppedProvider's native ancestry shape and keeps the launch PID.
     let body = format!(
-        "printf '%s' '{payload}' | CLAUDE_PID=$$ '{}' __hook {provider} > switch.hook.out 2> switch.hook.err\n{AGENT}",
+        "printf '%s' '{payload}' | CLAUDE_PID=$$ '{}' __hook {provider} > switch.hook.out 2> switch.hook.err\nprintf '%s\\n' \"$?\" > switch.hook.status\n{AGENT}",
         cli.to_string_lossy()
     );
     let body = body.replace('\'', "'\\''");
@@ -32,6 +34,274 @@ fn switch_provider(fixture: &Fixture, provider: &str, session: &str, source: &st
         0o755,
     )
     .unwrap();
+}
+
+struct ExpectedLaunch<'a> {
+    driver: &'a str,
+    session: &'a str,
+    provider: ProcessIncarnation,
+    owner: ProcessIncarnation,
+}
+
+fn expected_launch<'a>(
+    launched: &Launched,
+    provider: &'a str,
+    session: &'a str,
+) -> ExpectedLaunch<'a> {
+    let native = |pid| match observe_runtime_process(&UnixCommandRunner, pid, deadline()).unwrap() {
+        ProcessObservation::Live(process) => process,
+        other => panic!("launch process is not live: {other:?}"),
+    };
+    let pid = fs::read_to_string(launched.root.join("agent.pid"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    ExpectedLaunch {
+        driver: provider,
+        session,
+        provider: native(pid),
+        owner: native(u64::from(launched.child.as_ref().unwrap().id())),
+    }
+}
+
+/// Optional context text cannot stand in for the launched session's committed
+/// runtime or owner. The provider publishes agent.pid only after the hook exits.
+fn assert_switch_admitted(
+    status: i32,
+    stderr: &str,
+    stored: &tmt_adapters::storage::IdentityContextSnapshot,
+    expected: &ExpectedLaunch<'_>,
+) {
+    assert_eq!(status, 0, "switch hook exit");
+    assert!(
+        stderr.is_empty() || stderr == HOOK_UNAVAILABLE,
+        "switch hook stderr: {stderr:?}"
+    );
+    if !stderr.is_empty() {
+        eprintln!("switch hook diagnostic: {stderr}");
+    }
+    assert_eq!(
+        missing_launch_evidence(stored, expected),
+        None,
+        "committed switch admission"
+    );
+}
+
+/// The existing readiness wait and final assertion require the same complete
+/// storage transition, not merely preferences written before launch settlement.
+fn missing_launch_evidence(
+    stored: &tmt_adapters::storage::IdentityContextSnapshot,
+    expected: &ExpectedLaunch<'_>,
+) -> Option<&'static str> {
+    let Some(binding) = &stored.entry.binding else {
+        return Some("committed switch binding");
+    };
+    let Some(remembered) = &stored.preferences.remembered else {
+        return Some("committed switch session");
+    };
+    if remembered.harness.as_str() != expected.driver {
+        return Some("committed switch driver");
+    }
+    if remembered.provider_session.as_str() != expected.session {
+        return Some("committed switch session");
+    }
+    if binding.session.state != RuntimeState::Running {
+        return Some("committed Running switch");
+    }
+    let Some(key) = &binding.session.key else {
+        return Some("committed switch process");
+    };
+    if key.incarnation != expected.provider {
+        return Some("committed native switch process");
+    }
+    if key.provider_session.as_ref().map(|s| s.as_str()) != Some(expected.session) {
+        return Some("committed switch process session");
+    }
+    if binding.session.launch_owner.as_ref() != Some(&expected.owner) {
+        return Some("committed switch launch owner");
+    }
+    None
+}
+
+fn assert_recorded_switch(fixture: &Fixture, launched: &Launched, driver: &str, session: &str) {
+    let status = fs::read_to_string(fixture.root.join("switch.hook.status"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let stderr = fs::read_to_string(fixture.root.join("switch.hook.err")).unwrap();
+    assert_switch_admitted(
+        status,
+        &stderr,
+        &remembered(fixture),
+        &expected_launch(launched, driver, session),
+    );
+}
+
+fn assert_admission_refused(
+    status: i32,
+    stderr: &str,
+    stored: &tmt_adapters::storage::IdentityContextSnapshot,
+    expected: &ExpectedLaunch<'_>,
+    reason: &str,
+) {
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        assert_switch_admitted(status, stderr, stored, expected);
+    }))
+    .expect_err("incomplete switch admission was accepted");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap();
+    assert!(message.contains(reason), "unexpected refusal: {message}");
+}
+
+#[test]
+fn a_switch_context_notice_requires_a_successful_hook_and_committed_launch() {
+    register();
+    for provider in ["claude", "codex"] {
+        let fixture = Fixture::delivering(&format!("switch-notice-{provider}"));
+        destination(&fixture);
+        fixture.approve();
+        fs::write(fixture.root.join("driver/agent"), "ok").unwrap();
+        switch_provider(&fixture, provider, SESSION, "startup");
+        let executable = fixture.root.join("bin").join(provider);
+        let mut command = fixture.command_in(
+            Some("f2"),
+            &[
+                "run",
+                "--no-channel",
+                "worker",
+                executable.to_str().unwrap(),
+            ],
+        );
+        command.env(
+            "PATH",
+            format!(
+                "{}:/usr/bin:/bin:/usr/sbin:/sbin",
+                fixture.root.join("bin").display()
+            ),
+        );
+        let mut launched = Launched::start(&fixture, command);
+        wait_until("the switch fixture starts or refuses", || {
+            fixture.root.join("agent.pid").exists()
+                || launched
+                    .child
+                    .as_mut()
+                    .unwrap()
+                    .try_wait()
+                    .unwrap()
+                    .is_some()
+        });
+        assert!(
+            fixture.root.join("agent.pid").exists(),
+            "{}",
+            fs::read_to_string(fixture.root.join("launched.err")).unwrap()
+        );
+        launched.adopt("agent.pid", false);
+        let expected = expected_launch(&launched, provider, SESSION);
+        wait_until("the exact switch session is committed", || {
+            missing_launch_evidence(&remembered(&fixture), &expected).is_none()
+        });
+        assert_recorded_switch(&fixture, &launched, provider, SESSION);
+        let mut stored = remembered(&fixture);
+        assert_ne!(expected.owner, expected.provider);
+        // Inject only the optional diagnostic into the acceptance check; the
+        // real public run and real committed native/owner evidence stay intact.
+        assert_switch_admitted(0, HOOK_UNAVAILABLE, &stored, &expected);
+        for (status, stderr, reason) in [
+            (1, "".to_owned(), "hook exit"),
+            (1, HOOK_UNAVAILABLE.to_owned(), "hook exit"),
+            (0, "unexpected warning\n".to_owned(), "hook stderr"),
+            (0, "Terminated\n".to_owned(), "hook stderr"),
+            (0, format!("{HOOK_UNAVAILABLE}Terminated\n"), "hook stderr"),
+            (0, HOOK_UNAVAILABLE.trim_end().to_owned(), "hook stderr"),
+            (0, HOOK_UNAVAILABLE.repeat(2), "hook stderr"),
+        ] {
+            assert_admission_refused(status, &stderr, &stored, &expected, reason);
+        }
+        let binding = stored.entry.binding.clone().unwrap();
+        let preferences = stored.preferences.clone();
+        stored.entry.binding = None;
+        assert_admission_refused(
+            0,
+            HOOK_UNAVAILABLE,
+            &stored,
+            &expected,
+            "committed switch binding",
+        );
+        stored.entry.binding = Some(binding.clone());
+        stored.preferences.remembered = None;
+        assert_admission_refused(
+            0,
+            HOOK_UNAVAILABLE,
+            &stored,
+            &expected,
+            "committed switch session",
+        );
+        stored.preferences = preferences;
+        stored.entry.binding.as_mut().unwrap().session.state = RuntimeState::Unknown;
+        assert_admission_refused(
+            0,
+            HOOK_UNAVAILABLE,
+            &stored,
+            &expected,
+            "committed Running switch",
+        );
+        stored.entry.binding = Some(binding.clone());
+        stored
+            .entry
+            .binding
+            .as_mut()
+            .unwrap()
+            .session
+            .key
+            .as_mut()
+            .unwrap()
+            .incarnation = expected.owner.clone();
+        assert_admission_refused(
+            0,
+            HOOK_UNAVAILABLE,
+            &stored,
+            &expected,
+            "committed native switch process",
+        );
+        stored.entry.binding = Some(binding.clone());
+        stored
+            .entry
+            .binding
+            .as_mut()
+            .unwrap()
+            .session
+            .key
+            .as_mut()
+            .unwrap()
+            .provider_session = None;
+        assert_admission_refused(
+            0,
+            HOOK_UNAVAILABLE,
+            &stored,
+            &expected,
+            "committed switch process session",
+        );
+        stored.entry.binding = Some(binding.clone());
+        stored.entry.binding.as_mut().unwrap().session.launch_owner = None;
+        assert_admission_refused(
+            0,
+            HOOK_UNAVAILABLE,
+            &stored,
+            &expected,
+            "committed switch launch owner",
+        );
+        stored.entry.binding = Some(binding);
+        assert_switch_admitted(0, HOOK_UNAVAILABLE, &stored, &expected);
+        assert_recorded_switch(&fixture, &launched, provider, SESSION);
+        let (status, stderr) = launched.finish();
+        assert_eq!(status, Some(7), "{stderr}");
+        assert_drivers_ended(&fixture);
+    }
 }
 
 /// Both driver directions use the public command. A real receipt answers the
@@ -163,25 +433,19 @@ fn driver_switch_keeps_identity_history_and_hands_off_once_before_launch() {
                 fs::read_to_string(fixture.root.join("launched.err")).unwrap()
             );
             launched.adopt("agent.pid", false);
-            assert_eq!(
-                fs::read_to_string(fixture.root.join("switch.hook.err")).unwrap(),
-                "",
-                "{provider}->{target} {disposition}"
-            );
+            let expected =
+                expected_launch(&launched, target, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
             assert_eq!(process.seen(), Seen::Ended);
             wait_until("the new exact session is committed", || {
-                let stored = remembered(&fixture);
-                stored
-                    .preferences
-                    .remembered
-                    .as_ref()
-                    .is_some_and(|session| {
-                        session.harness.as_str() == target
-                            && session.provider_session.as_str()
-                                == "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
-                    })
+                missing_launch_evidence(&remembered(&fixture), &expected).is_none()
             });
             let after = remembered(&fixture);
+            assert_recorded_switch(
+                &fixture,
+                &launched,
+                target,
+                "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+            );
             assert_eq!(after.entry.identity, before.entry.identity);
             assert_eq!(after.entry.binding.as_ref().unwrap().pane_id, "fake-2");
             let retained = after
@@ -282,10 +546,7 @@ fn driver_switch_keeps_identity_history_and_hands_off_once_before_launch() {
                 fs::read_to_string(fixture.root.join("launched.err")).unwrap()
             );
             back.adopt("agent.pid", false);
-            assert_eq!(
-                fs::read_to_string(fixture.root.join("switch.hook.err")).unwrap(),
-                ""
-            );
+            let expected_back = expected_launch(&back, provider, SESSION);
             let back_args = fs::read(fixture.root.join("switch.args")).unwrap();
             let back_args = back_args
                 .split(|byte| *byte == 0)
@@ -301,16 +562,10 @@ fn driver_switch_keeps_identity_history_and_hands_off_once_before_launch() {
             assert!(back_args.iter().any(|word| word == SESSION));
             assert!(!back_args.iter().any(|word| word == "fixture-model"));
             wait_until("the original exact session is current again", || {
-                remembered(&fixture)
-                    .preferences
-                    .remembered
-                    .as_ref()
-                    .is_some_and(|session| {
-                        session.harness.as_str() == provider
-                            && session.provider_session.as_str() == SESSION
-                    })
+                missing_launch_evidence(&remembered(&fixture), &expected_back).is_none()
             });
             assert_eq!(remembered(&fixture).entry.identity, before.entry.identity);
+            assert_recorded_switch(&fixture, &back, provider, SESSION);
             assert_eq!(
                 fixture.requests("prompted").len(),
                 usize::from(disposition != "gone")
