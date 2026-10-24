@@ -113,13 +113,10 @@ the core crates live in the [tmt-core-runtime skill](.agents/skills/tmt-core-run
 | Concrete adapters | `rust/crates/tmt-adapters/src/` | Config files, SQLite, bounded files and processes, signals, tmux evidence/transport, response input, HTTP acquisition, native release publication and managed skill files.                                      |
 | Application/CLI   | `rust/crates/tmt-cli/src/`      | Core grammar, typed invocations, preflight and use-case composition, completion and the executable entry point. It chooses adapters; it does not duplicate their storage, file, installation or process policy. |
 
-`rust/crates/tmt-command-output` owns shared command output/error values and
-formatting. It renders human text through `rust/crates/tmt-cli-style`, the one
-implementation of the [CLI style](design/cli-style.md) (palette, themes over the
-design tokens, marks, values, messages, lists, tables, the column-width solver
-`grid`, help registration, `Interaction` and step `progress`). Both are leaves
-with no TMT dependencies, for extension reuse; the architecture guard enforces that. `mark::Mark` owns each shared mark's
-symbol, description and style token.
+`tmt-command-output` owns shared command output/errors and formatting.
+Human text uses `tmt-cli-style` for [CLI style](design/cli-style.md), `grid`,
+help, `Interaction` and `progress`. This presentation leaf has no TMT
+dependencies; the architecture guard enforces that boundary.
 
 `rust/crates/tmt-tui` is an internal, unpublished, application-neutral presentation
 leaf for TMT terminal UIs (markup admission, one Taffy geometry computation, Ratatui
@@ -159,10 +156,8 @@ An unknown root command named `[a-z0-9][a-z0-9-]*` resolves `tmt-<name>` on PATH
 core wins every collision. On Unix the adapter `exec`s, so the extension inherits
 stdio, TTY and signals and its exit status is the command's. `core_executable` hands
 companions the managed stable launcher via `TMT_EXECUTABLE`, else the invoking executable.
-Only the tail is forwarded. Missing official commands use the install registry:
-human consent installs, then prints the command without running it; other callers
-get `EXTENSION_NOT_INSTALLED` (exit 3). Completion v1 is
-optional, bounded and falls back to file completion on any failure.
+Only the tail is forwarded; missing official names reuse native installation.
+Completion v1 is optional, bounded and falls back to file completion on any failure.
 
 ### Local extension API (v1)
 
