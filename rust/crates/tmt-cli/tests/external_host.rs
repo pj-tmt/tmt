@@ -1166,16 +1166,22 @@ fn run_names_the_agent_it_started_after_the_host_sees_it() {
 /// through a stand-in `claude` on `PATH`.
 #[test]
 fn resume_names_the_agent_it_started() {
-    resume_names_the_agent("resume-names", false);
+    resume_names_the_agent("resume-names", false, false);
 }
 
 /// The same resume, selecting the member by its identity UUID.
 #[test]
 fn resume_by_identity_uuid_names_the_agent_it_started() {
-    resume_names_the_agent("resume-names-uuid", true);
+    resume_names_the_agent("resume-names-uuid", true, false);
 }
 
-fn resume_names_the_agent(label: &str, by_uuid: bool) {
+/// The member is selected by its UUID after a rename, while another identity holds its old name.
+#[test]
+fn resume_by_identity_uuid_follows_a_rename() {
+    resume_names_the_agent("resume-names-renamed", true, true);
+}
+
+fn resume_names_the_agent(label: &str, by_uuid: bool, renamed: bool) {
     use tmt_core::{
         binding::{
             BindingRepository,
@@ -1214,6 +1220,12 @@ fn resume_names_the_agent(label: &str, by_uuid: bool) {
     let claude = bin.join("claude");
     fs::write(&claude, format!("#!/bin/sh\n{AGENT}\n")).unwrap();
     fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
+    if renamed {
+        let moved = fixture.tmt(&["mv", &identity.id, "renamed"]);
+        assert!(moved.status.success(), "{moved:?}");
+        let namesake = fixture.tmt(&["identity", "create", "worker", "--json"]);
+        assert!(namesake.status.success(), "{namesake:?}");
+    }
     let selector = if by_uuid {
         identity.id.as_str()
     } else {
@@ -1228,10 +1240,30 @@ fn resume_names_the_agent(label: &str, by_uuid: bool) {
     resume.adopt("agent.pid", false);
     let agent_name = fixture.root.join("driver/agentname");
     wait_until("the resumed agent is named", || agent_name.exists());
-    assert_eq!(fs::read_to_string(&agent_name).unwrap(), "worker");
+    let expected = if renamed { "renamed" } else { "worker" };
+    assert_eq!(fs::read_to_string(&agent_name).unwrap(), expected);
     let (code, stderr) = resume.finish();
     assert_eq!(code, Some(7), "{stderr}");
     assert_eq!(named(&fixture).len(), 1, "{:?}", named(&fixture));
+    if renamed {
+        // The namesake was never bound: the resume stayed on the selected identity.
+        let listed = fixture.json(&["ls", "--json"]).to_string();
+        assert!(
+            listed.contains("\"renamed\"") && listed.contains("\"worker\""),
+            "{listed}"
+        );
+        let mut storage = Storage::open(fixture.state().join("tmt.db")).unwrap();
+        let namesake = storage.find_identity("worker").unwrap().unwrap();
+        assert_ne!(namesake.id, identity.id);
+        let entry = storage
+            .with_binding_transaction::<_, tmt_adapters::storage::StorageError>(|records| {
+                records.entry_by_id(&namesake.id)
+            })
+            .unwrap()
+            .unwrap();
+        assert!(entry.binding.is_none(), "{entry:?}");
+        storage.close().unwrap();
+    }
 }
 
 /// A command that exits at once gets no naming call, whether or not its
