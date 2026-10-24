@@ -548,8 +548,8 @@ impl Host {
     }
 
     /// The host a caller-scoped command runs in: the host whose pane shell is
-    /// the caller's nearest ancestor. Without a host in the environment,
-    /// tmux's default server serves, as it always has.
+    /// the caller's nearest ancestor. Its captured tmux locator selects the
+    /// server; without one, tmux's default server is selected explicitly.
     pub fn for_caller(environment: &CallerEnvironment) -> Self {
         Self::for_caller_with_drivers(environment, UnixCommandRunner, external::approved())
     }
@@ -594,8 +594,8 @@ impl Host {
 }
 
 impl<R: CommandRunner + Clone> Host<R> {
-    /// The caller's host with no driver approved: tmux. The `_with`
-    /// constructors approve no driver.
+    /// The caller's host with no driver approved: tmux, on the captured locator.
+    /// The `_with` constructors approve no driver.
     pub fn for_caller_with(environment: &CallerEnvironment, runner: R) -> Self {
         Self::for_caller_with_drivers(environment, runner, Vec::new())
     }
@@ -622,7 +622,8 @@ impl<R: CommandRunner + Clone> Host<R> {
         records: Vec<crate::driver_protocol::registry::DriverRecord>,
         deadline: Instant,
     ) -> Result<Self, HostError> {
-        let builtin = Self::of(HostKind::Tmux, runner.clone());
+        let mut builtin = Self::of(HostKind::Tmux, runner.clone());
+        builtin.tmux = builtin.tmux.with_caller(environment);
         if environment.driver_env.is_empty()
             || (records.is_empty() && !environment.driver_env.contains_key(pty::PANE_ENV))
         {
@@ -656,7 +657,8 @@ impl<R: CommandRunner + Clone> Host<R> {
         let unverified =
             |reason: &str| HostError::Unavailable(format!("caller host unverified: {reason}"));
         let deadline = Instant::now() + Duration::from_secs(1);
-        let builtin = Self::of(HostKind::Tmux, runner.clone()).with_drivers(records.clone());
+        let mut builtin = Self::of(HostKind::Tmux, runner.clone()).with_drivers(records.clone());
+        builtin.tmux = builtin.tmux.with_caller(environment);
         match environment.named_host(&records) {
             NamedHost::Builtin => return Ok(builtin),
             NamedHost::External(_) | NamedHost::Pty => {}

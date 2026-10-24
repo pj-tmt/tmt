@@ -9,10 +9,13 @@ channels and the driver protocol. The owner map is in
 
 ## Process and tmux effects
 
-- `Host::for_server` selects the recorded host and socket. Selected tmux snapshots
-  are read-only: no marker initialization or ambient fallback; an explicitly
-  empty pane scope reads only server evidence. Default caller
-  snapshots and explicit binding discovery retain their existing adoption rules.
+- `Host::for_caller` and its injected-runner variants retain the captured tmux
+  locator: a valid socket is explicit, missing/empty selects the default server
+  explicitly, and malformed evidence refuses before a server call. Explicit
+  recipient/workspace sockets take precedence. Caller snapshots retain metadata
+  adoption. `Host::for_server` selects the recorded host and socket; its snapshots
+  are read-only, with no marker initialization or ambient fallback. An explicitly
+  empty pane scope reads only server evidence.
   Discovery of an external host's panes uses only its driver's `server` and
   `snapshot` (all panes, or one).
 

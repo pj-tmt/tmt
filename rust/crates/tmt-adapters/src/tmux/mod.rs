@@ -279,7 +279,13 @@ pub struct OperationOptions<'a> {
 
 pub struct Tmux<R = UnixCommandRunner> {
     runner: R,
-    selected_socket: Option<String>,
+    server: ServerSelection,
+}
+
+enum ServerSelection {
+    Ambient,
+    Caller(Result<Option<String>, String>),
+    Recorded(String),
 }
 
 impl Default for Tmux {
@@ -292,13 +298,24 @@ impl<R: CommandRunner> Tmux<R> {
     pub fn new(runner: R) -> Self {
         Self {
             runner,
-            selected_socket: None,
+            server: ServerSelection::Ambient,
         }
     }
 
     /// Select a recorded recipient locator without adopting its server.
     pub(crate) fn on_socket(mut self, socket: &str) -> Self {
-        self.selected_socket = Some(socket.into());
+        self.server = ServerSelection::Recorded(socket.into());
+        self
+    }
+
+    /// Capture scheduling evidence without consulting the process environment later.
+    pub(crate) fn with_caller(mut self, environment: &CallerEnvironment) -> Self {
+        self.server = ServerSelection::Caller(
+            environment
+                .selected_server_socket()
+                .map(|socket| socket.map(str::to_owned))
+                .map_err(|error| error.to_string()),
+        );
         self
     }
 
@@ -329,8 +346,25 @@ impl<R: CommandRunner> Tmux<R> {
                 CommandError::new(CommandFailure::Timeout),
             ));
         }
+        // An operation carrying a recipient/workspace locator owns that selection.
+        // Otherwise the handle's captured caller must not inherit another TMUX.
+        let selection = if args.first().is_some_and(|arg| arg == "-S" || arg == "-L") {
+            Vec::new()
+        } else {
+            match &self.server {
+                ServerSelection::Ambient => Vec::new(),
+                ServerSelection::Caller(Ok(Some(socket))) | ServerSelection::Recorded(socket) => {
+                    vec!["-S".to_owned(), socket.clone()]
+                }
+                ServerSelection::Caller(Ok(None)) => vec!["-L".into(), "default".into()],
+                ServerSelection::Caller(Err(reason)) => {
+                    return Err(TmuxError::refusal(reason.clone()));
+                }
+            }
+        };
         // Client output must preserve literal UTF-8 bytes even outside tmux under C.
         let args: Vec<OsString> = std::iter::once(OsString::from("-u"))
+            .chain(selection.into_iter().map(OsString::from))
             .chain(args.into_iter().map(OsString::from))
             .collect();
         let output = self
@@ -508,7 +542,10 @@ impl<R: CommandRunner> Tmux<R> {
         &self,
         options: OperationOptions<'_>,
     ) -> Result<EndpointSnapshot, TmuxError> {
-        let socket = self.selected_socket.as_deref();
+        let socket = match &self.server {
+            ServerSelection::Recorded(socket) => Some(socket.as_str()),
+            _ => None,
+        };
         let scope = evidence::scoped_ids(options.pane_ids)?;
         let output = self.execute(
             list_args(socket, scope.as_deref()),
@@ -525,7 +562,7 @@ impl<R: CommandRunner> Tmux<R> {
     }
 
     pub fn snapshot(&self, options: OperationOptions<'_>) -> Result<EndpointSnapshot, TmuxError> {
-        if let Some(socket) = self.selected_socket.as_deref() {
+        if let ServerSelection::Recorded(socket) = &self.server {
             if options.pane_ids.is_some_and(<[String]>::is_empty) {
                 return Ok(EndpointSnapshot {
                     server: self.server_evidence(Some(socket), None, options)?,

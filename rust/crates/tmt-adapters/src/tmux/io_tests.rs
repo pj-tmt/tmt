@@ -1099,3 +1099,195 @@ fn a_selected_server_empty_scope_reads_no_panes_or_metadata_writes() {
         ["-u", "-S", "/tmp/private.sock", "display-message"]
     );
 }
+
+#[derive(Clone, Default)]
+struct CallerRunner(std::rc::Rc<ScriptedRunner>);
+
+impl CommandRunner for CallerRunner {
+    fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        self.0.execute(request)
+    }
+}
+
+#[test]
+fn a_captured_caller_socket_is_the_only_server_used_by_its_host() {
+    use tmt_core::binding::BindingEndpoint;
+    assert!(std::env::var_os("TMUX").is_none());
+    assert!(std::env::var_os("TMUX_PANE").is_none());
+    let directory = crate::test_support::TestDirectory::new();
+    let socket = directory.path.join("private.sock");
+    crate::test_support::assert_private_socket(&socket, &directory.path);
+    let socket = socket.to_str().unwrap();
+    let caller = CallerEnvironment {
+        tmux: Some(format!("{socket},321,0").into()),
+        ..full_environment()
+    };
+    let runner = CallerRunner::default();
+    runner.0.push_output(b"%9\n".to_vec(), vec![]);
+    runner.0.push_output(SERVER_ID.as_bytes().to_vec(), vec![]);
+    for _ in 0..2 {
+        runner.0.push_output(
+            marked_row()
+                .replace("/tmp/private.sock", socket)
+                .into_bytes(),
+            vec![],
+        );
+    }
+    runner.0.push_output(SERVER_ID.as_bytes().to_vec(), vec![]);
+    runner.0.push_output(
+        marked_row()
+            .replace("/tmp/private.sock", socket)
+            .into_bytes(),
+        vec![],
+    );
+    let host = crate::host::Host::for_caller_with(&caller, runner.clone());
+    assert_eq!(
+        host.resolve_target("1.0", OperationOptions::default())
+            .unwrap()
+            .as_deref(),
+        Some("%9")
+    );
+    assert_eq!(&runner.0.calls.borrow()[0].args[..3], ["-u", "-S", socket]);
+    assert_eq!(
+        host.snapshot(OperationOptions::default())
+            .unwrap()
+            .server
+            .socket_path,
+        socket
+    );
+    assert_eq!(
+        host.observe_snapshot(OperationOptions::default())
+            .unwrap()
+            .server
+            .socket_path,
+        socket
+    );
+    let mut session = host.session();
+    session.begin_coordination();
+    assert_eq!(
+        session
+            .current_snapshot(&["%9".into()])
+            .unwrap()
+            .server
+            .socket_path,
+        socket
+    );
+    let calls = runner.0.calls.borrow();
+    assert_eq!(calls.len(), 6);
+    for call in calls.iter() {
+        assert_eq!(call.program, "tmux");
+        assert_eq!(&call.args[..3], ["-u", "-S", socket]);
+        assert_eq!(call.args.iter().filter(|arg| *arg == "-S").count(), 1);
+        assert!(!call.args.iter().any(|arg| arg == "set-option"));
+    }
+    assert_eq!(
+        calls[1].args[3], "show-options",
+        "caller snapshots retain metadata adoption"
+    );
+}
+
+#[test]
+fn malformed_captured_caller_sockets_never_reach_a_server() {
+    use std::os::unix::ffi::OsStringExt;
+    for tmux in [
+        "broken".into(),
+        "/tmp/private.sock,no-pid,0".into(),
+        OsString::from_vec(vec![255]),
+    ] {
+        let runner = CallerRunner::default();
+        let caller = CallerEnvironment {
+            tmux: Some(tmux),
+            ..full_environment()
+        };
+        let host = crate::host::Host::for_caller_with(&caller, runner.clone());
+        assert!(
+            host.resolve_target("1.0", OperationOptions::default())
+                .is_err()
+        );
+        assert!(host.snapshot(OperationOptions::default()).is_err());
+        assert!(runner.0.calls.borrow().is_empty());
+    }
+}
+
+#[test]
+fn an_absent_captured_caller_socket_selects_the_default_explicitly() {
+    for tmux in [None, Some("".into())] {
+        let runner = CallerRunner::default();
+        runner.0.push_output(b"%9\n".to_vec(), vec![]);
+        let caller = CallerEnvironment {
+            tmux,
+            pane: None,
+            ..full_environment()
+        };
+        let host = crate::host::Host::for_caller_with(&caller, runner.clone());
+        assert_eq!(
+            host.resolve_target("1.0", OperationOptions::default())
+                .unwrap()
+                .as_deref(),
+            Some("%9")
+        );
+        assert_eq!(
+            &runner.0.calls.borrow()[0].args[..4],
+            ["-u", "-L", "default", "display-message"]
+        );
+    }
+}
+
+#[test]
+fn a_captured_caller_socket_failure_has_no_ambient_fallback() {
+    let directory = crate::test_support::TestDirectory::new();
+    let socket = directory.path.join("private.sock");
+    crate::test_support::assert_private_socket(&socket, &directory.path);
+    let socket = socket.to_str().unwrap();
+    let runner = CallerRunner::default();
+    runner
+        .0
+        .results
+        .borrow_mut()
+        .push_back(Err(CommandError::new(CommandFailure::Timeout)));
+    let caller = CallerEnvironment {
+        tmux: Some(format!("{socket},321,0").into()),
+        ..full_environment()
+    };
+    let host = crate::host::Host::for_caller_with(&caller, runner.clone());
+    assert!(
+        host.resolve_target("1.0", OperationOptions::default())
+            .is_err()
+    );
+    let calls = runner.0.calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(&calls[0].args[..3], ["-u", "-S", socket]);
+}
+
+#[test]
+fn an_explicit_workspace_socket_overrides_the_captured_caller() {
+    let directory = crate::test_support::TestDirectory::new();
+    let socket = directory.path.join("recipient.sock");
+    crate::test_support::assert_private_socket(&socket, &directory.path);
+    let socket = socket.to_str().unwrap();
+    for tmux in [
+        Some("/different/caller.sock,321,0".into()),
+        Some("malformed".into()),
+        None,
+    ] {
+        let caller = CallerEnvironment {
+            tmux,
+            ..full_environment()
+        };
+        let runner = CallerRunner::default();
+        runner.0.push_output(
+            format!("0{}work\n", evidence::SEPARATOR).into_bytes(),
+            vec![],
+        );
+        let host = crate::host::Host::for_caller_with(&caller, runner.clone());
+        assert_eq!(
+            host.workspace_session_names(socket, Instant::now() + Duration::from_secs(1))
+                .unwrap(),
+            Some(vec!["work".into()])
+        );
+        let calls = runner.0.calls.borrow();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(&calls[0].args[..3], ["-u", "-S", socket]);
+        assert_eq!(calls[0].args.iter().filter(|arg| *arg == "-S").count(), 1);
+    }
+}

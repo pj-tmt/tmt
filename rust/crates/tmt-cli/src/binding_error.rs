@@ -66,8 +66,17 @@ mod tests {
             assert_eq!(request.program, OsStr::new("tmux"));
             assert_eq!(
                 request.args,
-                ["-u", "display-message", "-p", "-t", "10.3", "#{pane_id}"]
-                    .map(std::ffi::OsString::from)
+                [
+                    "-u",
+                    "-L",
+                    "default",
+                    "display-message",
+                    "-p",
+                    "-t",
+                    "10.3",
+                    "#{pane_id}"
+                ]
+                .map(std::ffi::OsString::from)
             );
             assert!(request.input.is_empty());
             // Expire at the existing runner boundary, without racing process
