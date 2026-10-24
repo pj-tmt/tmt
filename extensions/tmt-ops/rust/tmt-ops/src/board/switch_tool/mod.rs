@@ -212,7 +212,7 @@ impl App {
         self.menu = None;
         Effect::SwitchTool(task)
     }
-    pub(in crate::board) fn switch_tool_changed(&mut self) {
+    pub(in crate::board) fn switch_tool_changed(&mut self) -> bool {
         let stale = self.switch_tool.as_ref().is_some_and(|c| {
             matches!(c.stage, Stage::Form | Stage::Review)
                 && c.source.as_ref().is_some_and(|s| !s.still_selected(self))
@@ -223,8 +223,9 @@ impl App {
                 "Selected member or session observation changed. Close and review again; nothing launched.",
             );
             c.review = None;
-            c.invalidate();
+            return true;
         }
+        false
     }
     pub(in crate::board) fn finished_switch_tool(&mut self, completed: Completed) -> Effect {
         self.switch_tool_changed();
@@ -269,11 +270,14 @@ impl App {
         }
     }
     pub(in crate::board) fn switch_tool_event(&mut self, event: &Event) -> Option<Effect> {
-        self.switch_tool_changed();
+        let changed = self.switch_tool_changed();
         let reopen = self.switch_tool_reopen_hint();
         let c = self.switch_tool.as_mut()?;
         if !c.shown {
             return None;
+        }
+        if changed {
+            return Some(Effect::None);
         }
         if matches!(event, Event::Resize(..)) {
             c.invalidate();

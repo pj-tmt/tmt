@@ -163,11 +163,12 @@ fn a_changed_selection_fences_confirmation_and_resize_drops_old_hits() {
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     paint(&app, 150, 43);
     app.workspace.selected = Some(crate::board::workspace::OpsTarget::Pool);
-    app.switch_tool_changed();
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     assert!(matches!(
         app.switch_tool.as_ref().unwrap().stage,
         Stage::Result(ref text) if text.starts_with("✗ Changed")
     ));
+    paint(&app, 150, 43);
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     assert!(
         app.switch_tool.is_none(),
