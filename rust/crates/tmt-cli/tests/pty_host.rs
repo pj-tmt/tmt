@@ -749,7 +749,11 @@ IFS= read -r line
     }
     fs::remove_file(world.root.join("hook.status")).unwrap();
     let resumed = world.run(&["resume", "--host", "pty", "--no-channel", "alpha"]);
-    assert!(resumed.status.success(), "{resumed:?}");
+    support::with_launch_failure_packet(
+        &support::state_dir(&world.root).join("tmt.db"),
+        &[old_program],
+        || assert!(resumed.status.success(), "{resumed:?}"),
+    );
     let deadline = Instant::now() + Duration::from_secs(10);
     let (resumed_identity, resumed_pane, _) = wait_launch(&world, Some(&pane), deadline);
     assert_eq!(resumed_identity, identity);
