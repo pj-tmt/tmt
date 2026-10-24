@@ -54,6 +54,7 @@ impl Http for Ports {
 }
 struct Wire {
     docs: Mutex<BTreeMap<String, Value>>,
+    commits: Mutex<Vec<Value>>,
     next: AtomicUsize,
     owner: Mutex<Weak<Service>>,
 }
@@ -61,6 +62,7 @@ impl Wire {
     fn new() -> Self {
         Self {
             docs: Mutex::new(BTreeMap::new()),
+            commits: Mutex::new(Vec::new()),
             next: AtomicUsize::new(0),
             owner: Mutex::new(Weak::new()),
         }
@@ -161,8 +163,12 @@ impl Http for Wire {
                 ),
             );
         }
+        self.commits.lock().unwrap().push(input.clone());
         let writes = input["writes"].as_array().unwrap();
         for write in writes {
+            if write.get("delete").is_some() {
+                continue;
+            }
             let name = write["update"]["name"].as_str().unwrap();
             if write["currentDocument"]["exists"] == false && docs.contains_key(name) {
                 return response(409, json!({}));
@@ -170,6 +176,10 @@ impl Http for Wire {
         }
         let mut notify = false;
         for write in writes {
+            if let Some(name) = write["delete"].as_str() {
+                docs.remove(name);
+                continue;
+            }
             let name = write["update"]["name"].as_str().unwrap();
             let mut doc = docs
                 .get(name)
@@ -250,6 +260,321 @@ fn service(
 }
 fn prepared(remote: &str) -> Vec<u8> {
     json!({"version":1,"remote":remote,"requestId":crate::store::uuid_v4().unwrap(),"createdAtMs":crate::pairing::now_ms().unwrap(),"from":{"id":"77777777-7777-4777-8777-777777777777","name":"sender"},"target":{"id":TARGET,"name":"target"},"message":"causal cloud pairing effect"}).to_string().into_bytes()
+}
+
+#[test]
+fn inviter_registration_and_atomic_route_update_preserve_the_native_pin() {
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let make_ports = || ProjectPorts {
+        http: ports.clone(),
+        clock: ports.clone(),
+        jitter: ports.clone(),
+    };
+    let (owner, _owner_lease) = service(&core.root.join("owner"), &core, make_ports());
+    let (child, _child_lease) = service(&core.root.join("child"), &core, make_ports());
+    let provider = child.provider(&config(), &child.machine, true).unwrap();
+    let io = child.io();
+    let descriptor = child
+        .keys
+        .advertised(crate::pairing::now_ms().unwrap())
+        .unwrap();
+    run(
+        provider.register_machine(
+            &child.key.public(),
+            descriptor.bytes(),
+            Some(&owner.machine),
+            &io,
+        ),
+        &io,
+    )
+    .unwrap();
+    let name = format!(
+        "projects/{PROJECT}/databases/(default)/documents/m/{}",
+        child.machine
+    );
+    let frozen = wire.docs.lock().unwrap()[&name]["fields"].clone();
+    assert_eq!(frozen["invitingOwner"]["stringValue"], owner.machine);
+    assert_eq!(
+        frozen["authenticationKey"]["bytesValue"],
+        STANDARD.encode(child.key.public())
+    );
+    let commits = wire.commits.lock().unwrap().len();
+    assert!(
+        run(
+            provider.register_machine(&child.key.public(), descriptor.bytes(), None, &io),
+            &io
+        )
+        .is_err()
+    );
+    assert!(
+        run(
+            provider.register_machine(
+                &child.key.public(),
+                descriptor.bytes(),
+                Some(&child.machine),
+                &io
+            ),
+            &io
+        )
+        .is_err()
+    );
+    assert_eq!(
+        wire.commits.lock().unwrap().len(),
+        commits,
+        "provenance cannot be erased or replaced"
+    );
+
+    let owner_provider = owner.provider(&config(), &owner.machine, true).unwrap();
+    let rows = [
+        RouteChange {
+            project: PROJECT.into(),
+            uid: provider.uid().into(),
+            peer: child.machine.clone(),
+            generation: 2,
+            revoked: true,
+            reroute_hash: None,
+        },
+        RouteChange {
+            project: PROJECT.into(),
+            uid: "renewed-uid".into(),
+            peer: child.machine.clone(),
+            generation: 2,
+            revoked: false,
+            reroute_hash: None,
+        },
+    ];
+    run(
+        owner_provider.publish_routes(&rows, Some(&child.machine), &io),
+        &io,
+    )
+    .unwrap();
+    let docs = wire.docs.lock().unwrap();
+    let fields = &docs[&name]["fields"];
+    assert_eq!(fields["uid"]["stringValue"], "renewed-uid");
+    for field in ["authenticationKey", "descriptor", "invitingOwner"] {
+        assert_eq!(fields[field], frozen[field]);
+    }
+    drop(docs);
+    let commits = wire.commits.lock().unwrap();
+    let writes = commits.last().unwrap()["writes"].as_array().unwrap();
+    assert_eq!(
+        writes.len(),
+        3,
+        "both routes and child uid must commit atomically"
+    );
+    assert_eq!(writes[2]["update"]["name"], name);
+    assert_eq!(
+        writes[2]["update"]["fields"],
+        json!({"uid":{"stringValue":"renewed-uid"}})
+    );
+    assert_eq!(writes[2]["updateMask"]["fieldPaths"], json!(["uid"]));
+    assert_eq!(writes[2]["currentDocument"]["exists"], true);
+    let count = commits.len();
+    drop(commits);
+    assert!(
+        run(
+            owner_provider.publish_routes(&[], Some(&child.machine), &io),
+            &io
+        )
+        .is_err()
+    );
+    assert!(
+        run(
+            owner_provider.publish_routes(&rows, Some(&owner.machine), &io),
+            &io
+        )
+        .is_err()
+    );
+    assert!(
+        run(
+            owner_provider.publish_routes(&rows[..1], Some(&child.machine), &io),
+            &io
+        )
+        .is_err()
+    );
+    let cap: Vec<_> = (0..crate::limits::CLOUD_ROUTE_BATCH)
+        .map(|i| RouteChange {
+            project: PROJECT.into(),
+            uid: format!("old-{i}"),
+            peer: child.machine.clone(),
+            generation: 2,
+            revoked: i != 0,
+            reroute_hash: None,
+        })
+        .collect();
+    assert!(
+        run(
+            owner_provider.publish_routes(&cap, Some(&child.machine), &io),
+            &io
+        )
+        .is_err(),
+        "the child write also counts toward the commit cap"
+    );
+    assert_eq!(
+        wire.commits.lock().unwrap().len(),
+        count,
+        "invalid atomic requests do no provider write"
+    );
+
+    let mut gated = rows.clone();
+    for row in &mut gated {
+        row.reroute_hash = Some([7; 32]);
+    }
+    run(
+        owner_provider.publish_routes(&gated, Some(&child.machine), &io),
+        &io,
+    )
+    .unwrap();
+    let gate_name = format!(
+        "projects/{PROJECT}/databases/(default)/documents/m/{}/reroutes/{}",
+        owner.machine, child.machine
+    );
+    assert_eq!(
+        wire.docs.lock().unwrap()[&gate_name]["fields"]["tokenHash"]["bytesValue"],
+        STANDARD.encode([7; 32])
+    );
+    assert_eq!(
+        wire.commits.lock().unwrap().last().unwrap()["writes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4,
+        "capability and child update share the route commit"
+    );
+    for row in &mut gated {
+        row.revoked = true;
+    }
+    run(owner_provider.publish_routes(&gated, None, &io), &io).unwrap();
+    assert!(!wire.docs.lock().unwrap().contains_key(&gate_name));
+    assert_eq!(
+        wire.commits.lock().unwrap().last().unwrap()["writes"][2]["delete"],
+        gate_name
+    );
+
+    // A legacy owner registration remains the same three-field shape.
+    let owner_descriptor = owner
+        .keys
+        .advertised(crate::pairing::now_ms().unwrap())
+        .unwrap();
+    run(
+        owner_provider.register_machine(&owner.key.public(), owner_descriptor.bytes(), None, &io),
+        &io,
+    )
+    .unwrap();
+    let owner_name = format!(
+        "projects/{PROJECT}/databases/(default)/documents/m/{}",
+        owner.machine
+    );
+    assert_eq!(
+        wire.docs.lock().unwrap()[&owner_name]["fields"]
+            .as_object()
+            .unwrap()
+            .len(),
+        3
+    );
+}
+
+#[test]
+fn route_batch_refuses_two_live_uids_without_a_provider_write() {
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let (owner, _lease) = service(
+        &core.root.join("owner"),
+        &core,
+        ProjectPorts {
+            http: ports.clone(),
+            clock: ports.clone(),
+            jitter: ports,
+        },
+    );
+    let provider = owner.provider(&config(), &owner.machine, true).unwrap();
+    let rows: Vec<_> = ["old-uid", "new-uid"]
+        .into_iter()
+        .map(|uid| RouteChange {
+            project: PROJECT.into(),
+            uid: uid.into(),
+            peer: TARGET.into(),
+            generation: 2,
+            revoked: false,
+            reroute_hash: None,
+        })
+        .collect();
+    assert!(
+        run(
+            provider.publish_routes(&rows, None, &owner.io()),
+            &owner.io()
+        )
+        .is_err()
+    );
+    assert!(
+        wire.commits.lock().unwrap().is_empty(),
+        "invalid routes must refuse before the provider write"
+    );
+}
+
+#[test]
+fn invite_gate_is_published_before_the_code_and_removed_when_the_ceremony_ends() {
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let (owner, _lease) = service(
+        &core.root.join("owner"),
+        &core,
+        ProjectPorts {
+            http: ports.clone(),
+            clock: ports.clone(),
+            jitter: ports,
+        },
+    );
+    let mut gate = String::new();
+    let result = owner.invite_selected(PROJECT, config(), |event| {
+        if event["event"] == "invite" {
+            let invite = Invite::read(
+                event["code"].as_str().unwrap(),
+                crate::pairing::now_ms().unwrap(),
+            )
+            .unwrap();
+            gate = format!(
+                "projects/{PROJECT}/databases/(default)/documents/m/{}/invites/{}",
+                owner.machine, invite.challenge.offer,
+            );
+            let docs = wire.docs.lock().unwrap();
+            let row = docs
+                .get(&gate)
+                .expect("publish the Rules invite gate before exposing the code");
+            assert_eq!(row["fields"].as_object().unwrap().len(), 2);
+            assert_eq!(
+                row["fields"]["expiresAt"]["timestampValue"],
+                crate::cloud_inbox::stamp(invite.challenge.expires_at_ms),
+            );
+            let hash = STANDARD
+                .decode(row["fields"]["tokenHash"]["bytesValue"].as_str().unwrap())
+                .unwrap();
+            assert_eq!(hash.len(), 32);
+            return Err(RemoteError::new(
+                "FIXTURE_CANCEL",
+                "Stop after observing the invite.",
+            ));
+        }
+        Ok(None)
+    });
+    assert_eq!(result.unwrap_err().code, "FIXTURE_CANCEL");
+    assert!(!gate.is_empty());
+    assert!(!wire.docs.lock().unwrap().contains_key(&gate));
+    assert!(owner.store().unwrap().grants().unwrap().is_empty());
+    assert_eq!(core.sends(), 0);
 }
 
 #[test]

@@ -1594,6 +1594,9 @@ test('provider operation route table keeps resource names out of fixed diagnosti
     ['firebase', `${project}/webApps/config/config`, 'web-app-config'],
     ['firebase', 'operations/webApps', 'web-app-operation'],
     ['firestore', database, 'database'],
+    ['firestore', `${database}/documents/m/indexes`, 'owner-registration'],
+    ['firestore', `${database}/documents/owners/fields`, 'owner-registration'],
+    ['firestore', `${database}/documents:commit`, 'owner-registration'],
     ['firestore', `${database}/collectionGroups/-/fields?filter=ttlConfig:*`, 'fields'],
     ['firestore', `${database}/collectionGroups/indexes/fields/sequence`, 'fields'],
     ['firestore', `${database}/collectionGroups/-/indexes?pageSize=200`, 'indexes'],
@@ -2090,4 +2093,82 @@ test('Hosting file samples are bounded, distinguish hash drift and redact non-pu
     );
     assert.equal(x.calls.filter((c) => c.url.endsWith(':populateFiles')).length, 0);
   }
+});
+
+function ownerFixture(initial = []) {
+  const docs = new Map(initial);
+  const f = fixture((url, options) => {
+    const prefix = 'https://firestore.googleapis.com/v1/';
+    assert.ok(url.startsWith(prefix), 'owner helper uses only the fixed Firestore endpoint');
+    const name = url.slice(prefix.length);
+    if (options.method === 'GET') return docs.has(name)
+      ? {status:200,body:structuredClone(docs.get(name))}
+      : {status:404,body:{error:{status:'NOT_FOUND'}}};
+    assert.equal(name, `${database}/documents:commit`);
+    const {writes} = JSON.parse(options.body);
+    for (const write of writes) {
+      if (write.delete) { docs.delete(write.delete); continue; }
+      const old = docs.get(write.update.name);
+      if (write.currentDocument?.exists === false) assert.equal(old, undefined);
+      if (write.currentDocument?.updateTime) assert.equal(old?.updateTime, write.currentDocument.updateTime);
+      const fields = write.updateMask ? {...old.fields,...write.update.fields} : write.update.fields;
+      docs.set(write.update.name,{name:write.update.name,fields,updateTime:'2026-10-24T00:00:00Z'});
+    }
+    return {status:200,body:{commitTime:'2026-10-24T00:00:00Z',writeResults:writes.map(()=>({updateTime:'2026-10-24T00:00:00Z'}))}};
+  });
+  return {docs,f};
+}
+function ownerInput(extra={}) {
+  return {project:PROJECT,machine:ID,uid:'native-owner',authenticationKey:Buffer.alloc(32,9).toString('base64'),descriptor:Buffer.from('fixed descriptor').toString('base64'),...extra};
+}
+test('owner access is explicit, observed on rerun and never replaces another native pin', async () => {
+  const {docs,f}=ownerFixture();
+  assert.equal(await execute(request('observe-owner-access',ownerInput()),f),'absent');
+  assert.equal(mutations(f).length,0);
+  assert.equal(await execute(request('apply-owner-access',ownerInput()),f),'done');
+  assert.equal(mutations(f).length,1);
+  const root=`${database}/documents/m/${ID}`;
+  assert.deepEqual(docs.get(root).fields,{uid:{stringValue:'native-owner'},authenticationKey:{bytesValue:ownerInput().authenticationKey},descriptor:{bytesValue:ownerInput().descriptor}});
+  assert.deepEqual(docs.get(`${database}/documents/owners/native-owner`).fields,{machine:{stringValue:ID}});
+  assert.equal(await execute(request('observe-owner-access',ownerInput()),f),'satisfied');
+  assert.equal(await execute(request('apply-owner-access',ownerInput()),f),'done');
+  assert.equal(mutations(f).length,1,'an exact rerun writes nothing');
+  docs.get(root).fields.authenticationKey.bytesValue=Buffer.alloc(32,8).toString('base64');
+  await failure(()=>execute(request('apply-owner-access',ownerInput()),f),'owner-conflict');
+  assert.equal(mutations(f).length,1);
+});
+test('owner uid recovery preserves native key and descriptor and retires only its prior allow-list row', async () => {
+  const root=`${database}/documents/m/${ID}`;
+  const original={uid:{stringValue:'old-owner'},authenticationKey:{bytesValue:ownerInput().authenticationKey},descriptor:{bytesValue:Buffer.from('retained descriptor').toString('base64')}};
+  const {docs,f}=ownerFixture([
+    [root,{name:root,fields:structuredClone(original),updateTime:'2026-10-23T00:00:00Z'}],
+    [`${database}/documents/owners/old-owner`,{fields:{machine:{stringValue:ID}},updateTime:'2026-10-23T00:00:00Z'}],
+  ]);
+  assert.equal(await execute(request('apply-owner-access',ownerInput()),f),'done');
+  assert.deepEqual(docs.get(root).fields,{...original,uid:{stringValue:'native-owner'}});
+  assert.equal(docs.has(`${database}/documents/owners/old-owner`),false);
+  const write=mutations(f)[0].body.writes.find(w=>w.update?.name===root);
+  assert.deepEqual(write.updateMask,{fieldPaths:['uid']});
+  assert.deepEqual(write.currentDocument,{updateTime:'2026-10-23T00:00:00Z'});
+  const attempts=mutations(f).length;
+  docs.get(root).fields.invitingOwner={stringValue:'11111111-1111-4111-8111-111111111111'};
+  await failure(()=>execute(request('apply-owner-access',ownerInput()),f),'owner-conflict');
+  assert.equal(mutations(f).length,attempts,'admin recovery cannot erase inviter provenance');
+});
+
+test('a lost owner-access commit answer is observed without another mutation or pin change', async () => {
+  const {docs,f}=ownerFixture();
+  const send=f.http;
+  let lost=true;
+  f.http=async (url,options)=>{
+    const answer=await send(url,options);
+    if (lost && options.method==='POST') { lost=false; throw Error(CANARY); }
+    return answer;
+  };
+  await failure(()=>execute(request('apply-owner-access',ownerInput()),f),'unknown');
+  assert.equal(mutations(f).length,1);
+  assert.equal(await execute(request('observe-owner-access',ownerInput()),f),'satisfied');
+  assert.equal(await execute(request('apply-owner-access',ownerInput()),f),'done');
+  assert.equal(mutations(f).length,1);
+  assert.equal(docs.get(`${database}/documents/m/${ID}`).fields.authenticationKey.bytesValue,ownerInput().authenticationKey);
 });

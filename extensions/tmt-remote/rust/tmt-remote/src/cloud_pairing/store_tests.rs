@@ -22,6 +22,134 @@ fn world() -> (std::path::PathBuf, crate::state::Serving, VerifiedCandidate) {
 }
 
 #[test]
+fn old_private_connection_round_trips_without_adding_a_reroute_token() {
+    let (root, serving, candidate) = world();
+    let store = Store::open(&serving).unwrap();
+    // Explicit pre-token private shape, not a historical release fixture.
+    let legacy = serde_json::json!({
+        "version":1,"name":"legacy","owner":candidate.challenge.owner,
+        "owner_key":candidate.challenge.owner_key,"config":{},"peer":candidate.candidate.peer,
+        "uid":"old-uid","request":[],"confirmed":true,"descriptor":[]
+    })
+    .to_string();
+    store
+        .connection
+        .execute(
+            "INSERT INTO cloud_remotes VALUES(?1,?2,?3)",
+            rusqlite::params!["legacy", candidate.challenge.owner, legacy],
+        )
+        .unwrap();
+    drop(store);
+    let store = Store::open(&serving).unwrap();
+    let loaded = store.cloud_connection("legacy").unwrap().unwrap();
+    assert!(loaded.reroute_token.is_none());
+    assert_eq!(
+        serde_json::to_value(loaded).unwrap(),
+        serde_json::from_str::<serde_json::Value>(&legacy).unwrap()
+    );
+    let retained: String = store
+        .connection
+        .query_row(
+            "SELECT connection FROM cloud_remotes WHERE name='legacy'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        retained, legacy,
+        "reading does not rewrite or invent authority"
+    );
+    drop(store);
+    drop(serving);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_eleven_peer_and_original_receipt_survive_the_token_migration_without_new_authority() {
+    let (root, serving, candidate) = world();
+    let mut store = Store::open(&serving).unwrap();
+    let key = response_key(&[4; 16], &candidate.challenge, &candidate.candidate).unwrap();
+    let receipt = store
+        .confirm_cloud_peer(&candidate, &key, 1, false)
+        .unwrap();
+    let mut legacy: serde_json::Value = serde_json::from_slice(&receipt.bytes).unwrap();
+    legacy.as_object_mut().unwrap().remove("rerouteToken");
+    let bytes = serde_json::to_vec(&legacy).unwrap();
+    let proof = crypto::server_proof(&key, &bytes).unwrap();
+    store
+        .connection
+        .execute(
+            "UPDATE cloud_pair_receipts SET receipt=?1,proof=?2",
+            rusqlite::params![bytes, proof.as_slice()],
+        )
+        .unwrap();
+    let grant = store.grant(&candidate.candidate.peer).unwrap().unwrap();
+    let machine = store.machine().unwrap();
+    // Reconstruct the real schema-eleven boundary, including an enrolled peer.
+    store.connection.execute_batch("ALTER TABLE cloud_peers DROP COLUMN reroute_hash; DELETE FROM _migrations WHERE version=12;").unwrap();
+    drop(store);
+    let mut store = Store::open(&serving).unwrap();
+    assert_eq!(store.machine().unwrap(), machine);
+    assert_eq!(
+        store.grant(&candidate.candidate.peer).unwrap().unwrap(),
+        grant
+    );
+    let routes = store.cloud_route_changes().unwrap();
+    assert_eq!(routes.len(), 1);
+    assert_eq!(routes[0].peer, candidate.candidate.peer);
+    assert!(
+        routes[0].reroute_hash.is_none(),
+        "migration cannot mint a capability for an old peer"
+    );
+    let original = store
+        .confirm_cloud_peer(&candidate, &key, 2, false)
+        .unwrap();
+    assert_eq!(original.bytes, bytes);
+    assert_eq!(original.proof, proof);
+    crypto::verify_server_proof(&key, &original.bytes, &original.proof).unwrap();
+    drop(store);
+    drop(serving);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn confirmed_receipt_carries_a_private_reroute_capability_bound_by_its_proof() {
+    let (root, serving, candidate) = world();
+    let mut store = Store::open(&serving).unwrap();
+    let key = response_key(&[4; 16], &candidate.challenge, &candidate.candidate).unwrap();
+    let receipt = store
+        .confirm_cloud_peer(&candidate, &key, 1, false)
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&receipt.bytes).unwrap();
+    let token = crate::canonical::base64url_bytes(
+        value["rerouteToken"]
+            .as_str()
+            .expect("the confirmed receipt must supply the private reroute capability"),
+        32,
+    )
+    .unwrap();
+    assert_ne!(token.as_slice(), key);
+    crypto::verify_server_proof(&key, &receipt.bytes, &receipt.proof).unwrap();
+    let mut changed = value;
+    changed["rerouteToken"] = serde_json::json!(crate::canonical::base64url(&[0; 32]));
+    assert!(
+        crypto::verify_server_proof(&key, &serde_json::to_vec(&changed).unwrap(), &receipt.proof)
+            .is_err()
+    );
+    drop(store);
+    let mut store = Store::open(&serving).unwrap();
+    assert_eq!(
+        store
+            .confirm_cloud_peer(&candidate, &key, 2, false)
+            .unwrap(),
+        receipt
+    );
+    drop(store);
+    drop(serving);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn confirmed_receipt_and_read_only_peer_reopen_and_lost_join_keeps_original_receipt() {
     let (root, serving, candidate) = world();
     let mut store = Store::open(&serving).unwrap();

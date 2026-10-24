@@ -123,6 +123,18 @@ impl Emulator {
             .unwrap()
             .status
     }
+    fn seed_owner(&self, service: &Service) {
+        let provider = service.provider(&config(), &service.machine, true).unwrap();
+        // Demo fixture only: production enrollment uses the authorized deploy step.
+        assert_eq!(
+            self.commit(
+                "owner",
+                &format!("owners/{}", provider.uid()),
+                json!({"machine":{"stringValue":service.machine}})
+            ),
+            200
+        );
+    }
     fn commit(&self, token: &str, path: &str, fields: Value) -> u16 {
         self.raw(token, Operation::Commit, ":commit", json!({"writes":[{"update":{"name":format!("projects/{PROJECT}/databases/(default)/documents/{path}"),"fields":fields}}]}))
     }
@@ -135,6 +147,7 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
     std::fs::write(core.root.join("multi"), "").unwrap();
     let (owner, owner_lease) = service(&core.root.join("owner"), &core, emulator.ports());
     let (sender, sender_lease) = service(&core.root.join("sender"), &core, emulator.ports());
+    emulator.seed_owner(&owner);
     let (token_tx, token_rx) = mpsc::channel();
     let (choice_tx, choice_rx) = mpsc::channel();
     let (words_tx, words_rx) = mpsc::channel();
@@ -425,25 +438,37 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
         "REMOTE_CLOUD_ACCESS_DENIED"
     );
     assert_eq!(core.sends(), 3);
-    // Public-sign-in storage limit: an attacker can claim an unregistered random id
-    // under its own uid, but the legitimate native owner refuses and never overwrites.
+    // Anonymous sign-in alone cannot squat a machine, even with a valid native key.
     let (victim, victim_lease) = service(&core.root.join("victim"), &core, emulator.ports());
     let attacker = sender.provider(&config(), &victim.machine, false).unwrap();
-    run(
-        attacker.register_machine(&sender.key.public(), b"squatted", &sender.io()),
-        &sender.io(),
-    )
-    .unwrap();
-    let result = victim.invite_selected(PROJECT, config(), |_| {
-        panic!("squatted row must refuse before code output")
+    assert_eq!(
+        run(
+            attacker.register_machine(&sender.key.public(), b"squatted", None, &sender.io()),
+            &sender.io(),
+        )
+        .unwrap_err()
+        .code,
+        "REMOTE_CLOUD_ACCESS_DENIED"
+    );
+    assert!(
+        run(attacker.machine_metadata(&sender.io()), &sender.io())
+            .unwrap()
+            .is_none()
+    );
+    emulator.seed_owner(&victim);
+    let result = victim.invite_selected(PROJECT, config(), |event| {
+        if event["event"] == "invite" {
+            return Err(RemoteError::new("FIXTURE_STOP", "Stop after registration."));
+        }
+        Ok(None)
     });
-    assert_eq!(result.unwrap_err().code, "REMOTE_CLOUD_MACHINE_CONFLICT");
+    assert_eq!(result.unwrap_err().code, "FIXTURE_STOP");
     let row = run(attacker.machine_metadata(&sender.io()), &sender.io())
         .unwrap()
         .unwrap();
     assert_eq!(
         row["fields"]["authenticationKey"]["bytesValue"],
-        STANDARD.encode(sender.key.public())
+        STANDARD.encode(victim.key.public())
     );
     assert_eq!(owner.store().unwrap().grants().unwrap().len(), 1);
     eprintln!(
@@ -456,4 +481,357 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
     drop(sender);
     drop(owner_lease);
     drop(sender_lease);
+}
+
+#[test]
+#[ignore = "Infra-approved Auth+Firestore emulator slot; no real project or fallback"]
+fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
+    use sha2::{Digest, Sha256};
+    let emulator = Arc::new(Emulator::new());
+    let core = core_fixture::Core::new();
+    let (owner, _owner_lease) = service(&core.root.join("owner"), &core, emulator.ports());
+    let (child, _child_lease) = service(&core.root.join("child"), &core, emulator.ports());
+    let (stranger, _stranger_lease) = service(&core.root.join("stranger"), &core, emulator.ports());
+    emulator.seed_owner(&owner);
+    let owner_provider = owner.provider(&config(), &owner.machine, true).unwrap();
+    let child_provider = child.provider(&config(), &child.machine, true).unwrap();
+    let stranger_provider = stranger
+        .provider(&config(), &stranger.machine, true)
+        .unwrap();
+    let owner_token = emulator.token(&owner);
+    let child_token = emulator.token(&child);
+    let stranger_token = emulator.token(&stranger);
+    let descriptor = owner
+        .keys
+        .advertised(crate::pairing::now_ms().unwrap())
+        .unwrap();
+    run(
+        owner_provider.register_machine(&owner.key.public(), descriptor.bytes(), None, &owner.io()),
+        &owner.io(),
+    )
+    .unwrap();
+    let child_descriptor = child
+        .keys
+        .advertised(crate::pairing::now_ms().unwrap())
+        .unwrap();
+    assert_eq!(
+        run(
+            stranger_provider.register_machine(
+                &stranger.key.public(),
+                b"valid-bounded-bytes",
+                None,
+                &stranger.io()
+            ),
+            &stranger.io()
+        )
+        .unwrap_err()
+        .code,
+        "REMOTE_CLOUD_ACCESS_DENIED"
+    );
+    assert_eq!(
+        run(
+            child_provider.register_machine(
+                &child.key.public(),
+                child_descriptor.bytes(),
+                Some(&owner.machine),
+                &child.io()
+            ),
+            &child.io()
+        )
+        .unwrap_err()
+        .code,
+        "REMOTE_CLOUD_ACCESS_DENIED",
+        "an inviter name alone grants nothing"
+    );
+
+    let token = [7; 32];
+    let hash: [u8; 32] = Sha256::digest(token).into();
+    let owner_path = format!("m/{}", owner.machine);
+    let gate = json!({"tokenHash":{"bytesValue":STANDARD.encode(hash)}});
+    for (path, fields) in [
+        (
+            format!("owners/{}", stranger_provider.uid()),
+            json!({"machine":{"stringValue":stranger.machine}}),
+        ),
+        (
+            format!("{owner_path}/invites/{}", crate::store::uuid_v4().unwrap()),
+            json!({"tokenHash":{"bytesValue":STANDARD.encode(hash)},"expiresAt":{"timestampValue":"2035-01-01T00:00:00Z"}}),
+        ),
+        (
+            format!("{owner_path}/reroutes/{}", child.machine),
+            gate.clone(),
+        ),
+    ] {
+        assert_eq!(emulator.commit(&stranger_token, &path, fields), 403);
+    }
+
+    let candidate = |kind: &str, uid: &str, token: Option<&[u8; 32]>, peer: Option<&str>| {
+        let mut fields = json!({"uid":{"stringValue":uid},"kind":{"stringValue":kind},"body":{"bytesValue":STANDARD.encode(b"bounded-native-proof-fixture")}});
+        if let Some(token) = token {
+            fields["token"] = json!({"bytesValue":STANDARD.encode(token)});
+        }
+        if let Some(peer) = peer {
+            fields["peer"] = json!({"stringValue":peer});
+        }
+        fields
+    };
+    let submit = |id: &str, fields: Value| {
+        emulator.raw(&stranger_token, Operation::Commit, ":commit", json!({"writes":[{"update":{"name":format!("projects/{PROJECT}/databases/(default)/documents/{owner_path}/enroll/{id}"),"fields":fields},"currentDocument":{"exists":false},"updateTransforms":[{"fieldPath":"createdAt","setToServerValue":"REQUEST_TIME"}]}]}))
+    };
+    let offer = crate::store::uuid_v4().unwrap();
+    assert_eq!(
+        submit(
+            &offer,
+            candidate("join", stranger_provider.uid(), None, None)
+        ),
+        403
+    );
+    assert_eq!(
+        submit(
+            &offer,
+            candidate("join", stranger_provider.uid(), Some(&token), None)
+        ),
+        403,
+        "no invitation exists"
+    );
+    assert_eq!(emulator.commit(&owner_token, &format!("{owner_path}/invites/{offer}"), json!({"tokenHash":{"bytesValue":STANDARD.encode(hash)},"expiresAt":{"timestampValue":"2035-01-01T00:00:00Z"}})), 200);
+    assert_eq!(
+        submit(
+            &offer,
+            candidate("join", stranger_provider.uid(), Some(&[0; 32]), None)
+        ),
+        403
+    );
+    assert_eq!(
+        submit(
+            &offer,
+            candidate("join", stranger_provider.uid(), Some(&token), None)
+        ),
+        200,
+        "the exact capability passes Rules; native proof is still checked separately"
+    );
+    assert_eq!(
+        submit(
+            &offer,
+            candidate("join", stranger_provider.uid(), Some(&token), None)
+        ),
+        409,
+        "create-only invitation identity cannot be replayed"
+    );
+    let expired = crate::store::uuid_v4().unwrap();
+    assert_eq!(emulator.commit(&owner_token, &format!("{owner_path}/invites/{expired}"), json!({"tokenHash":{"bytesValue":STANDARD.encode(hash)},"expiresAt":{"timestampValue":"2020-01-01T00:00:00Z"}})), 403, "the owner cannot publish an already-expired gate");
+    // Seed a gate that expired while a process was stopped; no clock sleeps.
+    assert_eq!(emulator.commit("owner", &format!("{owner_path}/invites/{expired}"), json!({"tokenHash":{"bytesValue":STANDARD.encode(hash)},"expiresAt":{"timestampValue":"2020-01-01T00:00:00Z"}})), 200);
+    assert_eq!(
+        submit(
+            &expired,
+            candidate("join", stranger_provider.uid(), Some(&token), None)
+        ),
+        403,
+        "an existing expired gate cannot authorize enrollment"
+    );
+    let reroute_id = crate::store::uuid_v4().unwrap();
+    assert_eq!(
+        submit(
+            &reroute_id,
+            candidate(
+                "reroute",
+                stranger_provider.uid(),
+                Some(&token),
+                Some(&child.machine)
+            )
+        ),
+        403
+    );
+    assert_eq!(
+        emulator.commit(
+            &owner_token,
+            &format!("{owner_path}/reroutes/{}", child.machine),
+            gate
+        ),
+        200
+    );
+    assert_eq!(
+        submit(
+            &reroute_id,
+            candidate(
+                "reroute",
+                stranger_provider.uid(),
+                Some(&[0; 32]),
+                Some(&child.machine)
+            )
+        ),
+        403
+    );
+    assert_eq!(
+        submit(
+            &reroute_id,
+            candidate(
+                "reroute",
+                stranger_provider.uid(),
+                Some(&token),
+                Some(&child.machine)
+            )
+        ),
+        200
+    );
+
+    let child_route = format!("{owner_path}/peers/{}", child_provider.uid());
+    for (peer, expiry) in [
+        (&stranger.machine, "2035-01-01T00:00:00Z"),
+        (&child.machine, "2020-01-01T00:00:00Z"),
+    ] {
+        assert_eq!(emulator.commit(&owner_token, &child_route, json!({"peer":{"stringValue":peer},"revoked":{"booleanValue":false},"expiresAt":{"timestampValue":expiry}})), 200);
+        assert_eq!(
+            run(
+                child_provider.register_machine(
+                    &child.key.public(),
+                    child_descriptor.bytes(),
+                    Some(&owner.machine),
+                    &child.io()
+                ),
+                &child.io()
+            )
+            .unwrap_err()
+            .code,
+            "REMOTE_CLOUD_ACCESS_DENIED",
+            "a wrong-peer or expired route cannot create a child machine"
+        );
+    }
+    let rows = [RouteChange {
+        project: PROJECT.into(),
+        uid: child_provider.uid().into(),
+        peer: child.machine.clone(),
+        generation: 1,
+        revoked: false,
+        reroute_hash: Some(hash),
+    }];
+    run(
+        owner_provider.publish_routes(&rows, None, &owner.io()),
+        &owner.io(),
+    )
+    .unwrap();
+    run(
+        child_provider.register_machine(
+            &child.key.public(),
+            child_descriptor.bytes(),
+            Some(&owner.machine),
+            &child.io(),
+        ),
+        &child.io(),
+    )
+    .unwrap();
+    let move_uid = |token: &str, uid: &str, extra: Option<(&str, Value)>| {
+        let mut fields = json!({"uid":{"stringValue":uid}});
+        let mut mask = vec!["uid"];
+        if let Some((key, value)) = extra {
+            fields[key] = value;
+            mask.push(key);
+        }
+        emulator.raw(token, Operation::Commit, ":commit", json!({"writes":[{"update":{"name":format!("projects/{PROJECT}/databases/(default)/documents/m/{}",child.machine),"fields":fields},"updateMask":{"fieldPaths":mask},"currentDocument":{"exists":true}}]}))
+    };
+    assert_eq!(
+        move_uid(&stranger_token, stranger_provider.uid(), None),
+        403
+    );
+    assert_eq!(move_uid(&child_token, stranger_provider.uid(), None), 403);
+    assert_eq!(
+        move_uid(&owner_token, stranger_provider.uid(), None),
+        403,
+        "a matching live route is required"
+    );
+    let mut next = rows.to_vec();
+    next[0].revoked = true;
+    next[0].generation = 2;
+    next.push(RouteChange {
+        project: PROJECT.into(),
+        uid: stranger_provider.uid().into(),
+        peer: child.machine.clone(),
+        generation: 2,
+        revoked: false,
+        reroute_hash: Some(hash),
+    });
+    run(
+        owner_provider.publish_routes(&next, Some(&child.machine), &owner.io()),
+        &owner.io(),
+    )
+    .unwrap();
+    let row = run(child_provider.machine_metadata(&child.io()), &child.io())
+        .unwrap()
+        .unwrap();
+    assert_eq!(row["fields"]["uid"]["stringValue"], stranger_provider.uid());
+    assert_eq!(
+        row["fields"]["authenticationKey"]["bytesValue"],
+        STANDARD.encode(child.key.public())
+    );
+    assert_eq!(
+        row["fields"]["descriptor"]["bytesValue"],
+        STANDARD.encode(child_descriptor.bytes())
+    );
+    assert_eq!(row["fields"]["invitingOwner"]["stringValue"], owner.machine);
+    assert_eq!(
+        move_uid(
+            &owner_token,
+            stranger_provider.uid(),
+            Some((
+                "authenticationKey",
+                json!({"bytesValue":STANDARD.encode(owner.key.public())})
+            ))
+        ),
+        403
+    );
+    assert_eq!(
+        move_uid(
+            &owner_token,
+            stranger_provider.uid(),
+            Some(("invitingOwner", json!({"stringValue":stranger.machine})))
+        ),
+        403
+    );
+    assert_eq!(
+        move_uid(
+            &owner_token,
+            stranger_provider.uid(),
+            Some((
+                "descriptor",
+                json!({"bytesValue":STANDARD.encode(b"changed")})
+            ))
+        ),
+        403
+    );
+    for row in &mut next {
+        row.revoked = true;
+    }
+    run(
+        owner_provider.publish_routes(&next, None, &owner.io()),
+        &owner.io(),
+    )
+    .unwrap();
+    assert_eq!(
+        move_uid(&owner_token, child_provider.uid(), None),
+        403,
+        "revoked routes cannot recover a child uid"
+    );
+    assert_eq!(
+        submit(
+            &crate::store::uuid_v4().unwrap(),
+            candidate(
+                "reroute",
+                stranger_provider.uid(),
+                Some(&token),
+                Some(&child.machine)
+            )
+        ),
+        403,
+        "revocation deleted the capability"
+    );
+    assert_eq!(
+        core.sends(),
+        0,
+        "Rules probes never dispatch a native effect"
+    );
+    eprintln!(
+        "invitation-only Rules wire calls (direct probes included): {:?}",
+        emulator.calls.lock().unwrap()
+    );
 }

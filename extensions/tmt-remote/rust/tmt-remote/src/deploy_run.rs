@@ -105,6 +105,8 @@ pub enum StepKind {
     },
     CompositeIndex(crate::deploy_plan::CompositeIndexPlan),
     Hosting(HostingStep),
+    /// Explicit project-owner admission, never a side effect of Verify.
+    OwnerAccess,
     Rules,
     /// Reads back every other step; the last gate before a binding.
     Verify,
@@ -279,6 +281,10 @@ pub fn prepare_with_hosting(
         return Err(DeployRefusal::InvalidDeployment);
     }
     let mut providers = input.sign_in.to_vec();
+    // Hosted/native bootstrap uses ordinary anonymous Auth; disclose it in the plan.
+    if hosting.is_some() {
+        providers.push(SignInProvider::Anonymous);
+    }
     providers.sort_by_key(|provider| provider.name());
     providers.dedup();
     if providers.is_empty() {
@@ -367,7 +373,7 @@ pub fn prepare_with_hosting(
         {
             return Err(DeployRefusal::HostingUnavailable);
         }
-        steps = hosting_steps(steps, hosting)?;
+        steps = hosting_steps(steps, hosting, true)?;
         view.steps = steps.iter().map(|step| step.id.clone()).collect();
         if let Some(fingerprint) = &hosting.replaced_fingerprint {
             view.destructive
@@ -429,6 +435,8 @@ pub enum DeployFault {
     ApiDisabled,
     QuotaExceeded,
     ProviderRejected,
+    /// Project registration pins another native key or owner provenance.
+    OwnerConflict,
     /// The database exists with another edition or location, or a second one was refused.
     DatabaseMismatch,
     /// The live Rules are not Remote's and the authorization did not name them.
@@ -443,6 +451,7 @@ impl DeployFault {
             Self::ApiDisabled => "REMOTE_DEPLOY_API_DISABLED",
             Self::QuotaExceeded => "REMOTE_DEPLOY_QUOTA_EXCEEDED",
             Self::ProviderRejected => "REMOTE_DEPLOY_PROVIDER_REJECTED",
+            Self::OwnerConflict => "REMOTE_DEPLOY_OWNER_CONFLICT",
             Self::DatabaseMismatch => "REMOTE_DEPLOY_DATABASE_MISMATCH",
             Self::RulesForeign => "REMOTE_DEPLOY_RULES_FOREIGN",
             Self::VerifyFailed => "REMOTE_DEPLOY_VERIFY_FAILED",
@@ -1189,6 +1198,7 @@ pub enum HostingStep {
 fn hosting_steps(
     mut steps: Vec<DeployStep>,
     hosting: &crate::hosting::HostingDeploymentView,
+    owner_access: bool,
 ) -> Result<Vec<DeployStep>, DeployRefusal> {
     let mut prefix = Vec::new();
     if hosting.create_web_app {
@@ -1249,6 +1259,9 @@ fn hosting_steps(
         "hosting:stage:finalize",
         StepKind::Hosting(HostingStep::Finalize),
     ));
+    if owner_access {
+        stage.insert(0, step("owner:register", StepKind::OwnerAccess));
+    }
     prefix.splice(rules..rules, stage);
     let rules = prefix
         .iter()
@@ -1431,12 +1444,13 @@ pub fn retain_hosting_plan(
     }
     candidate
         .steps
-        .retain(|s| !matches!(s.kind, StepKind::Hosting(_)));
+        .retain(|s| !matches!(s.kind, StepKind::Hosting(_) | StepKind::OwnerAccess));
     candidate.steps = hosting_steps(
         candidate.steps,
         view.hosting
             .as_ref()
             .ok_or(DeployRefusal::HostingUnavailable)?,
+        view.steps.iter().any(|id| id == "owner:register"),
     )?;
     candidate.bytes = serde_json::to_vec(&view).expect("view serializes");
     candidate.digest = run.plan_digest.clone();

@@ -300,6 +300,15 @@ until Core's seam is agreed. Native pairing composes it in `serve`, sharing
 `native_sync::projects::Projects` with extension sync; public Core delivery activation remains gated.
 No enrolled peer means no provider poll. The contract owns all bounds.
 
+`cloud_pairing::wire` owns domain-separated invite/reroute capabilities. The Store persists the
+owner's hash with grant/receipt/route adoption; the private joiner connection retains the separate
+reroute token. Provider publication commits route changes, capability changes and an optional
+child uid-only update together. The native Rules asset owns invitation/owner gates and immutable
+inviter provenance; common native possession, generation and effect fences remain unchanged.
+`deploy_firestore::owner` reuses ordinary Auth and control/serve-lease identity access for the
+explicit digest-bound owner-access step. The helper uses the authorized deploy credential for
+conditional registration/recovery; Verify never writes. The contract owns predicates and bounds.
+
 `tests/cloud_hpke.rs` pins RFC 9180 A.3.1; `tests/fixtures/cloud-hpke-reference.mjs` independently
 checks application framing/signatures/AAD/response bytes only, without implementing HPKE.
 Run it with Node and the focused Rust `cloud_` tests. `cloud-hpke-v1.json` contains public test keys

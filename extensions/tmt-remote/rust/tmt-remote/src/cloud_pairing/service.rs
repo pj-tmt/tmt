@@ -147,7 +147,7 @@ impl Service {
             return Ok(());
         }
         run(
-            provider.register_machine(&self.key.public(), descriptor, io),
+            provider.register_machine(&self.key.public(), descriptor, None, io),
             io,
         )?;
         self.published
@@ -217,7 +217,7 @@ impl Service {
             groups.entry(row.peer.clone()).or_default().push(row);
         }
         for rows in groups.values() {
-            run(provider.publish_routes(rows, io), io)?;
+            run(provider.publish_routes(rows, None, io), io)?;
             let store = self.store()?;
             for row in rows {
                 store.cloud_route_published(row)?;
@@ -283,71 +283,87 @@ impl Service {
             &owner_name,
             now,
         )?;
-        emit(json!({"event":"invite","code":invite.token()?}))?;
-        let until = Instant::now() + crate::pairing::Timing::CONTRACT.lifetime;
-        let io = IoBudget {
-            deadline: until,
-            cancelled: &self.stop,
-        };
-        loop {
-            emit(json!({"event":"waiting"}))?;
-            if crate::pairing::now_ms()? >= invite.challenge.expires_at_ms {
-                return Err(wire::expired());
-            }
-            if let Some(doc) = run(provider.enrollment_get(&invite.challenge.offer, &io), &io)? {
-                if doc.kind != "join" {
-                    return Err(wire::invalid());
+        run(provider.publish_invite(&invite, &self.io()), &self.io())?;
+        let result = (|| {
+            emit(json!({"event":"invite","code":invite.token()?}))?;
+            let until = Instant::now() + crate::pairing::Timing::CONTRACT.lifetime;
+            let io = IoBudget {
+                deadline: until,
+                cancelled: &self.stop,
+            };
+            loop {
+                emit(json!({"event":"waiting"}))?;
+                if crate::pairing::now_ms()? >= invite.challenge.expires_at_ms {
+                    return Err(wire::expired());
                 }
-                let submission = Submission::read(&doc.body, &invite.challenge.offer)?;
-                let verified = invite.verify(&submission, &doc.uid, crate::pairing::now_ms()?)?;
-                let (matched,talk)=emit(json!({"event":"candidate","name":submission.candidate.name,"words":verified.words().map_err(|_|wire::invalid())?}))?.ok_or_else(wire::invalid)?;
-                if !matched {
-                    return Err(RemoteError::new(
-                        "REMOTE_CLOUD_PAIR_REFUSED",
-                        "The owner declined the connection.",
-                    ));
-                }
-                let mut response_key = invite.response_key(&submission.candidate)?;
-                let receipt = self.store()?.confirm_cloud_peer(
-                    &verified,
-                    &response_key,
-                    crate::pairing::now_ms()?,
-                    talk,
-                );
-                response_key.fill(0);
-                let receipt = receipt?;
-                self.flush(&provider, &io)?;
-                let body=json!({"receipt":canonical::base64url(&receipt.bytes),"proof":canonical::base64url(&receipt.proof)}).to_string();
-                run(
-                    provider.enrollment_create(
-                        &format!("{}-response", invite.challenge.offer),
-                        &doc.uid,
-                        "receipt",
-                        body.as_bytes(),
+                if let Some(doc) = run(provider.enrollment_get(&invite.challenge.offer, &io), &io)?
+                {
+                    if doc.kind != "join" {
+                        return Err(wire::invalid());
+                    }
+                    let submission = Submission::read(&doc.body, &invite.challenge.offer)?;
+                    let verified =
+                        invite.verify(&submission, &doc.uid, crate::pairing::now_ms()?)?;
+                    let (matched,talk)=emit(json!({"event":"candidate","name":submission.candidate.name,"words":verified.words().map_err(|_|wire::invalid())?}))?.ok_or_else(wire::invalid)?;
+                    if !matched {
+                        return Err(RemoteError::new(
+                            "REMOTE_CLOUD_PAIR_REFUSED",
+                            "The owner declined the connection.",
+                        ));
+                    }
+                    let mut response_key = invite.response_key(&submission.candidate)?;
+                    let receipt = self.store()?.confirm_cloud_peer(
+                        &verified,
+                        &response_key,
+                        crate::pairing::now_ms()?,
+                        talk,
+                    );
+                    response_key.fill(0);
+                    let receipt = receipt?;
+                    self.flush(&provider, &io)?;
+                    let body=json!({"receipt":canonical::base64url(&receipt.bytes),"proof":canonical::base64url(&receipt.proof)}).to_string();
+                    run(
+                        provider.enrollment_create(
+                            &format!("{}-response", invite.challenge.offer),
+                            &doc.uid,
+                            "receipt",
+                            body.as_bytes(),
+                            None,
+                            &io,
+                        ),
                         &io,
-                    ),
-                    &io,
-                )?;
-                let unique = self
-                    .store()?
-                    .active_grants()?
-                    .iter()
-                    .filter(|g| g.name == submission.candidate.name)
-                    .count()
-                    == 1;
-                let hint = if unique {
-                    &submission.candidate.name
-                } else {
-                    &submission.candidate.peer
-                };
-                emit(
-                    json!({"event":"connected","name":submission.candidate.name,"talk":talk,"clientId":submission.candidate.peer,"hintPerson":hint}),
-                )?;
-                self.request_reconcile();
-                return Ok(());
+                    )?;
+                    let unique = self
+                        .store()?
+                        .active_grants()?
+                        .iter()
+                        .filter(|g| g.name == submission.candidate.name)
+                        .count()
+                        == 1;
+                    let hint = if unique {
+                        &submission.candidate.name
+                    } else {
+                        &submission.candidate.peer
+                    };
+                    emit(
+                        json!({"event":"connected","name":submission.candidate.name,"talk":talk,"clientId":submission.candidate.peer,"hintPerson":hint}),
+                    )?;
+                    self.request_reconcile();
+                    return Ok(());
+                }
+                provider.wait(&io, crate::limits::CLOUD_POLL_MIN_MS)?;
             }
-            provider.wait(&io, crate::limits::CLOUD_POLL_MIN_MS)?;
-        }
+        })();
+        let cleanup_cancel = AtomicBool::new(false);
+        let cleanup_io = IoBudget {
+            deadline: Instant::now() + crate::limits::CLOUD_RECONCILE_CALL,
+            cancelled: &cleanup_cancel,
+        };
+        run(
+            provider.delete_invite(&invite.challenge.offer, &cleanup_io),
+            &cleanup_io,
+        )?;
+        result
     }
     pub fn join(
         &self,
@@ -408,6 +424,7 @@ impl Service {
             uid: provider.uid().into(),
             request: raw.clone(),
             confirmed: false,
+            reroute_token: old.as_ref().and_then(|r| r.reroute_token),
             descriptor: old
                 .as_ref()
                 .map(|r| r.descriptor.clone())
@@ -430,10 +447,20 @@ impl Service {
             deadline: until,
             cancelled: &self.stop,
         };
-        run(
-            provider.enrollment_create(&invite.challenge.offer, provider.uid(), "join", &raw, &io),
+        let mut invite_token = invite.gate_token()?;
+        let submitted = run(
+            provider.enrollment_create(
+                &invite.challenge.offer,
+                provider.uid(),
+                "join",
+                &raw,
+                Some(super::EnrollmentProof::Invite(&invite_token)),
+                &io,
+            ),
             &io,
-        )?;
+        );
+        invite_token.fill(0);
+        submitted?;
         loop {
             if let Some(doc) = run(
                 provider.enrollment_get(&format!("{}-response", invite.challenge.offer), &io),
@@ -464,6 +491,17 @@ impl Service {
                 {
                     return Err(wire::invalid());
                 }
+                connection.reroute_token = Some(
+                    canonical::base64url_bytes(
+                        receipt["rerouteToken"]
+                            .as_str()
+                            .ok_or_else(wire::missing_reroute_token)?,
+                        32,
+                    )
+                    .map_err(|_| wire::invalid())?
+                    .try_into()
+                    .map_err(|_| wire::invalid())?,
+                );
                 connection.confirmed = true;
                 self.store()?.save_cloud_connection(&connection)?;
                 let talk = receipt["grant"]["scopes"]
@@ -505,7 +543,20 @@ impl Service {
             };
             let body = wire::route_request(&reroute, &self.key)?;
             run(
-                provider.enrollment_create(&id, provider.uid(), "reroute", &body, &io),
+                provider.enrollment_create(
+                    &id,
+                    provider.uid(),
+                    "reroute",
+                    &body,
+                    Some(super::EnrollmentProof::Reroute {
+                        peer: &record.peer,
+                        token: record
+                            .reroute_token
+                            .as_ref()
+                            .ok_or_else(wire::missing_reroute_token)?,
+                    }),
+                    &io,
+                ),
                 &io,
             )?;
             loop {
@@ -590,6 +641,7 @@ impl Service {
                                         &doc.uid,
                                         "receipt",
                                         body.as_bytes(),
+                                        None,
                                         &io,
                                     ),
                                     &io,
@@ -687,6 +739,7 @@ impl Service {
                 &doc.uid,
                 "route-response",
                 signature.as_bytes(),
+                None,
                 io,
             ),
             io,
