@@ -1,24 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import type { ReactElement } from 'react';
-import { BrowserMenu } from '../src/menu.js';
+import { createMenuController } from '../src/menu-controller.js';
 
-const hooks = vi.hoisted(() => ({
-  refs: [] as { current: unknown }[],
-  index: 0,
-  open: true,
-  effect: undefined as (() => (() => void) | undefined) | undefined,
-}));
-vi.mock('react', async (original) => ({
-  ...(await original<typeof import('react')>()),
-  useId: () => 'fixture-menu',
-  useRef: (value: unknown) => hooks.refs[hooks.index++] ?? { current: value },
-  useState: () => [hooks.open, vi.fn()],
-  useLayoutEffect: (effect: () => (() => void) | undefined) => {
-    hooks.effect = effect;
-  },
-  // The host-shortcut request effect has nothing to do while the menu is rendered by hand.
-  useEffect: () => undefined,
-}));
 vi.mock('../src/overlay.js', () => ({
   restoreOverlayFocus: vi.fn(),
   outsideOverlay: () => true,
@@ -30,7 +12,7 @@ vi.mock('../src/menu-position.js', () => ({
 }));
 afterEach(() => vi.unstubAllGlobals());
 
-function fixture(document?: object) {
+function fixture(document?: object, start = true, replaceSelection = false) {
   const callbacks: (() => void)[] = [];
   vi.stubGlobal(
     'ResizeObserver',
@@ -62,9 +44,11 @@ function fixture(document?: object) {
     getBoundingClientRect: () => ({ left: 0, top: 0, right: 40, bottom: 30 }),
   };
   const node = {
+    ownerDocument,
     isConnected: true,
     open: false,
     style: {},
+    dataset: {},
     scrollHeight: 40,
     offsetHeight: 40,
     clientHeight: 40,
@@ -77,38 +61,48 @@ function fixture(document?: object) {
     focus() {},
     getBoundingClientRect: () => ({ width: 100, height: 40 }),
   };
-  hooks.index = 0;
-  hooks.open = true;
-  hooks.refs = [{ current: anchor }, { current: node }, { current: [{ focus() {} }] }];
   const transitions: boolean[] = [];
   const selections: unknown[] = [];
-  const element = BrowserMenu({
-    label: 'Fixture',
-    items: [{ key: 'one', label: 'One' }],
-    onSelect: (_key, event) => selections.push(event),
-    onOpenChange: (open) => transitions.push(open),
-  });
-  const dialog = (element.props as { children: ReactElement[] }).children[1];
-  const props = dialog.props as Record<string, (event: unknown) => void>;
-  const menu = (dialog.props as { children: ReactElement }).children;
-  const rows = (menu.props as { children: [unknown, ReactElement[]] }).children[1];
-  const button = (rows[0].props as { children: ReactElement[] }).children[0];
-  const select = (button.props as { onClick(event: unknown): void }).onClick;
-  const mount = hooks.effect!;
-  const cleanup = mount()!;
+  const replacementSelections: unknown[] = [];
   const event = {
     isTrusted: true,
-    target: node,
+    target: node as unknown as EventTarget,
     currentTarget: node,
     key: '',
+    defaultPrevented: false,
+    clientX: -1,
+    clientY: -1,
     preventDefault() {},
     stopPropagation() {},
   };
+  let select = (_key: string, selected: typeof event) => selections.push(selected);
+  const controller = createMenuController({
+    items: () => [{ key: 'one', label: 'One' }],
+    disabled: () => false,
+    hasDescription: () => false,
+    trigger: () => anchor as unknown as HTMLButtonElement,
+    surface: () => node as unknown as HTMLDialogElement,
+    entries: () => [{ focus() {} } as HTMLButtonElement],
+    selection: () => select,
+    onOpenChange: (open) => {
+      transitions.push(open);
+      if (!open && replaceSelection) select = (_key, selected) => replacementSelections.push(selected);
+    },
+  });
+  const mount = controller.attachSurface;
+  if (start) controller.open();
+  const cleanup = start ? mount()! : () => {};
   return {
     transitions,
     selections,
-    select,
-    props,
+    replacementSelections,
+    select: (selected: typeof event) => controller.select('one', selected),
+    props: {
+      onKeyDown: controller.menuKey,
+      onClick: controller.surfaceClick,
+      onClose: controller.nativeClose,
+      onCancel: controller.cancel,
+    },
     mount,
     cleanup,
     event,
@@ -116,23 +110,15 @@ function fixture(document?: object) {
     anchor,
     callbacks,
     ownerDocument,
+    controller,
   };
 }
 
 describe('Menu visibility owner', () => {
   it('does not report an initial false while closed', () => {
-    hooks.index = 0;
-    hooks.refs = [];
-    hooks.open = false;
-    const transitions: boolean[] = [];
-    BrowserMenu({
-      label: 'Closed',
-      items: [{ key: 'one', label: 'One' }],
-      onSelect() {},
-      onOpenChange: (value) => transitions.push(value),
-    });
-    expect(hooks.effect!()).toBeUndefined();
-    expect(transitions).toEqual([]);
+    const f = fixture(undefined, false);
+    expect(f.mount()).toBeUndefined();
+    expect(f.transitions).toEqual([]);
   });
   it('reports exactly one true after native opening', () => {
     const f = fixture();
@@ -194,4 +180,22 @@ describe('Menu visibility owner', () => {
     expect(f.transitions).toEqual([true]);
     f.cleanup();
   });
+});
+
+it('captures the selected callback before a close notification replaces the host', () => {
+  const f = fixture(undefined, true, true);
+  f.select(f.event);
+  expect(f.selections).toEqual([f.event]);
+  expect(f.replacementSelections).toEqual([]);
+});
+
+it('closed and disposed menus dispatch no selection and cannot reopen after disposal', () => {
+  const f = fixture();
+  f.controller.close();
+  f.select(f.event);
+  expect(f.selections).toEqual([]);
+  f.controller.dispose();
+  f.controller.open();
+  expect(f.controller.getSnapshot()).toEqual({ open: false, present: false });
+  expect(f.transitions).toEqual([true, false]);
 });

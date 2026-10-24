@@ -596,6 +596,7 @@ export function MenusSection() {
         )}
       </Pair>
       <FramePair title="BrowserMenu open" frame="menu" height={300} />
+      <FramePair title="React and framework-free menu parity" frame="menu-host" height={480} />
     </Section>
   );
 }

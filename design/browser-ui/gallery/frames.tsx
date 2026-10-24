@@ -1,4 +1,5 @@
 import { ChartsSection } from './charts.js';
+import { MenuHostFrame } from './menu-host-frame.js';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Settings } from 'lucide-react';
@@ -532,6 +533,8 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
       return <DrawerFrame params={params} />;
     case 'source':
       return <SourceFrame params={params} />;
+    case 'menu-host':
+      return <MenuHostFrame params={params} />;
     case 'menu':
       return <MenuFrame />;
     case 'notifications':
