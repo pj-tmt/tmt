@@ -43,9 +43,11 @@ mod tests {
         assert!(!rules.contains("CLOUD_INBOX_PAGE_DOCUMENTS"));
         assert!(rules.contains("request.query.limit >= 1 && request.query.limit <= 4"));
         assert_eq!(
-            rules.matches("request.query.limit == 1").count(),
-            1,
-            "enrollment retains its one-document cap"
+            rules
+                .matches("allow list: if machineOwner(machine) && request.query.limit == 1;")
+                .count(),
+            2,
+            "enrollment and expired invite cleanup retain owner-only one-document caps"
         );
         assert!(rules.contains(&format!("<= {}", crate::limits::CLOUD_CARRIER_BYTES)));
         assert_eq!(
@@ -62,8 +64,8 @@ mod tests {
         assert!(rules.contains("peerRead(machine)"));
         assert_eq!(
             rules.matches("allow list:").count(),
-            2,
-            "only machine inbox and enrollment can list"
+            3,
+            "only machine inbox, enrollment and owner invite cleanup can list"
         );
         assert!(!rules.contains("{tail=**}"));
     }
