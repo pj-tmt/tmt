@@ -3,8 +3,8 @@
 use super::{
     native_factory::NativePorts,
     object_tests::{ServeObjectFixture, ServeObjectRun, ordinary_page},
-    test_isolation::isolated_case,
 };
+use crate::test_isolation::isolated_case;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
 use std::{
