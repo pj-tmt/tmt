@@ -1413,3 +1413,117 @@ test.describe('the Digest route on the owner reads', () => {
       await page.close();
     });
 });
+
+test.describe('Settings General website presentation', () => {
+  for (const width of [1440, 390])
+    for (const theme of ['light', 'dark'] as const)
+      test(`General cards, shared inset and theme choices at ${width} ${theme}`, async () => {
+        const { page, requests } = await openApp('/settings#general', async (page) => {
+          await page.setViewportSize({ width, height: 1050 });
+          await page.emulateMedia({ colorScheme: theme });
+          await page.addInitScript((theme) => {
+            if (localStorage.getItem('tmt-ui-theme') === null)
+              localStorage.setItem('tmt-ui-theme', theme);
+          }, theme);
+        });
+        try {
+          const general = page.locator('#tmt-settings-page');
+          await expect(general).toHaveClass(/tmt-ui-page/);
+          await expect(
+            general.getByRole('heading', { name: 'Make TMT feel like yours.' }),
+          ).toBeVisible();
+          await expect(
+            general.getByRole('heading', { name: 'Appearance', exact: true }),
+          ).toBeVisible();
+          await expect(general.getByRole('heading', { name: 'Core configuration' })).toBeVisible();
+          await expect(general).toContainText('This browser cannot read Core settings yet.');
+          await expect(general).toContainText('View machine configuration in your terminal.');
+          await expect(general.locator('.tmt-settings-read-only')).toHaveText('Read only');
+          await expect(general).not.toContainText('Reference defaults');
+          await expect(general).not.toContainText('5000');
+          await expect(general.locator('.tmt-settings-theme-radio')).toHaveCount(3);
+          await expect(general.locator('.tmt-settings-theme-preview')).toHaveCount(3);
+          await expect(general.locator('.tmt-ui-glyph-tile svg')).toHaveCount(1);
+          const link = general.getByRole('link', { name: 'Browse modules →' });
+          await expect(link).toHaveCSS('text-decoration-line', 'none');
+          await expect(general).toHaveCSS('padding-left', width === 390 ? '18px' : '36px');
+          const cards = general.locator('.tmt-settings-card');
+          await expect(cards).toHaveCount(4);
+          await expect(cards.first()).toHaveCSS('border-radius', '8px');
+          await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
+          if (process.env.TMT_SETTINGS_CAPTURE_DIR) {
+            await page.evaluate(() => document.fonts.ready);
+            await page.screenshot({
+              path: join(process.env.TMT_SETTINGS_CAPTURE_DIR, `general-${width}-${theme}.png`),
+              fullPage: true,
+            });
+          }
+          const menu = modulePages(page);
+          await expect(menu.getByRole('link', { name: 'General', exact: true })).toHaveAttribute(
+            'aria-current',
+            'page',
+          );
+          const tabs = general.getByRole('tablist', { name: 'Theme' });
+          await tabs.getByRole('tab', { name: 'Dark', exact: true }).click();
+          await expect(tabs.getByRole('tab', { name: 'Dark', exact: true })).toHaveAttribute(
+            'aria-selected',
+            'true',
+          );
+          expect(await page.evaluate(() => localStorage.getItem('tmt-ui-theme'))).toBe('dark');
+          await page.reload();
+          await expect(tabs.getByRole('tab', { name: 'Dark', exact: true })).toHaveAttribute(
+            'aria-selected',
+            'true',
+          );
+          await tabs.getByRole('tab', { name: 'Dark', exact: true }).focus();
+          await page.keyboard.press('ArrowRight');
+          await expect(tabs.getByRole('tab', { name: 'System', exact: true })).toBeFocused();
+          await expect(tabs.getByRole('tab', { name: 'System', exact: true })).toHaveAttribute(
+            'aria-selected',
+            'true',
+          );
+          expect(await page.evaluate(() => localStorage.getItem('tmt-ui-theme'))).toBeNull();
+          await link.click();
+          await expect(page).toHaveURL(/#modules$/);
+          await expect(general).not.toHaveClass(/tmt-ui-page/);
+          await expect(general).not.toContainText('Make TMT feel like yours.');
+          await menu.getByRole('link', { name: 'General', exact: true }).click();
+          await expect(
+            general.getByRole('heading', { name: 'Appearance', exact: true }),
+          ).toBeVisible();
+          // Settings has no machine read: these actions only change browser presentation.
+          expect(
+            requests.filter((request) => /\/x\/.*\/(config|settings)(?:\?|$)/.test(request.url())),
+          ).toEqual([]);
+        } finally {
+          await page.close();
+        }
+      });
+
+  for (const denied of [false, true])
+    test(`General Copy ${denied ? 'denied' : 'succeeds'} with exact command and no execution`, async () => {
+      const { page } = await openApp('/settings#general', async (page) => {
+        await page.addInitScript((denied) => {
+          Object.defineProperty(navigator, 'clipboard', {
+            value: {
+              writeText: async (text: string) => {
+                (window as unknown as { copiedCommand: string }).copiedCommand = text;
+                if (denied) throw new Error('denied');
+              },
+            },
+          });
+        }, denied);
+      });
+      try {
+        await page.getByRole('button', { name: 'Copy tmt config show' }).click();
+        await expect(page.locator('.tmt-settings-command-feedback')).toHaveText(
+          denied ? 'Copy failed. Select the command and copy it manually.' : 'Copied.',
+        );
+        expect(
+          await page.evaluate(() => (window as unknown as { copiedCommand: string }).copiedCommand),
+        ).toBe('tmt config show');
+      } finally {
+        await page.close();
+      }
+    });
+});

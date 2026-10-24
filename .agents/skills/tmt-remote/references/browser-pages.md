@@ -188,6 +188,16 @@ Unchanged access and Firestore projections do not repaint on unrelated draft inp
 slots announce only changed settled states; the layer lists, budget and Details stay outside
 those live regions. Presentation equality never suppresses signed reads or authority checks.
 
+## TMT Settings General
+
+General uses the shared shell module menu and page inset. Its appearance previews keep the existing
+browser-only System/Light/Dark theme owner and keyboard choice. Core configuration remains read-only:
+observed source rows are shown as supplied; without a browser read, the amber card names
+`tmt config show` and its Copy control reports success or manual-copy guidance. Copy never executes
+commands. No reference defaults or sample records are substituted for machine values. Specific source
+refusals remain visible, and sample injection stays labelled. The route signal still fences late reads.
+The machine-guidance card links to the existing Modules section; it does not introduce a source read.
+
 ## Digest presentation
 
 `digest-page` combines per-seat activity with Token usage through its Stacked/Lines and Absolute/Share

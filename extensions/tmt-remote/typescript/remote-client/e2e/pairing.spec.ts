@@ -4940,9 +4940,13 @@ test('Home and TMT settings render in the shell and fit both sizes and themes', 
     await expect(page.locator('html')).not.toHaveAttribute('data-theme');
     // Without a browser read each section names the terminal command and shows no values.
     await expect(page.locator('#tmt-settings-section')).toContainText(
-      'TMT settings is not in the browser yet. Run tmt config show in a terminal.',
+      'This browser cannot read Core settings yet.',
     );
-    await expect(page.locator('#tmt-settings-section code')).toHaveText('tmt config show');
+    await expect(page.locator('#tmt-settings-section')).toContainText(
+      'View machine configuration in your terminal.',
+    );
+    await expect(page.locator('.tmt-settings-warning code')).toHaveText('tmt config show');
+    await expect(page.getByRole('button', { name: 'Copy tmt config show' })).toBeVisible();
     await expect(page.locator('#tmt-settings-note')).toBeHidden();
     await expect(page.locator('#tmt-settings-section .tmt-ui-list-row')).toHaveCount(0);
     // The only route-prefixed read is the owner's composed shell (display data).
