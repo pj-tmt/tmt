@@ -439,7 +439,13 @@ identities list as `idle_source`, so no presence is read), `OpsMembershipState::
 `OpsSquad::idle_alert` carry the result, and `activity::Label::idle_over` (only while the label
 reads idle) makes `columns::activity_spans`, `team_strip::line` and the squad team strip paint
 `state_cell::over` (`◷`, `!` under the ASCII glyph set) in the attention colour before the idle word.
-The squad row's MODEL cell names `idle alert 30m` while enabled; nothing is derived in the board.
+The squad row's MODEL / ALERT cell shows `◷ 30m` or `○ off` from that observation;
+`idle_alert_editor` owns its clipped hit, effective `i` entry, scoped chooser and disposable
+form. It uses shared Modal/ChipGroup/Editor/input styles. The action lane loads Config and
+validates both settings before writing changed keys through `set_setting` (After, then enabled).
+A second-write refusal rereads the saved setting, keeps the draft and names the partial result.
+Its threshold preview uses held activity and published over marks; paint/input acquire nothing
+and never dispatch alerts. The catalog supplies Help, Settings and whole footer hints.
 The per-squad settings overlay is reached from the Workspace settings menu (`Choice::SquadSettings`, last
 after a `Choice::Rule`; absent without a selected squad): `Opening::SquadSettings` opens it in that squad's
 context with `Overlay::from_menu`, which keeps a refresh from closing it, returns Esc to the menu, titles it

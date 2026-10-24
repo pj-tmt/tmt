@@ -119,7 +119,7 @@ impl Marks {
 
     fn lit(&self, control: Control, base: Style, look: crate::look::Look) -> Style {
         if self.hover == Some(control) {
-            base.patch(look.role(Role::Accent))
+            hovered(base, look)
         } else {
             base
         }
@@ -284,6 +284,11 @@ pub(in crate::board) fn word_hit(slot: Rect, lead: u16, word: &str) -> Option<Re
     let area =
         Rect::new(slot.x.saturating_add(lead), slot.y, hit_width(word), 1).intersection(slot);
     (area.width > 0).then_some(area)
+}
+
+/// Shared pointer highlight for a header control or editable squad alert cell.
+pub(in crate::board) fn hovered(base: Style, look: crate::look::Look) -> Style {
+    base.patch(look.role(Role::Accent))
 }
 
 #[cfg(test)]
