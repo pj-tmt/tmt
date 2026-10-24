@@ -11,7 +11,7 @@ use std::{
     io::{Read, Write},
     os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::PathBuf,
-    sync::{Mutex, MutexGuard},
+    sync::{Mutex, MutexGuard, TryLockError},
 };
 
 pub struct FileStore {
@@ -102,7 +102,16 @@ impl FileStore {
         dir.directory.join(format!("{}.json", self.project))
     }
     fn lock(&self, dir: &tmt_extension_state::Layout) -> Result<CredentialLock<'_>, AuthError> {
-        let mut handle = self.handle.try_lock().map_err(|_| unavailable())?;
+        let mut handle = match self.handle.try_lock() {
+            Ok(handle) => handle,
+            Err(TryLockError::WouldBlock) => return Err(unavailable()),
+            Err(TryLockError::Poisoned(poisoned)) => {
+                let mut handle = poisoned.into_inner();
+                *handle = None;
+                self.handle.clear_poison();
+                return Err(unavailable());
+            }
+        };
         let path = dir.directory.join(format!("{}.lock", self.project));
         if handle.is_none() {
             *handle = Some(
@@ -127,6 +136,7 @@ impl FileStore {
         let current = fs::symlink_metadata(path).map_err(|_| invalid())?;
         let opened = file.metadata().map_err(|_| invalid())?;
         if !current.is_file() || current.dev() != opened.dev() || current.ino() != opened.ino() {
+            *handle = None;
             return Err(invalid());
         }
         file.try_lock().map_err(|_| unavailable())?;
