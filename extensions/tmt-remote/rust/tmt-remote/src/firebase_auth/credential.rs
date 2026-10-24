@@ -513,4 +513,46 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn credential_handle_recovers_after_an_inode_mismatch_refusal() {
+        let (root, store, credential) = fixture();
+        let dir = store.directory(false).unwrap().unwrap();
+        let path = dir.directory.join("demo-credential-lock.lock");
+        fs::rename(&path, dir.directory.join("previous.lock")).unwrap();
+        OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap();
+        assert_eq!(
+            store.load().err().unwrap().kind,
+            AuthErrorKind::InvalidCredential
+        );
+        let other =
+            FileStore::new(&Layout::open(&root.0).unwrap(), "demo-credential-lock").unwrap();
+        let competing = other.lock(&dir).unwrap();
+        assert_eq!(
+            store.load().err().unwrap().kind,
+            AuthErrorKind::Unavailable,
+            "the reopened path must still respect a genuine competing owner"
+        );
+        drop(competing);
+        assert_eq!(store.load().unwrap().credential, Some(credential));
+    }
+
+    #[test]
+    fn credential_handle_recovers_after_a_poisoned_mutex_refusal() {
+        let (_root, store, credential) = fixture();
+        let dir = store.directory(false).unwrap().unwrap();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _lock = store.lock(&dir).unwrap();
+            panic!("fixture poisons the credential operation guard");
+        }));
+        assert!(panic.is_err());
+        assert!(store.handle.is_poisoned());
+        assert_eq!(store.load().err().unwrap().kind, AuthErrorKind::Unavailable);
+        assert_eq!(store.load().unwrap().credential, Some(credential));
+    }
 }
