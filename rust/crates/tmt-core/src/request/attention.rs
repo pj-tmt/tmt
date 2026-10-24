@@ -66,6 +66,9 @@ pub struct Exchange<T = ()> {
     pub recipient_identity_id: Option<String>,
     pub prepared_at_ms: u64,
     pub delivery: AttemptStatus,
+    /// The sender's view of the message, derived when read ([message state]
+    /// (../../../../contracts/request-response-v1.md#message-state)); `delivery` is the raw attempt status.
+    pub message_state: super::delivery::DeliveryView,
     pub final_state: FinalState<T>,
     pub revision: u64,
     pub acknowledged: bool,

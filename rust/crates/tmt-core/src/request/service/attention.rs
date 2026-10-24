@@ -4,6 +4,7 @@ use crate::request::attention::{
     ExchangeDetail, ExchangePage, FinalState, IncomingItem, IncomingKind, IncomingPage,
     MAX_LIST_LIMIT,
 };
+use crate::request::delivery::{DeliveryView, delivery_view};
 use crate::request::digest::DeliveryMode;
 
 fn selector<E>(value: &str) -> Result<(), RequestError<E>> {
@@ -82,10 +83,20 @@ pub(super) fn final_state<T, E>(
     })
 }
 
+/// The sender's view of one message, from stored facts only (never the raw attempt status).
+fn message_state<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    attempt: &RequestAttempt,
+    now: u64,
+) -> Result<DeliveryView, RequestError<E>> {
+    Ok(delivery_view(&records.delivery_facts(attempt, now)?, now))
+}
+
 fn exchange<T>(
     record: AttentionRecord,
     final_state: FinalState<T>,
     delivery_policy: super::super::digest::DeliveryPolicy,
+    message_state: DeliveryView,
 ) -> Exchange<T> {
     let acknowledged = record.acknowledged_revision >= record.revision
         || record.acknowledged_through >= record.revision;
@@ -96,6 +107,7 @@ fn exchange<T>(
         recipient_identity_id: record.attempt.recipient_identity_id,
         prepared_at_ms: record.attempt.prepared_at_ms,
         delivery: record.attempt.status,
+        message_state,
         final_state,
         revision: record.revision,
         acknowledged,
@@ -153,9 +165,10 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 let sender_identity_id = record.attempt.originator.identity_id().map(str::to_owned);
                 let recipient_identity_id = record.attempt.recipient_identity_id.clone();
                 let delivery_policy = records.delivery_policy(&record.attempt.request_id)?;
+                let view = message_state(records, &record.attempt, now)?;
                 let state = final_state(&record, now, Some(()), delivery_policy.mode)?;
                 items.push(IncomingItem {
-                    exchange: exchange(record, state, delivery_policy),
+                    exchange: exchange(record, state, delivery_policy, view),
                     kind,
                     sender_identity_id,
                     recipient_identity_id,
@@ -168,9 +181,10 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 let recipient_identity_id =
                     record.attempt.originator.identity_id().map(str::to_owned);
                 let delivery_policy = records.delivery_policy(&record.attempt.request_id)?;
+                let view = message_state(records, &record.attempt, now)?;
                 let state = final_state(&record, now, Some(()), delivery_policy.mode)?;
                 items.push(IncomingItem {
-                    exchange: exchange(record, state, delivery_policy),
+                    exchange: exchange(record, state, delivery_policy, view),
                     kind: IncomingKind::Response,
                     sender_identity_id,
                     recipient_identity_id,
@@ -206,9 +220,10 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 .find_response(request)?
                 .filter(|r| now < r.response_expires_at_ms);
             let delivery_policy = records.delivery_policy(&record.attempt.request_id)?;
+            let view = message_state(records, &record.attempt, now)?;
             let state = final_state(&record, now, response.map(|r| r.body), delivery_policy.mode)?;
             Ok(ExchangeDetail {
-                exchange: exchange(record, state, delivery_policy),
+                exchange: exchange(record, state, delivery_policy, view),
                 prompt: context.prompt,
             })
         })
@@ -295,8 +310,9 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 .into_iter()
                 .map(|record| {
                     let delivery_policy = records.delivery_policy(&record.attempt.request_id)?;
+                    let view = message_state(records, &record.attempt, now)?;
                     let state = final_state(&record, now, Some(()), delivery_policy.mode)?;
-                    Ok(exchange(record, state, delivery_policy))
+                    Ok(exchange(record, state, delivery_policy, view))
                 })
                 .collect::<Result<_, RequestError<R::Error>>>()?;
             Ok(ExchangePage { items, next_after })
@@ -317,6 +333,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 .find_response(request)?
                 .filter(|response| now < response.response_expires_at_ms);
             let delivery_policy = records.delivery_policy(&record.attempt.request_id)?;
+            let view = message_state(records, &record.attempt, now)?;
             let state = final_state(
                 &record,
                 now,
@@ -324,7 +341,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 delivery_policy.mode,
             )?;
             Ok(ExchangeDetail {
-                exchange: exchange(record, state, delivery_policy),
+                exchange: exchange(record, state, delivery_policy, view),
                 prompt: context.prompt,
             })
         })

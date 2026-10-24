@@ -774,9 +774,11 @@ The following semantic scenarios are illustrative only, not final JSON schemas:
 
 ### Message state
 
-Every history item and `requests.show` detail carries one `messageState` object for the sender's
+Every history item and `requests.show` detail, and every `x`, `x show`, `x listen` and `inbox` item, carries one `messageState` object for the sender's
 view of that message, derived at read time from stored facts only (never pane text), so every
-client paints the same words and keeps no copy of the rules:
+client paints the same words and keeps no copy of the rules. The `delivery` field beside it is the
+raw attempt status: a request held by Digest stays `queued` after its checklist is delivered, so read
+`messageState`, not `delivery`, to tell held from handed over:
 
 | `state`       | When                                                                                                                               | `canSendNow`                                                       |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |

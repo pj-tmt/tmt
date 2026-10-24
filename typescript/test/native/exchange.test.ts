@@ -149,7 +149,7 @@ describe('native exchange attention process contract', () => {
       expect(listed.status).toBe(0);
       expect(listed.stderr).toBe('');
       expect(listed.stdout).toBe(
-        'EXCHANGES 1\n' + '  human-exchange  -  sent  not_submitted  r1\n'
+        'EXCHANGES 1\n' + '  human-exchange  -  delivered  not_submitted  r1\n'
       );
       expect(responseSnapshot(sandbox.database, seeded.requestId)).toEqual(before);
       const acknowledged = await runCli(sandbox, [
@@ -199,7 +199,7 @@ describe('native exchange attention process contract', () => {
       expect(shown.status).toBe(0);
       expect(shown.stdout).toBe(
         'human-exchange\n' +
-          '  delivery      sent\n' +
+          '  message       delivered\n' +
           '  urgent        false\n' +
           '  digest kind   fyi\n' +
           '  final         retained\n' +
@@ -320,6 +320,7 @@ describe('native exchange attention process contract', () => {
             requestId: seeded.requestId,
             revision: 1,
             delivery: 'sent',
+            messageState: { state: 'delivered', canSendNow: false },
             final: { status: 'not_submitted' },
             acknowledged: false,
             settled: false,
