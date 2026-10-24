@@ -53,7 +53,7 @@
       "",
       "        ┌ cron · all squads ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
       "        │ (no jobs · n new)                                                                                                                            │",
-      "        │ 1–1 of 1                                                                                                                                     │",
+      "        │                                                                                                                                              │",
       "        │ 0 jobs · clock: unknown · ! storage unreachable                                                                                              │",
       "        │ ↑↓ choose  ⏎ open squad  n new  e expand  p pause  x send  o reassign  d delete  Esc close                                                   │",
       "        └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
@@ -68,7 +68,7 @@
       "",
       "     ┌ cron · all squads ─────────────────────────────────────────────────────────────────────┐",
       "     │ (no jobs · n new)                                                                      │",
-      "     │ 1–1 of 1                                                                               │",
+      "     │                                                                                        │",
       "     │ 0 jobs · clock: unknown · ! storage unreachable                                        │",
       "     │ ↑↓ choose  ⏎ open squad  n new  e expand  p pause  x send  o reassign  Esc close       │",
       "     └────────────────────────────────────────────────────────────────────────────────────────┘"
@@ -83,7 +83,7 @@
       "",
       "┌ cron · all squads ───────────────────────────────────────────────────────────┐",
       "│ (no jobs · n new)                                                            │",
-      "│ 1–1 of 1                                                                     │",
+      "│                                                                              │",
       "│ 0 jobs · clock: unknown · ! storage unreachable                              │",
       "│ ↑↓ choose  ⏎ open squad  n new  e expand  p pause  x send  Esc close         │",
       "└──────────────────────────────────────────────────────────────────────────────┘"
