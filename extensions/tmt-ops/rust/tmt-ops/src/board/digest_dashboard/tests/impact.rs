@@ -16,6 +16,7 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "impact-week",
     "impact-all-time",
     "impact-basis",
+    "impact-generic-labels",
 ];
 
 pub(in crate::board) fn capture_case(
@@ -72,6 +73,37 @@ pub(in crate::board) fn capture_case(
         }
     }
     app.labels = crate::labels::Supplied::from_document("digest", &doc, scene == "impact-stale");
+    if scene == "impact-generic-labels" {
+        let choose = crate::labels::Choose::parse(
+            "digest",
+            &serde_json::json!({
+                "kind":"choose", "argv":["digest", MEMBER, "{value}"], "current":"auto",
+                "options":[{"label":"Auto", "value":"auto"}, {"label":"Off", "value":"off"}]
+            }),
+        )
+        .unwrap();
+        let labels = vec![
+            crate::labels::Label {
+                text: "Auto".into(),
+                role: tmt_cli_style::Role::Text,
+                action: Some(choose),
+            },
+            crate::labels::Label {
+                text: "3 held".into(),
+                role: tmt_cli_style::Role::Muted,
+                action: None,
+            },
+            crate::labels::Label {
+                text: "Latest in 4:58".into(),
+                role: tmt_cli_style::Role::Muted,
+                action: None,
+            },
+        ];
+        app.labels = crate::labels::Supplied::from_rows(vec![(
+            "digest".into(),
+            std::collections::BTreeMap::from([(MEMBER.into(), labels)]),
+        )]);
+    }
     app.view.as_mut().unwrap().look = look;
     app.workspace_reconcile();
     app

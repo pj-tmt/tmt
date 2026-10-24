@@ -235,9 +235,22 @@ pub(super) fn detail_lines(
             metrics::token_text(metrics::tokens(report, &ids))
         ),
     ];
-    if app.labels.digest().is_none() {
-        text.push("Digest not available".into());
-        text.push("Install: tmt extension install digest".into());
+    let statistics_available = app.labels.digest().is_some();
+    let selected_id = row.and_then(|row| row["id"].as_str());
+    if !statistics_available {
+        // Valid supplier labels keep their existing priority and chooser even without typed stats.
+        if let Some(id) = selected_id {
+            text.extend(model::details(
+                &app.labels,
+                id,
+                now_ms,
+                app.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
+            ));
+        }
+        if selected_id.is_none_or(|id| model::labels(&app.labels, id).is_empty()) {
+            text.push("Digest not available".into());
+            text.push("Install: tmt extension install digest".into());
+        }
     }
     text.push(format!("Impact · {}", app.digest_window().label()));
     let summary = metrics::savings(app, &ids);
@@ -278,12 +291,14 @@ pub(super) fn detail_lines(
     }
     text.push("Estimate basis".into());
     if let Some(id) = row.and_then(|row| row["id"].as_str()) {
-        text.extend(model::details(
-            &app.labels,
-            id,
-            now_ms,
-            app.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
-        ));
+        if statistics_available {
+            text.extend(model::details(
+                &app.labels,
+                id,
+                now_ms,
+                app.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
+            ));
+        }
         text.push(
             report
                 .and_then(|report| metrics::recipient(report, id))
