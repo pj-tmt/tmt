@@ -202,3 +202,29 @@ failure, deadline budget, elapsed time and retained output without another query
 or a changed timeout. `outputAvailable: false` means output was not retained,
 not that the command produced none. A later probe never explains an earlier
 CLI naming failure by itself; keep their evidence separate.
+
+## Pinned real-harness advisory lane
+
+`test/e2e/real-harness-pins.json` owns exact provider versions and archive
+SHA-512 integrity; `scripts/acquire-real-harness.mjs` validates and acquires them
+only in the derived image build. `real-harness.config.ts` selects only the
+advisory smoke, outside ordinary E2E selection. The separate workflow accepts
+manual dispatch or the `real-harness` label on same-repository PRs, never the
+required PR/merge-group path. Its container is loopback-only, uses a private
+HOME/config and the existing private-tmux fixture, and installs hooks through
+public `tmt setup` before public `tmt run` launch. Version mismatch stops before
+any model turn. The image stays inside the job, without publication or an
+external image cache.
+
+The first smoke's `tmt check` output is diagnostic: a per-run marker occurs only
+in the mock response and must appear through bounded public JSON polling.
+SessionStart qualification additionally requires the public ls/whoami session
+UUID to equal the validated UUID parsed from the pinned client's request.
+The mock exposes only `sessionId`, never raw headers, metadata or request bodies.
+Wire locations remain provisional until a hosted census proves them for each
+pin; missing/moved fields fail qualification. Declarative side routes are added
+only from that census and never consume a scripted turn. Public durable
+exchange/result assertions belong to scenario 6 (#4549), not this diagnostic.
+The workflow preserves bounded census, versions and measured setup/run seconds;
+a budget row requires at least five samples. No local provider acquisition or
+Docker run is authorized by this reference.
