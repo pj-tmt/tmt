@@ -20,8 +20,8 @@ pub use operations::{
 
 use crate::{
     endpoint::{
-        BindingMarker, EndpointProbe, EndpointSnapshot, PaneObservation, ServerEvidence,
-        incarnations_differ,
+        BindingMarker, EndpointProbe, EndpointSnapshot, PaneObservation, ProcessIncarnation,
+        ServerEvidence, incarnations_differ,
     },
     identity::{Identity, IdentityReader, IdentityRepository},
     names::{NameError, ValidatedName},
@@ -154,6 +154,24 @@ pub struct UnboundIdentity {
 }
 
 pub trait BindingRecords: IdentityReader {
+    /// Provisional launch evidence grants no runtime/session authority.
+    fn begin_launch_observation(
+        &mut self,
+        binding: &Binding,
+        owner: &ProcessIncarnation,
+        driver: &session::HarnessId,
+        now_ms: u64,
+    ) -> Result<bool, Self::Error>;
+    fn launch_observation(
+        &self,
+        binding_id: &str,
+        owner: &ProcessIncarnation,
+    ) -> Result<Option<session::launch::LaunchObservation>, Self::Error>;
+    fn set_launch_observation(
+        &mut self,
+        expected: &session::launch::LaunchObservation,
+        next: &session::launch::LaunchObservation,
+    ) -> Result<bool, Self::Error>;
     fn insert_identity(
         &mut self,
         name: &ValidatedName,

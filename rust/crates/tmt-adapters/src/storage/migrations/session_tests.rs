@@ -391,3 +391,58 @@ fn refused_start_upgrade_rolls_back_its_column_and_cursor_trigger_together() {
     storage.close().unwrap();
     oracle.close().unwrap();
 }
+
+#[test]
+fn launch_observations_are_binding_owned_and_do_not_admit_a_session() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("early-start.db");
+    Storage::open(&path).unwrap().close().unwrap();
+    let db = Connection::open(&path).unwrap();
+    db.pragma_update(None, "foreign_keys", true).unwrap();
+    db.execute_batch("INSERT INTO identities (id,name,canonical_name,created_at,updated_at)
+        VALUES ('identity','Alpha','alpha','created','updated');
+        INSERT INTO bindings (id,identity_id,transport,pane_id,server_id,socket_path,server_pid,server_start_time,pane_pid,bound_at,last_verified_at)
+        VALUES ('binding','identity','tmux','%3','server','/tmp/private',41,'server-start',51,'bound','verified');").unwrap();
+    let insert = "INSERT INTO launch_observations
+        (binding_id,owner_pid,owner_start,driver,created_at_ms,expires_at_ms)
+        VALUES ('binding',61,'owner-start','claude',100,200)";
+    db.execute(insert, [])
+        .expect("a launch intent has one durable row before the provider starts");
+    assert!(
+        db.execute(insert, []).is_err(),
+        "the same launch cannot have two rows"
+    );
+    db.execute("UPDATE launch_observations SET status='pending',provider_pid=71,provider_start='provider-start',provider_session='session',runtime_mode='default',observed_at_ms=110 WHERE binding_id='binding'", []).unwrap();
+    let state: (String, Option<String>) = db
+        .query_row(
+            "SELECT runtime_state,observed_provider_session_id FROM bindings",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(state, ("unknown".into(), None));
+    assert_eq!(
+        db.query_row(
+            "SELECT count(*) FROM identity_session_preferences",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0,
+        "a pending observation grants no remembered session"
+    );
+    assert!(
+        db.execute("UPDATE launch_observations SET provider_pid=NULL", [])
+            .is_err(),
+        "partial process/session evidence is invalid"
+    );
+    db.execute("DELETE FROM bindings WHERE id='binding'", [])
+        .unwrap();
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM launch_observations", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        0,
+        "rebind and retirement cannot retain evidence for a deleted binding"
+    );
+}

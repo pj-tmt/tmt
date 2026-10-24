@@ -324,6 +324,10 @@ const MIGRATIONS: &[Migration] = &[
     ),
     migration!("let a request carry a remote route", "schema/065.sql"),
     migration!("let a final answer a remote request", "schema/066.sql"),
+    migration!(
+        "retain early provider starts until exact launch admission",
+        "schema/067.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

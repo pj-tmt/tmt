@@ -99,6 +99,37 @@ impl IdentityReader for BindingRows<'_> {
 }
 
 impl BindingRecords for BindingRows<'_> {
+    fn begin_launch_observation(
+        &mut self,
+        binding: &Binding,
+        owner: &ProcessIncarnation,
+        driver: &tmt_core::binding::session::HarnessId,
+        now_ms: u64,
+    ) -> Result<bool, Self::Error> {
+        if self
+            .entry_by_id(&binding.identity_id)?
+            .and_then(|entry| entry.binding)
+            .as_ref()
+            != Some(binding)
+        {
+            return Ok(false);
+        }
+        super::launch_observations::begin(self.0, &binding.id, owner, driver, now_ms)
+    }
+    fn launch_observation(
+        &self,
+        binding_id: &str,
+        owner: &ProcessIncarnation,
+    ) -> Result<Option<tmt_core::binding::session::launch::LaunchObservation>, Self::Error> {
+        super::launch_observations::read(self.0, binding_id, owner)
+    }
+    fn set_launch_observation(
+        &mut self,
+        expected: &tmt_core::binding::session::launch::LaunchObservation,
+        next: &tmt_core::binding::session::launch::LaunchObservation,
+    ) -> Result<bool, Self::Error> {
+        super::launch_observations::replace(self.0, expected, next)
+    }
     fn insert_identity(
         &mut self,
         name: &ValidatedName,
