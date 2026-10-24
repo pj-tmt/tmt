@@ -1,52 +1,46 @@
-/* The v4 look (design page 870f989c): large type, full bleed, hairlines, no cards, no shadows.
- * Widths follow the page's own width (container units) up to a bounded maximum. */
+/* The Team dashboard follows the concept website: the page's own head, then one card holding the
+ * maintainer's lines, three count tiles and the Pages list beside the selected page. */
 .shell-page {
-  --shell-max: 1680px;
-  --shell-pad: clamp(18px, 6cqw, 96px);
   container-type: inline-size;
-  box-sizing: border-box;
   width: 100%;
-  max-width: var(--shell-max);
+  max-width: 1680px;
   margin: 0 auto;
-  padding: 0 0 80px;
 }
 .shell-state {
-  margin: 0 var(--shell-pad) 24px;
+  margin: 0;
   color: var(--tmt-ui-color-secondary);
 }
 .shell-mark {
   color: var(--tmt-ui-color-waiting);
 }
-
-/* Greeting and the maintainer agent's two lines. */
-.shell-hero {
-  padding: clamp(32px, 6cqw, 96px) var(--shell-pad) clamp(24px, 4cqw, 56px);
+.shell-glance > .tmt-ui-card-title {
+  font-size: 1.25rem;
+  font-weight: 660;
+  line-height: 1.4;
+  letter-spacing: -0.025em;
 }
-.shell-greeting {
+
+.shell-pages .tmt-ui-card-title {
+  font-size: 1rem;
+}
+
+/* The maintainer agent's two lines. */
+.shell-summary {
+  display: grid;
+  gap: 4px;
+}
+.shell-summary p {
   margin: 0;
-  max-width: 20ch;
-  font-size: clamp(36px, 5.4cqw, 80px);
-  line-height: 1;
-  letter-spacing: -0.05em;
-  font-weight: 650;
-  text-wrap: balance;
 }
 .shell-summary-line1 {
-  margin: 22px 0 0;
-  max-width: 46ch;
-  font-size: clamp(18px, 1.8cqw, 24px);
-  line-height: 1.3;
+  font-size: 0.8125rem;
   font-weight: 600;
 }
 .shell-summary-line2 {
-  margin: 6px 0 0;
-  max-width: 46ch;
-  font-size: clamp(16px, 1.5cqw, 20px);
-  line-height: 1.4;
   color: var(--tmt-ui-color-secondary);
+  font-size: 0.8125rem;
 }
 .shell-summary-meta {
-  margin: 12px 0 0;
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
 }
@@ -54,224 +48,256 @@
   color: var(--tmt-ui-color-secondary);
 }
 
-/* The count row: three numbers, each a jump to its first row. */
+/* The count tiles: each a jump to its first row. */
 .shell-counts ul {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin: 0 var(--shell-pad);
+  gap: 14px;
+  margin: 0;
   padding: 0;
   list-style: none;
-  border-top: 1px solid var(--tmt-ui-surface-rule);
-  border-bottom: 1px solid var(--tmt-ui-surface-rule);
 }
 .shell-counts li {
   min-width: 0;
-  border-left: 1px solid var(--tmt-ui-surface-rule);
-  padding-left: clamp(10px, 2cqw, 18px);
 }
-.shell-counts li:first-child {
-  border-left: 0;
-  padding-left: 0;
-}
-.shell-counts button,
-.shell-count-plain {
-  display: block;
+.shell-stat {
+  display: flex;
+  align-items: center;
+  gap: 15px;
   box-sizing: border-box;
   width: 100%;
+  height: 100%;
   margin: 0;
-  padding: 18px 0 20px;
-  border: 0;
-  background: none;
+  padding: 18px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-paper);
   color: inherit;
   font: inherit;
-  text-align: left;
+  text-align: start;
 }
-.shell-counts button {
+button.shell-stat {
   cursor: pointer;
 }
-.shell-counts button:hover .shell-count-label {
-  text-decoration: underline;
-  text-underline-offset: 4px;
+button.shell-stat:hover {
+  background: var(--tmt-ui-surface-hover);
 }
-.shell-counts button:focus-visible {
+button.shell-stat:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
-.shell-count-number {
-  display: block;
-  font-size: clamp(28px, 3cqw, 44px);
-  letter-spacing: -0.05em;
-  font-weight: 600;
-  line-height: 1;
+.shell-stat-icon {
+  display: flex;
+  flex: none;
+  color: var(--tmt-ui-color-accent);
+}
+.shell-stat-icon svg {
+  width: 23px;
+  height: 23px;
+  stroke-width: 1.6;
+}
+.shell-stat-text {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
 }
 .shell-count-label {
-  display: block;
-  margin-top: 6px;
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
   overflow-wrap: anywhere;
 }
+.shell-count-number {
+  font: 700 1.5rem / 1.2 var(--tmt-ui-font-display);
+  letter-spacing: -0.02em;
+}
 
-/* Chapters joined by hairlines. */
-.shell-chapters {
+/* The Pages list beside the selected page. */
+.shell-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(16rem, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.shell-rows {
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.shell-chapter {
-  display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-  gap: clamp(24px, 5cqw, 80px);
-  padding: clamp(32px, 5cqw, 80px) var(--shell-pad);
-  border-bottom: 1px solid var(--tmt-ui-surface-rule);
-  scroll-margin-top: 16px;
+.shell-row-item {
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule-soft);
 }
-/* Zero specificity, so the title's and the meta line's own margins below still apply. */
-:where(.shell-chapter) :where(p, h3) {
+.shell-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
   margin: 0;
+  padding: 16px 19px 16px 16px;
+  border: 0;
+  border-inline-start: 3px solid transparent;
+  /* Square: a row of a ruled list inside the rounded card, as the website's rows are. */
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
 }
-.shell-chapter-number {
-  font:
-    500 11px/1.4 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-  letter-spacing: 0.1em;
+.shell-row:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.shell-row[aria-current='true'] {
+  border-inline-start-color: var(--tmt-ui-color-selection-edge);
+  background: var(--tmt-ui-surface-selection);
+}
+.shell-row:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
+.shell-row-number {
+  flex: none;
+  width: 1.5em;
   color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  font-variant-numeric: tabular-nums;
 }
-.shell-chapter-title {
-  margin-top: 12px;
-  font-size: clamp(30px, 3.6cqw, 56px);
-  line-height: 1.04;
-  letter-spacing: -0.045em;
-  font-weight: 600;
+.shell-row-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+}
+.shell-row-title {
+  font-size: 0.9375rem;
+  font-weight: 620;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
-.shell-chapter-title a {
-  /* A block link's box is the title's own lines, so its focus ring cannot reach the text around it. */
-  display: block;
-  width: fit-content;
-  max-width: 100%;
-  color: inherit;
-  text-decoration: none;
-}
-.shell-chapter-title a:hover {
-  text-decoration: underline;
-  text-underline-offset: 6px;
-}
-.shell-chapter-meta {
+.shell-row-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
-  margin-top: 18px;
+  align-items: center;
+  gap: 2px 10px;
   color: var(--tmt-ui-color-secondary);
-  font-size: 13px;
+  font-size: var(--tmt-ui-caption-size);
 }
-.shell-open {
-  margin-top: 22px;
+.shell-row-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.shell-row-status {
+  flex: none;
+}
+.shell-earlier-heading {
+  margin: 0;
+  padding: 14px 19px;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule-soft);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  font-weight: 600;
+}
+
+/* The selected page: who and when, its passage, then the ways to open it. */
+.shell-aside {
+  gap: 0;
+}
+.shell-aside p,
+.shell-aside h3 {
+  margin: 0;
+}
+.shell-aside-title {
+  font-size: 1.25rem;
+  font-weight: 660;
+  line-height: 1.4;
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+}
+.shell-aside-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  margin-top: 6px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 0.75rem;
+}
+.shell-passage {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  overflow-wrap: anywhere;
+}
+.shell-passage p {
+  margin: 0;
+}
+.shell-passage-note,
+.shell-passage-text {
+  padding: 10px 14px;
+  border-inline-start: 2px solid var(--tmt-ui-color-accent);
+  background: var(--tmt-ui-surface-selection);
+  color: var(--tmt-ui-color-secondary);
+  font-size: 0.75rem;
+  line-height: 1.7;
+}
+.shell-aside-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.shell-open[data-variant='text'] {
   /* The shared text action pads its sides; here the link lines up with the text above it. */
   padding-inline: 0;
 }
-.shell-chapter a:focus-visible,
-.shell-earlier a:focus-visible {
+.shell-aside a:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 
-/* The passage on the right of a chapter. */
-.shell-passage {
-  min-width: 0;
-  font-size: 15px;
-  line-height: 1.6;
-}
-.shell-passage p {
-  overflow-wrap: anywhere;
-}
+/* The lead line, heading and notes of a passage: in the selected page and in the panel. */
 .shell-passage-lead {
   color: var(--tmt-ui-color-secondary);
-  font-size: 13px;
+  font-size: 0.75rem;
 }
 .shell-passage-title {
-  margin-top: 8px;
-  font-size: 17px;
-  font-weight: 600;
-}
-.shell-passage-text,
-.shell-passage-note {
-  margin-top: 8px;
+  font-size: 0.9375rem;
+  font-weight: 620;
 }
 .shell-passage-why,
 .shell-passage-more,
 .shell-passage-meta,
 .shell-passage-pending {
-  margin-top: 8px;
   color: var(--tmt-ui-color-secondary);
-  font-size: 13px;
-}
-
-/* Older pages: one large-type row each. */
-.shell-earlier {
-  padding: clamp(28px, 4cqw, 56px) var(--shell-pad) 0;
-}
-.shell-earlier-heading {
-  margin: 0 0 8px;
-  color: var(--tmt-ui-color-secondary);
-  font:
-    500 11px/1.4 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-.shell-earlier ol {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.shell-earlier-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 18px;
-  align-items: baseline;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--tmt-ui-surface-rule);
-}
-.shell-earlier-title {
-  min-width: 0;
-  font-size: clamp(18px, 1.8cqw, 24px);
-  letter-spacing: -0.03em;
-  overflow-wrap: anywhere;
-}
-.shell-earlier-title a {
-  color: inherit;
-  text-decoration: none;
-}
-.shell-earlier-title a:hover {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-.shell-earlier-meta {
-  color: var(--tmt-ui-color-secondary);
-  font-size: 12px;
-  white-space: nowrap;
+  font-size: 0.75rem;
 }
 
 @container (max-width: 719px) {
-  .shell-chapter {
+  .shell-columns {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .shell-earlier-row {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 4px;
-  }
-  .shell-earlier-meta {
-    white-space: normal;
   }
 }
-@media (prefers-reduced-motion: no-preference) {
-  .shell-counts button {
-    transition: opacity 120ms;
+@container (max-width: 559px) {
+  .shell-glance {
+    padding: var(--tmt-ui-space-l);
+  }
+  .shell-counts ul {
+    gap: 8px;
+  }
+  .shell-stat {
+    padding: 13px 10px;
+    gap: 9px;
+  }
+  .shell-count-label {
+    font-size: 0.625rem;
+  }
+  .shell-stat-icon {
+    display: none;
   }
 }
 
