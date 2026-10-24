@@ -50,7 +50,8 @@ fn one_consent_lists_all_versions_and_failure_does_not_stop_other_products() {
             assert!(question.contains("digest 1.0.0 -> 1.1.0"));
             Ok(true)
         },
-        |product, selected| {
+        |product, previous, selected| {
+            assert_eq!(previous, "1.0.0");
             applied.push(product);
             assert_eq!(selected, "1.1.0");
             if product == Product::Ops {
@@ -85,7 +86,7 @@ fn missing_consent_changes_no_extension_and_returns_exact_rerun_hint() {
         vec![],
         vec![pending(Product::Ops)],
         |_| Ok(false),
-        |_, _| panic!("must not mutate"),
+        |_, _, _| panic!("must not mutate"),
     );
     assert_eq!(rows[0]["status"], "consentRequired");
     assert_eq!(rows[0]["hint"], "tmt upgrade --yes");
@@ -97,7 +98,7 @@ fn nothing_installed_neither_prompts_nor_installs() {
         vec![],
         vec![],
         |_| panic!("no prompt"),
-        |_, _| panic!("no installation"),
+        |_, _, _| panic!("no installation"),
     );
     assert!(rows.is_empty());
 }

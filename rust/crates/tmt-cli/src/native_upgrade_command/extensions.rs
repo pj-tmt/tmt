@@ -44,6 +44,16 @@ fn upgrade_with_progress(
     consent: impl FnOnce(&Plan) -> Result<bool, Failure>,
     progress: impl FnOnce(bool),
 ) -> Vec<Value> {
+    upgrade_with_plan(executable, runner, consent, progress, None)
+}
+
+fn upgrade_with_plan(
+    executable: &Path,
+    runner: &impl CommandRunner,
+    consent: impl FnOnce(&Plan) -> Result<bool, Failure>,
+    progress: impl FnOnce(bool),
+    approved: Option<&Plan>,
+) -> Vec<Value> {
     let plan =
         match child(executable, runner, true, &[], EXTENSION_BUDGET).and_then(|(bytes, failed)| {
             if failed {
@@ -54,6 +64,11 @@ fn upgrade_with_progress(
             Ok(plan) => plan,
             Err(error) => return vec![phase_failure(error)],
         };
+    if approved.is_some_and(|approved| targets(approved) != targets(&plan)) {
+        return vec![phase_failure(io::Error::other(
+            "The installed extensions or selected targets changed after the upgrade preview. No extension was changed.",
+        ))];
+    }
     if plan.pending.is_empty() {
         return plan.products;
     }
@@ -108,6 +123,37 @@ fn upgrade_with_progress(
         }
     }
     products
+}
+
+/// The new executable retains inventory authority. Presentation/error wording
+/// may change across versions; consent covers product, state and exact target.
+fn targets(plan: &Plan) -> BTreeMap<String, (String, Value, Value)> {
+    plan.products
+        .iter()
+        .map(|row| {
+            (
+                row["product"]
+                    .as_str()
+                    .expect("validated product")
+                    .to_owned(),
+                (
+                    row["status"].as_str().expect("validated status").to_owned(),
+                    row["version"].clone(),
+                    Value::Null,
+                ),
+            )
+        })
+        .chain(plan.pending.iter().map(|(product, version, selected)| {
+            (
+                product.as_str().to_owned(),
+                (
+                    "pending".into(),
+                    version.clone().into(),
+                    selected.clone().into(),
+                ),
+            )
+        }))
+        .collect()
 }
 
 fn child(
