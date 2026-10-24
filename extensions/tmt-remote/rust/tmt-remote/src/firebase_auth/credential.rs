@@ -553,6 +553,28 @@ mod tests {
     }
 
     #[test]
+    fn credential_handle_recovers_after_the_lock_path_is_deleted() {
+        let (_root, store, credential) = fixture();
+        let dir = store.directory(false).unwrap().unwrap();
+        let path = dir.directory.join("demo-credential-lock.lock");
+        fs::remove_file(&path).unwrap();
+        assert_eq!(
+            store.load().err().unwrap().kind,
+            AuthErrorKind::InvalidCredential
+        );
+        assert!(
+            !path.exists(),
+            "the refused operation must not recreate the lock"
+        );
+        assert_eq!(store.load().unwrap().credential, Some(credential));
+        assert!(
+            path.is_file(),
+            "the next operation must recreate and admit the lock"
+        );
+        assert_eq!(fs::metadata(path).unwrap().mode() & 0o777, 0o600);
+    }
+
+    #[test]
     fn credential_handle_recovers_after_a_poisoned_mutex_refusal() {
         let (_root, store, credential) = fixture();
         let dir = store.directory(false).unwrap().unwrap();
