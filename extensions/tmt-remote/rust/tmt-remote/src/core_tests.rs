@@ -470,7 +470,7 @@ fn cloud_identity_show_pins_public_argv_and_maps_core_refusals() {
     }
     for (code, exit, expected) in [
         ("IDENTITY_CHANGED", 5, "REMOTE_AGENT_STALE"),
-        ("NAME_NOT_FOUND", 1, "REMOTE_AGENT_NOT_FOUND"),
+        ("NAME_NOT_FOUND", 3, "REMOTE_AGENT_NOT_FOUND"),
         ("STORAGE_UNAVAILABLE", 1, "STORAGE_UNAVAILABLE"),
     ] {
         let answer = json!({"error":{"code":code,"message":"Core refused"}});

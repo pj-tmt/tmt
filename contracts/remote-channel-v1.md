@@ -2339,7 +2339,7 @@ backend. Core's side is `talk --remote`. Before effect, Remote calls Core's publ
 `identity show --json --expect-name=<expected-name> -- <uuid>` through the bounded subprocess owner.
 Core atomically checks the pinned UUID's current name and lifetime; active, offline and unknown
 presence all permit that identity check. `IDENTITY_CHANGED` (exit 5) maps to the durable
-`REMOTE_AGENT_STALE` refusal and `NAME_NOT_FOUND` to `REMOTE_AGENT_NOT_FOUND`. Invalid success evidence
+`REMOTE_AGENT_STALE` refusal and `NAME_NOT_FOUND` (exit 3) to `REMOTE_AGENT_NOT_FOUND`. Invalid success evidence
 refuses with `REMOTE_CORE_UNAVAILABLE`. Never fall back to name-addressed `check`. Expected name is
 retained with frozen native intent; it is not a caller-chosen role.
 Full public `talk` acceptance belongs to #4539/#4540 after the Core #4536 seam and Remote #4757

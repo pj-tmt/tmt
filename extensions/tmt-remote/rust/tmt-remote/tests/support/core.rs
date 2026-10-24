@@ -26,7 +26,7 @@ if args[:3]==['identity','show','--json'] and args[3].startswith('--expect-name=
     assert len(args)==6 and args[4]=='--'
     rows=[r for r in json.loads((root/'identities').read_text())['identities'] if r['id']==args[5]]
     if not rows:
-        print(json.dumps({'error':{'code':'NAME_NOT_FOUND','message':'absent'}}));sys.exit(1)
+        print(json.dumps({'error':{'code':'NAME_NOT_FOUND','message':'absent'}}));sys.exit(3)
     row=rows[0]
     if row.get('retired',False) or row['name'].lower()!=args[3].split('=',1)[1].lower():
         print(json.dumps({'error':{'code':'IDENTITY_CHANGED','message':'changed'}}));sys.exit(5)
