@@ -57,6 +57,7 @@ struct Wire {
     commits: Mutex<Vec<Value>>,
     next: AtomicUsize,
     owner: Mutex<Weak<Service>>,
+    fail_invite_delete: AtomicBool,
 }
 impl Wire {
     fn new() -> Self {
@@ -65,6 +66,7 @@ impl Wire {
             commits: Mutex::new(Vec::new()),
             next: AtomicUsize::new(0),
             owner: Mutex::new(Weak::new()),
+            fail_invite_delete: AtomicBool::new(false),
         }
     }
 }
@@ -165,6 +167,15 @@ impl Http for Wire {
         }
         self.commits.lock().unwrap().push(input.clone());
         let writes = input["writes"].as_array().unwrap();
+        if self.fail_invite_delete.load(Ordering::Acquire)
+            && writes.iter().any(|write| {
+                write["delete"]
+                    .as_str()
+                    .is_some_and(|name| name.contains("/invites/"))
+            })
+        {
+            return response(503, json!({}));
+        }
         for write in writes {
             if write.get("delete").is_some() {
                 continue;
@@ -523,58 +534,62 @@ fn route_batch_refuses_two_live_uids_without_a_provider_write() {
 
 #[test]
 fn invite_gate_is_published_before_the_code_and_removed_when_the_ceremony_ends() {
-    let core = core_fixture::Core::new();
-    let wire = Arc::new(Wire::new());
-    let ports = Arc::new(Ports {
-        wire: wire.clone(),
-        clock: SystemClock::default(),
-    });
-    let (owner, _lease) = service(
-        &core.root.join("owner"),
-        &core,
-        ProjectPorts {
-            http: ports.clone(),
-            clock: ports.clone(),
-            jitter: ports,
-        },
-    );
-    let mut gate = String::new();
-    let result = owner.invite_selected(PROJECT, config(), |event| {
-        if event["event"] == "invite" {
-            let invite = Invite::read(
-                event["code"].as_str().unwrap(),
-                crate::pairing::now_ms().unwrap(),
-            )
-            .unwrap();
-            gate = format!(
-                "projects/{PROJECT}/databases/(default)/documents/m/{}/invites/{}",
-                owner.machine, invite.challenge.offer,
-            );
-            let docs = wire.docs.lock().unwrap();
-            let row = docs
-                .get(&gate)
-                .expect("publish the Rules invite gate before exposing the code");
-            assert_eq!(row["fields"].as_object().unwrap().len(), 2);
-            assert_eq!(
-                row["fields"]["expiresAt"]["timestampValue"],
-                crate::cloud_inbox::stamp(invite.challenge.expires_at_ms),
-            );
-            let hash = STANDARD
-                .decode(row["fields"]["tokenHash"]["bytesValue"].as_str().unwrap())
+    for cleanup_fails in [false, true] {
+        let core = core_fixture::Core::new();
+        let wire = Arc::new(Wire::new());
+        wire.fail_invite_delete
+            .store(cleanup_fails, Ordering::Release);
+        let ports = Arc::new(Ports {
+            wire: wire.clone(),
+            clock: SystemClock::default(),
+        });
+        let (owner, _lease) = service(
+            &core.root.join("owner"),
+            &core,
+            ProjectPorts {
+                http: ports.clone(),
+                clock: ports.clone(),
+                jitter: ports,
+            },
+        );
+        let mut gate = String::new();
+        let result = owner.invite_selected(PROJECT, config(), |event| {
+            if event["event"] == "invite" {
+                let invite = Invite::read(
+                    event["code"].as_str().unwrap(),
+                    crate::pairing::now_ms().unwrap(),
+                )
                 .unwrap();
-            assert_eq!(hash.len(), 32);
-            return Err(RemoteError::new(
-                "FIXTURE_CANCEL",
-                "Stop after observing the invite.",
-            ));
-        }
-        Ok(None)
-    });
-    assert_eq!(result.unwrap_err().code, "FIXTURE_CANCEL");
-    assert!(!gate.is_empty());
-    assert!(!wire.docs.lock().unwrap().contains_key(&gate));
-    assert!(owner.store().unwrap().grants().unwrap().is_empty());
-    assert_eq!(core.sends(), 0);
+                gate = format!(
+                    "projects/{PROJECT}/databases/(default)/documents/m/{}/invites/{}",
+                    owner.machine, invite.challenge.offer,
+                );
+                let docs = wire.docs.lock().unwrap();
+                let row = docs
+                    .get(&gate)
+                    .expect("publish the Rules invite gate before exposing the code");
+                assert_eq!(row["fields"].as_object().unwrap().len(), 2);
+                assert_eq!(
+                    row["fields"]["expiresAt"]["timestampValue"],
+                    crate::cloud_inbox::stamp(invite.challenge.expires_at_ms),
+                );
+                let hash = STANDARD
+                    .decode(row["fields"]["tokenHash"]["bytesValue"].as_str().unwrap())
+                    .unwrap();
+                assert_eq!(hash.len(), 32);
+                return Err(RemoteError::new(
+                    "FIXTURE_CANCEL",
+                    "Stop after observing the invite.",
+                ));
+            }
+            Ok(None)
+        });
+        assert_eq!(result.unwrap_err().code, "FIXTURE_CANCEL");
+        assert!(!gate.is_empty());
+        assert_eq!(wire.docs.lock().unwrap().contains_key(&gate), cleanup_fails);
+        assert!(owner.store().unwrap().grants().unwrap().is_empty());
+        assert_eq!(core.sends(), 0);
+    }
 }
 
 #[test]
@@ -588,6 +603,7 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
     let core = core_fixture::Core::new();
     std::fs::write(core.root.join("multi"), "").unwrap();
     let wire = Arc::new(Wire::new());
+    wire.fail_invite_delete.store(true, Ordering::Release);
     let ports = Arc::new(Ports {
         wire: wire.clone(),
         clock: SystemClock::default(),
@@ -650,6 +666,16 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
         assert_eq!(core.sends(), 0);
         choice_tx.send((true, false)).unwrap();
         invite.join().unwrap().unwrap();
+        assert_eq!(owner.store().unwrap().grants().unwrap().len(), 1);
+        assert!(
+            wire.docs
+                .lock()
+                .unwrap()
+                .keys()
+                .any(|name| name.contains("/invites/")),
+            "the injected cleanup failure must leave the gate, not erase the committed ceremony"
+        );
+        wire.fail_invite_delete.store(false, Ordering::Release);
         let events = join.join().unwrap().unwrap();
         assert_eq!(
             events.iter().find(|v| v["event"] == "joining").unwrap()["words"],

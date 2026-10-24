@@ -359,10 +359,10 @@ impl Service {
             deadline: Instant::now() + crate::limits::CLOUD_RECONCILE_CALL,
             cancelled: &cleanup_cancel,
         };
-        run(
+        let _ = run(
             provider.delete_invite(&invite.challenge.offer, &cleanup_io),
             &cleanup_io,
-        )?;
+        );
         result
     }
     pub fn join(

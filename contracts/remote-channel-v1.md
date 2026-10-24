@@ -2360,16 +2360,18 @@ expiry and 128-bit secret. Firestore never stores that secret. Its separate enro
 binds every field, the candidate native UUID/key, authenticated uid, name and nonce. Existing HMAC,
 Ed25519 possession, fingerprint and response-proof primitives are reused with distinct framing.
 The mailbox is one create-only collection `/m/<machine>/enroll`: `<offerId>` holds a candidate,
-`<offerId>-response` the owner's receipt. Responses retain `{uid,kind,body,createdAt}`; a join adds
-`token` (32 bytes), and a reroute adds `token` and its canonical native `peer`. Rules bind the
-candidate uid to `request.auth.uid`, exact kinds/UUIDs, bounded bytes and server request time.
+`<offerId>-response` the owner's receipt. Responses contain only `{uid,kind,body,createdAt}`.
+Candidates carry those fields plus `token` (32 bytes) for a join, or `token` and its canonical
+native `peer` for a reroute. Rules bind the candidate uid to `request.auth.uid`, exact kinds/UUIDs,
+bounded bytes and server request time.
 Before exposing a code, the owner creates `/m/<machine>/invites/<offerId>` with
 `{tokenHash,expiresAt}`. The join token is HMAC-SHA256 under the code over LP of
 `"tmt-cloud-invite-token-v1"`, project, owner UUID and offer UUID. Only SHA-256 of that token is
 stored in the invitation; it is neither the raw code nor its enrollment MAC/response key.
-A join requires its matching unexpired gate. The owner deletes the gate when the ceremony ends
-(confirm, refusal, cancellation or expiry); expiry refuses logically even when cleanup cannot
-reach the provider. These owner-only gates have no client update or list capability.
+A join requires its matching unexpired gate. The owner attempts gate deletion when the ceremony ends
+(confirm, refusal, cancellation or expiry). Cleanup is best-effort and never replaces the ceremony's
+result; expiry refuses logically even when cleanup cannot reach the provider. These owner-only gates
+have no client update or list capability.
 Only the owner lists (limit one), writes responses or deletes; a caller can GET its own exact row or
 a missing row. Kind and offer correlation are bound by the verified transcript. A competing, expired,
 cancelled or reused code refuses. An identical confirmed candidate may observe only its original
