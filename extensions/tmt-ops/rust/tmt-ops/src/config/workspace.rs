@@ -270,7 +270,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("D", "digest"),
             ("c", "timers"),
             ("R", "member-session"),
-            ("N", "member-notes"),
+            ("N", "member-checklist"),
             ("p", "pin"),
         ]
     } else {
@@ -321,7 +321,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("j", "jump"),
             ("o", "open"),
             ("x", "remove-membership"),
-            ("N", "member-notes"),
+            ("N", "member-checklist"),
             ("m", "move-membership"),
             ("D", "digest"),
         ]),
@@ -1336,6 +1336,21 @@ mod tests {
         }
     }
     #[test]
+    fn checklist_action_uses_its_current_name_without_a_legacy_alias() {
+        let keys = config("[bind]\nN='member-checklist'\n")
+            .workspace_keys(OpsKeyScope::Member, None, None)
+            .unwrap();
+        assert_eq!(keys.bindings["N"].verb, Verb::Ui(OpsUiAction::MemberNotes));
+        assert_eq!(keys.sources["N"], "bind.N");
+        assert!(keys.notices.is_empty());
+        let error = config("[bind]\nN='member-notes'\n")
+            .workspace_keys(OpsKeyScope::Member, None, None)
+            .err()
+            .expect("the former action is unknown, not an alias");
+        assert_eq!(error.message, "`bind.N`: 'member-notes' is not an action");
+    }
+
+    #[test]
     fn every_approved_scope_has_its_real_keys_without_legacy_fallbacks() {
         let config = config("");
         let squad = config
@@ -1346,7 +1361,7 @@ mod tests {
         assert_eq!(squad["p"].text, "pin");
         for scope in [OpsKeyScope::Member, OpsKeyScope::Reader] {
             let keys = config.workspace_keys(scope, None, None).unwrap().bindings;
-            assert_eq!(keys["N"].text, "member-notes", "{scope:?}");
+            assert_eq!(keys["N"].text, "member-checklist", "{scope:?}");
         }
         let pool = config
             .workspace_keys(OpsKeyScope::Pool, None, None)

@@ -44,12 +44,12 @@ pub(super) fn render(
         ),
     );
     blank(area, y);
-    // A member of a squad has a Notes list in its room; one of the Common pool has no room,
+    // A member of a squad has a checklist in its room; one of the Common pool has no room,
     // so it keeps the link line.
-    if let Some(key) = conversation_notes::Key::of(target) {
+    if let Some(key) = conversation_checklist::Key::of(target) {
         let chip = format!(
             " {}",
-            conversation_notes::fitted(
+            conversation_checklist::fitted(
                 app.notes.summary(&key),
                 usize::from(area.width).saturating_sub(1)
             )

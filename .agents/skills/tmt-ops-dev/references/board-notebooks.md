@@ -288,7 +288,7 @@ at the edge does not keep scrolling. The selection ends on Esc, an outside press
 new drag, a conversation switch, or when it can no longer be shown: its lines are
 gone, an end's text changed before its end, or a resize re-wrapped the transcript.
 A selection opens the Selection menu (`conversation/source/menu.rs`): a bordered box with
-`q› Quote`, `y  Copy` and `n  Add to Notes` on their own lines and a dim `Esc clears`, directly below the
+`q› Quote`, `y  Copy` and `n  Add to checklist` on their own lines and a dim `Esc clears`, directly below the
 selection end. It flips left of the end near the right edge and opens above the first
 selected row near the bottom, so it never covers selected text; it stays inside the
 pane and falls back to the frame when the pane is too short (no room at all, no menu; the
@@ -326,15 +326,24 @@ each room list and each admitted room/member conversation once, independent of s
 collapse or viewport. Unknown and partial totals retain their existing presentation.
 [Acquisition ownership](board-home.md#checklist-todo-projection) stays on the existing lane.
 
-`n Add to Notes` in the conversation Link popover or Selection menu opens the existing
-Notes draft. Links preselect Link and keep the full URL, with its last path segment
+The conversation entry is `≡ Checklist · …`; its modal is `Checklist · <member>`
+(with the item count), and a source form is `Add to checklist · <member>`. Captions
+resolve held preview/roster data by the frozen room/member UUID, falling back to
+`member <short UUID>` when no name is held. Rendering never reads Core or borrows
+another selected member's name. Both form variants label the first field Title.
+The canonical authored action is `member-checklist`, still bound to `N` for members
+and the Reader. This breaking rename before launch has no `member-notes` alias;
+an authored former action gets the ordinary unknown-action notice.
+
+`n Add to checklist` in the conversation Link popover or Selection menu opens the existing
+checklist draft. Links preselect Link and keep the full URL, with its last path segment
 (or host) as the editable title; selections preselect Todo with the selected source
-text flattened into the title. Kind, Title, Link and From share the Notes modal;
+text flattened into the title. Kind, Title, Link and From share the conversation checklist modal;
 Tab changes fields; Kind uses the shared flat chips, with Left/Right or a current
 chip click selecting the explicit kind. An existing
 unsent draft is retained instead of being replaced. The held room/member/actor
-must still match at entry and submission; unread Notes cannot be written.
-Conversation Notes records descriptive message provenance in the existing item body;
+must still match at entry and submission; an unread checklist cannot be written.
+The conversation checklist records descriptive message provenance in the existing item body;
 its render metadata grants no request authority and introduces no schema or store.
 `conversation::note_source` maps rendered rows to held message metadata, separately
 from exact response/quote authority. From shows author, kind and time; the existing
@@ -343,7 +352,7 @@ pane-observation context and timestamp. Mixed and missing sources stay explicit.
 The link popover retains its opened source through Show full/back while the transcript
 refreshes; another clicked hit replaces it even for the same URL. No URL/text
 matching chooses a message source, and source descriptions grant no jump-back
-authority. All reads and writes retain the existing Notes worker, revision and
+authority. All reads and writes retain the existing checklist worker, revision and
 failure ownership.
 
 `board::conversation::screen` shows the selected agent's `pane.screen` in the Talk

@@ -106,7 +106,7 @@ workspace's tree, conversation or pending-continuation geometry.
   answer) and `blocked` (members in the `blocked` state). These remain CLI/source
   facts; the Agents Usage band and Measure view own the dashboard aggregate, while the squad tree displays
   observed membership state. The common shell shows UUID-deduplicated online/blocked observations and the
-  global conversation Notes todo total on every tab; tab labels have no attention badge.
+  global checklist todo total on every tab; tab labels have no attention badge.
 - `sections`: always a list. Unless the user defined sections, it holds exactly
   one section with `title: null` containing every member except the lead. With
   user sections, members that match none follow in a final `title: null`
@@ -538,10 +538,10 @@ list sorts by AGENT, SQUAD, STATE, TOK and MODEL; the Squads tree by `SQUAD / AG
 on TOK the mark takes the blank cell before the word. A click changes only the saved
 order, never the selection or a message.
 In Agents, `n` opens New member on any row; `p` pins/unpins a squad. `N`
-creates a squad on a squad row or the Common pool and opens the member's Notes on a
+creates a squad on a squad row or the Common pool and opens the member's Checklist on a
 member row, `m` manages a squad or assigns a member, and `x` leaves only the
 selected squad membership. On member rows the footer offers `m move`, `R resume`
-and `N notes`, using effective bindings and dropping whole hints at narrow widths.
+and `N checklist`, using effective bindings and dropping whole hints at narrow widths.
 Right-click a visible Agents row to select it and open Actions, or open Settings
 (default comma) and choose Actions. With list focus, Rename agent and Remove member are named menu
 entries without default keys. Remove member is a copy-only retirement review: stop the agent first and
@@ -549,21 +549,26 @@ recheck the displayed name before running the copied command. Retirement does
 not stop the agent or close its window. Member `S switch tool` is not
 available yet. `D` opens Digest and `c` opens Timers outside a modal.
 
-A squad member's header shows its Notes chip, `≡ Notes · 3 links · 2 todo · 1 done`
-(`≡ Notes · empty` for an empty list). `N` or a click on the chip opens the list: links
+A squad member's header shows its Checklist chip, `≡ Checklist · 3 links · 2 todo · 1 done`
+(`≡ Checklist · empty` for an empty list). `N` or a click on the chip opens the list: links
 first, then items without links, each row with who added it and how long ago (`you`, the member's
 name, or nothing for an item stored before the board recorded it). `↑↓`/`jk` choose,
 Enter opens a link or ticks a todo, `a` adds (a web address becomes a link; `Tab` moves
-between the note and its link), `e` edits, `d` deletes after Enter confirms, `Shift+↑↓`
+between Title and Link), `e` edits, `d` deletes after Enter confirms, `Shift+↑↓`
 moves an item among its group and Esc closes the list, keeping a form you have not sent.
 A change someone else made first is reported in one line and your words stay in the form.
 A retired member's list reads but takes no writes.
-The conversation Link popover and Selection menu also offer `n Add to Notes`.
+The list is titled `Checklist · <member>` and the source form `Add to checklist · <member>`.
+Authored bindings use `member-checklist` (default `N` in member/Reader scopes).
+This is a breaking rename before launch: replace the former `member-notes` action;
+it has no alias and receives the ordinary unknown-action notice. The private identity
+`tmt notes` command is separate.
+The conversation Link popover and Selection menu also offer `n Add to checklist`.
 A link starts as Link with its full address and an editable last-segment title;
 a selection starts as Todo with its selected text. Tab chooses Kind, Title or Link;
 Left/Right on Kind switches Todo/Link, Enter saves and Esc keeps the draft. From
 shows the held message's author, kind and time; the item's body keeps its Source
-reference. Multiple or missing message sources say so. Existing unsent Notes drafts
+reference. Multiple or missing message sources say so. Existing unsent checklist drafts
 are preserved, and these source descriptions grant no request or navigation authority.
 
 Member STATE cells append `· N todo`; squad STATE cells append their room list's

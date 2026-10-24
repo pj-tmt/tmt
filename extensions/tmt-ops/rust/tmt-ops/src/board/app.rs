@@ -276,7 +276,7 @@ pub enum Effect {
     Discovery(super::discovery::load::Task),
     MemberSession(super::member_session::Task),
     /// A read or a write of the Notes of the conversation on screen.
-    Notes(super::conversation_notes::Task),
+    Notes(super::conversation_checklist::Task),
     NewMember(super::new_member::Task),
     IdleAlert(super::idle_alert_editor::Task),
     Foreground(super::member_session::Foreground),
@@ -311,9 +311,9 @@ pub enum Choice {
     /// A click on a Talk/Measure chip selects that pane; the `M` key toggles.
     RightTab(super::shell::RightTab),
     WorkspaceTarget(super::workspace::OpsTarget),
-    /// A click on the Notes chip of a member's header: opens the list.
+    /// A click on the Checklist chip of a member's header: opens the list.
     MemberNotes,
-    AddToNotes(super::conversation_notes::Seed),
+    AddToNotes(super::conversation_checklist::Seed),
     WorkspaceBegin(super::workspace::manage::Kind),
     WorkspaceRoom {
         kind: super::workspace::manage::Kind,
@@ -737,7 +737,7 @@ pub struct App {
     pub(super) discovery: Option<super::discovery::Controller>,
     pub(super) member_session: Option<super::member_session::Controller>,
     pub(super) member_session_generation: u64,
-    pub(super) notes_overlay: Option<super::conversation_notes::overlay::Controller>,
+    pub(super) notes_overlay: Option<super::conversation_checklist::overlay::Controller>,
     pub(super) new_member: Option<super::new_member::Controller>,
     pub(super) new_member_generation: u64,
     pub(super) idle_alert_editor: Option<super::idle_alert_editor::Controller>,
@@ -814,8 +814,8 @@ pub struct App {
     pub(super) references: super::inventory::Inventory,
     /// Lane jobs submitted whose events have not arrived.
     pub(super) in_flight: usize,
-    /// The Notes summaries of the conversations shown, read on the lane.
-    pub(in crate::board) notes: super::conversation_notes::State,
+    /// The Checklist summaries of the conversations shown, read on the lane.
+    pub(in crate::board) notes: super::conversation_checklist::State,
     /// The running versions, read once on the lane; none until then or when unreadable.
     pub(in crate::board) versions: Option<super::versions::Versions>,
     /// Current-frame inline band, reserved by the row painter.
