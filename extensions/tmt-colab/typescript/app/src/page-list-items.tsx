@@ -121,7 +121,9 @@ export function PageListItem({
         </span>
         <span className="page-row-access">
           {page.sharing === 'private' ? <Lock size={16} aria-hidden="true" /> : null}
-          {page.sharing === 'private' ? text.private : text.shared}
+          <span title={page.sharing === 'private' ? text.private : text.shared}>
+            {page.sharing === 'private' ? text.private : text.shared}
+          </span>
         </span>
       </div>
       {actions ? <span className="tmt-ui-list-actions">{actions}</span> : null}

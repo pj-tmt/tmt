@@ -872,3 +872,65 @@
     max-width: 100%;
   }
 }
+
+/* Project text owns its ellipsis; the real picker follows the last tag in the wrapping flow. */
+.page-row .page-projects {
+  min-width: 0;
+}
+.page-row .page-projects > li:not(.page-project-entry) {
+  max-width: calc(100% - 36px);
+}
+.page-row .page-project {
+  min-width: 0;
+  max-width: 100%;
+}
+.page-row .page-project > span,
+.page-row-access > span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.page-row-access > svg {
+  flex: none;
+}
+.page-project-entry {
+  position: relative;
+  flex: none;
+  width: 32px;
+  height: 20px;
+  opacity: 0;
+}
+.page-project-entry-anchor {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.page-row:hover .page-project-entry,
+.page-row:focus-within .page-project-entry,
+.page-project-entry:has([aria-expanded='true']) {
+  opacity: 1;
+}
+@media (max-width: 650px), (hover: none) {
+  .page-project-entry {
+    opacity: 1;
+  }
+}
+
+@media (min-width: 651px) {
+  /* The hover actions occupy their 36px track plus part of Access. Reserve that space before
+     ellipsizing, rather than painting the actions over the middle of a word (12px end inset,
+     and 4px breathing room). Archived rows have no pin action. */
+  .page-row {
+    --page-access-clearance: calc(3 * var(--tmt-ui-host-icon-action-size) - 20px);
+  }
+  .page-row:has(.page-pin-action) {
+    --page-access-clearance: calc(4 * var(--tmt-ui-host-icon-action-size) - 20px);
+  }
+  .page-row:has(> .tmt-ui-list-actions):is(:hover, :focus-within, :has([aria-expanded='true']))
+    .page-row-access {
+    padding-inline-end: var(--page-access-clearance);
+  }
+}

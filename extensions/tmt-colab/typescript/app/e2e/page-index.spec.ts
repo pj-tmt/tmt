@@ -42,18 +42,19 @@ for (const width of [1440, 390])
       // A phone has the archive item in the ⋯ menu and no new-tab action beside the row.
       const wide = width > 479;
       await page.keyboard.press('Tab');
+      // The project-area entry follows the title, before the remaining row actions.
+      await expect(first.getByRole('button', { name: 'Projects for Alpha update' })).toBeFocused();
+      await page.keyboard.press('Tab');
       if (wide) {
         await expect(
           first.getByRole('button', { name: 'Open Alpha update in a new tab' }),
         ).toBeFocused();
         await page.keyboard.press('Tab');
       }
-      // The pin leads the project picker on every width.
+      // Pin remains before Archive and the row menu on every width.
       await expect(
         first.getByRole('button', { name: 'Pin Alpha update to the top' }),
       ).toBeFocused();
-      await page.keyboard.press('Tab');
-      await expect(first.getByRole('button', { name: 'Projects for Alpha update' })).toBeFocused();
       await page.keyboard.press('Tab');
       if (wide) {
         await expect(first.getByRole('button', { name: 'Archive Alpha update' })).toBeFocused();

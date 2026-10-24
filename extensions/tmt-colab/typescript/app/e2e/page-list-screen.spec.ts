@@ -332,3 +332,53 @@ for (const width of [1440, 390])
       }
     });
   }
+
+for (const width of [1440, 390])
+  test(`row Projects menu and tag-area plus share the picker at ${width}`, async ({ page }) => {
+    await mount(page, width, 'light');
+    const row = rows(page)
+      .filter({ has: page.locator('.page-project') })
+      .first();
+    const entry = row.locator('.page-project-entry');
+    await expect(entry).toHaveCSS('opacity', width === 390 ? '1' : '0');
+    await row.hover();
+    await expect(entry).toHaveCSS('opacity', '1');
+    const access = row.locator('.page-row-access > span');
+    await expect(access).toHaveAttribute('title', 'Private');
+    await expect(access).toHaveCSS('text-overflow', 'ellipsis');
+    if (width === 1440) {
+      const label = (await access.boundingBox())!;
+      const actions = (await row.locator('.tmt-ui-list-actions').boundingBox())!;
+      expect(label.x + label.width).toBeLessThanOrEqual(actions.x - 3);
+    }
+    const add = row.locator('.page-row-projects').getByRole('button', { name: /^Projects for/ });
+    await expect(add).toBeVisible();
+    await add.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('menuitemcheckbox').first()).toBeVisible();
+    expect(await page.evaluate(() => window.__projectRequests)).toEqual([]);
+    await page.keyboard.press('Escape');
+    await expect(add).toBeFocused();
+    await row.getByRole('button', { name: /^Actions for/ }).click();
+    await page.getByRole('menuitem', { name: 'Projects…', exact: true }).click();
+    await expect(page.getByRole('menuitemcheckbox').first()).toBeVisible();
+    await expect(page.locator('[role="menu"]:visible')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expect(add).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    const geometry = await row.locator('.page-row-projects').evaluate((node) => {
+      const tag = Array.from(node.querySelectorAll('.page-project'))
+        .at(-1)!
+        .getBoundingClientRect();
+      const trigger = node.querySelector('button[aria-haspopup="menu"]')!.getBoundingClientRect();
+      return {
+        gap: trigger.left - tag.right,
+        overlap: trigger.top < tag.bottom && trigger.bottom > tag.top,
+      };
+    });
+    expect(geometry.gap).toBeGreaterThanOrEqual(0);
+    expect(geometry.gap).toBeLessThanOrEqual(10);
+    expect(geometry.overlap).toBe(true);
+  });
