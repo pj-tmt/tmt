@@ -373,7 +373,12 @@ pub fn usage(
         };
         let tokens = Tokens::read(bucket).ok_or_else(|| invalid("consumption bucket"))?;
         let mut points = Vec::new();
-        let mut limits: Option<Observed> = None;
+        // The closed seed also carries cached account evidence whose original
+        // fetch time can precede every displayed rollup bucket. This is not a
+        // token increment and must not be re-dated to make it enter a bucket.
+        let mut limits = total["latest"]["consumption"]
+            .get("rateLimits")
+            .and_then(observed);
         for point in line["windows"]
             .get(0)
             .and_then(|window| window["buckets"].as_array())
@@ -390,7 +395,9 @@ pub fn usage(
             if let Some(found) = point.get("rateLimits").and_then(observed)
                 && limits
                     .as_ref()
-                    .is_none_or(|held| found.observed_at_ms >= held.observed_at_ms)
+                    // The closed seed wins a fetch-time tie: its cache windows
+                    // may already have been pruned at reset since the bucket.
+                    .is_none_or(|held| found.observed_at_ms > held.observed_at_ms)
             {
                 limits = Some(found);
             }
@@ -412,24 +419,16 @@ pub fn usage(
     Ok(result)
 }
 
-/// Model families by id prefix, for presentation only. The flag says whether
-/// Core observes the family's account limits; the first has no source yet (#1724).
-const FAMILIES: [(&str, bool); 2] = [("claude-", false), ("gpt-", true)];
+/// Model families by id prefix, for presentation only.
+const FAMILIES: [&str; 2] = ["claude-", "gpt-"];
 const OTHER: &str = "other";
 
 /// The line of a model id: its family (the prefix without the dash), else `other`.
 pub fn line_of(model_id: &str) -> &'static str {
     FAMILIES
         .iter()
-        .find(|(prefix, _)| model_id.starts_with(prefix))
-        .map_or(OTHER, |(prefix, _)| prefix.trim_end_matches('-'))
-}
-
-fn has_limit_source(line: &str) -> bool {
-    FAMILIES
-        .iter()
-        .find(|(prefix, _)| prefix.trim_end_matches('-') == line)
-        .is_none_or(|(_, observed)| *observed)
+        .find(|prefix| model_id.starts_with(**prefix))
+        .map_or(OTHER, |prefix| prefix.trim_end_matches('-'))
 }
 
 const UNATTRIBUTED: &str = "unattributed";
@@ -539,16 +538,7 @@ fn limits_unavailable(seats: &[Seat], lines: &BTreeMap<&'static str, Line>) -> V
                     .iter()
                     .any(|seat| with_limits.contains(seat.as_str()))
         })
-        .map(|(name, _)| {
-            // A family Core has no limit source for is unavailable by construction;
-            // the others simply had none observed.
-            let reason = if has_limit_source(name) {
-                "not_observed"
-            } else {
-                "no_source"
-            };
-            json!({"line": name, "reason": reason})
-        })
+        .map(|(name, _)| json!({"line": name, "reason": "not_observed"}))
         .collect()
 }
 

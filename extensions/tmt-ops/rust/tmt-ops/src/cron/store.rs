@@ -336,7 +336,7 @@ impl Store {
                     }
                     Ok((Some(bytes), result))
                 },
-                |_| Ok(()),
+                |_, _| Ok(()),
             )
             .map_err(failed)
     }

@@ -313,6 +313,7 @@ pub enum Choice {
     WorkspaceTarget(super::workspace::OpsTarget),
     /// A click on the Notes chip of a member's header: opens the list.
     MemberNotes,
+    AddToNotes(super::conversation_notes::Seed),
     WorkspaceBegin(super::workspace::manage::Kind),
     WorkspaceRoom {
         kind: super::workspace::manage::Kind,
@@ -3056,6 +3057,7 @@ impl App {
             }
             Choice::IdleAlert(room) => self.open_idle_alert(Some(room)),
             Choice::Unavailable(reason) => self.say(reason),
+            Choice::AddToNotes(seed) => self.add_to_notes(seed),
             Choice::LinkOpen(url) => self.link_open(url),
             Choice::LinkCopy(url) => self.link_copy(url),
             Choice::LinkShow { url, anchor } => self.link_show(&url, anchor),

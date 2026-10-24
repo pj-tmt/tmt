@@ -1319,6 +1319,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
         fixture.tmux(['send-keys', '-t', board, '/', name, 'Enter']);
         await fixture.waitForCapture((screen) => /1 of 1/.test(screen), board);
         fixture.tmux(['send-keys', '-t', board, 'End']);
+        await fixture.waitForCapture((screen) => screen.includes(`⏎ to message ${name}`), board);
         // The chat history is read after the row opens; wait for it on a loaded runner.
         const wanted = [
           'Draft before the checklist',

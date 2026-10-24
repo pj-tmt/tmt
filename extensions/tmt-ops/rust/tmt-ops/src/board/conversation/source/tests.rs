@@ -808,14 +808,17 @@ fn the_selection_menu_opens_directly_below_the_selection_end_and_not_after_it() 
         );
         assert_eq!((quote.y, copy.y), (y + 2, y + 3), "one action per line");
         assert_eq!(quote.x, copy.x);
-        let rows: Vec<_> = (y + 1..y + 6).map(|row| row_text(&buffer, row)).collect();
-        for (row, word) in rows
-            .iter()
-            .zip(["Selection", "q› Quote", "y  Copy", "Esc clears"])
-        {
+        let rows: Vec<_> = (y + 1..y + 7).map(|row| row_text(&buffer, row)).collect();
+        for (row, word) in rows.iter().zip([
+            "Selection",
+            "q› Quote",
+            "y  Copy",
+            "n  Add to Notes",
+            "Esc clears",
+        ]) {
             assert!(row.contains(word), "{word}: {rows:#?}");
         }
-        assert!(rows[0].contains('┌') && rows[4].contains('└'), "{rows:#?}");
+        assert!(rows[0].contains('┌') && rows[5].contains('└'), "{rows:#?}");
         assert!(
             !row_text(&buffer, y).contains("Quote"),
             "the selected row stays clear: {}",
@@ -914,7 +917,7 @@ fn a_press_anywhere_on_an_entry_line_acts_and_one_on_the_border_or_hint_keeps_th
     // The hint line and the border belong to the box: no action, selection stays.
     for (x, y) in [
         (menu.bounds().x, menu.bounds().y),
-        (menu.quote.x + 1, menu.copy.y + 1),
+        (menu.quote.x + 1, menu.bounds().bottom() - 2),
         (menu.bounds().right() - 1, menu.bounds().bottom() - 1),
     ] {
         mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
@@ -1611,4 +1614,76 @@ fn a_wrapped_paragraph_copies_as_its_one_source_line() {
         matches!(&effect, Effect::Act(Request::Copy { text, .. }) if *text == words),
         "{effect:?}"
     );
+}
+
+#[test]
+fn n_and_the_selection_menu_open_the_same_todo_draft_with_the_held_message_source() {
+    for by_mouse in [false, true] {
+        let mut app = fixture("Review the build before shipping.");
+        app.view.as_mut().unwrap().replies[0]["submittedAtMs"] = json!(1_000);
+        select_words(&mut app, "Review the build");
+        draw(&mut app, 100, 36);
+        if by_mouse {
+            let entry = menu_of(&app).unwrap().note;
+            mouse(
+                &mut app,
+                MouseEventKind::Down(MouseButton::Left),
+                entry.x + 1,
+                entry.y,
+            );
+        } else {
+            app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        }
+        let key = app.conversation_notes_key().unwrap();
+        let draft = app.notes.draft(&key).expect("the selection opens Notes");
+        assert_eq!(draft.text(0).trim_end(), "Review the build");
+        assert_eq!(
+            draft.seed.as_ref().unwrap().kind,
+            crate::board::conversation_notes::NoteKind::Todo
+        );
+        assert!(
+            draft
+                .seed
+                .as_ref()
+                .unwrap()
+                .source
+                .body()
+                .contains("request r1")
+        );
+        assert!(app.input.is_none(), "n does not start a chat");
+        assert!(
+            selected(&app).is_none(),
+            "the action consumes the selection"
+        );
+    }
+}
+
+#[test]
+fn a_selection_from_distinct_messages_does_not_borrow_one_message_source() {
+    use crate::board::conversation::note_source::{Map, Source};
+    let mut map = Map::default();
+    map.range(
+        0..2,
+        Source::Message {
+            author: "worker".into(),
+            kind: "final",
+            at_ms: Some(1000),
+            reference: "request first".into(),
+        },
+    );
+    map.range(
+        2..4,
+        Source::Message {
+            author: "worker".into(),
+            kind: "final",
+            at_ms: Some(1000),
+            reference: "request second".into(),
+        },
+    );
+    assert_eq!(
+        map.selected(1..3).body(),
+        "Source: multiple messages / missing source"
+    );
+    assert_eq!(map.selected(4..5).body(), "Source: unavailable");
+    assert!(map.selected(2..4).body().contains("request second"));
 }

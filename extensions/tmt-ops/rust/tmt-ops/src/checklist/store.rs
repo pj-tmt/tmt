@@ -2,7 +2,8 @@
 //! database.
 use super::{
     Code, Error,
-    model::{Document, Id},
+    events::{self, Page, Target},
+    model::{AppliedChange, Document, Id},
 };
 use std::{
     fs,
@@ -104,24 +105,42 @@ impl Store {
             .read(&slot, |bytes| self.decode(bytes))
             .map_err(failed)
     }
+    /// The log of this list after `after`; an absent store reads empty and creates nothing.
+    pub(super) fn events(&self, after: u64, limit: u64) -> Result<Page, Error> {
+        let slot = self.slot();
+        let Some(mut database) =
+            Database::open_existing(&self.extension_root, &slot.legacy).map_err(refused)?
+        else {
+            return Ok(Page {
+                events: Vec::new(),
+                next_cursor: after,
+                more: false,
+                gap: None,
+            });
+        };
+        database
+            .snapshot(|transaction| events::read(transaction, &slot.key, after, limit))
+            .map_err(refused)
+    }
+    /// `change` also returns what it did as an [`AppliedChange`]; the log row commits with the document.
     /// `before_publish` runs after the candidate is staged and before it commits; its
     /// refusal discards the candidate, as does any failure of `change`.
     pub(super) fn update<T>(
         &self,
-        change: impl FnOnce(&mut Option<Document>) -> Result<T, Error>,
+        change: impl FnOnce(&mut Option<Document>) -> Result<(T, Option<AppliedChange>), Error>,
         before_publish: impl FnOnce() -> Result<(), Error>,
     ) -> Result<T, Error> {
         let slot = self.slot();
         let mut database = Database::open(&self.extension_root).map_err(refused)?;
-        let value = database
+        let (value, _) = database
             .update(
                 &slot,
                 |bytes| {
                     let mut document = self.decode(bytes)?;
                     let before = document.clone();
-                    let result = change(&mut document)?;
+                    let (result, event) = change(&mut document)?;
                     if document == before {
-                        return Ok((None, result));
+                        return Ok((None, (result, None)));
                     }
                     let document = document
                         .ok_or_else(|| Error::storage("Checklist documents cannot be removed."))?;
@@ -137,12 +156,32 @@ impl Store {
                             "Checklist document exceeds the 64 MiB implementation limit.",
                         ));
                     }
-                    Ok((Some(bytes), result))
+                    let logged = event.map(|event| Logged {
+                        event,
+                        checklist_id: document.checklist_id.clone(),
+                        existed: before.is_some(),
+                    });
+                    Ok((Some(bytes), (result, logged)))
                 },
-                |_| {
+                |(_, logged), transaction| {
                     #[cfg(test)]
                     test_stage(Stage::BeforePublish).map_err(Error::storage)?;
-                    before_publish()
+                    before_publish()?;
+                    if let Some(logged) = logged {
+                        events::append(
+                            transaction,
+                            &Target {
+                                key: &slot.key,
+                                room_id: &self.room_id,
+                                member_id: self.member_id.as_ref(),
+                                checklist_id: &logged.checklist_id,
+                            },
+                            &logged.event,
+                            logged.existed,
+                        )
+                        .map_err(Error::storage)?;
+                    }
+                    Ok(())
                 },
             )
             .map_err(failed)?;
@@ -156,6 +195,14 @@ impl Store {
         })?;
         Ok(value)
     }
+}
+
+/// A change's log row, held until the transaction that replaces the document.
+struct Logged {
+    event: AppliedChange,
+    checklist_id: Id,
+    /// The document was there before the change.
+    existed: bool,
 }
 
 fn refused(refusal: Refusal) -> Error {

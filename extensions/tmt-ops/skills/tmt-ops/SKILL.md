@@ -558,6 +558,14 @@ between the note and its link), `e` edits, `d` deletes after Enter confirms, `Sh
 moves an item among its group and Esc closes the list, keeping a form you have not sent.
 A change someone else made first is reported in one line and your words stay in the form.
 A retired member's list reads but takes no writes.
+The conversation Link popover and Selection menu also offer `n Add to Notes`.
+A link starts as Link with its full address and an editable last-segment title;
+a selection starts as Todo with its selected text. Tab chooses Kind, Title or Link;
+Left/Right on Kind switches Todo/Link, Enter saves and Esc keeps the draft. From
+shows the held message's author, kind and time; the item's body keeps its Source
+reference. Multiple or missing message sources say so. Existing unsent Notes drafts
+are preserved, and these source descriptions grant no request or navigation authority.
+
 Member STATE cells append `· N todo` only for known positive counts, when the
 whole suffix fits after the activity and task. Pending, unavailable and zero counts
 add no row suffix; the global header carries the unknown or partial observation.
@@ -985,6 +993,7 @@ No command accepts an actor override or uses a member filter as assignment.
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ls`                                                   | Optional `--include-archived`, `--completion open\|complete`, `--assignee UUID`; reads create nothing                                                           |
 | `show`                                                 | `--checklist UUID --item UUID`                                                                                                                                  |
+| `events`                                               | Optional `--member`, `--after CURSOR` (default 0), `--limit COUNT` (1 to 500, default 100); reads create nothing                                                |
 | `create TITLE`                                         | `--checklist UUID --item UUID --expect-inventory absent\|POSITIVE`; optional `--body TEXT --reference HTTP(S) --assignee UUID`                                  |
 | `edit`                                                 | `--checklist UUID --item UUID --expect-revision POSITIVE`; at least one `--title TEXT`, `--body TEXT`/`--clear-body`, `--reference HTTP(S)`/`--clear-reference` |
 | `assign`                                               | Item/checklist UUIDs, exact `--expect-revision`, explicit `--assignee UUID`                                                                                     |
@@ -1052,6 +1061,17 @@ milliseconds; the service fills them from the verified caller and its clock, so 
 or request sets them. Add and edit, assign, unassign, complete, reopen, archive and
 restore stamp the item; reorder and delete do not. An item stored before they were
 recorded reads all four as null until its next change, which sets `lastChanged*` only.
+
+`events` returns the list's mutation log, oldest first, as JSON action `events`:
+`roomId`, `events:[{id,roomId,memberId,checklistId,itemId,actorId,atMs,action,revision}]`,
+`nextCursor` (pass it as `--after`; `--after 0` reads from the beginning), `more` and `gap`.
+`action` is add, edit, assign, unassign, complete, reopen, archive, restore, delete or
+reorder, and `revision` is the item's revision after the change: a delete's tombstone
+revision, and for a reorder (`itemId` null) the new inventory revision. A change that moves
+nothing logs nothing, and no title or body is copied. `actorId` and `atMs` are the verified
+caller and the service clock, committed with the change. `gap` is `legacy` when asked from 0
+for a list changed before the log existed, `pruned` when retention removed events after the
+cursor (it keeps the shorter of 30 days or the newest 1000 events per room), else null.
 
 Errors retain `{error:{code,message,current?}}`. Only authorized typed conflict/
 deletion data supplies `current`; denial exposes no current projection. Human

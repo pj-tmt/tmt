@@ -650,6 +650,7 @@ impl App {
         let passage = state.passage(selection)?;
         let entry = match event.code {
             KeyCode::Char('y') if event.modifiers.is_empty() => Entry::Copy,
+            KeyCode::Char('n') if event.modifiers.is_empty() => Entry::Note,
             KeyCode::Char('q') | KeyCode::Enter if event.modifiers.is_empty() => Entry::Quote,
             _ => return None,
         };
@@ -676,9 +677,54 @@ impl App {
         drop(state);
         Some(self.run_selection_entry(entry, passage))
     }
-    /// Quote or copy the selection: the one place the keys and the menu agree.
+    /// Quote, copy or add the selection to Notes: keys and pointer share these entries.
     fn run_selection_entry(&mut self, entry: Entry, passage: String) -> Effect {
         match entry {
+            Entry::Note => {
+                let state = self.conversation.borrow();
+                let Some(selection) = state.selection.as_ref() else {
+                    return Effect::None;
+                };
+                if self.conversation_target().as_ref() != Some(selection.target()) {
+                    drop(state);
+                    return self.say("The conversation changed; select the text again.");
+                }
+                let Some(key) = self.conversation_notes_key() else {
+                    drop(state);
+                    return self.say("Select a squad member to add to Notes.");
+                };
+                let source = match selection {
+                    Selection::Cells(_) => super::note_source::Source::Unavailable,
+                    Selection::Text(anchored) => state
+                        .sessions
+                        .get(&anchored.key)
+                        .and_then(|session| session.rendered.as_ref())
+                        .filter(|rendered| anchored.attached_to(rendered))
+                        .map_or(super::note_source::Source::Unavailable, |rendered| {
+                            let (first, last) = anchored.lines();
+                            rendered
+                                .anchor_sources
+                                .get(first..=last)
+                                .map_or(super::note_source::Source::Unavailable, |lines| {
+                                    rendered.note_sources.selected(lines.iter().copied())
+                                })
+                        }),
+                };
+                let seed = crate::board::conversation_notes::Seed {
+                    key,
+                    actor: self.view.as_ref().and_then(|view| view.me_id.clone()),
+                    kind: crate::board::conversation_notes::NoteKind::Todo,
+                    title: crate::board::notes::single_line(&passage),
+                    reference: String::new(),
+                    source,
+                };
+                drop(state);
+                let effect = self.add_to_notes(seed);
+                if self.notes_overlay.is_some() {
+                    self.conversation.borrow_mut().selection = None;
+                }
+                effect
+            }
             Entry::Copy => self.copy_rendered_selection(passage),
             Entry::Quote => {
                 let mut state = self.conversation.borrow_mut();

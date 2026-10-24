@@ -14,7 +14,7 @@ use crate::{
     test_support::TestDirectory,
 };
 use serde_json::{Value, json};
-use std::{fs, path::Path};
+use std::{fs, io::Write, path::Path};
 use tmt_core::binding::session::DriverState;
 
 const CLAUDE_LINE: &str = include_str!("fixtures/claude-assistant-usage.jsonl");
@@ -369,6 +369,97 @@ fn claude_custom_config_root_admits_only_its_own_transcripts() {
 }
 
 #[test]
+fn claude_cache_windows_follow_each_seats_root_and_refresh_without_counting_tokens() {
+    let home = TestDirectory::new();
+    let custom = home.path.join("custom-claude");
+    let cache = |used| {
+        json!({
+            "oauthAccount": {"accountUuid":"same-root-account"},
+            "cachedUsageUtilization": {
+                "accountUuid":"same-root-account", "fetchedAtMs": NOW - 86_400_000,
+                "utilization": {"seven_day": {"utilization": used, "resets_at":"2026-05-31T20:26:40+00:00"}}
+            }
+        })
+    };
+    fs::write(home.path.join(".claude.json"), cache(25).to_string()).unwrap();
+    fs::create_dir_all(&custom).unwrap();
+    fs::write(custom.join(".claude.json"), cache(78).to_string()).unwrap();
+    for (root, vars, expected) in [
+        (home.path.join(".claude"), vec![], 25.0),
+        (
+            custom.clone(),
+            vec![("CLAUDE_CONFIG_DIR", custom.clone())],
+            78.0,
+        ),
+    ] {
+        let transcript = root.join("projects/workspace/session.jsonl");
+        fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+        fs::write(
+            &transcript,
+            include_str!("fixtures/claude-usage-sequence.jsonl"),
+        )
+        .unwrap();
+        let environment = ProviderEnvironment::from_parts(&home.path, &home.path, Vec::new(), vars);
+        let turn = claude::ClaudeLifecycle
+            .decode_turn(&stop(Some(&transcript)))
+            .unwrap();
+        let read = |previous, now| {
+            claude::ClaudeLifecycle
+                .turn_state(
+                    &turn,
+                    &environment,
+                    previous,
+                    now,
+                    std::time::Instant::now() + std::time::Duration::from_secs(2),
+                )
+                .unwrap()
+        };
+        let state = read(None, NOW);
+        let before = driver_state::state_consumption(&state).unwrap().value;
+        let limits = before.rate_limits.as_ref().unwrap();
+        assert_eq!(limits.provider, "claude");
+        assert_eq!(limits.observed_at_ms, NOW - 86_400_000);
+        assert_eq!(limits.windows[0].used_percent, expected);
+        let repeated = driver_state::state_consumption(&read(Some(&state), NOW + 1))
+            .unwrap()
+            .value;
+        assert_eq!(repeated, before);
+        let mut appended = fs::OpenOptions::new()
+            .append(true)
+            .open(&transcript)
+            .unwrap();
+        writeln!(
+            appended,
+            "{}",
+            json!({"type":"assistant","requestId":"new-request","message":{
+                "id":"new-message","model":"claude-sonnet-5-5",
+                "usage":{"input_tokens":10,"output_tokens":2,"cache_read_input_tokens":4}
+            }})
+        )
+        .unwrap();
+        drop(appended);
+        let counted = read(Some(&state), NOW + 2);
+        let before = driver_state::state_consumption(&counted).unwrap().value;
+        assert_eq!(before.input_tokens, 14);
+        assert!(!before.delta_by_model.as_ref().unwrap().is_empty());
+        let file = if expected == 25.0 {
+            home.path.join(".claude.json")
+        } else {
+            custom.join(".claude.json")
+        };
+        fs::remove_file(&file).unwrap();
+        let after = driver_state::state_consumption(&read(Some(&counted), NOW + 3))
+            .unwrap()
+            .value;
+        assert_eq!(after.rate_limits, None);
+        assert_eq!(after.sequence, before.sequence + 1);
+        assert_eq!(after.observed_at_ms, NOW + 3);
+        assert_eq!(after.input_tokens, before.input_tokens);
+        assert!(after.delta_by_model.as_ref().unwrap().is_empty());
+    }
+}
+
+#[test]
 fn empty_claude_source_baselines_without_inventing_context_usage() {
     let driver = drivers().into_iter().next().unwrap();
     let home = TestDirectory::new();
@@ -378,6 +469,80 @@ fn empty_claude_source_baselines_without_inventing_context_usage() {
     assert_eq!(consumption.input_tokens, 0);
     assert_eq!(consumption.output_tokens, 0);
     assert!(consumption.complete && !consumption.gap);
+}
+
+#[test]
+fn claude_cache_windows_survive_the_normal_model_activity_and_cursor_state() {
+    use tmt_core::{
+        binding::session::{
+            ProviderSessionId,
+            activity::{Event, EventKind},
+        },
+        endpoint::ProcessIncarnation,
+    };
+    let home = TestDirectory::new();
+    fs::write(
+        home.path.join(".claude.json"),
+        json!({
+            "oauthAccount":{"accountUuid":"account-a"},
+            "cachedUsageUtilization":{"accountUuid":"account-a","fetchedAtMs":NOW-1000,
+                "utilization":{
+                    "five_hour":{"utilization":12.5,"resets_at":"2026-05-28T22:26:40+00:00"},
+                    "seven_day":{"utilization":78,"resets_at":"2026-05-31T20:26:40+00:00"}
+                }}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let transcript = home.path.join(".claude/projects/workspace/session.jsonl");
+    fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    fs::write(
+        &transcript,
+        include_str!("fixtures/claude-usage-sequence.jsonl"),
+    )
+    .unwrap();
+    let start = driver_state::after_start(Some("claude-opus-5-5"), None, None, NOW - 2).unwrap();
+    let active = driver_state::after_activity(
+        Some(&start),
+        &ProviderSessionId::new(SESSION).unwrap(),
+        &ProcessIncarnation::new(12345, "ps-v1:2026-05-28T20:00:00Z").unwrap(),
+        &Event {
+            kind: EventKind::TurnStarted,
+            turn: None,
+        },
+        None,
+        NOW - 1,
+    )
+    .unwrap();
+    let environment = ProviderEnvironment::from_parts(&home.path, &home.path, Vec::new(), []);
+    let turn = claude::ClaudeLifecycle
+        .decode_turn(&stop(Some(&transcript)))
+        .unwrap();
+    let state = claude::ClaudeLifecycle
+        .turn_state(
+            &turn,
+            &environment,
+            Some(&active),
+            NOW,
+            std::time::Instant::now() + std::time::Duration::from_secs(2),
+        )
+        .unwrap();
+    let consumption = driver_state::state_consumption(&state).expect("normal consumption state");
+    assert_eq!(
+        consumption
+            .value
+            .rate_limits
+            .as_ref()
+            .expect("both cached windows fit the normal state")
+            .windows
+            .len(),
+        2
+    );
+    assert!(driver_state::state_activity(&state).is_some());
+    assert_eq!(
+        driver_state::state_model(&state).as_deref(),
+        Some("claude-opus-5-5")
+    );
 }
 
 #[test]

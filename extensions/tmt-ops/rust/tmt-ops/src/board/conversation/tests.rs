@@ -2195,3 +2195,99 @@ fn retained_open_keeps_content_and_source_mapping_until_the_single_refresh_publi
         "refresh preserves reading position"
     );
 }
+
+#[test]
+fn notes_sources_follow_message_ids_not_equal_text_and_keep_pane_observations_distinct() {
+    use crate::board::{
+        recent_responses::{Item, Observation},
+        row_detail::{Capture, Sent},
+    };
+    let mut first = reply("first-request", "same https://example.com/a_b");
+    first.at_ms = Some(1_000);
+    let mut second = reply("second-request", "same https://example.com/a_b");
+    second.at_ms = Some(2_000);
+    let mut session = Session {
+        finals: vec![first, second],
+        sent: vec![Sent {
+            request: "sent-request".into(),
+            at_ms: 1_500,
+            text: "sent https://example.com/a_b".into(),
+            truncated: false,
+            capture: Some(Capture::Answered {
+                text: "captured https://example.com/a_b".into(),
+                truncated: false,
+                provider: "codex".into(),
+                ended_ms: 2_500,
+                bound_ms: Some(1_500),
+                settled_ms: Some(2_500),
+            }),
+            message_state_label: None,
+            can_send_now: false,
+            working: false,
+        }],
+        pane_output: Observation::Observed(vec![Item {
+            provider: "codex".into(),
+            text: "pane https://example.com/a_b".into(),
+            ended_ms: 3_000,
+            truncated: false,
+        }]),
+        transcript_context: transcript::Context {
+            enabled: true,
+            name: "alpha".into(),
+            member: "member-id".into(),
+            reader: "Owner".into(),
+            exchanges: transcript::Exchanges::Observed,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    session.prepare(100, Look::default(), &Default::default());
+    let rendered = session.rendered.as_ref().unwrap();
+    let rows: Vec<_> = rendered
+        .mapped
+        .lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.to_string().contains("https://example.com/a_b"))
+        .map(|(line, text)| {
+            (
+                text.to_string(),
+                rendered.note_sources.at(rendered.anchor_sources[line]),
+            )
+        })
+        .collect();
+    assert_eq!(rows.len(), 5, "{rows:?}");
+    let same: Vec<_> = rows
+        .iter()
+        .filter(|(text, _)| text.contains("same "))
+        .collect();
+    assert!(same[0].1.body().contains("request first-request"));
+    assert!(same[1].1.body().contains("request second-request"));
+    let source = |marker: &str| {
+        rows.iter()
+            .find(|(text, _)| text.contains(marker))
+            .unwrap()
+            .1
+            .body()
+    };
+    assert!(source("sent ").contains("Owner · message · request sent-request"));
+    assert!(
+        source("captured ")
+            .contains("alpha · turn output · request sent-request · 1970-01-01T00:00:02.5Z")
+    );
+    assert!(source("pane ").contains("alpha · pane output · member member-id · provider codex"));
+    session.pane_output = Observation::Unavailable;
+    session.rendered = None;
+    session.prepare(100, Look::default(), &Default::default());
+    let rendered = session.rendered.as_ref().unwrap();
+    let status = rendered
+        .mapped
+        .lines
+        .iter()
+        .position(|line| line.to_string().contains("Recent pane output unavailable"))
+        .unwrap();
+    assert_eq!(
+        rendered.note_sources.at(status).body(),
+        "Source: unavailable"
+    );
+}
