@@ -55,8 +55,10 @@ pub(in crate::board) fn capture_case(scene: &str, look: Look) -> App {
     if scene == "answer-page-failed" {
         let older = app.pane_output_plan().unwrap();
         app.apply_answer_read(&older, Observation::Unavailable);
+        draw(&app, 160, 36);
+        app.scroll_pane(Pane::Replies, Step::Top);
     }
-    if matches!(scene, "answer-truncated" | "answer-page-failed") {
+    if scene == "answer-truncated" {
         app.scroll_pane(Pane::Replies, Step::Bottom);
     }
     app
@@ -90,7 +92,7 @@ fn every_oracle_scene_shows_its_answer_state_at_all_capture_widths() {
             "answer-capture-disabled" | "answer-capture-disabled-empty" => {
                 "answers are not captured"
             }
-            "answer-page-failed" => "Older answers unavailable",
+            "answer-page-failed" => "✗ older answers unavailable",
             _ => "Retained answer 0",
         };
         assert!(text.contains(expected), "{scene} at {width}: {text}");
@@ -231,7 +233,11 @@ fn failed_older_page_keeps_answers_and_cursor_without_an_automatic_retry() {
                 .mapped
                 .lines
                 .iter()
-                .any(|line| line.to_string().contains("Older answers unavailable"))
+                .any(|line| line.to_string().contains("✗ older answers unavailable"))
+        );
+        assert_eq!(
+            session.rendered.as_ref().unwrap().mapped.lines[0].to_string(),
+            " ✗ older answers unavailable · scroll up to retry"
         );
     }
     app.scroll_pane(Pane::Replies, Step::Top);
@@ -331,7 +337,7 @@ fn capture_and_coverage_captions_keep_data_and_never_create_request_authority() 
             .iter()
             .map(Line::to_string)
             .collect::<Vec<_>>();
-        assert_eq!(lines[0], "older answers not kept · at or before 2m ago");
+        assert_eq!(lines[0], " ○ older answers not kept · at or before 2m ago");
         let text = lines
             .join(" ")
             .split_whitespace()
@@ -339,6 +345,17 @@ fn capture_and_coverage_captions_keep_data_and_never_create_request_authority() 
             .join(" ");
         assert!(text.contains("answers are not captured for this agent: run tmt setup"));
         assert!(text.contains("answer truncated · full text in the agent's pane"));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == " ◆ answers are not captured for this agent: run tmt setup")
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == " │ ◌ answer truncated · full text in the agent's pane"),
+            "truncation belongs inside the answer gutter: {lines:#?}"
+        );
         assert!(text.contains("Answer 0"));
         assert!(rendered.final_spans.is_empty());
         assert!(

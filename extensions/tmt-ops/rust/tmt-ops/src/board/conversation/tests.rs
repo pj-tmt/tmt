@@ -1298,6 +1298,9 @@ fn pane_output_is_neutral_bounded_and_never_a_request_source() {
         );
         assert!(
             labels
+                .iter()
+                .map(|line| line.strip_prefix(" │ ").unwrap_or(line))
+                .collect::<Vec<_>>()
                 .join(" ")
                 .split_whitespace()
                 .collect::<Vec<_>>()

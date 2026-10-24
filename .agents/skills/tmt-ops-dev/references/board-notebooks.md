@@ -213,14 +213,15 @@ a failed older page waits for another deliberate scroll or refresh, without a re
 loop. Actor/member/revision/cursor fences reject obsolete completions.
 
 Neutral `agent · pane output · time` headers use the exchange age wording. A
-truncated answer has `answer truncated · full text in the agent's pane` beneath
-it. Only the final page can show `older answers not kept` at the top of history;
+truncated answer has `answer truncated · full text in the agent's pane` as its
+last muted line inside the answer gutter. History captions are inset one cell
+and carry a registered state mark. Only the final page can show `older answers not kept` at the top of history;
 Core's supplied time is qualified as `at or before`, including migrated floors.
 `capture.enabled=false` adds `answers are not captured for this agent: run tmt setup`
 while keeping retained answers; absent capture metadata adds no hint and never
 causes setup. Pending/observed-empty, unsupported and failed reads remain distinct.
 A failed latest read says `Recent pane output unavailable`; a failed older page
-names the failure and scroll retry. An empty conversation requires both sources
+names the failure and scroll retry at the older-history boundary. An empty conversation requires both sources
 observed empty. Pane text creates no request-source, reply, acknowledgment or
 annotation authority. The shared anchor/viewport keeps prepended answers readable
 without moving the composer. The flat Agents list keeps its question-only

@@ -5,6 +5,20 @@ use crate::board::recent_responses::{Observation, Source};
 /// R1 for the conversation's loading line: nothing for the first 400 ms.
 const LOADING_DELAY_MS: u64 = 400;
 
+fn history_caption(text: &str, width: usize, look: Look) -> Vec<Line<'static>> {
+    let inner = width.saturating_sub(1);
+    if inner == 0 {
+        return Vec::new();
+    }
+    markdown::wrap_styled(Line::styled(text.to_owned(), look.role(Role::Muted)), inner)
+        .into_iter()
+        .map(|mut line| {
+            line.spans.insert(0, Span::raw(" "));
+            line
+        })
+        .collect()
+}
+
 /// What the transcript may say about exchanges it does not hold.
 #[derive(PartialEq, Eq)]
 pub(super) enum Exchanges {
@@ -551,25 +565,30 @@ impl Session {
         };
         let captured_outputs = self.captured_outputs(items);
         let mut pane_start = None;
+        if *enabled && self.pane_failure == Some(AnswerFailure::Older) {
+            for line in history_caption(
+                "✗ older answers unavailable · scroll up to retry",
+                width,
+                look,
+            ) {
+                append(line, vec![], None);
+            }
+        }
         if *enabled && let Observation::Observed(page) = &self.pane_output {
             if page.next_before.is_none() && page.coverage.older_dropped {
                 let text = dropped_age.as_ref().map_or_else(
-                    || "older answers not kept".into(),
-                    |age| format!("older answers not kept · at or before {age}"),
+                    || "○ older answers not kept".into(),
+                    |age| format!("○ older answers not kept · at or before {age}"),
                 );
-                for line in
-                    markdown::wrap_styled(Line::styled(text, look.role(Role::Muted)), width.max(1))
-                {
+                for line in history_caption(&text, width, look) {
                     append(line, vec![], None);
                 }
             }
             if page.capture == Some(false) {
-                for line in markdown::wrap_styled(
-                    Line::styled(
-                        "answers are not captured for this agent: run tmt setup",
-                        look.role(Role::Muted),
-                    ),
-                    width.max(1),
+                for line in history_caption(
+                    "◆ answers are not captured for this agent: run tmt setup",
+                    width,
+                    look,
                 ) {
                     append(line, vec![], None);
                 }
@@ -922,12 +941,12 @@ impl Session {
                     if item.truncated {
                         for line in markdown::wrap_styled(
                             Line::styled(
-                                "answer truncated · full text in the agent's pane",
+                                "◌ answer truncated · full text in the agent's pane",
                                 look.role(Role::Muted),
                             ),
-                            width.max(1),
+                            width.saturating_sub(3).max(1),
                         ) {
-                            append(line, vec![], None);
+                            append(super::super::exchange_view::body(line, look), vec![], None);
                         }
                     }
                 }
@@ -948,18 +967,12 @@ impl Session {
             }
         }
         if *enabled
+            && self.pane_failure != Some(AnswerFailure::Older)
             && (self.pane_failure.is_some() || matches!(self.pane_output, Observation::Unavailable))
         {
             next_note.set(unavailable);
             append(
-                Line::styled(
-                    if self.pane_failure == Some(AnswerFailure::Older) {
-                        "Older answers unavailable · scroll up to retry"
-                    } else {
-                        "Recent pane output unavailable"
-                    },
-                    look.role(Role::Muted),
-                ),
+                Line::styled("Recent pane output unavailable", look.role(Role::Muted)),
                 vec![],
                 None,
             );
