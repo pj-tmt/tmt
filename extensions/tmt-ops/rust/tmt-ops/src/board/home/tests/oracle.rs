@@ -732,6 +732,24 @@ fn captures() -> Value {
                 }
             }
         }
+        // Exact reported Markdown sources through the live conversation projection.
+        for (look_name, look) in looks() {
+            for scene in crate::board::conversation::tests::markdown_packet::REPORTED_SCENES {
+                for width in [160, 100, 80, 60] {
+                    let app = crate::board::conversation::tests::markdown_packet::reported_case(
+                        scene, look,
+                    );
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        width,
+                        36,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
         // A drag selection and the Selection menu opened below its end.
         for (look_name, look) in looks() {
             for scene in crate::board::conversation::source::scenes::SCENES {
