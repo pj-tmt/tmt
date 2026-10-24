@@ -294,4 +294,115 @@ mod tests {
         assert!(error.to_string().contains("file ownership"));
         assert!(admit_owner(1001, 1001).is_ok());
     }
+
+    struct PrivateRoot(PathBuf);
+    impl Drop for PrivateRoot {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    fn fixture() -> (PrivateRoot, FileStore, Credential) {
+        let root = PrivateRoot(
+            std::env::temp_dir().join(format!("t4965-{}", crate::store::uuid_v4().unwrap())),
+        );
+        fs::create_dir(&root.0).unwrap();
+        fs::set_permissions(&root.0, fs::Permissions::from_mode(0o700)).unwrap();
+        let layout = Layout::open(&root.0).unwrap();
+        let store = FileStore::new(&layout, "demo-credential-lock").unwrap();
+        let credential = Credential {
+            project_id: "demo-credential-lock".into(),
+            uid: "fixture-uid".into(),
+            refresh_token: "fixture-refresh".into(),
+            created_at_ms: 1,
+            expires_at_ms: 1 + CREDENTIAL_LIFETIME_MS,
+            last_used_at_ms: 1,
+            revoking: false,
+        };
+        store.replace(None, &credential).unwrap();
+        (root, store, credential)
+    }
+    struct HeldCopy(std::process::Child);
+    impl HeldCopy {
+        fn start(file: File) -> Self {
+            use std::{
+                io::{BufRead, BufReader},
+                process::{Command, Stdio},
+            };
+            let mut child = Self(
+                Command::new("/bin/sh")
+                    .args(["-c", "printf 'ready\\n'; IFS= read -r release"])
+                    .env_clear()
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::from(file))
+                    .spawn()
+                    .unwrap(),
+            );
+            let mut ready = String::new();
+            BufReader::new(child.0.stdout.take().unwrap())
+                .read_line(&mut ready)
+                .unwrap();
+            assert_eq!(ready, "ready\n");
+            child
+        }
+        fn release(mut self) {
+            self.0
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(b"release\n")
+                .unwrap();
+            assert!(self.0.wait().unwrap().success());
+        }
+    }
+    impl Drop for HeldCopy {
+        fn drop(&mut self) {
+            if self.0.try_wait().ok().flatten().is_none() {
+                let _ = self.0.kill();
+            }
+            let _ = self.0.wait();
+        }
+    }
+    #[test]
+    fn credential_release_ends_exclusion_while_a_fork_copy_remains_alive() {
+        if crate::test_isolation::isolated_case(
+            "firebase_auth::credential::tests::credential_release_ends_exclusion_while_a_fork_copy_remains_alive",
+        ) {
+            return;
+        }
+        let (root, store, credential) = fixture();
+        let dir = store.directory(false).unwrap().unwrap();
+        let lock = store.lock(&dir).unwrap();
+        let other = FileStore::new(
+            &Layout::open(root.0.as_path()).unwrap(),
+            "demo-credential-lock",
+        )
+        .unwrap();
+        assert_eq!(
+            other.load().err().unwrap().kind,
+            AuthErrorKind::Unavailable,
+            "a genuine live owner must still exclude another credential owner"
+        );
+        // Fork while the parent holds exclusion. The child's readiness barrier
+        // proves it holds the duplicate before the parent ends its operation.
+        let mut child = HeldCopy::start(File::try_clone(&lock).unwrap());
+        drop(lock);
+        let reloaded = store.load();
+        let independent = other.load();
+        assert!(
+            child.0.try_wait().unwrap().is_none(),
+            "the duplicate must remain in the child through both acquisition attempts"
+        );
+        child.release();
+        assert_eq!(
+            reloaded.unwrap().credential,
+            Some(credential.clone()),
+            "a fork copy must not extend a completed credential operation"
+        );
+        assert_eq!(
+            independent.unwrap().credential,
+            Some(credential),
+            "standalone command access must resume while the duplicate still lives"
+        );
+    }
 }
