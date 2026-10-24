@@ -148,6 +148,7 @@ function flow(): FlowPair[] {
 
 const limits: LimitWindow[] = [
   {
+    provider: 'codex',
     windowMinutes: 10080,
     resetsAtMs: MOCK_NOW_MS + 40 * HOUR,
     usedPercent: 74,
@@ -158,6 +159,7 @@ const limits: LimitWindow[] = [
     seats: [SEATS[0].id, SEATS[2].id, SEATS[4].id],
   },
   {
+    provider: 'codex',
     windowMinutes: 10080,
     resetsAtMs: MOCK_NOW_MS + 100 * HOUR,
     usedPercent: 45,
@@ -168,6 +170,7 @@ const limits: LimitWindow[] = [
     seats: [SEATS[1].id, SEATS[3].id],
   },
   {
+    provider: 'codex',
     windowMinutes: 300,
     resetsAtMs: MOCK_NOW_MS + 2 * HOUR,
     usedPercent: 30,
