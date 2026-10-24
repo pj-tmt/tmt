@@ -260,7 +260,7 @@ fn a_remote_route_has_exactly_its_own_columns_and_nothing_else_does() {
         "a change to a route column advances it too"
     );
 
-    let invalid: [(&str, &str, &str, &str); 9] = [
+    let invalid: [(&str, &str, &str, &str); 11] = [
         (
             "no-ref",
             "remote",
@@ -298,6 +298,18 @@ fn a_remote_route_has_exactly_its_own_columns_and_nothing_else_does() {
             ", 'bob', 'not-a-uuid', 'reviewer', 'ana'",
         ),
         (
+            "uppercase-id",
+            "remote",
+            ", remote_ref, remote_target_id, remote_target_name, remote_sender_name",
+            ", 'bob', '7F0C2F2E-2B1A-4C1E-9D2A-0A1B2C3D4E5F', 'reviewer', 'ana'",
+        ),
+        (
+            "non-hex-id",
+            "remote",
+            ", remote_ref, remote_target_id, remote_target_name, remote_sender_name",
+            ", 'bob', 'zzzzzzzz-2b1a-4c1e-9d2a-0a1b2c3d4e5f', 'reviewer', 'ana'",
+        ),
+        (
             "with-recipient",
             "remote",
             ", recipient_identity_id, remote_ref, remote_target_name, remote_sender_name",
@@ -319,6 +331,23 @@ fn a_remote_route_has_exactly_its_own_columns_and_nothing_else_does() {
     for (id, route, columns, values) in invalid {
         assert!(insert(id, route, columns, values).is_err(), "{id}");
     }
+    // A remote route needs a confirmed sender: an anonymous (unknown) originator is refused, a
+    // verified one is as good as an explicit one.
+    let anonymous = |kind: &str, identity: &str| {
+        db.execute(
+            &format!(
+                "INSERT INTO request_attempts (attempt_id, request_id, route_kind, wait_active,
+                 status, inject_preamble, cadence_reserved, prepared_at_ms, expires_at_ms,
+                 retention_expires_at_ms, originator_kind, originator_identity_id,
+                 remote_ref, remote_target_name, remote_sender_name)
+                 VALUES ('a-{kind}', 'r-{kind}', 'remote', 0, 'queued', 0, 0, 5000, 3605000,
+                 604805000, '{kind}', {identity}, 'bob', 'reviewer', 'ana')"
+            ),
+            [],
+        )
+    };
+    assert!(anonymous("unknown", "NULL").is_err());
+    anonymous("verified", "'i1'").unwrap();
     // Neither does a pane route carry one, and an announcement is never remote.
     assert!(
         insert(
@@ -343,7 +372,7 @@ fn a_remote_route_has_exactly_its_own_columns_and_nothing_else_does() {
             &db,
             "SELECT count(*) FROM request_attempts WHERE route_kind = 'remote'"
         ),
-        vec![vec![Value::Integer(2)]]
+        vec![vec![Value::Integer(3)]]
     );
 }
 

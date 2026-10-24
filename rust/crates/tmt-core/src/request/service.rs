@@ -176,6 +176,13 @@ fn validate_prepare<E>(
     nonempty(attempt_id)?;
     validate_exact_text(input.message.as_bytes()).map_err(|_| RequestError::InputTooLarge)?;
     route_valid(&input.route)?;
+    if matches!(input.route, RequestRoute::Remote { .. })
+        && (input.kind != RequestKind::Request || matches!(input.originator, Originator::Unknown))
+    {
+        return Err(RequestError::Invalid(
+            "A remote request needs a confirmed sender and is never an announcement.",
+        ));
+    }
     if input
         .room_id
         .as_deref()
@@ -441,7 +448,12 @@ fn route_valid<E>(route: &RequestRoute) -> Result<(), RequestError<E>> {
             nonempty(remote)?;
             nonempty(target_name)?;
             nonempty(sender_name)?;
-            target_id.as_deref().map_or(Ok(()), nonempty)
+            match target_id.as_deref() {
+                Some(id) if !crate::dispatch::canonical_id(id) => Err(RequestError::Invalid(
+                    "A remote target id must be a canonical lowercase UUID.",
+                )),
+                _ => Ok(()),
+            }
         }
     }
 }

@@ -73,7 +73,7 @@ CREATE TABLE request_attempts_v65 (
   remote_ref TEXT
     CHECK (remote_ref IS NULL OR length(CAST(remote_ref AS BLOB)) BETWEEN 1 AND 64),
   remote_target_id TEXT
-    CHECK (remote_target_id IS NULL OR length(remote_target_id) = 36),
+    CHECK (remote_target_id IS NULL OR remote_target_id GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'),
   remote_target_name TEXT
     CHECK (remote_target_name IS NULL OR length(CAST(remote_target_name AS BLOB)) BETWEEN 1 AND 128),
   remote_sender_name TEXT
@@ -85,7 +85,8 @@ CREATE TABLE request_attempts_v65 (
     (route_kind = 'inbox' AND recipient_identity_id IS NOT NULL AND
       server_id IS NULL AND socket_path IS NULL AND server_pid IS NULL AND
       server_start_time IS NULL AND pane_id IS NULL AND pane_pid IS NULL) OR
-    (route_kind = 'remote' AND recipient_identity_id IS NULL AND remote_ref IS NOT NULL AND
+    (route_kind = 'remote' AND originator_kind IN ('explicit', 'verified') AND
+      recipient_identity_id IS NULL AND remote_ref IS NOT NULL AND
       remote_target_name IS NOT NULL AND remote_sender_name IS NOT NULL AND
       server_id IS NULL AND socket_path IS NULL AND server_pid IS NULL AND
       server_start_time IS NULL AND pane_id IS NULL AND pane_pid IS NULL)

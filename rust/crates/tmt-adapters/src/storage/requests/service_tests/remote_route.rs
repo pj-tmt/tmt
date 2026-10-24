@@ -114,3 +114,61 @@ fn a_remote_request_belongs_to_its_originator_alone_and_every_reader_copes() {
     assert!(answers.items.is_empty());
     f.storage.close().unwrap();
 }
+
+#[test]
+fn a_remote_request_needs_a_confirmed_sender_a_request_kind_and_a_canonical_target() {
+    let mut f = Fixture::new();
+    let ben = create_or_resolve(&mut f.storage, "Ben", Lifetime::Saved)
+        .unwrap()
+        .identity
+        .id;
+    let mut refused = |kind: RequestKind, originator: Originator, target_id: &str| {
+        let route = RequestRoute::Remote {
+            remote: "bob".into(),
+            target_id: Some(target_id.into()),
+            target_name: "reviewer".into(),
+            sender_name: "Ben".into(),
+        };
+        service(&mut f)
+            .prepare(
+                PrepareRequest {
+                    origin: RequestOrigin::Person,
+                    room_id: None,
+                    kind,
+                    request_id: REQUEST.into(),
+                    message: "hello".into(),
+                    route,
+                    wait: false,
+                    expires_at_ms: NOW_MS + 3_600_001,
+                    originator,
+                    recipient_identity_id: None,
+                    preamble: None,
+                },
+                "attempt-refused".into(),
+                7,
+            )
+            .is_err()
+    };
+    let canonical = "7f0c2f2e-2b1a-4c1e-9d2a-0a1b2c3d4e5f";
+    assert!(refused(
+        RequestKind::Request,
+        Originator::Unknown,
+        canonical
+    ));
+    assert!(refused(
+        RequestKind::Announcement,
+        Originator::Explicit(ben.clone()),
+        canonical
+    ));
+    assert!(refused(
+        RequestKind::Request,
+        Originator::Explicit(ben.clone()),
+        "7F0C2F2E-2B1A-4C1E-9D2A-0A1B2C3D4E5F"
+    ));
+    assert!(!refused(
+        RequestKind::Request,
+        Originator::Verified(ben),
+        canonical
+    ));
+    f.storage.close().unwrap();
+}
