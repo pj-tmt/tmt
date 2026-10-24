@@ -793,11 +793,17 @@ raw attempt status: a request held by Digest stays `queued` after its checklist 
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | `sent`        | Accepted and waiting to be typed, or its Digest checklist is in flight                                                                                                                                            | true unless in flight or the recipient waits on an approval prompt |
 | `batched`     | Held by the recipient's Digest for the next checklist                                                                                                                                                             | true unless the recipient waits on an approval prompt              |
-| `delivered`   | Typed into the recipient's pane (or its checklist was), and no turn has begun on it                                                                                                                               | false                                                              |
+| `delivered`   | Typed into the recipient's pane (or its checklist was), and no turn has begun on it; or available in a person's inbox                                                                                             | false                                                              |
 | `working`     | Typed, and the bound session reports a turn begun after the message was prepared (after the hand-over for a pane route); for an inbox request only until that turn ends, and for at most six hours                | false                                                              |
 | `unconfirmed` | The hand-over may have reached the pane (`uncertain`), or a Digest checklist typed at an idle opportunity has not been carried by a prompt yet, or a turn ended with no final answer or a reply; never resendable | false                                                              |
 | `not_sent`    | Nothing reached the agent: `refused` (a pane route failed for certain) or `unreachable` (an identified recipient had no live pane)                                                                                | true only for `unreachable`                                        |
 | `answered`    | A reply was submitted, or the turn a passthrough started ended with a final message. Terminal: nothing moves it, and it outranks every other state                                                                | false                                                              |
+
+A recipient carrying the active reserved `user=true` mark is a person, even without a pane.
+An unanswered request available in that person's inbox reads `delivered` with
+`waiting_for_person` (`waiting for the person`), no countdown and no send-now action.
+A submitted reply reads `answered`. Stale Digest holds or agent activity never override
+these person states; absence of a pane alone does not make an agent a person.
 
 `messageState` is `{state, reason:{code, text}, latestMs, remainingMs, canSendNow}`. `reason.text`
 is the one wording for the state, from the table below; a client may add the recipient's name or a
@@ -816,6 +822,7 @@ retained, so `not_sent` carries one of the two generic reasons.
 | `waiting_for_delivery`      | `sent`        | waiting for delivery                                                                                |
 | `awaiting_approval`         | `sent`        | waiting for the agent's approval prompt to clear                                                    |
 | `held_to_save_usage`        | `batched`     | batched to save usage, sends when the agent finishes this turn                                      |
+| `waiting_for_person`        | `delivered`   | waiting for the person                                                                              |
 | `reached_the_agent`         | `delivered`   | delivered                                                                                           |
 | `agent_working`             | `working`     | the agent has started on it                                                                         |
 | `handed_over`               | `unconfirmed` | handed to the agent, delivery unconfirmed, do not resend                                            |
@@ -970,6 +977,10 @@ Squad admits recorded-user/current-lead writes and supplies the pinned owner UUI
 core validates active UUIDs and compare-and-set revisions through the
 [local API](extension-api.md#digest-policy-and-checklist).
 There is no cadence, rotation, timer, daemon or detached Digest worker.
+
+A request addressed to a person is never held, independently of the sender or policy.
+Legacy Digest references for a person retain their history but yield no checklist items
+and no claim or reoffer permission; an answered request cannot leak into a later checklist.
 
 Normal automatic identity requests are prepared, registered for detached result
 notices, published as queued, and held under one IMMEDIATE transaction. They own

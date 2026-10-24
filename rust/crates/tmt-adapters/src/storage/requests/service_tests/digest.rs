@@ -1473,6 +1473,11 @@ fn a_reply_from_a_person_is_never_held_but_an_agents_reply_is() {
         .unwrap();
     let answered = |f: &mut Fixture, id: &str| {
         let prepared = held(f, &target, &sender, id);
+        // A person's recipient policy no longer queues a Digest-held request:
+        // publish it through the ordinary inbox path before accepting its answer.
+        if prepared.digest_until_ms.is_none() {
+            service(f).queue(&prepared.attempt_id).unwrap();
+        }
         service(f)
             .submit_response_with_hint(
                 SubmitResponse {
@@ -1797,7 +1802,7 @@ fn every_exchange_view_reads_the_checklist_state_while_the_attempt_stays_queued(
 }
 
 /// Typed at an idle opportunity, then settled `delivered` (#4858): the checklist the tick pastes.
-fn type_idle_checklist(
+pub(super) fn type_idle_checklist(
     f: &mut Fixture,
     target: &str,
 ) -> tmt_core::request::digest::DigestChecklist {
