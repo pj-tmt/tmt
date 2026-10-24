@@ -606,12 +606,18 @@ impl App {
                         OpsUiAction::AgentsFilter
                             | OpsUiAction::IdleAlert
                             | OpsUiAction::NewMember
+                            | OpsUiAction::SwitchTool
                             | OpsUiAction::DiscoverAgents
                             | OpsUiAction::RenameMember
                             | OpsUiAction::RemoveMember
                     )
                 )
             });
+        }
+        // Switching tools belongs to the selected Agents row, even when an
+        // authored global binding names the action from the conversation pane.
+        if self.workspace_scope() != OpsKeyScope::Member {
+            keys.retain(|_, action| action.verb != Verb::Ui(OpsUiAction::SwitchTool));
         }
         if !self.usage_chart_available() {
             keys.retain(|_, action| action.verb != Verb::Ui(OpsUiAction::UsageControls));
@@ -620,7 +626,11 @@ impl App {
             keys.retain(|_, action| {
                 !matches!(
                     action.verb,
-                    Verb::Ui(OpsUiAction::RenameMember | OpsUiAction::RemoveMember)
+                    Verb::Ui(
+                        OpsUiAction::RenameMember
+                            | OpsUiAction::RemoveMember
+                            | OpsUiAction::SwitchTool
+                    )
                 )
             });
         }
@@ -1113,6 +1123,7 @@ impl App {
             MarkRead => return self.mark_read_selected(),
             IdleAlert => return self.open_idle_alert(None),
             NewMember => return self.open_new_member(),
+            SwitchTool => return self.open_switch_tool(),
             MonitorDetails => return self.overview_details(),
             WorkspaceSnapshots => return self.open_recovery(),
             DiscoverAgents => return self.open_discovery(),
@@ -1335,7 +1346,7 @@ impl App {
         use crate::board::shell::OpsInputOwner;
         let overlay = self.overlay();
         let editing = match overlay {
-            Some(Overlay::NewMember | Overlay::IdleAlert) => true,
+            Some(Overlay::NewMember | Overlay::SwitchTool | Overlay::IdleAlert) => true,
             Some(Overlay::Workspace) => self.input.is_some(),
             Some(Overlay::Settings) => self
                 .settings

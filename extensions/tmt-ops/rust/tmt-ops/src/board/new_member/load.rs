@@ -1,6 +1,6 @@
 //! Bounded command work on the ordered action lane, never the frame thread.
+use super::super::host_launch::{Loaded, read, unavailable};
 use super::*;
-use crate::launch::display_executable;
 use crate::{
     config::Config,
     core::{Core, SquadError},
@@ -47,12 +47,6 @@ pub(in crate::board) struct Completed {
     pub(super) task: Task,
     pub(super) result: Result<Outcome, SquadError>,
 }
-pub(super) struct Loaded {
-    pub hosts: Vec<crate::launch::Host>,
-    pub config: Config,
-    pub executable: String,
-    pub display_executable: String,
-}
 pub(super) enum Outcome {
     Loaded(Box<Loaded>),
     Created {
@@ -60,27 +54,6 @@ pub(super) enum Outcome {
         room: Option<String>,
         message: String,
     },
-}
-fn unavailable(text: impl Into<String>) -> SquadError {
-    SquadError::new("SQUAD_LAUNCH_UNAVAILABLE", text)
-}
-fn read(core: &Core) -> Result<Loaded, SquadError> {
-    let hosts = crate::launch::hosts(&core.json(&["host", "templates"])?).map_err(unavailable)?;
-    let executable = core
-        .executable()
-        .to_str()
-        .filter(|s| !s.chars().any(char::is_control))
-        .ok_or_else(|| unavailable("Core executable cannot be copied."))?
-        .into();
-    Ok(Loaded {
-        hosts,
-        config: Config::load(core)?,
-        executable,
-        display_executable: display_executable(
-            core.executable(),
-            std::env::var_os("PATH").as_deref(),
-        ),
-    })
 }
 pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
     let result = match &task.work {
@@ -132,27 +105,13 @@ fn launch(core: &Core, review: &model::Review) -> Result<Outcome, SquadError> {
         .ok_or_else(|| unavailable("Copy only; nothing created."))?;
     // Re-read the public template before executing the exact reviewed argv. A
     // changed built-in/driver template cannot silently replace the review.
-    let loaded = read(core)?;
-    let host = loaded
-        .hosts
-        .iter()
-        .find(|h| h.name == review.host && matches!(h.state.as_str(), "builtin" | "ok"))
-        .ok_or_else(|| unavailable("Host changed; review again."))?;
-    let argv = loaded
-        .config
-        .launch_override(&review.host)?
-        .or_else(|| host.argv.clone())
-        .ok_or_else(|| unavailable("Host launch is now unavailable."))?;
-    if crate::launch::fill(
-        &argv,
+    super::super::host_launch::recheck(
+        core,
+        &review.host,
         &review.session,
-        &crate::launch::line(&review.command),
-    )
-    .map_err(unavailable)?
-        != *outer
-    {
-        return Err(unavailable("Host launch changed; review again."));
-    }
+        &review.command,
+        outer,
+    )?;
     // Core owns Unicode canonicalization. A public lookup refuses aliases too;
     // matching only the list's displayed name would let run reuse an identity.
     match core.json_with_operands(&["identity", "show"], &[&review.name]) {

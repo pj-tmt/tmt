@@ -378,6 +378,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
             (Ui::RenameMember, "r", "rename"),
             (Ui::MoveMembership, "m", "move"),
             (Ui::MemberSession, "R", "resume"),
+            (Ui::SwitchTool, "S", "switch tool"),
             (Ui::MemberNotes, "N", "notes"),
             (Ui::RemoveMember, "d", "remove"),
             (Ui::RemoveMembership, "x", "leave squad"),

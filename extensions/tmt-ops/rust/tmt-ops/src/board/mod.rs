@@ -28,6 +28,7 @@ mod header_sort;
 mod help;
 mod home;
 mod home_leads;
+mod host_launch;
 mod hyperlinks;
 mod identity_line;
 mod input_field;
@@ -39,6 +40,8 @@ mod lane;
 mod limits;
 mod member_session;
 mod new_member;
+mod switch_tool;
+mod tool_choices;
 pub(crate) use limits::history::document as limits_history;
 mod conversation_notes;
 mod idle_alert_editor;
@@ -146,6 +149,7 @@ pub(in crate::board) enum BoardEvent {
     Discovery(discovery::load::Completed),
     MemberSession(member_session::Completed),
     NewMember(new_member::Completed),
+    SwitchTool(switch_tool::Completed),
     IdleAlert(idle_alert_editor::Completed),
     Input(Event),
     InputClosed,
@@ -755,6 +759,11 @@ fn session(
                 dirty = true;
                 app.finished_recovery(completed)
             }
+            Ok(BoardEvent::SwitchTool(completed)) => {
+                app.in_flight = app.in_flight.saturating_sub(1);
+                dirty = true;
+                app.finished_switch_tool(completed)
+            }
             Ok(BoardEvent::IdleAlert(completed)) => {
                 app.in_flight = app.in_flight.saturating_sub(1);
                 dirty = true;
@@ -1179,6 +1188,10 @@ fn session(
             }
             Effect::Checklist(task) => checklist(task),
             Effect::Recovery(task) => submit(app, lane::Job::Recovery(task)),
+            Effect::SwitchTool(task) => {
+                app.in_flight += 1;
+                io(lane::Job::SwitchTool(task));
+            }
             Effect::IdleAlert(task) => {
                 app.in_flight += 1;
                 io(lane::Job::IdleAlert(task));

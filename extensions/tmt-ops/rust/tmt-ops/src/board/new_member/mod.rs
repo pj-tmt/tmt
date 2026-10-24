@@ -6,12 +6,13 @@ mod surface;
 #[cfg(test)]
 pub(in crate::board) mod tests;
 
+use super::host_launch::Loaded;
 use super::{
     app::{App, CopyFeedback, Effect, Request},
     workspace::OpsTarget,
 };
 pub(in crate::board) use load::{Completed, Task, complete};
-use load::{Loaded, Outcome, Work};
+use load::{Outcome, Work};
 use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind},
     layout::Rect,

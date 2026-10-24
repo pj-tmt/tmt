@@ -899,6 +899,10 @@ fn captures() -> Value {
                 }
             }
         }
+        frames.extend(switch_frames(
+            crate::board::switch_tool::tests::captures::SCENES,
+            &mut styles,
+        ));
         frames.extend(idle_alert_frames(&mut styles));
         frames.extend(crud_frames(
             crate::board::app::workspace::tests::review_modal::CRUD_SCENES,
@@ -925,6 +929,49 @@ fn captures() -> Value {
             .collect::<BTreeMap<_, _>>();
         json!({"styles": styles, "frames": frames})
     })
+}
+
+fn switch_frames(scenes: &[&str], styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        for scene in scenes {
+            for width in [160, 150, 100, 80, 60] {
+                for height in [43, 8] {
+                    let app = crate::board::switch_tool::tests::captures::case(scene, look);
+                    let mut captured = capture_frame(&app, scene, look_name, width, height, styles);
+                    captured["switchTool"] =
+                        crate::board::switch_tool::tests::captures::metadata(&app);
+                    frames.push(captured);
+                }
+            }
+        }
+    }
+    frames
+}
+
+#[test]
+#[ignore = "read-only switch revision inspection; never records frozen bytes"]
+fn dump_switch_revision_oracle() {
+    let value = crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut styles = Styles::default();
+        let scenes = crate::board::switch_tool::tests::captures::SCENES
+            .iter()
+            .copied()
+            .filter(|s| *s != "switch-tool-review")
+            .collect::<Vec<_>>();
+        let frames = switch_frames(&scenes, &mut styles);
+        let styles = styles
+            .0
+            .into_iter()
+            .map(|(text, id)| (id, text))
+            .collect::<BTreeMap<_, _>>();
+        json!({"styles":styles,"frames":frames})
+    });
+    fs::write(
+        std::env::var("HOME_ORACLE_OUT").expect("task-owned correction path"),
+        serde_json::to_string_pretty(&value).unwrap() + "\n",
+    )
+    .unwrap();
 }
 
 fn crud_frames(scenes: &[&str], styles: &mut Styles) -> Vec<Value> {

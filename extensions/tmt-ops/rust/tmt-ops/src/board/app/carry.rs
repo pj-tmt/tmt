@@ -78,6 +78,7 @@ impl App {
             || self.checklist_shown()
             || self.recovery.as_ref().is_some_and(|c| c.blocks_reload())
             || self.new_member.is_some()
+            || self.switch_tool.is_some()
             || self.idle_alert_editor.is_some()
             || self.member_session.is_some()
             || self.notes_overlay.is_some()
