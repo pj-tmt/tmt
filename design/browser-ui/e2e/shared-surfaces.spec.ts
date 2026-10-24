@@ -227,3 +227,62 @@ for (const close of ['close', 'unmount']) {
     await expect(opener).toBeFocused();
   });
 }
+
+for (const width of [1440, 1024, 390]) {
+  test(`kept panel ${width}: pending failure and draft survive hiding without closed focus`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 992 });
+    await page.goto('/?frame=panel&open=false&keep-mounted=true&host-close=close');
+    const aside = page.locator('.tmt-ui-panel');
+    const panel = page.getByRole('complementary', { name: 'Discussion' });
+    const opener = page.getByRole('button', { name: 'Discussion', exact: true });
+    const outside = page.getByRole('button', { name: 'Page action', exact: true });
+    await expect(aside).toHaveCount(1);
+    await expect(aside).toHaveAttribute('hidden', '');
+    await expect(aside).toHaveCSS('display', 'none');
+    await expect(panel).toHaveCount(0);
+    await opener.click();
+    await expect(panel.getByRole('heading')).toBeFocused();
+    const draft = panel.getByRole('textbox', { name: 'Reply draft', exact: true });
+    await draft.fill('Retain my pending reply');
+    const originalDraft = await draft.elementHandle();
+    await panel.getByRole('button', { name: 'Send reply', exact: true }).click();
+    await expect(panel.getByRole('status')).toHaveText('pending');
+    await panel.getByRole('button', { name: 'Close Discussion', exact: true }).click();
+    await expect(opener).toBeFocused();
+    await expect(panel).toHaveCount(0);
+    await expect(aside).toHaveAttribute('hidden', '');
+    await expect(aside).toHaveCSS('display', 'none');
+    // The transport settles after closure; the child owns its failure and draft.
+    const fail = page.getByRole('button', { name: 'Fail pending reply', exact: true });
+    await fail.click();
+    await expect(aside.getByRole('status', { includeHidden: true })).toHaveText(
+      'Reply failed. Your draft is retained.',
+    );
+    await expect(fail).toBeFocused();
+    await aside
+      .locator('textarea')
+      .first()
+      .evaluate((node) => node.focus());
+    await expect(fail).toBeFocused();
+    await outside.focus();
+    for (let n = 0; n < 6; n += 1) {
+      await page.keyboard.press('Tab');
+      expect(await aside.evaluate((node) => node.contains(document.activeElement))).toBe(false);
+    }
+    await outside.click();
+    await outside.press('Escape');
+    await expect(outside).toBeFocused();
+    await opener.click();
+    await expect(panel.getByRole('heading')).toBeFocused();
+    await expect(draft).toHaveValue('Retain my pending reply');
+    expect(await draft.evaluate((node, original) => node === original, originalDraft)).toBe(true);
+    await expect(panel.getByRole('status')).toHaveText('Reply failed. Your draft is retained.');
+    // A host close after the reader moves into the page must not steal focus.
+    await outside.click();
+    await expect(panel).toHaveCount(0);
+    await expect(outside).toBeFocused();
+    await expect(aside).toHaveCount(1);
+  });
+}

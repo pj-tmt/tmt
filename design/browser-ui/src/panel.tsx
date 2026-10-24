@@ -15,6 +15,8 @@ export interface BrowserPanelProps extends Omit<
   'title' | 'children' | 'onKeyDown'
 > {
   open: boolean;
+  /** Retain child state while closed; the hidden region has no focus or dismissal behavior. */
+  keepMounted?: boolean;
   title: string;
   caption?: ReactNode;
   /** The host chooses the layout; column geometry and reflow belong to its page grid. */
@@ -27,6 +29,7 @@ export interface BrowserPanelProps extends Omit<
 /** A controlled non-modal region: no top layer, outside-press handler, trap or page inertness. */
 export function BrowserPanel({
   open,
+  keepMounted = false,
   title,
   caption,
   mode,
@@ -55,16 +58,18 @@ export function BrowserPanel({
         restoreOverlayFocus(origin, current.current.focusFallback);
     };
   }, [open]);
-  if (!open) return null;
+  if (!open && !keepMounted) return null;
   return (
     <aside
       {...attributes}
       ref={panel}
+      hidden={!open}
       className={`tmt-ui-panel ${className}`}
       data-mode={mode}
       aria-labelledby={label}
       onKeyDown={(event) => {
         if (
+          !open ||
           event.key !== 'Escape' ||
           event.defaultPrevented ||
           !event.currentTarget.contains(event.target as Node) ||
