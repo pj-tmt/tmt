@@ -13,6 +13,7 @@ mod notification;
 pub(super) mod passthrough;
 mod reply_batch;
 mod rows;
+pub(super) mod turns;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use tmt_core::request::{

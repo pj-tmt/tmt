@@ -20,6 +20,7 @@ fn sent_view() -> tmt_core::request::delivery::DeliveryView {
             recipient_start_refusal: None,
             recipient_session_recovery: None,
             recipient_name: None,
+            turn: tmt_core::request::delivery::HandoverTurn::Unrecorded,
             answer: tmt_core::request::delivery::ReturnedAnswer::None,
         },
         0,

@@ -589,3 +589,51 @@ fn a_passthrough_is_folded_only_into_a_turn_the_verified_binding_shows_running_b
         f.storage.close().unwrap();
     }
 }
+
+#[test]
+fn a_message_stops_reading_working_when_the_turn_recorded_for_it_ends() {
+    let mut f = Fixture::new();
+    let target = f.identity_id.clone();
+    let person = identity(&mut f, "Ben");
+    mark_user(&f, &person, "true");
+    service(&mut f)
+        .enqueue_delivery(
+            request(&target, Some(&person), "m"),
+            "attempt-m".into(),
+            7,
+            DeliveryPolicy::default(),
+        )
+        .unwrap();
+    assert!(service(&mut f).claim_wake("m").unwrap().claimed);
+    service(&mut f)
+        .settle_request_delivery("m", WakeState::Sent)
+        .unwrap();
+    let began = NOW_MS + 20;
+    bind_with_activity(&f, &target, "working", began);
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    // Nothing recorded: the activity alone says the agent started.
+    assert_eq!(shown(&mut f, "m"), ("working", "agent_working", false));
+    db.execute(
+        "INSERT INTO request_turns(request_id,started_ms) VALUES('m',?1)",
+        [began as i64],
+    )
+    .unwrap();
+    assert_eq!(shown(&mut f, "m"), ("working", "agent_working", false));
+    // The turn ended and a later one is running: the message is not that turn's.
+    db.execute(
+        "UPDATE request_turns SET ended_ms=?1 WHERE request_id='m'",
+        [(began + 50) as i64],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE identity_session_preferences SET driver_state = json_set(driver_state,
+            '$.activity.sinceMs', ?1, '$.activity.lastActivityMs', ?1)",
+        [(began + 90) as i64],
+    )
+    .unwrap();
+    assert_eq!(
+        shown(&mut f, "m"),
+        ("unconfirmed", "turn_ended_without_reply", false)
+    );
+    f.storage.close().unwrap();
+}
