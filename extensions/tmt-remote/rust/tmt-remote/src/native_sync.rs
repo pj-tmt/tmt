@@ -1,6 +1,6 @@
 //! Native ordinary-user REST transport over extension-declared sealed documents.
 mod budget_state;
-mod client;
+pub(crate) mod client;
 mod discovery;
 mod poll;
 mod subscription;

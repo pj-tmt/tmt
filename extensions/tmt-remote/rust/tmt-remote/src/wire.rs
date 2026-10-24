@@ -7,7 +7,7 @@ use serde::{
 use serde_json::Value;
 use std::{collections::BTreeSet, fmt};
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct MessageWire {
     version: u64,
@@ -27,6 +27,7 @@ struct MessageWire {
     signature: String,
 }
 /// Syntax establishes no authority. All callers must verify the device and grant.
+#[derive(Clone)]
 pub struct SignedMessage {
     wire: MessageWire,
     pub payload: Vec<u8>,

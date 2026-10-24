@@ -230,6 +230,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             // Fixed native cloud-hpke-v1 suite and exported response AEAD (#4535).
             "hpke",
             "aes-gcm",
+            // Fresh fallibly OS-seeded StdRng per native carrier (#4537).
+            "rand",
             // Bounded ordinary-user Firebase Auth/Firestore REST (#2694).
             "ureq",
             // Deterministic gzip of authorized Firebase Hosting bytes (#2486).

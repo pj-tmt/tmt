@@ -40,22 +40,34 @@ pub struct MessagePermit {
     pub authority: GrantAuthority,
     pub(crate) sessions: Arc<DoorSessions>,
     pub(crate) busy: Arc<AtomicBool>,
+    pub(crate) binding: PermitBinding,
+}
+pub(crate) enum PermitBinding {
+    Local,
+    Cloud,
 }
 impl MessagePermit {
+    pub(crate) fn cloud(&self) -> bool {
+        matches!(self.binding, PermitBinding::Cloud)
+    }
     /// The owner's own paired browser on this door: pairing was confirmed at this machine's
     /// terminal. Management and the person's attribution (#4255) are for this grant alone; a `cli`
     /// device may be an agent on another machine, and an add-on is outside the door origin.
     pub(crate) fn owner_browser(&self) -> bool {
-        self.grant.kind == "browser" && self.grant.origin == self.sessions.door_origin()
+        matches!(self.binding, PermitBinding::Local)
+            && self.grant.kind == "browser"
+            && self.grant.origin == self.sessions.door_origin()
     }
     pub fn response(&self, payload: &Value) -> Result<Vec<u8>, RemoteError> {
-        self.sessions.response(&self.message, payload)
+        match self.binding {
+            PermitBinding::Local => self.sessions.response(&self.message, payload),
+            PermitBinding::Cloud => self.sessions.cloud_response(&self.message, payload),
+        }
     }
     /// Admission is not an effect lease. Every effect rechecks the persisted
     /// authority under the store owner's lock at its own durable fence.
     pub fn revalidate(&self) -> Result<(), RemoteError> {
-        self.sessions
-            .revalidate(&self.grant, &self.message, now_ms()?)
+        self.with_store(|_| Ok(()))
     }
 }
 #[derive(Deserialize)]
@@ -78,9 +90,21 @@ impl MessagePermit {
         &self,
         action: impl FnOnce(&mut crate::store::Store) -> Result<T, RemoteError>,
     ) -> Result<T, RemoteError> {
-        self.sessions
-            .with_store(&self.grant, &self.message, now_ms()?, action)
-            .map(|value| value.0)
+        self.with_store_generation(action).map(|value| value.0)
+    }
+    fn with_store_generation<T>(
+        &self,
+        action: impl FnOnce(&mut crate::store::Store) -> Result<T, RemoteError>,
+    ) -> Result<(T, u64), RemoteError> {
+        match self.binding {
+            PermitBinding::Local => {
+                self.sessions
+                    .with_store(&self.grant, &self.message, now_ms()?, action)
+            }
+            PermitBinding::Cloud => self
+                .sessions
+                .with_cloud_store(&self.grant, now_ms()?, action),
+        }
     }
     /// Commit sanitized metadata and frozen send ownership before the bounded core call.
     pub fn adopt(
@@ -127,11 +151,9 @@ impl MessagePermit {
         let deadline = Instant::now() + Duration::from_millis(input.wait_ms);
         loop {
             let now = now_ms()?;
-            let (payload, generation) =
-                self.sessions
-                    .with_store(&self.grant, &self.message, now, |store| {
-                        store.page(&self.grant, input.cursor.as_str(), input.limit, now)
-                    })?;
+            let (payload, generation) = self.with_store_generation(|store| {
+                store.page(&self.grant, input.cursor.as_str(), input.limit, now)
+            })?;
             if !payload["entries"]
                 .as_array()
                 .expect("journal entries")

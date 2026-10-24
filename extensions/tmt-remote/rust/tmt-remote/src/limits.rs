@@ -7,7 +7,23 @@ pub const CLOUD_KEY_RENEW_LEAD_MS: u64 = 7 * 86_400_000;
 pub const CLOUD_KEY_CHECK_MS: u64 = 60_000;
 pub const CLOUD_KEYRING_BYTES: usize = 16 * 1024;
 pub const CLOUD_DESCRIPTOR_BYTES: usize = 4 * 1024;
-pub const CLOUD_KEYRING_KEYS: usize = 2;
+pub const CLOUD_KEYRING_KEYS: usize = 3;
+const _: () = assert!(
+    CLOUD_KEYRING_KEYS as u64
+        == (CLOUD_KEY_LIFETIME_MS + crate::journal::RECOVERY)
+            .div_ceil(CLOUD_KEY_LIFETIME_MS - CLOUD_KEY_RENEW_LEAD_MS)
+);
+
+/// A single cloud carrier fits the existing conservative Firestore payload allowance.
+pub const CLOUD_CARRIER_BYTES: usize = crate::firestore_limits::DOCUMENT_PAYLOAD_BYTES as usize;
+/// Largest signed-envelope JSON length satisfying cloud-hpke-v1's conservative wire cap.
+pub const CLOUD_ENVELOPE_BYTES: usize =
+    ((CLOUD_CARRIER_BYTES - METADATA_BYTES - 4 * 65_usize.div_ceil(3)) / 4) * 3 - 16;
+/// Reconcile the boundary again; operation IDs are deduplicated by the journal.
+pub const CLOUD_CHECKPOINT_OVERLAP_MS: u64 = 120_000;
+/// Named adaptive cadence, including jitter; local sealed-document policy is unchanged.
+pub const CLOUD_POLL_MIN_MS: u64 = 5_000;
+pub const CLOUD_POLL_IDLE_MS: u64 = 60_000;
 
 /// Fixed native Auth defaults. Policy settings and Keychain are later work.
 pub const FIREBASE_CREDENTIAL_BYTES: usize = 16 * 1024;
@@ -256,3 +272,13 @@ pub const DESCRIBE_COUNT: u16 = 9999;
 pub const DESCRIBE_MENU: usize = 24;
 pub const DESCRIBE_SETTINGS: usize = 16;
 pub const DESCRIBE_HOME: usize = 8;
+
+/// One REST JSON document containing the maximum base64 carrier plus provider metadata.
+pub const CLOUD_PROVIDER_BYTES: usize = CLOUD_CARRIER_BYTES.div_ceil(3) * 4 + 2 * METADATA_BYTES;
+
+/// One finite cloud reconciliation, independent of the serving lifecycle length.
+pub const CLOUD_RECONCILE_CALL: Duration = Duration::from_secs(60);
+
+/// Worst-case JSON escaping and signed-envelope base64 must fit one cloud carrier.
+pub const CLOUD_MESSAGE_BYTES: usize = (CLOUD_ENVELOPE_BYTES - METADATA_BYTES) / 8;
+pub const CLOUD_COMMAND_BYTES: usize = CLOUD_MESSAGE_BYTES * 6 + METADATA_BYTES;

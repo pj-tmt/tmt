@@ -1844,11 +1844,11 @@ fn operation_show_preserves_existing_wire_projections() {
             json!({"operationId":id}).to_string().as_bytes(),
         );
         let before = journal_snapshot(&owner);
-        assert_eq!(
-            append(&owner, core.operations(), &query),
-            expected,
-            "{phase}"
-        );
+        let actual = append(&owner, core.operations(), &query);
+        assert_eq!(actual, expected, "{phase}");
+        if phase == "absent" {
+            assert_eq!(serde_json::to_vec(&actual).unwrap(), br#"{"error":{"code":"REMOTE_STATE_UNAVAILABLE","message":"Remote request refused."}}"#, "local door payload bytes stay unchanged");
+        }
         if phase != "absent" {
             assert_eq!(journal_snapshot(&owner), before, "{phase}");
             let second = owner.wire(

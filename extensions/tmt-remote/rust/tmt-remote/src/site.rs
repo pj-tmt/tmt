@@ -61,17 +61,9 @@ impl Handler for Site {
     fn maintain(&self) -> Result<(), crate::error::RemoteError> {
         self.routes.maintain()?;
         if let Some(keys) = &self.cloud_keys {
-            // Renewal failure is a cloud-only refusal; it never stops the local door.
-            if let Err(error) = keys.maintain((crate::objects::system_clock())()) {
-                let mut output = tmt_cli_style::stream::stderr();
-                let terminal = output.terminal();
-                let _ = tmt_cli_style::message::warning(
-                    &mut output,
-                    terminal,
-                    &format!("Cloud encryption unavailable: {}", error.code),
-                    None,
-                );
-            }
+            // The lifecycle owner retains the fixed failure in CloudKeys::renewal_status;
+            // a cloud-only refusal never stops pairing or repeats stderr on each tick.
+            let _ = keys.maintain((crate::objects::system_clock())());
         }
         Ok(())
     }

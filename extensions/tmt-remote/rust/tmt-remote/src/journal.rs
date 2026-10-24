@@ -440,18 +440,25 @@ impl Store {
         })
     }
     pub fn owned(&mut self, grant: &Grant, id: &str, now: u64) -> Result<Owned, RemoteError> {
-        let tx = self.authorized(grant, now)?;
+        use crate::error::OwnedReadFailure;
+        let tx = self
+            .authorized(grant, now)
+            .map_err(|error| error.with_owned_read(OwnedReadFailure::Store))?;
         let Some(Stored {
             client,
             owned,
             time,
             ..
-        }) = read_owned(&tx, id)?
+        }) = read_owned(&tx, id).map_err(|error| error.with_owned_read(OwnedReadFailure::Store))?
         else {
-            return Err(database("owned state absent"));
+            return Err(
+                database("owned state absent").with_owned_read(OwnedReadFailure::Unavailable)
+            );
         };
         if client != grant.client_id || now.saturating_sub(time) >= RECOVERY {
-            return Err(database("owned state unavailable"));
+            return Err(
+                database("owned state unavailable").with_owned_read(OwnedReadFailure::Unavailable)
+            );
         }
         Ok(owned)
     }

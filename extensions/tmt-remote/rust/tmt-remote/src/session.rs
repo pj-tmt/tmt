@@ -5,6 +5,7 @@
 //! optional-limit eviction or idle expiry. Transport close starts a reattach grace;
 //! reopening an expired session is a silent
 //! signed `session.open` from the device key.
+mod cloud;
 use crate::{
     admission::{self, BindingAction, MessagePermit, MessageRefusal},
     canonical::{self, Envelope},
@@ -553,27 +554,14 @@ impl DoorSessions {
             )
         })?;
         let deny = |code, text| admission::refusal(self, &message, code, text);
-        if !action.matches(&message) {
-            return Err(deny(
-                "REMOTE_INPUT_INVALID",
-                "Route and signed operation disagree.",
-            ));
-        }
-        let Some(scope) = admission::scope(message.envelope().operation) else {
-            return Err(deny(
-                "REMOTE_INPUT_INVALID",
-                "Operation is not remotely callable.",
-            ));
-        };
-        if scope.is_some_and(|scope| !grant.permits_scope(scope)) {
-            if scope == Some("talk") {
-                return Err(admission::missing_talk(self, &message));
-            }
-            return Err(deny(
-                "REMOTE_SCOPE_DENIED",
-                "Device scope does not admit this operation.",
-            ));
-        }
+        self.message_policy(action, &grant, &message)
+            .map_err(|(code, text)| {
+                if code == "REMOTE_SCOPE_DENIED" && text == "talk" {
+                    admission::missing_talk(self, &message)
+                } else {
+                    deny(code, text)
+                }
+            })?;
         if busy
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
@@ -611,16 +599,8 @@ impl DoorSessions {
             authority,
             sessions: Arc::clone(self),
             busy,
+            binding: admission::PermitBinding::Local,
         })
-    }
-    pub(crate) fn revalidate(
-        &self,
-        expected: &Grant,
-        message: &SignedMessage,
-        now: u64,
-    ) -> Result<(), RemoteError> {
-        self.with_store(expected, message, now, |_| Ok(()))
-            .map(|_| ())
     }
     /// Hold the live-session and Store owners through the bounded durable fence.
     pub(crate) fn with_store<T>(
@@ -877,7 +857,7 @@ impl DoorSessions {
             id: &id,
             correlation_id: Some(input.id),
             machine_id: &self.machine_id,
-            window_id: &self.window_id,
+            window_id: input.window_id,
             client_id: input.client_id,
             session_id,
             sequence: &sequence,
@@ -888,7 +868,7 @@ impl DoorSessions {
         };
         let bytes = canonical::envelope(&envelope)
             .map_err(|_| RemoteError::new("REMOTE_INPUT_INVALID", "Invalid response envelope."))?;
-        Ok(json!({"version":1,"profile":"local-v1","kind":"response","id":id,"correlationId":input.id,"machineId":self.machine_id,"windowId":self.window_id,"clientId":input.client_id,"sessionId":session_id,"sequence":sequence,"timestampMs":now,"origin":input.origin,"operation":input.operation,"payload":canonical::base64url(&payload),"signature":canonical::base64url(&self.machine_key.sign(&bytes))}).to_string().into_bytes())
+        Ok(json!({"version":1,"profile":"local-v1","kind":"response","id":id,"correlationId":input.id,"machineId":self.machine_id,"windowId":input.window_id,"clientId":input.client_id,"sessionId":session_id,"sequence":sequence,"timestampMs":now,"origin":input.origin,"operation":input.operation,"payload":canonical::base64url(&payload),"signature":canonical::base64url(&self.machine_key.sign(&bytes))}).to_string().into_bytes())
     }
 }
 impl DoorSessions {
@@ -993,6 +973,7 @@ impl DoorSessions {
         let mut store = self.store.lock().map_err(crate::store::database)?;
         store.cancel_invalid_holds(now)?;
         store.prune_sessions(&self.window_id, now)?;
+        store.cloud_prune_outgoing(now)?;
         Ok(())
     }
 }
