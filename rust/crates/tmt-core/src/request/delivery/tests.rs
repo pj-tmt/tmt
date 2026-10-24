@@ -15,6 +15,7 @@ fn facts(status: AttemptStatus) -> DeliveryFacts {
         recipient_start_refusal: None,
         recipient_session_recovery: None,
         recipient_name: None,
+        answer: ReturnedAnswer::None,
     }
 }
 
@@ -349,4 +350,48 @@ fn resume_guidance_stays_one_line_below_256_bytes_for_long_names() {
             assert!(!text.contains(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}']));
         }
     }
+}
+
+#[test]
+fn what_came_back_outranks_how_the_hand_over_went() {
+    // A reply ends the road wherever the message was: held, never pasted, or being worked on.
+    let reply = |facts: DeliveryFacts| DeliveryFacts {
+        answer: ReturnedAnswer::Final,
+        ..facts
+    };
+    for base in [
+        through_inbox(WakeState::NotAttempted),
+        through_inbox(WakeState::Unavailable),
+        through_inbox(WakeState::Sent),
+        DeliveryFacts {
+            hold: Some(DigestHold::Open { since_ms: 100 }),
+            ..through_inbox(WakeState::NotAttempted)
+        },
+        DeliveryFacts {
+            recipient: activity(ActivityPhase::Working, 500),
+            ..through_inbox(WakeState::Sent)
+        },
+    ] {
+        assert_eq!(
+            shown(&reply(base)),
+            ("answered", "answered_by_reply", false)
+        );
+    }
+    // The turn a passthrough started ended with a final message.
+    let mut typed = through_inbox(WakeState::Sent);
+    typed.recipient = activity(ActivityPhase::Working, 900);
+    assert_eq!(shown(&typed), ("working", "agent_working", false));
+    typed.answer = ReturnedAnswer::Turn;
+    assert_eq!(shown(&typed), ("answered", "answered_by_turn", false));
+    // No answer was captured: unconfirmed, and never `working`, however busy the agent is now.
+    typed.answer = ReturnedAnswer::NoCapture { bound: false };
+    assert_eq!(shown(&typed), ("unconfirmed", "no_turn_started", false));
+    typed.answer = ReturnedAnswer::NoCapture { bound: true };
+    assert_eq!(
+        shown(&typed),
+        ("unconfirmed", "turn_ended_without_answer", false)
+    );
+    // A capture still waiting changes nothing.
+    typed.answer = ReturnedAnswer::None;
+    assert_eq!(shown(&typed), ("working", "agent_working", false));
 }

@@ -79,8 +79,11 @@ configuration. The owner map is in
   history, exchange, incoming and inbox read transactions from rows only: `storage/requests/delivery.rs::facts` reads the attempt's
   route and status, the wake state (an identified recipient's request stays `queued`; its paste is the
   wake), the `focus_items`/`focus_checklists` hold, `focus_policies.max_hold_ms` plus the oldest held
-  arrival (the latest send time), and the driver activity of the exact bound session and process (a
-  stored event, no host call). The Digest tick writes `maxHoldMs` with every `digest.policy.set` and
+  arrival (the latest send time), the driver activity of the exact bound session and process (a
+  stored event, no host call), and what came back (`delivery::Answer`: a submitted final, or the
+  passthrough capture as `state_at` reads it, so a capture past its window already reads
+  `no_answer`). `Answer` outranks every other fact: `answered` is terminal, and an ended capture
+  without an answer is `unconfirmed`, never `working` (#4910). The Digest tick writes `maxHoldMs` with every `digest.policy.set` and
   rewrites a policy whose recorded value differs; older policies read null until then.
 - A delivered checklist keeps `confirmed_at_ms` null until later evidence arrives (pre-068 rows are
   confirmed by the migration). One typed at an idle opportunity is confirmed by the hook's

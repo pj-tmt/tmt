@@ -3,7 +3,10 @@
 use super::*;
 use tmt_core::{
     binding::BindingRecords,
-    request::delivery::{DeliveryFacts, DigestHold, RecipientActivity},
+    request::{
+        delivery::{DeliveryFacts, DigestHold, RecipientActivity, ReturnedAnswer},
+        passthrough::CaptureState,
+    },
 };
 
 pub(super) fn facts(
@@ -76,6 +79,28 @@ pub(super) fn facts(
             .transpose()?
             .flatten(),
         recipient: recipient.map(|id| activity(db, id)).transpose()?.flatten(),
+        answer: answer(db, attempt, now)?,
+    })
+}
+
+/// A submitted reply, else the passthrough capture as it reads at `now`.
+fn answer(
+    db: &Connection,
+    attempt: &RequestAttempt,
+    now: u64,
+) -> Result<ReturnedAnswer, StorageError> {
+    if attempt.response_submitted_at_ms.is_some() {
+        return Ok(ReturnedAnswer::Final);
+    }
+    Ok(match passthrough::capture(db, &attempt.request_id)? {
+        Some(capture) => match capture.state_at(now) {
+            CaptureState::Answered => ReturnedAnswer::Turn,
+            CaptureState::NoAnswer => ReturnedAnswer::NoCapture {
+                bound: capture.bound_at_ms.is_some(),
+            },
+            CaptureState::Pending | CaptureState::Bound => ReturnedAnswer::None,
+        },
+        None => ReturnedAnswer::None,
     })
 }
 

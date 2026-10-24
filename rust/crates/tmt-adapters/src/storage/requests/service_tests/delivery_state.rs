@@ -2,6 +2,7 @@
 //! history and `x show` read: no pane text and no client-side guess.
 use super::{
     digest::{held, identity, mark_user, policy, request, start},
+    passthrough::{claimed_passthrough, identity as person, mark_user as mark_person},
     support::{Fixture, NOW_MS, service},
 };
 use tmt_core::{
@@ -350,5 +351,102 @@ fn a_stored_refused_start_explains_delivery_without_reusing_the_old_working_turn
         "reading the diagnostic cannot rewrite admitted activity"
     );
     drop(db);
+    f.storage.close().unwrap();
+}
+
+/// The submitted reply is the end of the road (#4910): a busy agent, a hold that never cleared and
+/// a paste that never happened all read answered once the final exists.
+#[test]
+fn a_submitted_reply_reads_answered_whatever_the_agent_is_doing() {
+    use tmt_core::request::{RequestRoute, ResponseProof, SubmitResponse, correlation};
+    let (mut f, target, _, sender) = start();
+    let prepared = held(&mut f, &target, &sender, "a");
+    bind_with_activity(&f, &target, "working", NOW_MS + 5);
+    assert_ne!(shown(&mut f, "a").0, "answered");
+    service(&mut f)
+        .submit_response(SubmitResponse {
+            request_id: "a".into(),
+            proof: ResponseProof::Compact(correlation::response_token(
+                "a",
+                &prepared.attempt_id,
+                &RequestRoute::Inbox {
+                    recipient_identity_id: target.clone(),
+                },
+            )),
+            body: "done".into(),
+        })
+        .unwrap();
+    assert_eq!(shown(&mut f, "a"), ("answered", "answered_by_reply", false));
+    f.storage.close().unwrap();
+}
+
+/// A passthrough earns its answer from the turn it started; a capture that ended without one
+/// reads unconfirmed and says why, and neither reads `working` once it is over.
+#[test]
+fn a_passthrough_reads_the_outcome_of_its_capture_and_never_working_after_it_ends() {
+    let mut f = Fixture::new();
+    let ben = person(&mut f, "Ben");
+    mark_person(&f, &ben);
+    let target = f.identity_id.clone();
+    for id in [
+        "pending",
+        "answered",
+        "never-bound",
+        "bound-no-answer",
+        "lapsed",
+    ] {
+        claimed_passthrough(&mut f, &target, &ben, id, "typed text");
+        service(&mut f)
+            .settle_request_delivery(id, WakeState::Sent)
+            .unwrap();
+    }
+    bind_with_activity(&f, &target, "working", NOW_MS + 5);
+    let set = |sql: &str, id: &str| {
+        let changed = rusqlite::Connection::open(&f.database)
+            .unwrap()
+            .execute(sql, rusqlite::params![id])
+            .unwrap();
+        assert_eq!(changed, 1, "{id} has a capture");
+    };
+    set(
+        "UPDATE request_passthrough SET state='answered', bound_session='s', bound_at_ms=1, answer_text='an answer', answer_truncated=0, answer_provider='claude', answer_ended_ms=2, settled_at_ms=2 WHERE request_id=?1",
+        "answered",
+    );
+    set(
+        "UPDATE request_passthrough SET state='no_answer', settled_at_ms=2 WHERE request_id=?1",
+        "never-bound",
+    );
+    set(
+        "UPDATE request_passthrough SET state='no_answer', bound_session='s', bound_at_ms=1, settled_at_ms=2 WHERE request_id=?1",
+        "bound-no-answer",
+    );
+    // Stored as still pending, but past its binding window: it reads `no_answer` before anything
+    // has written that.
+    set(
+        "UPDATE request_passthrough SET delivered_at_ms=1 WHERE request_id=?1",
+        "lapsed",
+    );
+
+    // Still inside its window, the agent's current turn is the only evidence: unchanged.
+    assert_eq!(
+        shown(&mut f, "pending"),
+        ("working", "agent_working", false)
+    );
+    assert_eq!(
+        shown(&mut f, "answered"),
+        ("answered", "answered_by_turn", false)
+    );
+    assert_eq!(
+        shown(&mut f, "never-bound"),
+        ("unconfirmed", "no_turn_started", false)
+    );
+    assert_eq!(
+        shown(&mut f, "bound-no-answer"),
+        ("unconfirmed", "turn_ended_without_answer", false)
+    );
+    assert_eq!(
+        shown(&mut f, "lapsed"),
+        ("unconfirmed", "no_turn_started", false)
+    );
     f.storage.close().unwrap();
 }
