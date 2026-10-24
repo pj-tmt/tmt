@@ -8,6 +8,7 @@ use crate::{
     store::{Store, database},
 };
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 // Not a UUID: neither a peer nor the enrollment scan can own this checkpoint key.
@@ -385,5 +386,54 @@ impl Store {
             )
             .map_err(database)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(database)
+    }
+}
+
+/// Private association for Core reply capabilities; never part of a carrier or audit.
+#[derive(Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ReplyOrigin {
+    pub machine: String,
+    pub remote: String,
+    pub sender_id: String,
+    pub reply: Option<crate::cloud_command::Reply>,
+}
+
+impl Store {
+    pub(crate) fn cloud_bind_outgoing(
+        &mut self,
+        peer: &str,
+        operation_id: &str,
+        binding: &ReplyOrigin,
+    ) -> Result<(), RemoteError> {
+        canonical::uuid(&binding.machine).map_err(|_| invalid())?;
+        canonical::uuid(&binding.sender_id).map_err(|_| invalid())?;
+        if !crate::remote_catalog::name_ok(&binding.remote) {
+            return Err(invalid());
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(database)?;
+        let old: Option<String> = tx
+            .query_row(
+                "SELECT binding FROM cloud_transport WHERE peer_id=?1 AND kind='outbox' AND id=?2",
+                [peer, operation_id],
+                |r| r.get(0),
+            )
+            .map_err(database)?;
+        if let Some(old) = old {
+            let old: ReplyOrigin = serde_json::from_str(&old).map_err(database)?;
+            if old != *binding {
+                return Err(RemoteError::new(
+                    "REMOTE_INTENT_CONFLICT",
+                    "The request belongs to another remote route.",
+                ));
+            }
+        } else {
+            tx.execute("UPDATE cloud_transport SET binding=?3 WHERE peer_id=?1 AND kind='outbox' AND id=?2",
+                params![peer, operation_id, serde_json::to_string(binding).map_err(database)?]).map_err(database)?;
+        }
+        tx.commit().map_err(database)
     }
 }

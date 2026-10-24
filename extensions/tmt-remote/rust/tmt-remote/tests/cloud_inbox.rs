@@ -73,6 +73,45 @@ fn cloud_polling_never_inherits_idle_jitter_above_sixty_seconds() {
 }
 
 #[test]
+fn local_reply_capability_is_strictly_admitted_without_entering_the_dispatch() {
+    use serde_json::json;
+    use tmt_remote::cloud_command::Request;
+    let request_id = "44444444-4444-4444-8444-444444444444";
+    let receipt = "v2_PRIVATE_REPLY_CANARY";
+    let value = json!({"version":1,"remote":"team","createdAtMs":1800000000000_u64,
+        "requestId":request_id,"from":{"id":"33333333-3333-4333-8333-333333333333","name":"sender"},
+        "target":{"name":"target"},"message":"hello",
+        "reply":{"requestId":format!("req_{request_id}"),"receipt":receipt}});
+    let request = Request::read(value.to_string().as_bytes()).unwrap();
+    assert_eq!(request.reply.as_ref().unwrap().receipt, receipt);
+    assert!(request.dispatch().get("reply").is_none());
+    assert!(!request.dispatch().to_string().contains(receipt));
+    for reply in [
+        json!({"requestId":"req_other","receipt":receipt}),
+        json!({"requestId":format!("req_{request_id}"),"receipt":""}),
+        json!({"requestId":format!("req_{request_id}"),"receipt":"v2_PRIVATE_REPLY_CANARY\n"}),
+        json!({"requestId":format!("req_{request_id}"),"receipt":false}),
+        json!({"requestId":format!("req_{request_id}"),"receipt":receipt,"extra":true}),
+        json!([]),
+    ] {
+        let mut invalid = value.clone();
+        invalid["reply"] = reply;
+        let error = Request::read(invalid.to_string().as_bytes()).err().unwrap();
+        assert_eq!(error.code, "REMOTE_INPUT_INVALID");
+        assert!(!error.json_value().to_string().contains(receipt));
+    }
+    let mut oversized = value;
+    oversized["reply"]["receipt"] = json!("x".repeat(limits::CLOUD_COMMAND_BYTES));
+    assert_eq!(
+        Request::read(oversized.to_string().as_bytes())
+            .err()
+            .unwrap()
+            .code,
+        "REMOTE_CLOUD_MESSAGE_TOO_LARGE"
+    );
+}
+
+#[test]
 fn public_message_schema_is_bounded_strict_and_freezes_exact_core_request_bytes() {
     use tmt_remote::cloud_command::Request;
     let value = serde_json::json!({"version":1,"remote":null,"createdAtMs":1800000000000_u64,"requestId":"44444444-4444-4444-8444-444444444444","from":{"id":"33333333-3333-4333-8333-333333333333","name":"sender"},"target":{"id":"66666666-6666-4666-8666-666666666666","name":"target"},"message":"hello"});

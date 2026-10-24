@@ -298,7 +298,8 @@ fn schema_history_uses_core_migrations() {
             (8, "management".to_owned()),
             (9, "device_last_use".to_owned()),
             (10, "cloud_transport".to_owned()),
-            (11, "cloud_pairing".to_owned())
+            (11, "cloud_pairing".to_owned()),
+            (12, "cloud_final_binding".to_owned())
         ]
     );
     let journal: String = inspect
@@ -312,11 +313,11 @@ fn schema_history_uses_core_migrations() {
         .unwrap()
         .query_row("SELECT COUNT(*) FROM _migrations", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(count, 11);
+    assert_eq!(count, 12);
     // A newer build's history refuses instead of being reinterpreted.
     Connection::open(&db)
         .unwrap()
-        .execute("INSERT INTO _migrations VALUES (12, 'future', 'now')", [])
+        .execute("INSERT INTO _migrations VALUES (13, 'future', 'now')", [])
         .unwrap();
     assert_eq!(
         Store::open(&layout.serve_lock().unwrap())

@@ -84,7 +84,19 @@ impl Sender {
         );
         let exact=json!({"version":1,"profile":"local-v1","kind":"request","id":request.request_id,"correlationId":null,"machineId":envelope.machine_id,"windowId":window,"clientId":self.peer,"sessionId":session,"sequence":"1","timestampMs":now,"origin":"cli","operation":"dispatch.create","payload":canonical::base64url(payload.as_bytes()),"signature":signature}).to_string();
         let answer = self
-            .append(exact.as_bytes(), descriptor, request.created_at_ms, now, io)
+            .append_bound(
+                exact.as_bytes(),
+                descriptor,
+                request.created_at_ms,
+                now,
+                io,
+                Some(&super::store::ReplyOrigin {
+                    machine: self.provider.machine().into(),
+                    remote: resolved.into(),
+                    sender_id: request.from.id.clone(),
+                    reply: request.reply.clone(),
+                }),
+            )
             .await;
         let bytes = match answer {
             Ok(bytes) => bytes,
@@ -138,6 +150,18 @@ impl Sender {
         now: u64,
         io: &IoBudget<'_>,
     ) -> Result<Vec<u8>, RemoteError> {
+        self.append_bound(exact, descriptor, created_at_ms, now, io, None)
+            .await
+    }
+    async fn append_bound(
+        &self,
+        exact: &[u8],
+        descriptor: &VerifiedDescriptor,
+        created_at_ms: u64,
+        now: u64,
+        io: &IoBudget<'_>,
+        binding: Option<&super::store::ReplyOrigin>,
+    ) -> Result<Vec<u8>, RemoteError> {
         super::check_request_age(created_at_ms, now)?;
         super::check_envelope_size(exact.len())?;
         let request = SignedMessage::decode(exact, crate::limits::CLOUD_ENVELOPE_BYTES)
@@ -163,6 +187,12 @@ impl Sender {
             .map_err(crate::store::database)?
             .cloud_outgoing(&self.peer, e.id, &intent, created_at_ms)?;
         if let Some(old) = old {
+            if let Some(binding) = binding {
+                self.store
+                    .lock()
+                    .map_err(crate::store::database)?
+                    .cloud_bind_outgoing(&self.peer, e.id, binding)?;
+            }
             if now.saturating_sub(old.created_ms) >= crate::journal::RECOVERY {
                 return Err(expired());
             }
@@ -210,6 +240,12 @@ impl Sender {
             .cloud_freeze_outgoing(&self.peer, e.id, &intent, &carrier, created_at_ms)?;
         if stored.carrier != carrier {
             return Err(unconfirmed());
+        }
+        if let Some(binding) = binding {
+            self.store
+                .lock()
+                .map_err(crate::store::database)?
+                .cloud_bind_outgoing(&self.peer, e.id, binding)?;
         }
         self.exchange(e.id, &carrier, opener, io).await
     }

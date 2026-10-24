@@ -448,6 +448,128 @@ impl tmt_remote::core::CloudIdentityQuery for RenamedIdentity {
     }
 }
 #[test]
+fn prepared_reply_is_private_durable_and_frozen_before_publication() {
+    use rusqlite::{Connection, OpenFlags};
+    use std::{path::PathBuf, sync::atomic::AtomicUsize};
+    const RECEIPT: &str = "v2_PRIVATE_REPLY_CANARY";
+    struct Inspect {
+        wire: Arc<Wire>,
+        database: PathBuf,
+        creates: Arc<AtomicUsize>,
+    }
+    impl Http for Inspect {
+        fn send(
+            &self,
+            request: &Request,
+            deadline: u64,
+            cancel: &dyn Cancellation,
+        ) -> Result<Response, AuthError> {
+            assert!(!String::from_utf8_lossy(request.body()).contains(RECEIPT));
+            if request.operation() == Operation::Commit {
+                let body: Value = serde_json::from_slice(request.body()).unwrap();
+                if body["writes"][0]["update"]["name"] == format!("{ROOT}/m/{MACHINE}/inbox/{ID}") {
+                    let db = Connection::open_with_flags(
+                        &self.database,
+                        OpenFlags::SQLITE_OPEN_READ_ONLY,
+                    )
+                    .unwrap();
+                    let (binding, attempted): (String, bool) = db.query_row(
+                        "SELECT binding,attempted FROM cloud_transport WHERE peer_id=?1 AND kind='outbox' AND id=?2",
+                        [PEER,ID], |row| Ok((row.get(0)?,row.get(1)?)),
+                    ).unwrap();
+                    assert!(attempted);
+                    let binding: Value = serde_json::from_str(&binding).unwrap();
+                    assert_eq!(
+                        binding,
+                        json!({"machine":MACHINE,"remote":"team","senderId":PEER,
+                        "reply":{"requestId":format!("req_{ID}"),"receipt":RECEIPT}})
+                    );
+                    self.creates.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+            self.wire.send(request, deadline, cancel)
+        }
+    }
+    let mut world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+    let wire = Arc::new(Wire {
+        documents: Mutex::new(BTreeMap::new()),
+        owner: Mutex::new(Weak::new()),
+        cancel_after_create: Mutex::new(None),
+        requests: Mutex::new(vec![]),
+        deny_responses: AtomicBool::new(false),
+        fail_queries: AtomicBool::new(false),
+        lose_response_for: Mutex::new(None),
+    });
+    let driver = world.driver(provider(wire.clone(), "owner"));
+    *wire.owner.lock().unwrap() = Arc::downgrade(&driver);
+    let creates = Arc::new(AtomicUsize::new(0));
+    let http = Arc::new(Inspect {
+        wire: wire.clone(),
+        database: world.sender_layout.directory.join("remote.db"),
+        creates: creates.clone(),
+    });
+    let store = Arc::new(Mutex::new(world.sender_store.take().unwrap()));
+    let sender = Sender::new(
+        provider_clock(http.clone(), "peer", Arc::new(ClockPort)),
+        store.clone(),
+        PEER,
+        world.key.clone(),
+    )
+    .unwrap();
+    let stopped = AtomicBool::new(false);
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(10),
+        cancelled: &stopped,
+    };
+    let raw = json!({"version":1,"remote":null,"createdAtMs":NOW,"requestId":ID,
+        "from":{"id":PEER,"name":"peer"},"target":{"id":TARGET,"name":"target"},
+        "message":"one private reply binding","reply":{"requestId":format!("req_{ID}"),"receipt":RECEIPT}}).to_string();
+    let answer =
+        ready(sender.prepared(raw.as_bytes(), &world.descriptor, "team", NOW, &io)).unwrap();
+    assert_eq!(answer.state, tmt_remote::cloud_command::State::Sent);
+    assert!(!serde_json::to_string(&answer).unwrap().contains(RECEIPT));
+    assert_eq!(creates.load(Ordering::SeqCst), 1);
+    assert_eq!(world.core.sends(), 1);
+    assert!(
+        world
+            .core
+            .calls()
+            .iter()
+            .all(|call| !call.to_string().contains(RECEIPT))
+    );
+    drop(sender);
+    drop(store);
+    let sender = Sender::new(
+        provider_clock(http, "peer", Arc::new(ClockPort)),
+        Arc::new(Mutex::new(Store::open(&world.sender_lease).unwrap())),
+        PEER,
+        world.key.clone(),
+    )
+    .unwrap();
+    ready(sender.prepared(raw.as_bytes(), &world.descriptor, "team", NOW, &io)).unwrap();
+    let calls = wire.requests.lock().unwrap().len();
+    assert_eq!(
+        ready(sender.prepared(raw.as_bytes(), &world.descriptor, "other", NOW, &io))
+            .err()
+            .unwrap()
+            .code,
+        "REMOTE_INTENT_CONFLICT"
+    );
+    assert_eq!(wire.requests.lock().unwrap().len(), calls);
+    assert_eq!(creates.load(Ordering::SeqCst), 1);
+    assert_eq!(world.core.sends(), 1);
+    for layout in [&world.sender_layout, &world.owner_layout] {
+        let db = Connection::open_with_flags(
+            layout.directory.join("remote.db"),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let audit: String = db.query_row("SELECT COALESCE(group_concat(client_id||envelope_id||operation||COALESCE(operation_id,'')||resources_json||decision||code,''),'') FROM audit", [], |row| row.get(0)).unwrap();
+        assert!(!audit.contains(RECEIPT));
+    }
+}
+
+#[test]
 fn prepared_core_boundary_delivers_or_refuses_the_uuid_query_without_a_name_fallback() {
     use tmt_remote::{cloud_command::State, core::CoreClient};
     let cases: Vec<(
