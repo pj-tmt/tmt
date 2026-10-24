@@ -1,6 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { beforeAll, expect, it } from 'vite-plus/test';
 import { MOCK_MODEL_TOKEN, startMockModelServer } from '../support/mock-model-server.mjs';
@@ -28,7 +35,8 @@ function submit(
   pane: string,
   args: string[],
   statusFile: string,
-  env: Record<string, string>
+  env: Record<string, string>,
+  outputFile?: string
 ): void {
   const command = [
     'env',
@@ -44,7 +52,7 @@ function submit(
     '-t',
     pane,
     '-l',
-    `${command}; printf '%s' "$?" > ${quote(statusFile)}`,
+    `${command}${outputFile ? ` > ${quote(outputFile)} 2>&1` : ''}; printf '%s' "$?" > ${quote(statusFile)}`,
   ]);
   fixture.tmux(['send-keys', '-t', pane, 'Enter']);
 }
@@ -93,9 +101,12 @@ it.each(['claude', 'codex'] as const)(
         const home = path.join(fixture.root, 'provider-home');
         const claudeHome = path.join(home, '.claude');
         const codexHome = path.join(home, '.codex');
+        const stableBin = fixture.createWorkspace('stable-bin');
+        symlinkSync(fixture.executables.cli.executable, path.join(stableBin, 'tmt'));
         for (const directory of [home, claudeHome, codexHome])
           mkdirSync(directory, { recursive: true, mode: 0o700 });
         const env = {
+          PATH: `${stableBin}:${fixture.wrapperDir}:${process.env.PATH}`,
           HOME: home,
           CLAUDE_CONFIG_DIR: claudeHome,
           CODEX_HOME: codexHome,
@@ -145,8 +156,19 @@ it.each(['claude', 'codex'] as const)(
         expect(path.basename(fixture.socketPath)).not.toBe('default');
         const pane = fixture.createShellPane(`real-${provider}`).pane;
         const setupStatus = path.join(fixture.root, 'setup.status');
-        submit(fixture, pane, ['setup', provider, '--yes'], setupStatus, env);
-        expect(await waitForFileContent(setupStatus, { timeoutMs: 15_000 })).toBe('0');
+        const setupOutput = path.join(fixture.root, 'setup.json');
+        submit(
+          fixture,
+          pane,
+          ['setup', provider, '--yes', '--json'],
+          setupStatus,
+          env,
+          setupOutput
+        );
+        const setupCode = await waitForFileContent(setupStatus, { timeoutMs: 15_000 });
+        const setupText = readFileSync(setupOutput, 'utf8').slice(0, 8192);
+        report.publicSetup = { code: setupCode, output: setupText };
+        expect(setupCode, setupText).toBe('0');
         const name = `real-${provider}`;
         const status = path.join(fixture.root, 'provider.status');
         const args =
