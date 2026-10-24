@@ -1,4 +1,4 @@
-// tmt-remote deployment 3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11 rules aedb8d637dd79e38fc82556e895dc681c166e2aa890110ae084129304f39db1a
+// tmt-remote deployment 3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11 rules 75af67a2f3681bc226623ffe26f8eba592b826081cf4004bd8df415c8cf4f00a
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
