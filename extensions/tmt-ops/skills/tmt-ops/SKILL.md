@@ -769,7 +769,8 @@ show no fabricated key. Pointer controls use only their current visible rectangl
 With Agents tree focus, `s` opens Add agent; configured bindings retain
 precedence. An empty Common pool offers the same visible action. Opening offers
 Scan or Close and performs no discovery or binding itself. Scan reads the
-current tmux environment; review a candidate, choose a new name or exact
+terminal host the board runs in (tmux, or a host with an approved driver such
+as Herdr), with no host or socket option, also in a popup; review a candidate, choose a new name or exact
 existing identity UUID, and choose Temporary or Saved before confirming.
 Existing-name text never selects an identity; known choices are advisory
 previously observed evidence, and another/offline UUID can be entered directly.
@@ -781,8 +782,13 @@ past the end of the reading, or from the name field, reaches the actions, and â†
 first one goes back. Tab does nothing. A reopened name field with text offers Discard
 after Back. Actions that write still check the current state when chosen.
 
-Discovery supports tmux; unsupported hosts, permission/offline failures and
-incomplete observations carry their explanations. Runtime hints and recorded
+Unsupported hosts, permission/offline failures and incomplete observations
+carry their explanations. A host whose driver is not approved, or whose
+approval is outdated or no longer shipped, shows `tmt driver install <host>`
+as text; Ops never runs it. A Herdr row shows its host and target, not a
+session or window. Its host agent name is untrusted display text: it never
+fills the name field or selects an identity. After a bind, Results show what
+the host said about its agent name. Runtime hints and recorded
 state do not prove readiness. A binding does not install or start a runtime,
 extension or hook. Follow the existing [tmux
 guide](https://github.com/pj-tmt/tmt/blob/main/site/src/chapters/drv-tmux.mdx)
@@ -790,7 +796,7 @@ and [runtime/setup
 guide](https://github.com/pj-tmt/tmt/blob/main/site/src/chapters/drivers.mdx)
 for prerequisites.
 
-Confirmation identifies one exact pane/socket, identity choice and lifetime.
+Confirmation identifies one exact pane, host and socket, identity choice and lifetime.
 Cancel, rescan, changed selection or resize revokes it; enlarge a clipped
 terminal before confirming. Results retain each Bound, Already bound, Not
 applied, Action needed or Unknown outcome across close/rescan. Nothing replays or

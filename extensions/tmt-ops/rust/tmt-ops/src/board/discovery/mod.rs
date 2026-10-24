@@ -55,15 +55,11 @@ impl super::app::App {
             })
             .unwrap_or_default();
         self.menu = None;
-        let controller = self.discovery.get_or_insert_with(|| {
-            Controller::new(
-                1,
-                ScanScope {
-                    host: None,
-                    socket: crate::effects::tmux_socket(),
-                },
-            )
-        });
+        // No host or socket flag, also in a popup: Core's caller selection
+        // keeps the server that `TMUX` names and reports a gap host beside it.
+        let controller = self
+            .discovery
+            .get_or_insert_with(|| Controller::new(1, ScanScope::default()));
         controller.known = known;
         controller.open();
         Effect::None

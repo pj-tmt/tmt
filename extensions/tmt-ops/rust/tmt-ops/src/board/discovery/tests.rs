@@ -2,6 +2,7 @@ use super::*;
 use model::{BindReport, ScanObservation};
 use serde_json::{Value, json};
 
+mod herdr;
 mod performance;
 #[test]
 fn app_discovery_name_owns_typing_and_down_to_actions_releases_destination_keys() {
@@ -297,6 +298,7 @@ fn successful_bound_uuid_returns_for_public_refresh_only_once() {
             pane: "%3".into(),
             lifetime: "temporary".into(),
             already_bound: false,
+            agent_name: None,
         })),
     );
     assert_eq!(completed.bound_uuid.as_deref(), Some(UUID));
@@ -807,6 +809,7 @@ fn successful_public_refresh_reveals_the_exact_uuid_and_existing_membership() {
                 pane: "%3".into(),
                 lifetime: "temporary".into(),
                 already_bound: true,
+                agent_name: None,
             })),
         }),
         Effect::Refresh

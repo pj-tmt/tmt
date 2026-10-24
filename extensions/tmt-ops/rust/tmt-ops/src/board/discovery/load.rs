@@ -46,13 +46,11 @@ impl Job {
                 (args, vec![])
             }
             Self::Bind(selection) => {
-                let mut args = vec![
-                    "add".into(),
-                    "--expect".into(),
-                    selection.expect.clone(),
-                    "--socket".into(),
-                    selection.key.socket.clone().expect("reviewed tmux socket"),
-                ];
+                // The row's own socket: an adoptable row always has one.
+                let mut args = vec!["add".into(), "--expect".into(), selection.expect.clone()];
+                if let Some(socket) = &selection.key.socket {
+                    args.extend(["--socket".into(), socket.clone()]);
+                }
                 let mut operands = vec![selection.key.pane.clone()];
                 match &selection.selector {
                     super::model::AgentSelector::NewName(name) => operands.push(name.clone()),
