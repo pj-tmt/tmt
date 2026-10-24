@@ -4,7 +4,7 @@ use super::{Launch, RunRequest, diagnostic, storage_failure, warn};
 use crate::output::Failure;
 use tmt_adapters::{
     config::ConfigPaths,
-    runtime::{RuntimeCommand, RuntimeError, RuntimeRegistry},
+    runtime::{RuntimeCommand, RuntimeError, RuntimeRegistry, launch_preset::LaunchPreset},
     skill_installation::ProviderEnvironment,
     storage::{Storage, StorageError},
 };
@@ -120,17 +120,31 @@ fn unrecoverable(
     Some(resume_failure("RESUME_UNAVAILABLE", message, name).with_reason(reason))
 }
 
+/// Only the driver's own executable is known to keep its sessions in the
+/// caller's provider tree; a replayed wrapper may set its own config root.
+fn launches_driver(session: &RememberedSession, preset: Option<&LaunchPreset>) -> bool {
+    preset
+        .filter(|preset| preset.matches(session))
+        .is_none_or(|preset| {
+            tmt_core::driver::descriptor::for_executable(&preset.executable)
+                .is_some_and(|driver| driver.name == session.harness.as_str())
+        })
+}
+
 /// A resume never falls back to a fresh start: an unavailable or unsupported
 /// session is reported, and a fresh start stays explicit (`tmt run <name>`).
+/// `preset` is the launch preset the resume would replay, if any.
 pub(super) fn select_command(
     registry: &mut RuntimeRegistry,
     request: RunRequest<'_>,
     preferences: &SessionPreferences,
+    preset: Option<&LaunchPreset>,
 ) -> Result<Launch, Failure> {
     select_command_in(
         registry,
         request,
         preferences,
+        preset,
         provider_environment().as_ref(),
     )
 }
@@ -151,6 +165,7 @@ fn select_command_in(
     registry: &mut RuntimeRegistry,
     request: RunRequest<'_>,
     preferences: &SessionPreferences,
+    preset: Option<&LaunchPreset>,
     environment: Option<&ProviderEnvironment>,
 ) -> Result<Launch, Failure> {
     let RunRequest {
@@ -223,6 +238,7 @@ fn select_command_in(
     // move needs a running agent, whose transcript may not be written yet.
     if !resume.retry
         && !resume.move_running
+        && launches_driver(session, preset)
         && let Some(environment) = environment
         && let Some(failure) = unrecoverable(
             name,
@@ -674,7 +690,7 @@ mod presence_tests {
     }
 
     fn select(home: &Home, retry: bool, stale: bool) -> Result<Launch, Failure> {
-        select_with(home, retry, stale, false)
+        select_with(home, retry, stale, false, None)
     }
 
     fn select_with(
@@ -682,6 +698,7 @@ mod presence_tests {
         retry: bool,
         stale: bool,
         move_running: bool,
+        preset: Option<&LaunchPreset>,
     ) -> Result<Launch, Failure> {
         select_command_in(
             &mut RuntimeRegistry::first_party(),
@@ -698,6 +715,7 @@ mod presence_tests {
                 channel: crate::invocation::ChannelMode::Default,
             },
             &preferences(stale),
+            preset,
             Some(&home.environment()),
         )
     }
@@ -775,6 +793,44 @@ mod presence_tests {
     fn a_move_never_probes_because_its_agent_is_running() {
         // A live session may not have written its transcript yet.
         let home = Home::new("move");
-        resumed(select_with(&home, false, false, true));
+        resumed(select_with(&home, false, false, true, None));
+    }
+
+    fn replayed(executable: &str) -> LaunchPreset {
+        LaunchPreset {
+            executable: executable.into(),
+            model: None,
+            effort: None,
+            env: Default::default(),
+            binding: "11111111-1111-4111-8111-111111111111".into(),
+            owner_pid: 1,
+            owner_start: "start".into(),
+            harness: Some("claude".into()),
+            session: Some(SESSION.into()),
+        }
+    }
+
+    #[test]
+    fn a_replayed_wrapper_is_not_probed_but_the_registered_executable_is() {
+        // The caller's tree exists and lacks the session file.
+        let home = Home::new("wrapper");
+        // A wrapper may set its own CLAUDE_CONFIG_DIR, so the caller's tree
+        // proves nothing about its session.
+        let wrapper = replayed("/opt/wrappers/claude-work");
+        resumed(select_with(&home, false, false, false, Some(&wrapper)));
+        for registered in ["claude", "/usr/local/bin/claude"] {
+            let (code, reason, _) = refusal(select_with(
+                &home,
+                false,
+                false,
+                false,
+                Some(&replayed(registered)),
+            ));
+            assert_eq!(
+                (code.as_str(), reason),
+                ("RESUME_UNAVAILABLE", "session_missing".into()),
+                "{registered}"
+            );
+        }
     }
 }

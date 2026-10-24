@@ -159,6 +159,15 @@ pub(super) fn run_bound(
         })
         .map_err(storage_failure)?;
     let selected_preferences = super::switch_driver::selection(&preferences, switching)?;
+    // The preset a resume replays decides whose provider tree the session
+    // probe may read, so it is read before the selection.
+    let preset = match (&existing, &selected_preferences.remembered) {
+        (Some(identity), Some(session)) if resume.is_some() => {
+            tmt_adapters::runtime::launch_preset::read_for_session(storage, &identity.id, session)
+                .map_err(storage_failure)?
+        }
+        _ => None,
+    };
     let mut launch = select_command(
         &mut registry,
         RunRequest {
@@ -167,20 +176,8 @@ pub(super) fn run_bound(
             ..request
         },
         &selected_preferences,
+        preset.as_ref(),
     )?;
-    let preset = existing
-        .as_ref()
-        .map(|identity| match launch.resumed.as_ref() {
-            Some(session) => tmt_adapters::runtime::launch_preset::read_for_session(
-                storage,
-                &identity.id,
-                session,
-            ),
-            None => Ok(None),
-        })
-        .transpose()
-        .map_err(storage_failure)?
-        .flatten();
     let replay = launch
         .resumed
         .as_ref()

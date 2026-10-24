@@ -74,3 +74,48 @@ fn a_gone_or_unreadable_session_is_explained_and_nothing_is_launched() {
         assert_drivers_ended(&fixture);
     }
 }
+
+/// A replayed wrapper may keep its sessions under its own config root, so the
+/// caller's tree without the session file does not stop the resume.
+#[test]
+fn a_replayed_wrapper_is_launched_without_the_probe() {
+    register();
+    let fixture = Fixture::new("unrecoverable-wrapper");
+    destination(&fixture);
+    let (old, process) = start(&fixture, "claude", fixture.approve());
+    drop(old);
+    wait_until("the old provider ended", || process.seen() == Seen::Ended);
+    fs::remove_file(fixture.root.join("driver/marker")).unwrap();
+    fs::create_dir_all(fixture.root.join("home/.claude/projects/-src")).unwrap();
+    let launched = fixture.root.join("wrapper-launched");
+    let wrapper = fixture.root.join("wrappers/claude-work");
+    fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
+    fs::write(
+        &wrapper,
+        format!("#!/bin/sh\n: > '{}'\n", launched.display()),
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+    let identity = remembered(&fixture).entry.identity.id;
+    let mut storage = Storage::open(fixture.state().join("tmt.db")).unwrap();
+    let preset = tmt_adapters::runtime::launch_preset::LaunchPreset {
+        executable: wrapper.to_str().unwrap().into(),
+        model: None,
+        effort: None,
+        env: Default::default(),
+        binding: "11111111-1111-4111-8111-111111111111".into(),
+        owner_pid: process.incarnation.pid(),
+        owner_start: process.incarnation.start_identity().into(),
+        harness: Some("claude".into()),
+        session: Some(SESSION.into()),
+    };
+    assert!(
+        tmt_adapters::runtime::launch_preset::remember(&mut storage, &identity, &preset).unwrap()
+    );
+    drop(storage);
+    let output = resume(&fixture);
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(!error.contains("gone or expired"), "{error}");
+    assert!(launched.exists(), "the wrapper was not launched: {error}");
+    assert_drivers_ended(&fixture);
+}

@@ -245,7 +245,10 @@ delivery. They install and launch nothing.
   unlistable directory, the deadline, the bound, another open error, a file that opens but
   fails the transcript boundary, a non-UUID ID, a community driver, or a Codex match in its flat
   `archived_sessions` (Codex can unarchive a thread). A move is not probed: its agent runs, and
-  its transcript may not be written yet. The probe marks, forgets and launches nothing; `--retry`
+  its transcript may not be written yet. A resume that replays a launch preset is probed only
+  when the preset's executable is one of the driver's registered executables; a wrapper may set
+  its own `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, so its session is `Unknown`. The preset's
+  environment keys cannot change the config root. The probe marks, forgets and launches nothing; `--retry`
   skips it. A stale refusal carries `error.reason: session_stale`. Read `error.reason` with
   `error.code`: a runtime refusal keeps its own reason vocabulary.
 - Explicit `resume <name> --move` preflights the exact session and caller destination before

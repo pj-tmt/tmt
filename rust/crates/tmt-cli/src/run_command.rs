@@ -543,6 +543,7 @@ mod tests {
                 channel: crate::invocation::ChannelMode::Default,
             },
             preferences,
+            None,
         )
     }
 
