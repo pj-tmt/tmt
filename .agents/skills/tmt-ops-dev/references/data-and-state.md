@@ -299,12 +299,13 @@ projects its typed results/errors. The board consumes the same typed service dir
   and store see only the UUID. Every admission re-resolves the member: unknown is
   `CHECKLIST_MEMBER_UNAVAILABLE`, retired is readable and refuses writes. Admission to the
   room and the actor's authority are those of the room list. No Core schema or contract changes.
-- The board's Notes (`board/conversation_checklist.rs`) project a conversation list, one per
+- The board's conversation Checklist (`board/conversation_checklist.rs`) projects a list, one per
   `(room, member)`: a lane job runs `Service::for_conversation(..).preview()` for the member on
   screen (never per frame; the first read, then one per five seconds, a failed one waits
-  thirty) and keeps the list for the chip and the overlay. An item with a `reference` is a
-  link; one without is a todo (open) or done (complete); archived items are neither counted
-  nor listed. A Common-pool member has no room and no list. Only the running board reads
+  thirty) and keeps the list for the chip and the overlay. A `reference` marks a link
+  independently of completion: open items also count as todo and completed items as done;
+  archived items are neither counted nor listed. A Common-pool member has no room and no
+  list. Only the running board reads
   (`State::reading`). The overlay (`N`, a click on the chip) lists links, then todos; a row
   shows `who · age` from the item's `added` stamp (`you`, the room roster's name, or the
   start of an identity the roster no longer lists; no stamp, no author and no age) and a done

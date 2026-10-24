@@ -1195,7 +1195,7 @@ renameSync(output+'.tmp',output);
     });
   });
 
-  it('publishes Notes completion to its chip, member row and global todo count', async () => {
+  it('publishes Checklist completion to its chip, member row and global todo count', async () => {
     await withE2EFixture(async (fixture) => {
       await squadWithMember(fixture);
       const shown = expectJsonResult(
@@ -1214,7 +1214,7 @@ renameSync(output+'.tmp',output);
           item,
           '--expect-inventory',
           'absent',
-          'Finish the causal Notes check',
+          'Finish the causal Checklist check',
         ])
       );
       const database = path.join(fixture.globalDir, 'ops', 'ops.db');
@@ -1229,13 +1229,13 @@ renameSync(output+'.tmp',output);
       expect(read().items[0]).toMatchObject({ id: item, completion: 'open', revision: 1 });
       const beforeRequests = requestAttempts(fixture);
       await fixture.attachSessionClient('e2e');
-      const shell = fixture.createShellPane('notes-count-board');
+      const shell = fixture.createShellPane('checklist-count-board');
       fixture.tmux(['select-window', '-t', shell.pane]);
       fixture.tmux([
         'send-keys',
         '-t',
         shell.pane,
-        'tmt ops ui --squad product; echo NOTES_COUNT_BOARD_EXIT=$?',
+        'tmt ops ui --squad product; echo CHECKLIST_COUNT_BOARD_EXIT=$?',
         'Enter',
       ]);
       const memberRow = (screen: string) =>
@@ -1255,20 +1255,23 @@ renameSync(output+'.tmp',output);
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('○ 1 todo') &&
+          screen.includes('≡ Checklist') &&
           memberRow(screen)?.includes('· 1 todo') === true &&
           screen.includes('1 todo · 0 done'),
         shell.pane
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'N']);
       await fixture.waitForCapture(
-        (screen) => screen.includes('Finish the causal Notes check'),
+        (screen) =>
+          screen.includes('Checklist · auth-fix') &&
+          screen.includes('Finish the causal Checklist check'),
         shell.pane
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       await fixture.waitFor(
         () => read().items[0].completion === 'complete',
         5_000,
-        'Notes Done publication'
+        'Checklist Done publication'
       );
       expect(read().items[0]).toMatchObject({ id: item, completion: 'complete', revision: 2 });
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
@@ -1284,7 +1287,7 @@ renameSync(output+'.tmp',output);
       expect(requestAttempts(fixture)).toEqual(beforeRequests);
       fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
       await fixture.waitForCapture(
-        (screen) => screen.includes('NOTES_COUNT_BOARD_EXIT=0'),
+        (screen) => screen.includes('CHECKLIST_COUNT_BOARD_EXIT=0'),
         shell.pane
       );
     });

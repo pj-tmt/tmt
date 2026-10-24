@@ -1,5 +1,5 @@
 //! The Selection menu: a small bordered box with one action per line (`q› Quote`,
-//! `y  Copy`, `n  Add to Notes`) and a dim `Esc clears` line, opened directly below the end of a selection
+//! `y  Copy`, `n  Add to checklist`) and a dim `Esc clears` line, opened directly below the end of a selection
 //! so it is clear which text it acts on.
 use crate::board::app::App;
 use ratatui::{
@@ -18,7 +18,7 @@ const HINT: &str = "Esc clears";
 const ENTRIES: [(Entry, &str, &str); 3] = [
     (Entry::Quote, "q›", "Quote"),
     (Entry::Copy, "y ", "Copy"),
-    (Entry::Note, "n ", "Add to Notes"),
+    (Entry::Note, "n ", "Add to checklist"),
 ];
 
 /// What a menu entry does.

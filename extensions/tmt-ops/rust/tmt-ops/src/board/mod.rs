@@ -239,7 +239,7 @@ pub(in crate::board) enum BoardEvent {
     /// A quiet cache publication; it owns no user action or progress notice.
     ViewStatePublished,
     ReadMarkersPublished(Result<crate::config::ReadMarkers, String>),
-    /// A conversation's Notes summary was read; it owns no user action or progress notice.
+    /// A conversation's checklist summary was read; it owns no user action or progress notice.
     NotesRead(conversation_checklist::Completed),
     /// The running versions, read once at start; they own no user action or progress notice.
     VersionsRead(Option<versions::Versions>),

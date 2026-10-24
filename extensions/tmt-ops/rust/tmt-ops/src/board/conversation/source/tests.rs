@@ -813,7 +813,7 @@ fn the_selection_menu_opens_directly_below_the_selection_end_and_not_after_it() 
             "Selection",
             "q› Quote",
             "y  Copy",
-            "n  Add to Notes",
+            "n  Add to checklist",
             "Esc clears",
         ]) {
             assert!(row.contains(word), "{word}: {rows:#?}");
@@ -1635,7 +1635,10 @@ fn n_and_the_selection_menu_open_the_same_todo_draft_with_the_held_message_sourc
             app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
         }
         let key = app.conversation_checklist_key().unwrap();
-        let draft = app.notes.draft(&key).expect("the selection opens Notes");
+        let draft = app
+            .notes
+            .draft(&key)
+            .expect("the selection opens the checklist");
         assert_eq!(draft.text(0).trim_end(), "Review the build");
         assert_eq!(
             draft.seed.as_ref().unwrap().kind,

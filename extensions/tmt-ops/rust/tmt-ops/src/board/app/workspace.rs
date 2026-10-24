@@ -28,7 +28,7 @@ impl Drop for FrameRows<'_> {
 }
 
 impl App {
-    /// Membership publication, not a frame or cursor turn, updates Notes admission.
+    /// Membership publication, not a frame or cursor turn, updates checklist admission.
     pub(in crate::board) fn reconcile_notes_scope(&mut self) {
         let Some(home) = self.view.as_ref().and_then(|view| view.home.as_ref()) else {
             return;

@@ -1,4 +1,4 @@
-//! The Notes overlay on the shared modal and list surface.
+//! The conversation checklist overlay on the shared modal and list surface.
 use super::{
     Summary,
     draft::Draft,
@@ -16,7 +16,7 @@ use ratatui::{Frame, layout::Rect};
 use serde_json::json;
 use unicode_width::UnicodeWidthStr;
 
-const FILE: &str = "ops.conversation-notes.xml";
+const FILE: &str = "ops.conversation-checklist.xml";
 /// The widest the right-hand `host  who · age` column grows before the title gives way.
 const META_MAX: usize = 36;
 /// A host is cut to this many cells so that it never crowds the title.
@@ -32,7 +32,7 @@ fn markup(title: &str, meta: usize, form_only: bool) -> String {
         String::new()
     } else {
         format!(
-            r#"<tmt-list id="choices" bind="$.rows" empty="No notes yet · a adds one"><tmt-row class="grid grid-cols-[1_1_1fr_{meta}] gap-x-1 shrink-0"><tmt-text bind="row.cursor"/><tmt-text bind="row.mark" token-bind="row.role"/><tmt-text bind="row.title" token-bind="row.role" class="truncate"/><tmt-text bind="row.meta" token="dim" class="truncate"/></tmt-row></tmt-list>"#
+            r#"<tmt-list id="choices" bind="$.rows" empty="No items yet · a adds one"><tmt-row class="grid grid-cols-[1_1_1fr_{meta}] gap-x-1 shrink-0"><tmt-text bind="row.cursor"/><tmt-text bind="row.mark" token-bind="row.role"/><tmt-text bind="row.title" token-bind="row.role" class="truncate"/><tmt-text bind="row.meta" token="dim" class="truncate"/></tmt-row></tmt-list>"#
         )
     };
     format!(
@@ -73,41 +73,41 @@ impl Controller {
         let draft = app.notes.draft(&self.key);
         let summary = app.notes.summary(&self.key);
         let form_only = draft.is_some_and(|draft| draft.seed.is_some());
+        // Resolve the held recipient by the controller's frozen UUID, never the current cursor.
         let member = app
             .notes
             .preview(&self.key)
             .and_then(|preview| preview.current.member.as_ref())
-            .map(|member| {
-                member
-                    .name
-                    .clone()
-                    .unwrap_or_else(|| member.id.as_str().chars().take(8).collect())
-            })
+            .and_then(|member| member.name.clone())
             .or_else(|| {
-                if !form_only || app.conversation_checklist_key().as_ref() != Some(&self.key) {
-                    return None;
-                }
-                app.conversation_target()
-                    .and_then(|target| app.target_row(&target))
+                let target = crate::board::app::RowTarget::Workspace(
+                    crate::board::workspace::OpsTarget::Member {
+                        room_id: Some(self.key.room.clone()),
+                        identity_id: self.key.member()?.into(),
+                    },
+                );
+                app.target_row(&target)
                     .and_then(|row| row["name"].as_str())
                     .map(str::to_owned)
+            })
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| {
+                self.key.member().map_or_else(
+                    || "unavailable".into(),
+                    |id| format!("member {}", id.chars().take(8).collect::<String>()),
+                )
             });
         let count = items.len();
         let title = if form_only {
-            member.as_ref().map_or_else(
-                || "Add to Notes".into(),
-                |member| format!("Add to Notes · {}", safe(member)),
+            format!("Add to checklist · {}", safe(&member))
+        } else if matches!(summary, Some(Summary::Counts(_))) {
+            format!(
+                "Checklist · {} · {count} {}",
+                safe(&member),
+                if count == 1 { "item" } else { "items" }
             )
         } else {
-            match (&member, summary) {
-                (Some(member), Some(Summary::Counts(_))) => format!(
-                    "Notes · {} · {count} {}",
-                    safe(member),
-                    if count == 1 { "item" } else { "items" }
-                ),
-                (Some(member), _) => format!("Notes · {}", safe(member)),
-                _ => "Notes".into(),
-            }
+            format!("Checklist · {}", safe(&member))
         };
         let room = usize::from(body.width.min(MODAL_CELLS)).saturating_sub(CHROME_CELLS);
         let widest = |host_cells| {
@@ -136,6 +136,7 @@ impl Controller {
                 key,
                 picker_surface::compile(FILE, &markup(&escaped, meta.max(1), form_only), schema()),
             ));
+            self.ui.borrow_mut().template_changed();
         }
         let template = &cached.as_ref().unwrap().1;
         let list = Self::list_rows(&items);
@@ -184,7 +185,7 @@ impl Controller {
         }
         let mut form: Vec<_> = draft
             .map(|draft| {
-                [(if form_only { "Title" } else { "Note" }, 0), ("Link", 1)]
+                [("Title", 0), ("Link", 1)]
                     .into_iter()
                     .map(|(label, field)| {
                         let focused = draft.field() == Some(field);
@@ -219,13 +220,13 @@ impl Controller {
             match summary {
                 Some(Summary::Unavailable(words)) => safe(words),
                 Some(Summary::Counts(_)) => String::new(),
-                _ => "Reading the Notes…".into(),
+                _ => "Reading the checklist…".into(),
             }
         };
         let footer = if form_only {
-            "Tab field · ←→ kind · Enter save · Esc keep draft"
+            "Tab title/link · ←→ kind · Enter save · Esc keep draft"
         } else if draft.is_some() {
-            "Tab note/link · Enter save · Esc close, keeping the draft"
+            "Tab title/link · Enter save · Esc close, keeping the draft"
         } else if deleting.is_some() {
             "Enter delete · Esc keep"
         } else {

@@ -677,7 +677,7 @@ impl App {
         drop(state);
         Some(self.run_selection_entry(entry, passage))
     }
-    /// Quote, copy or add the selection to Notes: keys and pointer share these entries.
+    /// Quote, copy or add the selection to the checklist: keys and pointer share these entries.
     fn run_selection_entry(&mut self, entry: Entry, passage: String) -> Effect {
         match entry {
             Entry::Note => {
@@ -691,7 +691,7 @@ impl App {
                 }
                 let Some(key) = self.conversation_checklist_key() else {
                     drop(state);
-                    return self.say("Select a squad member to add to Notes.");
+                    return self.say("Select a squad member to add to checklist.");
                 };
                 let source = match selection {
                     Selection::Cells(_) => super::note_source::Source::Unavailable,

@@ -311,7 +311,7 @@ pub enum Choice {
     /// A click on a Talk/Measure chip selects that pane; the `M` key toggles.
     RightTab(super::shell::RightTab),
     WorkspaceTarget(super::workspace::OpsTarget),
-    /// A click on the Notes chip of a member's header: opens the list.
+    /// A click on the Checklist chip of a member's header: opens the list.
     MemberNotes,
     AddToNotes(super::conversation_checklist::Seed),
     WorkspaceBegin(super::workspace::manage::Kind),
@@ -814,7 +814,7 @@ pub struct App {
     pub(super) references: super::inventory::Inventory,
     /// Lane jobs submitted whose events have not arrived.
     pub(super) in_flight: usize,
-    /// The Notes summaries of the conversations shown, read on the lane.
+    /// The Checklist summaries of the conversations shown, read on the lane.
     pub(in crate::board) notes: super::conversation_checklist::State,
     /// The running versions, read once on the lane; none until then or when unreadable.
     pub(in crate::board) versions: Option<super::versions::Versions>,

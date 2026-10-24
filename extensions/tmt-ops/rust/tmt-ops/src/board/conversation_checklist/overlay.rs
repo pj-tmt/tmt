@@ -1,4 +1,4 @@
-//! The Notes list of the selected conversation, as an overlay: its keys and its writes. The items
+//! The selected conversation's checklist overlay: its keys and writes. The items
 //! and the unsent form stay in [`State`]; this owns the cursor and the one-line notice.
 use super::{
     Draft, Key, State, Write, Written,
@@ -142,7 +142,7 @@ impl Controller {
                 Effect::Notes(task)
             }
             None if notes.writing(&self.key) => self.say("Saving the last change…"),
-            None => self.say("The Notes have not been read yet."),
+            None => self.say("The checklist has not been read yet."),
         }
     }
 
@@ -283,7 +283,7 @@ impl Controller {
 
     fn begin(&mut self, app: &mut App, draft: Draft) -> Effect {
         if app.notes.preview(&self.key).is_none() {
-            return self.say("The Notes have not been read yet.");
+            return self.say("The checklist has not been read yet.");
         }
         app.notes.keep(&self.key, draft);
         self.notice = None;
@@ -387,7 +387,7 @@ impl Controller {
 
     fn submit(&mut self, app: &mut App) -> Effect {
         if app.notes.preview(&self.key).is_none() {
-            return self.say("The Notes have not been read yet; your draft is kept.");
+            return self.say("The checklist has not been read yet; your draft is kept.");
         }
         let key = self.key.clone();
         let Some(draft) = app.notes.draft(&key) else {
@@ -460,23 +460,23 @@ impl App {
 
     pub(in crate::board) fn add_to_notes(&mut self, seed: Seed) -> Effect {
         if !self.note_seed_current(&seed) {
-            return self.say("The conversation changed; open Add to Notes again.");
+            return self.say("The conversation changed; open Add to checklist again.");
         }
         if self.input.is_some() || self.searching || self.modal_open() && self.menu.is_none() {
-            return self.say("Close the current input or overlay before adding to Notes.");
+            return self.say("Close the current input or overlay before adding to the checklist.");
         }
         let key = seed.key.clone();
         if self.notes.draft(&key).is_none()
             && (seed.title.len() > MAX_BYTES || seed.reference.len() > MAX_BYTES)
         {
             return self.say(
-                "That selection or link is too long for the Notes form; select a shorter title.",
+                "That selection or link is too long for the checklist form; select a shorter title.",
             );
         }
         let mut controller = Controller::new(key.clone());
         if self.notes.draft(&key).is_some() {
             controller.notice =
-                Some("Your existing Notes draft is kept; finish or clear it first.".into());
+                Some("Your existing checklist draft is kept; finish or clear it first.".into());
         } else {
             self.notes.keep(&key, Draft::seeded(seed));
         }
@@ -487,10 +487,10 @@ impl App {
 
     pub(in crate::board) fn open_notes(&mut self) -> Effect {
         if self.input.is_some() || self.searching || self.modal_open() && self.menu.is_none() {
-            return self.say("Close the current input or overlay before opening Notes.");
+            return self.say("Close the current input or overlay before opening the checklist.");
         }
         let Some(key) = self.conversation_checklist_key() else {
-            return self.say("Select a squad member before opening Notes.");
+            return self.say("Select a squad member before opening the checklist.");
         };
         self.menu = None;
         self.notes_overlay = Some(Controller::new(key));
