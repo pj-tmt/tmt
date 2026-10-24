@@ -1,5 +1,6 @@
 //! Explicit native emulator proof over the shared closed emulator route.
 use super::{AuthError, AuthErrorKind};
+use crate::emulator_http::EMULATOR_HTTP_TIMEOUT;
 
 const PROJECT: &str = "demo-tmt-colab";
 
@@ -205,7 +206,7 @@ fn admin(port: u16, path: &str, data: Option<&Value>) {
     let agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .max_redirects(0)
-        .timeout_global(Some(Duration::from_secs(4)))
+        .timeout_global(Some(EMULATOR_HTTP_TIMEOUT))
         .build()
         .new_agent();
     let reply = match data {

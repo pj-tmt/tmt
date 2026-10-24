@@ -70,3 +70,7 @@ pub(crate) mod core_fixture;
 #[cfg(test)]
 #[path = "serve/test_isolation.rs"]
 pub(crate) mod test_isolation;
+
+#[cfg(test)]
+#[path = "../tests/support/emulator_http.rs"]
+pub(crate) mod emulator_http;
