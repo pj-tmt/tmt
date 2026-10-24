@@ -333,14 +333,34 @@ pub(super) struct Request<'a> {
     pub deadline: Instant,
 }
 
-/// Live acquisition uses the same compiled authority and local owner for first
-/// installation and later updates. Tests inject policy only at `download`.
+/// Live acquisition and preview share compiled authority, schema owner and bounds.
 pub(super) fn download_current(
     request: Request<'_>,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Response>,
 ) -> io::Result<DownloadedRelease> {
+    match resolve_current(request, get, true)? {
+        Resolved::Downloaded(release) => Ok(release),
+        Resolved::Preview(_) => unreachable!("payload acquisition requested"),
+    }
+}
+
+pub(super) fn preview_current(
+    request: Request<'_>,
+    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Response>,
+) -> io::Result<release::UpgradeMetadata> {
+    match resolve_current(request, get, false)? {
+        Resolved::Preview(metadata) => Ok(metadata),
+        Resolved::Downloaded(_) => unreachable!("metadata only requested"),
+    }
+}
+
+fn resolve_current(
+    request: Request<'_>,
+    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Response>,
+    acquire_payload: bool,
+) -> io::Result<Resolved> {
     let product = request.product;
-    download(
+    resolve(
         request,
         Policy {
             repository_id: 1_118_285_740,
@@ -357,16 +377,23 @@ pub(super) fn download_current(
             )
             .map_err(io::Error::other)
         },
+        acquire_payload,
     )
 }
 
-pub(super) fn download(
+enum Resolved {
+    Downloaded(DownloadedRelease),
+    Preview(release::UpgradeMetadata),
+}
+
+fn resolve(
     request: Request<'_>,
     policy: Policy,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Response>,
     mut local: impl FnMut() -> io::Result<Vec<wire::DatabaseSchema>>,
     mut now: impl FnMut() -> io::Result<u64>,
-) -> io::Result<DownloadedRelease> {
+    acquire_payload: bool,
+) -> io::Result<Resolved> {
     let Request {
         product,
         pr,
@@ -478,22 +505,27 @@ pub(super) fn download(
             "Payload metadata does not match the selected catalog.",
         ));
     }
-    let payload_zip = api.zip(&payload_metadata, wire::PAYLOAD_ZIP_LIMIT)?;
-    let mut members = pr_zip::members(
-        &payload_zip,
-        wire::PAYLOAD_ZIP_LIMIT,
-        &[candidate.dist_manifest.clone(), candidate.archive.clone()],
-    )?;
-    let manifest = members
-        .remove("dist-manifest.json")
-        .ok_or_else(|| invalid("Missing PR manifest."))?;
-    let archive = members
-        .remove(&candidate.archive.name)
-        .ok_or_else(|| invalid("Missing PR native archive."))?;
-    let (archive_name, manifest_version) = artifact::select(product, &manifest, target)?;
-    if archive_name != candidate.archive.name || manifest_version != version {
-        return Err(invalid("Catalog and native cargo-dist selection disagree."));
-    }
+    let payload = if acquire_payload {
+        let payload_zip = api.zip(&payload_metadata, wire::PAYLOAD_ZIP_LIMIT)?;
+        let mut members = pr_zip::members(
+            &payload_zip,
+            wire::PAYLOAD_ZIP_LIMIT,
+            &[candidate.dist_manifest.clone(), candidate.archive.clone()],
+        )?;
+        let manifest = members
+            .remove("dist-manifest.json")
+            .ok_or_else(|| invalid("Missing PR manifest."))?;
+        let archive = members
+            .remove(&candidate.archive.name)
+            .ok_or_else(|| invalid("Missing PR native archive."))?;
+        let (archive_name, manifest_version) = artifact::select(product, &manifest, target)?;
+        if archive_name != candidate.archive.name || manifest_version != version {
+            return Err(invalid("Catalog and native cargo-dist selection disagree."));
+        }
+        Some((manifest, archive, archive_name))
+    } else {
+        None
+    };
     // A single admission observation: no retries, fallback or reselection.
     let (fresh_pull, raw_pull) = api.metadata(&pull_route)?;
     if pull(&fresh_pull, pr, &policy)? != head {
@@ -570,6 +602,13 @@ pub(super) fn download(
             schema_ahead_opt_in: opt_in,
         },
     };
+    let (archive_name, archive_sha256) = match &payload {
+        Some((_, archive, name)) => (name.as_str(), artifact::digest(archive)),
+        None => (
+            provenance.candidate.archive.name.as_str(),
+            provenance.candidate.archive.sha256.clone(),
+        ),
+    };
     provenance.validate(
         product,
         target,
@@ -578,18 +617,28 @@ pub(super) fn download(
             channel: Channel::Pr(pr),
             pinned_version: None,
         },
-        &archive_name,
-        &artifact::digest(&archive),
-    )?;
-    provenance.verify_manifest(&manifest)?;
-    Ok(DownloadedRelease {
-        version,
-        manifest,
-        archive,
         archive_name,
-        provenance: Provenance::Pr(Box::new(provenance)),
-        explicit_channel: false,
-    })
+        &archive_sha256,
+    )?;
+    if let Some((manifest, archive, archive_name)) = payload {
+        provenance.verify_manifest(&manifest)?;
+        Ok(Resolved::Downloaded(DownloadedRelease {
+            version,
+            manifest,
+            archive,
+            archive_name,
+            provenance: Provenance::Pr(Box::new(provenance)),
+            explicit_channel: false,
+        }))
+    } else {
+        Ok(Resolved::Preview(release::UpgradeMetadata {
+            version,
+            archive_bytes: provenance.candidate.archive.bytes,
+            fingerprint: release::pr_upgrade_fingerprint(&provenance)?,
+            identity: Some(provenance.identity()?),
+            application_schema: Some(provenance.candidate.application_schema),
+        }))
+    }
 }
 
 #[cfg(test)]

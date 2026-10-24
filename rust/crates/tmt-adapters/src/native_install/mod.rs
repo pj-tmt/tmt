@@ -54,8 +54,9 @@ pub use uses::{
 };
 mod upgrade;
 pub use upgrade::{
-    UpgradeFailure, UpgradeReport, UpgradeRequest, upgrade, upgrade_product,
-    upgrade_product_selected, upgrade_product_with_schema_consent,
+    MigrationPreview, PreparedUpgrade, UpgradeFailure, UpgradeReport, UpgradeRequest,
+    prepare_upgrade, upgrade, upgrade_prepared, upgrade_product, upgrade_product_selected,
+    upgrade_product_with_schema_consent,
 };
 #[cfg(test)]
 mod test_support;

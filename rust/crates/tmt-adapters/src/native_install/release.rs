@@ -33,6 +33,36 @@ pub(super) struct DownloadedRelease {
     pub explicit_channel: bool,
 }
 
+impl DownloadedRelease {
+    pub(super) fn upgrade_fingerprint(&self) -> io::Result<String> {
+        match &self.provenance {
+            Provenance::Release(provenance) => Ok(artifact::digest(
+                &serde_json::to_vec(&(
+                    provenance.release_id,
+                    &provenance.manifest_sha256,
+                    &artifact::digest(&self.archive),
+                ))
+                .map_err(io::Error::other)?,
+            )),
+            Provenance::Pr(provenance) => pr_upgrade_fingerprint(provenance),
+        }
+    }
+}
+
+pub(super) fn pr_upgrade_fingerprint(
+    provenance: &super::pr_receipt::PrProvenance,
+) -> io::Result<String> {
+    Ok(artifact::digest(
+        &serde_json::to_vec(&(
+            &provenance.head_sha,
+            &provenance.producer,
+            &provenance.eligibility,
+            &provenance.candidate,
+        ))
+        .map_err(io::Error::other)?,
+    ))
+}
+
 struct Asset {
     name: String,
     url: String,
@@ -84,21 +114,7 @@ pub(super) fn download_product_observed(
     mut get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
     progress: super::ProgressObserver<'_>,
 ) -> io::Result<DownloadedRelease> {
-    let record = if let Some(version) = exact {
-        canonical_version(&version.to_string())?;
-        let tag = format!("{}{version}", product.tag_prefix());
-        let response = get(&format!("{RELEASE_BASE}{tag}/{RECORD_NAME}"), "application/json", RECORD_LIMIT, deadline)
-            .map_err(|error| {
-                if error.kind() == io::ErrorKind::NotFound {
-                    io::Error::new(error.kind(), format!("{tag} cannot be installed directly. Omit --to to get the latest release. Nothing was changed."))
-                } else {
-                    io::Error::new(error.kind(), format!("Could not read {tag} on github.com: {error}. Nothing was changed."))
-                }
-            })?;
-        parse_record(&response.body, product, channel, Some(version))?
-    } else {
-        discover_latest(product, channel, deadline, &mut get)?.0
-    };
+    let record = selected_record(product, channel, exact, deadline, &mut get)?;
     let selected = record
         .archives
         .get(target)
@@ -131,6 +147,71 @@ pub(super) fn download_product_observed(
         }
         .into(),
     })
+}
+
+/// Metadata only: authenticate the manifest, but never acquire the native archive.
+pub(super) fn upgrade_metadata(
+    product: super::Product,
+    channel: Channel,
+    exact: Option<&Version>,
+    target: &str,
+    deadline: Instant,
+    get: &mut impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
+) -> io::Result<UpgradeMetadata> {
+    let record = selected_record(product, channel, exact, deadline, &mut *get)?;
+    let selected = record
+        .archives
+        .get(target)
+        .ok_or_else(|| invalid("Unsupported release-index target."))?;
+    let manifest = fetch_asset(&record.manifest, artifact::MANIFEST_LIMIT, deadline, get)?;
+    let (archive_name, version) = artifact::select(product, &manifest, target)?;
+    if version != record.version || archive_name != selected.name {
+        return Err(invalid("Release index and cargo-dist manifest disagree."));
+    }
+    Ok(UpgradeMetadata {
+        version,
+        archive_bytes: selected.size as u64,
+        fingerprint: artifact::digest(
+            &serde_json::to_vec(&(record.release_id, &record.manifest.digest, &selected.digest))
+                .map_err(io::Error::other)?,
+        ),
+        identity: None,
+        application_schema: super::manifest_application_schema(product, &manifest)
+            .ok()
+            .filter(|schema| schema.source_sha == record.source_sha),
+    })
+}
+
+pub(super) struct UpgradeMetadata {
+    pub version: Version,
+    pub archive_bytes: u64,
+    pub fingerprint: String,
+    pub application_schema: Option<super::pr_catalog::ApplicationSchema>,
+    pub identity: Option<tmt_core::native_install::PrCandidateIdentity>,
+}
+
+fn selected_record(
+    product: super::Product,
+    channel: Channel,
+    exact: Option<&Version>,
+    deadline: Instant,
+    mut get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
+) -> io::Result<ReleaseRecord> {
+    if let Some(version) = exact {
+        canonical_version(&version.to_string())?;
+        let tag = format!("{}{version}", product.tag_prefix());
+        let response = get(&format!("{RELEASE_BASE}{tag}/{RECORD_NAME}"), "application/json", RECORD_LIMIT, deadline)
+            .map_err(|error| {
+                if error.kind() == io::ErrorKind::NotFound {
+                    io::Error::new(error.kind(), format!("{tag} cannot be installed directly. Omit --to to get the latest release. Nothing was changed."))
+                } else {
+                    io::Error::new(error.kind(), format!("Could not read {tag} on github.com: {error}. Nothing was changed."))
+                }
+            })?;
+        parse_record(&response.body, product, channel, Some(version))
+    } else {
+        discover_latest(product, channel, deadline, &mut get).map(|(record, _)| record)
+    }
 }
 
 /// One fixed channel pointer, then its size/hash-bound record; no API fallback.
