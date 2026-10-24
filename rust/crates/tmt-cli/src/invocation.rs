@@ -151,6 +151,14 @@ pub enum Invocation {
         originator: Option<String>,
         options: TalkOptions,
     },
+    /// One request to a named Remote peer. A UUID target is pinned and carries its expected name.
+    TalkRemote {
+        remote: String,
+        target: String,
+        expect_name: Option<String>,
+        message: String,
+        originator: Option<String>,
+    },
     Check {
         target: String,
         lines: Option<u64>,

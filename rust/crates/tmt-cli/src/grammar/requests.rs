@@ -8,11 +8,11 @@ pub(in crate::grammar) fn talk() -> Command {
             general(spec!(
                 "talk",
                 "Send a request and wait for its durable reply",
-                details = "An identity with no binding receives through its inbox: talk waits for its reply (180 seconds unless configured; --timeout overrides it), and the recipient must pull with tmt inbox or tmt x listen. Use --detach to return at once. For a bound recipient, talk attempts live notification. Digest queues non-owner, non-urgent automatic delivery for one checklist and returns immediately with remaining time; --urgent bypasses only Digest. For batching setup and examples, see tmt digest --help and tmt digest skill (the optional Digest extension).",
+                details = "An identity with no binding receives through its inbox: talk waits for its reply (180 seconds unless configured; --timeout overrides it), and the recipient must pull with tmt inbox or tmt x listen. Use --detach to return at once. For a bound recipient, talk attempts live notification. Digest queues non-owner, non-urgent automatic delivery for one checklist and returns immediately with remaining time; --urgent bypasses only Digest. For batching setup and examples, see tmt digest --help and tmt digest skill (the optional Digest extension). With --remote <peer> the request goes through Remote to an agent on that peer and returns at once; the reply arrives by the request's normal receipt. A UUID target needs --expect-name.",
                 [
                     "Send a message and wait for the reply" => "tmt talk worker \"Run the tests\"",
                     "Send and return at once" => "tmt talk --detach worker \"Deploy when green\"",
-                    "Wait for a reply without a host" => "tmt talk worker \"Review this\" --identity coordinator --timeout 30 --json",
+                    "Send to an agent on a Remote peer" => "tmt talk reviewer \"Review this\" --remote bob --identity coordinator --json",
                 ]
             )),
             &[
@@ -23,6 +23,8 @@ pub(in crate::grammar) fn talk() -> Command {
                 "no-preamble",
                 "identity",
                 "room",
+                "remote",
+                "expect-name",
             ],
         )
         .visible_alias("send")

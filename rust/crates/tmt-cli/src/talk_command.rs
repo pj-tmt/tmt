@@ -3,6 +3,7 @@
 mod observation;
 mod preparation;
 mod presentation;
+pub(crate) mod remote;
 #[cfg(test)]
 mod tests;
 

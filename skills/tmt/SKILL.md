@@ -282,6 +282,17 @@ accepted by that observer; it may still be retrieved with result afterward.
 Craft clear, specific requests. After receiving a durable response, summarize
 the result for the user without treating submission alone as task success.
 
+### Talk to a Remote peer
+
+`tmt talk <target> "message" --remote <peer> --identity <you> --json` sends one request through
+the Remote extension to an agent on a paired peer and returns at once: `sent` (stored in the
+peer's inbox) or `queued` (held for the peer owner's approval). A UUID target needs `--expect-name <name>`. It needs a confirmed sender and an
+installed Remote that supports it (`REMOTE_SENDER_REQUIRED`, `REMOTE_UNAVAILABLE`; nothing sent),
+and takes no `--passthrough`, `--urgent`, `--no-preamble`, `--timeout`, `--delay`, `--room` or
+`--kind`. `REMOTE_UNCONFIRMED` means the peer may have it: never resend. The peer's final arrives
+by the request's own receipt and shows in `tmt result`, `tmt x` and the answers view
+([contract](https://github.com/pj-tmt/tmt/blob/main/contracts/remote-message-v1.md)).
+
 ### Durable replies and results
 
 Native talk supplies a compact `v2_` receipt; use it unchanged.

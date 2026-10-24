@@ -488,6 +488,33 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             old: required(m, "old"),
             new: required(m, "new"),
         },
+        ["talk"] if text(m, "remote").is_some() => {
+            if flag(m, "passthrough")
+                || flag(m, "urgent")
+                || flag(m, "no-preamble")
+                || supplied(m, "timeout")
+                || supplied(m, "delay")
+                || supplied(m, "room")
+                || supplied(m, "kind")
+            {
+                return Err("--remote sends one request through Remote and returns at once; it takes no --passthrough, --urgent, --no-preamble, --timeout, --delay, --room or --kind.".into());
+            }
+            let target = required(m, "target");
+            let expect_name = text(m, "expect-name");
+            if tmt_core::dispatch::canonical_id(&target) != expect_name.is_some() {
+                return Err("A UUID target needs --expect-name <name>, and --expect-name is only for a UUID target.".into());
+            }
+            Invocation::TalkRemote {
+                remote: required(m, "remote"),
+                target,
+                expect_name,
+                message: required(m, "message"),
+                originator: text(m, "identity"),
+            }
+        }
+        ["talk"] if text(m, "expect-name").is_some() => {
+            return Err("--expect-name pins a UUID target on a Remote peer and needs --remote.".into());
+        }
         ["talk"] => {
             let timeout = text(m, "timeout")
                 .map(|value| duration(&value))
