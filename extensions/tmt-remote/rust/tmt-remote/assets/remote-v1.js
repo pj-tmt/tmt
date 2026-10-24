@@ -3257,7 +3257,9 @@ function mountBrowserMenu(container, initial) {
 	};
 	function renderOptions() {
 		const iconOnly = options.triggerText === void 0;
-		wrapper.className = iconOnly ? browserUiClasses.iconAction : "";
+		if (!iconOnly && options.presentation) root.dataset.presentation = options.presentation;
+		else delete root.dataset.presentation;
+		wrapper.className = iconOnly ? browserUiClasses.iconAction : "tmt-ui-menu-trigger-wrapper";
 		trigger.className = iconOnly ? `${browserUiClasses.action} ${browserUiClasses.iconActionControl}` : "tmt-ui-menu-trigger";
 		if (iconOnly) trigger.dataset.variant = "text";
 		else delete trigger.dataset.variant;
