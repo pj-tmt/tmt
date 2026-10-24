@@ -54,7 +54,7 @@ impl Http for Emulator {
                     .get(&target)
                     .and_then(Weak::upgrade);
                 if let Some(receiver) = receiver {
-                    receiver.reconcile().unwrap();
+                    reconcile_notified(&receiver);
                 }
             }
         }
@@ -397,6 +397,11 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
         core.sends(),
         1,
         "agent allowlist still fences native ingress"
+    );
+    assert_eq!(
+        owner.status().unwrap()["error"],
+        "REMOTE_SCOPE_DENIED",
+        "final diagnostic is recorded without losing the new allowlist refusal"
     );
     owner
         .store()
