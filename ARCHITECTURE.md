@@ -540,10 +540,10 @@ Home/Remote/SDK; read-only auto-pair; no companions/skills; [release gates](.age
 
 [Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
 settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
-Remote: authority, native invite/join, uid routes; UI grants none.
+Remote: authority, invite/join, uid routes; UI grants none.
 Firestore: Auth/Rules only; Core never uses Remote trust.
 `message`: wire/grants/scope/allowlist/hold/uncertainty/audit; UUID/name checks.
-`talk --remote` → [message v1](contracts/remote-message-v1.md) → Remote.
+`talk --remote` → [message v1](contracts/remote-message-v1.md) → serving owner.
 `message` → `session`/`operations`: same-ID Core dispatch/recovery; cloud finals → receipt-bound `reply`.
 Door: `remote-v1.js` ([SDK](extensions/tmt-remote/typescript/remote-client/README.md));
 owner-installed [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`; public CLI/SDK/`tmt-extension-objects` elsewhere; never Remote state files.

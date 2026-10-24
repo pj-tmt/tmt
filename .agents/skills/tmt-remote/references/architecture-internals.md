@@ -276,7 +276,7 @@ and `crypto` verification; only its carrier uses `hpke` and `aes-gcm`. Request a
 are single-use values. `cloud_keys` publishes admitted state only after Document succeeds, preserving
 its prior admitted keyring on uncertainty. Its named bounds live in `limits`; the existing Site
 maintenance callback renews without adding a worker and a failure never stops local pairing.
-`cloud_inbox` is the emulator-only native carrier driver: `document` admits provider fields/createTime;
+`cloud_inbox` is the native carrier driver: `document` admits provider fields/createTime;
 `provider` reuses `NativeRuntime` Auth/HTTP/budget; `ingress` alone constructs a verified hand-off into
 `MessageService`; `driver` reconciles one machine query with a durable machine continuation; `sender` freezes before
 HTTP and recovers a lost context with a fresh signed ID lookup. `store` uses the authoritative Store
@@ -321,10 +321,13 @@ name lookup, and adopted targets never resolve again. The UUID-pinned check uses
 `identity show --json --expect-name=<expected-name> -- <uuid>`; Core owns normalization and the
 atomic name/lifetime check. Changed identities map to `REMOTE_AGENT_STALE`, absent UUIDs to
 `REMOTE_AGENT_NOT_FOUND`; offline/unknown presence is not a refusal. Native pairing composes it in
-`serve`, sharing `native_sync::projects::Projects` with extension sync. Public delivery is still
-blocked by `message_cli::run`'s unconditional upgrade refusal; #4900 owns its serving-owner handoff.
+`serve`, sharing `native_sync::projects::Projects` with extension sync. `message_cli` admits bounded
+prepared bytes and reaches `Service::send` through the existing owner-only `control::cloud_message`
+exchange. The serving owner alone opens state and composes transport; ordinary control caps remain
+smaller. Missing/invalid answers after submission stay unconfirmed; owner errors read the existing
+outbox claim before reporting a proven refusal. Core preparation, receipts and replay ownership do not move.
 The [contract activation section](../../../../contracts/remote-channel-v1.md#public-native-agent-activation)
-owns that gate; the Core send and UUID-query seams are merged.
+owns the handoff and uncertainty boundary.
 No enrolled peer means no provider poll. Legacy reciprocal discovery keeps one negative timestamp
 per project/peer in existing `cloud_transport` checkpoint storage. A missing machine row is read
 at most once per `limits::CLOUD_PEER_DISCOVERY_RETRY_MS` (24 hours), including after reopen; a later
@@ -396,7 +399,9 @@ Pairing qualification is `cargo test --offline --locked -p tmt-remote --features
 ordinary_user_pairing_rules_restart_reroute_and_revoke -- --ignored --nocapture` from `rust/`.
 Both emulator hosts must be numeric loopback addresses, in an Infra-approved slot. It uses ordinary
 Firebase Auth plus `ProductionHttp`; Admin installs Rules only. The injected fake Core query keeps
-this proof independent of #4536/#4757; full public CLI talk is #4539/#4540 acceptance. Default tests
+the receiver side independent of an installed recipient Core. The qualifier also runs built public Core
+talk through the real Remote CLI/control sender; composed public final delivery is #4540 and real
+accounts remain #4539 acceptance. Default tests
 keep this qualifier ignored and cover local ceremony/reopen/revoke with injected provider ports.
 The library and binary test roots share `test_isolation::isolated_case` for native serve,
 factory and two-owner pairing fixtures. It executes before project files or locks open, so sibling
