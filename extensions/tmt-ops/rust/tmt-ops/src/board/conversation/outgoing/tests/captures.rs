@@ -1317,7 +1317,7 @@ fn live_and_restored_sent_chips_copy_original_tokens_without_the_painted_gutter(
                         &Selected {
                             first: row,
                             last: row,
-                            shown: &[painted.clone()],
+                            shown: std::slice::from_ref(&painted),
                             start: End {
                                 row: &painted,
                                 at: at + 1

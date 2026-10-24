@@ -507,7 +507,7 @@ mod tests {
                 &Selected {
                     first: 0,
                     last: 0,
-                    shown: &[painted.clone()],
+                    shown: std::slice::from_ref(&painted),
                     start: End {
                         row: &painted,
                         at: start
