@@ -1376,6 +1376,12 @@ Each acquired settled reply is a separate message with its own author and age,
 correlated to its request. Single line breaks remain visible in replies and pane
 output. Pane output stays in a separate labelled block, even when it repeats a
 reply's text; reading older messages holds position while later replies arrive.
+Scrolling upward at the oldest loaded pane answer loads an older page without
+blocking the board. A truncated answer says `answer truncated · full text in the
+agent's pane`. When Core reports that older answers were dropped, the top of the
+last page says `older answers not kept`, with Core's time when supplied. If Core
+reports capture disabled, the board says `answers are not captured for this agent:
+run tmt setup` and keeps any retained answers. The board never runs setup for you.
 
 The composer stays at the conversation bottom when an agent is shown: a box of at
 least three rows, a blank padding row above and below the text, growing upward

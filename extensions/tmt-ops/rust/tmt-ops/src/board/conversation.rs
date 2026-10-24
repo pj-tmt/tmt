@@ -165,6 +165,7 @@ pub(super) struct State {
 }
 
 struct Rendered {
+    pane_start: Option<usize>,
     width: usize,
     gutter: usize,
     look: Look,
@@ -201,6 +202,12 @@ impl AuthoredLine {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AnswerFailure {
+    Latest,
+    Older,
+}
+
 struct Session {
     reply: Option<Reply>,
     finals: Vec<Reply>,
@@ -230,6 +237,9 @@ struct Session {
     compact_separators: std::collections::BTreeSet<usize>,
     pane_output: super::recent_responses::Observation,
     pane_output_fresh: bool,
+    older_demand: bool,
+    pane_rebuild: bool,
+    pane_failure: Option<AnswerFailure>,
     transcript_context: transcript::Context,
     /// When the exchanges first went unanswered, for the delayed loading line.
     pending_since_ms: Option<u64>,
@@ -269,6 +279,9 @@ impl Default for Session {
             compact_separators: Default::default(),
             pane_output: Default::default(),
             pane_output_fresh: false,
+            older_demand: false,
+            pane_rebuild: false,
+            pane_failure: None,
             transcript_context: Default::default(),
             pending_since_ms: None,
             refreshing_since_ms: None,
@@ -535,6 +548,7 @@ impl Session {
                 .collect();
             self.anchor.reconcile(&anchor_text);
             self.rendered = Some(Rendered {
+                pane_start: transcript.pane_start,
                 width,
                 gutter,
                 look,
@@ -629,6 +643,7 @@ impl App {
         let Some(identity) = state.active.clone() else {
             return;
         };
+        let screen_mode = state.screen_mode;
         state.source_surfaces.clear();
         let response_area = state
             .response_area
@@ -640,6 +655,19 @@ impl App {
             return;
         }
         let forward = matches!(step, Step::Lines(lines) | Step::Pages(lines) if lines > 0);
+        let upward = matches!(step, Step::Top)
+            || matches!(step, Step::Lines(lines) | Step::Pages(lines) if lines < 0);
+        if upward
+            && self.pane_output_enabled()
+            && !screen_mode
+            && matches!(&session.pane_output, super::recent_responses::Observation::Observed(page)
+                if page.next_before.is_some())
+            && session.rendered.as_ref().is_some_and(|rendered| {
+                self.scrolls.offset(pane) <= rendered.pane_start.unwrap_or(0)
+            })
+        {
+            session.older_demand = true;
+        }
         let at_bottom =
             response_area
                 .zip(session.rendered.as_ref())

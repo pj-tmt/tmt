@@ -7,6 +7,7 @@ use ratatui::{Terminal, backend::TestBackend};
 use serde_json::json;
 use unicode_width::UnicodeWidthStr;
 
+pub(in crate::board) mod answer_paging;
 mod finals;
 pub(in crate::board) mod markdown_packet;
 pub(in crate::board) mod performance;
@@ -1236,11 +1237,13 @@ fn pane_output_is_neutral_bounded_and_never_a_request_source() {
         output_ages: vec!["now".into()],
         ..Default::default()
     };
-    session.pane_output = Observation::Observed(vec![Item {
+    session.pane_output = Observation::observed(vec![Item {
         provider: "codex".into(),
         text: "untrusted **pane**\r\nlast line\n".into(),
         ended_ms: 1000,
         truncated: true,
+        original_bytes: 0,
+        session: None,
     }]);
     let original = match &session.pane_output {
         Observation::Observed(items) => items[0].text.clone(),
@@ -1293,7 +1296,17 @@ fn pane_output_is_neutral_bounded_and_never_a_request_source() {
                 .iter()
                 .any(|line| line.starts_with(" │ ") && line.contains("untrusted"))
         );
-        assert_eq!(labels.last().unwrap(), "… truncated");
+        assert!(
+            labels
+                .iter()
+                .map(|line| line.strip_prefix(" │ ").unwrap_or(line))
+                .collect::<Vec<_>>()
+                .join(" ")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .contains("answer truncated · full text in the agent's pane")
+        );
         assert!(
             rendered
                 .mapped
@@ -1348,7 +1361,7 @@ fn pane_output_pending_unavailable_and_observed_empty_are_distinct() {
             .iter()
             .any(|line| line.contains("recent pane output"))
     );
-    session.pane_output = Observation::Observed(vec![]);
+    session.pane_output = Observation::observed(vec![]);
     session.rendered = None;
     session.prepare(60, Look::default(), &Default::default());
     assert_eq!(
@@ -1410,7 +1423,7 @@ fn pane_output_pending_unavailable_and_observed_empty_are_distinct() {
         ["Recent pane output unavailable"]
     );
     assert!(session.response_key_at(0).is_none());
-    session.pane_output = Observation::Observed(vec![]);
+    session.pane_output = Observation::observed(vec![]);
     // Pending history says nothing for the first 400 ms (one blank row keeps the
     // pane open), then it is loading; only a failed read is "unavailable".
     for (exchanges, shown) in [
@@ -1452,13 +1465,15 @@ fn ten_long_pane_outputs_share_scroll_follow_and_leave_real_exchange_reachable()
     let key = app.pane_output_read().expect("visible exact UUID");
     app.apply_pane_output(
         key.clone(),
-        Observation::Observed(
+        Observation::observed(
             (0..10)
                 .map(|index| Item {
                     provider: "codex".into(),
                     text: format!("pane {index}\n{}\nend {index}", "long line\n".repeat(600)),
                     ended_ms: 1000 + index,
                     truncated: false,
+                    original_bytes: 0,
+                    session: None,
                 })
                 .collect(),
         ),
@@ -1496,12 +1511,14 @@ fn digest_details_do_not_admit_recent_output_even_with_the_shared_scroll_pane() 
         .expect("Agents admits the selected UUID");
     app.apply_pane_output(
         key,
-        crate::board::recent_responses::Observation::Observed(vec![
+        crate::board::recent_responses::Observation::observed(vec![
             crate::board::recent_responses::Item {
                 provider: "codex".into(),
                 text: "Agents-only pane capture".into(),
                 ended_ms: 1000,
                 truncated: false,
+                original_bytes: 0,
+                session: None,
             },
         ]),
     );
@@ -1536,11 +1553,13 @@ fn pane_output_uses_the_exchange_header_time_format() {
         let app = workspace_fixture();
         let row = json!({"id":"11111111-1111-4111-8111-111111111111","name":"alpha"});
         let mut session = Session {
-            pane_output: Observation::Observed(vec![Item {
+            pane_output: Observation::observed(vec![Item {
                 provider: "codex".into(),
                 text: "pane body".into(),
                 ended_ms: 8_400_000,
                 truncated: false,
+                original_bytes: 0,
+                session: None,
             }]),
             ..Default::default()
         };
@@ -1628,11 +1647,13 @@ fn bare_and_at_only_sources_invalidate_on_inventory_change_without_acquiring_aut
         exchanges: transcript::Exchanges::Observed,
         ..Default::default()
     };
-    session.pane_output = Observation::Observed(vec![Item {
+    session.pane_output = Observation::observed(vec![Item {
         provider: "codex".into(),
         text: "output asks night-2".into(),
         ended_ms: 1,
         truncated: false,
+        original_bytes: 0,
+        session: None,
     }]);
     assert!(session.prepare(80, Look::default(), &inventory));
     assert!(!session.prepare(80, Look::default(), &inventory));
@@ -2225,11 +2246,13 @@ fn notes_sources_follow_message_ids_not_equal_text_and_keep_pane_observations_di
             can_send_now: false,
             working: false,
         }],
-        pane_output: Observation::Observed(vec![Item {
+        pane_output: Observation::observed(vec![Item {
             provider: "codex".into(),
             text: "pane https://example.com/a_b".into(),
             ended_ms: 3_000,
             truncated: false,
+            original_bytes: 0,
+            session: None,
         }]),
         transcript_context: transcript::Context {
             enabled: true,

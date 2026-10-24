@@ -1042,11 +1042,13 @@ fn deliver_output(app: &mut App, text: &str) {
         .expect("the open conversation reads pane output");
     app.apply_pane_output(
         key,
-        Observation::Observed(vec![Item {
+        Observation::observed(vec![Item {
             provider: "codex".into(),
             text: text.into(),
             ended_ms: 1_000,
             truncated: false,
+            original_bytes: 0,
+            session: None,
         }]),
     );
 }

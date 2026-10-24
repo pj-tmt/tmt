@@ -66,7 +66,7 @@ pub(super) enum SelectedRead {
     Conversation(super::selected_conversation::Plan),
     Status(crate::membership::status_update::Target),
     Message(super::home_leads::MessageKey),
-    PaneOutput(super::conversation::ConversationKey),
+    PaneOutput(super::recent_responses::AnswerRead),
     /// The shown live screen of one agent, and which read of it this is.
     PaneScreen(super::conversation::ConversationKey, u64),
 }
@@ -143,9 +143,9 @@ impl Worker {
                                 revision,
                                 cancellation: cancellation.clone(),
                             },
-                            SelectedRead::PaneOutput(key) => super::BoardEvent::PaneOutput {
-                                observation: super::recent_responses::read(&reader, &key.1),
-                                key,
+                            SelectedRead::PaneOutput(read) => super::BoardEvent::PaneOutput {
+                                observation: read.read(&reader, &cancellation),
+                                read,
                                 revision,
                                 cancellation: cancellation.clone(),
                             },
@@ -3533,7 +3533,7 @@ if [ "$1" = api ]; then
   printf '%s\n' "$request" >> '{}'
   case "$request" in
     *capabilities*) printf '%s\n' '{{"operations":["responses.recent"]}}';;
-    *responses.recent*) printf '%s\n' '{{"identityId":"11111111-1111-4111-8111-111111111111","items":[{{"text":"final\r\nline","endedMs":3,"provider":"codex","truncated":false}}]}}';;
+    *responses.recent*) printf '%s\n' '{{"identityId":"11111111-1111-4111-8111-111111111111","items":[{{"text":"final\r\nline","endedMs":3,"provider":"codex","truncated":false,"originalBytes":11}}],"coverage":{{"olderDropped":false}}}}';;
     *) exit 1;;
   esac
   exit 0
@@ -3549,9 +3549,15 @@ printf '%s\n' '{{}}'
         );
         let (events, input) = mpsc::channel();
         let worker = Worker::spawn(Core::at(fake), false, events, None);
-        worker.selected(17, Some(SelectedRead::PaneOutput(key.clone())));
+        let read = super::super::recent_responses::AnswerRead {
+            key: key.clone(),
+            before: None,
+            held: None,
+            rebuild: false,
+        };
+        worker.selected(17, Some(SelectedRead::PaneOutput(read.clone())));
         let super::super::BoardEvent::PaneOutput {
-            key: delivered,
+            read: delivered,
             revision,
             observation,
             cancellation,
@@ -3559,7 +3565,7 @@ printf '%s\n' '{{}}'
         else {
             panic!("pane output event")
         };
-        assert_eq!(delivered, key);
+        assert_eq!(delivered, read);
         assert_eq!(revision, 17);
         let super::super::recent_responses::Observation::Observed(items) = observation else {
             panic!("observed output")
@@ -3575,7 +3581,7 @@ printf '%s\n' '{{}}'
             calls,
             [
                 json!({"version":1,"operation":"capabilities","input":{}}),
-                json!({"version":1,"operation":"responses.recent","input":{"identityId":key.1,"limit":10}})
+                json!({"version":1,"operation":"responses.recent","input":{"identityId":key.1,"limit":50}})
             ]
         );
         drop(worker);

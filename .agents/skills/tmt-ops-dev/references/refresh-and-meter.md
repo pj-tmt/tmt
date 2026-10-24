@@ -146,7 +146,10 @@
   `motion_allowed`, else holds `⠹`), without starting work or inventing a
   second in-flight flag. A snapshot re-reads the conversation's requests only when Core's
   change cursor moved or could not be read, or while a shown send is `batched` (its
-  countdown is time-derived); the per-refresh pane-output read never shows the spinner. With no prepared Session, one centred `Loading conversation…` mark
+  countdown is time-derived); the per-refresh pane-output read never shows the spinner.
+  Older-answer demand shares this selected lane and its full-plan/cancellation fence;
+  paging and latest-anchor reconciliation belong to
+  [the conversation source owner](board-notebooks.md#replies-and-verification). With no prepared Session, one centred `Loading conversation…` mark
   registers the viewport for acquisition; no body preview or per-item placeholder is
   painted before the complete projection arrives. Retained source/render mappings stay
   together during the read, and publication uses the existing scroll/selection owner.

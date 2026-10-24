@@ -1116,12 +1116,14 @@ mod named_surface_tests {
                 .expect("visible selected member can read pane output");
             app.apply_pane_output(
                 key,
-                crate::board::recent_responses::Observation::Observed(vec![
+                crate::board::recent_responses::Observation::observed(vec![
                     crate::board::recent_responses::Item {
                         provider: "codex".into(),
                         text: "Pane output mentions night-2 without request authority".into(),
                         ended_ms: crate::status::now_ms(),
                         truncated: false,
+                        original_bytes: 0,
+                        session: None,
                     },
                 ]),
             );
