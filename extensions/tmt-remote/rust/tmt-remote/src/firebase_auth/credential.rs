@@ -11,11 +11,50 @@ use std::{
     io::{Read, Write},
     os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::PathBuf,
+    sync::{Mutex, MutexGuard},
 };
 
 pub struct FileStore {
     remote: PathBuf,
     project: String,
+    handle: Mutex<Option<File>>,
+}
+// The cached file description stays with FileStore. A guard releases flock
+// before its mutex, including error paths, even when a fork still has a copy.
+struct CredentialLock<'a> {
+    handle: Option<MutexGuard<'a, Option<File>>>,
+}
+impl std::ops::Deref for CredentialLock<'_> {
+    type Target = File;
+    fn deref(&self) -> &Self::Target {
+        self.handle
+            .as_ref()
+            .expect("credential lock guard is active")
+            .as_ref()
+            .expect("credential lock handle was initialized")
+    }
+}
+impl CredentialLock<'_> {
+    fn release(mut self) -> Result<(), AuthError> {
+        let handle = self.handle.take().expect("credential lock guard is active");
+        handle
+            .as_ref()
+            .expect("credential lock handle was initialized")
+            .unlock()
+            .map_err(|_| unavailable())
+    }
+}
+impl Drop for CredentialLock<'_> {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            // Keep the primary operation error on an early return or unwind.
+            // Normal completion uses release() and reports an unlock failure.
+            let _ = handle
+                .as_ref()
+                .expect("credential lock handle was initialized")
+                .unlock();
+        }
+    }
 }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -44,6 +83,7 @@ impl FileStore {
         Ok(Self {
             remote: layout.directory.clone(),
             project: project.into(),
+            handle: Mutex::new(None),
         })
     }
     fn directory(&self, create: bool) -> Result<Option<tmt_extension_state::Layout>, AuthError> {
@@ -61,18 +101,38 @@ impl FileStore {
     fn path(&self, dir: &tmt_extension_state::Layout) -> PathBuf {
         dir.directory.join(format!("{}.json", self.project))
     }
-    fn lock(&self, dir: &tmt_extension_state::Layout) -> Result<File, AuthError> {
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .mode(0o600)
-            .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
-            .open(dir.directory.join(format!("{}.lock", self.project)))
-            .map_err(|_| invalid())?;
-        admit(&lock, false)?;
-        lock.try_lock().map_err(|_| unavailable())?;
-        Ok(lock)
+    fn lock(&self, dir: &tmt_extension_state::Layout) -> Result<CredentialLock<'_>, AuthError> {
+        let mut handle = self.handle.try_lock().map_err(|_| unavailable())?;
+        let path = dir.directory.join(format!("{}.lock", self.project));
+        if handle.is_none() {
+            *handle = Some(
+                OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .mode(0o600)
+                    .custom_flags(
+                        nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK | nix::libc::O_CLOEXEC,
+                    )
+                    .open(&path)
+                    .map_err(|_| invalid())?,
+            );
+        }
+        let file = handle
+            .as_ref()
+            .expect("credential lock handle was initialized");
+        admit(file, false)?;
+        // A retained descriptor must never lock an old inode after its path is
+        // replaced. Keep the original strict no-symlink/owner/mode admission.
+        let current = fs::symlink_metadata(path).map_err(|_| invalid())?;
+        let opened = file.metadata().map_err(|_| invalid())?;
+        if !current.is_file() || current.dev() != opened.dev() || current.ino() != opened.ino() {
+            return Err(invalid());
+        }
+        file.try_lock().map_err(|_| unavailable())?;
+        Ok(CredentialLock {
+            handle: Some(handle),
+        })
     }
     fn read(&self, dir: &tmt_extension_state::Layout) -> Result<StoreRead, AuthError> {
         let mut file = match OpenOptions::new()
@@ -201,16 +261,18 @@ impl CredentialStore for FileStore {
                 permissions_repaired: false,
             });
         };
-        let _lock = self.lock(&dir)?;
+        let lock = self.lock(&dir)?;
         self.clean_staging(&dir)?;
-        self.read(&dir)
+        let read = self.read(&dir)?;
+        lock.release()?;
+        Ok(read)
     }
     fn replace(&self, expected: Option<&Credential>, next: &Credential) -> Result<(), AuthError> {
         if next.project_id != self.project {
             return Err(invalid());
         }
         let dir = self.directory(true)?.ok_or_else(unavailable)?;
-        let _lock = self.lock(&dir)?;
+        let lock = self.lock(&dir)?;
         if self.read(&dir)?.credential.as_ref() != expected {
             return Err(AuthError::state_changed());
         }
@@ -251,19 +313,21 @@ impl CredentialStore for FileStore {
         fs::rename(&staged.path, self.path(&dir)).map_err(|_| unavailable())?;
         staged.published = true;
         // After rename the new generation may be visible even if dir-sync fails.
-        dir.sync().map_err(|_| unavailable().uncertain())
+        dir.sync().map_err(|_| unavailable().uncertain())?;
+        lock.release().map_err(AuthError::uncertain)
     }
     fn remove(&self, expected: &Credential) -> Result<(), AuthError> {
         let Some(dir) = self.directory(false)? else {
             return Err(AuthError::state_changed());
         };
-        let _lock = self.lock(&dir)?;
+        let lock = self.lock(&dir)?;
         if self.read(&dir)?.credential.as_ref() != Some(expected) {
             return Err(AuthError::state_changed());
         }
         self.clean_staging(&dir)?;
         fs::remove_file(self.path(&dir)).map_err(|_| unavailable())?;
-        dir.sync().map_err(|_| unavailable().uncertain())
+        dir.sync().map_err(|_| unavailable().uncertain())?;
+        lock.release().map_err(AuthError::uncertain)
     }
 }
 struct Staged {
