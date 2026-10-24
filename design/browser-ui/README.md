@@ -143,8 +143,8 @@ remain unchanged. Compact textual menu triggers are 164×39px, then 145×39px th
 `triggerText` must include the current value in the required accessible label; clipping
 the visible value never removes that full name. The host still owns sort state.
 
-The metrics are generated from the bounded `compact-*` token roles; they do not change
-the global body scale. Gallery `?frame=compact-controls&presentation=compact` exercises
+Website-measured compact metrics stay local to the three component stylesheets; shared
+colour, radius and font roles and the global body scale remain unchanged. Gallery `?frame=compact-controls&presentation=compact` exercises
 both menu renderers, tab drafts and busy Actions. Product adoption stays with each host;
 no product overrides of leaf internals are needed.
 

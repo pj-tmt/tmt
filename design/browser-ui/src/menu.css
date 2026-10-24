@@ -185,17 +185,18 @@
 .tmt-ui-menu-trigger > svg {
   flex: none;
 }
-/* Only the opt-in textual trigger changes; the shared popup remains the same menu. */
+/* Website-measured compact metrics stay local to this presentation.
+   Only the opt-in textual trigger changes; the shared popup remains the same menu. */
 .tmt-ui-menu[data-presentation='compact'] {
-  width: var(--tmt-ui-compact-menu-width);
+  width: 164px;
 }
 .tmt-ui-menu[data-presentation='compact'] .tmt-ui-menu-trigger {
   box-sizing: border-box;
   width: 100%;
-  height: var(--tmt-ui-compact-menu-height);
+  height: 39px;
   justify-content: space-between;
-  font-size: var(--tmt-ui-compact-menu-size);
-  line-height: var(--tmt-ui-compact-menu-line-height);
+  font-size: 12px;
+  line-height: 17px;
   padding: 10px var(--tmt-ui-space-m);
   background: color-mix(in srgb, var(--tmt-ui-surface-sheet) 40%, var(--tmt-ui-surface-paper));
 }
@@ -208,13 +209,13 @@
   text-align: left;
 }
 .tmt-ui-menu[data-presentation='compact'] .tmt-ui-menu-trigger > svg {
-  width: var(--tmt-ui-compact-menu-icon-size);
-  height: var(--tmt-ui-compact-menu-icon-size);
+  width: 14px;
+  height: 14px;
   flex: none;
 }
 @media (max-width: 640px) {
   .tmt-ui-menu[data-presentation='compact'] {
-    width: var(--tmt-ui-compact-menu-phone-width);
+    width: 145px;
   }
 }
 

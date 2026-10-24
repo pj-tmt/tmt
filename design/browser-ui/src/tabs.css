@@ -190,15 +190,16 @@
 .tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab[aria-selected='true'] .tmt-ui-tab-count {
   color: var(--tmt-ui-color-text);
 }
-/* Compact is an opt-in flat presentation; default mint tabs and panel ownership stay intact. */
+/* Website-measured compact metrics stay local to this presentation.
+   Compact is an opt-in flat presentation; default mint tabs and panel ownership stay intact. */
 .tmt-ui-tabs[data-variant='flat'][data-presentation='compact'] .tmt-ui-tab {
-  font-size: var(--tmt-ui-compact-tab-size);
-  line-height: var(--tmt-ui-compact-tab-line-height);
-  padding: var(--tmt-ui-compact-tab-padding);
+  font-size: 11px;
+  line-height: 13px;
+  padding: 8px 11px;
   border-radius: var(--tmt-ui-radius-s);
 }
 .tmt-ui-tabs[data-variant='flat'][data-presentation='compact'] .tmt-ui-tab-count {
-  font-size: var(--tmt-ui-compact-tab-count-size);
+  font-size: 9px;
 }
 .tmt-ui-tabs[data-variant='flat'][data-presentation='compact'] .tmt-ui-tab[aria-selected='true'] {
   color: var(--tmt-ui-color-text);
@@ -216,8 +217,8 @@
 }
 @media (max-width: 640px) {
   .tmt-ui-tabs[data-variant='flat'][data-presentation='compact'] .tmt-ui-tab {
-    font-size: var(--tmt-ui-compact-tab-phone-size);
-    line-height: var(--tmt-ui-compact-tab-phone-line-height);
-    padding: var(--tmt-ui-compact-tab-phone-padding);
+    font-size: 10px;
+    line-height: 12px;
+    padding: 7px 9px;
   }
 }
