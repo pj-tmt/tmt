@@ -29,9 +29,13 @@
   },
   "peerDependencies": {
     "react": "19.2.8",
+    "react-dom": "19.2.8",
     "lucide-react": "1.52.0"
   },
   "peerDependenciesMeta": {
+    "react-dom": {
+      "optional": true
+    },
     "react": {
       "optional": true
     },

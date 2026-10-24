@@ -40,6 +40,8 @@ function violations(
 ): string[] {
   const failures: string[] = [];
   const uiEntry = file.startsWith(`${path.join(sourceRoot, 'ui')}/`);
+  // The shell React adapter portals actions into its native owner's explicit slot (#4848).
+  const shellPortal = file === path.join(sourceRoot, 'browser-shell.tsx');
   const admittedPeers = uiEntry
     ? [
         'react',
@@ -64,6 +66,10 @@ function violations(
         'class-variance-authority',
       ]
     : ['react', '@types/react', 'lucide-react'];
+  if (shellPortal) {
+    admittedPeers.push('react-dom');
+    admittedPackages.push('react-dom', '@types/react-dom');
+  }
   if (forbiddenLoads(file, source)) failures.push('unproved runtime input');
   for (const edge of imports(file, source)) {
     if (!edge.startsWith('.') && !edge.startsWith('/')) {
@@ -123,6 +129,36 @@ function productionViolations(directory: string): string[] {
 }
 it('protects production and the React-free static graph', () => {
   expect(productionViolations(production)).toEqual([]);
+});
+it('admits the bare portal peer only in the exact shell React adapter', () => {
+  const file = path.join(production, 'browser-shell.tsx');
+  const source = "import {createPortal} from 'react-dom';";
+  expect(violations(file, source, false)).toEqual([]);
+  for (const other of [
+    'header.tsx',
+    'nested/browser-shell.tsx',
+    'ui/browser-shell.tsx',
+    'shell.ts',
+    'static.ts',
+  ]) {
+    expect(violations(path.join(production, other), source, other === 'static.ts')).toEqual([
+      'react-dom',
+    ]);
+    expect(
+      violations(path.join(production, other), "export {createPortal} from 'react-dom';", false)
+    ).toEqual(['react-dom']);
+  }
+  for (const peer of ['react-dom/client', 'react-dom/server'])
+    expect(violations(file, `import value from '${peer}';`, false)).toEqual([peer]);
+  expect(violations(file, source, true)).toEqual(['react-dom']);
+  expect(
+    violations(file, source, false, {
+      baseUrl: root,
+      paths: { 'react-dom': ['extensions/tmt-colab/typescript/app/src/colab-header.tsx'] },
+    })
+  ).toEqual(['react-dom']);
+  expect(violations(file, "import('react-' + name);", false)).toContain('unproved runtime input');
+  expect(violations(file, 'new URL(target);', false)).toContain('unproved runtime input');
 });
 it('inspects nested local modules and CSS independently of the admitted first edge', () => {
   const fixture = mkdtempSync(path.join(tmpdir(), 'tmt-browser-ui-boundary-'));

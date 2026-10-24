@@ -1,5 +1,8 @@
 import { expect, it } from 'vite-plus/test';
 import { createShellTopBar, type ShellCommonControls } from '../src/topbar.js';
+import { build } from 'vite-plus';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 /** Validation happens before rendering or committing a root projection. */
 function owner() {
@@ -28,3 +31,29 @@ it('permanently releases root bindings on disposal', () => {
   expect(() => bar.setTopBar()).toThrow('disposed');
 });
 
+it('bundles the native shell with no React, ReactDOM, product or other runtime dependency', async () => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const production = path.join(root, 'src') + path.sep;
+  let modules: string[] = [];
+  await build({
+    root,
+    configFile: false,
+    logLevel: 'silent',
+    plugins: [
+      {
+        name: 'inspect-native-shell',
+        generateBundle() {
+          modules = [...this.getModuleIds()];
+        },
+      },
+    ],
+    build: {
+      write: false,
+      minify: false,
+      target: 'es2022',
+      lib: { entry: path.join(root, 'src/shell.ts'), formats: ['es'] },
+    },
+  });
+  expect(modules.length).toBeGreaterThan(5);
+  expect(modules.filter((id) => !id.startsWith(production) && !id.startsWith('\0'))).toEqual([]);
+});
