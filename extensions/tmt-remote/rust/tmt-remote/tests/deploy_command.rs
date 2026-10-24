@@ -1028,6 +1028,29 @@ mod cli_composition {
             .unwrap()
             .hosting
             .unwrap();
+        for site in ["new", "selected-site"] {
+            let root = Root::new();
+            let mut request = args(&[]).unwrap();
+            request.site = Some(site.into());
+            request.sign_in.push(SignInProvider::Google);
+            let result = deploy_cli::execute::<&mut DeployCliProvider<true>>(
+                &request,
+                &mut source,
+                &["colab"],
+                || panic!("dedicated-site Google refusal must precede all provider work"),
+                || Ok(root.layout()),
+                || panic!("refusal needs no clock"),
+            );
+            assert!(
+                matches!(result, Err(DeployCliError::Local(error)) if error.code == "REMOTE_DEPLOY_INPUT_INVALID" && error.message.contains("dedicated Hosting site"))
+            );
+            assert!(
+                !root
+                    .remote()
+                    .join("deployments/demo-remote-1/deploy.json")
+                    .exists()
+            );
+        }
         for (kind, details) in ["foreign", "own", "absent", "empty"]
             .into_iter()
             .flat_map(|kind| [(kind, false), (kind, true)])

@@ -172,6 +172,19 @@ pub fn sign_in_names(providers: &[SignInProvider]) -> String {
     names.dedup();
     names.join(",")
 }
+pub fn validate_hosted_sign_in(
+    inputs: &ResourceInputs,
+    hosting: bool,
+) -> Result<(), DeployCliError> {
+    if hosting && inputs.sign_in.contains(&SignInProvider::Google) && inputs.site != inputs.project
+    {
+        return Err(invalid(
+            "--sign-in",
+            "google.com on a dedicated Hosting site is not supported yet; use anonymous or select the existing project-default site explicitly.",
+        ));
+    }
+    Ok(())
+}
 fn invalid(flag: &str, message: &str) -> DeployCliError {
     DeployCliError::Local(RemoteError::new(
         "REMOTE_DEPLOY_INPUT_INVALID",

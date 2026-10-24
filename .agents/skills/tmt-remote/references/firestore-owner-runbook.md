@@ -27,6 +27,10 @@ firebase login
 In the Firebase console, open Authentication and choose **Get started** once. This guide
 uses the default `anonymous` sign-in selection. If you explicitly choose
 `google.com` instead, enable Google under Authentication → Sign-in method when instructed.
+For hosted Google sign-in, select the existing project-default site with
+`--site <project-id>`; `google.com` on a dedicated site refuses before provider setup
+because this version does not authorize that site's OAuth domain. Anonymous sign-in
+works with the dedicated-site default.
 Signing in to the CLI, pairing a browser or installing an extension never authorizes deployment.
 
 ## 2. Review the changes and answer y/N

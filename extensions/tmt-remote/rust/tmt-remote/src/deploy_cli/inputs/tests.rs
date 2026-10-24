@@ -120,6 +120,25 @@ fn missing_inputs_use_the_fixed_refusal_and_its_hint_parses_with_placeholders() 
     );
 }
 struct Untouched;
+#[test]
+fn dedicated_hosted_google_refuses_but_anonymous_and_default_site_remain_supported() {
+    let mut selected = resolve(&args(), None, &Values::new(), &[]).unwrap();
+    for site in ["new", "selected-site", "demo-remote-1"] {
+        selected.site = site.into();
+        selected.sign_in = vec![SignInProvider::Google];
+        assert!(validate_hosted_sign_in(&selected, false).is_ok());
+        let result = validate_hosted_sign_in(&selected, true);
+        if site == selected.project {
+            assert!(result.is_ok());
+        } else {
+            assert!(
+                matches!(result, Err(DeployCliError::Local(error)) if error.code == "REMOTE_DEPLOY_INPUT_INVALID" && error.message.contains("dedicated Hosting site"))
+            );
+        }
+        selected.sign_in = vec![SignInProvider::Anonymous];
+        assert!(validate_hosted_sign_in(&selected, true).is_ok());
+    }
+}
 impl DeclarationSource for Untouched {
     fn declaration(&mut self, _: &str) -> Result<Option<Vec<u8>>, DiscoveryRefusal> {
         panic!("invalid inputs must precede discovery too");

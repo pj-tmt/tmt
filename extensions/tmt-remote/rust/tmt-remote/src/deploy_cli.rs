@@ -268,6 +268,7 @@ pub fn execute_with_confirmation<P: FirestoreCommandPort>(
         }
     }
     let resources = inputs::resolve(args, Some(&project), &recorded, &requirements)?;
+    inputs::validate_hosted_sign_in(&resources, discovered.hosting.is_some())?;
     let region = resources.region.clone();
     store
         .select_inputs(resources.clone())

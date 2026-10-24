@@ -3532,6 +3532,11 @@ Firestore registers `--project`, `--region`, `--database`, `--web-app`, `--site`
 is `anonymous`. Other database IDs refuse with `REMOTE_DEPLOY_INPUT_INVALID` and
 “only (default) is supported on the free plan”; this is the supported v1 boundary.
 Unedited `<...>` placeholders refuse with that input code before provider construction.
+For hosted deployments, `google.com` with `--site new` or any non-project-default site
+refuses with `REMOTE_DEPLOY_INPUT_INVALID` before provider construction. Dedicated-site
+Google OAuth domain authorization is not provisioned in v1; anonymous sign-in is
+unaffected. Google sign-in remains available with an explicitly selected existing
+project-default site.
 A new site ID is stable for the local deployment identity and distinct from the project
 ID; its actual selected value is frozen in the Hosting plan. A new app uses the existing
 creation/read-back step and server-assigned app ID. Explicit app/site IDs must exist in
