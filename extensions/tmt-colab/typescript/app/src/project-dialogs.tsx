@@ -6,7 +6,7 @@ import {
   BrowserField,
 } from '@tmt/browser-ui/react';
 import { useEffect, useId, useRef, useState } from 'react';
-import { FileText } from 'lucide-react';
+import { FileText, Plus } from 'lucide-react';
 import {
   projectNameError,
   withProject,
@@ -280,9 +280,9 @@ export function ManageProjectsDialog({
   useEffect(() => {
     if (step.kind === 'delete') removal.current?.focus({ preventScroll: true });
     if (step.kind !== 'list' || !returnAction.current) return;
-    const target = Array.from(manager.current?.querySelectorAll('button') ?? []).find(
-      (button) => button.getAttribute('aria-label') === returnAction.current,
-    );
+    const target = Array.from(manager.current?.querySelectorAll('[data-project-action]') ?? [])
+      .find((node) => node.getAttribute('data-project-action') === returnAction.current)
+      ?.querySelector<HTMLButtonElement>('button');
     if (target) {
       target.focus({ preventScroll: true });
       returnAction.current = undefined;
@@ -307,7 +307,7 @@ export function ManageProjectsDialog({
     );
     setBusy(false);
     if (outcome.failure === undefined) {
-      returnAction.current = to === undefined ? t.newProject : `${t.rename} ${to}`;
+      returnAction.current = to === undefined ? 'create' : `rename:${to}`;
       setStep({ kind: 'list' });
       setMessage({ text: t.projectSaved, failed: false });
     } else setMessage({ text: writing.failureText(outcome.failure), failed: true });
@@ -338,28 +338,32 @@ export function ManageProjectsDialog({
                         </span>
                       </span>
                       <span className="project-manage-actions">
-                        <BrowserAction
-                          type="button"
-                          variant="secondary"
-                          label={`${t.rename} ${name}`}
-                          visibleLabel={t.rename}
-                          onActivate={() => {
-                            returnAction.current = `${t.rename} ${name}`;
-                            setMessage(undefined);
-                            setStep({ kind: 'rename', name, to: name });
-                          }}
-                        />
-                        <BrowserAction
-                          type="button"
-                          variant="text"
-                          label={`${t.remove} ${name}`}
-                          visibleLabel={t.remove}
-                          onActivate={() => {
-                            returnAction.current = `${t.remove} ${name}`;
-                            setMessage(undefined);
-                            setStep({ kind: 'delete', name });
-                          }}
-                        />
+                        <span data-project-action={`rename:${name}`}>
+                          <BrowserAction
+                            type="button"
+                            variant="secondary"
+                            label={`${t.rename} ${name}`}
+                            visibleLabel={t.rename}
+                            onActivate={() => {
+                              returnAction.current = `rename:${name}`;
+                              setMessage(undefined);
+                              setStep({ kind: 'rename', name, to: name });
+                            }}
+                          />
+                        </span>
+                        <span data-project-action={`delete:${name}`}>
+                          <BrowserAction
+                            type="button"
+                            variant="ghost"
+                            label={`${t.remove} ${name}`}
+                            visibleLabel={t.remove}
+                            onActivate={() => {
+                              returnAction.current = `delete:${name}`;
+                              setMessage(undefined);
+                              setStep({ kind: 'delete', name });
+                            }}
+                          />
+                        </span>
                       </span>
                     </div>
                   </li>
@@ -378,12 +382,12 @@ export function ManageProjectsDialog({
               {message.text}
             </p>
           )}
-          <div className="project-actions project-footer">
+          <div className="project-actions project-footer" data-project-action="create">
             <BrowserAction
               type="button"
               variant="primary"
               label={t.newProject}
-              visibleLabel={t.newProjectVisible}
+              leadingIcon={<Plus />}
               onActivate={() => {
                 cancel();
                 onNewProject();

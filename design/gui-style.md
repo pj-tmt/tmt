@@ -112,7 +112,7 @@ list) draws no title in the header: the header keeps its accessible name, and th
   attribution text below 640 px; keep the Remote mark, title and state chip. At
   every width, Discussion (count) and More remain; Agent status, Files (count),
   Source and Export live in More with their current authority and disabled
-  states. Agent status is writer-only. The title truncates within the shared-height row. Reader and native
+  states. Agent status is writer-only; its secondary Recheck uses a decorative refresh icon that yields to the busy mark. The title truncates within the shared-height row. Reader and native
   guidance headers retain the default mark and caption layout.
 - Primitive: shared Header; host-owned optional attribution and title-prefix slots.
 - Shipped as `ColabHeader` (`colab-header.tsx`). Basis: own.
@@ -275,7 +275,7 @@ counts and wrap on compact screens; the hero owns the heading and the shell bar 
 
 The space-level project manager follows the concept website's Manage projects drawer:
 introductory copy, separate bordered project cards with name/count and Rename/Delete actions,
-and New project below them. New project has the name field, a divider and an Initial pages
+and New project below them. Manager-row Delete is ghost; the final confirmation stays destructive. New project uses a decorative leading Plus, not a text glyph. New project has the name field, a divider and an Initial pages
 selection, with file marks and right-aligned Cancel/Create project actions. Archived choices
 remain explicitly labeled; project mutations disclose their full affected scope.
 
@@ -380,7 +380,7 @@ An opaque, shadow-free sheet with the shared thin edge and the control radius.
 - **Notice card:** the body of every state screen (opening, failed, ended,
   deleted, choose). Mark, eyebrow, title, one or two lines of text, actions
   inside the card. The mark carries the state role. Shipped as
-  `NoticeCard` (`notice-card.tsx`).
+  `NoticeCard` (`notice-card.tsx`), which owns its centered width and outer margins; that placement does not apply to inline shared notices.
 - **Item card:** a page in the page list: icon, title, short ID, audience tag,
   expiry, actions row.
 - **Group card:** `tmt-ui-card`, one subject per card (a Digest provider, a chart): a head

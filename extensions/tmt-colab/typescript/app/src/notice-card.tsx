@@ -82,5 +82,9 @@ export function NoticeCard({
       actions={actions}
     />
   );
-  return testId ? <div data-testid={testId}>{notice}</div> : notice;
+  return (
+    <div className="notice-card" data-testid={testId}>
+      {notice}
+    </div>
+  );
 }

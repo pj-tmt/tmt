@@ -52,6 +52,9 @@ test('Agent status belongs to More and returns focus there', async ({ page }) =>
   await expect(panel.locator('.agent-status-health dd')).toHaveText(['Available', 'Read', 'Read']);
   const recheck = panel.getByRole('button', { name: 'Recheck status' });
   await expect(recheck).toHaveAttribute('data-variant', 'secondary');
+  await expect(
+    recheck.locator('.tmt-ui-action-mark[data-leading][aria-hidden="true"] svg'),
+  ).toHaveCount(1);
   expect(
     await recheck.evaluate((node) => parseFloat(getComputedStyle(node).borderTopWidth)),
   ).toBeGreaterThan(0);
@@ -212,10 +215,13 @@ for (const kind of ['fast', 'slow'] as const)
     await page.clock.pauseAt(new Date(start.getTime() + 60_000));
     const recheck = panel.getByRole('button', { name: 'Recheck status' });
     const marks = panel.locator('.tmt-ui-action-mark[data-busy="true"] .tmt-ui-busy-mark');
+    const idle = await recheck.boundingBox();
     await recheck.click();
     // Fenced, not greyed, and the rows keep what they showed.
     await expect(recheck).toHaveAttribute('aria-busy', 'true');
     expect(await recheck.evaluate((node) => (node as HTMLButtonElement).disabled)).toBe(false);
+    await expect(recheck).toBeFocused();
+    expect(await recheck.boundingBox()).toEqual(idle);
     await page.clock.runFor(399);
     await expect(panel.getByText('Checking…')).toHaveCount(0);
     await expect(panel.getByText('Read', { exact: true })).toHaveCount(2);
