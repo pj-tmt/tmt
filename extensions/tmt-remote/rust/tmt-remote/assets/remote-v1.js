@@ -4379,15 +4379,7 @@ var REASONS$1 = {
 	"no-session": "This browser has no owner session for your machine. Pair it from Remote to see your usage.",
 	unreachable: "Your machine did not answer. This page tries again shortly."
 };
-/** The model family a driver's weekly window belongs to, as the report names it on its seats. */
-var DRIVER_LINES = {
-	claude: "claude",
-	codex: "gpt"
-};
-/**
-* The percent-left history of the current weekly window per provider. The cache keeps 8 days, so
-* its points can span two windows: only those of the newest window (its reset time) are drawn.
-*/
+/** Keep each reset's samples separate, including older windows still active this week. */
 function limitHistoryFrom(answer) {
 	if (answer.state !== "ok") return void 0;
 	const histories = answer.payload.limitHistory;
@@ -4396,52 +4388,75 @@ function limitHistoryFrom(answer) {
 	return histories.flatMap((entry) => {
 		const history = entry;
 		if (typeof history?.provider !== "string" || !Number.isFinite(history.windowMinutes) || !Array.isArray(history.points)) return [];
-		const points = history.points.filter(isPoint);
-		const last = points.at(-1);
-		if (!last) return [];
-		return [{
-			line: DRIVER_LINES[history.provider] ?? history.provider,
-			windowMinutes: history.windowMinutes,
-			resetsAtMs: last[2],
-			points: points.filter((point) => point[2] === last[2]).map(([atMs, percentLeft]) => ({
+		const groups = /* @__PURE__ */ new Map();
+		for (const [atMs, percentLeft, reset] of history.points.filter(isPoint)) {
+			const points = groups.get(reset) ?? [];
+			points.push({
 				atMs,
 				percentLeft
-			}))
-		}];
+			});
+			groups.set(reset, points);
+		}
+		return [...groups].map(([resetsAtMs, points]) => ({
+			provider: history.provider,
+			windowMinutes: history.windowMinutes,
+			resetsAtMs,
+			points: points.sort((a, b) => a.atMs - b.atMs)
+		}));
 	});
 }
-/**
-* The report from the two owner reads. An unavailable Digest read is the page's empty state with
-* its reason; an unavailable limits read only leaves the history out (the latest window still
-* shows), since `limits` needs Ops and a machine whose board never ran has no samples.
-*/
-function reportFromAnswers(range, digest, limits) {
-	if (digest.state !== "ok") return {
-		range,
-		sample: false,
-		unavailable: REASONS$1[digest.state === "unavailable" ? digest.reason : digest.state]
-	};
+/** A failed weekly read stays explicit; the selected usage range is never its fallback. */
+function allowanceFromAnswers(weekly, limits) {
+	if (weekly.state !== "ok" || weekly.payload.since !== "7d" || weekly.payload.report?.since !== "7d") return { allowanceUnavailable: "Allowance could not be read. This page tries again shortly." };
+	const limitHistory = limitHistoryFrom(limits);
+	return { allowance: {
+		...weekly.payload.report,
+		...limitHistory ? { limitHistory } : {}
+	} };
+}
+/** Selected usage and independently acquired allowance through the existing owner reads. */
+function reportFromAnswers(range, digest, allowance) {
+	if (digest.state !== "ok") {
+		const reason = digest.state === "unavailable" ? digest.reason : digest.state;
+		return {
+			range,
+			sample: false,
+			...allowance,
+			unavailable: REASONS$1[reason]
+		};
+	}
 	const document = digest.payload.report;
 	if (digest.payload.since !== range || document?.since !== range) return {
 		range,
 		sample: false,
+		...allowance,
 		unavailable: REASONS$1.unknown
 	};
-	const limitHistory = limitHistoryFrom(limits);
 	return {
 		range,
 		sample: false,
-		document: limitHistory ? {
-			...document,
-			limitHistory
-		} : document
+		document,
+		...allowance
 	};
 }
-/** The source the page reads: the owner's usage report and weekly-limit history. */
-var digestSource = { async report(range, signal = new AbortController().signal) {
-	const [digest, limits] = await Promise.all([ownerRead(`digest/${range}`, signal), ownerRead("limits", signal)]);
-	return reportFromAnswers(range, digest, limits);
-} };
+/** One source per mount: range switches share even an in-flight weekly read, never global state. */
+function createDigestSource() {
+	let weekly;
+	let allowance;
+	return { async report(range, signal = new AbortController().signal, refreshAllowance = false) {
+		if (refreshAllowance) {
+			weekly = void 0;
+			allowance = void 0;
+		}
+		const selected = range === "7d" && weekly ? weekly : ownerRead(`digest/${range}`, signal);
+		if (!allowance) {
+			weekly = range === "7d" ? selected : ownerRead("digest/7d", signal);
+			allowance = Promise.all([weekly, ownerRead("limits", signal)]).then(([weekly, limits]) => allowanceFromAnswers(weekly, limits));
+		}
+		const [digest, snapshot] = await Promise.all([selected, allowance]);
+		return reportFromAnswers(range, digest, snapshot);
+	} };
+}
 //#endregion
 //#region src/digest-view.ts
 var HOUR = 36e5;
@@ -4600,62 +4615,85 @@ function activity(doc) {
 		})
 	};
 }
-var LINE_LABELS = {
+var PROVIDER_LABELS = {
 	claude: "Claude",
-	gpt: "OpenAI"
+	codex: "OpenAI"
 };
-/** A provider keeps one hue across its meter and its chart: orange for Claude, aqua for OpenAI. */
-function lineStyle(line) {
-	return line === "claude" ? 1 : line === "gpt" ? 2 : 0;
+/** One hue per source, shared by its meter and history. */
+function providerStyle(provider) {
+	return provider === "claude" ? 1 : provider === "codex" ? 2 : 0;
 }
-/** The weekly windows, one row each: how much is left and whether the pace is even. */
+/** Exact source/window/reset identity, also used for history and stable disclosure IDs. */
+function windowKey(window) {
+	return `${encodeURIComponent(window.provider)}-${window.windowMinutes}-${window.resetsAtMs}`;
+}
+/** Weekly windows still active at the owner's read time. Unknown sources stay explicit. */
 function allowance(doc) {
-	const lines = new Map(doc.usage.seats.map((seat) => [seat.id, seat.lines[0] ?? ""]));
-	return doc.limits.filter((limit) => limit.windowMinutes === 10080).map((limit) => {
-		const line = limit.seats.map((id) => lines.get(id)).find(Boolean) ?? "";
-		return {
-			line,
-			provider: LINE_LABELS[line] ?? (line ? line[0].toUpperCase() + line.slice(1) : "Account"),
-			leftPercent: Math.round((100 - limit.usedPercent) * 10) / 10,
-			elapsedPercent: limit.elapsedPercent,
-			paceDeltaPoints: limit.paceDeltaPoints,
-			resetsAtMs: limit.resetsAtMs,
-			stale: limit.stale
-		};
-	}).sort((a, b) => a.provider.localeCompare(b.provider) || a.resetsAtMs - b.resetsAtMs);
+	const seats = new Map([...doc.usage.seats, ...doc.usage.unavailable].map((seat) => [seat.id, seat]));
+	return doc.limits.filter((limit) => typeof limit.provider === "string" && limit.provider.length > 0 && limit.windowMinutes === 10080 && limit.resetsAtMs > doc.observedAtMs).map((limit) => ({
+		key: windowKey(limit),
+		source: limit.provider,
+		provider: PROVIDER_LABELS[limit.provider] ?? limit.provider,
+		leftPercent: Math.round((100 - limit.usedPercent) * 10) / 10,
+		elapsedPercent: limit.elapsedPercent,
+		paceDeltaPoints: limit.paceDeltaPoints,
+		resetsAtMs: limit.resetsAtMs,
+		observedAtMs: limit.observedAtMs,
+		reporters: limit.seats.map((id) => seats.has(id) ? seatName(seats.get(id)) : id.slice(0, 8)).sort(),
+		current: limit.seats.some((id) => seats.has(id) && !seats.get(id).retired),
+		stale: limit.stale
+	})).sort((a, b) => b.observedAtMs - a.observedAtMs || a.key.localeCompare(b.key));
 }
-/** Weekly percent-left history charts, one per provider; none without the history field. */
+/** One chart per exact source/window/reset, never borrowed by another window. */
 function historyCharts(doc, zone) {
-	return (doc.limitHistory ?? []).filter((history) => history.points.length > 1).map((history) => {
-		const x = history.points.map((point) => stamp(point.atMs, "7d", zone));
-		const window = history.windowMinutes * 6e4;
-		return {
-			title: "Weekly percent left",
-			kind: "line",
-			style: lineStyle(history.line),
-			x,
-			series: [{
-				key: history.line,
-				label: "left",
-				values: history.points.map((point) => point.percentLeft)
-			}],
-			reference: {
-				label: "even pace",
-				values: history.points.map((point) => Math.max(0, Math.min(100, 100 * (history.resetsAtMs - point.atMs) / window)))
-			},
-			max: 100,
-			format: (value) => `${Math.round(value)}%`
-		};
-	});
+	return (doc.limitHistory ?? []).filter((history) => history.points.length > 1).map((history) => ({
+		title: "Weekly percent left",
+		kind: "line",
+		style: providerStyle(history.provider),
+		x: history.points.map((point) => stamp(point.atMs, "7d", zone)),
+		series: [{
+			key: windowKey(history),
+			label: "left",
+			values: history.points.map((point) => point.percentLeft)
+		}],
+		reference: {
+			label: "even pace",
+			values: history.points.map((point) => Math.max(0, Math.min(100, 100 * (history.resetsAtMs - point.atMs) / (history.windowMinutes * 6e4))))
+		},
+		max: 100,
+		format: (value) => `${Math.round(value)}%`
+	}));
 }
-/** One entry per weekly window: its numbers beside its history chart, matched by provider. */
 function providers(doc, zone) {
 	const charts = new Map(historyCharts(doc, zone).map((chart) => [chart.series[0].key, chart]));
 	return allowance(doc).map((row) => ({
 		...row,
-		style: lineStyle(row.line),
-		chart: charts.get(row.line)
+		style: providerStyle(row.source),
+		chart: charts.get(row.key)
 	}));
+}
+/** Most recent current-seat observation leads; retired-only windows remain in the disclosure. */
+function providerGroups(doc) {
+	const views = doc ? providers(doc) : [];
+	return [.../* @__PURE__ */ new Set([
+		"codex",
+		"claude",
+		...views.map((view) => view.source)
+	])].map((source) => {
+		const windows = views.filter((view) => view.source === source);
+		const primary = windows.find((view) => view.current);
+		return {
+			source,
+			label: PROVIDER_LABELS[source] ?? source,
+			primary,
+			other: windows.filter((view) => view !== primary)
+		};
+	});
+}
+/** Age against the owner's clock, never the browser's possibly different wall clock. */
+function observedAgo(observedAtMs, nowMs) {
+	const minutes = Math.max(0, Math.floor((nowMs - observedAtMs) / 6e4));
+	return minutes < 1 ? "just now" : minutes < 60 ? `${minutes}m ago` : minutes < 1440 ? `${Math.floor(minutes / 60)}h ago` : `${Math.floor(minutes / 1440)}d ago`;
 }
 /** Days between two instants, for the page's "resets in" words. */
 function resetsIn(resetsAtMs, nowMs) {
@@ -4816,7 +4854,7 @@ function bareTiles(...tiles) {
 }
 function providerRow(view, nowMs) {
 	const row = el$1("div", "digest-provider");
-	row.id = `digest-provider-${view.line || "account"}`;
+	row.id = `digest-window-${view.key}`;
 	const label = el$1("div", "digest-provider-label");
 	label.append(el$1("strong", void 0, view.provider), el$1("strong", void 0, `${view.leftPercent}% left${view.stale ? " (stale)" : ""}`));
 	const meter = el$1("div", browserUiClasses.meter);
@@ -4832,21 +4870,49 @@ function providerRow(view, nowMs) {
 	details.append(summary);
 	details.append(view.chart ? createSeriesChart(view.chart) : el$1("p", "usage-note", "The weekly history is not served yet; this shows the latest window."));
 	details.append(bareTiles(tile("Elapsed", view.elapsedPercent === null ? "—" : `${Math.round(view.elapsedPercent)}%`), tile("Pace", view.paceDeltaPoints === null ? "—" : `${view.paceDeltaPoints > 0 ? "+" : ""}${view.paceDeltaPoints.toFixed(1)} pts`), tile("Resets in", view.stale ? "stale" : resetsIn(view.resetsAtMs, nowMs))));
-	row.append(label, meter, details);
+	const observation = el$1("p", "usage-note digest-window-observation", `Observed ${observedAgo(view.observedAtMs, nowMs)}`);
+	observation.dataset.observedAt = String(view.observedAtMs);
+	const reset = new Date(view.resetsAtMs).toLocaleString("en-GB", {
+		month: "short",
+		day: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+		timeZoneName: "short"
+	});
+	row.append(label, meter, observation, el$1("p", "usage-note", `Resets ${reset}`), el$1("p", "usage-note digest-reporters", `Reported by ${view.reporters.join(", ") || "unknown seats"}`), details);
 	return row;
 }
-function allowanceRow(doc) {
-	const views = providers(doc);
+function allowanceRow(report) {
+	const doc = report.allowance;
 	const intro = el$1("div", "digest-allowance-intro");
-	intro.append(el$1("h2", browserUiClasses.cardTitle, "Allowance"), el$1("p", "digest-subtitle", "Reported by each provider."));
+	intro.append(el$1("h2", browserUiClasses.cardTitle, "Allowance"), el$1("p", "digest-subtitle", "Latest known weekly windows. Independent of the usage range."));
 	const node = el$1("section", `${browserUiClasses.card} digest-card digest-allowance`);
 	node.id = "digest-allowance";
 	intro.querySelector("h2").id = "digest-allowance-title";
 	node.setAttribute("aria-labelledby", "digest-allowance-title");
-	node.dataset.providers = String(views.length);
-	node.append(intro, ...views.map((view) => providerRow(view, doc.observedAtMs)));
-	if (doc.limitsUnavailable.length) node.append(el$1("p", "usage-note", "Some provider allowances are unavailable."));
-	else if (!views.length) node.append(el$1("p", "usage-note", "No weekly window has been observed yet."));
+	const groups = el$1("div", "digest-provider-groups");
+	for (const group of providerGroups(doc)) {
+		const host = el$1("div", "digest-provider-group");
+		host.id = `digest-provider-${encodeURIComponent(group.source)}`;
+		if (group.primary) host.append(providerRow(group.primary, doc.observedAtMs));
+		else {
+			const label = el$1("div", "digest-provider-label");
+			label.append(el$1("strong", void 0, group.label), el$1("span", void 0, "○ not reported"));
+			host.append(label, el$1("p", "usage-note", group.source === "claude" ? "Claude Code does not report its allowance to TMT." : report.allowanceUnavailable ?? "No current seat has reported an active weekly window."));
+		}
+		if (group.other.length) {
+			const other = el$1("details", `${browserUiClasses.disclosure} digest-other-windows`);
+			other.id = `${host.id}-other`;
+			const summary = el$1("summary", void 0, `Other ${group.label} windows seen this week (${group.other.length})`);
+			summary.id = `${other.id}-summary`;
+			other.append(summary, ...group.other.map((view) => providerRow(view, doc.observedAtMs)));
+			host.append(other);
+		}
+		groups.append(host);
+	}
+	node.append(intro, groups);
+	if (report.allowanceUnavailable) node.append(el$1("p", "usage-note", report.allowanceUnavailable));
+	else if (doc?.limits.some((limit) => !limit.provider)) node.append(el$1("p", "usage-note", "Some allowance windows have no reported provider. Upgrade TMT on your machine to identify them."));
 	return node;
 }
 function tokensCard(doc, state) {
@@ -5040,10 +5106,15 @@ function fingerprint(report) {
 		document: report.document && {
 			...report.document,
 			observedAtMs: 0
+		},
+		allowance: report.allowance && {
+			...report.allowance,
+			observedAtMs: 0,
+			limits: report.allowance.limits.filter((limit) => limit.resetsAtMs > report.allowance.observedAtMs)
 		}
 	});
 }
-function digestPage(source = digestSource, signal) {
+function digestPage(source = createDigestSource(), signal) {
 	const tabs = document.getElementById("usage-ranges");
 	const panel = document.getElementById("digest-sections");
 	const note = document.getElementById("usage-note");
@@ -5096,7 +5167,7 @@ function digestPage(source = digestSource, signal) {
 		good = report;
 		const doc = report.document;
 		const activityBlock = activityCard(doc);
-		panel.replaceChildren(allowanceRow(doc), tokensCard(doc, state), row$1("digest-row-activity", ...activityBlock ? [activityBlock] : [], exchangeCard(doc)), coverageCard());
+		panel.replaceChildren(allowanceRow(report), tokensCard(doc, state), row$1("digest-row-activity", ...activityBlock ? [activityBlock] : [], exchangeCard(doc)), coverageCard());
 		for (const detail of panel.querySelectorAll("details[id]")) detail.open = disclosures.get(detail.id) ?? false;
 		const scroll = document.getElementById("digest-exchange-scroll");
 		if (scroll) scroll.scrollLeft = matrixLeft;
@@ -5127,6 +5198,7 @@ function digestPage(source = digestSource, signal) {
 			return notAvailable(note, `${report.unavailable ?? "Usage is not available."} Showing the last report, read at ${at}.`);
 		}
 		if (fingerprint(report) !== shown) return paint(report);
+		for (const observation of panel.querySelectorAll(".digest-window-observation")) observation.textContent = `Observed ${observedAgo(Number(observation.dataset.observedAt), report.allowance.observedAtMs)}`;
 		ordinaryNote(report);
 	}
 	async function show(range) {
@@ -5152,7 +5224,7 @@ function digestPage(source = digestSource, signal) {
 		}
 		const range = current;
 		const mine = generation;
-		const report = await source.report(range, signal);
+		const report = await source.report(range, signal, true);
 		if (signal.aborted || range !== current || mine !== generation) return true;
 		refreshed(report);
 		return !report.unavailable;

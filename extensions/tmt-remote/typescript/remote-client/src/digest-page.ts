@@ -13,7 +13,7 @@ import {
 } from '@tmt/browser-ui/chart';
 import { pageLoading } from './page-loading.js';
 import {
-  digestSource,
+  createDigestSource,
   USAGE_RANGES,
   type DigestReport,
   type DigestSource,
@@ -23,7 +23,8 @@ import {
 import {
   activity,
   exchange,
-  providers,
+  providerGroups,
+  observedAgo,
   ranking,
   rankRows,
   resetsIn,
@@ -188,7 +189,7 @@ function bareTiles(...tiles: HTMLElement[]): HTMLElement {
 
 function providerRow(view: ProviderView, nowMs: number): HTMLElement {
   const row = el('div', 'digest-provider');
-  row.id = `digest-provider-${view.line || 'account'}`;
+  row.id = `digest-window-${view.key}`;
   const label = el('div', 'digest-provider-label');
   label.append(
     el('strong', undefined, view.provider),
@@ -229,27 +230,89 @@ function providerRow(view: ProviderView, nowMs: number): HTMLElement {
       tile('Resets in', view.stale ? 'stale' : resetsIn(view.resetsAtMs, nowMs)),
     ),
   );
-  row.append(label, meter, details);
+  const observation = el(
+    'p',
+    'usage-note digest-window-observation',
+    `Observed ${observedAgo(view.observedAtMs, nowMs)}`,
+  );
+  observation.dataset.observedAt = String(view.observedAtMs);
+  const reset = new Date(view.resetsAtMs).toLocaleString('en-GB', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+  row.append(
+    label,
+    meter,
+    observation,
+    el('p', 'usage-note', `Resets ${reset}`),
+    el(
+      'p',
+      'usage-note digest-reporters',
+      `Reported by ${view.reporters.join(', ') || 'unknown seats'}`,
+    ),
+    details,
+  );
   return row;
 }
 
-function allowanceRow(doc: UsageDocument): HTMLElement {
-  const views = providers(doc);
+function allowanceRow(report: DigestReport): HTMLElement {
+  const doc = report.allowance;
   const intro = el('div', 'digest-allowance-intro');
   intro.append(
     el('h2', ui.cardTitle, 'Allowance'),
-    el('p', 'digest-subtitle', 'Reported by each provider.'),
+    el('p', 'digest-subtitle', 'Latest known weekly windows. Independent of the usage range.'),
   );
   const node = el('section', `${ui.card} digest-card digest-allowance`);
   node.id = 'digest-allowance';
   intro.querySelector('h2')!.id = 'digest-allowance-title';
   node.setAttribute('aria-labelledby', 'digest-allowance-title');
-  node.dataset.providers = String(views.length);
-  node.append(intro, ...views.map((view) => providerRow(view, doc.observedAtMs)));
-  if (doc.limitsUnavailable.length)
-    node.append(el('p', 'usage-note', 'Some provider allowances are unavailable.'));
-  else if (!views.length)
-    node.append(el('p', 'usage-note', 'No weekly window has been observed yet.'));
+  const groups = el('div', 'digest-provider-groups');
+  for (const group of providerGroups(doc)) {
+    const host = el('div', 'digest-provider-group');
+    host.id = `digest-provider-${encodeURIComponent(group.source)}`;
+    if (group.primary) host.append(providerRow(group.primary, doc!.observedAtMs));
+    else {
+      const label = el('div', 'digest-provider-label');
+      label.append(el('strong', undefined, group.label), el('span', undefined, '○ not reported'));
+      host.append(
+        label,
+        el(
+          'p',
+          'usage-note',
+          group.source === 'claude'
+            ? 'Claude Code does not report its allowance to TMT.'
+            : (report.allowanceUnavailable ??
+                'No current seat has reported an active weekly window.'),
+        ),
+      );
+    }
+    if (group.other.length) {
+      const other = el('details', `${ui.disclosure} digest-other-windows`);
+      other.id = `${host.id}-other`;
+      const summary = el(
+        'summary',
+        undefined,
+        `Other ${group.label} windows seen this week (${group.other.length})`,
+      );
+      summary.id = `${other.id}-summary`;
+      other.append(summary, ...group.other.map((view) => providerRow(view, doc!.observedAtMs)));
+      host.append(other);
+    }
+    groups.append(host);
+  }
+  node.append(intro, groups);
+  if (report.allowanceUnavailable) node.append(el('p', 'usage-note', report.allowanceUnavailable));
+  else if (doc?.limits.some((limit) => !limit.provider))
+    node.append(
+      el(
+        'p',
+        'usage-note',
+        'Some allowance windows have no reported provider. Upgrade TMT on your machine to identify them.',
+      ),
+    );
   return node;
 }
 
@@ -497,10 +560,20 @@ function fingerprint(report: DigestReport): string {
   return JSON.stringify({
     ...report,
     document: report.document && { ...report.document, observedAtMs: 0 },
+    allowance: report.allowance && {
+      ...report.allowance,
+      observedAtMs: 0,
+      limits: report.allowance.limits.filter(
+        (limit) => limit.resetsAtMs > report.allowance!.observedAtMs,
+      ),
+    },
   });
 }
 
-export function digestPage(source: DigestSource = digestSource, signal?: AbortSignal): void {
+export function digestPage(
+  source: DigestSource = createDigestSource(),
+  signal?: AbortSignal,
+): void {
   const tabs = document.getElementById('usage-ranges');
   const panel = document.getElementById('digest-sections');
   const note = document.getElementById('usage-note');
@@ -557,7 +630,7 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
     const doc = report.document;
     const activityBlock = activityCard(doc);
     panel!.replaceChildren(
-      allowanceRow(doc),
+      allowanceRow(report),
       tokensCard(doc, state),
       row('digest-row-activity', ...(activityBlock ? [activityBlock] : []), exchangeCard(doc)),
       coverageCard(),
@@ -598,6 +671,8 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
     }
     if (fingerprint(report) !== shown) return paint(report);
     // The same report as before: nothing to repaint, only a stale note to clear.
+    for (const observation of panel!.querySelectorAll<HTMLElement>('.digest-window-observation'))
+      observation.textContent = `Observed ${observedAgo(Number(observation.dataset.observedAt), report.allowance!.observedAtMs)}`;
     ordinaryNote(report);
   }
   async function show(range: UsageRange) {
@@ -626,7 +701,7 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
       }
       const range = current;
       const mine = generation;
-      const report = await source.report(range, signal);
+      const report = await source.report(range, signal, true);
       if (signal.aborted || range !== current || mine !== generation) return true;
       refreshed(report);
       return !report.unavailable;
