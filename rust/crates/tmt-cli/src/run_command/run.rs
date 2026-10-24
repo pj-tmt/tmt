@@ -39,10 +39,30 @@ use tmt_core::{
     },
     driver::HookEvent,
     endpoint::ProcessIncarnation,
-    identity::IdentityReader,
+    identity::{Identity, IdentityReader},
     names::normalize_name,
     settings::{PaneBadge, Settings},
 };
+
+/// The identity a launch selects before anything changes. A resume names its member by display
+/// name or identity UUID (Ops hands members off by UUID); both resolve through the one shared
+/// selector, and an unknown or retired UUID is `NAME_NOT_FOUND` naming it. Everything after
+/// works on the found identity, so a rename in between cannot retarget the launch.
+fn selected_identity(
+    storage: &mut Storage,
+    request: &RunRequest<'_>,
+) -> Result<Option<Identity>, Failure> {
+    if request.resume.is_some() && tmt_core::dispatch::canonical_id(request.name) {
+        return storage
+            .resolve_identity(request.name)
+            .map_err(storage_failure)?
+            .map(Some)
+            .ok_or_else(|| crate::output::identity_missing(request.name));
+    }
+    storage
+        .find_identity(&normalize_name(request.name))
+        .map_err(storage_failure)
+}
 
 pub(super) fn run_bound(
     storage: &mut Storage,
@@ -65,9 +85,14 @@ pub(super) fn run_bound(
     let switching = resume.and_then(|resume| resume.driver);
     let moving = resume.is_some_and(|resume| resume.move_running || resume.driver.is_some());
     let mut registry = RuntimeRegistry::first_party();
-    let existing = storage
-        .find_identity(&normalize_name(name))
-        .map_err(storage_failure)?;
+    let existing = selected_identity(storage, &request)?;
+    // A UUID operand is shown by the identity's display name from here on.
+    let name = match &existing {
+        Some(identity) if resume.is_some() && tmt_core::dispatch::canonical_id(name) => {
+            identity.name.as_str()
+        }
+        _ => name,
+    };
     if switching.is_some() && existing.is_none() {
         return Err(Failure::new(
             "NAME_NOT_FOUND",
@@ -355,6 +380,10 @@ pub(super) fn run_bound(
     }
     let bound = if let Some(bound) = moved {
         Ok(bound)
+    } else if resume.is_some()
+        && let Some(identity) = &existing
+    {
+        binding::bind_existing_identity(storage, &mut host.session(), pane, &identity.id, save)
     } else if auto_named {
         binding::bind_auto_identity(storage, &mut host.session(), pane, name, save)
     } else {

@@ -88,14 +88,19 @@ pub(in crate::grammar) fn identity() -> Command {
             .arg(operand("old", true))
             .arg(operand("new", true)),
         )
-        .subcommand(storage(spec!(
-            "show",
-            "Show an identity by name or UUID, or the verified caller",
-            [
-                "Show an identity" => "tmt identity show reviewer",
-                "Show this pane's identity" => "tmt identity show",
-            ]
-        )).arg(operand("name", false)))
+        .subcommand(with_options(
+            storage(spec!(
+                "show",
+                "Show an identity by name or UUID, or the verified caller",
+                details = "With --expect-name the UUID is pinned: the command refuses with IDENTITY_CHANGED (exit 5) when that identity is retired or no longer has that name, and reports its presence. An unknown UUID is NAME_NOT_FOUND.",
+                [
+                    "Show an identity" => "tmt identity show reviewer",
+                    "Show this pane's identity" => "tmt identity show",
+                    "Check that a UUID still has its name" => "tmt identity show 7f0c2f2e-2b1a-4c1e-9d2a-0a1b2c3d4e5f --expect-name reviewer",
+                ]
+            )),
+            &["expect-name"],
+        ).arg(operand("name", false)))
         .subcommand(with_options(
             storage(spec!(
                 "ls",

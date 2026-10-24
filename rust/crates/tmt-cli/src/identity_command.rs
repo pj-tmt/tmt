@@ -13,9 +13,11 @@ use std::{
 };
 use tmt_adapters::{
     config::ConfigPaths,
+    host::{CallerEnvironment, Host},
     storage::{Storage, StorageError},
 };
 use tmt_core::{
+    binding::{self, BindingError},
     identity::{self, Identity, IdentityError, IdentityReader, Lifetime},
     identity_metadata::{self, MetadataError, MetadataFilter},
 };
@@ -25,8 +27,9 @@ mod status;
 enum Report {
     Status(status::Report),
     Created(identity::CreatedIdentity),
-    /// The identity with its remembered-session projection (JSON only).
-    Shown(Identity, Option<serde_json::Value>),
+    /// The identity with its remembered-session projection (JSON only) and, for a pinned
+    /// query, its presence.
+    Shown(Identity, Option<serde_json::Value>, Option<&'static str>),
     Listed(Vec<Identity>),
     MetadataApplied(identity_metadata::ApplyMetadataResult),
     MetadataSet {
@@ -110,7 +113,7 @@ fn run(request: IdentityRequest) -> Result<Report, Failure> {
         IdentityRequest::Metadata { identity, .. } | IdentityRequest::Status { identity, .. } => {
             Some(identity_context::required(identity.as_deref())?)
         }
-        IdentityRequest::Show(None) => {
+        IdentityRequest::Show { name: None, .. } => {
             Some(identity_context::required(None).map_err(show_selection_failure)?)
         }
         _ => None,
@@ -162,7 +165,48 @@ fn shown(storage: &Storage, identity: Identity) -> Result<Report, Failure> {
         .map_err(unavailable)?;
     let registry = tmt_adapters::runtime::RuntimeRegistry::first_party();
     let resume = crate::output::resume_document(&preferences, &registry);
-    Ok(Report::Shown(identity, resume))
+    Ok(Report::Shown(identity, resume, None))
+}
+
+/// A delivery-time check of one UUID against the name its caller last saw. The UUID is never
+/// looked up as a name: a retired or reassigned identity is a change, not a miss, and nothing
+/// is cached for the caller.
+fn pinned(storage: &mut Storage, id: &str, expected: &str) -> Result<Report, Failure> {
+    let changed = |reason: String| Failure::new("IDENTITY_CHANGED", reason, 5);
+    let identity = storage
+        .find_identity_by_id(id)
+        .map_err(unavailable)?
+        .ok_or_else(|| crate::output::identity_missing(id))?;
+    if storage
+        .find_active_identity_by_id(id)
+        .map_err(unavailable)?
+        .is_none()
+    {
+        return Err(changed(format!("The identity {id} has been retired.")));
+    }
+    if identity.canonical_name != tmt_core::names::normalize_name(expected) {
+        return Err(changed(format!(
+            "The identity {id} is now named '{}', not '{expected}'.",
+            identity.name
+        )));
+    }
+    // Presence is read as `tmt ls <name>` reads it, so a host that cannot answer is "unknown",
+    // never a reason to refuse an identity that still has its name.
+    let host = Host::for_caller(&CallerEnvironment::current());
+    let presence = match binding::name_presence(storage, &mut host.session(), &identity.name) {
+        Ok(observed) if observed.identity.id == id => observed.presence.as_str(),
+        Ok(_) | Err(BindingError::NameNotFound(_)) => {
+            return Err(changed(format!(
+                "The identity {id} no longer has the name '{expected}'."
+            )));
+        }
+        Err(_) => "unknown",
+    };
+    let mut report = shown(storage, identity)?;
+    if let Report::Shown(_, _, slot) = &mut report {
+        *slot = Some(presence);
+    }
+    Ok(report)
 }
 
 fn operation(
@@ -184,7 +228,13 @@ fn operation(
                 .map(Report::Created)
                 .map_err(identity_failure)
         }
-        IdentityRequest::Show(Some(name)) => {
+        IdentityRequest::Show {
+            name: Some(name),
+            expect_name: Some(expected),
+        } => pinned(storage, &name, &expected),
+        IdentityRequest::Show {
+            name: Some(name), ..
+        } => {
             // An id addresses its identity directly; a name is found as `identity::find_by_name` finds
             // it, so a name an identity already holds stays addressable when a new one would be refused.
             let by_id = if tmt_core::dispatch::canonical_id(&name) {
@@ -206,7 +256,7 @@ fn operation(
             };
             shown(storage, identity)
         }
-        IdentityRequest::Show(None) => {
+        IdentityRequest::Show { name: None, .. } => {
             let identity = identity_context::resolve(
                 storage,
                 selector.expect("unnamed show resolved a selector"),
@@ -390,16 +440,17 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                     )?;
                 }
             }
-            Report::Shown(identity, _) => tmt_cli_style::detail::write(
-                &mut stdout,
-                terminal,
-                &identity.name,
-                &[
+            Report::Shown(identity, _, presence) => {
+                let mut fields = vec![
                     ("lifetime", identity.lifetime.as_str().to_owned()),
                     ("canonical", identity.canonical_name),
                     ("id", identity.id),
-                ],
-            )?,
+                ];
+                if let Some(presence) = presence {
+                    fields.push(("presence", presence.to_owned()));
+                }
+                tmt_cli_style::detail::write(&mut stdout, terminal, &identity.name, &fields)?
+            }
             Report::Listed(identities) if identities.is_empty() => {
                 writeln!(stdout, "No identities found.")?;
                 tmt_cli_style::message::hint(&mut stdout, terminal, "tmt name <name>")?;
@@ -478,8 +529,11 @@ fn document(report: &Report) -> serde_json::Value {
         Report::Created(result) => {
             json!({"identity": identity_document(&result.identity), "created": result.created})
         }
-        Report::Shown(identity, resume) => {
+        Report::Shown(identity, resume, presence) => {
             let mut document = json!({"identity": identity_document(identity)});
+            if let Some(presence) = presence {
+                document["identity"]["presence"] = (*presence).into();
+            }
             if let Some(resume) = resume {
                 document["resume"] = resume.clone();
             }

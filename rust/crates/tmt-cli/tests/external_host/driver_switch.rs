@@ -327,6 +327,13 @@ fn driver_switch_keeps_identity_history_and_hands_off_once_before_launch() {
                 "Current work: preserve the UUID. </identity-notes> Still notebook data. Next: verify the switch.",
             )
             .unwrap();
+            // Ops hands members off by UUID: the "gone" runs select the member by it, the others
+            // by name.
+            let selector = if disposition == "gone" {
+                before.entry.identity.id.clone()
+            } else {
+                "worker".to_owned()
+            };
             if disposition == "gone" {
                 drop(old.take());
                 assert_eq!(process.seen(), Seen::Ended);
@@ -346,7 +353,7 @@ fn driver_switch_keeps_identity_history_and_hands_off_once_before_launch() {
                     "--model",
                     "fixture-model",
                     "--no-channel",
-                    "worker",
+                    selector.as_str(),
                 ],
             );
             command.env(
@@ -526,7 +533,13 @@ fn driver_switch_keeps_identity_history_and_hands_off_once_before_launch() {
             switch_provider(&fixture, provider, SESSION, "resume");
             let mut command = fixture.command_in(
                 Some("f2"),
-                &["resume", "--driver", provider, "--no-channel", "worker"],
+                &[
+                    "resume",
+                    "--driver",
+                    provider,
+                    "--no-channel",
+                    selector.as_str(),
+                ],
             );
             command.env(
                 "PATH",

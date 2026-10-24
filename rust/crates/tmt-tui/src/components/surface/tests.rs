@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     binding::{Schemas, Scopes},
-    components::{KeyHelp, KeyHelpEntry, KeyHelpSection, Step},
+    components::{KeyHelp, KeyHelpEntry, KeyHelpSection, RowGeometry, Step},
 };
 use ratatui::crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind,
@@ -537,4 +537,83 @@ fn invalid_key_help_heading_properties_are_rejected() {
             "{property}"
         );
     }
+}
+
+fn frame(rows: &[(&str, bool)], painted: &[(&str, u16)]) -> ListFrame {
+    let list_rows: Vec<ListRow> = rows
+        .iter()
+        .map(|(id, disabled)| ListRow {
+            id: (*id).into(),
+            disabled: *disabled,
+        })
+        .collect();
+    let mut line = 0;
+    ListFrame {
+        rows: list_rows,
+        geometry: painted
+            .iter()
+            .map(|(id, height)| {
+                let start = line;
+                line += usize::from(*height);
+                RowGeometry {
+                    id: (*id).into(),
+                    lines: start..line,
+                    visible: Rect::new(0, start as u16, 10, *height),
+                }
+            })
+            .collect(),
+        viewport: Rect::new(0, 0, 10, 10),
+        offset: 0,
+    }
+}
+
+const GROUPED: &[(&str, bool)] = &[
+    ("links", true),
+    ("a", false),
+    ("b", false),
+    ("todo", true),
+    ("c", false),
+    ("d", false),
+    ("e", false),
+];
+
+#[test]
+fn a_list_counter_counts_selectable_rows_not_headings() {
+    let all = frame(
+        GROUPED,
+        &[
+            ("links", 1),
+            ("a", 1),
+            ("b", 1),
+            ("todo", 1),
+            ("c", 1),
+            ("d", 1),
+            ("e", 1),
+        ],
+    );
+    assert_eq!(selectable_position(&all), "1–5 of 5");
+}
+
+#[test]
+fn a_scrolled_window_numbers_the_selectable_rows_it_shows_and_counts_the_rest_below() {
+    let window = frame(GROUPED, &[("todo", 1), ("c", 1), ("d", 1)]);
+    assert_eq!(selectable_position(&window), "3–4 of 5 · 1 more ↓");
+    let top = frame(GROUPED, &[("links", 1), ("a", 1), ("b", 1)]);
+    assert_eq!(selectable_position(&top), "1–2 of 5 · 3 more ↓");
+}
+
+#[test]
+fn a_list_without_a_selectable_row_in_view_has_no_counter() {
+    assert_eq!(selectable_position(&frame(&[], &[])), "");
+    assert_eq!(selectable_position(&frame(&[("h", true)], &[("h", 1)])), "");
+    assert_eq!(selectable_position(&frame(GROUPED, &[("links", 1)])), "");
+}
+
+#[test]
+fn a_row_of_several_lines_counts_once() {
+    let rows = [("a", false), ("b", false), ("c", false)];
+    assert_eq!(
+        selectable_position(&frame(&rows, &[("a", 3), ("b", 2)])),
+        "1–2 of 3 · 1 more ↓"
+    );
 }

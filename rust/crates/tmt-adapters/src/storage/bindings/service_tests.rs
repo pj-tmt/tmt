@@ -1,3 +1,4 @@
+mod bind_existing;
 mod discovery;
 mod endpoint;
 mod hook_wait;

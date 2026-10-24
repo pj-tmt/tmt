@@ -57,7 +57,11 @@ fn mv_and_rm_take_the_identity_uuid_and_a_retired_uuid_is_not_found() {
             assert_eq!(output.status.code(), Some(3), "{args:?}: {output:?}");
             assert_eq!(json(&output)["error"]["code"], "NAME_NOT_FOUND", "{args:?}");
         }
-        for args in [vec!["resume", selector], vec!["resume", "--move", selector]] {
+        for args in [
+            vec!["resume", selector],
+            vec!["resume", "--move", selector],
+            vec!["resume", "--driver", "codex", selector],
+        ] {
             let output = fixture.tmt_in(Some("f1"), &args);
             assert_eq!(output.status.code(), Some(3), "{args:?}: {output:?}");
             let stderr = String::from_utf8_lossy(&output.stderr);

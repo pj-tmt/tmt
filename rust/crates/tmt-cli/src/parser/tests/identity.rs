@@ -78,12 +78,39 @@ fn identity_status_uses_shared_duration_grammar_and_scoped_options() {
 fn identity_show_selects_a_name_or_the_verified_caller() {
     assert_eq!(
         parsed(&["identity", "show"]).invocation,
-        Invocation::Identity(IdentityRequest::Show(None))
+        Invocation::Identity(IdentityRequest::Show {
+            name: None,
+            expect_name: None
+        })
     );
     assert_eq!(
         parsed(&["identity", "show", "Alice"]).invocation,
-        Invocation::Identity(IdentityRequest::Show(Some("Alice".into())))
+        Invocation::Identity(IdentityRequest::Show {
+            name: Some("Alice".into()),
+            expect_name: None
+        })
     );
+    // A pinned query names the UUID and the name its caller last saw.
+    let id = "7f0c2f2e-2b1a-4c1e-9d2a-0a1b2c3d4e5f";
+    assert_eq!(
+        parsed(&["identity", "show", id, "--expect-name", "Alice"]).invocation,
+        Invocation::Identity(IdentityRequest::Show {
+            name: Some(id.into()),
+            expect_name: Some("Alice".into())
+        })
+    );
+    // Without a UUID there is nothing to pin.
+    for values in [
+        ["identity", "show", "Alice", "--expect-name", "Alice"].as_slice(),
+        ["identity", "show", "--expect-name", "Alice"].as_slice(),
+    ] {
+        assert!(
+            parse_error(values)
+                .message
+                .contains("--expect-name needs the identity's UUID"),
+            "{values:?}"
+        );
+    }
 }
 
 #[test]

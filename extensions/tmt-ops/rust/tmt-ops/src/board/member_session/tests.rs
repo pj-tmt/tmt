@@ -308,7 +308,7 @@ fn unbound_dialog_fits_its_content_and_keeps_position_for_overflow() {
     );
     assert!(map.areas.outer.height < 32);
     assert!(
-        text.contains("of 13"),
+        text.contains("1–2 of 2"),
         "the surface retains its position line: {text}"
     );
     drop(ui);

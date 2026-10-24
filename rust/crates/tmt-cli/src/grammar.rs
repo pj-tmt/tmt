@@ -378,6 +378,7 @@ fn option(id: &'static str) -> Arg {
         "stdin" => flag("Read complete input through EOF"),
         "capture-only" => flag("Capture the pane without delivering a retained Digest checklist"),
         "close" => flag("Also close the pane tmt opened for the agent; never one you created"),
+        "expect-name" => value("Refuse unless the UUID still has this name"),
         "skill" => Arg::new(id)
             .long(id)
             .help("Print an exact bundled skill (default: tmt)")
