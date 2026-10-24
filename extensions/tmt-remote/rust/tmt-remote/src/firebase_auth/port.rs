@@ -29,6 +29,26 @@ pub struct AuthOwner {
     stopped: AtomicBool,
 }
 impl AuthOwner {
+    /// Observe an explicitly replaced persisted identity without creating one.
+    /// Native pairing can reroute its stable key; existing extension consumers
+    /// retain the old identity and cannot inherit another uid's membership.
+    pub(crate) fn reloaded_identity(&self) -> Result<Option<Self>, AuthError> {
+        let read = self.store.load()?;
+        let Some(credential) = read.credential else {
+            return Ok(None);
+        };
+        if credential.uid == self.identity.uid {
+            return Ok(None);
+        }
+        Self::load(
+            self.project.clone(),
+            self.store.clone(),
+            self.http.clone(),
+            self.clock.clone(),
+            self.jitter.clone(),
+        )
+        .map(Some)
+    }
     /// Load an existing sign-in only. This adapter has no signup or revoke path.
     pub fn load(
         project: Project,

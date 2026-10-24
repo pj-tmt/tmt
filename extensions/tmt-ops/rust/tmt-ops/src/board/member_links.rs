@@ -98,11 +98,19 @@ pub(super) fn resolve(text: &str, inventory: &Inventory) -> Vec<Resolved> {
     found
 }
 
-/// What a painted link stands for: a member by identity, or a web or mail address.
+/// What a painted reference stands for: a member, an address, or an inert file path.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Target {
     Member(String),
     Url(String),
+    File(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Origin {
+    pub source: Range<usize>,
+    /// Caption bytes in its projected row, before the message gutter is painted.
+    pub shown: Range<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,6 +119,8 @@ pub(super) struct Link {
     pub width: usize,
     pub target: Target,
     pub occurrence: usize,
+    /// Original message bytes replaced by this atomic caption.
+    pub source: Option<Origin>,
 }
 
 use super::{
@@ -324,7 +334,7 @@ pub(super) fn paint_hits(
                     .role(presentation.role)
                     .remove_modifier(Modifier::BOLD)
                     .add_modifier(Modifier::UNDERLINED);
-                if matches!(hit.target, Target::Url(_)) {
+                if matches!(hit.target, Target::Url(_) | Target::File(_)) {
                     // A web link keeps the colour the renderer gave its label.
                     if focused || hover {
                         frame.buffer_mut()[(x, hit.area.y)]
@@ -506,6 +516,9 @@ impl App {
         self.perform_context(action, Some(target))
     }
     fn open_member_link(&mut self, hit: Hit) -> Effect {
+        if let Target::File(path) = &hit.target {
+            return self.file_popover(path, hit.area);
+        }
         let Target::Member(identity) = &hit.target else {
             return self.open_url_link(&hit);
         };
@@ -880,6 +893,7 @@ pub(super) fn paint_plain_hits(
                 width: unicode_width::UnicodeWidthStr::width(&source[link.range.clone()]),
                 target: Target::Member(link.identity.clone()),
                 occurrence,
+                source: None,
             });
         }
     }
@@ -934,4 +948,4 @@ pub(super) fn capture_menu(app: &mut App) {
 
 pub(in crate::board) mod popover;
 #[cfg(test)]
-mod tests;
+pub(in crate::board) mod tests;

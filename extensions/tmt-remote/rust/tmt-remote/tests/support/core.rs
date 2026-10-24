@@ -7,7 +7,7 @@ use std::{
 };
 use tmt_remote::{core::CoreClient, operations::Operations, store::uuid_v4};
 #[path = "executable_fixture.rs"]
-mod executable_fixture;
+pub(crate) mod executable_fixture;
 pub struct Core {
     pub root: PathBuf,
 }

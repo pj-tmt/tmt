@@ -1,10 +1,19 @@
 //! Remote's native carrier namespace. Not an extension fragment or deploy-plan activation.
 /// Emulator qualification artifact. Its cap is generated from the same named document bound.
 pub fn artifact() -> String {
-    include_str!("../../assets/cloud-inbox.rules").replace(
-        "CLOUD_CARRIER_BYTES",
-        &crate::limits::CLOUD_CARRIER_BYTES.to_string(),
-    )
+    include_str!("../../assets/cloud-inbox.rules")
+        .replace(
+            "CLOUD_CARRIER_BYTES",
+            &crate::limits::CLOUD_CARRIER_BYTES.to_string(),
+        )
+        .replace(
+            "CLOUD_DESCRIPTOR_BYTES",
+            &crate::limits::CLOUD_DESCRIPTOR_BYTES.to_string(),
+        )
+        .replace(
+            "CLOUD_ENROLLMENT_BYTES",
+            &crate::limits::CLOUD_ENROLLMENT_BYTES.to_string(),
+        )
 }
 #[cfg(test)]
 mod tests {
@@ -17,16 +26,18 @@ mod tests {
             rules
                 .matches("allow delete: if machineOwner(machine);")
                 .count(),
-            2
+            4
         );
-        assert!(!rules.contains("allow update"));
+        assert!(rules.contains(
+            "request.resource.data.authenticationKey == resource.data.authenticationKey"
+        ));
         assert!(rules.contains("match /m/{machine}/inbox/{id}"));
         assert!(rules.contains("peerCreate(machine)"));
         assert!(rules.contains("peerRead(machine)"));
         assert_eq!(
             rules.matches("allow list:").count(),
-            1,
-            "responses cannot list"
+            2,
+            "only machine inbox and enrollment can list"
         );
         assert!(!rules.contains("{tail=**}"));
     }

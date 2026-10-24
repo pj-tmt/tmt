@@ -43,13 +43,27 @@ fn minute_job(f: &Fixture) -> Job {
 
 /// Polls observable state; a timeout panics at the waiting call, not in this helper.
 #[track_caller]
-fn wait_for<T>(mut read: impl FnMut() -> Option<T>) -> T {
-    let deadline = Instant::now() + Duration::from_secs(10);
+fn wait_for<T>(read: impl FnMut() -> Option<T>) -> T {
+    wait_for_within(Duration::from_secs(10), read, String::new)
+}
+
+/// `wait_for` with its own budget; a timeout reports `context`, what the fixture saw.
+#[track_caller]
+fn wait_for_within<T>(
+    budget: Duration,
+    mut read: impl FnMut() -> Option<T>,
+    context: impl Fn() -> String,
+) -> T {
+    let deadline = Instant::now() + budget;
     loop {
         if let Some(value) = read() {
             return value;
         }
-        assert!(Instant::now() < deadline, "fixture readiness timed out");
+        assert!(
+            Instant::now() < deadline,
+            "fixture readiness timed out {}",
+            context()
+        );
         std::thread::sleep(Duration::from_millis(10));
     }
 }
@@ -502,7 +516,29 @@ fn deferred_ui_workers_never_take_the_old_clock_and_migrate_without_stopping() {
     fs::File::open(&old_directory).unwrap().sync_all().unwrap();
     drop(guard);
     drop(old_lease);
-    wait_for(|| f.directory.join(".ops-paths-v1").exists().then_some(()));
+    // The workers retry once a second and the migration moves the legacy tree with directory
+    // syncs, so a loaded host needs more than an ordinary fixture wait (#4806). A timeout says
+    // what each worker did instead of leaving only the bare marker missing.
+    wait_for_within(
+        Duration::from_secs(60),
+        || f.directory.join(".ops-paths-v1").exists().then_some(()),
+        || {
+            let mut names = fs::read_dir(&f.directory)
+                .map(|entries| {
+                    entries
+                        .flatten()
+                        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            names.sort();
+            format!(
+                "after 60 s: first worker {:?}, second worker {:?}, data directory {names:?}",
+                first.finished.try_recv(),
+                second.finished.try_recv()
+            )
+        },
+    );
     wait_for(|| {
         // A contended status is Unknown, so keep observing until Running.
         Clock::new(&f.directory.join("ops"))

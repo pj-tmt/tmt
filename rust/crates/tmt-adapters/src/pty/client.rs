@@ -112,13 +112,42 @@ impl Connection {
         }
     }
 
-    /// The window size in force when the handshake completed.
+    /// The latest window size reported by the supervisor.
     pub fn size(&self) -> Size {
         self.size
     }
 
     pub fn send(&mut self, message: &ClientMessage) -> io::Result<()> {
         self.stream.write_all(&message.encode())
+    }
+
+    pub(super) fn descriptor(&self) -> std::os::fd::BorrowedFd<'_> {
+        self.stream.as_fd()
+    }
+
+    fn decoded(&mut self) -> io::Result<Option<ServerMessage>> {
+        let message = self.decoder.frame::<ServerMessage>().map_err(invalid)?;
+        if let Some(ServerMessage::Resized(size)) = message {
+            self.size = size;
+        }
+        Ok(message)
+    }
+
+    /// Reads only bytes already available, preserving a partially received frame.
+    /// The attach loop polls this connection together with stdin and signals.
+    pub(super) fn receive_available(&mut self) -> io::Result<Option<ServerMessage>> {
+        use nix::sys::socket::{MsgFlags, recv};
+        if let Some(message) = self.decoded()? {
+            return Ok(Some(message));
+        }
+        let mut buffer = [0u8; 32 * 1024];
+        match recv(self.stream.as_raw_fd(), &mut buffer, MsgFlags::MSG_DONTWAIT) {
+            Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
+            Ok(count) => self.decoder.push(&buffer[..count]).map_err(invalid)?,
+            Err(Errno::EAGAIN | Errno::EINTR) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        }
+        self.decoded()
     }
 
     /// Keystrokes or pasted bytes for the program, in frames of at most [`MAX_INPUT`].
@@ -192,7 +221,7 @@ impl Connection {
         let deadline = Instant::now() + timeout;
         let mut buffer = [0u8; 32 * 1024];
         loop {
-            if let Some(message) = self.decoder.frame::<ServerMessage>().map_err(invalid)? {
+            if let Some(message) = self.decoded()? {
                 return Ok(Some(message));
             }
             let remaining = deadline.saturating_duration_since(Instant::now());

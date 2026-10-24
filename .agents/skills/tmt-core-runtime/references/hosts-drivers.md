@@ -261,6 +261,21 @@ Attach/focus and the Ops stream are not yet shipped.
   then submit Enter separately; Core owns the `!` rewrite, delay and SQLite delivery stages.
   Control clients drain output and disconnect promptly, including between paste and Enter;
   they never resize. Failed post-paste transport is uncertain and never replayed.
+- **Interactive attach.** `tmt attach <name-or-UUID> [-d]` resolves the existing
+  binding and admits one connection through `Host`, checking the supervisor/pane
+  incarnations and marker before terminal input. SQLite closes before the relay.
+  The CLI owns crossterm raw mode, alternate-screen entry and restoration;
+  `pty::attach` polls that input, the admitted socket and invocation-owned signal
+  notifications without a surviving input thread. Live program output passes
+  unchanged; there is no replay, redraw nudge or initial-screen frame, so entry
+  may stay blank until the program draws. Ctrl-\ detaches without stopping the
+  member; Ctrl-C goes to the program. EOF detaches; TERM/HUP/external INT restore
+  the terminal without signalling the member. SIGKILL cannot restore a terminal.
+  `-d` uses the existing `TakeSole` frame. Eviction, exit and transport failure
+  restore before explaining the outcome; connection loss never proves agent exit.
+  Local dimensions are clamped before entry/resize frames; `Resized` reports the
+  shared size and never emits a physical-window resize escape. Plain `focus`
+  delegates here only for a built-in target; JSON focus never acquires raw mode.
 - **Managed startup.** `pty::start_member` uses the existing detached-process owner
   to await the supervisor readiness line, retaining kill/reap ownership until that line.
   Child-only locators replace inherited host variables. The ordinary managed launcher

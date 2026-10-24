@@ -286,6 +286,7 @@
                     "gap": false,
                     "discontinuous": false,
                     "rateLimits": {
+                      "provider": "codex",
                       "observedAtMs": 1799992800000,
                       "windows": [
                         {
@@ -319,6 +320,7 @@
                     "gap": false,
                     "discontinuous": false,
                     "rateLimits": {
+                      "provider": "codex",
                       "observedAtMs": 1799999400000,
                       "windows": [
                         {
@@ -369,6 +371,7 @@
                     "gap": true,
                     "discontinuous": false,
                     "rateLimits": {
+                      "provider": "codex",
                       "observedAtMs": 1799998800000,
                       "windows": [
                         {
@@ -728,6 +731,7 @@
         },
         "limits": [
           {
+            "provider": "codex",
             "windowMinutes": 300,
             "resetsAtMs": 1799999460000,
             "usedPercent": 90.0,
@@ -740,6 +744,7 @@
             ]
           },
           {
+            "provider": "codex",
             "windowMinutes": 300,
             "resetsAtMs": 1800003660000,
             "usedPercent": 40.0,
@@ -752,6 +757,7 @@
             ]
           },
           {
+            "provider": "codex",
             "windowMinutes": 10080,
             "resetsAtMs": 1800086460000,
             "usedPercent": 60.0,

@@ -536,9 +536,9 @@ fn one_provider_final_with_different_observation_and_settlement_clocks_paints_on
                     .is_none(),
                 "a capture is not a reply source"
             );
-            assert_eq!(rendered.copy.lines.len(), rendered.mapped.lines.len());
-            assert!(rendered.copy.rows[row].contains(REPLY));
-            let shown = vec![rendered.copy.rows[row].clone()];
+            assert_eq!(rendered.copy.rows.len(), rendered.mapped.lines.len());
+            assert!(rendered.copy.rows[row].shown.contains(REPLY));
+            let shown = vec![rendered.copy.rows[row].shown.clone()];
             let copied = super::super::super::copy::passage(
                 &rendered.copy,
                 &super::super::super::copy::Selected {
@@ -1229,7 +1229,7 @@ fn every_message_of_a_block_keeps_its_own_source_lines_for_copy_and_quote() {
                     .iter()
                     .position(|line| line.to_string().contains(needle))
                     .unwrap_or_else(|| panic!("{needle:?} not painted"));
-                let at = rendered.copy.lines[row].unwrap_or_else(|| {
+                let at = rendered.copy.rows[row].at.unwrap_or_else(|| {
                     panic!("restored={restored}: {needle:?} has no copy source")
                 });
                 assert!(
@@ -1238,6 +1238,97 @@ fn every_message_of_a_block_keeps_its_own_source_lines_for_copy_and_quote() {
                         .nth(at.line)
                         .is_some_and(|line| line.contains(needle)),
                     "restored={restored}: {needle:?} copies from its own message line"
+                );
+            }
+        }
+    });
+}
+
+#[test]
+fn live_and_restored_sent_chips_copy_original_tokens_without_the_painted_gutter() {
+    use super::super::super::copy::{self, End, Selected};
+    const NOW: u64 = 1_791_600_000_000;
+    const SOURCE: &str = "before '/tmp/my_file name.png' after ";
+    crate::status::with_now_ms(NOW, || {
+        for restored in [false, true] {
+            for width in [60, 160] {
+                let app = sends_scene(
+                    restored,
+                    &[spec(SOURCE, NOW - 1000, json!({"state":"pending"}))],
+                );
+                rows(&app, width, 60);
+                let state = app.conversation.borrow();
+                let session = state.sessions.get(state.active.as_ref().unwrap()).unwrap();
+                let rendered = session.rendered.as_ref().unwrap();
+                let message = rendered
+                    .copy
+                    .messages
+                    .iter()
+                    .position(|text| text.lines().any(|line| line == SOURCE))
+                    .unwrap();
+                let indices: Vec<_> = rendered
+                    .copy
+                    .rows
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, row)| {
+                        row.at.is_some_and(|at| {
+                            at.message == message
+                                && rendered.copy.messages[message].lines().nth(at.line)
+                                    == Some(SOURCE)
+                        })
+                    })
+                    .map(|(index, _)| index)
+                    .collect();
+                let (first, last) = (*indices.first().unwrap(), *indices.last().unwrap());
+                let shown: Vec<_> = rendered.mapped.lines[first..=last]
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect();
+                assert_eq!(
+                    copy::passage(
+                        &rendered.copy,
+                        &Selected {
+                            first,
+                            last,
+                            shown: &shown,
+                            start: End {
+                                row: &shown[0],
+                                at: 0
+                            },
+                            end: End {
+                                row: shown.last().unwrap(),
+                                at: shown.last().unwrap().len()
+                            },
+                        }
+                    ),
+                    SOURCE
+                );
+                let row = indices
+                    .iter()
+                    .copied()
+                    .find(|row| rendered.copy.rows[*row].shown.contains("my_file"))
+                    .unwrap();
+                let painted = rendered.mapped.lines[row].to_string();
+                let at = painted.find("my_file").unwrap();
+                assert_eq!(
+                    copy::passage(
+                        &rendered.copy,
+                        &Selected {
+                            first: row,
+                            last: row,
+                            shown: std::slice::from_ref(&painted),
+                            start: End {
+                                row: &painted,
+                                at: at + 1
+                            },
+                            end: End {
+                                row: &painted,
+                                at: at + 2
+                            },
+                        }
+                    ),
+                    "'/tmp/my_file name.png'"
                 );
             }
         }

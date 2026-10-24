@@ -1,6 +1,7 @@
 mod answer_command;
 mod api_command;
 mod appearance;
+mod attach_command;
 mod binding_command;
 mod binding_error;
 mod caller_context;
@@ -424,6 +425,12 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::FocusClient => {
             return focus_command::client(parsed.mode);
+        }
+        Invocation::Attach {
+            target,
+            detach_others,
+        } => {
+            return attach_command::execute(target, detach_others, parsed.mode);
         }
         request @ (Invocation::Reply { .. } | Invocation::Result { .. }) => {
             return response_command::execute(request, parsed.mode);

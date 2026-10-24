@@ -1,6 +1,5 @@
-//! The popover a web or mail link opens: where it goes first, then Open, Copy and Show
-//! full. The label of a link can differ from its target, so the target comes before any
-//! action.
+//! Destination popovers name the held target before any action. Web/mail links offer
+//! Open, Copy and Show full; local files offer only Copy full path and Show full.
 use super::{Hit, Target, menu_area};
 use crate::board::app::{App, Choice, CopyFeedback, Effect, Menu, MenuEntry, Request};
 use crate::effects;
@@ -120,8 +119,51 @@ impl App {
         Effect::None
     }
 
-    /// The address and anchor of the open "Full link" menu, whose Esc goes back to the popover.
-    pub(in crate::board) fn link_full_menu(&self) -> Option<(String, Rect)> {
+    pub(in crate::board) fn file_popover(&mut self, path: &str, anchor: Rect) -> Effect {
+        let entries = vec![
+            MenuEntry {
+                key: String::new(),
+                label: crate::board::view::fit(path, LINE),
+                choice: Choice::Heading,
+            },
+            MenuEntry {
+                key: "y".into(),
+                label: "Copy full path".into(),
+                choice: Choice::FileCopy(path.into()),
+            },
+            MenuEntry {
+                key: "f".into(),
+                label: "Show full".into(),
+                choice: Choice::FileShow {
+                    path: path.to_owned(),
+                    anchor,
+                },
+            },
+        ];
+        if menu_area(
+            self.member_links.borrow().screen,
+            anchor,
+            entries.len() as u16 + 4,
+        )
+        .is_none()
+        {
+            return self.say("Not enough room beside this file; resize to open its actions.");
+        }
+        self.menu = Some(Menu {
+            row_send: None,
+            link: None,
+            prefill: String::new(),
+            title: "File".into(),
+            entries,
+            selected: 1,
+            anchor: Some(anchor),
+            surface: RefCell::new(None),
+        });
+        Effect::None
+    }
+
+    /// The destination and anchor whose full-view Esc returns to its popover.
+    pub(in crate::board) fn destination_full_menu(&self) -> Option<(Target, Rect)> {
         let menu = self.menu.as_ref()?;
         let anchor = menu.anchor?;
         match menu.entries.first()?.choice.clone() {
@@ -131,7 +173,15 @@ impl App {
                     .iter()
                     .all(|entry| entry.choice == Choice::LinkCopy(url.clone())) =>
             {
-                Some((url, anchor))
+                Some((Target::Url(url), anchor))
+            }
+            Choice::FileCopy(path)
+                if menu
+                    .entries
+                    .iter()
+                    .all(|entry| entry.choice == Choice::FileCopy(path.clone())) =>
+            {
+                Some((Target::File(path.to_string()), anchor))
             }
             _ => None,
         }
@@ -157,12 +207,25 @@ impl App {
 
     /// The whole address, wrapped; Enter on any line copies it, Esc closes.
     pub(in crate::board) fn link_show(&mut self, url: &str, anchor: Rect) -> Effect {
-        let entries: Vec<_> = chunks(url, LINE)
+        self.show_destination(Target::Url(url.to_owned()), anchor)
+    }
+
+    pub(in crate::board) fn file_show(&mut self, path: &str, anchor: Rect) -> Effect {
+        self.show_destination(Target::File(path.to_owned()), anchor)
+    }
+
+    fn show_destination(&mut self, target: Target, anchor: Rect) -> Effect {
+        let (text, title, copy) = match target {
+            Target::Url(url) => (url.clone(), "Full link", Choice::LinkCopy(url)),
+            Target::File(path) => (path.clone(), "Full path", Choice::FileCopy(path.into())),
+            Target::Member(_) => return Effect::None,
+        };
+        let entries: Vec<_> = chunks(&text, LINE)
             .into_iter()
             .map(|label| MenuEntry {
                 key: String::new(),
                 label,
-                choice: Choice::LinkCopy(url.to_owned()),
+                choice: copy.clone(),
             })
             .collect();
         if menu_area(
@@ -178,7 +241,7 @@ impl App {
             row_send: None,
             link: None,
             prefill: String::new(),
-            title: "Full link".into(),
+            title: title.into(),
             entries,
             selected: 0,
             anchor: Some(anchor),
@@ -258,6 +321,7 @@ pub(in crate::board) fn capture_case(
 mod tests {
     use super::*;
     use crate::board::app::workspace::tests::{MEMBER, board};
+    use crate::board::member_links::tests::capture_file_case;
     use ratatui::{
         Terminal,
         backend::TestBackend,
@@ -288,7 +352,7 @@ mod tests {
             .iter()
             .filter_map(|hit| match &hit.target {
                 Target::Url(url) => Some((hit.area, url.clone())),
-                Target::Member(_) => None,
+                Target::Member(_) | Target::File(_) => None,
             })
             .collect()
     }
@@ -487,5 +551,132 @@ mod tests {
         assert!(app.member_links.borrow().focused.is_some());
         app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(app.menu.is_some(), "a popover for the focused link");
+    }
+
+    #[test]
+    fn file_chips_copy_the_literal_path_and_full_view_returns_to_copy_only_actions() {
+        let path = "/tmp/folder with space/file_name.png";
+        let mut app = reader(&format!("See '{path}' now."));
+        assert!(
+            app.member_links.borrow().web_spans().is_empty(),
+            "files never emit OSC 8 links"
+        );
+        let hit = app
+            .member_links
+            .borrow()
+            .hits
+            .iter()
+            .find(|hit| hit.target == Target::File(path.into()))
+            .unwrap()
+            .clone();
+        assert_eq!(click(&mut app, hit.area), Effect::None);
+        let menu = app.menu.as_ref().expect("file popover");
+        assert_eq!(menu.title, "File");
+        assert_eq!(menu.selected, 1);
+        assert_eq!(menu.entries[1].label, "Copy full path");
+        assert_eq!(menu.entries[2].label, "Show full");
+        assert_eq!(menu.entries.len(), 3, "configured opener does not add Open");
+        let copy = menu.entries[1].choice.clone();
+        let show = menu.entries[2].choice.clone();
+        assert!(
+            matches!(app.choose(copy), Effect::Act(Request::Copy { text, .. }) if text == path)
+        );
+        app.choose(show);
+        let full = app.menu.as_ref().unwrap();
+        assert_eq!(full.title, "Full path");
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let shown = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(shown.contains("Enter copies · Esc back"), "{shown}");
+        assert_eq!(
+            full.entries
+                .iter()
+                .map(|entry| entry.label.as_str())
+                .collect::<String>(),
+            path
+        );
+        assert!(
+            full.entries
+                .iter()
+                .all(|entry| entry.choice == Choice::FileCopy(path.into()))
+        );
+        let copy = full.entries[0].choice.clone();
+        assert!(
+            matches!(app.choose(copy), Effect::Act(Request::Copy { text, .. }) if text == path)
+        );
+        app.file_show(path, hit.area);
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.menu.as_ref().unwrap().title, "File");
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.menu.is_none());
+    }
+
+    #[test]
+    fn sent_file_chips_use_the_same_copy_only_popover_and_repaint_discards_stale_hits() {
+        for width in [60, 80, 160] {
+            let mut app = capture_file_case("file-sent", crate::look::Look::default(), width, 36);
+            let hit = app
+                .member_links
+                .borrow()
+                .hits
+                .iter()
+                .find(|hit| matches!(hit.target, Target::File(_)))
+                .unwrap()
+                .clone();
+            assert_eq!(hit.area.intersection(hit.surface), hit.area);
+            assert_eq!(click(&mut app, hit.area), Effect::None);
+            let menu = app.menu.as_ref().unwrap();
+            assert_eq!(menu.title, "File");
+            let copy = menu.entries[1].choice.clone();
+            assert!(
+                matches!(app.choose(copy), Effect::Act(Request::Copy { text, .. }) if text == "/tmp/my screenshot_file.png")
+            );
+            app.menu = None;
+            app.member_links
+                .borrow_mut()
+                .begin_frame(Rect::new(0, 0, width, 36));
+            assert!(app.member_links.borrow().hits.is_empty());
+            click(&mut app, hit.area);
+            assert!(app.menu.is_none(), "an old chip is no longer actionable");
+        }
+    }
+
+    #[test]
+    fn a_long_full_path_keeps_all_its_text_and_copies_from_either_end() {
+        let path = format!("/tmp/{}.txt", "file_name_".repeat(500));
+        let mut app = reader(&format!("See '{path}' now."));
+        let hit = app
+            .member_links
+            .borrow()
+            .hits
+            .iter()
+            .find(|hit| matches!(hit.target, Target::File(_)))
+            .unwrap()
+            .clone();
+        app.file_show(&path, hit.area);
+        let menu = app.menu.as_ref().unwrap();
+        assert!(menu.entries.len() > 8, "the full path scrolls");
+        assert_eq!(
+            menu.entries
+                .iter()
+                .map(|entry| entry.label.as_str())
+                .collect::<String>(),
+            path
+        );
+        let first = menu.entries.first().unwrap().choice.clone();
+        let last = menu.entries.last().unwrap().choice.clone();
+        for choice in [first, last] {
+            assert!(
+                matches!(app.choose(choice), Effect::Act(Request::Copy { text, .. }) if text == path)
+            );
+        }
     }
 }

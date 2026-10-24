@@ -73,7 +73,13 @@ impl Provider {
         }
         Ok(format!("{}/m/{}/{stream}/{id}", self.root, self.machine))
     }
-    async fn call(
+    pub(crate) fn root(&self) -> &str {
+        &self.root
+    }
+    pub(crate) fn identity(&self) -> &AuthIdentity {
+        &self.identity
+    }
+    pub(crate) async fn call(
         &self,
         operation: Operation,
         suffix: &str,
@@ -288,7 +294,7 @@ impl Provider {
         io.check().map_err(|_| unavailable())
     }
 }
-fn stamp(ms: u64) -> String {
+pub(crate) fn stamp(ms: u64) -> String {
     format!(
         "{}T{:02}:{:02}:{:02}.{:03}Z",
         crate::calendar::utc_date(ms),

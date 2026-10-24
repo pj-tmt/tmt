@@ -445,6 +445,14 @@ control already holding focus keeps it during a host-driven close. Changing mode
 or other props while open does not refocus the heading. Drafts, selection,
 breakpoints and coordination with modal drawers remain host-owned.
 
+By default, a closed panel unmounts its content. Opt into `keepMounted` when the
+content owns work that must survive closure: the same aside and children remain
+mounted with `hidden` and scoped `display: none`. Closed content is absent from
+the accessibility tree and keyboard navigation; it does not focus its heading or
+handle Escape. The open-to-closed transition keeps the focus-return rule above;
+updates while already closed do not return focus again. The host still owns its
+draft and request lifetimes, including failure and retry behavior.
+
 ## Drawer and Menu
 
 Value-menu triggers use a centered ChevronDown icon in the shared icon box. A menu without a value

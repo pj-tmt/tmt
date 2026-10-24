@@ -657,6 +657,27 @@ fn dependency_policy_handles_normal_build_target_renamed_and_dev_entries() {
 }
 
 #[test]
+fn attach_terminal_modes_belong_to_the_cli_not_the_domain_or_protocol() {
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-cli",
+            vec![dependency("crossterm", "normal", None, None)],
+        ))
+        .is_empty()
+    );
+    for owner in ["tmt-core", "tmt-pty-protocol"] {
+        assert!(
+            !policy::dependency_violations(&package(
+                owner,
+                vec![dependency("crossterm", "normal", None, None)],
+            ))
+            .is_empty(),
+            "{owner} must not own interactive terminal modes"
+        );
+    }
+}
+
+#[test]
 fn the_terminal_screen_dependency_belongs_only_to_adapters() {
     assert!(
         policy::dependency_violations(&package(

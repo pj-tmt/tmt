@@ -46,12 +46,26 @@ at start by `hyperlinks::supported` (`FORCE_HYPERLINK`, positive terminal signal
 Conversation Markdown preserves authored soft and hard line breaks. A continuation
 inside a quote carries only its list indent forward; the quote gutter is added
 once per displayed line. Source mappings and copied message bytes stay unchanged.
-Conversation bodies always render in full: there is no fold state, caption or
+Conversation bodies always render in full, with no message fold or expansion
 control, and the pane scrolls. A separate anchor map preserves reading position
 while source mappings retain raw identities.
 
-Markdown keeps styled text and source-line mapping; it retains no URL destinations
-or URL activation hits. `member_links` resolves `#tmt:`, canonical `@name`, and bare
+Whole-token absolute Unix file paths in sent and received message prose render as
+atomic basename chips using the registered attachment mark. Matching single or double
+quotes delimit a path with spaces on one authored line; their contents stay literal.
+Bare paths need at least two nonempty segments, so slash commands such as `/compact`
+stay literal. Leading `(`, `[` and `{` and trailing `.`, `,`, `;`, `:`, `)`, `]` and `}`
+are prose outside a bare path's source range; quoted paths keep literal punctuation
+and may contain one segment.
+Code, links, URLs, relative paths and substrings of prose words stay unchanged. A chip
+moves intact on wrap and ellipsizes within the usable width. It retains its full path,
+occurrence and original token's byte range: message selection copies the original
+token including wrapping quotes, while adjacent prose keeps exact partial selection.
+The file popover offers Copy full path and Show full only; it never opens a file or
+probes the filesystem. Live pane output keeps its literal path presentation.
+
+Markdown keeps styled text, source-line mapping and typed member, URL and file hits.
+`member_links` resolves `#tmt:`, canonical `@name`, and bare
 canonical names containing a dash, underscore or digit against the worker-held
 identity inventory. Matching is case-sensitive, longest-first and word-bounded;
 simple bare words and unavailable or ambiguous identities stay literal. Source
