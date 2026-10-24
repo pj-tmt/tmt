@@ -30,6 +30,26 @@ pub fn install_release(
     verifier: Option<ReleaseVerifier<'_>>,
     checkpoint: impl FnMut() -> io::Result<()>,
 ) -> io::Result<InstallReport> {
+    install_release_observed(product, request, verifier, checkpoint, &|_| {})
+}
+
+/// Preview only fixed official release metadata. No archive, prefix or skill writes.
+/// The CLI treats an unavailable preview as unknown version/size, not a refusal.
+pub fn preview_release(product: Product, target: &str) -> io::Result<super::ReleasePreview> {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let client = crate::release_http::Https::new();
+    release::preview_product(product, target, deadline, &mut |url, accept, limit, end| {
+        client.get(url, accept, limit, end)
+    })
+}
+
+pub fn install_release_observed(
+    product: Product,
+    request: ReleaseInstallRequest<'_>,
+    verifier: Option<ReleaseVerifier<'_>>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+    progress: super::ProgressObserver<'_>,
+) -> io::Result<InstallReport> {
     let channel = request.channel;
     let deadline = Instant::now() + Duration::from_secs(60);
     let client = if matches!(channel, Channel::Pr(_)) {
@@ -37,7 +57,7 @@ pub fn install_release(
     } else {
         crate::release_http::Https::new()
     };
-    install_release_with(
+    install_release_with_observer(
         product,
         request,
         verifier,
@@ -47,9 +67,23 @@ pub fn install_release(
             if matches!(channel, Channel::Pr(_)) && url.ends_with("/zip") {
                 client.get_actions(url, limit, request_deadline)
             } else {
-                client.get(url, accept, limit, request_deadline)
+                client.get_observed(
+                    url,
+                    accept,
+                    limit,
+                    request_deadline,
+                    &|received_bytes, total_bytes| {
+                        if accept == "application/octet-stream" && url.ends_with(".tar.gz") {
+                            progress(super::ProgressEvent::Download {
+                                received_bytes,
+                                total_bytes,
+                            });
+                        }
+                    },
+                )
             }
         },
+        progress,
     )
 }
 
@@ -71,12 +105,24 @@ pub fn latest_release_version(product: Product, channel: Channel) -> io::Result<
     .map(|(_, version)| version)
 }
 
+#[cfg(test)]
 fn install_release_with(
+    product: Product,
+    request: ReleaseInstallRequest<'_>,
+    verifier: Option<ReleaseVerifier<'_>>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
+) -> io::Result<InstallReport> {
+    install_release_with_observer(product, request, verifier, checkpoint, get, &|_| {})
+}
+
+fn install_release_with_observer(
     product: Product,
     request: ReleaseInstallRequest<'_>,
     verifier: Option<ReleaseVerifier<'_>>,
     mut checkpoint: impl FnMut() -> io::Result<()>,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
+    progress: super::ProgressObserver<'_>,
 ) -> io::Result<InstallReport> {
     let ReleaseInstallRequest {
         prefix,
@@ -111,9 +157,18 @@ fn install_release_with(
             get,
         )?
     } else {
-        release::download_product(product, channel, exact.as_ref(), target, deadline, get)?
+        release::download_product_observed(
+            product,
+            channel,
+            exact.as_ref(),
+            target,
+            deadline,
+            get,
+            progress,
+        )?
     };
     checkpoint()?;
+    progress(super::ProgressEvent::Verifying);
     let artifact = artifact::acquire_bytes(
         product,
         &downloaded.manifest,
@@ -121,7 +176,10 @@ fn install_release_with(
         &downloaded.archive,
         target,
     )?;
-    activate(
+    progress(super::ProgressEvent::Verified);
+    checkpoint()?;
+    progress(super::ProgressEvent::Activating);
+    let report = activate(
         ActivationRequest {
             caller: super::Caller::Current,
             product,
@@ -140,13 +198,107 @@ fn install_release_with(
         },
         &artifact,
         checkpoint,
-    )
+    )?;
+    progress(super::ProgressEvent::Activated);
+    Ok(report)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_support::TestDirectory;
+
+    #[test]
+    fn observed_install_reports_only_verified_transitions_and_retains_a_verified_receipt() {
+        use std::cell::RefCell;
+        let directory = TestDirectory::new();
+        let prefix = directory.path.join("prefix");
+        let product = Product::Ops;
+        let (release, manifest, archive, _) =
+            release::product_fixture(product, "0.1.0-alpha.2", "aarch64-apple-darwin", 42);
+        let routes = release::indexed_routes(&release, &manifest, &archive);
+        let events = RefCell::new(Vec::new());
+        let report = install_release_with_observer(
+            product,
+            ReleaseInstallRequest {
+                prefix: &prefix,
+                target: "aarch64-apple-darwin",
+                channel: Channel::Alpha,
+                exact: None,
+            },
+            None,
+            || Ok(()),
+            |url, _, _, _| Ok(routes.get(url).unwrap().clone().into()),
+            &|event| {
+                events.borrow_mut().push(match event {
+                    super::super::ProgressEvent::Selected {
+                        version,
+                        archive_bytes,
+                    } => {
+                        assert_eq!(version, "0.1.0-alpha.2");
+                        assert_eq!(archive_bytes, archive.len() as u64);
+                        "selected"
+                    }
+                    super::super::ProgressEvent::Downloaded => "downloaded",
+                    super::super::ProgressEvent::Verifying => "verifying",
+                    super::super::ProgressEvent::Verified => "verified",
+                    super::super::ProgressEvent::Activating => "activating",
+                    super::super::ProgressEvent::Activated => "activated",
+                    _ => panic!("injected complete responses do not report chunk bytes"),
+                })
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            *events.borrow(),
+            [
+                "selected",
+                "downloaded",
+                "verifying",
+                "verified",
+                "activating",
+                "activated"
+            ]
+        );
+        let installed = super::super::inspect_product_prefix(product, &prefix).unwrap();
+        assert_eq!(installed.state.version.to_string(), report.version);
+        assert!(report.executable.exists());
+    }
+
+    #[test]
+    fn corrupt_acquisition_never_reports_verified_or_activation_or_creates_a_prefix() {
+        use std::cell::RefCell;
+        let directory = TestDirectory::new();
+        let prefix = directory.path.join("prefix");
+        let product = Product::Ops;
+        let (release, manifest, archive, _) =
+            release::product_fixture(product, "0.1.0-alpha.2", "aarch64-apple-darwin", 42);
+        let routes = release::indexed_routes(&release, &manifest, &archive);
+        let events = RefCell::new(Vec::new());
+        let result = install_release_with_observer(
+            product,
+            ReleaseInstallRequest {
+                prefix: &prefix,
+                target: "aarch64-apple-darwin",
+                channel: Channel::Alpha,
+                exact: None,
+            },
+            None,
+            || Ok(()),
+            |url, _, _, _| {
+                let mut bytes = routes.get(url).unwrap().clone();
+                if url.ends_with(".tar.gz") {
+                    bytes[0] ^= 1;
+                }
+                Ok(bytes.into())
+            },
+            &|event| events.borrow_mut().push(format!("{event:?}")),
+        );
+        assert!(result.unwrap_err().to_string().contains("SHA-256"));
+        assert_eq!(events.borrow().len(), 1);
+        assert!(events.borrow()[0].starts_with("Selected"));
+        assert!(!prefix.exists());
+    }
 
     #[test]
     fn exact_first_install_ignores_missing_or_stale_pointers_and_pins_verified_bytes() {

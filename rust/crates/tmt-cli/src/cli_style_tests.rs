@@ -307,6 +307,10 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
             crate::exchange_command::PRESENTATION_HINTS,
         ),
         (
+            "extension_command/missing.rs",
+            crate::extension_command::missing::PRINTED_HINTS,
+        ),
+        (
             "extension_command.rs",
             crate::extension_command::PRINTED_HINTS,
         ),

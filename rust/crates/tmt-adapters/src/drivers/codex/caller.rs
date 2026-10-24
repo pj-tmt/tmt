@@ -5,7 +5,6 @@ mod tests;
 
 use crate::process::{CommandRunner, ps::query_ps};
 use std::{
-    collections::{HashMap, HashSet},
     ffi::OsString,
     path::Path,
     time::{Duration, Instant},
@@ -79,38 +78,14 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
         deadline: Instant,
         direct: bool,
     ) -> Result<Option<(HostAttribution, u32)>, ()> {
-        let output = query_ps(
+        let chain = crate::process::ancestry::command_chain(
             self.runner,
-            &["-A".into(), "-o".into(), "pid=,ppid=,comm=".into()],
+            self.environment.process_id,
             deadline,
-            4 * 1024 * 1024,
         )
         .map_err(|_| ())?;
-        let text = std::str::from_utf8(&output.stdout).map_err(|_| ())?;
-        let mut processes = HashMap::new();
-        for line in text.lines().filter(|line| !line.trim().is_empty()) {
-            let (pid, rest) = line.trim().split_once(char::is_whitespace).ok_or(())?;
-            let (parent, executable) = rest
-                .trim_start()
-                .split_once(char::is_whitespace)
-                .ok_or(())?;
-            let pid = pid.parse::<u32>().map_err(|_| ())?;
-            let parent = parent.parse::<u32>().map_err(|_| ())?;
-            if processes.insert(pid, (parent, executable.trim())).is_some() {
-                return Err(());
-            }
-        }
-        let mut pid = self.environment.process_id;
-        let mut seen = HashSet::new();
         let mut observed = None;
-        for _ in 0..64 {
-            if pid <= 1 {
-                return Ok(observed);
-            }
-            if !seen.insert(pid) {
-                return Err(());
-            }
-            let &(parent, executable) = processes.get(&pid).ok_or(())?;
+        for (pid, executable) in &chain {
             if Path::new(executable)
                 .file_name()
                 .is_some_and(|name| name == super::NAME)
@@ -147,7 +122,7 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
                 // possible app-server even when global options precede it. A literal
                 // app-server word inside an exec prompt can conservatively match too.
                 if tail.split_whitespace().any(|word| word == "app-server") {
-                    return Ok(Some((HostAttribution::Ambiguous, pid)));
+                    return Ok(Some((HostAttribution::Ambiguous, *pid)));
                 }
                 if direct
                     && tail.split_whitespace().any(|word| {
@@ -163,11 +138,10 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
                 {
                     return Err(());
                 }
-                observed.get_or_insert((HostAttribution::Independent, pid));
+                observed.get_or_insert((HostAttribution::Independent, *pid));
             }
-            pid = parent;
         }
-        Err(())
+        Ok(observed)
     }
 }
 

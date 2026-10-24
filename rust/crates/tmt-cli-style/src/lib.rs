@@ -17,6 +17,7 @@ pub mod list;
 pub mod mark;
 pub mod message;
 pub mod palette;
+pub mod progress;
 pub mod stream;
 pub mod table;
 pub mod theme;

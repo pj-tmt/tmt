@@ -38,6 +38,13 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
   suggestions; exact dispatch probes one filename. `tmt help <extension>` runs
   `tmt-<extension> --help`; `tmt help <extension> <tail...>` forwards `<tail...> --help`.
   Tail flags, including `--json`, belong to the extension; Core names and aliases stay reserved.
+- A missing official command uses the existing installable product registry. Its CLI offer
+  requires stdin/stdout terminals, no JSON and conservative caller-context admission;
+  agent markers, registered runtime ancestry and unavailable evidence suppress the offer.
+  Help remains read-only. Other callers receive `EXTENSION_NOT_INSTALLED` (exit 3), with
+  an exact consented install command. Accepted installation prints the shell-quoted
+  original invocation and never dispatches it. Installed extension tails stay opaque.
+  Root help includes informational missing-official rows; completion lists installed commands only.
 - Installed-extension prefix refusals recover presentation mode only from the stored
   Core prefix using the diagnostic scanner, and never inspect or execute the extension tail.
 - Completion v1 (`__complete`) runs through the bounded process owner with a one-second

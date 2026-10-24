@@ -1154,4 +1154,21 @@ will not retry skill work. Check `pathWarning` before assuming the
 shell selects the updated binary. Reload/restart the agent, or read the complete
 `tmt learn --skill` output in an existing conversation.
 
+### Missing official extensions
+
+When an official command such as `tmt ops` is unavailable, TMT reports
+`EXTENSION_NOT_INSTALLED` (exit 3), names its extension and gives the exact next
+command, for example `tmt extension install ops --yes`. Agents, scripts, pipes
+and `--json` never trigger an install question or automatic installation.
+Do not treat that hint as user permission to install software; obtain the user's
+installation consent before running the suggested command.
+
+A person in an interactive terminal can accept a single installation question.
+The verified installer includes bundled agent skills and shows download,
+verification and activation progress. Metadata preview failure shows an unknown
+version and size and still allows the question. Declining changes nothing.
+After successful installation, TMT prints the original command to run again;
+it never runs that command. Root help shows which official extensions are
+missing; completion continues to list only installed commands.
+
 Office is no longer shipped.

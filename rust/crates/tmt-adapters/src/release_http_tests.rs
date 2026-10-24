@@ -338,6 +338,29 @@ fn client(root: &[u8]) -> Https {
 }
 
 #[test]
+fn chunk_observations_count_the_actual_body_and_preserve_acquisition_limits() {
+    use std::cell::RefCell;
+    let body = vec![b'x'; 100_000];
+    let (config, certificate) = tls_material();
+    let server = TestServer::spawn(config, Response::ok(body.clone()));
+    let events = RefCell::new(Vec::new());
+    let result = client(&certificate)
+        .get_observed(
+            &server.url("/archive"),
+            "application/octet-stream",
+            body.len(),
+            Instant::now() + Duration::from_secs(5),
+            &|received, total| events.borrow_mut().push((received, total)),
+        )
+        .unwrap();
+    assert_eq!(result.body, body);
+    let events = events.into_inner();
+    assert_eq!(events.last(), Some(&(100_000, Some(100_000))));
+    assert!(events.windows(2).all(|pair| pair[0].0 < pair[1].0));
+    assert!(events.len() > 1);
+}
+
+#[test]
 fn valid_platform_like_task_trust_fetches_over_real_tls() {
     let (config, certificate) = tls_material();
     let server = TestServer::spawn(config, Response::ok("native"));
