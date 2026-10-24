@@ -1058,6 +1058,9 @@ fn hosted_plan() -> DeployPlan {
     hosted_plan_with_content(b"hello")
 }
 fn hosted_plan_with_content(html: &[u8]) -> DeployPlan {
+    hosted_plan_at_site(html, PROJECT)
+}
+fn hosted_plan_at_site(html: &[u8], site: &str) -> DeployPlan {
     use base64::{Engine, engine::general_purpose::STANDARD};
     use serde_json::json;
     use tmt_remote::hosting::{self, HostingBundle, HostingInventory, HostingManifest};
@@ -1101,6 +1104,9 @@ fn hosted_plan_with_content(html: &[u8]) -> DeployPlan {
             web_apps: vec![],
             live: None,
         },
+        site,
+        None,
+        true,
     )
     .unwrap();
     let inputs = Inputs::new();
@@ -1187,8 +1193,9 @@ impl tmt_remote::deploy_run::DeployPort for HostedFake {
             // Fixed provider-verification fixture, not a production publication source.
             let cp = self.checkpoint.as_mut().unwrap();
             cp.app_id = Some("mine".into());
-            cp.version = Some(format!("sites/{PROJECT}/versions/one"));
-            cp.publication=Some(serde_json::from_value(serde_json::json!({"project":PROJECT,"region":LOCATION,"deploymentId":DEPLOYMENT,"planDigest":p.digest(),"appId":"mine","siteAppId":"mine","publicConfig":{"apiKey":"public-key","authDomain":format!("{PROJECT}.firebaseapp.com"),"projectId":PROJECT,"appId":"mine"},"entryUrl":format!("https://{PROJECT}.web.app"),"version":cp.version,"release":format!("sites/{PROJECT}/releases/one"),"rulesDigest":p.view().rules.digest,"contentDigest":p.view().hosting.as_ref().unwrap().content["digest"]})).unwrap());
+            let site = &p.view().hosting.as_ref().unwrap().site;
+            cp.version = Some(format!("sites/{site}/versions/one"));
+            cp.publication=Some(serde_json::from_value(serde_json::json!({"project":PROJECT,"region":LOCATION,"deploymentId":DEPLOYMENT,"planDigest":p.digest(),"appId":"mine","siteAppId":"mine","publicConfig":{"apiKey":"public-key","authDomain":format!("{PROJECT}.firebaseapp.com"),"projectId":PROJECT,"appId":"mine"},"entryUrl":format!("https://{site}.web.app"),"version":cp.version,"release":format!("sites/{site}/releases/one"),"rulesDigest":p.view().rules.digest,"contentDigest":p.view().hosting.as_ref().unwrap().content["digest"]})).unwrap());
         }
         Ok(result)
     }
@@ -1259,6 +1266,58 @@ fn hosted_order_is_executable_and_only_joint_verification_publishes() {
             publish
         );
     }
+}
+#[test]
+fn selected_site_publication_reopens_and_emits_its_verified_origin() {
+    use tmt_remote::{
+        deploy_cli::inputs,
+        deploy_record::{DeployRecordStore, read_project},
+        remote_link,
+    };
+    let site = "tmt-selected-site";
+    let plan = hosted_plan_at_site(b"hello", site);
+    let record = run(
+        &plan,
+        &authorized(&plan),
+        DeployRecord::new(DEPLOYMENT),
+        &mut HostedFake::new(),
+        &mut Mem::default(),
+        1000,
+    )
+    .unwrap();
+    assert_eq!(record.run.as_ref().unwrap().state, RunState::Complete);
+    let link = remote_link::from_record(&record).unwrap();
+    assert!(link.starts_with("https://tmt-selected-site.web.app/pair#"));
+    assert_eq!(
+        remote_link::public_config(&link).unwrap()["projectId"],
+        PROJECT
+    );
+    assert!(remote_link::matches_record(&link, &record));
+    assert!(!remote_link::matches_record(
+        &link.replacen(site, PROJECT, 1),
+        &record
+    ));
+    // Legacy records have no input intent: recover their actual resources, not new defaults.
+    assert!(record.inputs.is_none());
+    let saved = inputs::record_values(&record, PROJECT, Some(LOCATION));
+    assert_eq!(saved["site"], site);
+    assert_eq!(saved["web-app"], "mine");
+    assert_eq!(saved["region"], LOCATION);
+    let root = deploy_fixture_root::Root::new();
+    let mut store = DeployRecordStore::open(&root.layout(), PROJECT, "retry fixture").unwrap();
+    store.bind_target(PROJECT, LOCATION).unwrap();
+    store.persist(&record).unwrap();
+    let path = root
+        .remote()
+        .join(format!("deployments/{PROJECT}/deploy.json"));
+    let before = fs::read(&path).unwrap();
+    let reopened = read_project(&root.layout(), PROJECT).unwrap().unwrap();
+    assert_eq!(remote_link::from_record(&reopened).unwrap(), link);
+    assert_eq!(
+        inputs::record_values(&reopened, PROJECT, Some(LOCATION)),
+        saved
+    );
+    assert_eq!(fs::read(&path).unwrap(), before);
 }
 #[test]
 fn hosting_release_names_round_trip_as_received_without_changing_the_frozen_record() {

@@ -368,8 +368,8 @@ pub fn prepare_with_hosting(
         hosting: hosting.cloned(),
     };
     if let Some(hosting) = hosting {
-        if hosting.site != input.project
-            || hosting.public_url != format!("https://{}.web.app", input.project)
+        if !crate::hosting::site_id_ok(&hosting.site)
+            || hosting.public_url != format!("https://{}.web.app", hosting.site)
         {
             return Err(DeployRefusal::HostingUnavailable);
         }
@@ -777,6 +777,10 @@ pub struct DeployRecord {
     /// The last deploy that finished completely, while it still describes the project.
     pub binding: Option<DeployBinding>,
     pub run: Option<Run>,
+    /// Explicit input intent; provider-assigned identities remain in step outcomes.
+    /// Absence preserves records written before input manifests were introduced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inputs: Option<ResourceInputs>,
     /// Prior unfinished outcomes, retained without deleting any provider resources.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub superseded_runs: Vec<Run>,
@@ -787,6 +791,7 @@ impl DeployRecord {
             deployment_id: deployment_id.to_owned(),
             binding: None,
             run: None,
+            inputs: None,
             superseded_runs: Vec::new(),
         }
     }
@@ -809,6 +814,31 @@ impl DeployRecord {
             return None;
         }
         run.hosting.as_ref()?.publication.as_ref()
+    }
+}
+
+/// Firestore resource choices captured before provider setup. `new` is a frozen
+/// creation intent, not an invented provider-assigned web-app identifier.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResourceInputs {
+    pub project: String,
+    pub region: String,
+    pub database: String,
+    pub web_app: String,
+    pub site: String,
+    pub sign_in: Vec<SignInProvider>,
+}
+impl ResourceInputs {
+    pub(crate) fn valid(&self) -> bool {
+        project_ok(&self.project)
+            && location_ok(&self.region)
+            && self.database == DATABASE
+            && (self.web_app == "new" || crate::hosting::app_id_ok(&self.web_app))
+            && (self.site == "new" || crate::hosting::site_id_ok(&self.site))
+            && !self.sign_in.is_empty()
+            && self.sign_in.len() <= 2
+            && (self.sign_in.len() != 2 || self.sign_in[0] != self.sign_in[1])
     }
 }
 
@@ -1340,7 +1370,8 @@ impl VerifiedHostingPublication {
             return None;
         }
         let release = value["release"].as_str()?;
-        Self::release_id(release, project)?;
+        let site = &plan.view.hosting.as_ref()?.site;
+        Self::release_id(release, site)?;
         Some(Self {
             project: project.clone(),
             region: plan.view.database.location.clone(),
@@ -1349,7 +1380,7 @@ impl VerifiedHostingPublication {
             app_id: app_id.clone(),
             site_app_id: app_id.clone(),
             public_config: config.clone(),
-            entry_url: format!("https://{project}.web.app"),
+            entry_url: format!("https://{site}.web.app"),
             version: version.clone(),
             release: release.into(),
             verified_at_ms: 0,
@@ -1372,11 +1403,20 @@ impl VerifiedHostingPublication {
             && self.site_app_id == self.app_id
             && Some(&self.app_id) == checkpoint.app_id.as_ref()
             && Some(&self.version) == checkpoint.version.as_ref()
-            && self.entry_url == format!("https://{}.web.app", view.project)
-            && self
-                .version
-                .starts_with(&format!("sites/{}/versions/", view.project))
-            && Self::release_id(&self.release, &view.project).is_some()
+            && view
+                .hosting
+                .as_ref()
+                .is_some_and(|hosting| self.entry_url == hosting.public_url)
+            && self.version.starts_with(&format!(
+                "sites/{}/versions/",
+                view.hosting
+                    .as_ref()
+                    .map_or("", |hosting| hosting.site.as_str())
+            ))
+            && view
+                .hosting
+                .as_ref()
+                .is_some_and(|hosting| Self::release_id(&self.release, &hosting.site).is_some())
             && self.rules_digest == view.rules.digest
             && view
                 .hosting
@@ -1439,6 +1479,8 @@ pub fn retain_hosting_plan(
         || view.rules.digest != candidate.view.rules.digest
         || view.hosting.as_ref().map(|h| &h.content)
             != candidate.view.hosting.as_ref().map(|h| &h.content)
+        || view.hosting.as_ref().map(|h| &h.site)
+            != candidate.view.hosting.as_ref().map(|h| &h.site)
     {
         return Ok(candidate);
     }

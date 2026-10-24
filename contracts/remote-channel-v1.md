@@ -2883,7 +2883,7 @@ and [Hosting header guide](https://firebase.google.com/docs/hosting/full-config#
 verified live-project acceptance. Reserved Firebase paths are never rewritten. Public bytes and
 configuration confer no device authority.
 
-The Hosting plan names the same-project default site and `web.app` entry, any site/web-app
+The Hosting plan names the selected same-project site and its `web.app` entry, any site/web-app
 creation, exact content/config digests and a captured foreign-release fingerprint. Remote selects
 its recorded ACTIVE same-project app ID; disappearance or a nonempty conflicting Site association
 refuses. Otherwise a nonempty `Site.appId` selects its ACTIVE same-project app only when its public
@@ -2982,10 +2982,13 @@ browser, converting or repairing state. No record, partial/unknown or unverified
 `REMOTE_LINK_UNAVAILABLE`; unsafe records retain the existing state refusal. JSON is
 `{version:1,remoteLink:<URL>}`. The link can be shared again and grants no access.
 
-The receiver is exactly `https://<project>.web.app/pair#<descriptor>`, derived from the verified
-public config's project. The complete URL is bounded to 8 KiB. The fragment is unpadded base64url
+The receiver is exactly `https://<site>.web.app/pair#<descriptor>`, derived from the jointly
+verified publication. The project-default site uses the public config's project ID. The complete URL is bounded to 8 KiB. The fragment is unpadded base64url
 of canonical UTF-8 JSON, with recursively sorted object keys and exactly `version:1`,
-`kind:"firestore"`, `publicWebConfig`, and `checksum`. Public config has exactly `apiKey`,
+`kind:"firestore"`, `publicWebConfig`, and `checksum`, plus optional `hostingSite` for a
+non-default site. The optional field is covered by the checksum, is a lowercase Hosting
+site ID of at most 30 characters, and must differ from `projectId`; it is omitted for
+default-site links so their existing bytes remain identical. Public config has exactly `apiKey`,
 `authDomain`, `projectId`, `appId`; strings are printable ASCII, with consistent same-project
 `firebaseapp.com` auth domain and HTTPS `web.app` receiver. Unknown/duplicate fields, malformed
 text, unsafe or inconsistent URLs and changed checksums refuse. Checksum is lowercase SHA-256
@@ -3017,8 +3020,12 @@ checks that `projectId`, `appId` and `authDomain` equal same-origin `/__/firebas
 before lazily loading the hosted Firebase asset.
 `firebaseRemote.originLink()` derives the canonical public pair link from the origin's bounded
 init.json response using only `apiKey`, `appId`, `authDomain` and `projectId`, validates the
-exact `https://<projectId>.web.app` origin, and refuses with `REMOTE_INPUT_INVALID`; callers
+exact HTTPS `web.app` origin and binds a non-default host through `hostingSite`, refusing
+invalid values with `REMOTE_INPUT_INVALID`; callers
 pass it through the unchanged `connect` checks, gaining no admission or operations authority.
+`firebaseRemote.verifyLink(link)` exposes the same strict descriptor verification without
+network access or Firebase loading, returning `{origin,publicWebConfig,hostingSite?}`.
+This projection is public configuration only; receivers must still call `connect` before Auth.
 The caller supplies the frozen extension declaration bytes and their SHA-256; digest or
 resource-grammar disagreement refuses before provider access. The table is data, with no
 extension-specific resource names in Remote. Configuration and authentication grant neither
@@ -3470,9 +3477,8 @@ or extension installation is not authorization to create or change real account 
 #### Deployment input manifest
 
 This backend-neutral contract is implemented by Remote's shared input selection and
-refusal model. Backend command integration is separate; the current Firestore command
-below does not yet consume it (#4879). The following requirements govern that integration
-and every later `tmt remote deploy <backend>`.
+refusal model and consumed by Firestore. The following requirements govern every
+`tmt remote deploy <backend>`.
 
 Each backend owns one ordered input manifest. Each entry names the input and its long
 flag, its kind (`select-existing` or `create-or-adopt`), the value `--defaults` chooses
@@ -3519,6 +3525,25 @@ move an old deployment. Existing record owners supply the saved values and retai
 schema/admission and conflict mapping; this contract introduces no parallel record.
 The plan states every actual selected value. Agents, CI and `--json` remain plan-only
 without the existing explicit digest authorization.
+
+Firestore registers `--project`, `--region`, `--database`, `--web-app`, `--site` and
+`--sign-in` from its manifest. Project and region have no automatic default. With
+`--defaults`, database is `(default)`, Web App is `new`, Hosting site is `new` and sign-in
+is `anonymous`. Other database IDs refuse with `REMOTE_DEPLOY_INPUT_INVALID` and
+“only (default) is supported on the free plan”; this is the supported v1 boundary.
+Unedited `<...>` placeholders refuse with that input code before provider construction.
+A new site ID is stable for the local deployment identity and distinct from the project
+ID; its actual selected value is frozen in the Hosting plan. A new app uses the existing
+creation/read-back step and server-assigned app ID. Explicit app/site IDs must exist in
+the selected project. The existing deployment record stores optional input intent and
+retains actual resources in its captured run; legacy records derive them from that run.
+Unbound previews may be revised before authorization; an authorized record's explicit
+input conflicts use `REMOTE_DEPLOY_PROJECT_CONFLICT`. No new store or consent path exists.
+
+The Firestore manifest also supplies permission-to-step attribution for applicable captured
+extension resources and Hosting, including Rules/index/owner-registration effects without
+input flags. This metadata describes potential work before inventory; it is not evidence
+that the signed-in account has those permissions. Permission probing is a separate operation.
 
 **Historical cloud-operation provisioning profile:** its [stacked authentication is superseded](#superseded-cloud-authentication-proposal).
 Firestore provisions the admission/token service and its scoped service role, Auth configuration,

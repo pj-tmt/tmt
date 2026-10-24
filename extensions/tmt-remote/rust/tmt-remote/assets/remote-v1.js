@@ -862,7 +862,7 @@ async function originLink(origin, fetcher) {
 	const controller = new AbortController();
 	let timer;
 	try {
-		valid$5(/^https:\/\/[a-z][a-z0-9-]{4,28}[a-z0-9]\.web\.app$/.test(origin));
+		valid$5(/^https:\/\/[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?\.web\.app$/.test(origin));
 		const deadline = new Promise((_, reject) => {
 			timer = setTimeout(() => {
 				controller.abort();
@@ -877,11 +877,12 @@ async function originLink(origin, fetcher) {
 				authDomain: row.authDomain,
 				projectId: row.projectId
 			});
-			valid$5(origin === `https://${config.projectId}.web.app`);
+			const site = new URL(origin).hostname.slice(0, -8);
 			const body = {
 				kind: "firestore",
 				publicWebConfig: config,
-				version: 1
+				version: 1,
+				...site === config.projectId ? {} : { hostingSite: site }
 			};
 			const descriptor = canonical$1({
 				...body,
@@ -935,22 +936,36 @@ async function verifyHostedLink(link, origin) {
 		valid$5(/^[A-Za-z0-9_-]+$/.test(fragment));
 		const bytes = Uint8Array.from(atob(fragment.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 		const text = decoder$1.decode(bytes);
-		const r = object$2(JSON.parse(text), [
+		const raw = JSON.parse(text);
+		const hasSite = typeof raw === "object" && raw !== null && Object.hasOwn(raw, "hostingSite");
+		const r = object$2(raw, [
 			"version",
 			"kind",
 			"publicWebConfig",
-			"checksum"
+			"checksum",
+			...hasSite ? ["hostingSite"] : []
 		]);
 		valid$5(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
 		const publicConfig = parsePublicWebConfig(r.publicWebConfig);
-		valid$5(origin === `https://${publicConfig.projectId}.web.app`);
+		let site = publicConfig.projectId;
+		if (hasSite) {
+			const selected = r.hostingSite;
+			valid$5(typeof selected === "string" && /^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$/.test(selected) && selected !== publicConfig.projectId);
+			site = selected;
+		}
+		valid$5(origin === `https://${site}.web.app`);
 		valid$5(await checksum({
 			kind: r.kind,
 			publicWebConfig: publicConfig,
-			version: r.version
+			version: r.version,
+			...hasSite ? { hostingSite: site } : {}
 		}) === r.checksum && text === canonical$1(r));
 		valid$5(link === `${origin}/pair#${base64url(bytes)}`);
-		return publicConfig;
+		return Object.freeze({
+			origin,
+			publicWebConfig: publicConfig,
+			...hasSite ? { hostingSite: site } : {}
+		});
 	} catch {
 		throw new RefusalError("REMOTE_INPUT_INVALID");
 	}
@@ -1893,14 +1908,17 @@ async function reference(alias, address) {
 	} catch {
 		valid$1(false);
 	}
-	if (url.protocol === "https:" && url.hostname.endsWith(".web.app") && url.pathname === "/pair") return {
-		name: alias,
-		kind: "firestore",
-		url: address,
-		project: (await verifyHostedLink(address, url.origin).catch(() => {
+	if (url.protocol === "https:" && url.hostname.endsWith(".web.app") && url.pathname === "/pair") {
+		const { publicWebConfig: config } = await verifyHostedLink(address, url.origin).catch(() => {
 			valid$1(false);
-		})).projectId
-	};
+		});
+		return {
+			name: alias,
+			kind: "firestore",
+			url: address,
+			project: config.projectId
+		};
+	}
 	valid$1(address.length <= 2048 && /^https?:\/\/[A-Za-z0-9.:-]+\/[A-Za-z0-9/_-]*$/.test(address) && address.endsWith("/") && !url.search && !url.hash && !url.username && !url.password);
 	return {
 		name: alias,
@@ -2287,7 +2305,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	};
 	const confirmAdd = (entry, opener) => {
 		const view = dialog(entry.kind === "firestore" ? `Add Firebase remote ${entry.project}?` : `Add remote ${entry.name}?`, opener);
-		view.body.append(node("p", entry.kind === "firestore" ? `${entry.project}.web.app` : entry.url));
+		view.body.append(node("p", entry.kind === "firestore" ? new URL(entry.url).host : entry.url));
 		view.buttons.append(action("Add", () => {
 			save(() => remoteRegistry.add(entry.name, entry.url), view);
 		}), action("Cancel", view.end));
@@ -8615,7 +8633,7 @@ async function connectHosted(link, declaration, deps) {
 	try {
 		port = await bounded$1(async (signal) => {
 			await verifyHostedDeclaration(frozenDeclaration);
-			const config = await verifyHostedLink(link, deps.origin);
+			const { publicWebConfig: config } = await verifyHostedLink(link, deps.origin);
 			verifiedConfig = config;
 			await confirmHostedConfig(config, deps.origin, deps.fetch, signal);
 			if (signal.aborted) throw new ClientError("timeout", "Hosted bootstrap timed out.");
@@ -9457,6 +9475,9 @@ async function certify(key, value, issuedAtMs = Date.now()) {
 //#region src/browser.ts
 /** Explicit hosted bootstrap; ordinary local SDK imports never load Firebase. */
 var firebaseRemote = {
+	verifyLink(link) {
+		return verifyHostedLink(link, location.origin);
+	},
 	originLink() {
 		return originLink(location.origin, globalThis.fetch.bind(globalThis));
 	},

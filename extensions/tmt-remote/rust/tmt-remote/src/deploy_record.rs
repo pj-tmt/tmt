@@ -60,7 +60,9 @@ fn digest(value: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 fn valid(record: &DeployRecord) -> bool {
-    if canonical::uuid(&record.deployment_id).is_err() {
+    if canonical::uuid(&record.deployment_id).is_err()
+        || record.inputs.as_ref().is_some_and(|inputs| !inputs.valid())
+    {
         return false;
     }
     if let Some(binding) = &record.binding
@@ -361,6 +363,9 @@ pub struct DeployRecordStore {
     _lock: tmt_extension_state::Guard,
     target: Option<DeployTarget>,
     retry: String,
+    /// One identity for every pre-persistence load in this locked invocation.
+    deployment_id: String,
+    inputs: Option<deploy_run::ResourceInputs>,
 }
 impl DeployRecordStore {
     pub(crate) fn record_path(&self) -> PathBuf {
@@ -405,13 +410,20 @@ impl DeployRecordStore {
             .project(project, true)?
             .expect("created project directory");
         // A preview stays unbound until authorization; its directory already identifies the project.
-        let target = read_document(&layout)?.and_then(|document| document.target);
+        let document = read_document(&layout)?;
+        let deployment_id = document
+            .as_ref()
+            .map(|document| document.record.deployment_id.clone())
+            .map_or_else(uuid_v4, Ok)?;
+        let target = document.and_then(|document| document.target);
         let owner = Self {
             layout: layout.clone(),
             project: project.into(),
             _lock: lock,
             target,
             retry: retry.into(),
+            deployment_id,
+            inputs: None,
         };
         if let Some(target) = owner
             .target
@@ -483,9 +495,26 @@ impl DeployRecordStore {
         Ok(())
     }
     pub fn load_or_draft(&self) -> Result<DeployRecord, RemoteError> {
-        read_document(&self.layout)?
+        let mut record = read_document(&self.layout)?
             .map(|document| document.record)
-            .map_or_else(|| uuid_v4().map(|id| DeployRecord::new(&id)), Ok)
+            .unwrap_or_else(|| DeployRecord::new(&self.deployment_id));
+        if let Some(inputs) = &self.inputs {
+            record.inputs = Some(inputs.clone());
+        }
+        Ok(record)
+    }
+    pub fn region(&self) -> Option<&str> {
+        self.target.as_ref().map(|target| target.region.as_str())
+    }
+    /// Capture admitted input intent for the existing preview/authorization saves.
+    /// This does not write a record or perform provider work.
+    pub fn select_inputs(&mut self, inputs: deploy_run::ResourceInputs) -> Result<(), RemoteError> {
+        if !inputs.valid() || inputs.project != self.project {
+            return Err(invalid());
+        }
+        self.check_target(&inputs.project, &inputs.region)?;
+        self.inputs = Some(inputs);
+        Ok(())
     }
     pub fn persist(&mut self, record: &DeployRecord) -> Result<(), RemoteError> {
         if !valid(record) {

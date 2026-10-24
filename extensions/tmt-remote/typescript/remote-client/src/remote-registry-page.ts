@@ -241,9 +241,7 @@ export function remoteRegistryPage(
         : `Add remote ${entry.name}?`,
       opener,
     );
-    view.body.append(
-      node('p', entry.kind === 'firestore' ? `${entry.project}.web.app` : entry.url),
-    );
+    view.body.append(node('p', entry.kind === 'firestore' ? new URL(entry.url).host : entry.url));
     view.buttons.append(
       action('Add', () => {
         void save(() => remoteRegistry.add(entry.name, entry.url), view);

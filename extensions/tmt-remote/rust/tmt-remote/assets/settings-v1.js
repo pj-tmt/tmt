@@ -577,22 +577,36 @@ async function verifyHostedLink(link, origin) {
 		valid$1(/^[A-Za-z0-9_-]+$/.test(fragment));
 		const bytes = Uint8Array.from(atob(fragment.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 		const text = decoder$1.decode(bytes);
-		const r = object(JSON.parse(text), [
+		const raw = JSON.parse(text);
+		const hasSite = typeof raw === "object" && raw !== null && Object.hasOwn(raw, "hostingSite");
+		const r = object(raw, [
 			"version",
 			"kind",
 			"publicWebConfig",
-			"checksum"
+			"checksum",
+			...hasSite ? ["hostingSite"] : []
 		]);
 		valid$1(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
 		const publicConfig = parsePublicWebConfig(r.publicWebConfig);
-		valid$1(origin === `https://${publicConfig.projectId}.web.app`);
+		let site = publicConfig.projectId;
+		if (hasSite) {
+			const selected = r.hostingSite;
+			valid$1(typeof selected === "string" && /^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$/.test(selected) && selected !== publicConfig.projectId);
+			site = selected;
+		}
+		valid$1(origin === `https://${site}.web.app`);
 		valid$1(await checksum({
 			kind: r.kind,
 			publicWebConfig: publicConfig,
-			version: r.version
+			version: r.version,
+			...hasSite ? { hostingSite: site } : {}
 		}) === r.checksum && text === canonical(r));
 		valid$1(link === `${origin}/pair#${base64url(bytes)}`);
-		return publicConfig;
+		return Object.freeze({
+			origin,
+			publicWebConfig: publicConfig,
+			...hasSite ? { hostingSite: site } : {}
+		});
 	} catch {
 		throw new RefusalError$1("REMOTE_INPUT_INVALID");
 	}
@@ -679,14 +693,17 @@ async function reference(alias, address) {
 	} catch {
 		valid(false);
 	}
-	if (url.protocol === "https:" && url.hostname.endsWith(".web.app") && url.pathname === "/pair") return {
-		name: alias,
-		kind: "firestore",
-		url: address,
-		project: (await verifyHostedLink(address, url.origin).catch(() => {
+	if (url.protocol === "https:" && url.hostname.endsWith(".web.app") && url.pathname === "/pair") {
+		const { publicWebConfig: config } = await verifyHostedLink(address, url.origin).catch(() => {
 			valid(false);
-		})).projectId
-	};
+		});
+		return {
+			name: alias,
+			kind: "firestore",
+			url: address,
+			project: config.projectId
+		};
+	}
 	valid(address.length <= 2048 && /^https?:\/\/[A-Za-z0-9.:-]+\/[A-Za-z0-9/_-]*$/.test(address) && address.endsWith("/") && !url.search && !url.hash && !url.username && !url.password);
 	return {
 		name: alias,
@@ -1073,7 +1090,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	};
 	const confirmAdd = (entry, opener) => {
 		const view = dialog(entry.kind === "firestore" ? `Add Firebase remote ${entry.project}?` : `Add remote ${entry.name}?`, opener);
-		view.body.append(node$1("p", entry.kind === "firestore" ? `${entry.project}.web.app` : entry.url));
+		view.body.append(node$1("p", entry.kind === "firestore" ? new URL(entry.url).host : entry.url));
 		view.buttons.append(action("Add", () => {
 			save(() => remoteRegistry.add(entry.name, entry.url), view);
 		}), action("Cancel", view.end));

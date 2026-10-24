@@ -125,7 +125,7 @@ function validate(request) {
   const fields = {
     compatibility: [],
     account: [],
-    'hosting-inventory': ['project'],
+    'hosting-inventory': ['project', 'site'],
     ...Object.fromEntries(
       ['observe-hosting', 'apply-hosting', 'verify-hosting'].map((op) => [
         op,
@@ -198,7 +198,10 @@ function validate(request) {
     if (!Array.isArray(i.composites) || i.composites.length > 200) fail('provider-rejected');
     i.composites.forEach(compositeInput);
   }
+  const siteId = (value) => typeof value === 'string' && /^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$/.test(value);
+  if (request.operation === 'hosting-inventory' && !siteId(i.site)) fail('provider-rejected');
   if (request.operation.endsWith('-hosting')) {
+    if (!siteId(i.hosting?.site) || i.hosting.publicUrl !== `https://${i.hosting.site}.web.app`) fail('provider-rejected');
     if (
       !/^[0-9a-f]{64}$/.test(i.planDigest) ||
       typeof i.contentDigest !== 'string' ||
@@ -438,6 +441,7 @@ async function execute(request, deps) {
   }
   if (r.operation === 'account') return credential.account;
   const project = i.project;
+  const targetSite = i.site ?? i.hosting?.site;
   const bases = {
     firebase: 'https://firebase.googleapis.com/v1beta1',
     firestore: 'https://firestore.googleapis.com/v1',
@@ -550,10 +554,10 @@ async function execute(request, deps) {
   }
   function releaseIdentity(name) {
     if (typeof name !== 'string') fail('unknown');
-    for (const prefix of [`sites/${project}/releases/`, `sites/${project}/channels/live/releases/`]) {
+    for (const prefix of [`sites/${targetSite}/releases/`, `sites/${targetSite}/channels/live/releases/`]) {
       if (name.startsWith(prefix)) {
         resource(name, prefix);
-        return { site: project, id: name.slice(prefix.length) };
+        return { site: targetSite, id: name.slice(prefix.length) };
       }
     }
     fail('unknown');
@@ -631,7 +635,7 @@ async function execute(request, deps) {
   async function liveHosting(expectedName) {
     const site = await api(
       'hosting',
-      `projects/${project}/sites/${project}`,
+      `projects/${project}/sites/${targetSite}`,
       'GET',
       undefined,
       true
@@ -643,17 +647,17 @@ async function execute(request, deps) {
         releaseName: null,
       };
     if (
-      site.name !== `projects/${project}/sites/${project}` ||
-      site.defaultUrl !== `https://${project}.web.app`
+      site.name !== `projects/${project}/sites/${targetSite}` ||
+      site.defaultUrl !== `https://${targetSite}.web.app`
     )
       fail('unknown');
-    const channel = await api('hosting', `sites/${project}/channels/live`, 'GET', undefined, true);
+    const channel = await api('hosting', `sites/${targetSite}/channels/live`, 'GET', undefined, true);
     let live = null;
     if (channel?.release) {
       const identity = releaseIdentity(channel.release.name);
       if (expectedName !== undefined && stable(identity) !== stable(releaseIdentity(expectedName)))
         fail('unknown');
-      const name = resource(channel.release.version?.name, `sites/${project}/versions/`);
+      const name = resource(channel.release.version?.name, `sites/${targetSite}/versions/`);
       const version = await api('hosting', name);
       if (version.status !== 'FINALIZED') fail('unknown');
       const files = await hostingFiles(name);
@@ -706,7 +710,7 @@ async function execute(request, deps) {
     async function checkedApp(app) {
       const site = await api(
         'hosting',
-        `projects/${project}/sites/${project}`,
+        `projects/${project}/sites/${targetSite}`,
         'GET',
         undefined,
         true
@@ -733,7 +737,7 @@ async function execute(request, deps) {
     }
     async function stageVersion() {
       if (cp.version !== null) {
-        resource(cp.version, `sites/${project}/versions/`);
+        resource(cp.version, `sites/${targetSite}/versions/`);
         const found = await api('hosting', cp.version, 'GET', undefined, true);
         if (found === null || found.status === 'ABANDONED' || found.status === 'DELETED')
           fail('unknown');
@@ -750,14 +754,14 @@ async function execute(request, deps) {
           fail('unknown');
         return found;
       }
-      const versions = await pages('hosting', `sites/${project}/versions`, 'versions');
+      const versions = await pages('hosting', `sites/${targetSite}/versions`, 'versions');
       const matches = versions.filter(
         (v) => stable(v.labels) === stable(labels) && stable(v.config) === stable(h.content.config)
       );
       if (matches.length > 1) fail('unknown');
       if (!matches.length) return null;
       const found = matches[0];
-      cp.version = resource(found.name, `sites/${project}/versions/`);
+      cp.version = resource(found.name, `sites/${targetSite}/versions/`);
       cp.versionCreatedMs = Date.parse(found.createTime);
       return stageVersion();
     }
@@ -831,7 +835,7 @@ async function execute(request, deps) {
       });
     }
     async function versionFiles() {
-      return hostingFiles(resource(cp.version, `sites/${project}/versions/`));
+      return hostingFiles(resource(cp.version, `sites/${targetSite}/versions/`));
     }
 
     async function exactLive() {
@@ -884,24 +888,24 @@ async function execute(request, deps) {
     if (i.action === 'site') {
       const site = await api(
         'hosting',
-        `projects/${project}/sites/${project}`,
+        `projects/${project}/sites/${targetSite}`,
         'GET',
         undefined,
         true
       );
       if (site !== null) {
-        if (site.name !== `projects/${project}/sites/${project}` || site.defaultUrl !== h.publicUrl)
+        if (site.name !== `projects/${project}/sites/${targetSite}` || site.defaultUrl !== h.publicUrl)
           fail('unknown');
         return reply(applying ? 'done' : 'satisfied');
       }
       if (!applying) return reply('absent');
       if (!h.createSite) fail('provider-rejected');
-      await api('hosting', `projects/${project}/sites?siteId=${project}`, 'POST', {});
+      await api('hosting', `projects/${project}/sites?siteId=${targetSite}`, 'POST', {});
       return reply('done');
     }
     if (i.action === 'configure') {
       if (!(await selectedApp())) fail('unknown');
-      const route = `projects/${project}/sites/${project}`;
+      const route = `projects/${project}/sites/${targetSite}`;
       const site = await api('hosting', route);
       if (site.name !== route || site.defaultUrl !== h.publicUrl) fail('unknown');
       if (site.appId === cp.appId) return reply(applying ? 'done' : 'satisfied');
@@ -917,11 +921,11 @@ async function execute(request, deps) {
     if (i.action === 'create') {
       if (await stageVersion()) return reply(applying ? 'done' : 'satisfied');
       if (!applying) return reply('absent');
-      const version = await api('hosting', `sites/${project}/versions`, 'POST', {
+      const version = await api('hosting', `sites/${targetSite}/versions`, 'POST', {
         config: h.content.config,
         labels,
       });
-      cp.version = resource(version.name, `sites/${project}/versions/`);
+      cp.version = resource(version.name, `sites/${targetSite}/versions/`);
       cp.versionCreatedMs = Date.parse(version.createTime);
       if (!Number.isFinite(cp.versionCreatedMs)) fail('unknown');
       return reply('done');
@@ -1010,7 +1014,7 @@ async function execute(request, deps) {
       if (stable((await liveHosting()).inventory.live) !== stable(live)) fail('unknown');
       const released = await api(
         'hosting',
-        `sites/${project}/releases?versionName=${encodeURIComponent(cp.version)}`,
+        `sites/${targetSite}/releases?versionName=${encodeURIComponent(cp.version)}`,
         'POST',
         {}
       );
@@ -1035,15 +1039,15 @@ async function execute(request, deps) {
         typeof config.apiKey !== 'string'
       )
         fail('unknown');
-      const site = await api('hosting', `projects/${project}/sites/${project}`);
+      const site = await api('hosting', `projects/${project}/sites/${targetSite}`);
       if (site.appId !== cp.appId) fail('unknown');
-      const release = (await api('hosting', `sites/${project}/channels/live`)).release;
+      const release = (await api('hosting', `sites/${targetSite}/channels/live`)).release;
       if (
         release.version?.name !== cp.version ||
         stable(releaseIdentity(release.name)) !== stable(releaseIdentity(expectedReleaseName)) ||
         !(await exactLive()) ||
         (await liveRules()) !== i.source ||
-        (await api('hosting', `projects/${project}/sites/${project}`)).appId !== cp.appId
+        (await api('hosting', `projects/${project}/sites/${targetSite}`)).appId !== cp.appId
       )
         fail('unknown');
       return {

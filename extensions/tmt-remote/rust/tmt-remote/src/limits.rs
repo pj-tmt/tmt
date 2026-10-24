@@ -300,3 +300,6 @@ pub const CLOUD_ROUTE_BATCH: usize = 500;
 pub const CLOUD_ENROLLMENT_RETENTION_MS: u64 = 86_400_000;
 /// Bound owner mailbox cleanup without adding an idle query every minute.
 pub const CLOUD_ENROLLMENT_CLEANUP: Duration = Duration::from_secs(3_600);
+/// Firebase Hosting site IDs and Management API app IDs admitted as resource selectors.
+pub const HOSTING_SITE_ID_BYTES: usize = 30;
+pub const HOSTING_WEB_APP_ID_BYTES: usize = 256;

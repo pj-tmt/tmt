@@ -7,3 +7,7 @@ object keys (including publicWebConfig), JSON.stringify without whitespace, then
 TextEncoder UTF-8 bytes with SHA-256 and encoding lowercase hex. All schema strings are
 printable ASCII, so JSON escaping and UTF-8 agree with Rust; never hash pretty-printed JSON.
 The complete descriptor uses the same canonical bytes and unpadded base64url encoding.
+
+`descriptor-v1.json` pins the unchanged project-default site carrier.
+`descriptor-v1-selected-site.json` adds only `hostingSite` and its recomputed checksum;
+the project identity and four-field public configuration remain unchanged.

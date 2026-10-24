@@ -9,8 +9,9 @@ Start with TMT, Remote and Colab installed. Remote reads the enabled extensions'
 deployment declarations; it does not substitute sample configuration when one is unavailable.
 
 The shared [deployment input contract](../../../../contracts/remote-channel-v1.md#deployment-input-manifest)
-defines explicit resource selection and `--defaults`. Firestore integration is pending
-(#4879); use the currently supported explicit flags below.
+defines explicit resource selection and `--defaults`. Supply every input explicitly, or
+use `--defaults` for omitted choices. Missing inputs refuse before login; replace any
+`<...>` placeholders in the printed command before rerunning.
 
 Choose an existing Firebase project on the free Spark plan. TMT does not create the project
 or set up paid features. Choose the database region carefully: an existing database's
@@ -24,7 +25,7 @@ firebase login
 ```
 
 In the Firebase console, open Authentication and choose **Get started** once. This guide
-uses `--sign-in anonymous`; sign-in selection is required. If you explicitly choose
+uses the default `anonymous` sign-in selection. If you explicitly choose
 `google.com` instead, enable Google under Authentication → Sign-in method when instructed.
 Signing in to the CLI, pairing a browser or installing an extension never authorizes deployment.
 
@@ -33,8 +34,15 @@ Signing in to the CLI, pairing a browser or installing an extension never author
 Run this yourself in an interactive terminal:
 
 ```sh
-tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous
+tmt remote deploy firestore --project <project-id> --region <region> --defaults
 ```
+
+`--defaults` selects database `(default)`, a new Web App named `tmt Remote (<deployment>)`,
+a dedicated TMT Hosting site and anonymous sign-in. It does not supply project or region.
+Only `(default)` is supported on the free plan in this version. To use existing resources,
+supply `--database '(default)' --web-app <app-id> --site <site-id> --sign-in anonymous`;
+`--web-app new` and `--site new` explicitly request the creation choices. Existing IDs must
+belong to the selected project. New sites do not overwrite its project-default site.
 
 Check the account, project, region, Security rules and Website files in the short summary.
 For a hosted deployment, also review `Register this machine as owner`. This explicit step reuses
@@ -59,7 +67,7 @@ in that invocation. Earlier changes from a partial run are not undone.
 This command has no `--yes` or `--no-open` flag. For a read-only preview, use:
 
 ```sh
-tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous --json
+tmt remote deploy firestore --project <project-id> --region <region> --defaults --json
 ```
 
 A preview still reads Firebase using your login. Agents, CI, non-interactive input and
@@ -75,7 +83,9 @@ then checks them for up to three minutes with visible elapsed-time progress. If 
 still building, follow the printed instruction to rerun the same command in a minute.
 
 After a partial result or an instructed console action, rerun the same command with the same
-inputs. An identical, unfinished deploy you already approved continues without another y/N
+inputs. Omitted choices reuse the local deployment record, including its actual app/site and
+older defaults. Explicit conflicting resource choices refuse before provider setup; do not
+delete the record to move a deployment. Legacy records keep their recorded project-default site. An identical, unfinished deploy you already approved continues without another y/N
 question. A completed run asks again. Read the stop table below before changing anything.
 
 Keep the saved `deploy.json` at the path printed by the command. A partial or unknown result
@@ -130,6 +140,7 @@ fields and lifecycle rules belong to the [deployment contract](../../../../contr
 
 | Stop or printed code                                                                                                            | What to do                                                                                                                                               |
 | ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REMOTE_DEPLOY_INPUT_REQUIRED`, `REMOTE_DEPLOY_INPUT_INVALID`                                                                   | Supply the listed inputs, replace placeholders, and review the defaults and creation list.                                                               |
 | `USAGE_ERROR`, `REMOTE_DEPLOY_PROJECT_INVALID`, `REMOTE_DEPLOY_LOCATION_INVALID`, `REMOTE_DEPLOY_SIGN_IN_MISSING`               | Correct the project, region or explicit sign-in input before approving again.                                                                            |
 | `REMOTE_DEPLOY_TOOL_MISSING`, `REMOTE_DEPLOY_NODE_MISSING`, `REMOTE_DEPLOY_TOOL_UNSUPPORTED`, `REMOTE_DEPLOY_SETUP_UNAVAILABLE` | Follow the printed tool or login instruction using the supported CLI and your own account.                                                               |
 | No enabled Firestore declaration, `REMOTE_DEPLOY_DECLARATION_UNAVAILABLE`, `REMOTE_DEPLOY_HOSTING_UNAVAILABLE`                  | Check that the enabled installed extensions and Remote support the requested deployment.                                                                 |

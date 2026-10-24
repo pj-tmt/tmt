@@ -708,11 +708,12 @@ impl DeployFirestore<'_> {
     pub fn hosting_inventory(
         &mut self,
         project: &str,
+        site: &str,
     ) -> Result<crate::hosting::HostingInventory, deploy_run::DeployRefusal> {
         let value = self
             .exchange(
                 "hosting-inventory",
-                json!({"project": project}),
+                json!({"project": project, "site": site}),
                 None,
                 Instant::now() + limits::DEPLOY_PROVIDER_CALL,
             )

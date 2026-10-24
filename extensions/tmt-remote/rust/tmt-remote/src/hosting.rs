@@ -9,6 +9,23 @@ use std::{collections::BTreeMap, io::Write};
 
 const DECLARATION_PREFIX: &str = "/tmt/declarations";
 
+pub fn site_id_ok(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= limits::HOSTING_SITE_ID_BYTES
+        && !value.starts_with('-')
+        && !value.ends_with('-')
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+pub fn app_id_ok(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= limits::HOSTING_WEB_APP_ID_BYTES
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_:-".contains(&byte))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HostingManifest {
@@ -412,25 +429,20 @@ pub struct HostingDeploymentView {
 }
 /// Ownership labels plus exact content identify an own release. Labels alone never do.
 /// Foreign fingerprints include the captured release identity and complete file/config set.
+/// A retained app never silently changes when the provider inventory changes.
 pub fn deployment_view(
     composition: &HostingComposition,
     project: &str,
     deployment_id: &str,
     inventory: &HostingInventory,
-) -> Result<HostingDeploymentView, HostingRefusal> {
-    deployment_view_for_app(composition, project, deployment_id, inventory, None)
-}
-/// A retained app never silently changes when the provider inventory changes.
-pub fn deployment_view_for_app(
-    composition: &HostingComposition,
-    project: &str,
-    deployment_id: &str,
-    inventory: &HostingInventory,
+    site: &str,
     recorded_app: Option<&str>,
+    create_app: bool,
 ) -> Result<HostingDeploymentView, HostingRefusal> {
     if !crate::deploy_run::project_ok(project)
         || crate::canonical::uuid(deployment_id).is_err()
         || inventory.web_apps.len() > limits::HOSTING_WEB_APPS
+        || !site_id_ok(site)
     {
         return Err(HostingRefusal::Inventory);
     }
@@ -466,7 +478,7 @@ pub fn deployment_view_for_app(
         })
         .collect();
     let web_app = match matching.as_slice() {
-        [] if selected_id.is_none() => None,
+        [] if selected_id.is_none() && create_app => None,
         [only] => Some(only.id.clone()),
         _ => return Err(HostingRefusal::WebAppSelection),
     };
@@ -517,8 +529,8 @@ pub fn deployment_view_for_app(
         }
     }
     Ok(HostingDeploymentView {
-        site: project.into(),
-        public_url: format!("https://{project}.web.app"),
+        site: site.into(),
+        public_url: format!("https://{site}.web.app"),
         create_site: !inventory.site_exists,
         configure_site: associated.is_none(),
         site_app_id: inventory.site_app_id.clone(),

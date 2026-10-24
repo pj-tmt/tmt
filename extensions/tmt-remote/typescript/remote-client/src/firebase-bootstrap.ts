@@ -8,6 +8,12 @@ export interface PublicWebConfig {
   readonly authDomain: string;
   readonly projectId: string;
 }
+/** Syntax/checksum-validated public metadata, never Auth or page authority. */
+export interface HostedReference {
+  readonly origin: string;
+  readonly publicWebConfig: PublicWebConfig;
+  readonly hostingSite?: string;
+}
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const LINK_BYTES = 8192;
@@ -17,7 +23,7 @@ export async function originLink(origin: string, fetcher: typeof fetch): Promise
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    valid(/^https:\/\/[a-z][a-z0-9-]{4,28}[a-z0-9]\.web\.app$/.test(origin));
+    valid(/^https:\/\/[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?\.web\.app$/.test(origin));
     const deadline = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         controller.abort();
@@ -34,8 +40,13 @@ export async function originLink(origin: string, fetcher: typeof fetch): Promise
           authDomain: row.authDomain,
           projectId: row.projectId,
         });
-        valid(origin === `https://${config.projectId}.web.app`);
-        const body = { kind: 'firestore', publicWebConfig: config, version: 1 };
+        const site = new URL(origin).hostname.slice(0, -'.web.app'.length);
+        const body = {
+          kind: 'firestore',
+          publicWebConfig: config,
+          version: 1,
+          ...(site === config.projectId ? {} : { hostingSite: site }),
+        };
         const descriptor = canonical({ ...body, checksum: await checksum(body) });
         valid(!controller.signal.aborted);
         return `${origin}/pair#${base64url(encoder.encode(descriptor))}`;
@@ -80,7 +91,7 @@ async function checksum(value: unknown): Promise<string> {
   ).join('');
 }
 
-export async function verifyHostedLink(link: string, origin: string): Promise<PublicWebConfig> {
+export async function verifyHostedLink(link: string, origin: string): Promise<HostedReference> {
   try {
     valid(typeof link === 'string' && encoder.encode(link).length <= LINK_BYTES);
     const url = new URL(link);
@@ -98,7 +109,15 @@ export async function verifyHostedLink(link: string, origin: string): Promise<Pu
       c.charCodeAt(0),
     );
     const text = decoder.decode(bytes);
-    const r = object(JSON.parse(text), ['version', 'kind', 'publicWebConfig', 'checksum']);
+    const raw: unknown = JSON.parse(text);
+    const hasSite = typeof raw === 'object' && raw !== null && Object.hasOwn(raw, 'hostingSite');
+    const r = object(raw, [
+      'version',
+      'kind',
+      'publicWebConfig',
+      'checksum',
+      ...(hasSite ? ['hostingSite'] : []),
+    ]);
     valid(
       r.version === 1 &&
         r.kind === 'firestore' &&
@@ -106,11 +125,30 @@ export async function verifyHostedLink(link: string, origin: string): Promise<Pu
         /^[a-f0-9]{64}$/.test(r.checksum),
     );
     const publicConfig = parsePublicWebConfig(r.publicWebConfig);
-    valid(origin === `https://${publicConfig.projectId}.web.app`);
-    const body = { kind: r.kind, publicWebConfig: publicConfig, version: r.version };
+    let site = publicConfig.projectId;
+    if (hasSite) {
+      const selected = r.hostingSite;
+      valid(
+        typeof selected === 'string' &&
+          /^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$/.test(selected) &&
+          selected !== publicConfig.projectId,
+      );
+      site = selected;
+    }
+    valid(origin === `https://${site}.web.app`);
+    const body = {
+      kind: r.kind,
+      publicWebConfig: publicConfig,
+      version: r.version,
+      ...(hasSite ? { hostingSite: site } : {}),
+    };
     valid((await checksum(body)) === r.checksum && text === canonical(r));
     valid(link === `${origin}/pair#${base64url(bytes)}`);
-    return publicConfig;
+    return Object.freeze({
+      origin,
+      publicWebConfig: publicConfig,
+      ...(hasSite ? { hostingSite: site } : {}),
+    });
   } catch {
     throw new RefusalError('REMOTE_INPUT_INVALID');
   }

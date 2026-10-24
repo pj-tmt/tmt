@@ -1,5 +1,6 @@
 //! Deployment argv and composition through the installed adapter seam;
 //! fixtures inject declaration/provider ports, never an alternate deploy algorithm.
+pub mod inputs;
 pub mod progress;
 
 use crate::{
@@ -11,12 +12,16 @@ use crate::{
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use serde_json::json;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FirestoreArgs {
     pub project: String,
     pub remote: Option<String>,
     pub region: String,
     pub sign_in: Vec<SignInProvider>,
+    pub database: Option<String>,
+    pub web_app: Option<String>,
+    pub site: Option<String>,
+    pub defaults: bool,
     pub authorize: Option<String>,
     pub json: bool,
     pub details: bool,
@@ -41,6 +46,18 @@ fn retry_command(args: &FirestoreArgs) -> String {
                 .join(",")
         ),
     ));
+    for (flag, value) in [
+        ("database", &args.database),
+        ("web-app", &args.web_app),
+        ("site", &args.site),
+    ] {
+        if let Some(value) = value {
+            command.push_str(&format!(" --{flag}={}", quote(value)));
+        }
+    }
+    if args.defaults {
+        command.push_str(" --defaults");
+    }
     if let Some(digest) = &args.authorize {
         command.push_str(&format!(" --authorize {}", quote(digest)));
     }
@@ -83,6 +100,7 @@ pub trait FirestoreCommandPort: DeployPort {
     fn hosting_inventory(
         &mut self,
         _project: &str,
+        _site: &str,
     ) -> Result<crate::hosting::HostingInventory, crate::deploy_run::DeployRefusal> {
         Err(crate::deploy_run::DeployRefusal::HostingUnavailable)
     }
@@ -98,8 +116,9 @@ impl FirestoreCommandPort for crate::deploy_firestore::DeployFirestore<'_> {
     fn hosting_inventory(
         &mut self,
         project: &str,
+        site: &str,
     ) -> Result<crate::hosting::HostingInventory, crate::deploy_run::DeployRefusal> {
-        self.hosting_inventory(project)
+        self.hosting_inventory(project, site)
     }
     fn login(&mut self) -> Result<(), crate::deploy_firestore::DeploySetupError> {
         self.login_account().map(|_| ())
@@ -120,21 +139,15 @@ impl FirestoreCommandPort for crate::deploy_firestore::DeployFirestore<'_> {
 }
 /// Nested under deploy by the main command owner once concrete discovery is wired.
 pub fn command() -> Command {
-    tmt_cli_style::command(&tmt_cli_style::CommandSpec {
+    crate::deploy_input::register(tmt_cli_style::command(&tmt_cli_style::CommandSpec {
         name: "firestore", summary: "Plan or explicitly authorize Firestore sharing deployment",
-        examples: &[tmt_cli_style::Example { command: "tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous --json", note: "Read the exact plan without changing your Firebase project" }],
+        examples: &[tmt_cli_style::Example { command: "tmt remote deploy firestore --project <project-id> --region <region> --defaults --json", note: "Read the exact plan with explicit project and region" }],
         outputs: tmt_cli_style::OutputModes::HumanAndJson,
         details: "Needs the Firebase CLI and your own firebase login. At a terminal, review the changes and answer y/N. Rerunning the same unfinished approved deploy continues without another question. Agents, CI, --json and non-interactive input only print the plan unless --authorize names its digest (at least 12 characters); signing in alone never deploys. There is no --yes flag. The plan names any live Rules it will replace; authorizing that plan allows the destructive replacement. Each project keeps its own history on this machine; its region cannot change after authorization. Uses Firebase's free Spark plan; no paid features are set up.",
-    })
-        .arg(Arg::new("project").long("project"))
-        .arg(Arg::new("region").long("region").required(true))
-        .arg(
-            Arg::new("sign-in")
-                .long("sign-in")
-                .required(true)
+    }), inputs::manifest())
+        .mut_arg("sign-in", |argument| argument
                 .value_delimiter(',')
                 .action(ArgAction::Append)
-                .value_parser(["anonymous", "google.com"]),
         )
         .arg(Arg::new("authorize").long("authorize"))
         .arg(Arg::new("details").long("details").action(ArgAction::SetTrue).help("Show the full plan (fingerprints, extension resources and indexes) before asking."))
@@ -146,11 +159,15 @@ pub fn arguments(matches: &ArgMatches) -> Result<FirestoreArgs, DeployCliError> 
     }
     let sign_in = matches
         .get_many::<String>("sign-in")
-        .ok_or(DeployCliError::Usage)?
+        .into_iter()
+        .flatten()
         .map(|s| match s.as_str() {
             "anonymous" => Ok(SignInProvider::Anonymous),
             "google.com" => Ok(SignInProvider::Google),
-            _ => Err(DeployCliError::Usage),
+            _ => Err(DeployCliError::Local(crate::error::RemoteError::new(
+                "REMOTE_DEPLOY_INPUT_INVALID",
+                "--sign-in: replace placeholders and use anonymous or google.com.",
+            ))),
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(FirestoreArgs {
@@ -165,9 +182,13 @@ pub fn arguments(matches: &ArgMatches) -> Result<FirestoreArgs, DeployCliError> 
             .unwrap_or_default(),
         region: matches
             .get_one::<String>("region")
-            .ok_or(DeployCliError::Usage)?
-            .clone(),
+            .cloned()
+            .unwrap_or_default(),
         sign_in,
+        database: matches.get_one::<String>("database").cloned(),
+        web_app: matches.get_one::<String>("web-app").cloned(),
+        site: matches.get_one::<String>("site").cloned(),
+        defaults: matches.get_flag("defaults"),
         authorize,
         json: matches.get_flag("json"),
         details: matches.get_flag("details"),
@@ -208,6 +229,7 @@ pub fn execute_with_confirmation<P: FirestoreCommandPort>(
     now: impl FnOnce() -> Result<u64, DeployCliError>,
     confirmation: Option<&mut PlanConfirmation<'_>>,
 ) -> Result<DeployCommandOutput, DeployCliError> {
+    inputs::validate_supplied(args)?;
     let discovered =
         deploy_discovery::discover(source, enabled).map_err(DeployCliError::Discovery)?;
     if let Some(output) = unavailable(&discovered) {
@@ -227,25 +249,43 @@ pub fn execute_with_confirmation<P: FirestoreCommandPort>(
         args.remote.as_deref(),
         (!args.project.is_empty()).then_some(args.project.as_str()),
     )
-    .map_err(DeployCliError::Local)?
-    .ok_or(DeployCliError::Usage)?;
+    .map_err(DeployCliError::Local)?;
+    let requirements =
+        inputs::permission_requirements(&discovered.extensions, discovered.hosting.is_some());
+    let Some(project) = project else {
+        return inputs::resolve(args, None, &Default::default(), &requirements)
+            .map(|_| unreachable!("project is required"));
+    };
+    let mut store = DeployRecordStore::open(&layout, &project, &retry_command(args))
+        .map_err(DeployCliError::Local)?;
+    let record = store.load_or_draft().map_err(DeployCliError::Local)?;
+    let mut recorded = inputs::record_values(&record, &project, store.region());
+    // An unbound preview has no authorized resource work to move. Preserve the
+    // existing ability to revise it explicitly before the first authorization.
+    if record.run.is_none() && store.region().is_none() {
+        for input in inputs::supplied(args).keys() {
+            recorded.remove(input);
+        }
+    }
+    let resources = inputs::resolve(args, Some(&project), &recorded, &requirements)?;
+    let region = resources.region.clone();
+    store
+        .select_inputs(resources.clone())
+        .map_err(DeployCliError::Local)?;
     let selected = FirestoreArgs {
         project,
         remote: args.remote.clone(),
-        region: args.region.clone(),
-        sign_in: args.sign_in.clone(),
+        region,
+        sign_in: resources.sign_in,
+        database: Some(resources.database),
+        web_app: Some(resources.web_app),
+        site: Some(resources.site),
+        defaults: args.defaults,
         authorize: args.authorize.clone(),
         json: args.json,
         details: args.details,
     };
     let args = &selected;
-    let mut store = DeployRecordStore::open_for_target(
-        &layout,
-        &args.project,
-        &args.region,
-        &retry_command(args),
-    )
-    .map_err(DeployCliError::Local)?;
     let mut provider = provider_factory()?;
     provider.prepare_owner(&layout);
     provider.login().map_err(DeployCliError::Setup)?;
@@ -309,26 +349,51 @@ fn execute_prepared<P: FirestoreCommandPort>(
         .hosting
         .as_ref()
         .map(|composition| {
+            let record = store.load_or_draft().map_err(DeployCliError::Local)?;
+            let resources = record.inputs.as_ref().expect("selected input intent");
+            let retained = record.run.as_ref().and_then(|run| run.hosting.as_ref());
+            let recorded_site =
+                retained.and_then(|checkpoint| checkpoint.envelope["hosting"]["site"].as_str());
+            let site = inputs::site(resources, &record.deployment_id, recorded_site)?;
             let inventory = provider
-                .hosting_inventory(&args.project)
+                .hosting_inventory(&args.project, &site)
                 .map_err(|reason| {
                     DeployCliError::Command(
                         deploy_command::DeployCommandError::Refused(reason),
                         record_path.to_path_buf(),
                     )
                 })?;
-            let record = store.load_or_draft().map_err(DeployCliError::Local)?;
+            if (!inventory.site_exists && resources.site != "new")
+                || (inventory.site_exists
+                    && resources.site == "new"
+                    && recorded_site != Some(site.as_str()))
+            {
+                return Err(DeployCliError::Local(crate::error::RemoteError::new(
+                    "REMOTE_DEPLOY_INPUT_INVALID",
+                    "--site: select an existing site, or use new for an unused dedicated TMT site.",
+                )));
+            }
+            let recorded_app = retained.and_then(|checkpoint| checkpoint.app_id.as_deref());
+            let app = if resources.web_app == "new" {
+                recorded_app
+            } else {
+                Some(resources.web_app.as_str())
+            };
+            if resources.web_app == "new" && app.is_none() && inventory.site_app_id.is_some() {
+                return Err(DeployCliError::Local(crate::error::RemoteError::new(
+                    "REMOTE_DEPLOY_INPUT_INVALID",
+                    "--web-app: the selected site already has an app; name that app explicitly.",
+                )));
+            }
             provider.prepare_hosting(composition);
-            let mut view = crate::hosting::deployment_view_for_app(
+            let mut view = crate::hosting::deployment_view(
                 composition,
                 &args.project,
                 &record.deployment_id,
                 &inventory,
-                record
-                    .run
-                    .as_ref()
-                    .and_then(|r| r.hosting.as_ref())
-                    .and_then(|h| h.app_id.as_deref()),
+                &site,
+                app,
+                resources.web_app == "new",
             )
             .map_err(|_| {
                 DeployCliError::Command(
@@ -616,6 +681,11 @@ mod retry_tests {
     #[test]
     fn persistence_retry_retains_explicit_selection_authorization_and_output_flags() {
         let args = FirestoreArgs {
+            database: Some("(default)".into()),
+            web_app: Some("new".into()),
+            site: Some("new".into()),
+            defaults: true,
+
             project: "demo-remote-1".into(),
             remote: Some("shared".into()),
             region: "asia-east1".into(),
@@ -626,7 +696,7 @@ mod retry_tests {
         };
         assert_eq!(
             retry_command(&args),
-            "tmt remote --remote 'shared' deploy firestore --project 'demo-remote-1' --region 'asia-east1' --sign-in 'anonymous,google.com' --authorize 'aaaaaaaaaaaa' --details --json"
+            "tmt remote --remote 'shared' deploy firestore --project 'demo-remote-1' --region 'asia-east1' --sign-in 'anonymous,google.com' --database='(default)' --web-app='new' --site='new' --defaults --authorize 'aaaaaaaaaaaa' --details --json"
         );
         let human = FirestoreArgs {
             remote: None,
@@ -637,7 +707,7 @@ mod retry_tests {
         };
         assert_eq!(
             retry_command(&human),
-            "tmt remote deploy firestore --project 'demo-remote-1' --region 'asia-east1' --sign-in 'anonymous,google.com'"
+            "tmt remote deploy firestore --project 'demo-remote-1' --region 'asia-east1' --sign-in 'anonymous,google.com' --database='(default)' --web-app='new' --site='new' --defaults"
         );
         let quoted = FirestoreArgs {
             region: "not'a region".into(),

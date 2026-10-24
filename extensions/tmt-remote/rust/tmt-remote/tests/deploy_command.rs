@@ -713,7 +713,7 @@ fn owner_action_and_building_are_reported_without_a_usable_binding() {
 
 mod cli_composition {
     use super::*;
-    use serde_json::json;
+    use serde_json::{Value, json};
     use sha2::{Digest, Sha256};
     use tmt_remote::{
         deploy_cli::{self, DeployCliError, FirestoreCommandPort},
@@ -779,6 +779,7 @@ mod cli_composition {
         fn hosting_inventory(
             &mut self,
             _: &str,
+            _: &str,
         ) -> Result<tmt_remote::hosting::HostingInventory, deploy_run::DeployRefusal> {
             self.2
                 .clone()
@@ -813,6 +814,7 @@ mod cli_composition {
             "asia-east1",
             "--sign-in",
             "anonymous",
+            "--defaults",
         ];
         words.extend_from_slice(extra);
         let matches = deploy_cli::command()
@@ -1050,7 +1052,16 @@ mod cli_composition {
                     config: content.config().clone(),
                 }),
             };
-            let view = hosting::deployment_view(&content, "demo-remote-1", ID, &inventory).unwrap();
+            let view = hosting::deployment_view(
+                &content,
+                "demo-remote-1",
+                ID,
+                &inventory,
+                "demo-remote-1",
+                None,
+                true,
+            )
+            .unwrap();
             assert_eq!(
                 view.replaces,
                 if kind == "foreign" { "foreign" } else { "none" }
@@ -1060,6 +1071,18 @@ mod cli_composition {
             let mut asked = false;
             let mut no = |out: &tmt_remote::deploy_command::DeployCommandOutput| {
                 asked = true;
+                if kind == "absent" {
+                    assert_ne!(out.json["plan"]["hosting"]["site"], "demo-remote-1");
+                    assert_eq!(
+                        out.json["plan"]["hosting"]["publicUrl"],
+                        format!(
+                            "https://{}.web.app",
+                            out.json["plan"]["hosting"]["site"].as_str().unwrap()
+                        )
+                    );
+                } else {
+                    assert_eq!(out.json["plan"]["hosting"]["site"], "demo-remote-1");
+                }
                 assert_eq!(out.json["plan"]["hosting"]["replaces"], view.replaces);
                 assert_eq!(
                     out.human.matches("Register this machine as owner").count(),
@@ -1084,8 +1107,12 @@ mod cli_composition {
                 );
                 Ok(false)
             };
+            let mut selected = args(if details { &["--details"] } else { &[] }).unwrap();
+            if kind != "absent" {
+                selected.site = Some("demo-remote-1".into());
+            }
             deploy_cli::execute_with_confirmation(
-                &args(if details { &["--details"] } else { &[] }).unwrap(),
+                &selected,
                 &mut source,
                 &["colab"],
                 || Ok(&mut provider),
@@ -1361,6 +1388,48 @@ mod cli_composition {
         let effects = provider.0.effects.clone();
         let mut changed = args(&[]).unwrap();
         changed.sign_in.push(SignInProvider::Google);
+        let mut constructed = false;
+        let conflict = deploy_cli::execute(
+            &changed,
+            &mut source,
+            &["colab"],
+            || {
+                constructed = true;
+                Ok(&mut provider)
+            },
+            || Ok(layout.clone()),
+            || Ok(2),
+        );
+        assert!(
+            matches!(conflict, Err(DeployCliError::Local(error)) if error.code == "REMOTE_DEPLOY_PROJECT_CONFLICT")
+        );
+        assert!(!constructed);
+        assert_eq!(deploy_record::read(&layout).unwrap(), before);
+        // Resource selections stay frozen. An extension declaration can still
+        // change the next plan, and declining it must preserve the earlier outcome.
+        struct ChangedDeclaration<'a>(&'a mut DeployCliSource);
+        impl DeclarationSource for ChangedDeclaration<'_> {
+            fn declaration(
+                &mut self,
+                extension: &str,
+            ) -> Result<Option<Vec<u8>>, DiscoveryRefusal> {
+                let bytes = self.0.declaration(extension)?.unwrap();
+                let mut envelope: Value = serde_json::from_slice(&bytes).unwrap();
+                let mut declaration: Value =
+                    serde_json::from_str(envelope["declaration"].as_str().unwrap()).unwrap();
+                declaration["resources"][0]["limits"]["maxEntries"] = json!(1023);
+                let declaration = serde_json::to_string(&declaration).unwrap();
+                let digest: String = Sha256::digest(declaration.as_bytes())
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect();
+                envelope["declaration"] = json!(declaration);
+                envelope["declarationDigest"] = json!(digest);
+                Ok(Some(serde_json::to_vec(&envelope).unwrap()))
+            }
+        }
+        let changed = args(&[]).unwrap();
+        let mut source = ChangedDeclaration(&mut source);
         let mut no = |_: &tmt_remote::deploy_command::DeployCommandOutput| Ok(false);
         let output = deploy_cli::execute_with_confirmation(
             &changed,
@@ -1393,17 +1462,20 @@ mod cli_composition {
             assert!(matches!(args(&extra), Err(DeployCliError::Usage)));
         }
         assert!(args(&["--authorize", "abcdef012345"]).is_ok());
-        assert!(
-            deploy_cli::command()
-                .try_get_matches_from([
-                    "firestore",
-                    "--project",
-                    "demo-remote-1",
-                    "--region",
-                    "asia-east1"
-                ])
-                .is_err()
-        );
+        let missing = deploy_cli::command()
+            .try_get_matches_from([
+                "firestore",
+                "--project",
+                "demo-remote-1",
+                "--region",
+                "asia-east1",
+            ])
+            .unwrap();
+        let missing = deploy_cli::arguments(&missing).unwrap();
+        assert!(matches!(
+            deploy_cli::inputs::resolve(&missing, None, &Default::default(), &[]),
+            Err(DeployCliError::Local(error)) if error.code == "REMOTE_DEPLOY_INPUT_REQUIRED"
+        ));
         assert!(
             deploy_cli::command()
                 .try_get_matches_from([
@@ -1923,7 +1995,16 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
     let mut request = input(&plan, &body);
     request.live_rules = Some(b"foreign rules");
     let mut port = Fake::new(ACCOUNT);
-    let view = hosting::deployment_view(&content, request.project, ID, &inventory).unwrap();
+    let view = hosting::deployment_view(
+        &content,
+        request.project,
+        ID,
+        &inventory,
+        request.project,
+        None,
+        true,
+    )
+    .unwrap();
     let preview = tmt_remote::deploy_command::execute_with_hosting(
         &request,
         &DeployCommandOptions::default(),
@@ -1970,7 +2051,16 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
     let prefix = &preview.json["planDigest"].as_str().unwrap()[..12];
     let saved = fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
     inventory.live.as_mut().unwrap().version = "version-2".into();
-    let changed = hosting::deployment_view(&content, request.project, ID, &inventory).unwrap();
+    let changed = hosting::deployment_view(
+        &content,
+        request.project,
+        ID,
+        &inventory,
+        request.project,
+        None,
+        true,
+    )
+    .unwrap();
     assert!(matches!(
         tmt_remote::deploy_command::execute_with_hosting(
             &request,
