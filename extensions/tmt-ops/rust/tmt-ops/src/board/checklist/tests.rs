@@ -11,6 +11,89 @@ use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
 };
 use serde_json::json;
+
+#[test]
+fn a_room_shortcut_never_opens_another_rooms_retained_draft() {
+    let fixture = Fixture::new();
+    let mut app = crate::board::app::workspace::tests::populated_board(1, 0);
+    let row = app
+        .workspace_rows()
+        .iter()
+        .position(|row| matches!(row.target, crate::board::workspace::OpsTarget::Squad(_)))
+        .unwrap();
+    let crate::board::workspace::OpsTarget::Squad(requested) =
+        app.workspace_rows()[row].target.clone()
+    else {
+        unreachable!()
+    };
+    app.select(row);
+    let before = app.workspace.selected.clone();
+    let mut retained = controller(&fixture);
+    retained.active = false;
+    retained.draft = Some(forms::Draft::create(
+        retained.preview.as_ref().unwrap(),
+        (id(CHECKLIST), id(ITEM)),
+    ));
+    retained.draft.as_mut().unwrap().title = "Retained room draft".into();
+    app.checklist = Some(retained);
+    assert_eq!(app.open_room_checklist(requested), Effect::None);
+    let retained = app.checklist.as_ref().unwrap();
+    assert!(!retained.active, "the other room was not opened instead");
+    assert_eq!(retained.room, Some(id(ROOM)));
+    assert_eq!(
+        retained.draft.as_ref().unwrap().title,
+        "Retained room draft"
+    );
+    assert_eq!(app.workspace.selected, before);
+}
+#[test]
+fn admitted_room_reads_and_writes_update_the_held_header_count() {
+    use crate::board::{conversation_notes, workspace::OpsTarget};
+    use crate::checklist::model::Request;
+    let f = Fixture::new();
+    f.service()
+        .apply(&Request {
+            room_id: id(ROOM),
+            checklist_id: id(CHECKLIST),
+            action: Action::Create {
+                item_id: id(ITEM),
+                inventory: InventoryExpectation::Absent,
+                content: ItemContent::new(
+                    "Linked open item".into(),
+                    None,
+                    Some("https://example.org/item".into()),
+                )
+                .unwrap(),
+                assignee: None,
+            },
+        })
+        .unwrap();
+    let mut app = crate::board::app::workspace::tests::board();
+    app.notes = conversation_notes::State::reading();
+    app.notes
+        .observe_roster([OpsTarget::Squad(ROOM.into())].iter());
+    let mut c = controller(&f);
+    let mut lane = load::Lane::seeded(1, id(ROOM), f.manager());
+    let Effect::Checklist(task) = c.read() else {
+        panic!("room read")
+    };
+    app.checklist = Some(c);
+    app.finished_checklist(lane.complete(&f.core, task));
+    assert_eq!(app.notes.total_label(), "1 todo");
+    assert_eq!(app.notes.room_label(ROOM), "Checklist · 1 todo");
+    let c = app.checklist.as_mut().unwrap();
+    c.screen = Screen::Details(id(ITEM));
+    pick(c, "complete");
+    render(c, 100, 30);
+    let Effect::Checklist(task) = pick(c, "confirm") else {
+        panic!("room write")
+    };
+    app.finished_checklist(lane.complete(&f.core, task));
+    assert_eq!(f.literal()["items"][0]["completion"], "complete");
+    assert_eq!(app.notes.total_label(), "0 todo");
+    assert_eq!(app.notes.room_label(ROOM), "Checklist · 0 todo");
+}
+
 #[test]
 fn app_checklist_text_captures_q_digits_and_its_buttons_allow_destination_keys() {
     use crate::board::shell::OpsTab;

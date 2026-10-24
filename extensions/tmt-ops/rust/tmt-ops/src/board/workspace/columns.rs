@@ -527,18 +527,28 @@ pub fn activity_spans(
         .map(|span| span.content.width())
         .sum::<usize>()
         + task.as_ref().map_or(0, |span| span.content.width());
-    let suffix = app
-        .notes
+    (primary, task, todo_span(app, row, used, width, selected))
+}
+
+/// Counts are optional: the existing state and task keep their whole width first.
+pub fn todo_span(
+    app: &crate::board::app::App,
+    row: &OpsTreeRow,
+    used: usize,
+    width: usize,
+    selected: bool,
+) -> Option<ratatui::text::Span<'static>> {
+    use unicode_width::UnicodeWidthStr;
+    app.notes
         .row_label(&row.target)
         .map(|text| format!(" · {text}"))
-        .filter(|text| used + text.width() <= width);
-    let suffix = suffix.map(|suffix| {
-        ratatui::text::Span::styled(
-            suffix,
-            table_style(app, selected, app.look().role(Role::Muted)),
-        )
-    });
-    (primary, task, suffix)
+        .filter(|text| used + text.width() <= width)
+        .map(|suffix| {
+            ratatui::text::Span::styled(
+                suffix,
+                table_style(app, selected, app.look().role(Role::Muted)),
+            )
+        })
 }
 
 fn activity_parts(

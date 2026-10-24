@@ -46,6 +46,25 @@ pub(super) fn render(
         ),
     );
     blank(area, y);
+    if *y < area.bottom() {
+        let label = app.notes.room_label(&squad.room_id);
+        if let Some(control) = crate::board::buttons::paint(
+            app,
+            frame.buffer_mut(),
+            Rect::new(area.x, *y, area.width, 1),
+            &[crate::board::buttons::Button::secondary(label.as_str())],
+            tmt_cli_style::grid::Align::Left,
+            None,
+        )[0] && app.workspace_selection_visible()
+        {
+            app.workspace_action_hits.borrow_mut().push((
+                control,
+                OpsTarget::Squad(squad.room_id.clone()),
+                super::super::app::Choice::RoomChecklist(squad.room_id.clone()),
+            ));
+        }
+        *y += 1;
+    }
     rule(frame, app, area, y, "Board", Line::default());
     for key in ["task", "pending", "next"] {
         let value = lead

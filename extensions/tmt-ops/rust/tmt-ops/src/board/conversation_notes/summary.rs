@@ -10,14 +10,14 @@ pub(in crate::board) struct Counts {
 }
 
 impl Counts {
-    /// An item with a reference is a link; one without is a todo, open or done.
+    /// Completion counts every item; a reference is an independent attribute.
     pub fn of<'a>(items: impl IntoIterator<Item = &'a ItemView>) -> Self {
         let mut counts = Self::default();
         for view in items.into_iter().filter(|view| !view.item.archived) {
-            match (&view.item.content.reference, view.item.completion) {
-                (Some(_), _) => counts.links += 1,
-                (None, Completion::Open) => counts.todo += 1,
-                (None, Completion::Complete) => counts.done += 1,
+            counts.links += usize::from(view.item.content.reference.is_some());
+            match view.item.completion {
+                Completion::Open => counts.todo += 1,
+                Completion::Complete => counts.done += 1,
             }
         }
         counts
@@ -28,7 +28,7 @@ impl Counts {
     }
 }
 
-/// What the board knows of one conversation's list.
+/// What the board knows of one room or conversation list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::board) enum Summary {
     /// Asked, nothing back yet.

@@ -1,4 +1,5 @@
 //! Global todo observations through the real board painter.
+pub(in crate::board) use super::rooms::{ROOM_SCENES, capture_case as room_case};
 use super::*;
 use crate::board::{app::App, workspace::OpsTarget};
 
@@ -28,7 +29,7 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
         .unwrap()
         .rows
         .keys()
-        .filter_map(Key::of)
+        .filter_map(Key::list)
         .collect();
     let index = app
         .workspace_rows()
@@ -57,10 +58,16 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
     app.notes.reconcile(keys.clone().into_iter());
     let now = Instant::now();
     if scene != "todo-pending" {
-        for ordinal in 0..keys.len() {
+        let mut member_ordinal = 0;
+        for _ in 0..keys.len() {
             let task = app.notes.offer_background(None, now).unwrap();
+            let ordinal = member_ordinal;
+            if task.key.member().is_some() {
+                member_ordinal += 1;
+            }
             let result = match scene {
                 "todo-unavailable" => Err("Conversation Notes unavailable.".into()),
+                _ if task.key.member().is_none() => Ok(Counts::default()),
                 "todo-partial" if ordinal == 1 => Err("Conversation Notes unavailable.".into()),
                 "todo-zero" => Ok(Counts::default()),
                 _ => Ok(Counts {
