@@ -326,6 +326,14 @@
     );
   padding-left: 0;
 }
+.tmt-ui-rail-sub-items {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  /* Ben direct: one more indent for named groups, retaining the counts' right edge. */
+  padding: 0 0 0 var(--tmt-ui-rail-sub-indent);
+  list-style: none;
+}
 .tmt-ui-rail-sub-group {
   padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m) var(--tmt-ui-space-xs);
   color: var(--tmt-ui-color-disabled-text);
@@ -344,21 +352,16 @@
   font-size: var(--tmt-ui-rail-sub-size);
   line-height: 1.25;
 }
-/* The page you are on: the rail's normal current style, a selection fill and a straight marker in
-   the gutter outside the rounded row. */
+/* The current page is a filled row; only the parent module keeps its gutter marker. */
 .tmt-ui-rail-sub-item[aria-current='page'],
 .tmt-ui-rail-sub-item[aria-current='location'] {
-  background: var(--tmt-ui-surface-selection);
-  color: var(--tmt-ui-color-selected-text);
+  background: var(--tmt-ui-color-accent);
+  color: var(--tmt-ui-color-on-accent);
   font-weight: 600;
 }
-.tmt-ui-rail-sub-item[aria-current='page']::before,
-.tmt-ui-rail-sub-item[aria-current='location']::before {
-  position: absolute;
-  inset: var(--tmt-ui-space-xs) auto var(--tmt-ui-space-xs) calc(-1 * var(--tmt-ui-space-s));
-  width: var(--tmt-ui-indicator-width);
-  background: var(--tmt-ui-color-accent);
-  content: '';
+.tmt-ui-rail-sub-item[aria-current='page']:focus-visible,
+.tmt-ui-rail-sub-item[aria-current='location']:focus-visible {
+  outline-color: var(--tmt-ui-color-on-accent);
 }
 .tmt-ui-shell-count {
   box-sizing: border-box;

@@ -134,7 +134,10 @@ page renders in it.
   Each item is a Lucide icon plus its label; the current item has the selected
   fill, the accent icon and a straight marker (`indicator-width`) in the rail's gutter,
   outside the rounded row and never its border. The current module's pages nest under
-  it as sub-items; the page you are on has the same fill and marker. A count is a
+  it as sub-items; the current sub-item uses accent/on-accent fill without a gutter
+  marker, with an on-accent focus frame. A labelled group is a named nested list
+  whose items add 8 px of indent (Ben direct); unlabelled entries keep their base
+  indent and counts keep the same right edge. A count is a
   small box after the label: a plain total in the hover fill, a needs-you count a
   pill in the waiting colour on its soft fill; `99+` above 99; a count of zero draws
   nothing. The number alone is
@@ -150,7 +153,7 @@ page renders in it.
   with its page count and needs-you count, then New project and Manage projects; Remote:
   each saved remote, Add remote, Remote settings). It replaces header dropdowns. On a
   wide screen its pages nest under the current rail item and share the rail's surface,
-  rows and selection marker; on a phone they are a tab strip under the title bar. It has
+  rows and current-page fill; on a phone they are a tab strip under the title bar. It has
   no title of its own.
 - **Header:** one continuous sticky row: the host's header (moved into the shell's bar)
   shows the page title and the page's own actions, with one bottom rule. There is no

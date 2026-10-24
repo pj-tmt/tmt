@@ -3073,17 +3073,22 @@ function mountShell(root, view, select) {
 		list.className = "tmt-ui-rail-sub";
 		list.setAttribute("aria-label", menuView.title);
 		for (const group of menuView.groups) {
+			let entries = list;
 			if (group.label) {
-				const heading = document.createElement("li");
+				const section = document.createElement("li");
+				const heading = document.createElement("div");
 				heading.className = "tmt-ui-rail-sub-group";
-				heading.setAttribute("role", "presentation");
 				heading.textContent = group.label;
-				list.append(heading);
+				entries = document.createElement("ul");
+				entries.className = "tmt-ui-rail-sub-items";
+				entries.setAttribute("aria-label", group.label);
+				section.append(heading, entries);
+				list.append(section);
 			}
 			for (const item of group.items) {
 				const row = document.createElement("li");
 				row.append(menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item));
-				list.append(row);
+				entries.append(row);
 			}
 		}
 		return list;
