@@ -314,6 +314,10 @@ const MIGRATIONS: &[Migration] = &[
         "record refused runtime starts on their binding",
         "schema/063.sql"
     ),
+    migration!(
+        "index the passthrough turns an originator has had answered",
+        "schema/064.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

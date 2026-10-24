@@ -402,6 +402,15 @@ impl RequestRecords for RequestRows<'_> {
         history::list_request_history(self.0, query, limit, now_ms)
     }
 
+    fn list_answers(
+        &self,
+        query: &tmt_core::request::history::AnswersQuery,
+        limit: u64,
+        now_ms: u64,
+    ) -> Result<Vec<tmt_core::request::history::AnsweredRequest>, Self::Error> {
+        history::list_answers(self.0, query, limit, now_ms)
+    }
+
     fn find_request_history(
         &self,
         request_id: &str,
