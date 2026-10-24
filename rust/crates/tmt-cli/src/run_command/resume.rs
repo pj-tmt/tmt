@@ -99,7 +99,10 @@ fn resume_failure(code: &'static str, message: String, name: &str) -> Failure {
 fn session_failure(message: String, name: &str) -> Failure {
     Failure::new(
         "RESUME_UNAVAILABLE",
-        format!("{message} Start fresh from its notes: tmt resume --new {name}"),
+        format!(
+            "{message} Start fresh from its notes: tmt resume --new -- {}",
+            crate::output::shell_word(name)
+        ),
         1,
     )
 }
@@ -122,7 +125,8 @@ fn fresh_command(
             Failure::new(
                 "RESUME_UNAVAILABLE",
                 format!(
-                    "{name} has no remembered driver to start fresh. Launch a command with: tmt run {name} <command>"
+                    "{name} has no remembered driver to start fresh. Launch a command with: tmt run -- {} <command>",
+                    crate::output::shell_word(name)
                 ),
                 1,
             )
@@ -469,14 +473,14 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
     crate::cli_style_tests::HintSpec::core(
-        "{message} Start fresh from its notes: tmt resume --new {name}",
+        "{message} Start fresh from its notes: tmt resume --new -- {}",
         &[""],
-        &[],
+        &[("{}", "worker")],
     ),
     crate::cli_style_tests::HintSpec::core(
-        "{name} has no remembered driver to start fresh. Launch a command with: tmt run {name} <command>",
+        "{name} has no remembered driver to start fresh. Launch a command with: tmt run -- {} <command>",
         &[""],
-        &[("<command>", "claude")],
+        &[("{}", "worker"), ("<command>", "claude")],
     ),
     crate::cli_style_tests::HintSpec::core(
         "{name}'s remembered {harness} session is gone or expired: {harness} no longer keeps its transcript. If it still exists elsewhere, try it once more with: tmt resume --retry {name}.",
@@ -799,7 +803,7 @@ mod presence_tests {
         assert!(message.contains("gone or expired"), "{message}");
         assert!(message.contains("tmt resume --retry Ann"), "{message}");
         assert!(
-            message.ends_with("Start fresh from its notes: tmt resume --new Ann"),
+            message.ends_with("Start fresh from its notes: tmt resume --new -- Ann"),
             "{message}"
         );
         // A stale mark does not hide the more exact reason.
@@ -945,7 +949,7 @@ mod presence_tests {
         let (code, _, message) = refusal(select_fresh(&home, &preferences));
         assert_eq!(code, "RESUME_UNAVAILABLE");
         assert!(message.contains("no remembered driver"), "{message}");
-        assert!(message.contains("tmt run Ann <command>"), "{message}");
+        assert!(message.contains("tmt run -- Ann <command>"), "{message}");
     }
 
     #[test]
@@ -958,9 +962,88 @@ mod presence_tests {
         let (_, _, unreadable) = refusal(select(&home, false, false));
         for message in [missing, stale, unreadable] {
             assert!(
-                message.ends_with("Start fresh from its notes: tmt resume --new Ann"),
+                message.ends_with("Start fresh from its notes: tmt resume --new -- Ann"),
                 "{message}"
             );
+        }
+    }
+
+    /// A printed hint must parse back to the same identity, whatever its name.
+    fn parsed_hint(hint: &str) -> crate::invocation::Invocation {
+        let argv = tmt_cli_style::Example {
+            command: Box::leak(hint.to_owned().into_boxed_str()),
+            note: "printed hint",
+        }
+        .argv()
+        .unwrap();
+        crate::parser::parse(&argv[1..].iter().map(OsString::from).collect::<Vec<_>>())
+            .unwrap_or_else(|error| panic!("{hint}: {}", error.message))
+            .invocation
+    }
+
+    #[test]
+    fn the_fresh_start_hints_quote_the_name_and_parse() {
+        let name = "-Saved agent";
+        let failure = session_failure("Gone.".into(), name);
+        let hint = failure
+            .message
+            .split("Start fresh from its notes: ")
+            .nth(1)
+            .unwrap();
+        assert_eq!(hint, "tmt resume --new -- '-Saved agent'");
+        match parsed_hint(hint) {
+            crate::invocation::Invocation::Resume {
+                fresh,
+                name: Some(parsed),
+                ..
+            } => {
+                assert!(fresh);
+                assert_eq!(parsed, name);
+            }
+            other => panic!("{hint}: {other:?}"),
+        }
+        let mut preferences = preferences(false);
+        preferences.remembered = None;
+        preferences.preferred_harness = None;
+        let home = Home::new("fresh-hint");
+        let refused = select_command_in(
+            &mut RuntimeRegistry::first_party(),
+            RunRequest {
+                name,
+                command: &[],
+                resume: Some(super::super::Resume {
+                    driver: None,
+                    retry: false,
+                    move_running: false,
+                    fresh: true,
+                }),
+                save: false,
+                options: &Default::default(),
+                channel: crate::invocation::ChannelMode::Default,
+            },
+            &preferences,
+            None,
+            Some(&home.environment()),
+        )
+        .err()
+        .unwrap();
+        let hint = refused
+            .message
+            .split("Launch a command with: ")
+            .nth(1)
+            .unwrap()
+            .replace("<command>", "claude");
+        assert_eq!(hint, "tmt run -- '-Saved agent' claude");
+        match parsed_hint(&hint) {
+            crate::invocation::Invocation::Run {
+                name: parsed,
+                command,
+                ..
+            } => {
+                assert_eq!(parsed, name);
+                assert_eq!(command, [OsString::from("claude")]);
+            }
+            other => panic!("{hint}: {other:?}"),
         }
     }
 }

@@ -116,7 +116,7 @@ fn new_after_a_gone_session_launches_fresh_and_a_failed_launch_keeps_the_record(
         assert_eq!(refused.status.code(), Some(1), "{error}");
         assert!(error.contains("is gone or expired"), "{error}");
         assert!(
-            error.contains("Start fresh from its notes: tmt resume --new worker"),
+            error.contains("Start fresh from its notes: tmt resume --new -- worker"),
             "{error}"
         );
         // A launch that cannot start keeps the remembered session for --retry.
@@ -213,5 +213,18 @@ fn new_replays_the_wrapper_and_an_unconfirmed_start_keeps_the_record() {
     );
     let after = remembered(&fixture);
     assert_eq!(after.preferences.remembered, before.preferences.remembered);
+    // `--retry` of the kept session still finds its wrapper.
+    let storage = Storage::open(fixture.state().join("tmt.db")).unwrap();
+    let kept = tmt_adapters::runtime::launch_preset::read_for_session(
+        &storage,
+        &before.entry.identity.id,
+        before.preferences.remembered.as_ref().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        kept.map(|preset| preset.executable),
+        Some(preset.executable),
+        "the kept session lost its launch preset"
+    );
     assert_drivers_ended(&fixture);
 }

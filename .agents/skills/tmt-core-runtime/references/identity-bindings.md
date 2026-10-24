@@ -256,7 +256,7 @@ delivery. They install and launch nothing.
   `Unknown`. A wrapper installed under the driver's own name (for example `~/bin/claude`) is
   still probed, so it needs `--retry` when its sessions live elsewhere. The preset's
   environment keys cannot change the config root. The probe marks, forgets and launches nothing; `--retry`
-  skips it. The missing, unreadable and stale refusals name `tmt resume --new <name>`; `--new`
+  skips it. The missing, unreadable and stale refusals name `tmt resume --new -- <name>`; `--new`
   skips the probe and the stale check. A stale refusal carries `error.reason: session_stale`. Read `error.reason` with
   `error.code`: a runtime refusal keeps its own reason vocabulary.
 - Explicit `resume <name> --move` preflights the exact session and caller destination before

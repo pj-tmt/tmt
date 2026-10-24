@@ -633,8 +633,14 @@ pub(super) fn run_bound(
     };
     let captured_preset = if let Some(session) = rebound {
         replay.zip(owner.as_ref()).map(|(preset, owner)| {
+            // A fresh start ran the preset's own model, not the old session's.
             super::switch_driver::rebound_preset(
-                preset, binding, owner, session, lifecycle, options,
+                preset,
+                binding,
+                owner,
+                switching.is_some().then_some(session),
+                lifecycle,
+                options,
             )
         })
     } else {

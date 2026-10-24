@@ -148,11 +148,13 @@ pub(super) fn activate(
     Ok(())
 }
 
+/// The launch preset this launch records: `session` is the resumed session whose
+/// reported model the launch replayed, if any.
 pub(super) fn rebound_preset(
     previous: &tmt_adapters::runtime::launch_preset::LaunchPreset,
     binding: &Binding,
     owner: &tmt_core::endpoint::ProcessIncarnation,
-    session: &tmt_core::binding::session::RememberedSession,
+    session: Option<&tmt_core::binding::session::RememberedSession>,
     lifecycle: &dyn tmt_adapters::runtime::lifecycle::RuntimeLifecycle,
     options: &tmt_adapters::runtime::launch_preset::LaunchSettings,
 ) -> tmt_adapters::runtime::launch_preset::LaunchPreset {
@@ -167,8 +169,7 @@ pub(super) fn rebound_preset(
         .clone()
         .or_else(|| {
             session
-                .state
-                .as_ref()
+                .and_then(|session| session.state.as_ref())
                 .and_then(|state| lifecycle.state_model(state))
         })
         .or(preset.model);
