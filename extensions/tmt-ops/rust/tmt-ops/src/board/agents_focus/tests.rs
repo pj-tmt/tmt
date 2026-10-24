@@ -228,33 +228,32 @@ fn timer_cells_count_owned_paused_jobs_and_keep_zero_separate_from_unavailable()
     let mut other_room = test_views(1, "elsewhere", "66666666-6666-4666-8666-666666666666");
     other_room[0].job.owner_id = Some(MEMBER.into());
     jobs.extend(other_room);
-    let line_at = |app: &mut App| {
-        let buffer = draw(app, 148, 51);
-        let hit = app
-            .hits
-            .borrow()
-            .iter()
-            .find(|hit| match hit.target {
-                crate::board::app::HitTarget::Row(index) => app
-                    .workspace_rows()
-                    .get(index)
-                    .is_some_and(|row| row.target == selected),
-                _ => false,
-            })
-            .cloned()
-            .expect("painted member row");
-        buffer[(54, hit.y)].symbol().to_owned()
-    };
-    assert_eq!(line_at(&mut app), "—");
+    let unavailable = draw(&mut app, 148, 51);
     app.cron.replace(Ok(test_cron(jobs, ClockStatus::NoClock)));
+    let known = draw(&mut app, 148, 51);
+    let cell = app
+        .cron_scope_hits
+        .borrow()
+        .iter()
+        .find(|hit| hit.target == selected)
+        .expect("painted member timer cell")
+        .area;
+    let text = |buffer: &Buffer| {
+        (cell.x..cell.right())
+            .map(|x| buffer[(x, cell.y)].symbol())
+            .collect::<String>()
+            .trim()
+            .to_owned()
+    };
+    assert_eq!(text(&unavailable), "—");
     assert_eq!(
-        line_at(&mut app),
+        text(&known),
         "2",
         "owned total includes paused, excludes other owner/room"
     );
     app.cron
         .replace(Ok(test_cron(vec![], ClockStatus::NoClock)));
-    assert_eq!(line_at(&mut app), "0");
+    assert_eq!(text(&draw(&mut app, 148, 51)), "0");
 }
 
 #[test]
