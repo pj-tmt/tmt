@@ -395,9 +395,17 @@ fn final_input(
         app.input_viewport.set(Some((editor_area, 0)));
     }
     app.paint_paste_chips(frame, &projection, editor_area);
-    let send = app
-        .composer_info(&projection)
-        .paint(frame.buffer_mut(), field_band, look);
+    let hits = app.composer_info(&projection).paint(
+        frame.buffer_mut(),
+        field_band,
+        look,
+        app.composer.unread_hover.get(),
+    );
+    let send = hits.send;
+    *app.composer.unread_hit.borrow_mut() = hits
+        .unread
+        .zip(projection.key.clone())
+        .map(|(area, key)| crate::board::composer::SendHit { area, key });
     let fallback = projection
         .key
         .as_ref()

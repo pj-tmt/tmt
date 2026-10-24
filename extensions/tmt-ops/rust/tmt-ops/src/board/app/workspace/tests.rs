@@ -3012,6 +3012,9 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
                 .lead = Some(MEMBER.into());
             app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
         }
+        if scene == "unread-chip-hover" {
+            app.composer.unread_hover.set(true);
+        }
         if scene == "unread-cleared" {
             let mut marks = crate::config::ReadMarkers::default();
             marks.advance(&actor, MEMBER, 102).unwrap();

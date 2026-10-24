@@ -220,7 +220,13 @@ submission before leaving the UI; only successful focus publishes that marker.
 The existing ordered lane max-merges shared Config markers. Quiet coalesced writes
 own no action-progress overlay; visible unread clears only after successful
 publication. A failure retains unread evidence and pending updates for an explicit
-reopen/j retry, without an automatic retry loop. Shutdown drains admitted writes
+reopen/j retry, without an automatic retry loop. The composer info line's
+`● N unread` is also a target: a left click, the catalog action `mark-read` (no
+default key; the member menu lists it while something is unread, and it is
+bindable) or the menu entry seals the newest answer of the painted or selected
+recipient from the held answers page, without focusing the composer, and takes
+the same lane and failure path. `● 0 unread` is no target; paint and hover do no
+I/O. Shutdown drains admitted writes
 after restoring the terminal. Shared markers survive restart, named-view changes,
 reset-view and exec reload. Pane captures never supply request read watermarks.
 

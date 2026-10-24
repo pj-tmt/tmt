@@ -13,6 +13,7 @@ pub enum OpsUiAction {
     MonitorDetails,
     MemberSession,
     MemberNotes,
+    MarkRead,
     Previous,
     Next,
     Fold,
@@ -98,6 +99,13 @@ const SPECS: &[OpsUiSpec] = &[
         "member-notes",
         "notes",
         "read and edit the selected agent's Notes list",
+        12
+    ),
+    spec!(
+        MarkRead,
+        "mark-read",
+        "mark read",
+        "mark every answer of the selected agent's conversation read",
         12
     ),
     spec!(
@@ -385,6 +393,7 @@ impl OpsUiAction {
                 | Self::MonitorDetails
                 | Self::MemberSession
                 | Self::MemberNotes
+                | Self::MarkRead
         )
     }
 }
