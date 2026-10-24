@@ -11,8 +11,9 @@ use std::{
 };
 use tmt_remote::{
     firebase_auth::{
-        AuthError, AuthState, Cancellation, Client, Clock, Credential, CredentialStore, FileStore,
-        Http, Jitter, Operation, Project, Request, Response, StoreRead, Time,
+        AuthError, AuthErrorKind, AuthState, Cancellation, Client, Clock, Credential,
+        CredentialStore, FileStore, Http, Jitter, Operation, Project, Request, Response, StoreRead,
+        Time,
     },
     state::Layout,
 };
@@ -636,7 +637,16 @@ fn file_store_rejects_symlink_malformed_and_project_disagreement_without_network
         let http = FakeHttp::new(vec![]);
         let clock = TestClock::new();
         let cancel = AtomicBool::new(false);
-        assert!(Client::load(project(), &store, &http, &clock, &ZeroJitter, &cancel).is_err());
+        let error = Client::load(project(), &store, &http, &clock, &ZeroJitter, &cancel)
+            .err()
+            .unwrap();
+        assert_eq!(error.kind, AuthErrorKind::InvalidCredential);
+        let other = FileStore::new(&layout, "demo-tmt-remote").unwrap();
+        assert_eq!(
+            other.load().err().unwrap().kind,
+            AuthErrorKind::InvalidCredential,
+            "an invalid read must release exclusion for an independent owner"
+        );
         assert!(http.requests.borrow().is_empty());
         assert_eq!(fs::read(root.file()).unwrap(), bytes);
     }
@@ -654,23 +664,27 @@ fn stale_store_snapshot_cannot_overwrite_revoke_or_another_refresh() {
     let old = store.load().unwrap().credential.unwrap();
     let mut revoking = old.clone();
     revoking.mark_revoking();
-    store.replace(Some(&old), &revoking).unwrap();
+    let other = FileStore::new(&layout, "demo-tmt-remote").unwrap();
+    other.replace(Some(&old), &revoking).unwrap();
     assert!(store.replace(Some(&old), &old).is_err());
     assert_eq!(store.load().unwrap().credential, Some(revoking));
 }
 
 #[test]
 fn another_invocation_revoke_fences_a_cached_token_before_use() {
-    let store = MemoryStore::default();
+    let root = Root::new();
+    let layout = Layout::open(&root.0).unwrap();
+    let store = FileStore::new(&layout, "demo-tmt-remote").unwrap();
+    let other = FileStore::new(&layout, "demo-tmt-remote").unwrap();
     let clock = TestClock::new();
     let cancel = AtomicBool::new(false);
     let http = FakeHttp::new(vec![Ok(signup("u1"))]);
     let mut c = client(&store, &http, &clock, &cancel);
     c.sign_in().unwrap();
-    let old = store.load().unwrap().credential.unwrap();
+    let old = other.load().unwrap().credential.unwrap();
     let mut revoking = old.clone();
     revoking.mark_revoking();
-    store.replace(Some(&old), &revoking).unwrap();
+    other.replace(Some(&old), &revoking).unwrap();
     assert!(c.token().is_err());
     assert_eq!(c.status().state, AuthState::Revoking);
     assert!(c.token().is_err());
