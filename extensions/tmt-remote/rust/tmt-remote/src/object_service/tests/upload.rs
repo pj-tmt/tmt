@@ -713,6 +713,11 @@ fn upload_callback_timeout_keeps_original_charged_and_ends_channel() {
 
 #[test]
 fn upload_shutdown_cancels_mutation_joins_writer_and_reacquires_lease() {
+    if crate::test_isolation::isolated_case(
+        "object_service::tests::upload::upload_shutdown_cancels_mutation_joins_writer_and_reacquires_lease",
+    ) {
+        return;
+    }
     let mut env = Env::new();
     let lease = env.serving.lease_diagnostics();
     let (service, peer) = running(&env, bounds());
