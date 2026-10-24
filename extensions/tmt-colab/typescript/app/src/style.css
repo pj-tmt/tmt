@@ -646,13 +646,14 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   margin-top: 12px;
 }
 .management-dialog {
-  width: min(720px, calc(100% - 32px));
+  width: min(560px, calc(100% - 32px));
   max-height: 85vh;
   padding: 0;
   overflow: hidden;
-  background: var(--c-paper);
+  background: var(--tmt-ui-surface-sheet);
   color: var(--c-text);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-l);
   box-shadow: none;
 }
 .management-dialog[open] {
@@ -661,13 +662,13 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .management-dialog > .dialog-bar {
   flex-shrink: 0;
-  padding: 24px 24px 0;
-  border-bottom: 1px solid var(--c-rule);
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
 }
 .management-dialog-body {
   min-height: 0;
   overflow: auto;
-  padding: 0 24px 24px;
+  padding: 16px 22px 22px;
 }
 .management-dialog::backdrop {
   background: #0008;
@@ -686,25 +687,45 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   overflow-wrap: anywhere;
 }
 .management-dialog section {
-  margin: 24px 0;
-  border-top: 1px solid var(--c-rule);
+  margin: 23px 0 0;
+  padding-top: 22px;
+  border-top: 1px solid var(--tmt-ui-surface-rule);
+}
+.management-dialog h3 {
+  margin: 0 0 13px;
+  font: 600 13px/1.4 var(--tmt-ui-font-body);
+}
+.management-dialog p {
+  margin: 0 0 12px;
+  color: var(--c-muted);
+  font: 12px/1.7 var(--tmt-ui-font-body);
 }
 .management-dialog label {
   display: flex;
   flex-direction: column;
+  gap: 6px;
   margin: 12px 0;
+  color: var(--c-muted);
+  font: 12px/1.4 var(--tmt-ui-font-body);
 }
-.management-dialog input:not(.tmt-ui-command-text),
+.management-dialog input:not(.tmt-ui-command-text, [type='checkbox']),
 .management-dialog select {
   width: 100%;
-  padding: 8px;
-  font: inherit;
+  padding: 9px 12px;
+  font: 13px/1.4 var(--tmt-ui-font-body);
   color: var(--c-text);
-  background: var(--c-sheet);
-  border: 1px solid var(--c-text);
+  background: var(--tmt-ui-surface-field);
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
 }
 .management-dialog button:not(.tmt-ui-command-copy) {
   margin: 4px 4px 4px 0;
+  padding: 7px 12px;
+  font: 12px/1.4 var(--tmt-ui-font-body);
+  color: var(--c-text);
+  background: var(--tmt-ui-surface-sheet);
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
 }
 .management-dialog button:not(.tmt-ui-command-copy):disabled {
   opacity: 0.55;
