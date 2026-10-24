@@ -473,6 +473,14 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           0o700
         );
       }
+      // New windows inherit the server environment, not the board pane's PATH.
+      // Publish these scenario peers only to this fixture's asserted private server.
+      const serverPath = fixture.tmux(['show-environment', '-g', 'PATH']).trim();
+      expect(serverPath).toMatch(/^PATH=/);
+      fixture.tmux(['set-environment', '-g', 'PATH', `${shim}:${serverPath.slice(5)}`]);
+      expect(fixture.tmux(['show-environment', '-g', 'PATH']).trim()).toBe(
+        `PATH=${shim}:${serverPath.slice(5)}`
+      );
       await fixture.attachSessionClient('e2e');
       const source = fixture.createShellPane('switch-source').pane;
       fixture.tmux([
@@ -488,7 +496,16 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       });
       const identity = durableIdentity(fixture, 'worker');
       expectJsonResult(
-        await fixture.runCli(['ops', 'squad', 'add', '--squad', 'product', '--json', '--', identity.id])
+        await fixture.runCli([
+          'ops',
+          'squad',
+          'add',
+          '--squad',
+          'product',
+          '--json',
+          '--',
+          identity.id,
+        ])
       );
       const notes = path.join(fixture.globalDir, 'notes', identity.id, 'notes.md');
       fs.mkdirSync(path.dirname(notes), { recursive: true });
@@ -523,11 +540,28 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       fixture.tmux(['send-keys', '-t', board, 'Tab']);
       await fixture.waitForCapture((screen) => screen.includes('Opens with'), board);
       fixture.tmux(['send-keys', '-t', board, 'Enter']);
-      await fixture.waitFor(
-        () => fixture.capture(100, board).includes('worker is running claude'),
-        90_000,
-        'same-UUID driver switch'
-      );
+      try {
+        await fixture.waitFor(
+          () => fixture.capture(100, board).includes('worker is running claude'),
+          90_000,
+          'same-UUID driver switch'
+        );
+      } catch (error) {
+        const panes = fixture.tmux(['list-panes', '-a', '-F', '#{pane_id}']).trim().split('\n');
+        const captures = panes.map((pane) => ({
+          pane,
+          text: fixture.capture(80, pane).slice(-6000),
+        }));
+        const listing = await fixture.runJsonCli(['ls']);
+        const reports = ['codex', 'claude'].map((provider) => {
+          const file = path.join(fixture.root, `switch-${provider}.calls.jsonl`);
+          return { provider, calls: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null };
+        });
+        throw new Error(
+          `Same-UUID switch failed: ${JSON.stringify({ captures, listing: listing.json, reports })}`,
+          { cause: error }
+        );
+      }
       await waitForFileContent(path.join(fixture.root, 'switch-claude.report.json'), {
         description: 'requested lifecycle',
       });
