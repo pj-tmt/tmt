@@ -281,6 +281,7 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
         ),
         ("answer_command.rs", crate::answer_command::PRINTED_HINTS),
         ("appearance.rs", crate::appearance::PRINTED_HINTS),
+        ("attach_command.rs", crate::attach_command::PRINTED_HINTS),
         ("binding_command.rs", crate::binding_command::PRINTED_HINTS),
         (
             "binding_command/session.rs",

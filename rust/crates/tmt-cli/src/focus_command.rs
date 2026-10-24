@@ -1,5 +1,5 @@
-//! `tmt focus`: show a verified identity's pane, or a pane (for example to
-//! return), in the invoking user's tmux client. It changes only the view.
+//! `tmt focus`: show a verified identity's host pane, or attach to a built-in
+//! terminal. Directional focus remains a host-owned pane operation.
 //! `tmt focus --client` only names that client and the pane it shows.
 
 use crate::{

@@ -103,6 +103,29 @@ fn window(cols: u16, rows: u16) -> Size {
     }
 }
 
+fn report_clamp(size: Size, raw: bool) -> io::Result<()> {
+    let mut stderr = tmt_cli_style::stream::stderr();
+    let terminal = stderr.terminal();
+    // Raw mode disables newline translation. Keep this TMT notice on its own
+    // line without parsing or modifying any program Output bytes.
+    if raw {
+        stderr.write_all(b"\r\n")?;
+    }
+    tmt_cli_style::message::warning(
+        &mut stderr,
+        terminal,
+        &format!(
+            "Attachment uses {} columns and {} rows (terminal size clamped)",
+            size.cols, size.rows
+        ),
+        None,
+    )?;
+    if raw {
+        stderr.write_all(b"\r")?;
+    }
+    stderr.flush()
+}
+
 struct Terminal<W: Write> {
     output: W,
     raw: bool,
@@ -134,13 +157,19 @@ impl<W: Write> Terminal<W> {
     fn restore(&mut self) -> io::Result<()> {
         let screen = if self.alternate {
             self.alternate = false;
-            execute!(
+            // Live provider output may enable these terminal modes. Restore
+            // the outer terminal without enabling crossterm event polling.
+            let modes = self
+                .output
+                .write_all(b"\x1b[?2004l\x1b[?1004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
+            let screen = execute!(
                 self.output,
                 ResetColor,
                 SetAttribute(Attribute::Reset),
                 Show,
                 LeaveAlternateScreen
-            )
+            );
+            modes.and(screen)
         } else {
             Ok(())
         };
@@ -205,17 +234,7 @@ pub(crate) fn execute_prepared(
     };
     let effective = window(initial.0, initial.1);
     if effective.cols != initial.0 || effective.rows != initial.1 {
-        let mut stderr = tmt_cli_style::stream::stderr();
-        let terminal = stderr.terminal();
-        tmt_cli_style::message::warning(
-            &mut stderr,
-            terminal,
-            &format!(
-                "Attachment uses {} columns and {} rows (terminal size clamped)",
-                effective.cols, effective.rows
-            ),
-            None,
-        )?;
+        report_clamp(effective, false)?;
     }
     let mut terminal = match Terminal::enter(tmt_cli_style::stream::stdout(false)) {
         Ok(terminal) => terminal,
@@ -229,13 +248,24 @@ pub(crate) fn execute_prepared(
             .publish(mode);
         }
     };
+    let mut last_dimensions = initial;
     let result = pty::attach(
         &mut prepared.connection,
         &io::stdin(),
         &mut terminal.output,
         &mut signals,
         detach_others,
-        || crossterm::terminal::size().map(|(cols, rows)| window(cols, rows)),
+        || {
+            let dimensions = crossterm::terminal::size()?;
+            let effective = window(dimensions.0, dimensions.1);
+            if dimensions != last_dimensions
+                && (effective.cols != dimensions.0 || effective.rows != dimensions.1)
+            {
+                report_clamp(effective, true)?;
+            }
+            last_dimensions = dimensions;
+            Ok(effective)
+        },
     );
     if let Err(error) = terminal.restore() {
         return Failure::new("TERMINAL_RESTORE_FAILED", "Attachment ended, but terminal restoration failed. The member was not stopped; restore this terminal with: stty sane", 1).caused_by(error).publish(mode);
@@ -266,6 +296,30 @@ pub(crate) fn execute_prepared(
     }
     Ok(code)
 }
+
+#[cfg(test)]
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Attachment needs interactive terminal input and output. Run tmt attach <name> in a terminal. No pane input occurred.",
+        &[" in a terminal."],
+        &[("<name>", "worker")],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "This host does not provide a built-in terminal stream. Use tmt focus <name> in its host. No pane input occurred.",
+        &[" in its host."],
+        &[("<name>", "worker")],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "Attachment lost its terminal connection. This does not prove the agent ended; inspect it before retrying: tmt attach -- {}",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "{} ended ({exit:?}); resume with: tmt resume -- {}",
+        &[""],
+        &[],
+    ),
+];
 
 #[cfg(test)]
 mod tests {
