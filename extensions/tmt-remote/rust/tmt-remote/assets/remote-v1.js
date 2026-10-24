@@ -6969,6 +6969,161 @@ async function remoteApp(shell, main, bar, settingsStyles, pages) {
 	await show();
 }
 //#endregion
+//#region src/tmt-settings-parts.ts
+/** Stateless DOM pieces shared by TMT Settings sections. */
+function element$1(tag, className, text) {
+	const node = document.createElement(tag);
+	if (className) node.className = className;
+	if (text !== void 0) node.textContent = text;
+	return node;
+}
+function settingsHead(title, subtitle) {
+	const head = element$1("div", browserUiClasses.pageHead);
+	head.append(element$1("h2", browserUiClasses.pageTitle, title), element$1("p", browserUiClasses.pageSubtitle, subtitle));
+	return head;
+}
+function settingsCard(title, id) {
+	const card = element$1("section", `${browserUiClasses.card} tmt-settings-card`);
+	card.setAttribute("aria-labelledby", id);
+	const heading = element$1("h2", browserUiClasses.cardTitle, title);
+	heading.id = id;
+	card.append(heading);
+	return card;
+}
+function settingsReadOnly() {
+	const badge = element$1("span", `${browserUiClasses.chip} tmt-settings-read-only`);
+	badge.append(createIcon("lock"), element$1("span", browserUiClasses.chipLabel, "Read only"));
+	return badge;
+}
+function settingsNotice(title, description) {
+	const warning = element$1("div", "tmt-settings-warning");
+	warning.setAttribute("role", "note");
+	const lead = element$1("strong");
+	lead.append(createIcon("triangle-alert"), element$1("span", void 0, title));
+	warning.append(lead, element$1("p", void 0, description));
+	return warning;
+}
+//#endregion
+//#region src/tmt-settings-identities.ts
+/** Identity inventory presentation. Selection belongs only to this rendered view. */
+/** Keep the existing live-first, then name order without changing the source records. */
+function orderedIdentities(rows) {
+	return [...rows].sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
+}
+function providerLabel(provider) {
+	if (!provider) return "Not reported";
+	return provider === "codex" ? "Codex" : provider === "claude" ? "Claude" : provider;
+}
+function presence(identity) {
+	const chip = element$1("span", browserUiClasses.chip);
+	chip.dataset.tone = identity.online ? "working" : "muted";
+	const mark = element$1("span", browserUiClasses.stateMark);
+	mark.dataset.shape = identity.online ? "dot" : "ring";
+	mark.setAttribute("aria-hidden", "true");
+	chip.append(mark, element$1("span", browserUiClasses.chipLabel, identity.online ? "Active" : "Offline"));
+	return chip;
+}
+function identitiesView(settings) {
+	const rows = orderedIdentities(settings.identities.rows);
+	const unavailable = settings.identities.unavailable;
+	const notice = settingsNotice(unavailable ? "Web data connection pending" : settings.sample ? "Sample data" : "Read-only identity records", unavailable ? "Core identities are not available in this browser yet. Run tmt ls to see this machine’s identities." : settings.sample ? "These sample records are not this machine. Use tmt ls in your terminal to read identities." : "Manage identities in your terminal. Use tmt ls to inspect the current machine records.");
+	notice.className += " tmt-settings-identity-notice";
+	if (unavailable && unavailable !== notInBrowser("TMT settings", "tmt config show")) {
+		const reason = element$1("p");
+		notAvailable(reason, unavailable);
+		notice.append(reason);
+	}
+	notice.append(commandCopy("tmt ls"));
+	const inventory = settingsCard(settings.sample ? "Sample identities" : "Identities", "tmt-settings-identities-title");
+	inventory.append(settingsReadOnly());
+	if (settings.sample) inventory.append(element$1("p", "tmt-settings-help", "Sample records · Not this machine"));
+	const detail = element$1("aside", `${browserUiClasses.card} tmt-settings-card tmt-settings-identity-detail`);
+	detail.id = "tmt-settings-identity-detail";
+	detail.setAttribute("aria-live", "polite");
+	const explanation = "Identity lifetime and current presence are separate. A saved identity remains when its agent goes offline.";
+	if (!rows.length) {
+		const empty = element$1("div", "tmt-settings-identity-empty");
+		empty.append(element$1("strong", void 0, unavailable ? "Identity inventory unavailable" : "No identities yet."));
+		const reason = element$1("p", "tmt-settings-help");
+		reason.textContent = unavailable ? "No machine records are inferred. Saved identities and current presence are separate facts." : "The source supplied no identity records.";
+		empty.append(reason);
+		inventory.append(empty);
+		const tile = element$1("span", browserUiClasses.glyphTile);
+		tile.append(createIcon("terminal"));
+		detail.append(tile, element$1("h2", browserUiClasses.cardTitle, "Identity lifetime & presence"), element$1("p", "tmt-settings-help", explanation));
+	} else {
+		const table = element$1("table", `${browserUiClasses.table} tmt-settings-identity-table`);
+		table.dataset.roomy = "";
+		table.setAttribute("aria-label", "Identities");
+		const head = element$1("thead");
+		const header = element$1("tr");
+		for (const name of [
+			"Name",
+			"Lifetime",
+			"Provider",
+			"Presence"
+		]) {
+			const cell = element$1("th", void 0, name);
+			cell.scope = "col";
+			header.append(cell);
+		}
+		head.append(header);
+		const body = element$1("tbody");
+		const entries = [];
+		const select = (identity) => {
+			for (const entry of entries) {
+				const current = entry.identity === identity;
+				entry.button.setAttribute("aria-current", String(current));
+				if (current) entry.row.dataset.selected = "";
+				else delete entry.row.dataset.selected;
+			}
+			const title = element$1("h2", browserUiClasses.cardTitle, identity.name);
+			title.id = "tmt-settings-identity-detail-title";
+			detail.setAttribute("aria-labelledby", title.id);
+			const list = element$1("dl", "tmt-settings-identity-facts");
+			for (const [label, value] of [
+				["Lifetime", identity.lifetime === "saved" ? "Saved" : "Temporary"],
+				["Provider", providerLabel(identity.provider)],
+				["Presence", presence(identity)]
+			]) {
+				const valueNode = element$1("dd");
+				valueNode.append(value);
+				list.append(element$1("dt", void 0, label), valueNode);
+			}
+			detail.replaceChildren(title, list, element$1("p", "tmt-settings-help", explanation));
+		};
+		for (const identity of rows) {
+			const tr = element$1("tr");
+			const name = element$1("td");
+			const button = element$1("button", `${browserUiClasses.tableSelect} tmt-settings-identity-name`, identity.name);
+			button.type = "button";
+			button.setAttribute("aria-controls", detail.id);
+			button.addEventListener("click", () => select(identity));
+			entries.push({
+				identity,
+				row: tr,
+				button
+			});
+			name.append(button);
+			const state = element$1("td");
+			state.append(presence(identity));
+			tr.append(name, element$1("td", void 0, identity.lifetime === "saved" ? "Saved" : "Temporary"), element$1("td", void 0, providerLabel(identity.provider)), state);
+			body.append(tr);
+		}
+		table.append(head, body);
+		inventory.append(table);
+		select(rows[0]);
+	}
+	const grid = element$1("div", "tmt-settings-grid");
+	grid.append(inventory, detail);
+	return [
+		settingsHead("Identity management", "The names behind your terminal team."),
+		notice,
+		grid,
+		element$1("p", "tmt-settings-foot", settings.sample ? "Sample identities · Not this machine" : "Read only · Current records require a machine read")
+	];
+}
+//#endregion
 //#region src/settings-source.ts
 /**
 * What the TMT settings page (`/settings`) reads: this machine's identities, installed modules,
@@ -6994,11 +7149,9 @@ var settingsSource = { async read() {
 } };
 //#endregion
 //#region src/tmt-settings-page.ts
-/**
-* TMT's own settings (`/settings`), one section at a time from the module menu: General (theme,
-* then read-only values), Identities, Modules and Drivers & hooks. Everything but the theme is
-* read-only; rows are the shared list rows and every state is a mark and a word.
-*/
+/** TMT Settings follows the shell's section menu. General owns browser appearance and Core
+* guidance; Identities has a read-only table and local detail. Other sections retain their list
+* rows. SettingsSource owns the records; only the shared browser theme choice is persisted. */
 var SECTIONS = [
 	{
 		id: "general",
@@ -7040,7 +7193,7 @@ function settingsRows(section, settings, links = /* @__PURE__ */ new Map()) {
 		detail: row.description,
 		state: row.value
 	}));
-	if (section === "identities") return [...settings.identities.rows].sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name)).map((row) => ({
+	if (section === "identities") return orderedIdentities(settings.identities.rows).map((row) => ({
 		mark: row.online ? "●" : "○",
 		title: row.name,
 		detail: row.provider ? `${row.lifetime} · ${row.provider}` : row.lifetime,
@@ -7162,13 +7315,6 @@ function themeChoice() {
 	group.append(...buttons);
 	return group;
 }
-/** General owns its presentation; the source and theme owner supply the only values. */
-function element$1(tag, className, text) {
-	const node = document.createElement(tag);
-	if (className) node.className = className;
-	if (text !== void 0) node.textContent = text;
-	return node;
-}
 function themePreview(theme) {
 	const preview = element$1("span", "tmt-settings-theme-preview");
 	preview.setAttribute("aria-hidden", "true");
@@ -7186,23 +7332,12 @@ function themePreview(theme) {
 	}
 	return preview;
 }
-function settingsCard(title, id) {
-	const card = element$1("section", `${browserUiClasses.card} tmt-settings-card`);
-	card.setAttribute("aria-labelledby", id);
-	const heading = element$1("h2", browserUiClasses.cardTitle, title);
-	heading.id = id;
-	card.append(heading);
-	return card;
-}
 function generalView(settings) {
-	const head = element$1("div", browserUiClasses.pageHead);
-	head.append(element$1("h2", browserUiClasses.pageTitle, "Make TMT feel like yours."), element$1("p", browserUiClasses.pageSubtitle, "A familiar space, with just the right amount of you."));
+	const head = settingsHead("Make TMT feel like yours.", "A familiar space, with just the right amount of you.");
 	const appearance = settingsCard("Appearance", "tmt-settings-appearance-title");
 	appearance.append(element$1("p", "tmt-settings-intro", "Choose how TMT looks in this browser."), themeChoice(), element$1("p", "tmt-settings-help", "Saved in this browser only. System follows this device."));
 	const core = settingsCard("Core configuration", "tmt-settings-core-title");
-	const badge = element$1("span", `${browserUiClasses.chip} tmt-settings-read-only`);
-	badge.append(createIcon("lock"), element$1("span", browserUiClasses.chipLabel, "Read only"));
-	core.append(badge);
+	core.append(settingsReadOnly());
 	const rows = settingsRows("general", settings);
 	if (rows.length) {
 		const list = element$1("ul", "tmt-ui-list");
@@ -7210,12 +7345,7 @@ function generalView(settings) {
 		core.append(list);
 	}
 	if (!rows.length || settings.general.unavailable) {
-		const warning = element$1("div", "tmt-settings-warning");
-		warning.setAttribute("role", "note");
-		const title = element$1("strong");
-		const mark = createIcon("triangle-alert");
-		title.append(mark, element$1("span", void 0, settings.general.unavailable ? "This browser cannot read Core settings yet." : "No settings to show."));
-		warning.append(title, element$1("p", void 0, "View machine configuration in your terminal."));
+		const warning = settingsNotice(settings.general.unavailable ? "This browser cannot read Core settings yet." : "No settings to show.", "View machine configuration in your terminal.");
 		const reason = settings.general.unavailable;
 		if (reason && reason !== notInBrowser("TMT settings", "tmt config show")) {
 			const detail = element$1("p");
@@ -7252,6 +7382,7 @@ function generalView(settings) {
 /** The section's content. */
 function settingsSection(section, settings, links) {
 	if (section === "general") return generalView(settings);
+	if (section === "identities") return identitiesView(settings);
 	const rows = settingsRows(section, settings, links);
 	const body = [];
 	if (rows.length) {
@@ -7281,10 +7412,15 @@ function tmtSettingsPage(shell, source = settingsSource) {
 	const paint = () => {
 		if (!live()) return;
 		const section = current();
+		if (settings) {
+			note.replaceChildren();
+			note.hidden = !settings.sample || section === "identities";
+			if (!note.hidden) notAvailable(note, "Sample data: Core has no web read of this machine yet. `tmt ls`, `tmt extension ls` and `tmt driver ls` show the real values.");
+		}
 		const page = document.getElementById("tmt-settings-page");
 		if (page) {
 			page.dataset.section = section;
-			page.className = `tmt-page tmt-settings${section === "general" ? " tmt-ui-page" : ""}`;
+			page.className = `tmt-page tmt-settings${section === "general" || section === "identities" ? " tmt-ui-page" : ""}`;
 		}
 		shell.setMenu({
 			title: "TMT settings",
@@ -7307,8 +7443,6 @@ function tmtSettingsPage(shell, source = settingsSource) {
 	source.read().then((next) => {
 		if (!live()) return;
 		settings = next;
-		note.textContent = next.sample ? "Sample data: Core has no web read of this machine yet. `tmt ls`, `tmt extension ls` and `tmt driver ls` show the real values." : "";
-		note.hidden = !next.sample;
 		paint();
 	}, () => {
 		if (!live()) return;

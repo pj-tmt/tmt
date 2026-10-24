@@ -1532,3 +1532,79 @@ test.describe('Settings General website presentation', () => {
       }
     });
 });
+
+test.describe('Settings Identities website presentation', () => {
+  for (const width of [1440, 390])
+    for (const theme of ['light', 'dark'])
+      test(`Identities unavailable cards at ${width} ${theme}`, async () => {
+        const { page, requests } = await openApp('/settings#identities', async (page) => {
+          await page.setViewportSize({ width, height: 1050 });
+          await page.emulateMedia({ colorScheme: theme as 'light' | 'dark' });
+          await page.addInitScript((theme) => localStorage.setItem('tmt-ui-theme', theme), theme);
+        });
+        try {
+          const main = page.locator('#tmt-settings-page');
+          await expect(main).toHaveClass(/tmt-ui-page/);
+          await expect(main.getByRole('heading', { name: 'Identity management' })).toBeVisible();
+          await expect(main).toContainText('Identity inventory unavailable');
+          await expect(main.locator('code')).toHaveText('tmt ls');
+          await expect(main.locator('tbody')).toHaveCount(0);
+          await expect(page.locator('#tmt-settings-note')).toBeHidden();
+          await expect(main).not.toContainText('core-1');
+          await expect(main).toHaveCSS('padding-left', width === 390 ? '18px' : '36px');
+          await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
+          const grid = await main.locator('.tmt-settings-grid').boundingBox();
+          const foot = await main.locator('.tmt-settings-foot').boundingBox();
+          expect(foot!.width).toBeCloseTo(grid!.width, 0);
+          await expect(
+            modulePages(page).getByRole('link', { name: 'Identities', exact: true }),
+          ).toHaveAttribute('aria-current', 'page');
+          if (process.env.TMT_IDENTITIES_CAPTURE_DIR) {
+            await page.evaluate(() => document.fonts.ready);
+            await page.screenshot({
+              path: join(
+                process.env.TMT_IDENTITIES_CAPTURE_DIR,
+                `identities-native-${width}-${theme}.png`,
+              ),
+              fullPage: true,
+            });
+          }
+          expect(
+            requests.filter((request) =>
+              /\/x\/.*\/(identities|config)(?:\?|$)/.test(request.url()),
+            ),
+          ).toEqual([]);
+        } finally {
+          await page.close();
+        }
+      });
+  for (const denied of [false, true])
+    test(`Identities Copy ${denied ? 'denied' : 'succeeds'} without command execution`, async () => {
+      const { page } = await openApp('/settings#identities', async (page) => {
+        await page.addInitScript((denied) => {
+          Object.defineProperty(navigator, 'clipboard', {
+            value: {
+              writeText: async (text: string) => {
+                (window as unknown as { copiedIdentityCommand: string }).copiedIdentityCommand =
+                  text;
+                if (denied) throw new Error('denied');
+              },
+            },
+          });
+        }, denied);
+      });
+      try {
+        await page.getByRole('button', { name: 'Copy tmt ls' }).click();
+        await expect(page.locator('.tmt-settings .tmt-ui-command-feedback')).toHaveText(
+          denied ? 'Copy failed. Select the command and copy it manually.' : 'Copied.',
+        );
+        expect(
+          await page.evaluate(
+            () => (window as unknown as { copiedIdentityCommand: string }).copiedIdentityCommand,
+          ),
+        ).toBe('tmt ls');
+      } finally {
+        await page.close();
+      }
+    });
+});
