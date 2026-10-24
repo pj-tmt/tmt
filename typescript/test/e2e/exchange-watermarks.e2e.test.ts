@@ -259,6 +259,7 @@ describe('exchange attention watermarks and revision fencing', { concurrent: fal
             recipientIdentityId: created.identity.id,
             preparedAtMs: expect.any(Number),
             delivery: 'queued',
+            messageState: expect.objectContaining({ state: 'delivered' }),
             urgent: false,
             digestKind: 'fyi',
             mode: 'request',
