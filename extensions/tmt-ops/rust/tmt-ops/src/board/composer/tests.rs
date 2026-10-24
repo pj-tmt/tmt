@@ -1035,6 +1035,18 @@ fn colab_link_and_exact_source_context_survive_composer_reader_and_tab_transitio
     for tab in ['1', '2'] {
         app.key(KeyEvent::new(KeyCode::Char(tab), KeyModifiers::NONE));
         draw(&mut app, 100, 36);
+        if tab == '2' {
+            assert_eq!(
+                app.workspace.selected,
+                Some(crate::board::workspace::OpsTarget::DigestAll)
+            );
+            let member = app
+                .workspace_rows()
+                .iter()
+                .position(|row| Some(&row.target) == selected.as_ref())
+                .unwrap();
+            app.select(member);
+        }
         assert_eq!(app.workspace.selected, selected);
     }
     assert_eq!(

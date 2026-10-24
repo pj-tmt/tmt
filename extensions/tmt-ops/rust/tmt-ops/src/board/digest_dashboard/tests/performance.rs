@@ -304,6 +304,7 @@ fn digest_full_status_frame_timing() {
                     result: Ok(exchanges.clone()),
                 });
             key(&mut app, KeyCode::Char('2'));
+            let digest_selection = app.workspace.selected.clone();
             let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
             for _ in 0..10 {
                 measure(&mut app, &mut terminal, |_, _| {});
@@ -326,7 +327,7 @@ fn digest_full_status_frame_timing() {
                 }));
             }
             checked(rows, "digest-full-status-replacement", samples);
-            assert_eq!(app.workspace.selected, Some(target));
+            assert_eq!(app.workspace.selected, digest_selection);
         }
     });
 }

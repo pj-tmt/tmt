@@ -197,7 +197,14 @@ fn picker_cancel_and_destination_keys_never_apply_a_membership() {
         paint(&app, 60, 18);
         assert_eq!(key(&mut app, exit), Effect::None);
         assert!(app.menu.is_none() && app.workspace_form.is_none());
-        assert_eq!(app.workspace.selected, selected);
+        if exit == KeyCode::Char('2') {
+            assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
+            key(&mut app, KeyCode::Char('1'));
+            assert_eq!(app.workspace.selected, selected);
+            key(&mut app, KeyCode::Char('2'));
+        } else {
+            assert_eq!(app.workspace.selected, selected);
+        }
         assert_eq!(
             app.shell.tab,
             if exit == KeyCode::Char('2') {

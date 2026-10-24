@@ -176,14 +176,29 @@ fn press(app: &mut crate::board::app::App, key: char) -> crate::board::app::Effe
     app.key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE))
 }
 
+/// Member-specific controls require an explicit choice after Digest opens on all.
+fn select_worker(app: &mut crate::board::app::App) {
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| {
+            matches!(&row.target,
+        OpsTarget::Member { identity_id, .. } if identity_id == MEMBER)
+        })
+        .unwrap();
+    app.select(index);
+}
+
 #[test]
-fn shell_dashboard_keeps_the_same_identity_and_uses_the_supplied_picker() {
+fn an_explicit_digest_member_selection_uses_the_supplied_picker() {
     use crate::board::app::{Effect, Request};
     let mut app = board();
     let _no_commands = crate::runner::forbid_commands();
     app.labels = supplied(serde_json::json!(3), false);
     let selected = app.workspace.selected.clone();
     press(&mut app, '2');
+    assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
+    select_worker(&mut app);
     assert_eq!(app.shell.tab, crate::board::shell::OpsTab::Digest);
     assert_eq!(app.workspace.selected, selected);
     assert_eq!(app.workspace_rows().len(), 2);
@@ -208,6 +223,8 @@ fn status_loss_and_low_height_do_not_leave_old_chip_pointer_authority() {
     let mut app = board();
     app.labels = supplied(serde_json::json!(3), false);
     press(&mut app, '2');
+    assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
+    select_worker(&mut app);
     paint(&mut app, 160, 36);
     assert!(!app.chip_hits.borrow().is_empty());
     let selected = app.workspace.selected.clone();
@@ -929,6 +946,8 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = valued_board();
     press(&mut app, '2');
+    assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
+    select_worker(&mut app);
     let shown = paint(&mut app, 200, 60);
     let pane = app.conversation.borrow().pane.unwrap();
     let cells: Vec<_> = shown.chars().collect();
@@ -1173,6 +1192,8 @@ fn digest_shared_range_does_not_relabel_a_supplier_lifetime_estimate() {
     document["members"][0]["savings"]["window"] = serde_json::json!("lifetime");
     app.labels = crate::labels::Supplied::from_document("digest", &document, false);
     press(&mut app, '2');
+    assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
+    select_worker(&mut app);
     let shown = paint(&mut app, 160, 44);
     assert!(shown.contains("Est. ctx avoided 1d: —"), "{shown}");
     assert!(
@@ -1229,6 +1250,8 @@ fn window_choice_uses_the_existing_cas_and_never_relabels_old_evidence() {
         .preferences
         .tok_range = crate::config::TokRange::Week;
     press(&mut app, '2');
+    assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
+    select_worker(&mut app);
     let shown = paint(&mut app, 160, 36);
     assert!(shown.contains("Est. ctx avoided 7d: — (0 of 1)"), "{shown}");
     assert!(
@@ -1473,6 +1496,8 @@ fn digest_details_paints_observation_age_with_the_apps_local_clock() {
     app.labels = crate::labels::Supplied::from_document("digest", &document, false);
     app.local_zone = Some(jiff::tz::TimeZone::get("Asia/Tokyo").unwrap());
     press(&mut app, '2');
+    assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
+    select_worker(&mut app);
     crate::status::with_now_ms(1_791_600_120_000, || {
         let shown = paint(&mut app, 160, 44);
         assert!(shown.contains("Status observed: 2m ago (11:40)"), "{shown}");
