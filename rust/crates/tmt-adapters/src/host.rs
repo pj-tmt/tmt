@@ -48,8 +48,8 @@ pub use crate::tmux::{
 };
 pub(crate) use delivery::DeliveryCause;
 pub use delivery::{DeliveryError, DeliveryStage};
-pub use driver::PaneSwap;
 pub use driver::{AgentNameRefusal, AgentNaming};
+pub use driver::{Kept, PaneClose, PaneSwap};
 pub use tmt_core::discovery::DiscoveryObservation;
 pub use tmt_core::host::SwapDirection;
 
@@ -1135,6 +1135,12 @@ impl<R: CommandRunner> BindingSession<'_, R> {
             HostKind::Tmux => &mut self.tmux,
             HostKind::External(host) => self.external.driver(host),
         }
+    }
+
+    /// Closes the member's pane only when the host says tmt opened it; see
+    /// [`driver::close_opened_pane`].
+    pub fn close_opened_pane(&mut self, entry: &BindingEntry) -> Result<PaneClose, ActionError> {
+        driver::close_opened_pane(self.driver(binding_host(entry, self.primary)), entry)
     }
 
     pub fn swap_into(

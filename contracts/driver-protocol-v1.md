@@ -15,7 +15,7 @@ and guides link here instead of repeating it.
   through `resolve-target`, lists bindings through `snapshot`, keeps markers
   with `publish` and `clear`, records the server through `server`, and
   delivers, reads and focuses through `prompt`, `input`, `capture` and
-  `focus`. Users approve, list and remove drivers with
+  `focus`, and closes a pane it opened through `close`. Users approve, list and remove drivers with
   `tmt driver install|ls|rm`. Herdr is served only by its first-party driver,
   `tmt-driver-herdr`, which ships in the CLI release (#1082). TMT approves
   that shipped driver itself on first use in a Herdr pane, unless the user
@@ -219,10 +219,9 @@ A `Pane`:
   sets no mark. The mark is a property the host keeps with the pane itself (tmux:
   the pane option `@tmt.opened`, which stays through a respawn of the pane's
   process). It is evidence of intent, never authority: reading it allows
-  nothing. `tmt stop --close` (#4579) will still run the whole verified stop
-  first and close only that one pane, and a template a user edited so that it
-  leaves no mark gives a pane `--close` refuses, with a next step. Nothing in
-  core reads the field yet.
+  nothing. `tmt stop --close` reads it, after the whole verified stop, to decide
+  whether to ask for [`close`](#close); a template a user edited so that it
+  leaves no mark gives a pane `--close` leaves open, with a next step.
 - **Text:** all text is free of control characters.
 
 ### `probe`
@@ -344,6 +343,25 @@ message. A driver that also lists `prompt` gets an `input` only after a
 (`enter: true`). Core may also stage them: `input(text, enter: false)`, then
 after its paste-to-Enter delay `input("", enter: true)`. The delay stays core
 policy, and a driver adds no delay of its own.
+
+### `close`
+
+- **Request:** `{"socket", "paneId", "panePid"}`. **Answer:** `{}`.
+- **Optional.** A driver lists `close` only when it can close exactly one pane. A
+  driver that does not, such as Herdr today, is never asked: `tmt stop --close`
+  leaves its panes open and says so.
+- **When core asks:** only for `tmt stop --close`, after the member's agent was
+  stopped (or had already ended), and only for the binding's own pane. Core
+  first reads that one pane with `snapshot` and asks only while it is still the
+  verified shell and carries `openedByTmt: true`. A pane without the mark, a
+  pane the snapshot does not list, or an unknown answer is never closed. Core
+  sends at most one `close` per command and never retries it, whatever the answer.
+- **What the driver closes:** exactly that pane, and only while it still runs the
+  shell `panePid`; otherwise it answers `not_found`. It closes no neighbouring pane
+  and no window, tab, workspace or session that merely holds the pane. A driver
+  that cannot close the pane without ending its host server (the only pane left)
+  refuses with `failed`.
+- **Missing pane:** `not_found`.
 
 ### `prompt`
 

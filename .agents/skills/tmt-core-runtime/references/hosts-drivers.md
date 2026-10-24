@@ -207,8 +207,13 @@ channels and the driver protocol. The owner map is in
   capability) is data core publishes and never runs: Ops expands and runs it. The tmux
   template is the constant in `tmt-adapters::tmux::launch`; `host::launch::launch_templates`
   composes it with each approved driver's (an `ok` driver only) for `tmt host templates`.
-  The mark a template leaves is `openedByTmt` evidence; `tmt stop --close` (#4579) is its
-  reader, and it still runs the verified stop first.
+  The mark a template leaves is `openedByTmt` evidence; `tmt stop --close` is its reader. It
+  runs the verified stop first (`verified_stop`, shared with `resume --move`), then asks the
+  host to close that one pane (`HostDriver::{close_preflight, opened_by_tmt, close_pane}`,
+  policy in `host::driver::close_opened_pane`). The op is optional and capability-gated: tmux
+  closes through `Tmux::close_opened_pane` (one `kill-pane`, never the server's last pane),
+  an external driver through its `close` op, and a host without either leaves the pane open.
+  An unmarked, unknown or unlisted pane is never closed, and no close is retried.
 - A runtime driver's hook path is declarative (`RuntimeDeclaration` plus `decode_hook`, no
   process); only `locations`, `resume` and `usage` run the driver. The client validates the
   `locations` answer and calls `within(home)` before admitting write targets; approval alone

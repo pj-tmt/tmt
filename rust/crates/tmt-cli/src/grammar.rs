@@ -125,6 +125,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(requests::talk())
     .subcommand(presence::check())
     .subcommand(presence::focus())
+    .subcommand(presence::stop())
     .subcommand(presence::whoami())
     .subcommand(presence::unbind())
     .subcommand(installation::extension())
@@ -376,6 +377,7 @@ fn option(id: &'static str) -> Arg {
         "no-preamble" => flag("Skip the recipient preamble"),
         "stdin" => flag("Read complete input through EOF"),
         "capture-only" => flag("Capture the pane without delivering a retained Digest checklist"),
+        "close" => flag("Also close the pane tmt opened for the agent; never one you created"),
         "skill" => Arg::new(id)
             .long(id)
             .help("Print an exact bundled skill (default: tmt)")

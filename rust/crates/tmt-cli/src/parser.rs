@@ -479,6 +479,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             name: required(m, "name"),
             force: flag(m, "force"),
         },
+        ["stop"] => Invocation::Stop {
+            name: required(m, "name"),
+            close: flag(m, "close"),
+        },
         ["mv"] | ["identity", "mv"] => Invocation::Rename {
             old: required(m, "old"),
             new: required(m, "new"),

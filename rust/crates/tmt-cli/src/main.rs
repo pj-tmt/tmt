@@ -58,9 +58,11 @@ mod send_now_command;
 mod setup_command;
 mod skill_refresh_command;
 mod skill_reminder;
+mod stop_command;
 mod talk_command;
 mod target;
 mod uninstall_command;
+mod verified_stop;
 mod workspace_command;
 mod workspace_hook;
 mod workspace_restore_command;
@@ -413,6 +415,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             capture_only,
         } => {
             return check_command::execute(target, lines, capture_only, parsed.mode);
+        }
+        Invocation::Stop { name, close } => {
+            return stop_command::execute(name, close, parsed.mode);
         }
         Invocation::Focus { target, into } => {
             return focus_command::execute(target, into, parsed.mode);

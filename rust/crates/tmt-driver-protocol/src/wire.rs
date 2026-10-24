@@ -246,6 +246,19 @@ pub struct FocusRequest {
     pub pane_id: String,
 }
 
+/// Closes exactly this pane, and only while it still runs `pane_pid`; otherwise
+/// `not_found`. Core asks only after it verified the pane and read the host's
+/// own mark that tmt opened it. The driver closes nothing else: no neighbouring
+/// pane, and no window, tab, workspace or session that merely holds it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloseRequest {
+    pub socket: String,
+    pub pane_id: String,
+    /// Refuse with `not_found` unless the pane still runs this shell.
+    pub pane_pid: u64,
+}
+
 /// Gives the agent the host recognizes in the pane the agent name `name`,
 /// over any name it has. With `name: None` it takes the agent name away only
 /// when it equals `expected`, the identity's name: a different or missing
