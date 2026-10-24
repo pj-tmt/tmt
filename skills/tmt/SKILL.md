@@ -824,7 +824,14 @@ that fails before the provider confirms the session marks it stale
 and `--move` skips the check, as does a resume that replays a wrapper (a launch
 preset whose executable file name is not the driver's own). A wrapper installed
 under the driver's own name, such as `~/bin/claude` that sets `CLAUDE_CONFIG_DIR`,
-is still checked; use `--retry` for it. Never
+is still checked; use `--retry` for it. The gone, unreadable and stale refusals
+end with `Start fresh from its notes: tmt resume --new <name>`. `--new` keeps the
+identity and starts its driver (the remembered one, else the preferred one) with
+a fresh session. Bounded notes and open-request metadata are its first message,
+as in a driver switch; nothing is stopped or asked of an old agent. It replays
+the old session's launch preset. The old session stays remembered until the new
+session starts, so a failed start keeps it for `--retry`. `--new` cannot be
+combined with `--retry`, `--move`, `--driver`, `--show` or `--forget*`. Never
 combine `--resume` with an explicit command, and never resend a task after a
 failed resume. Codex's opt-in channel resumes the exact selected thread, never
 a fresh substitute. Claude exact resume also creates a fresh channel enrollment

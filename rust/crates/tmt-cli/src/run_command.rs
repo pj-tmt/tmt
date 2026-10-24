@@ -55,6 +55,9 @@ pub struct Resume<'a> {
     pub retry: bool,
     /// Stop the exact old agent before moving this identity to the caller pane.
     pub move_running: bool,
+    /// Start the identity's driver with a fresh session, handed off from its
+    /// notes and open requests, instead of resuming the remembered one.
+    pub fresh: bool,
 }
 
 // The extension envelope (#324/#328) will supply registered observers here.
@@ -500,6 +503,7 @@ mod tests {
         driver: None,
         retry: false,
         move_running: false,
+        fresh: false,
     });
 
     fn select_command(
@@ -633,6 +637,7 @@ mod tests {
                 driver: None,
                 retry: true,
                 move_running: false,
+                fresh: false,
             }),
             &preferences,
         )

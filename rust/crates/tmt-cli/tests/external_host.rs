@@ -21,6 +21,8 @@ mod nested_host;
 mod nested_provider;
 #[path = "external_host/passthrough.rs"]
 mod passthrough;
+#[path = "external_host/resume_new.rs"]
+mod resume_new;
 #[path = "external_host/run_exit.rs"]
 mod run_exit;
 #[path = "external_host/sampling.rs"]

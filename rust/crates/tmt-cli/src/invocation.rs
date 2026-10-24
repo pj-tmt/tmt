@@ -94,6 +94,7 @@ pub enum Invocation {
         name: Option<String>,
         driver: Option<String>,
         move_running: bool,
+        fresh: bool,
         show: bool,
         forget_launch: bool,
         model: Option<String>,

@@ -350,6 +350,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             name: text(m, "name"),
             driver: text(m, "driver"),
             move_running: flag(m, "move") || text(m, "driver").is_some(),
+            fresh: flag(m, "new"),
             show: flag(m, "show"),
             forget_launch: flag(m, "forget-launch"),
             model: text(m, "model"),

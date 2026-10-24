@@ -312,3 +312,50 @@ fn launch_host_choices_are_typed_and_keep_provider_arguments_opaque() {
         matches!(parsed.invocation,Invocation::Run {host:None,command,..} if command==args(&["fake","--host","provider-host"]))
     );
 }
+
+#[test]
+fn resume_new_starts_fresh_and_refuses_every_other_session_choice() {
+    for words in [
+        vec!["resume", "--new", "worker"],
+        vec![
+            "resume",
+            "--new",
+            "--model",
+            "sonnet",
+            "--no-channel",
+            "worker",
+        ],
+        vec!["resume", "--new"],
+    ] {
+        match parsed(&words).invocation {
+            Invocation::Resume {
+                fresh,
+                move_running,
+                retry,
+                driver,
+                ..
+            } => {
+                assert!(fresh, "{words:?}");
+                assert!(!move_running && !retry && driver.is_none(), "{words:?}");
+            }
+            other => panic!("--new must stay on the resume owner: {other:?}"),
+        }
+    }
+    for flag in [
+        vec!["--retry"],
+        vec!["--move"],
+        vec!["--driver", "codex"],
+        vec!["--show"],
+        vec!["--forget"],
+        vec!["--forget-launch"],
+    ] {
+        let mut words = vec!["resume", "--new"];
+        words.extend(flag);
+        words.push("worker");
+        assert_eq!(
+            parse(&args(&words)).unwrap_err().code,
+            "USAGE_ERROR",
+            "{words:?}"
+        );
+    }
+}

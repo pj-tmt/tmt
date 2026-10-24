@@ -144,7 +144,7 @@ pub(in crate::grammar) fn resume() -> Command {
         [
             "Resume an identity's last session" => "tmt resume worker",
             "Move a running member here" => "tmt resume worker --move",
-            "Forget an identity's last session" => "tmt resume --forget worker",
+            "Start a fresh session from the notes" => "tmt resume --new worker",
         ]
     ))
     .arg(
@@ -162,6 +162,20 @@ pub(in crate::grammar) fn resume() -> Command {
             .requires("name")
             .conflicts_with_all(["forget", "forget-launch", "show"])
             .help("Stop the verified agent in its old pane, then resume its session here"),
+    )
+    .arg(
+        Arg::new("new")
+            .long("new")
+            .action(ArgAction::SetTrue)
+            .conflicts_with_all([
+                "driver",
+                "move",
+                "retry",
+                "forget",
+                "forget-launch",
+                "show",
+            ])
+            .help("Start a fresh session for this identity, handed off from its notes"),
     )
     .arg(
         Arg::new("forget")

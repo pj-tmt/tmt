@@ -696,6 +696,17 @@ stopping anything. A message-channel launch that cannot accept initial handoff
 input refuses before handoff or stop and offers `--no-channel`; existing channel
 admission and initial-prompt refusals remain unchanged.
 
+`tmt resume <identity> --new` starts the same identity's driver with a fresh
+session: the remembered session's driver, else the preferred one. It stops
+nothing and asks nothing of an old agent; a live one refuses as for an ordinary
+resume. The fallback handoff above is its first input, under the same
+initial-message and channel rules. It replays the launch preset associated with
+the old session (executable, settings, environment keys), keeps that preset under
+`resume.driver.<harness>`, and clears no record before launch: the new session's
+start hook replaces the remembered session, so a failed or unconfirmed start keeps
+it for `--retry`. `--new` conflicts with `--retry`, `--move`, `--driver`, `--show`,
+`--forget` and `--forget-launch`.
+
 #### `usage`
 
 - **Request:** `{"session": "…", "transcript": "/Users/ann/.kimi/sessions/x.jsonl"}`.
