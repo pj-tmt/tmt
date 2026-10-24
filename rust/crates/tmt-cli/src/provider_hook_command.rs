@@ -52,11 +52,13 @@ pub fn execute(
     let mut failure_reason = Reason::WorkerError;
     // A turn end fires after every turn; its failures stay silent.
     let mut turn_end = false;
+    let mut empty_hook_output = "";
     let mut publication_deadline = started;
     let result = (|| {
         let registry = RuntimeRegistry::first_party();
         let harness = HarnessId::new(provider).map_err(|_| ())?;
         let lifecycle = registry.lifecycle(&harness).ok_or(())?;
+        empty_hook_output = lifecycle.empty_hook_output();
         let channel_duration = (!worker).then(|| lifecycle.hook_work_duration()).flatten();
         let duration = if worker {
             crate::invocation::hook_worker_duration(work_budget_ms)
@@ -135,10 +137,13 @@ pub fn execute(
         }
     }
     match result {
-        Ok(observation) => {
+        Ok(mut observation) => {
             if worker {
                 let _ = io::stdout().lock().write_all(&observation.encode());
             } else {
+                if observation.context.is_empty() && !empty_hook_output.is_empty() {
+                    observation.context = empty_hook_output.to_owned();
+                }
                 crate::workspace_hook::publish(
                     &mut io::stdout().lock(),
                     observation,
@@ -151,6 +156,8 @@ pub fn execute(
                 // Cleanup must precede worker exit: the supervisor cannot
                 // safely signal a group after reaping its numeric leader.
                 let _ = SupervisedProbeRunner::abort_worker_group();
+            } else if !empty_hook_output.is_empty() {
+                let _ = io::stdout().lock().write_all(empty_hook_output.as_bytes());
             }
             if !turn_end {
                 let _ = writeln!(io::stderr().lock(), "{ERROR_LINE}");
@@ -734,6 +741,26 @@ fn observe(
         );
     }
     let event = lifecycle.decode(input.as_bytes()).ok_or(())?;
+    observe_lifecycle_event(
+        provider,
+        harness,
+        lifecycle,
+        input.as_bytes(),
+        event,
+        deadline,
+        learning,
+    )
+}
+
+fn observe_lifecycle_event(
+    provider: &str,
+    harness: HarnessId,
+    lifecycle: &dyn RuntimeLifecycle,
+    input: &[u8],
+    event: Box<dyn tmt_adapters::runtime::lifecycle::LifecycleObservation>,
+    deadline: Instant,
+    learning: Option<&Learning>,
+) -> Result<Observation, ()> {
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
         return Ok(Observation::default());
@@ -896,7 +923,7 @@ fn observe(
             &binding.id,
             owner,
             session,
-            &registry,
+            &RuntimeRegistry::first_party(),
         )
         .map_err(|_| ())?;
     }
@@ -923,7 +950,7 @@ fn observe(
             .as_ref()
             .is_some_and(|r| r.harness == harness && &r.provider_session == event.session())
     {
-        let locator = lifecycle.consumption_locator(input.as_bytes(), &environment);
+        let locator = lifecycle.consumption_locator(input, &environment);
         storage
             .commit_runtime_observation(tmt_adapters::storage::RuntimeObservation {
                 expected: &refreshed,
@@ -1327,6 +1354,27 @@ fn observe_main_event(
             BindingEvidence::Active(_)
         )
     {
+        if let Some(bytes) = payload
+            && let Some(event) = lifecycle.decode(bytes)
+            && event.starting()
+            && stored
+                .preferences
+                .remembered
+                .as_ref()
+                .is_some_and(|remembered| {
+                    &remembered.harness == harness && &remembered.provider_session == session
+                })
+        {
+            return observe_lifecycle_event(
+                provider,
+                harness.clone(),
+                lifecycle,
+                bytes,
+                event,
+                deadline,
+                None,
+            );
+        }
         return Ok(Observation::default());
     }
     let context = if payload.is_some() {
@@ -1418,7 +1466,7 @@ fn observe_main_event(
             activity.event.kind == tmt_core::binding::session::activity::EventKind::TurnStarted
         })
         .and(payload)
-        .and_then(tmt_adapters::runtime::hook_protocol::decode_prompt_text);
+        .and_then(|bytes| lifecycle.decode_prompt_text(bytes));
     let boundary = prompt
         .as_deref()
         .map(|prompt| tmt_adapters::storage::TurnBoundary::Started {

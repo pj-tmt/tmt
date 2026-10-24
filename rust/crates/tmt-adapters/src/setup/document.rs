@@ -2,7 +2,7 @@
 //! the edited value. RawValue borrows retain opaque numbers and user hook text.
 
 use super::{PlanError, SETTINGS_LIMIT};
-use crate::drivers::DriverDefinition;
+use crate::drivers::{DriverDefinition, HookFormat};
 use serde::{
     Deserialize, Deserializer,
     de::{MapAccess, Visitor},
@@ -63,6 +63,20 @@ fn set(text: &str, key: &str, value: &str) -> Result<String, PlanError> {
     Ok(result)
 }
 
+fn container_key(provider: &DriverDefinition) -> &'static str {
+    match provider.descriptor.hooks {
+        Some(HookFormat::NamedHooksJson) => "tmt",
+        Some(HookFormat::SessionHooksJson) | None => "hooks",
+    }
+}
+
+pub(super) fn lifecycle_events(provider: &DriverDefinition) -> &'static [&'static str] {
+    match provider.descriptor.hooks {
+        Some(HookFormat::NamedHooksJson) => &["SessionStart", "PreInvocation"],
+        Some(HookFormat::SessionHooksJson) | None => &LIFECYCLE,
+    }
+}
+
 /// Compose ephemeral hooks using setup's exact ownership rule. Existing owned
 /// observation hooks at either level remain the sole recorder for their event.
 /// All unrelated JSON, including opaque number spellings, stays raw.
@@ -85,8 +99,9 @@ pub(crate) fn compose_launch_hooks(
             }
         }
     }
+    let container = container_key(provider);
     let root = object(text)?;
-    let mut hooks = field(&root, "hooks").unwrap_or("{}").to_owned();
+    let mut hooks = field(&root, container).unwrap_or("{}").to_owned();
     object(&hooks)?;
     for (event, entry) in observations {
         // Validate ownership even when it is ambiguous: never double-record an
@@ -98,7 +113,7 @@ pub(crate) fn compose_launch_hooks(
         }
     }
     hooks = append_event(&hooks, "Stop", digest)?;
-    let result = set(text, "hooks", &hooks)?;
+    let result = set(text, container, &hooks)?;
     if result.len() > SETTINGS_LIMIT {
         return Err(PlanError::TooLarge);
     }
@@ -120,7 +135,7 @@ pub(crate) fn owned_event(
     event: &str,
 ) -> Result<bool, PlanError> {
     let root = object(text)?;
-    let Some(raw) = field(&root, "hooks") else {
+    let Some(raw) = field(&root, container_key(provider)) else {
         return Ok(false);
     };
     let hooks = object(raw)?;
@@ -143,17 +158,30 @@ pub(crate) fn owned_event(
 /// marker in user text is not enough; edited entries are never overwritten.
 fn owned(provider: &DriverDefinition, entry: &RawValue) -> Result<bool, PlanError> {
     let fields = object(entry.get())?;
-    let handlers: Vec<&RawValue> =
-        serde_json::from_str(field(&fields, "hooks").ok_or(PlanError::InvalidSettings)?)
-            .map_err(|_| PlanError::InvalidSettings)?;
     let mut candidates = Vec::new();
-    for handler in handlers {
-        let fields = object(handler.get())?;
-        if let Some(command) = field(&fields, "command") {
-            let command: String =
-                serde_json::from_str(command).map_err(|_| PlanError::InvalidSettings)?;
-            if command.contains(&format!("__hook {}", provider.name())) {
-                candidates.push(command);
+    match provider.descriptor.hooks {
+        Some(HookFormat::NamedHooksJson) => {
+            if let Some(command) = field(&fields, "command") {
+                let command: String =
+                    serde_json::from_str(command).map_err(|_| PlanError::InvalidSettings)?;
+                if command.contains(&format!("__hook {}", provider.name())) {
+                    candidates.push(command);
+                }
+            }
+        }
+        Some(HookFormat::SessionHooksJson) | None => {
+            let handlers: Vec<&RawValue> =
+                serde_json::from_str(field(&fields, "hooks").ok_or(PlanError::InvalidSettings)?)
+                    .map_err(|_| PlanError::InvalidSettings)?;
+            for handler in handlers {
+                let fields = object(handler.get())?;
+                if let Some(command) = field(&fields, "command") {
+                    let command: String =
+                        serde_json::from_str(command).map_err(|_| PlanError::InvalidSettings)?;
+                    if command.contains(&format!("__hook {}", provider.name())) {
+                        candidates.push(command);
+                    }
+                }
             }
         }
     }
@@ -230,7 +258,7 @@ fn event_array(
 pub(super) fn has_owned_hook(provider: &DriverDefinition, text: &str, event: &str) -> bool {
     (|| {
         let root = object(text).ok()?;
-        let hooks = object(field(&root, "hooks")?).ok()?;
+        let hooks = object(field(&root, container_key(provider))?).ok()?;
         let entries: Vec<&RawValue> = serde_json::from_str(field(&hooks, event)?).ok()?;
         let mut owned_entries = 0;
         for entry in entries {
@@ -274,8 +302,9 @@ pub(super) fn settings(
     if text.len() > SETTINGS_LIMIT {
         return Err(PlanError::TooLarge);
     }
+    let container = container_key(provider);
     let root = object(text)?;
-    let existing = field(&root, "hooks");
+    let existing = field(&root, container);
     if existing.is_none() && removing {
         return Ok(text.to_owned());
     }
@@ -293,8 +322,9 @@ pub(super) fn settings(
         UsageHook::Keep => Action::Skip,
     };
     let mut hooks = existing.unwrap_or("{}").to_owned();
-    let actions = LIFECYCLE
-        .into_iter()
+    let actions = lifecycle_events(provider)
+        .iter()
+        .copied()
         .chain(activity_events(provider).iter().copied())
         .map(|event| (event, lifecycle))
         .chain([(USAGE, turn_end)]);
@@ -312,7 +342,7 @@ pub(super) fn settings(
         )?;
         hooks = set(&hooks, event, &edited)?;
     }
-    let result = set(text, "hooks", &hooks)?;
+    let result = set(text, container, &hooks)?;
     if result.len() > SETTINGS_LIMIT {
         return Err(PlanError::TooLarge);
     }
@@ -333,20 +363,28 @@ pub(super) fn removed(
     let inserted: Vec<&str> = [USAGE]
         .into_iter()
         .chain(activity_events(provider).iter().rev().copied())
-        .chain(LIFECYCLE.into_iter().rev())
+        .chain(lifecycle_events(provider).iter().rev().copied())
         .collect();
-    trim_inserted(text, result, &inserted).map(Some)
+    trim_inserted(provider, text, result, &inserted).map(Some)
 }
 
 /// Drops each of `events` (latest inserted first) that removal emptied, and
 /// then `hooks` itself, where setup inserted them.
-fn trim_inserted(text: &str, mut result: String, events: &[&str]) -> Result<String, PlanError> {
+fn trim_inserted(
+    provider: &DriverDefinition,
+    text: &str,
+    mut result: String,
+    events: &[&str],
+) -> Result<String, PlanError> {
+    let container = container_key(provider);
     let root = object(text)?;
-    let Some(original) = field(&root, "hooks") else {
+    let Some(original) = field(&root, container) else {
         return Ok(result);
     };
     let original_hooks = object(original)?;
-    let mut hooks = field(&object(&result)?, "hooks").unwrap_or("{}").to_owned();
+    let mut hooks = field(&object(&result)?, container)
+        .unwrap_or("{}")
+        .to_owned();
     for &event in events {
         let emptied = field(&original_hooks, event).is_some_and(|value| value != "[]")
             && field(&object(&hooks)?, event) == Some("[]");
@@ -354,10 +392,10 @@ fn trim_inserted(text: &str, mut result: String, events: &[&str]) -> Result<Stri
             hooks = shorter;
         }
     }
-    result = set(&result, "hooks", &hooks)?;
+    result = set(&result, container, &hooks)?;
     if hooks == "{}"
         && original != "{}"
-        && let Some(shorter) = unset_inserted(&result, "hooks")
+        && let Some(shorter) = unset_inserted(&result, container)
     {
         result = shorter;
     }
@@ -699,5 +737,39 @@ mod tests {
                 Err(PlanError::EditedHook)
             );
         }
+    }
+
+    #[test]
+    fn named_hooks_json_installs_flat_commands_under_tmt_and_removes_cleanly() {
+        use crate::drivers::agy;
+        use crate::setup::UsageHook;
+        let original = "{\n  \"herdr\": {\n    \"SessionStart\": [{\"type\": \"command\", \"command\": \"herdr-hook\"}]\n  }\n}";
+        let installed = settings(
+            &agy::DRIVER,
+            original,
+            "/stable/tmt",
+            false,
+            UsageHook::Install,
+        )
+        .unwrap();
+        assert!(has_owned_hook(&agy::DRIVER, &installed, "SessionStart"));
+        assert!(has_owned_hook(&agy::DRIVER, &installed, "PreInvocation"));
+        assert!(has_owned_hook(&agy::DRIVER, &installed, USAGE));
+        // Turning usage off keeps the turn-end hook (it carries the agent's answers).
+        let no_usage = settings(
+            &agy::DRIVER,
+            &installed,
+            "/stable/tmt",
+            false,
+            UsageHook::Remove,
+        )
+        .unwrap();
+        assert!(has_owned_hook(&agy::DRIVER, &no_usage, "SessionStart"));
+        assert!(has_owned_hook(&agy::DRIVER, &no_usage, "PreInvocation"));
+        assert!(has_owned_hook(&agy::DRIVER, &no_usage, USAGE));
+        assert_eq!(
+            removed(&agy::DRIVER, &installed).unwrap().as_deref(),
+            Some(original)
+        );
     }
 }

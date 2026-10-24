@@ -182,7 +182,7 @@ delivery. They install and launch nothing.
   survives an idempotent bind. Retiring an identity clears its remembered session and driver
   state in the same transaction. No session ID or running observation grants ownership.
 - Resume coordinates pair session ID, harness and driver-owned mode (Claude `default`, Codex
-  `shared`/`embedded`); provider hooks must record the same tokens.
+  `shared`/`embedded`, Antigravity `default`); provider hooks must record the same tokens.
 - A resume, `--move` and `--driver` resolve their operand once through `Storage::resolve_identity`
   (an active UUID wins over a UUID-shaped name; an unknown or retired UUID is `NAME_NOT_FOUND`
   before any stop, handoff or launch), then work on that identity by id: the launch binds with

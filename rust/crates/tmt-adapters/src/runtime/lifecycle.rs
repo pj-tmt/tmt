@@ -278,6 +278,17 @@ pub trait RuntimeLifecycle {
         None
     }
 
+    /// The prompt text a prompt hook payload carries, for passthrough matching.
+    fn decode_prompt_text(&self, payload: &[u8]) -> Option<String> {
+        super::hook_protocol::decode_prompt_text(payload)
+    }
+
+    /// What a synchronous hook prints on stdout when it injects no context or
+    /// decision. Providers that unmarshal stdout as JSON require `"{}"`.
+    fn empty_hook_output(&self) -> &'static str {
+        ""
+    }
+
     fn decode_activity(
         &self,
         _payload: &[u8],

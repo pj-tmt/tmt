@@ -493,6 +493,11 @@ fn observation_shutdown_cancels_an_in_flight_read_and_releases_every_view() {
 
 #[test]
 fn observation_drop_releases_the_view_before_a_second_serving_lease() {
+    if crate::test_isolation::isolated_case(
+        "object_service::tests::observe::observation_drop_releases_the_view_before_a_second_serving_lease",
+    ) {
+        return;
+    }
     let mut env = Env::new();
     let (service, peer) = running(&env, bounds());
     let weak = view(&service);

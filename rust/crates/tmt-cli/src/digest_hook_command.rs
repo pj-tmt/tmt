@@ -34,10 +34,13 @@ pub fn execute(
     legacy_name: bool,
 ) -> io::Result<u8> {
     let deadline = Instant::now() + crate::invocation::hook_worker_duration(work_budget_ms);
+    let mut empty_hook_output = "";
+    let mut wrote_stdout = false;
     let result = (|| -> Result<(), ()> {
         let registry = RuntimeRegistry::first_party();
         let harness = HarnessId::new(provider).map_err(|_| ())?;
         let lifecycle = registry.lifecycle(&harness).ok_or(())?;
+        empty_hook_output = lifecycle.empty_hook_output();
         let deadline =
             deadline.min(Instant::now() + lifecycle.hook_work_duration().unwrap_or(BUDGET));
         let input = read_stdin_bounded(
@@ -155,6 +158,7 @@ pub fn execute(
                 if let Some(notice) =
                     restart_notice(lifecycle, &paths, &harness, &session, None, deadline)
                 {
+                    wrote_stdout = true;
                     let _ = handoff::write_before(
                         &tmt_cli_style::stream::stdout(true).into_inner(),
                         notice.as_bytes(),
@@ -218,6 +222,7 @@ pub fn execute(
                     })
                     .flatten();
                 let payload = notice.as_deref().unwrap_or(&payload);
+                wrote_stdout = true;
                 publication_state(handoff::write_before(
                     &tmt_cli_style::stream::stdout(true).into_inner(),
                     payload.as_bytes(),
@@ -239,6 +244,8 @@ pub fn execute(
     })();
     if result.is_err() && worker {
         let _ = SupervisedProbeRunner::abort_worker_group();
+    } else if !worker && !wrote_stdout && !empty_hook_output.is_empty() {
+        let _ = tmt_cli_style::stream::stdout(true).write_all(empty_hook_output.as_bytes());
     }
     // Unsupported, stale or unavailable Digest never vetoes an ordinary stop.
     Ok(u8::from(worker && result.is_err()))

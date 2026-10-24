@@ -13,11 +13,13 @@ pub enum Hue {
     Neutral,
 }
 
-/// How a driver's session lifecycle hooks are written: `SessionStart` and
-/// `SessionEnd` command entries in its JSON settings file.
+/// How a driver's session lifecycle hooks are written in its JSON settings file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HookFormat {
+    /// `{"hooks": {"SessionStart": [{"hooks": [{"type": "command", ...}]}], ...}}`
     SessionHooksJson,
+    /// `{"tmt": {"SessionStart": [{"type": "command", ...}], "PreInvocation": [...], ...}}`
+    NamedHooksJson,
 }
 
 /// Turn-end context and consumption collection. Default setup installs it
@@ -101,9 +103,9 @@ pub static GEMINI: DriverDescriptor = DriverDescriptor {
 pub static AGY: DriverDescriptor = DriverDescriptor {
     name: "agy",
     executables: &["agy"],
-    hooks: None,
+    hooks: Some(HookFormat::NamedHooksJson),
     hue: Hue::Neutral,
-    support: Support::Basic,
+    support: Support::Full,
     folds_queued_text: false,
 };
 
@@ -210,7 +212,8 @@ mod tests {
         }
         assert_eq!(named("claude").unwrap().support, Support::Full);
         assert_eq!(named("codex").unwrap().support, Support::Full);
-        for basic in ["gemini", "agy", "pi", "opencode", "muse"] {
+        assert_eq!(named("agy").unwrap().support, Support::Full);
+        for basic in ["gemini", "pi", "opencode", "muse"] {
             assert_eq!(named(basic).unwrap().support, Support::Basic, "{basic}");
         }
     }

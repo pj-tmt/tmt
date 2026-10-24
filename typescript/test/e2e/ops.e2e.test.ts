@@ -1759,6 +1759,140 @@ renameSync(output+'.tmp',output);
     });
   }, 60_000);
 
+  it('pages retained pane answers and names truncation, loss and disabled capture (#4938)', async () => {
+    await withE2EFixture(async (fixture) => {
+      await squadWithMember(fixture);
+      const store = new Database(path.join(fixture.globalDir, 'tmt.db'));
+      const now = Date.now();
+      let identityId: string;
+      const texts = Array.from({ length: 121 }, (_, index) =>
+        index === 120
+          ? 'x'.repeat(9000) + '\nTRUNCATED_ANSWER_END_120'
+          : `Retained answer ${String(index).padStart(3, '0')}`
+      );
+      try {
+        identityId = (
+          store.prepare('SELECT id FROM identities WHERE name = ?').get('auth-fix') as {
+            id: string;
+          }
+        ).id;
+        const insert = store.prepare(
+          "INSERT INTO recent_responses (identity_id, text, ended_ms, provider, truncated, session_id, expires_ms, original_bytes) VALUES (?, ?, ?, 'claude', ?, 'fixture-session', ?, ?)"
+        );
+        store.transaction(() => {
+          for (const [index, text] of texts.entries())
+            insert.run(
+              identityId,
+              text,
+              now - (121 - index) * 60_000,
+              Number(index === 120),
+              now + 3_600_000,
+              index === 120 ? 20_000 : Buffer.byteLength(text)
+            );
+          store
+            .prepare(
+              'INSERT INTO recent_response_floor (identity_id, dropped_through_ms) VALUES (?, ?)'
+            )
+            .run(identityId, now - 130 * 60_000);
+          // The public capture flag derives from a remembered hooked driver with
+          // no Stop entry in this fixture's private HOME. No setup is performed.
+          store
+            .prepare(
+              "INSERT INTO identity_session_preferences (identity_id, remembered_harness, runtime_mode, provider_session_id) VALUES (?, 'claude', 'direct', 'fixture-session') ON CONFLICT(identity_id) DO UPDATE SET remembered_harness=excluded.remembered_harness, runtime_mode=excluded.runtime_mode, provider_session_id=excluded.provider_session_id"
+            )
+            .run(identityId);
+        })();
+      } finally {
+        store.close();
+      }
+      const quote = (word: string) => `'${word.replaceAll("'", "'\\''")}'`;
+      const calls = path.join(fixture.root, 'answer-page-calls');
+      fs.mkdirSync(calls);
+      const recorded = <T>(suffix: string): T[] =>
+        fs
+          .readdirSync(calls)
+          .filter((name) => name.endsWith(suffix))
+          .map((name) => JSON.parse(fs.readFileSync(path.join(calls, name), 'utf8')) as T);
+      const observer = path.join(fixture.root, 'observe-core');
+      const core = [fixture.executables.cli.executable, ...fixture.executables.cli.args]
+        .map(quote)
+        .join(' ');
+      // Observe real public reads; forward every byte to the selected native Core.
+      writeExecutable(
+        observer,
+        `#!/bin/sh\nif [ "$1" = api ]; then\ncall=$(mktemp ${quote(path.join(calls, 'call.XXXXXX'))}) || exit 1\ncat > "$call"\n${core} "$@" < "$call" > "$call.response.stage"\nstatus=$?\nmv "$call.response.stage" "$call.response.json"\nmv "$call" "$call.request.json"\ncat "$call.response.json"\nexit "$status"\nfi\nexec ${core} "$@"\n`
+      );
+      const pageInputs = () =>
+        recorded<{ operation: string; input: { before?: number } }>('.request.json').filter(
+          (value) => value.operation === 'responses.recent'
+        );
+      const pages = () =>
+        recorded<{
+          identityId: string;
+          items: unknown[];
+          nextBefore?: number;
+          coverage: { olderDropped: boolean };
+          capture?: { enabled: boolean };
+        }>('.response.json').filter(
+          (value) => value.identityId === identityId && Array.isArray(value.items)
+        );
+      await fixture.attachSessionClient('e2e');
+      const shell = fixture.createShellPane('answer-pages-board');
+      fixture.tmux(['select-window', '-t', shell.pane]);
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        shell.pane,
+        `TMT_EXECUTABLE=${quote(observer)} tmt-ops ui --squad product; echo ANSWER_BOARD_EXIT=$?`,
+        'Enter',
+      ]);
+      await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, '1']);
+      await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, '/', 'auth-fix', 'Enter', 'End']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('TRUNCATED_ANSWER_END_120'),
+        shell.pane
+      );
+      await fixture.waitForCapture(
+        (screen) => screen.includes("answer truncated · full text in the agent's pane"),
+        shell.pane
+      );
+      expect(pageInputs().every((value) => value.input.before === undefined)).toBe(true);
+      const first = pages()[0]!;
+      expect(first.items).toHaveLength(50);
+      expect(first.capture).toEqual({ enabled: false });
+      expect(first.coverage.olderDropped).toBe(true);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Home']);
+      await fixture.waitForCapture((screen) => screen.includes('Retained answer 021'), shell.pane);
+      expect(pageInputs().some((value) => value.input.before === first.nextBefore)).toBe(true);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Home']);
+      await fixture.waitForCapture((screen) => screen.includes('Retained answer 000'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Home']);
+      const top = await fixture.waitForCapture(
+        (screen) => screen.includes('older answers not kept'),
+        shell.pane
+      );
+      expect(top).toContain('at or before');
+      expect(top).toContain('answers are not captured for this agent: run tmt setup');
+      expect(top).toContain('Retained answer 000');
+      expect(
+        pages().some((page) => page.nextBefore === undefined && page.items.length === 21)
+      ).toBe(true);
+      const after = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
+      try {
+        const rows = after
+          .prepare('SELECT text FROM recent_responses WHERE identity_id = ? ORDER BY sequence')
+          .all(identityId) as { text: string }[];
+        expect(rows.map((row) => row.text)).toEqual(texts);
+      } finally {
+        after.close();
+      }
+      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
+      await fixture.waitForCapture((screen) => screen.includes('ANSWER_BOARD_EXIT=0'), shell.pane);
+    });
+  }, 60_000);
+
   it('opens a chat link in a popover that copies it, shows it whole and runs the opener once (#4377)', async () => {
     await withE2EFixture(async (fixture) => {
       await squadWithMember(fixture);
