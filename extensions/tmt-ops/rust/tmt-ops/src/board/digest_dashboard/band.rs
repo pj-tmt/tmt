@@ -23,7 +23,11 @@ pub(super) const DEFINITION: &str =
     "Gross context reread estimate · uncached input at list price · not billed savings.";
 
 /// Each amount carries its own coverage. Missing quotes never borrow token coverage.
-pub(super) fn fields(summary: &SavingsSummary, window: DigestWindow) -> [String; 2] {
+pub(super) fn fields(
+    summary: &SavingsSummary,
+    window: DigestWindow,
+    labels: [&str; 2],
+) -> [String; 2] {
     let field = |unit, label, included| {
         let (value, _, conflict) = crate::board::savings::savings_value(summary, window, unit);
         let value = conflict
@@ -42,12 +46,8 @@ pub(super) fn fields(summary: &SavingsSummary, window: DigestWindow) -> [String;
         )
     };
     [
-        field(SavingsUnit::Tokens, "Est. ctx avoided", summary.included),
-        field(
-            SavingsUnit::Cost,
-            "List-price equiv.",
-            summary.cost.included,
-        ),
+        field(SavingsUnit::Tokens, labels[0], summary.included),
+        field(SavingsUnit::Cost, labels[1], summary.cost.included),
     ]
 }
 
@@ -123,10 +123,8 @@ fn usage_row(frame: &mut Frame, app: &App, area: Rect, ids: &[&str]) {
         parts.push((global.text.clone(), Role::Text, Some(Choice::DigestSwitch)));
     }
     if app.labels.digest().is_some() {
-        let held = super::summary(app);
         parts.push((
-            held.replacen("Digest · ", "Held now: ", 1)
-                .replace(" held", ""),
+            format!("Held now: {}", super::held_text(app)),
             Role::Text,
             None,
         ));
@@ -218,9 +216,13 @@ fn impact_row(frame: &mut Frame, app: &App, area: Rect, ids: &[&str]) {
     let mut used = window.map_or(start, |rect| rect.right().saturating_add(2));
     let end = basis.map_or(area.right(), |rect| rect.x.saturating_sub(2));
     let summary = metrics::savings(app, ids);
-    for field in fields(&summary, app.digest_window()) {
+    for field in fields(
+        &summary,
+        app.digest_window(),
+        ["Est. ctx avoided", "List-price equiv."],
+    ) {
         if usize::from(end.saturating_sub(used)) < field.width() {
-            continue;
+            break;
         }
         strip::paint_left(
             frame.buffer_mut(),

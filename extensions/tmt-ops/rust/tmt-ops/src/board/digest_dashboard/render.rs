@@ -254,10 +254,11 @@ pub(super) fn detail_lines(
     }
     text.push(format!("Impact · {}", app.digest_window().label()));
     let summary = metrics::savings(app, &ids);
-    text.extend(
-        super::band::fields(&summary, app.digest_window())
-            .map(|line| line.replacen("List-price equiv.", "List-price equivalent:", 1)),
-    );
+    text.extend(super::band::fields(
+        &summary,
+        app.digest_window(),
+        ["Est. ctx avoided", "List-price equivalent:"],
+    ));
     if let Some(points) = summary.percent.value {
         text.push(format!(
             "Estimated input reduction: {} ({}/{} agents)",

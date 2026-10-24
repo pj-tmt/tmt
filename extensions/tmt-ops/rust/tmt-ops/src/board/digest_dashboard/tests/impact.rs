@@ -309,3 +309,47 @@ fn impact_capture_pins_the_clock_zone() {
         Some("Asia/Tokyo")
     );
 }
+
+#[test]
+fn money_never_skips_an_unfit_context_field() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = capture_case("impact-complete", crate::look::Look::default());
+    let mut document = valued_document();
+    let template = document["members"][0].clone();
+    document["members"] = app
+        .view
+        .as_ref()
+        .unwrap()
+        .home
+        .as_ref()
+        .unwrap()
+        .workspace
+        .roster
+        .members
+        .keys()
+        .map(|id| {
+            let mut member = template.clone();
+            member["identityId"] = serde_json::json!(id);
+            member["savings"]["estimatedInputTokensAvoided"] =
+                serde_json::json!(1_000_000_000_000_000u64);
+            member["savings"]["cost"]["usdMicros"] = serde_json::json!(0);
+            member["savings"]["cost"]["usdMicrosPerMillionInputTokens"] = serde_json::json!(0);
+            member["savings"]["percent"] = serde_json::Value::Null;
+            member
+        })
+        .collect();
+    app.labels = crate::labels::Supplied::from_document("digest", &document, false);
+    for width in 40..=120 {
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 3)).unwrap();
+        terminal
+            .draw(|frame| super::super::band::paint(frame, &app, frame.area()))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let line: String = (0..width).map(|x| buffer[(x, 1)].symbol()).collect();
+        assert!(
+            !line.contains("List-price equiv.") || line.contains("Est. ctx avoided"),
+            "money must follow context at width {width}: {line}"
+        );
+    }
+}

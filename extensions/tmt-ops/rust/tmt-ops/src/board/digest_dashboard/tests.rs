@@ -27,8 +27,8 @@ fn supplied(held: serde_json::Value, stale: bool) -> crate::labels::Supplied {
 #[test]
 fn null_stats_keep_the_inherited_idle_setting_without_a_zero_count() {
     let supplied = supplied(serde_json::Value::Null, false);
-    assert!(model::summary(&supplied, None).contains("held unavailable"));
-    assert!(!model::summary(&supplied, None).contains("0 held"));
+    assert!(model::held_text(&supplied, None).contains("unavailable"));
+    assert!(!model::held_text(&supplied, None).contains("0"));
     let details = model::details(&supplied, MEMBER, 121_000, &jiff::tz::TimeZone::UTC);
     assert_eq!(details[0], "Digest: Auto ▾ · when idle (default)");
     assert!(!details.iter().any(|s| s.starts_with("Setting:")));
@@ -38,9 +38,9 @@ fn null_stats_keep_the_inherited_idle_setting_without_a_zero_count() {
 #[test]
 fn known_zero_and_retained_stale_statistics_stay_distinct() {
     let zero = supplied(serde_json::json!(0), false);
-    assert!(model::summary(&zero, None).contains("0 held"));
+    assert!(model::held_text(&zero, None).contains("0"));
     let stale = supplied(serde_json::json!(3), true);
-    assert!(model::summary(&stale, None).contains("3 held · stale observation"));
+    assert!(model::held_text(&stale, None).contains("3 · stale observation"));
     assert!(
         model::details(&stale, MEMBER, 121_000, &jiff::tz::TimeZone::UTC)
             .iter()
@@ -50,10 +50,7 @@ fn known_zero_and_retained_stale_statistics_stay_distinct() {
 
 #[test]
 fn unavailable_statistics_never_become_zero() {
-    assert_eq!(
-        model::summary(&Default::default(), None),
-        "Digest status unavailable"
-    );
+    assert_eq!(model::held_text(&Default::default(), None), "unavailable");
     assert!(
         model::details(
             &Default::default(),
@@ -538,21 +535,18 @@ mod performance;
 fn scoped_held_counts_exclude_other_identities_and_keep_missing_stats_unknown() {
     let source = supplied(serde_json::json!(3), false);
     let only = [MEMBER].into();
-    assert_eq!(model::summary(&source, Some(&only)), "Digest · 3 held");
+    assert_eq!(model::held_text(&source, Some(&only)), "3");
     let missing = ["33333333-3333-4333-8333-333333333333"].into();
     assert_eq!(
-        model::summary(&source, Some(&missing)),
-        "Digest · held unavailable · 1 unknown"
+        model::held_text(&source, Some(&missing)),
+        "unavailable · 1 unknown"
     );
     let partial = [MEMBER, "33333333-3333-4333-8333-333333333333"].into();
     assert_eq!(
-        model::summary(&source, Some(&partial)),
-        "Digest · ≥3 observed held · 1 unknown"
+        model::held_text(&source, Some(&partial)),
+        "≥3 observed · 1 unknown"
     );
-    assert_eq!(
-        model::summary(&source, Some(&Default::default())),
-        "Digest · 0 held"
-    );
+    assert_eq!(model::held_text(&source, Some(&Default::default())), "0");
 }
 
 #[test]
@@ -602,7 +596,7 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
     app.workspace.visibility.scope = vec![room];
     app.workspace_reconcile();
     assert_eq!(app.workspace_rows().len(), 2);
-    assert_eq!(super::summary(&app), "Digest · 3 held");
+    assert_eq!(super::held_text(&app), "3");
     let mut captures = Vec::new();
     for (base, depth) in [
         (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
@@ -650,7 +644,7 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
     app.workspace_reconcile();
     assert_eq!(app.workspace_rows().len(), 1);
     assert_eq!(app.workspace_rows()[0].target, OpsTarget::DigestAll);
-    assert_eq!(super::summary(&app), "Digest · 0 held");
+    assert_eq!(super::held_text(&app), "0");
     assert!(
         paint(&mut app, 100, 36).contains("Held now: 0"),
         "empty scoped search retains only the read-only aggregate"
@@ -663,10 +657,7 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
         3,
         "Digest ignores saved hiding and has one aggregate"
     );
-    assert_eq!(
-        super::summary(&app),
-        "Digest · ≥3 observed held · 1 unknown"
-    );
+    assert_eq!(super::held_text(&app), "≥3 observed · 1 unknown");
 }
 
 pub(in crate::board) fn savings_document() -> serde_json::Value {
@@ -1162,7 +1153,7 @@ fn overview_keeps_the_scoped_estimate_model_without_the_retired_digest_line() {
     assert!(!summary(&app).digest_available);
     let shown = paint(&mut app, 160, 44);
     assert!(
-        !shown.contains("Digest status unavailable") && !shown.contains("Est. ctx avoided"),
+        !shown.contains("unavailable") && !shown.contains("Est. ctx avoided"),
         "{shown}"
     );
 }

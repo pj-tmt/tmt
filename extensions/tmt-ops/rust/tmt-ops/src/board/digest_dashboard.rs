@@ -108,7 +108,7 @@ fn exchange_participants(app: &App) -> Rc<[crate::board::exchange_matrix::Exchan
 
 /// Session scope uses exactly the admitted Digest identities, including its
 /// current search, while saved hiding remains an Agents/Overview preference.
-pub(super) fn summary(app: &crate::board::app::App) -> String {
+pub(super) fn held_text(app: &crate::board::app::App) -> String {
     let rows = app.workspace_rows();
     let identities = rows
         .iter()
@@ -119,7 +119,7 @@ pub(super) fn summary(app: &crate::board::app::App) -> String {
             _ => None,
         })
         .collect();
-    model::summary(&app.labels, Some(&identities))
+    model::held_text(&app.labels, Some(&identities))
 }
 pub(super) use render::{details_clock_mark, render};
 

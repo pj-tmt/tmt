@@ -4,12 +4,12 @@ use crate::{
 };
 use tmt_cli_style::mark::Mark;
 
-pub(in crate::board) fn summary(
+pub(in crate::board) fn held_text(
     supplied: &Supplied,
     identities: Option<&std::collections::BTreeSet<&str>>,
 ) -> String {
     let Some((status, stale)) = supplied.digest() else {
-        return "Digest status unavailable".into();
+        return "unavailable".into();
     };
     let mut held = 0u128;
     let mut unknown = identities.map_or(0, |ids| {
@@ -36,14 +36,14 @@ pub(in crate::board) fn summary(
         String::new()
     };
     let count = if known == 0 && unknown > 0 {
-        "held unavailable".into()
+        "unavailable".into()
     } else if unknown > 0 {
-        format!("≥{held} observed held")
+        format!("≥{held} observed")
     } else {
-        format!("{held} held")
+        format!("{held}")
     };
     format!(
-        "Digest · {count}{suffix}{}",
+        "{count}{suffix}{}",
         if stale { " · stale observation" } else { "" }
     )
 }
