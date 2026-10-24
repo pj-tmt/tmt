@@ -29,7 +29,14 @@ import {
   splitPageHint,
   type PageHint,
 } from './reading-link.js';
-import { ArrowUpRight, MessageCircle, MessageSquare, Moon, MousePointer2, Sun } from 'lucide-react';
+import {
+  ArrowUpRight,
+  MessageCircle,
+  MessageSquarePlus,
+  Moon,
+  MousePointer2,
+  Sun,
+} from 'lucide-react';
 import { moreButtonRect, PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
@@ -350,8 +357,6 @@ function SelectionAnnotation({
     top?: number;
     bottom?: number;
     maxHeight: number;
-    leaderY?: number;
-    leaderSide?: 'left' | 'right';
   } | null>(null);
   useEffect(() => {
     const notice = noticeVisible
@@ -359,7 +364,7 @@ function SelectionAnnotation({
       : null;
     const place = () => {
       const frame = host?.querySelector('iframe')?.getBoundingClientRect();
-      const width = expanded ? Math.min(440, innerWidth - 24) : 128;
+      const width = expanded ? Math.min(440, innerWidth - 24) : 34;
       // Parent chrome reserves the toggle's bottom strip only for overlapping windows.
       const margin = innerWidth <= 640 ? 16 : 24;
       const leftEdge =
@@ -386,7 +391,7 @@ function SelectionAnnotation({
           40 -
           8
         : innerHeight - 8;
-      const placementHeight = expanded ? Math.min(480, edge - inset - 4) : 38;
+      const placementHeight = expanded ? Math.min(480, edge - inset - 4) : 34;
       if (expanded && innerWidth <= 640) {
         setPosition({
           left: 12,
@@ -427,6 +432,24 @@ function SelectionAnnotation({
         setPosition(null);
         return;
       }
+      if (!expanded && innerWidth > 640) {
+        // The Annotate control hangs from the selection's lower right corner, with no line to the
+        // text; with no room under the selection it sits just above it. On a phone the system's own
+        // selection handles and menu occupy that corner, so the control keeps its place beside or
+        // under the selection below.
+        const below = selectionBottom + 2 + placementHeight <= edge;
+        setPosition({
+          left: Math.max(
+            8,
+            frame.left,
+            Math.min(innerWidth - width - 8, frame.right - width - 8, right - 6),
+          ),
+          ...(below
+            ? { top: selectionBottom + 2, maxHeight: placementHeight }
+            : { bottom: innerHeight - selectionTop + 2, maxHeight: placementHeight }),
+        });
+        return;
+      }
       // A completed selection can end outside the viewport. Its open draft still
       // needs bounded history and a visible composer, including when opened by C.
       const clampAnchor = (value: number) => Math.max(inset + 4, Math.min(edge, value));
@@ -462,15 +485,6 @@ function SelectionAnnotation({
             beside ? right + 24 : besideLeft ? left - width - 24 : left,
           ),
         ),
-        ...((beside || besideLeft) && innerWidth > 640
-          ? {
-              leaderY: Math.max(
-                6,
-                Math.min(placementHeight - 6, top + rectangle.height / 2 - windowTop),
-              ),
-              leaderSide: beside ? ('left' as const) : ('right' as const),
-            }
-          : {}),
         ...(above
           ? { bottom: innerHeight - top + 6, maxHeight: top - 6 - inset - 4 }
           : {
@@ -499,7 +513,9 @@ function SelectionAnnotation({
     <div
       ref={element}
       className={children ? 'annotation-popover' : 'selection-control'}
-      data-leader={expanded ? undefined : position?.leaderSide}
+      data-testid={children ? undefined : 'selection-ask'}
+      // The control never takes the pointer from the selection it annotates.
+      onPointerDown={children ? undefined : (event) => event.preventDefault()}
       style={
         {
           ...(position
@@ -510,24 +526,21 @@ function SelectionAnnotation({
                 maxHeight: position.maxHeight,
               }
             : {}),
-          '--annotation-leader-y': `${position?.leaderY ?? 0}px`,
           visibility: position ? 'visible' : 'hidden',
         } as React.CSSProperties
       }
     >
       {children ?? (
-        <button
-          className={`selection-ask ${ui.action}`}
-          data-testid="selection-ask"
-          aria-keyshortcuts="c Alt+Enter"
-          onPointerDown={(event) => event.preventDefault()}
-          onClick={(event) => {
+        <BrowserIconAction
+          type="button"
+          variant="primary"
+          label={text.annotationTitle}
+          icon={<MessageSquarePlus aria-hidden />}
+          ariaKeyShortcuts="c Alt+Enter"
+          onActivate={(event) => {
             if (event.isTrusted) open();
           }}
-        >
-          <MessageSquare aria-hidden />
-          Annotate
-        </button>
+        />
       )}
     </div>
   );
