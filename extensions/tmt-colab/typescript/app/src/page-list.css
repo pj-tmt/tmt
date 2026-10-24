@@ -341,7 +341,10 @@
 .page-row > .page-row-title {
   grid-column: 2;
   grid-row: 1;
-  display: block;
+  display: flex;
+  align-items: center;
+  min-height: 18px;
+  overflow: visible;
   position: relative;
   white-space: normal;
   font-size: 12px;
@@ -352,14 +355,18 @@
 .page-row-icon {
   position: absolute;
   inset-inline-start: 14px;
-  top: 1px;
+  top: 50%;
+  transform: translateY(-50%);
   display: inline-flex;
+  width: 18px;
+  height: 18px;
   color: var(--tmt-ui-color-secondary);
 }
 
 .page-row-icon > svg {
   width: 18px;
   height: 18px;
+  flex: none;
 }
 
 .page-pin-mark {
@@ -439,7 +446,10 @@
 }
 
 .page-row .page-work {
-  margin-top: 7px;
+  margin-top: 0;
+  grid-column: 2;
+  grid-row: 2;
+  padding-inline: 42px 14px;
   white-space: normal;
   font-size: 9px;
   line-height: 13px;
@@ -589,9 +599,13 @@
   border-bottom: 0;
 }
 
+/* Keep task details in their own track so the primary title and metadata share a centre. */
 .page-row:has(.page-work) {
   height: auto;
   min-height: 70px;
+  row-gap: 7px;
+  padding-block: 12px;
+  align-content: center;
 }
 
 .page-row-detail {
@@ -609,6 +623,10 @@
 
 .page-row .page-projects {
   gap: 4px;
+}
+
+.page-row .page-projects > li {
+  display: flex;
 }
 
 .page-row .page-stage {
@@ -794,9 +812,18 @@
   .page-row-icon {
     inset-inline-start: 0;
     top: 0;
+    transform: none;
   }
   .pages .tmt-ui-list-title > a {
     white-space: normal;
+  }
+  .page-row > .page-work {
+    grid-column: 2/4;
+    grid-row: 2;
+    padding-inline: 25px 22px;
+  }
+  .page-row:has(.page-work) .page-row-detail {
+    grid-row: 3;
   }
   .page-row-detail {
     display: flex;

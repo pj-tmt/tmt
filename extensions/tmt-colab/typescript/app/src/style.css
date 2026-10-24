@@ -642,9 +642,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comments-panel .ask-preview {
   padding: 12px;
 }
-.pages li > button {
-  margin-top: 12px;
-}
 .management-dialog {
   width: min(560px, calc(100% - 32px));
   max-height: 85vh;

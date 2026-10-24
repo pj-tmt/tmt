@@ -92,8 +92,8 @@ export function PageListItem({
           )}
         </span>
         <HomeTitleLink page={page} hints={hints} scope={scope} />
-        {page.summary?.work ? <PageWork work={page.summary.work} /> : null}
       </div>
+      {page.summary?.work ? <PageWork work={page.summary.work} /> : null}
       <div className="page-row-detail">
         <div className="page-row-projects">{projects}</div>
         <div className="page-row-stage">
