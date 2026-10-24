@@ -774,6 +774,65 @@ mod tests {
     }
 
     #[test]
+    fn message_file_paths_are_basename_chips_without_changing_other_prose() {
+        for (source, shown) in [
+            ("/tmp/report_name.txt", "⧉ report_name.txt"),
+            (
+                "see '/tmp/my report_name.txt' now",
+                "see ⧉ my report_name.txt now",
+            ),
+            ("\"/tmp/一個 檔案.txt\"", "⧉ 一個 檔案.txt"),
+        ] {
+            let mapped = render_conversation_with_members(source, 200, Look::default(), None);
+            assert_eq!(text(&mapped.lines), [shown], "{source:?}");
+            assert!(mapped.sources.iter().all(|line| *line == 0));
+        }
+    }
+
+    #[test]
+    fn a_file_chip_fits_one_line_and_ellipsizes_instead_of_wrapping() {
+        let source = "'/tmp/very_long_file_name_with_spaces_in_it.txt'";
+        for width in [1, 2, 3, 4, 12, 24] {
+            let mapped = render_conversation_with_members(source, width, Look::default(), None);
+            assert_eq!(
+                mapped.lines.len(),
+                1,
+                "width={width}: {:?}",
+                text(&mapped.lines)
+            );
+            assert!(mapped.lines[0].width() <= width);
+            assert!(mapped.lines[0].to_string().ends_with('…'));
+            assert_eq!(mapped.sources, [0]);
+        }
+        assert_eq!(
+            text(&render_conversation_with_members(source, 100, Look::default(), None).lines),
+            ["⧉ very_long_file_name_with_spaces_in_it.txt"]
+        );
+    }
+
+    #[test]
+    fn file_chips_exclude_code_urls_relative_paths_and_prose_word_substrings() {
+        for source in [
+            "`/tmp/my_file.txt`",
+            "```\n/tmp/my_file.txt\n```",
+            "https://example.com/tmp/my_file.txt",
+            "file:///tmp/my_file.txt",
+            "prefix/tmp/my_file.txt",
+            "src/my_file.txt",
+            "'relative path/my_file.txt'",
+        ] {
+            let mapped = render_conversation_with_members(source, 200, Look::default(), None);
+            assert!(
+                !mapped
+                    .lines
+                    .iter()
+                    .any(|line| line.to_string().contains('⧉')),
+                "{source:?}"
+            );
+        }
+    }
+
+    #[test]
     fn reported_and_bare_paths_keep_underscores_spaces_and_source_mapping() {
         for source in [
             reported::PATH,

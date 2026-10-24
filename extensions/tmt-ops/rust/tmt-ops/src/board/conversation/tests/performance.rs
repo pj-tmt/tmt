@@ -7,11 +7,16 @@ use std::time::{Duration, Instant};
 
 use crate::board::timing::probe::{measure, report};
 
-/// Keep the reported soft-break quote in every measured
+/// Keep the reported soft-break quote and quoted file path in every measured
 /// response projection; both compared revisions use this identical input.
 fn measured_response(lines: usize) -> String {
     use crate::board::markdown::reported;
-    format!("{}\n\n{}", reported::QUOTE, body("response", lines))
+    format!(
+        "{}\n\n{}\n\n{}",
+        reported::QUOTE,
+        reported::PATH,
+        body("response", lines)
+    )
 }
 
 /// Populate the measured surface through the real composer and typed completion
