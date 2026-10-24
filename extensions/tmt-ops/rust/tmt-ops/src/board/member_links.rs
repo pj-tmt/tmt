@@ -161,6 +161,9 @@ pub(super) struct State {
     hovered: Option<Hit>,
     inventory: Option<std::sync::Arc<()>>,
     cache: Vec<Cached>,
+    /// The opened link's Notes entry survives Show full and a background transcript refresh.
+    /// A new hit replaces it, including another occurrence of the same URL.
+    link_note: Option<(String, Choice)>,
     #[cfg(test)]
     builds: usize,
 }

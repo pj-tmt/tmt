@@ -1,5 +1,6 @@
 //! Destination popovers name the held target before any action. Web/mail links offer
-//! Open, Copy and Show full; local files offer only Copy full path and Show full.
+//! Open, Copy and Show full, plus Add to Notes in a conversation. Local files offer
+//! only Copy full path and Show full.
 use super::{Hit, Target, menu_area};
 use crate::board::app::{App, Choice, CopyFeedback, Effect, Menu, MenuEntry, Request};
 use crate::effects;
@@ -33,6 +34,21 @@ fn chunks(text: &str, width: usize) -> Vec<String> {
         used += size;
     }
     lines
+}
+
+/// A URL's last path segment, without query/fragment; a bare host remains readable.
+fn link_title(url: &str) -> String {
+    let address = url
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(url)
+        .trim_end_matches('/');
+    let title = address
+        .rsplit('/')
+        .next()
+        .filter(|part| !part.is_empty())
+        .unwrap_or(address);
+    crate::board::notes::single_line(title)
 }
 
 /// The popover's rows: the address up to its host, then what can be done with it.
@@ -89,13 +105,29 @@ impl App {
         let Target::Url(url) = &hit.target else {
             return Effect::None;
         };
+        let note = self.note_source_at(hit.area.as_position()).map(|source| {
+            self.conversation_notes_key().map_or_else(
+                || Choice::Unavailable("Select a squad member to add to Notes.".into()),
+                |key| {
+                    Choice::AddToNotes(crate::board::conversation_notes::Seed {
+                        key,
+                        actor: self.view.as_ref().and_then(|view| view.me_id.clone()),
+                        kind: crate::board::conversation_notes::NoteKind::Link,
+                        title: link_title(url),
+                        reference: url.into(),
+                        source,
+                    })
+                },
+            )
+        });
+        self.member_links.borrow_mut().link_note = note.map(|choice| (url.to_owned(), choice));
         self.link_popover(url, hit.area)
     }
 
     /// The popover for `url` under `anchor`: where it goes, then what to do with it.
     pub(in crate::board) fn link_popover(&mut self, url: &str, anchor: Rect) -> Effect {
         let can_open = self.link_opener().is_some();
-        let entries = actions(url, can_open, anchor);
+        let entries = self.link_entries(url, can_open, anchor);
         if menu_area(
             self.member_links.borrow().screen,
             anchor,
@@ -111,12 +143,29 @@ impl App {
             prefill: String::new(),
             title: "Link".into(),
             entries,
-            // Open is the default; without a browser the default is Copy.
             selected: if can_open { 1 } else { 2 },
             anchor: Some(anchor),
             surface: RefCell::new(None),
         });
         Effect::None
+    }
+
+    fn link_entries(&self, url: &str, can_open: bool, anchor: Rect) -> Vec<MenuEntry> {
+        let mut entries = actions(url, can_open, anchor);
+        if let Some((_, choice)) = self
+            .member_links
+            .borrow()
+            .link_note
+            .as_ref()
+            .filter(|(held, _)| held == url)
+        {
+            entries.push(MenuEntry {
+                key: "n".into(),
+                label: "Add to Notes".into(),
+                choice: choice.clone(),
+            });
+        }
+        entries
     }
 
     pub(in crate::board) fn file_popover(&mut self, path: &str, anchor: Rect) -> Effect {
@@ -305,8 +354,9 @@ pub(in crate::board) fn capture_case(
     };
     app.open_url_link(&hit);
     if scene == "link-no-browser" {
+        let entries = app.link_entries(url, false, area);
         let menu = app.menu.as_mut().unwrap();
-        menu.entries = actions(url, false, area);
+        menu.entries = entries;
         menu.selected = 2;
     }
     if scene == "link-full" {
@@ -375,6 +425,131 @@ mod tests {
     }
 
     #[test]
+    fn n_on_a_link_opens_the_link_draft_without_losing_the_exact_url_or_message() {
+        let mut app = reader("Read [the docs](https://example.com/a_b?query=1#frag) now.");
+        let (area, url) = url_hits(&app).remove(0);
+        click(&mut app, area);
+        app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        let key = app.conversation_notes_key().unwrap();
+        let draft = app.notes.draft(&key).expect("n opens Add to Notes");
+        assert_eq!(draft.text(0), "a_b");
+        assert_eq!(draft.text(1), url);
+        let seed = draft.seed.as_ref().unwrap();
+        assert_eq!(seed.kind, crate::board::conversation_notes::NoteKind::Link);
+        assert!(
+            seed.source.body().contains("request link"),
+            "{:?}",
+            seed.source
+        );
+        assert!(app.menu.is_none());
+        assert!(app.notes_overlay.is_some());
+    }
+
+    #[test]
+    fn a_stale_add_to_notes_choice_cannot_change_the_selected_conversation() {
+        let mut app = reader("Read [the docs](https://example.com/a) now.");
+        let (area, _) = url_hits(&app).remove(0);
+        click(&mut app, area);
+        let choice = app
+            .menu
+            .take()
+            .unwrap()
+            .entries
+            .into_iter()
+            .find(|entry| entry.key == "n")
+            .unwrap()
+            .choice;
+        app.select(0);
+        assert_eq!(app.choose(choice), Effect::None);
+        assert!(app.notes_overlay.is_none());
+    }
+
+    #[test]
+    fn full_link_back_keeps_the_opened_messages_source_after_the_same_url_is_refreshed() {
+        let mut app = reader("Read [the docs](https://example.com/a) now.");
+        let (area, _) = url_hits(&app).remove(0);
+        app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let original = app
+            .menu
+            .as_ref()
+            .unwrap()
+            .entries
+            .iter()
+            .find(|entry| entry.key == "n")
+            .unwrap()
+            .choice
+            .clone();
+        let show = app
+            .menu
+            .take()
+            .unwrap()
+            .entries
+            .into_iter()
+            .find(|entry| entry.key == "f")
+            .unwrap()
+            .choice;
+        app.choose(show);
+        app.view.as_mut().unwrap().replies[0]["requestId"] =
+            serde_json::json!("replacement-request");
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        assert!(
+            app.note_source_at(area.as_position())
+                .unwrap()
+                .body()
+                .contains("replacement-request"),
+            "positive control: the background now holds the replacement message"
+        );
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        let restored = app
+            .menu
+            .as_ref()
+            .unwrap()
+            .entries
+            .iter()
+            .find(|entry| entry.key == "n")
+            .unwrap()
+            .choice
+            .clone();
+        assert_eq!(
+            restored, original,
+            "back restores the held source, not the row now at the anchor"
+        );
+        app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        let key = app.conversation_notes_key().unwrap();
+        let source = &app.notes.draft(&key).unwrap().seed.as_ref().unwrap().source;
+        assert!(source.body().contains("request link"));
+        assert!(!source.body().contains("replacement-request"));
+
+        app.notes.drop_draft(&key);
+        app.notes_overlay = None;
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        let fresh = &app.notes.draft(&key).unwrap().seed.as_ref().unwrap().source;
+        assert!(
+            fresh.body().contains("replacement-request"),
+            "a new hit of the same URL replaces the old context"
+        );
+    }
+
+    #[test]
+    fn link_titles_use_the_last_path_segment_without_rewriting_the_url() {
+        assert_eq!(
+            link_title("https://example.com/a/review_123?x=y#z"),
+            "review_123"
+        );
+        assert_eq!(link_title("https://example.com/a/"), "a");
+        assert_eq!(link_title("https://example.com"), "example.com");
+    }
+
+    #[test]
     fn the_origin_is_the_scheme_and_host_before_any_path() {
         assert_eq!(
             origin("https://example.com:8080/a/b?c#d"),
@@ -420,7 +595,16 @@ mod tests {
         assert_eq!(click(&mut app, area), Effect::None);
         let menu = app.menu.as_ref().expect("a popover");
         let labels: Vec<_> = menu.entries.iter().map(|e| e.label.as_str()).collect();
-        assert_eq!(labels, ["https://example.com", "Open", "Copy", "Show full"]);
+        assert_eq!(
+            labels,
+            [
+                "https://example.com",
+                "Open",
+                "Copy",
+                "Show full",
+                "Add to Notes"
+            ]
+        );
         assert_eq!(menu.anchor, Some(area));
     }
 
@@ -460,7 +644,13 @@ mod tests {
         let (area, url) = url_hits(&app).remove(0);
         click(&mut app, area);
         let menu = app.menu.take().unwrap();
-        let show = menu.entries.last().unwrap().choice.clone();
+        let show = menu
+            .entries
+            .iter()
+            .find(|entry| entry.key == "f")
+            .unwrap()
+            .choice
+            .clone();
         app.choose(show);
         let full = app.menu.as_ref().expect("the full address");
         assert_eq!(
@@ -518,7 +708,8 @@ mod tests {
             .take()
             .unwrap()
             .entries
-            .last()
+            .iter()
+            .find(|entry| entry.key == "f")
             .unwrap()
             .choice
             .clone();

@@ -272,7 +272,7 @@ at the edge does not keep scrolling. The selection ends on Esc, an outside press
 new drag, a conversation switch, or when it can no longer be shown: its lines are
 gone, an end's text changed before its end, or a resize re-wrapped the transcript.
 A selection opens the Selection menu (`conversation/source/menu.rs`): a bordered box with
-`q› Quote` and `y  Copy` on their own lines and a dim `Esc clears`, directly below the
+`q› Quote`, `y  Copy` and `n  Add to Notes` on their own lines and a dim `Esc clears`, directly below the
 selection end. It flips left of the end near the right edge and opens above the first
 selected row near the bottom, so it never covers selected text; it stays inside the
 pane and falls back to the frame when the pane is too short (no room at all, no menu; the
@@ -295,6 +295,26 @@ only typed provenance by fold ID. The
 shared paste/file fold painter, current-hit fences, atomic × removal and full-source
 preview also serve quotes. Caret motion skips collapsed folds; there is no undo
 facility. Literal quotes grant no request authority and need no source revalidation.
+
+`n Add to Notes` in the conversation Link popover or Selection menu opens the existing
+Notes draft. Links preselect Link and keep the full URL, with its last path segment
+(or host) as the editable title; selections preselect Todo with the selected source
+text flattened into the title. Kind, Title, Link and From share the Notes modal;
+Tab changes fields; Kind uses the shared flat chips, with Left/Right or a current
+chip click selecting the explicit kind. An existing
+unsent draft is retained instead of being replaced. The held room/member/actor
+must still match at entry and submission; unread Notes cannot be written.
+Conversation Notes records descriptive message provenance in the existing item body;
+its render metadata grants no request authority and introduces no schema or store.
+`conversation::note_source` maps rendered rows to held message metadata, separately
+from exact response/quote authority. From shows author, kind and time; the existing
+checklist body records one human-readable Source line with the exact request ID or
+pane-observation context and timestamp. Mixed and missing sources stay explicit.
+The link popover retains its opened source through Show full/back while the transcript
+refreshes; another clicked hit replaces it even for the same URL. No URL/text
+matching chooses a message source, and source descriptions grant no jump-back
+authority. All reads and writes retain the existing Notes worker, revision and
+failure ownership.
 
 `board::conversation::screen` shows the selected agent's `pane.screen` in the Talk
 pane while `l` is on (`screen_mode`); it replaces the chat and every chat read,

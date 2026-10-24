@@ -2,7 +2,7 @@
 //! and the unsent form stay in [`State`]; this owns the cursor and the one-line notice.
 use super::{
     Draft, Key, State, Write, Written,
-    draft::{Aim, MAX_BYTES},
+    draft::{Aim, MAX_BYTES, NoteKind, Seed},
     rows::{Kind, Row, rows},
 };
 use crate::{
@@ -12,7 +12,9 @@ use crate::{
     },
     checklist::{Code, model::Id},
 };
-use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+};
 use std::{cell::RefCell, time::Instant};
 use tmt_tui::components::{ListRow, PickerEvent, PickerField, PickerInput};
 
@@ -32,6 +34,7 @@ pub(in crate::board) struct Controller {
     pub(super) reveal: RefCell<Option<Id>>,
     pub(super) ui: RefCell<picker_surface::State>,
     pub(super) template: RefCell<Option<(String, tmt_tui::components::surface::Template<()>)>>,
+    pub(super) kind_hits: RefCell<Vec<(ratatui::layout::Rect, NoteKind)>>,
     closed: bool,
 }
 
@@ -49,6 +52,7 @@ impl Controller {
             reveal: RefCell::new(None),
             ui: RefCell::new(picker_surface::State::new(None, vec![], None)),
             template: RefCell::new(None),
+            kind_hits: RefCell::new(Vec::new()),
             closed: false,
         }
     }
@@ -66,6 +70,7 @@ impl Controller {
     }
 
     pub fn invalidate(&self) {
+        self.kind_hits.borrow_mut().clear();
         self.ui.borrow_mut().invalidate();
     }
 
@@ -315,18 +320,60 @@ impl Controller {
                 KeyCode::Enter => return self.submit(app),
                 KeyCode::Tab | KeyCode::BackTab | KeyCode::Up | KeyCode::Down => {
                     if let Some(draft) = app.notes.draft_mut(&key) {
-                        draft.focus ^= 1;
+                        if draft.seed.is_some() {
+                            let backwards = matches!(press.code, KeyCode::BackTab | KeyCode::Up);
+                            draft.focus = (draft.focus + if backwards { 2 } else { 1 }) % 3;
+                        } else {
+                            draft.focus ^= 1;
+                        }
+                    }
+                }
+                KeyCode::Left | KeyCode::Right
+                    if app
+                        .notes
+                        .draft(&key)
+                        .is_some_and(|draft| draft.seed.is_some() && draft.focus == 0) =>
+                {
+                    if let Some(seed) = app
+                        .notes
+                        .draft_mut(&key)
+                        .and_then(|draft| draft.seed.as_mut())
+                    {
+                        seed.kind = match seed.kind {
+                            NoteKind::Todo => NoteKind::Link,
+                            NoteKind::Link => NoteKind::Todo,
+                        };
                     }
                 }
                 _ => {
-                    if let Some(draft) = app.notes.draft_mut(&key) {
-                        draft.fields[draft.focus].key(*press, u16::MAX, MAX_BYTES);
+                    if let Some(draft) = app.notes.draft_mut(&key)
+                        && let Some(field) = draft.field()
+                    {
+                        draft.fields[field].key(*press, u16::MAX, MAX_BYTES);
                     }
                 }
             },
+            Event::Mouse(mouse)
+                if !sent && mouse.kind == MouseEventKind::Down(MouseButton::Left) =>
+            {
+                let kind = self
+                    .kind_hits
+                    .borrow()
+                    .iter()
+                    .find(|(area, _)| area.contains((mouse.column, mouse.row).into()))
+                    .map(|(_, kind)| *kind);
+                if let Some(kind) = kind
+                    && let Some(draft) = app.notes.draft_mut(&key)
+                    && let Some(seed) = &mut draft.seed
+                {
+                    seed.kind = kind;
+                    draft.focus = 0;
+                }
+            }
             Event::Paste(text) if !sent => {
                 if let Some(draft) = app.notes.draft_mut(&key)
-                    && !search_field::paste(&mut draft.fields[draft.focus], text)
+                    && let Some(field) = draft.field()
+                    && !search_field::paste(&mut draft.fields[field], text)
                 {
                     return self.say("That text is too long for one line.");
                 }
@@ -339,6 +386,9 @@ impl Controller {
     }
 
     fn submit(&mut self, app: &mut App) -> Effect {
+        if app.notes.preview(&self.key).is_none() {
+            return self.say("The Notes have not been read yet; your draft is kept.");
+        }
         let key = self.key.clone();
         let Some(draft) = app.notes.draft(&key) else {
             return Effect::None;
@@ -347,8 +397,14 @@ impl Controller {
             Ok(content) => content,
             Err(words) => return self.say(words),
         };
+        if let Some(seed) = &draft.seed
+            && !app.note_seed_current(seed)
+        {
+            return self.say("The conversation changed; your draft is kept.");
+        }
         let write = match draft.aim.clone() {
             Aim::Add => Write::Add {
+                body: draft.seed.as_ref().map(|seed| seed.source.body()),
                 title: content.title,
                 reference: content.reference,
                 inventory: self.inventory(&app.notes),
@@ -396,6 +452,39 @@ impl Controller {
 }
 
 impl App {
+    pub(in crate::board) fn note_seed_current(&self, seed: &Seed) -> bool {
+        self.conversation_notes_key().as_ref() == Some(&seed.key)
+            && self.view.as_ref().and_then(|view| view.me_id.as_ref()) == seed.actor.as_ref()
+            && !self.loading()
+    }
+
+    pub(in crate::board) fn add_to_notes(&mut self, seed: Seed) -> Effect {
+        if !self.note_seed_current(&seed) {
+            return self.say("The conversation changed; open Add to Notes again.");
+        }
+        if self.input.is_some() || self.searching || self.modal_open() && self.menu.is_none() {
+            return self.say("Close the current input or overlay before adding to Notes.");
+        }
+        let key = seed.key.clone();
+        if self.notes.draft(&key).is_none()
+            && (seed.title.len() > MAX_BYTES || seed.reference.len() > MAX_BYTES)
+        {
+            return self.say(
+                "That selection or link is too long for the Notes form; select a shorter title.",
+            );
+        }
+        let mut controller = Controller::new(key.clone());
+        if self.notes.draft(&key).is_some() {
+            controller.notice =
+                Some("Your existing Notes draft is kept; finish or clear it first.".into());
+        } else {
+            self.notes.keep(&key, Draft::seeded(seed));
+        }
+        self.menu = None;
+        self.notes_overlay = Some(controller);
+        Effect::None
+    }
+
     pub(in crate::board) fn open_notes(&mut self) -> Effect {
         if self.input.is_some() || self.searching || self.modal_open() && self.menu.is_none() {
             return self.say("Close the current input or overlay before opening Notes.");

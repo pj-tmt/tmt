@@ -24,6 +24,7 @@ mod copy;
 pub(in crate::board) mod exchange;
 mod history;
 pub(super) mod layout;
+pub(in crate::board) mod note_source;
 pub(super) mod outgoing;
 pub(in crate::board) mod screen;
 pub(in crate::board) use outgoing::FeedbackClock;
@@ -175,6 +176,7 @@ struct Rendered {
     final_spans: Vec<(std::ops::Range<usize>, usize)>,
     /// What each displayed line was written as, for copying a selection as source.
     copy: copy::Map,
+    note_sources: note_source::Map,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -224,6 +226,7 @@ struct Session {
         std::ops::Range<usize>,
     )>,
     authored_lines: BTreeMap<usize, AuthoredLine>,
+    outgoing_note_sources: note_source::Map,
     compact_separators: std::collections::BTreeSet<usize>,
     pane_output: super::recent_responses::Observation,
     pane_output_fresh: bool,
@@ -262,6 +265,7 @@ impl Default for Session {
             pending_replies: Default::default(),
             response_spans: Default::default(),
             authored_lines: Default::default(),
+            outgoing_note_sources: Default::default(),
             compact_separators: Default::default(),
             pane_output: Default::default(),
             pane_output_fresh: false,
@@ -544,6 +548,7 @@ impl Session {
                 response_sources: Some(response_sources),
                 final_spans: transcript.final_spans,
                 copy: transcript.copy,
+                note_sources: transcript.note_sources,
             });
             self.stale = false;
         }
