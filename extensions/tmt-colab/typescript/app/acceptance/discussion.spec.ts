@@ -505,7 +505,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
     await (await pageAction(first, 'Source')).click();
     const inserted = '<p style="height:300px">Inserted above.</p>' + html;
-    const source = first.getByRole('textbox', { name: 'Source', exact: true });
+    const source = first.getByRole('textbox', { name: 'Page source', exact: true });
     await source.fill(inserted);
     await first.getByRole('button', { name: 'Save source', exact: true }).click();
     // Saved means the draft equals the new base again; a second save before that uses a stale base.

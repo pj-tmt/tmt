@@ -34,7 +34,7 @@ test('260 CLI changes with a browser edit in the middle read back exact in the C
     // The browser edits in the middle of the run, on top of the CLI's changes.
     await page.reload();
     await (await pageAction(page, 'Source')).click();
-    const box = page.getByRole('textbox', { name: 'Source', exact: true });
+    const box = page.getByRole('textbox', { name: 'Page source', exact: true });
     expect((await box.inputValue()) === source).toBe(true);
     source += '<p>from the browser</p>';
     await box.evaluate((el, value) => {
@@ -52,7 +52,8 @@ test('260 CLI changes with a browser edit in the middle read back exact in the C
     await page.reload();
     await (await pageAction(page, 'Source')).click();
     expect(
-      (await page.getByRole('textbox', { name: 'Source', exact: true }).inputValue()) === source,
+      (await page.getByRole('textbox', { name: 'Page source', exact: true }).inputValue()) ===
+        source,
     ).toBe(true);
   });
 });

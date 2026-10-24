@@ -33,7 +33,9 @@ test('native compaction keeps 260 CLI appends after browser edits readable every
       [60, 'a'],
       [100, 'b'],
     ] as const) {
-      await page.getByRole('textbox', { name: 'Source', exact: true }).fill(text(kb * 1024, tag));
+      await page
+        .getByRole('textbox', { name: 'Page source', exact: true })
+        .fill(text(kb * 1024, tag));
       await page.getByRole('button', { name: 'Save source', exact: true }).click();
       await expect(page.getByRole('alert')).toHaveCount(0);
       await expect.poll(() => read().source).toBe(text(kb * 1024, tag));
@@ -78,7 +80,7 @@ test('native compaction keeps 260 CLI appends after browser edits readable every
     // The browser reopens the compacted page and shows the exact source.
     await page.reload();
     await (await pageAction(page, 'Source')).click();
-    expect(await page.getByRole('textbox', { name: 'Source', exact: true }).inputValue()).toBe(
+    expect(await page.getByRole('textbox', { name: 'Page source', exact: true }).inputValue()).toBe(
       source,
     );
   });

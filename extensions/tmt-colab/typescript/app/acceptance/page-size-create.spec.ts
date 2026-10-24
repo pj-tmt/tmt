@@ -33,7 +33,7 @@ test('a 1.5 MiB page creates, opens in the browser and takes edits from both sid
     // The browser opens it with the exact source and saves a small edit.
     const page = await openPage(door, a, created);
     await (await pageAction(page, 'Source')).click();
-    const box = page.getByRole('textbox', { name: 'Source', exact: true });
+    const box = page.getByRole('textbox', { name: 'Page source', exact: true });
     expect((await box.inputValue()) === source).toBe(true);
     const browserEdit = source + '<p>browser edit</p>';
     // A paste: Playwright's own fill() takes minutes to insert 1.5 MiB into a textarea.
@@ -57,7 +57,8 @@ test('a 1.5 MiB page creates, opens in the browser and takes edits from both sid
     await page.reload();
     await (await pageAction(page, 'Source')).click();
     expect(
-      (await page.getByRole('textbox', { name: 'Source', exact: true }).inputValue()) === cliEdit,
+      (await page.getByRole('textbox', { name: 'Page source', exact: true }).inputValue()) ===
+        cliEdit,
     ).toBe(true);
   });
 });

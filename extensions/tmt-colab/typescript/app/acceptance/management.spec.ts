@@ -414,7 +414,10 @@ test('archive commit reopens paired tabs read-only while retaining unsent Chat d
       await page.screenshot({ path: info.outputPath(`archived-page-${width}-${theme}.png`) });
     }
     await (await pageAction(second, 'Source')).click();
-    await expect(second.getByRole('textbox', { name: 'Source' })).toHaveAttribute('readonly', '');
+    await expect(second.getByRole('textbox', { name: 'Page source' })).toHaveAttribute(
+      'readonly',
+      '',
+    );
     await expect(second.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
     expect(recipient.received()).toHaveLength(0);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(

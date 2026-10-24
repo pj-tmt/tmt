@@ -46,7 +46,8 @@ test('the owner browser shows the page size the CLI reports and compacts it with
     await page.reload();
     await (await pageAction(page, 'Source')).click();
     expect(
-      (await page.getByRole('textbox', { name: 'Source', exact: true }).inputValue()) === source,
+      (await page.getByRole('textbox', { name: 'Page source', exact: true }).inputValue()) ===
+        source,
     ).toBe(true);
   });
 });
