@@ -425,7 +425,8 @@ var MESSAGE_STATES = [
 	"delivered",
 	"working",
 	"unconfirmed",
-	"not_sent"
+	"not_sent",
+	"answered"
 ];
 var timestamp$1 = (value) => value === null || typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 /** Optional, and exact when present: a state that does not parse makes the whole reply unverifiable.
