@@ -24,6 +24,10 @@ pub(super) const ATTEMPT_COLUMNS: &str = "
     host, withdrawn_at_ms, withdrawal_reason, origin,
     remote_ref, remote_target_id, remote_target_name, remote_sender_name";
 pub(super) const ATTEMPT_COLUMN_COUNT: usize = 41;
+/// Where `qualified_attempt_columns` selects the originator's attention revision and its
+/// acknowledgment.
+pub(super) const ATTENTION_REVISION_COLUMN: usize = 27;
+pub(super) const ATTENTION_ACKNOWLEDGED_COLUMN: usize = 28;
 pub(super) fn qualified_attempt_columns() -> String {
     ATTEMPT_COLUMNS
         .split(',')
@@ -108,8 +112,8 @@ pub(super) fn attempt_row(row: &Row<'_>) -> rusqlite::Result<RequestAttempt> {
         },
         _ => return Err(invalid_row()),
     };
-    let attention_revision = u64_at(row, 27)?;
-    let attention_acknowledged_revision = u64_at(row, 28)?;
+    let attention_revision = u64_at(row, ATTENTION_REVISION_COLUMN)?;
+    let attention_acknowledged_revision = u64_at(row, ATTENTION_ACKNOWLEDGED_COLUMN)?;
     if attention_acknowledged_revision > attention_revision {
         return Err(invalid_row());
     }

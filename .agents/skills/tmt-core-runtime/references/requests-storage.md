@@ -74,7 +74,8 @@ configuration. The owner map is in
   announce text a running turn takes in. The hook's
   runtime-observation transaction binds a pending row at an admitted turn start (`TurnBoundary::Started`: the
   prompt matches the typed text, first in first out) and settles it at the admitted turn end
-  (`Ended`: the captured final, else `no_answer`); `PassthroughCapture::state_at` reads a row past its
+  (`Ended`: the captured final, else `no_answer`; an answer raises the sender's attention revision through
+  `request::raise_attention`, the helper `store_final` shares, #4915); `PassthroughCapture::state_at` reads a row past its
   bind window (unbound) or `BOUND_WINDOW_MS` (bound) as `no_answer`, so no sweeper exists. The same
   transaction writes what a read would show: `release_unseen_ends` settles a bound row whose session was
   replaced, whose window passed, or that a later `Started` of its session overtook (before binding, so a
@@ -106,8 +107,12 @@ configuration. The owner map is in
   (`digest_continuation_open`), cleared by the continuation's own Stop, any later prompt or the end of its provider run
   (`end_digest_continuation`, called from `bindings::session::set_state` and binding removal); `digest::idle_entry` refuses an idle opportunity meanwhile. `digest_claimable_items` and
   `claim_digest_checklist` add the unconfirmed items only at a turn-boundary opportunity, skipping
-  an incoming request that no longer admits a first final (`reofferable`), and the claim returns
-  them to the held pool before sealing, so an idle claim never types them twice.
+  an incoming request that no longer admits a first final (`worth_offering`), and the claim returns
+  them to the held pool before sealing, so an idle claim never types them twice; it also confirms
+  (`retire_unconfirmed_digest`) the checklists left with nothing to offer. A turn-boundary claim still
+  `claimed` after `STALE_HOOK_CLAIM_MS` is a Stop hook the provider stopped: the next claim settles it
+  `uncertain` and confirmed (`reap_digest_claim`) and releases its worth-offering items (#4871);
+  `digest_claimable_items` counts them so the hook's fit sees them. An idle claim is never reaped.
 - Originator withdrawal and final submission share the IMMEDIATE transaction. Withdrawal
   metadata stays on the attempt, separate from delivery and the final-submission marker;
   same-reason retries retain the first timestamp. It releases waiters without a recipient
@@ -330,14 +335,14 @@ I/O occurs in the holding transaction. `api::digest` and the Digest adapter proj
 the trusted local consumer seam; the owning local API contract defines stats,
 legacy-counter provenance and the difference between idle and turn-boundary eligibility.
 
-Schema 55 adds `recent_responses`, local provider-final pane output with a ten-entry
-identity ring and frozen retention. `responses::FinalText` owns byte truncation;
-`storage::responses` appends within the existing binding/preferences observation CAS
-only when the activity owner admitted a new Stop. Claude shares the bounded usage tail;
-Codex supplies its hook payload. Retirement removes the ring independently of exchange
-retention. `api::responses` reads one snapshot without housekeeping; the
-[local API contract](../../../../contracts/extension-api.md#recent-agent-responses)
-owns consent, expiry and wire shapes. This output never completes an exchange.
+`storage::responses` keeps provider-final pane output within the existing binding/preferences
+observation CAS, only when the activity owner admitted a new, non-interrupted Stop.
+`responses::FinalText` owns byte truncation. With usage consent, `provider_hook_command`
+prefers the observation's final text and falls back to the Stop payload when it finds none;
+without usage consent it reads only the payload. Retirement removes these answers
+independently of exchange retention. `api::responses` reads one snapshot without housekeeping;
+the [local API contract](../../../../contracts/extension-api.md#recent-agent-responses)
+owns capture consent, retention, coverage and wire shapes. This output never completes an exchange.
 
 Schema 54 adds `consumption_tier5m`, the 30-day five-minute consumption rollup
 (see [identity bindings](identity-bindings.md)), with the usual change-cursor triggers.

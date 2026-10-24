@@ -1960,6 +1960,206 @@ fn an_answered_request_is_not_offered_again_at_the_next_stop() {
     f.storage.close().unwrap();
 }
 
+/// `(state, confirmed)` of the checklist `id`, read from the rows a settlement writes.
+fn checklist_row(f: &Fixture, id: &str) -> (String, bool) {
+    rusqlite::Connection::open(&f.database)
+        .unwrap()
+        .query_row(
+            "SELECT state,confirmed_at_ms IS NOT NULL FROM focus_checklists WHERE id=?",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap()
+}
+
+fn claim_at_stop(
+    f: &mut Fixture,
+    target: &str,
+) -> Option<tmt_core::request::digest::DigestChecklist> {
+    service(f)
+        .claim_digest_checklist(
+            target,
+            new_operation_id(),
+            new_operation_id(),
+            DigestOpportunity::TurnBoundary,
+            None,
+        )
+        .unwrap()
+}
+
+/// A Stop hook the provider stopped after it claimed and before it printed leaves the checklist
+/// claimed for ever (#4871): every later claim saw an active one and returned nothing.
+#[test]
+fn a_stranded_stop_claim_is_settled_uncertain_and_its_open_items_are_offered_again() {
+    use tmt_core::request::digest::STALE_HOOK_CLAIM_MS;
+    let (mut f, target, _, sender) = start();
+    let answered = held(&mut f, &target, &sender, "req-answered");
+    held(&mut f, &target, &sender, "req-open");
+    let stranded = claim_at_stop(&mut f, &target).expect("the hook claims both");
+    // Inside the hook's own time the claim is live: nothing else may take it.
+    f.set_now(NOW_MS + STALE_HOOK_CLAIM_MS - 1);
+    assert!(claim_at_stop(&mut f, &target).is_none());
+    assert_eq!(checklist_row(&f, &stranded.id), ("claimed".into(), false));
+
+    service(&mut f)
+        .submit_response(SubmitResponse {
+            request_id: "req-answered".into(),
+            proof: ResponseProof::Compact(tmt_core::request::correlation::response_token(
+                "req-answered",
+                &answered.attempt_id,
+                &RequestRoute::Inbox {
+                    recipient_identity_id: target.clone(),
+                },
+            )),
+            body: "done from the inbox".into(),
+        })
+        .unwrap();
+    f.set_now(NOW_MS + STALE_HOOK_CLAIM_MS);
+    // The fit a hook measures sees what the claim will return to the pool.
+    let claimable = service(&mut f)
+        .digest_claimable_items(&target, DigestOpportunity::TurnBoundary, 128)
+        .unwrap();
+    assert_eq!(
+        claimable
+            .iter()
+            .map(|i| i.request_id.as_str())
+            .collect::<Vec<_>>(),
+        ["req-open"]
+    );
+
+    let again = claim_at_stop(&mut f, &target).expect("the stranded seat is served again");
+    assert_ne!(again.id, stranded.id);
+    let (items, count) = service(&mut f)
+        .digest_checklist_items(&target, Some(&again.id), 0, 128)
+        .unwrap();
+    assert_eq!((count, items[0].request_id.as_str()), (1, "req-open"));
+    // The old checklist is never typed again and opens no continuation.
+    assert_eq!(checklist_row(&f, &stranded.id), ("uncertain".into(), true));
+    let (kept, _) = service(&mut f)
+        .digest_checklist_items(&target, Some(&stranded.id), 0, 128)
+        .unwrap();
+    assert_eq!(
+        kept.iter()
+            .map(|i| i.request_id.as_str())
+            .collect::<Vec<_>>(),
+        ["req-answered"],
+        "the closed request stays in the checklist that was reaped"
+    );
+    assert_eq!(
+        message_state_of(&mut f, "req-answered"),
+        tmt_core::request::delivery::DeliveryState::Answered
+    );
+    f.storage.close().unwrap();
+}
+
+/// Only a hook is bounded by the provider's timeout; the foreground that types an idle checklist
+/// is not, so an idle claim is never taken from it.
+#[test]
+fn an_idle_claim_is_never_reaped() {
+    let (mut f, target, _, sender) = start();
+    held(&mut f, &target, &sender, "req-idle");
+    service(&mut f).make_digest_due(&target).unwrap();
+    let idle = service(&mut f)
+        .claim_digest_checklist(
+            &target,
+            new_operation_id(),
+            new_operation_id(),
+            DigestOpportunity::Idle,
+            None,
+        )
+        .unwrap()
+        .expect("the tick claims");
+    f.set_now(NOW_MS + 3_600_000);
+    assert!(claim_at_stop(&mut f, &target).is_none());
+    assert_eq!(checklist_row(&f, &idle.id), ("claimed".into(), false));
+    f.storage.close().unwrap();
+}
+
+/// A checklist typed at an idle opportunity whose requests are all closed has nothing left to
+/// offer: it is confirmed, so the next claim does not scan it again. One that still holds an open
+/// request the claim could not take yet is kept (tmt-lead's note on #4869).
+#[test]
+fn closed_unconfirmed_items_stop_being_scanned_but_an_open_deferred_one_keeps_its_checklist() {
+    let (mut f, target, _, sender) = start();
+    let closed = held(&mut f, &target, &sender, "req-closed");
+    held(&mut f, &target, &sender, "req-open");
+    let typed = type_idle_checklist(&mut f, &target);
+    let answer = |f: &mut Fixture, id: &str, attempt: &str| {
+        service(f)
+            .submit_response(SubmitResponse {
+                request_id: id.into(),
+                proof: ResponseProof::Compact(tmt_core::request::correlation::response_token(
+                    id,
+                    attempt,
+                    &RequestRoute::Inbox {
+                        recipient_identity_id: target.clone(),
+                    },
+                )),
+                body: "answered".into(),
+            })
+            .unwrap();
+    };
+    answer(&mut f, "req-closed", &closed.attempt_id);
+    // The claim can seal only the first item; the open one is deferred, not released.
+    let first = rusqlite::Connection::open(&f.database)
+        .unwrap()
+        .query_row(
+            "SELECT sequence FROM focus_items WHERE request_id='req-closed'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap() as u64;
+    assert!(
+        service(&mut f)
+            .claim_digest_checklist(
+                &target,
+                new_operation_id(),
+                new_operation_id(),
+                DigestOpportunity::TurnBoundary,
+                Some(first),
+            )
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(checklist_row(&f, &typed.id), ("delivered".into(), false));
+    // Offered whole later, the open request is released and the checklist has nothing left.
+    let offered = claim_at_stop(&mut f, &target).expect("the open request is offered");
+    let (items, _) = service(&mut f)
+        .digest_checklist_items(&target, Some(&offered.id), 0, 128)
+        .unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].request_id, "req-open");
+    assert_eq!(checklist_row(&f, &typed.id), ("delivered".into(), true));
+    f.storage.close().unwrap();
+}
+
+/// A checklist whose requests are all closed is confirmed by the next claim.
+#[test]
+fn a_checklist_of_closed_requests_is_confirmed_by_the_next_stop() {
+    let (mut f, target, _, sender) = start();
+    let only = held(&mut f, &target, &sender, "req-only");
+    let typed = type_idle_checklist(&mut f, &target);
+    service(&mut f)
+        .submit_response(SubmitResponse {
+            request_id: "req-only".into(),
+            proof: ResponseProof::Compact(tmt_core::request::correlation::response_token(
+                "req-only",
+                &only.attempt_id,
+                &RequestRoute::Inbox {
+                    recipient_identity_id: target.clone(),
+                },
+            )),
+            body: "answered".into(),
+        })
+        .unwrap();
+    assert!(
+        claim_at_stop(&mut f, &target).is_none(),
+        "nothing left to offer"
+    );
+    assert_eq!(checklist_row(&f, &typed.id), ("delivered".into(), true));
+    f.storage.close().unwrap();
+}
+
 /// A prompt that carries the typed checklist confirms it: the next Stop has nothing to offer.
 #[test]
 fn a_prompt_that_carries_the_typed_checklist_confirms_it() {

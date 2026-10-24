@@ -348,6 +348,83 @@ pub(super) fn release_unconfirmed(
     Ok(released)
 }
 
+/// Confirms the unconfirmed idle checklists that hold nothing left to offer: no member among the
+/// `open` sequences and none past `scanned_through`. Their closed members stop being rescanned.
+pub(super) fn retire_unconfirmed(
+    db: &Connection,
+    identity: &str,
+    open: &[u64],
+    scanned_through: u64,
+    now: u64,
+) -> Result<u64, StorageError> {
+    let open = serde_json::to_string(open).expect("sequences serialize");
+    db.execute(
+        &format!(
+            "UPDATE focus_checklists AS c SET confirmed_at_ms=?2 WHERE {UNCONFIRMED}
+             AND NOT EXISTS (SELECT 1 FROM focus_items i WHERE i.checklist_id=c.id
+                 AND (i.sequence>?3 OR i.sequence IN (SELECT value FROM json_each(?4))))"
+        ),
+        params![
+            identity,
+            checked_now(now, "Digest retirement clock")?,
+            checked_i64(scanned_through, "Digest scan bound")?,
+            open
+        ],
+    )
+    .map(|changed| changed as u64)
+    .map_err(|e| classify(e, "Retire unconfirmed digest checklists"))
+}
+
+/// The identity's turn-boundary claim made at or before `claimed_before`, still claimed.
+pub(super) fn stale_turn_boundary_claim(
+    db: &Connection,
+    identity: &str,
+    claimed_before: u64,
+) -> Result<Option<DigestChecklist>, StorageError> {
+    db.query_row(
+        &format!(
+            "SELECT {CHECKLIST_COLUMNS} FROM focus_checklists WHERE identity_id=?1 AND state='claimed'
+             AND opportunity='turn_boundary' AND created_at_ms<=?2"
+        ),
+        params![identity, checked_now(claimed_before, "Digest stale claim bound")?],
+        checklist_row,
+    )
+    .optional()
+    .map_err(|e| classify(e, "Read stranded digest claim"))
+}
+
+/// Settles a stranded claim `uncertain` and confirmed, and returns `release` to the held pool.
+pub(super) fn reap_claim(
+    db: &Connection,
+    b: &DigestChecklist,
+    release: &[u64],
+    now: u64,
+) -> Result<(), StorageError> {
+    let now = checked_now(now, "Digest reap clock")?;
+    let changed = db
+        .execute(
+            "UPDATE focus_checklists SET state='uncertain',settled_at_ms=?3,confirmed_at_ms=?3,
+             settlement_sequence=(SELECT value+1 FROM change_cursor WHERE id=1)
+             WHERE id=?1 AND identity_id=?2 AND state='claimed'",
+            params![b.id, b.identity_id, now],
+        )
+        .map_err(|e| classify(e, "Reap stranded digest claim"))?;
+    if changed != 1 {
+        return Err(StorageError::new(
+            StorageErrorCode::Unknown,
+            "Digest checklist claim changed",
+        ));
+    }
+    for sequence in release {
+        db.execute(
+            "UPDATE focus_items SET checklist_id=NULL WHERE checklist_id=?1 AND sequence=?2",
+            params![b.id, checked_i64(*sequence, "Digest release sequence")?],
+        )
+        .map_err(|e| classify(e, "Release stranded digest members"))?;
+    }
+    Ok(())
+}
+
 /// Whether a Stop hook handed this identity a checklist and the continuation that follows has not
 /// ended: the provider is working although its activity reads idle.
 pub(super) fn continuation_open(db: &Connection, identity: &str) -> Result<bool, StorageError> {

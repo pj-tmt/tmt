@@ -1,5 +1,6 @@
 //! Ordinary-user qualification. Admin is used only to install Rules in a demo emulator.
 use super::*;
+use crate::emulator_http::EMULATOR_HTTP_TIMEOUT;
 use crate::{
     firebase_auth::{ProductionHttp, Project},
     sealed_sync::AuthPort,
@@ -77,7 +78,7 @@ impl Emulator {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .proxy(None)
             .http_status_as_error(false)
-            .timeout_global(Some(Duration::from_secs(20)))
+            .timeout_global(Some(EMULATOR_HTTP_TIMEOUT))
             .build()
             .into();
         let request = ureq::http::Request::builder().method("PUT")

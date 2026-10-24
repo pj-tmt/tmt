@@ -98,6 +98,19 @@ fn event(
         .unwrap()
 }
 
+/// The sender's attention revision for `request`.
+fn revision(storage: &Storage, request: &str) -> i64 {
+    storage
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT attention_revision FROM request_attempts WHERE request_id=?",
+            [request],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
 fn capture(storage: &Storage, request: &str) -> tmt_core::request::passthrough::PassthroughCapture {
     super::super::requests::passthrough::capture(storage.connection().unwrap(), request)
         .unwrap()
@@ -111,6 +124,16 @@ fn a_turn_binds_by_prompt_text_and_its_final_answers_the_passthrough_once() {
     let (_directory, path, id) = fixture();
     let mut storage = Storage::open(&path).unwrap();
     typed(&storage, &id, "p1", "Ship it!", 1_000);
+    // The sender holds no attention revision yet; the answer gives them one (#4915).
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "UPDATE request_attempts SET originator_kind='explicit',originator_identity_id=? WHERE request_id='p1'",
+            [&id],
+        )
+        .unwrap();
+    assert_eq!(revision(&storage, "p1"), 0);
     // The provider reports what the pane received: `！` for `!`.
     let started = TurnBoundary::Started {
         turn: Some("t1"),
@@ -151,6 +174,11 @@ fn a_turn_binds_by_prompt_text_and_its_final_answers_the_passthrough_once() {
     assert_eq!(answer.provider, "claude");
     assert!(!answer.truncated);
     assert_eq!(answered.settled_at_ms, Some(answer.ended_ms));
+    assert_eq!(
+        revision(&storage, "p1"),
+        1,
+        "the answer is unread for its sender"
+    );
 
     // A repeated end, or another turn's final, never rewrites what was settled.
     let again = TurnBoundary::Ended {
@@ -167,6 +195,7 @@ fn a_turn_binds_by_prompt_text_and_its_final_answers_the_passthrough_once() {
         true,
     );
     assert_eq!(capture(&storage, "p1"), answered);
+    assert_eq!(revision(&storage, "p1"), 1, "settled once, raised once");
     storage.close().unwrap();
 }
 

@@ -265,9 +265,9 @@ fn observe_turn(
         .and_then(|event| {
             lifecycle.activity_state(event, &turn.session, &process, previous, now_ms)
         });
-    // An admitted turn end keeps the agent's final answer. With usage on it comes from the
-    // observation (which may read the transcript); with usage off it is the Stop payload's own
-    // `last_assistant_message`, and nothing else is read.
+    // An admitted turn end prefers the usage observation's final answer, then the Stop
+    // payload's `last_assistant_message`. With usage off no observation is made and
+    // nothing beyond the payload is read.
     let response = kept_answer(
         transition.is_some() && !activity_only,
         observation.map(|value| value.final_text),
@@ -308,9 +308,9 @@ fn observe_turn(
     Ok(Observation::default())
 }
 
-/// The answer an admitted turn end keeps. With usage on the observation (which may read the
-/// transcript) decides; with usage off there is no observation and the Stop payload's own final
-/// text is all there is. A turn end that was not admitted, or an interrupted one, keeps nothing.
+/// Prefer the observed final when usage is on; otherwise keep the Stop payload's own
+/// final text, including when the observation found none. With usage off no observation
+/// is made. A turn end that was not admitted, or an interrupted one, keeps nothing.
 fn kept_answer(
     admitted: bool,
     observed: Option<Option<tmt_core::responses::FinalText>>,
@@ -319,10 +319,7 @@ fn kept_answer(
     if !admitted {
         return None;
     }
-    match observed {
-        Some(observed) => observed,
-        None => payload.cloned(),
-    }
+    observed.flatten().or_else(|| payload.cloned())
 }
 
 /// The caller a hook event came from, verified the same way for every event.
@@ -1588,26 +1585,44 @@ mod answer_tests {
     use tmt_core::responses::FinalText;
 
     #[test]
-    fn usage_off_keeps_the_payload_text_and_usage_on_keeps_what_was_observed() {
+    fn observed_final_takes_precedence_over_the_stop_payload() {
         let payload = FinalText::new("from the payload").unwrap();
         let observed = FinalText::new("from the transcript").unwrap();
-        // Usage on: the observation decides, even when it found nothing.
         assert_eq!(
             kept_answer(true, Some(Some(observed.clone())), Some(&payload)),
+            Some(observed.clone())
+        );
+        assert_eq!(
+            kept_answer(true, Some(Some(observed.clone())), None),
             Some(observed)
         );
-        assert_eq!(kept_answer(true, Some(None), Some(&payload)), None);
-        // Usage off: no observation was made, so the payload's own text is the answer.
+    }
+
+    #[test]
+    fn missing_observed_final_falls_back_to_the_stop_payload() {
+        let payload = FinalText::new("from the payload").unwrap();
+        // Usage on: an observation was made but found no final text.
         assert_eq!(
-            kept_answer(true, None, Some(&payload)),
+            kept_answer(true, Some(None), Some(&payload)),
             Some(payload.clone())
         );
+        // Usage off: the observation was not made.
+        assert_eq!(kept_answer(true, None, Some(&payload)), Some(payload));
+    }
+
+    #[test]
+    fn a_turn_without_either_final_source_keeps_nothing() {
+        assert_eq!(kept_answer(true, Some(None), None), None);
         assert_eq!(kept_answer(true, None, None), None);
-        // A turn end that was not admitted (stale, duplicate, interrupted) keeps nothing.
-        assert_eq!(kept_answer(false, None, Some(&payload)), None);
-        assert_eq!(
-            kept_answer(false, Some(Some(payload.clone())), Some(&payload)),
-            None
-        );
+    }
+
+    #[test]
+    fn a_turn_that_was_not_admitted_keeps_neither_final_source() {
+        let payload = FinalText::new("from the payload").unwrap();
+        let observed = FinalText::new("from the transcript").unwrap();
+        // Stale, duplicate and interrupted ends never reach answer capture.
+        for observation in [None, Some(None), Some(Some(observed))] {
+            assert_eq!(kept_answer(false, observation, Some(&payload)), None);
+        }
     }
 }

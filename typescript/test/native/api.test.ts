@@ -818,6 +818,9 @@ describe('public local extension API', () => {
         recipientId: recipients[0],
         answeredAtMs: now - 989,
         answer: 'final',
+        revision: expect.any(Number),
+        // The ackall above read every final; a new answer would raise the revision again.
+        acknowledged: true,
       });
       expect(answered.body.nextBefore).toBeNull();
       const answerFirst = await api(sandbox, 'requests.list', { ...answers, limit: 3 });
@@ -913,6 +916,63 @@ describe('public local extension API', () => {
         previewTruncated: false,
       });
       expect(everyTable(sandbox)).toEqual(expiredBefore);
+    });
+  });
+
+  it('acknowledges an answered request at its revision through requests.ack and the answers view', async () => {
+    await withSandbox(async (sandbox) => {
+      const sender = await identity(sandbox, 'Ack Sender');
+      const recipient = await identity(sandbox, 'Ack Recipient');
+      const sent = await api(
+        sandbox,
+        'dispatch.create',
+        { operationId: randomUUID(), recipientIds: [recipient], message: 'Question' },
+        sender
+      );
+      expect(sent.status).toBe(0);
+      const requestId = sent.body.items[0].requestId;
+      const shown = await runCli(sandbox, [
+        'x',
+        'show',
+        requestId,
+        '--incoming',
+        '--identity',
+        recipient,
+        '--json',
+      ]);
+      expect(
+        (
+          await runCli(sandbox, [
+            'reply',
+            requestId,
+            '--receipt',
+            JSON.parse(shown.stdout).exchange.reply.receipt,
+            '--message',
+            'Answer',
+            '--json',
+          ])
+        ).status
+      ).toBe(0);
+      const answers = () =>
+        api(sandbox, 'requests.list', { originatorId: sender, view: 'answers' });
+      const unread = (await answers()).body.items[0];
+      expect(unread).toMatchObject({ requestId, answer: 'final', acknowledged: false });
+      const ack = (revision: number, caller: string = sender) =>
+        api(sandbox, 'requests.ack', { items: [{ requestId, revision }] }, caller);
+
+      // A stale revision leaves it unread and names the current one.
+      const stale = await ack(unread.revision - 1);
+      expect(stale.status).toBe(0);
+      expect(stale.body.items[0]).toMatchObject({ status: 'conflict', current: unread.revision });
+      expect((await answers()).body.items[0].acknowledged).toBe(false);
+      // Only the originator's own request is found.
+      expect((await ack(unread.revision, recipient)).body.items[0].status).toBe('notFound');
+      // The exact revision reads it, once, and `x` agrees: nothing is left to acknowledge.
+      expect((await ack(unread.revision)).body.items[0].status).toBe('acknowledged');
+      expect((await ack(unread.revision)).body.items[0].status).toBe('already');
+      expect((await answers()).body.items[0].acknowledged).toBe(true);
+      const left = await runCli(sandbox, ['x', '--identity', sender, '--json']);
+      expect(JSON.parse(left.stdout).items).toEqual([]);
     });
   });
 

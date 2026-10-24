@@ -25,30 +25,106 @@ fn digest_identity<E>(
 /// an open one behind the caller's own limit.
 const MAX_UNCONFIRMED_SCAN: u64 = 512;
 
-/// The unconfirmed items worth offering again, oldest first. A request that no longer admits a
-/// first final (answered, withdrawn or expired) has nothing left to ask, so a paste the seat saw
-/// or answered from its inbox is not offered twice. A result or timeout notice names a final the
-/// seat may not have read, so it stays (#4858).
+/// Whether an item is worth offering again. A request that no longer admits a first final
+/// (answered, withdrawn or expired) has nothing left to ask, so a paste the seat saw or answered
+/// from its inbox is not offered twice. A result or timeout notice names a final the seat may not
+/// have read, so it stays (#4858).
+fn worth_offering<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    item: &digest::DigestItem,
+    now: u64,
+) -> Result<bool, RequestError<E>> {
+    Ok(item.source != digest::DigestSource::Incoming
+        || context(records, &item.request_id, now)?
+            .is_some_and(|context| responses::first_final_refusal(&context.attempt, now).is_none()))
+}
+
+/// The unconfirmed items one claim looked through: those worth offering again, oldest first, and
+/// how far the scan reached (`MAX_JS_SAFE_INTEGER` when it saw them all).
+struct Unconfirmed {
+    open: Vec<digest::DigestItem>,
+    scanned_through: u64,
+}
+
+fn unconfirmed<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    identity: &str,
+    now: u64,
+) -> Result<Unconfirmed, RequestError<E>> {
+    let scanned = records.digest_unconfirmed_items(identity, MAX_UNCONFIRMED_SCAN, now)?;
+    let scanned_through = match scanned.last() {
+        Some(last) if scanned.len() as u64 == MAX_UNCONFIRMED_SCAN => last.sequence,
+        _ => MAX_JS_SAFE_INTEGER,
+    };
+    let mut open = Vec::new();
+    for item in scanned {
+        if worth_offering(records, &item, now)? {
+            open.push(item);
+        }
+    }
+    Ok(Unconfirmed {
+        open,
+        scanned_through,
+    })
+}
+
+/// The unconfirmed items worth offering again, at most `limit`, oldest first.
 fn reofferable<E>(
     records: &mut dyn RequestRecords<Error = E>,
     identity: &str,
     limit: u64,
     now: u64,
 ) -> Result<Vec<digest::DigestItem>, RequestError<E>> {
-    let mut items = Vec::new();
-    for item in records.digest_unconfirmed_items(identity, MAX_UNCONFIRMED_SCAN, now)? {
-        let open = item.source != digest::DigestSource::Incoming
-            || context(records, &item.request_id, now)?.is_some_and(|context| {
-                responses::first_final_refusal(&context.attempt, now).is_none()
-            });
-        if open {
-            items.push(item);
+    let mut open = unconfirmed(records, identity, now)?.open;
+    open.truncate(limit as usize);
+    Ok(open)
+}
+
+/// Settles the identity's stranded turn-boundary claim, if it has one: `uncertain`, never typed
+/// again, with no continuation to wait for, and its items that are still worth offering back in
+/// the held pool (they are offered again by request id, as any unconfirmed item is). An idle
+/// claim is never reaped: nothing bounds how long the foreground takes to type it.
+fn reap_stranded_claim<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    identity: &str,
+    now: u64,
+) -> Result<bool, RequestError<E>> {
+    let Some(stale) = records
+        .stale_turn_boundary_claim(identity, now.saturating_sub(digest::STALE_HOOK_CLAIM_MS))?
+    else {
+        return Ok(false);
+    };
+    let release: Vec<u64> = stranded_open_items(records, &stale, now)?
+        .into_iter()
+        .map(|item| item.sequence)
+        .collect();
+    records.reap_digest_claim(&stale, &release, now)?;
+    Ok(true)
+}
+
+/// The items of a stranded turn-boundary claim that are worth offering again.
+fn stranded_open_items<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    stale: &DigestChecklist,
+    now: u64,
+) -> Result<Vec<digest::DigestItem>, RequestError<E>> {
+    let mut open = Vec::new();
+    let mut after = 0;
+    loop {
+        let page = records.digest_items(&stale.identity_id, Some(&stale.id), after, 128, now)?;
+        let Some(last) = page.last() else { break };
+        after = last.sequence;
+        let full = page.len() == 128;
+        for item in page {
+            if worth_offering(records, &item, now)? {
+                open.push(item);
+            }
         }
-        if items.len() as u64 == limit {
+        if !full {
             break;
         }
     }
-    Ok(items)
+    Ok(open)
 }
 
 impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
@@ -354,6 +430,14 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 // The provider's own hook output is a different channel from the paste
                 // that may have been lost, so it may offer those items again (#4858).
                 items.extend(reofferable(records, identity, limit, now)?);
+                // A stranded claim is settled by the next claim, which returns its open items
+                // to the pool; the fit measured here must already see them (#4871).
+                if let Some(stale) = records.stale_turn_boundary_claim(
+                    identity,
+                    now.saturating_sub(digest::STALE_HOOK_CLAIM_MS),
+                )? {
+                    items.extend(stranded_open_items(records, &stale, now)?);
+                }
                 items.sort_by_key(|item| item.sequence);
                 items.truncate(limit as usize);
             }
@@ -389,18 +473,24 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 // crash whose external effect cannot be established.
                 return Ok(None);
             }
-            if records.active_digest_checklist(identity)?.is_some() {
+            if records.active_digest_checklist(identity)?.is_some()
+                && !reap_stranded_claim(records, identity, now)?
+            {
                 return Ok(None);
             }
             let bound = claim_bound(records, identity, opportunity, now)?
                 .min(through_limit.unwrap_or(MAX_JS_SAFE_INTEGER));
             if opportunity == DigestOpportunity::TurnBoundary {
-                let again: Vec<u64> = reofferable(records, identity, MAX_UNCONFIRMED_SCAN, now)?
-                    .into_iter()
+                let scan = unconfirmed(records, identity, now)?;
+                let (again, later): (Vec<u64>, Vec<u64>) = scan
+                    .open
+                    .iter()
                     .map(|item| item.sequence)
-                    .filter(|sequence| *sequence <= bound)
-                    .collect();
+                    .partition(|sequence| *sequence <= bound);
                 records.release_unconfirmed_digest(identity, &again)?;
+                // What was skipped as closed stays unconfirmed no longer: a checklist with no
+                // item left to offer stops counting against the scan (#4871).
+                records.retire_unconfirmed_digest(identity, &later, scan.scanned_through, now)?;
             }
             let (count, through_sequence) = records.digest_due_inventory(identity, bound, now)?;
             if count == 0 {

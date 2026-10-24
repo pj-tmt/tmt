@@ -192,6 +192,12 @@ pub(super) fn list_request_history(
 /// takes no reply), so the cursor `(answered_at_ms, request_id)` names one entry. Each side
 /// is cut to `limit` by its own index before the two are merged; the turn side tests the
 /// originator on every entry it walks.
+/// Where `answers_query` selects, after the attempt columns: when the request was answered, whether
+/// the answer is a captured turn, and the originator's `x ackall` watermark.
+const ANSWERED_AT_COLUMN: usize = rows::ATTEMPT_COLUMN_COUNT;
+const ANSWER_TURN_COLUMN: usize = rows::ATTEMPT_COLUMN_COUNT + 1;
+const ANSWER_WATERMARK_COLUMN: usize = rows::ATTEMPT_COLUMN_COUNT + 2;
+
 pub(super) fn answers_query(has_cursor: bool) -> String {
     let columns = rows::qualified_attempt_columns();
     let cursor = |time: &str, id: &str| {
@@ -201,18 +207,21 @@ pub(super) fn answers_query(has_cursor: bool) -> String {
             "?2 IS NULL AND ?3 IS NULL".to_owned()
         }
     };
+    // The originator's watermark (`x ackall`) acknowledges every revision through it.
+    let through = "COALESCE((SELECT acknowledged_through FROM request_attention_identities
+                 WHERE identity_id=a.originator_identity_id),0) AS through";
     let finals = cursor("a.response_submitted_at_ms", "a.request_id");
     let turns = cursor("p.settled_at_ms", "p.request_id");
     format!(
         "SELECT * FROM (
-            SELECT {columns}, a.response_submitted_at_ms AS answered_at_ms, 0 AS turn
+            SELECT {columns}, a.response_submitted_at_ms AS answered_at_ms, 0 AS turn, {through}
             FROM request_attempts AS a INDEXED BY request_history_originator_results
             WHERE a.originator_identity_id=?1 AND a.response_submitted_at_ms IS NOT NULL
               AND a.retention_expires_at_ms > ?5 AND {finals}
             ORDER BY a.response_submitted_at_ms DESC, a.request_id DESC LIMIT ?4)
          UNION ALL
          SELECT * FROM (
-            SELECT {columns}, p.settled_at_ms AS answered_at_ms, 1 AS turn
+            SELECT {columns}, p.settled_at_ms AS answered_at_ms, 1 AS turn, {through}
             FROM request_passthrough AS p INDEXED BY request_passthrough_answered
             JOIN request_attempts AS a ON a.request_id=p.request_id
             WHERE p.state='answered' AND a.originator_identity_id=?1
@@ -248,17 +257,23 @@ pub(super) fn list_answers(
             ],
             |row| {
                 let attempt = rows::attempt_row(row)?;
+                let revision = rows::u64_at(row, rows::ATTENTION_REVISION_COLUMN)?;
+                let acknowledged = revision
+                    <= rows::u64_at(row, rows::ATTENTION_ACKNOWLEDGED_COLUMN)?
+                        .max(rows::u64_at(row, ANSWER_WATERMARK_COLUMN)?);
                 Ok(AnsweredRequest {
                     request_id: attempt.request_id,
                     kind: attempt.kind,
                     originator: attempt.originator,
                     recipient_identity_id: attempt.recipient_identity_id,
-                    answered_at_ms: rows::u64_at(row, rows::ATTEMPT_COLUMN_COUNT)?,
-                    answer: if row.get::<_, i64>(rows::ATTEMPT_COLUMN_COUNT + 1)? == 0 {
+                    answered_at_ms: rows::u64_at(row, ANSWERED_AT_COLUMN)?,
+                    answer: if row.get::<_, i64>(ANSWER_TURN_COLUMN)? == 0 {
                         AnswerKind::Final
                     } else {
                         AnswerKind::Turn
                     },
+                    revision,
+                    acknowledged,
                 })
             },
         )

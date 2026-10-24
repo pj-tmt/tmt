@@ -49,6 +49,7 @@ const OPS: &[&str] = &[
     "requests.list",
     "requests.show",
     "requests.sendNow",
+    "requests.ack",
     "responses.recent",
     "pane.screen",
     "dispatch.show",
@@ -204,6 +205,11 @@ pub enum Request {
         identity: Option<DispatchIdentity>,
         request_id: String,
     },
+    /// Acknowledges what answered the envelope identity's messages.
+    Acknowledge {
+        identity: Option<DispatchIdentity>,
+        items: Vec<(String, u64)>,
+    },
     Receipt(String),
     Dispatch {
         /// `None` is the anonymous originator.
@@ -289,7 +295,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
     let input = wire.input.get().as_bytes();
     let writing = matches!(
         wire.operation.as_str(),
-        "dispatch.create" | "rooms.write" | "rooms.retire" | "requests.sendNow"
+        "dispatch.create" | "rooms.write" | "rooms.retire" | "requests.sendNow" | "requests.ack"
     );
     // Originator-attributed writes name exactly one identity or `"anonymous"`.
     // Other operations, including metadata target mutations, name neither.
@@ -343,6 +349,10 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "requests.sendNow" => Request::SendNow {
             identity: wire.identity.map(DispatchIdentity::Explicit),
             request_id: requests::decode_show(input)?,
+        },
+        "requests.ack" => Request::Acknowledge {
+            identity: wire.identity.map(DispatchIdentity::Explicit),
+            items: requests::decode_ack(input)?,
         },
         "responses.recent" => responses::decode(input)?,
         "pane.screen" => pane::decode(input)?,
@@ -514,6 +524,10 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
             identity: selector,
             request_id,
         } => requests::send_now(&mut storage, selector, &request_id, settings),
+        Request::Acknowledge {
+            identity: selector,
+            items,
+        } => requests::acknowledge(&mut storage, selector, items),
         Request::Receipt(id) => dispatch::show_receipt(&storage, id),
         Request::Room {
             identity: selector,
@@ -1212,11 +1226,13 @@ mod tests {
         };
         let room_retire = json!({"roomId": room, "expectedRevision": 1});
         let send_now = json!({"requestId": "req_77777777-7777-4777-8777-777777777777"});
+        let ack = json!({"items": [{"requestId": "req_77777777-7777-4777-8777-777777777777", "revision": 1}]});
         for (operation, input) in [
             ("dispatch.create", &dispatch),
             ("rooms.write", &room_write),
             ("rooms.retire", &room_retire),
             ("requests.sendNow", &send_now),
+            ("requests.ack", &ack),
         ] {
             assert!(decode_with(operation, json!({"originator": "anonymous"}), input).is_ok());
             assert!(decode_with(operation, json!({"identity": "Ada"}), input).is_ok());
@@ -1346,6 +1362,152 @@ mod tests {
             send("Ada").expect_err("refused").code,
             "SEND_NOW_UNREACHABLE"
         );
+    }
+
+    #[test]
+    fn requests_ack_acknowledges_the_callers_own_requests_item_by_item() {
+        let directory = crate::test_support::TestDirectory::new();
+        let paths = ConfigPaths::resolve(
+            &directory.path,
+            &directory.path,
+            Some(&directory.path),
+            None,
+        );
+        Storage::open(&paths.database).unwrap().close().unwrap();
+        let (ada, bob) = (
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+        );
+        for (id, name) in [(ada, "Ada"), (bob, "Bob")] {
+            rusqlite::Connection::open(&paths.database)
+                .unwrap()
+                .execute(
+                    "INSERT INTO identities (id, name, canonical_name, created_at, updated_at, lifetime) VALUES (?, ?, lower(?), 't', 't', 'saved')",
+                    [id, name, name],
+                )
+                .unwrap();
+        }
+        let call = |caller: serde_json::Value, input: serde_json::Value| {
+            let mut envelope = json!({"version": 1, "operation": "requests.ack", "input": input});
+            for (key, value) in caller.as_object().unwrap() {
+                envelope[key] = value.clone();
+            }
+            decode(&envelope.to_string())
+                .and_then(|request| execute(&paths, request))
+                .map(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).unwrap())
+        };
+        let ada_calls = |input: serde_json::Value| call(json!({"identity": "Ada"}), input);
+        let dispatch = json!({"version": 1, "operation": "dispatch.create", "identity": "Ada",
+            "input": {"operationId": "66666666-6666-4666-8666-666666666666",
+                "recipientIds": [bob], "message": "hello"}});
+        let receipt: serde_json::Value = serde_json::from_slice(
+            &execute(&paths, decode(&dispatch.to_string()).unwrap()).unwrap(),
+        )
+        .unwrap();
+        let request = receipt["items"][0]["requestId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let revision: u64 = rusqlite::Connection::open(&paths.database)
+            .unwrap()
+            .query_row(
+                "SELECT attention_revision FROM request_attempts WHERE request_id=?",
+                [&request],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap() as u64;
+        let unknown = "req_77777777-7777-4777-8777-777777777777";
+        let status =
+            |value: &serde_json::Value, index: usize| value["items"][index]["status"].clone();
+
+        // A stale revision, an unknown request and the right revision settle one by one.
+        let first = ada_calls(json!({"items": [
+            {"requestId": request, "revision": revision + 1},
+            {"requestId": unknown, "revision": 1},
+            {"requestId": request, "revision": revision}
+        ]}));
+        assert!(first.is_err(), "the same request twice is invalid input");
+        let first = ada_calls(json!({"items": [
+            {"requestId": request, "revision": revision + 1},
+            {"requestId": unknown, "revision": 1}
+        ]}))
+        .unwrap();
+        assert_eq!(status(&first, 0), "conflict");
+        assert_eq!(first["items"][0]["current"], revision);
+        assert_eq!(status(&first, 1), "notFound");
+        let cursor = || {
+            let request =
+                decode(r#"{"version":1,"operation":"changes.cursor","input":{}}"#).unwrap();
+            serde_json::from_slice::<serde_json::Value>(&execute(&paths, request).unwrap()).unwrap()
+                ["cursor"]
+                .as_u64()
+                .unwrap()
+        };
+        let before = cursor();
+        let acked =
+            ada_calls(json!({"items": [{"requestId": request, "revision": revision}]})).unwrap();
+        assert_eq!(status(&acked, 0), "acknowledged");
+        assert!(cursor() > before, "an acknowledgment is a durable change");
+        let again =
+            ada_calls(json!({"items": [{"requestId": request, "revision": revision}]})).unwrap();
+        assert_eq!(status(&again, 0), "already");
+
+        // Only the originator's own request is found; anonymous and unknown callers are refused.
+        let bobs = call(
+            json!({"identity": "Bob"}),
+            json!({"items": [{"requestId": request, "revision": revision}]}),
+        )
+        .unwrap();
+        assert_eq!(status(&bobs, 0), "notFound");
+        assert_eq!(
+            call(
+                json!({"originator": "anonymous"}),
+                json!({"items": [{"requestId": request, "revision": revision}]})
+            )
+            .expect_err("anonymous has no attention")
+            .code,
+            "API_INPUT_INVALID"
+        );
+        assert_eq!(
+            call(
+                json!({"identity": "Nobody"}),
+                json!({"items": [{"requestId": request, "revision": revision}]})
+            )
+            .expect_err("unknown caller")
+            .code,
+            "NAME_NOT_FOUND"
+        );
+
+        // Input bounds: 1 to 50 distinct requests, a positive safe-integer revision, no extras.
+        let id = |n: usize| format!("req_{n:08}-0000-4000-8000-000000000000");
+        let items = |n: usize| {
+            (1..=n)
+                .map(|i| json!({"requestId": id(i), "revision": 1}))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            ada_calls(json!({"items": items(50)})).unwrap()["items"]
+                .as_array()
+                .unwrap()
+                .len(),
+            50
+        );
+        for bad in [
+            json!({"items": []}),
+            json!({"items": items(51)}),
+            json!({"items": [{"requestId": request, "revision": 0}]}),
+            json!({"items": [{"requestId": request, "revision": 9_007_199_254_740_992u64}]}),
+            json!({"items": [{"requestId": "not-an-id", "revision": 1}]}),
+            json!({"items": [{"requestId": request, "revision": 1, "extra": true}]}),
+            json!({"items": items(1), "extra": true}),
+            json!({}),
+        ] {
+            assert_eq!(
+                ada_calls(bad.clone()).expect_err("invalid").code,
+                "API_INPUT_INVALID",
+                "{bad}"
+            );
+        }
     }
 
     /// The cursor is the same for every read and advances with each write,

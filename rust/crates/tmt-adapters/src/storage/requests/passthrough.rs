@@ -196,33 +196,87 @@ pub(in crate::storage) fn settle_turn(
          AND request_id IN (SELECT request_id FROM request_attempts WHERE recipient_identity_id=?1)";
     // The provider is whichever driver read the final. The capture keeps its own copy, cut to
     // `ANSWER_BYTES`; `recent_responses` keeps the agent's answers at their own, larger cap.
-    let changed = match final_text {
+    let (changed, answered) = match final_text {
         Some((text, provider)) => {
             let kept = tmt_core::responses::cut_scalars(text.text(), ANSWER_BYTES);
             let truncated = text.truncated() || kept.len() < text.text().len();
-            db.execute(
-                &format!(
-                "UPDATE request_passthrough SET state='answered',answer_text=?4,answer_truncated=?5,
-                 answer_provider=?6,answer_ended_ms=?7,settled_at_ms=?7 WHERE {in_turn}"
-            ),
-                params![
-                    identity,
-                    session,
-                    turn,
-                    kept,
-                    i64::from(truncated),
-                    provider,
-                    now_i64
-                ],
-            )
+            // Read before the update takes them out of `bound`.
+            let answered = bound_requests(db, in_turn, identity, session, turn)?;
+            let changed = db
+                .execute(
+                    &format!(
+                        "UPDATE request_passthrough SET state='answered',answer_text=?4,answer_truncated=?5,
+                         answer_provider=?6,answer_ended_ms=?7,settled_at_ms=?7 WHERE {in_turn}"
+                    ),
+                    params![
+                        identity,
+                        session,
+                        turn,
+                        kept,
+                        i64::from(truncated),
+                        provider,
+                        now_i64
+                    ],
+                )
+                .map_err(|error| classify(error, "Settle passthrough capture"))?;
+            (changed, answered)
         }
-        None => db.execute(
-            &format!(
-                "UPDATE request_passthrough SET state='no_answer',settled_at_ms=?4 WHERE {in_turn}"
-            ),
-            params![identity, session, turn, now_i64],
-        ),
-    }
-    .map_err(|error| classify(error, "Settle passthrough capture"))?;
+        None => {
+            let changed = db
+                .execute(
+                    &format!(
+                        "UPDATE request_passthrough SET state='no_answer',settled_at_ms=?4 WHERE {in_turn}"
+                    ),
+                    params![identity, session, turn, now_i64],
+                )
+                .map_err(|error| classify(error, "Settle passthrough capture"))?;
+            (changed, Vec::new())
+        }
+    };
+    // An answer is unread for the person who typed the text until they acknowledge it, exactly
+    // like a submitted final; a capture without an answer has nothing to read (#4915).
+    raise_originator_attention(db, &answered)?;
     Ok(changed > 0)
+}
+
+/// The captures a turn end is about to settle, with their senders.
+fn bound_requests(
+    db: &Connection,
+    in_turn: &str,
+    identity: &str,
+    session: &str,
+    turn: Option<&str>,
+) -> Result<Vec<(String, Option<String>)>, StorageError> {
+    let mut statement = db
+        .prepare(&format!(
+            "SELECT request_id,(SELECT originator_identity_id FROM request_attempts AS a
+             WHERE a.request_id=request_passthrough.request_id) FROM request_passthrough WHERE {in_turn}"
+        ))
+        .map_err(|error| classify(error, "Prepare bound captures"))?;
+    statement
+        .query_map(params![identity, session, turn], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .map_err(|error| classify(error, "Read bound captures"))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| classify(error, "Decode bound captures"))
+}
+
+fn raise_originator_attention(
+    db: &Connection,
+    answered: &[(String, Option<String>)],
+) -> Result<(), StorageError> {
+    let mut records = super::RequestRows(db);
+    for (request, originator) in answered {
+        let Some(originator) = originator else {
+            continue;
+        };
+        tmt_core::request::raise_attention(&mut records, request, originator).map_err(|error| {
+            match error {
+                tmt_core::request::RequestError::Repository(error) => error,
+                _ => StorageError::new(StorageErrorCode::Unknown, "Attention revision not raised"),
+            }
+        })?;
+    }
+    Ok(())
 }
