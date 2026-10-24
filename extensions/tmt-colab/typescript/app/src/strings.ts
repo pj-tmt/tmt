@@ -863,7 +863,6 @@ export const text = {
     manageProjectsHint: 'Keep related pages together.',
     renameProjectTitle: 'Rename project',
     deleteProjectTitle: (name: string) => `Delete project ${name}?`,
-    newProjectVisible: '+ New project',
     projectNamePlaceholder: 'e.g. research',
     activeProjectCount: (active: number, archived: number) =>
       `${active} active ${active === 1 ? 'page' : 'pages'}${archived ? ` · ${archived} archived` : ''}`,

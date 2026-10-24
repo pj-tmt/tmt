@@ -686,7 +686,7 @@ transitive Cargo normal/build workspace dependency directories; dev-only edges n
 attribute) over `cargo-workspace.mjs::readCargoWorkspace(root, {runner})` (`cargo metadata
 --offline --locked`, no Git logic); workflows run `cargo fetch --locked` from `rust/` first.
 Bounds per run:
-200 GraphQL and 20 REST requests, 20 pages per connection, 2,000 merged closing PRs; every
+200 GraphQL and 20 REST requests, 30 pages per connection (3,000 Project items), 2,000 merged closing PRs; every
 GraphQL read reports `rateLimit`, and insufficient reserve aborts before any write. For
 activation or a change, dry-run first and review the per-item table against the first live run:
 

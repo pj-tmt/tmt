@@ -319,8 +319,8 @@ evidence and never copied back. Endpoint identity is
 opaque to everything but its host: `HostKind` is pure data, evidence from another
 host is `Unknown`, and only `tmt-core/src/host.rs`, `tmt-adapters/src/host.rs` and
 `tmux/` may spell a built-in host's name. Core's delivery policy rewrites ASCII `!` to
-fullwidth `！` in any text typed into a pane. Details, including the built-in host's
-supervisor (`tmt-adapters::pty`, not yet wired to `tmt run`), are in the
+fullwidth `！` in typed text. The built-in host uses this seam in process;
+`tmt-adapters::pty` owns each member and its zero-scrollback VT screen. See the
 [hosts and drivers reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md).
 
 ### Agent drivers

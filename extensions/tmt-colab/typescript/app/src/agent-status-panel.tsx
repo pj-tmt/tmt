@@ -1,5 +1,5 @@
 import { BrowserAction, BusyMark } from '@tmt/browser-ui/react';
-import { Circle, CircleDot, CircleHelp } from 'lucide-react';
+import { Circle, CircleDot, CircleHelp, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AskBinding } from './ask-panel.js';
 import type { AgentDirectoryObservation } from './live-ask.js';
@@ -154,6 +154,7 @@ export function AgentStatusPanel({
           variant="secondary"
           label={text.agentStatusRecheck}
           visibleLabel="Recheck"
+          leadingIcon={<RefreshCw />}
           busy={loading}
           busyMark={<BusyMark />}
           disabled={!admitted || !binding?.observeDestinations}

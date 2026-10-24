@@ -266,6 +266,29 @@ unchanged in `snapshot` and `probe`. It never interprets the marker.
   - the driver removes a marker only when it carries that `bindingId`; a missing
     pane is `{"cleared": false}`.
 
+### Built-in local host
+
+Core implements the reserved `pty` host in process behind the same binding-policy
+seam, with pane IDs `pty_<lowercase letters and digits>`. It requires no driver
+approval and is not an executable speaking this JSON protocol. Server evidence is
+one member supervisor's native PID/start, with its pane process verified as that
+supervisor's direct child. Unknown evidence never proves loss.
+
+`run` and `resume` accept `--host tmux|herdr|pty`. Without it they use the verified
+caller host, or create a built-in-host member outside tmux and Herdr. An explicit
+unavailable host refuses without a fallback. A built-in launch returns once the
+ordinary managed launcher inside its PTY confirms admission; it reports the host
+and actual bound name. Closing the launching terminal leaves that member running.
+Unconfirmed startup reports possible effects and a pane to inspect, never a resend.
+The existing provider and exchange admission contracts apply unchanged.
+
+`check` reads the supervisor's current `vt100` screen, with zero scrollback, bounded
+by the supervisor control-frame limit (64 KiB); a larger screen read fails whole.
+No redraw or historical output capture is implied. Focus remains unsupported.
+The Core-internal control frames share the member socket at protocol version 1;
+they are separate from the attach stream. Their implementation and resource rules
+belong to the [host reference](../.agents/skills/tmt-core-runtime/references/hosts-drivers.md#built-in-host).
+
 ### `capture`, `input` and `focus`
 
 | Operation | Request | Answer |

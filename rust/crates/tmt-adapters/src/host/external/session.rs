@@ -47,6 +47,7 @@ pub struct Drivers<R> {
     runner: R,
     records: Vec<DriverRecord>,
     server: OnceCell<ServerEvidence>,
+    target: OnceCell<String>,
     /// The caller's own pane, when the handle was chosen for it.
     caller: OnceCell<ExternalCaller>,
 }
@@ -57,6 +58,7 @@ impl<R: CommandRunner> Drivers<R> {
             runner,
             records,
             server: OnceCell::new(),
+            target: OnceCell::new(),
             caller: OnceCell::new(),
         }
     }
@@ -75,6 +77,13 @@ impl<R: CommandRunner> Drivers<R> {
 
     pub(crate) fn caller(&self) -> Option<&ExternalCaller> {
         self.caller.get()
+    }
+
+    pub(crate) fn set_target(&self, target: String) {
+        let _ = self.target.set(target);
+    }
+    pub(crate) fn target(&self) -> Option<&str> {
+        self.target.get().map(String::as_str)
     }
 
     /// The first resolution stands for the handle's lifetime.
@@ -111,6 +120,31 @@ impl<R: CommandRunner> Drivers<R> {
         ids: &mut I,
     ) -> Result<(), HostError> {
         if self.server.get().is_some() {
+            return Ok(());
+        }
+        if HostKind::External(host) == HostKind::pty() {
+            let selected = self
+                .caller()
+                .filter(|caller| caller.host == host)
+                .map(|caller| Ok((caller.socket.clone(), caller.pane_id.clone())))
+                .or_else(|| {
+                    self.target().map(|pane| {
+                        crate::host::pty::target_socket(pane)
+                            .map(|socket| (socket, pane.to_owned()))
+                    })
+                })
+                .transpose()?;
+            if let Some((socket, pane)) = selected
+                && crate::host::pty::socket_path_exists(&socket)?
+            {
+                self.set_resolved(crate::host::pty::resolve(
+                    &self.runner,
+                    &socket,
+                    &pane,
+                    ids,
+                    Instant::now() + Duration::from_secs(3),
+                )?);
+            }
             return Ok(());
         }
         let Some(process) = self.open(host) else {
@@ -196,6 +230,7 @@ pub struct Session<'a, R> {
 }
 
 enum DriverSlot<'a, R> {
+    Pty(Box<crate::host::pty::PtyDriver<'a, R>>),
     Ready(Box<ExternalDriver<'a, R>>),
     Missing(Unavailable),
 }
@@ -218,8 +253,10 @@ impl<'a, R: CommandRunner> Session<'a, R> {
     pub fn begin_coordination(&mut self) {
         self.deadline = Instant::now() + Duration::from_secs(3);
         for slot in self.slots.values_mut() {
-            if let DriverSlot::Ready(driver) = slot {
-                driver.deadline = self.deadline;
+            match slot {
+                DriverSlot::Ready(driver) => driver.deadline = self.deadline,
+                DriverSlot::Pty(driver) => driver.deadline = self.deadline,
+                DriverSlot::Missing(_) => {}
             }
         }
     }
@@ -239,10 +276,16 @@ impl<'a, R: CommandRunner> Session<'a, R> {
         let drivers = self.drivers;
         let deadline = self.deadline;
         let enter_delay = self.enter_delay;
-        let slot = self
-            .slots
-            .entry(host)
-            .or_insert_with(|| match drivers.open(host) {
+        let slot = self.slots.entry(host).or_insert_with(|| {
+            if HostKind::External(host) == HostKind::pty() {
+                return DriverSlot::Pty(Box::new(crate::host::pty::PtyDriver {
+                    runner: &drivers.runner,
+                    server: drivers.server.get(),
+                    deadline,
+                    enter_delay,
+                }));
+            }
+            match drivers.open(host) {
                 Some(process) => DriverSlot::Ready(Box::new(ExternalDriver {
                     host,
                     process,
@@ -252,8 +295,10 @@ impl<'a, R: CommandRunner> Session<'a, R> {
                     enter_delay,
                 })),
                 None => DriverSlot::Missing(Unavailable::of(HostKind::External(host))),
-            });
+            }
+        });
         match slot {
+            DriverSlot::Pty(driver) => driver.as_mut(),
             DriverSlot::Ready(driver) => driver.as_mut(),
             DriverSlot::Missing(unavailable) => unavailable,
         }
@@ -684,6 +729,9 @@ impl<R: CommandRunner> Drivers<R> {
         message: &str,
         enter_delay: Duration,
     ) -> Result<(), DeliveryError> {
+        if HostKind::External(host) == HostKind::pty() {
+            return crate::host::pty::input(socket, pane, message, enter_delay);
+        }
         let Some(process) = self
             .open(host)
             .filter(|process| process.supports(Op::Input))
@@ -709,6 +757,9 @@ impl<R: CommandRunner> Drivers<R> {
         pane: &str,
         lines: u32,
     ) -> Result<String, HostError> {
+        if HostKind::External(host) == HostKind::pty() {
+            return crate::host::pty::capture(socket, pane, lines);
+        }
         let Some(process) = self.open(host) else {
             return Err(HostError::Unavailable(host.as_str().to_owned()));
         };

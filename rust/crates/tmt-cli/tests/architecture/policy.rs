@@ -64,6 +64,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "tmt-driver-protocol",
             // The built-in host's supervisor and client frames (#4605).
             "tmt-pty-protocol",
+            "vt100", // one zero-scrollback built-in host screen, approved D3
             "serde",
             "ureq",
             "semver",

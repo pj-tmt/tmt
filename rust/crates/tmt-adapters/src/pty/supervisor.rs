@@ -30,8 +30,8 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_pty_protocol::{
-    ClientMessage, Decoder, Eviction, Exit, Frame, MAX_OUTPUT, Refusal, ServerMessage, Size,
-    VERSION,
+    ClientMessage, Control, ControlReply, Decoder, Eviction, Exit, Frame, MAX_OUTPUT, MAX_PAYLOAD,
+    Refusal, ServerMessage, Size, VERSION,
 };
 
 /// How often the program's end is checked when nothing else wakes the loop.
@@ -61,6 +61,8 @@ pub struct Launch {
     /// The program and its arguments; the first word is looked up in `PATH`.
     /// The program inherits this process's environment and working directory.
     pub program: Vec<OsString>,
+    /// Child-only host locators and inherited-host removals.
+    pub environment: Vec<(OsString, Option<OsString>)>,
 }
 
 /// The socket and lock files of a running supervisor, removed when it ends. Ids
@@ -142,6 +144,8 @@ struct Client {
     decoder: Decoder,
     outbox: Outbox,
     welcomed: bool,
+    wait_launch: bool,
+    wait_launcher: bool,
     /// Set by the client's own `Resize`; a client without one never moves the window.
     size: Option<Size>,
     since: Instant,
@@ -211,6 +215,11 @@ pub struct Supervisor {
     active: Option<u64>,
     input: VecDeque<u8>,
     owner: u32,
+    screen: vt100::Parser,
+    marker: Option<(String, String)>,
+    last_key: Option<Instant>,
+    launch_ready: bool,
+    launcher_listening: bool,
     // Drop order: the files go before the lock is released.
     _files: Files,
     _lock: Flock<File>,
@@ -226,6 +235,7 @@ impl Supervisor {
             id,
             size,
             program,
+            environment,
         } = launch;
         validate(&directory, &id)?;
         let Some((name, arguments)) = program.split_first() else {
@@ -266,6 +276,16 @@ impl Supervisor {
         fcntl(&terminal.master, FcntlArg::F_SETFL(OFlag::O_NONBLOCK))?;
         let mut command = Command::new(name);
         command.args(arguments);
+        for (name, value) in environment {
+            match value {
+                Some(value) => {
+                    command.env(name, value);
+                }
+                None => {
+                    command.env_remove(name);
+                }
+            }
+        }
         let child = tmt_sys::spawn_on_terminal(command, terminal.slave)?;
         Ok(Self {
             listener,
@@ -277,6 +297,11 @@ impl Supervisor {
             active: None,
             input: VecDeque::new(),
             owner: nix::unistd::geteuid().as_raw(),
+            screen: vt100::Parser::new(size.rows, size.cols, 0),
+            marker: None,
+            last_key: None,
+            launch_ready: false,
+            launcher_listening: false,
             _files: files,
             _lock: lock,
         })
@@ -397,6 +422,8 @@ impl Supervisor {
             decoder: Decoder::new(),
             outbox: Outbox::default(),
             welcomed: false,
+            wait_launch: false,
+            wait_launcher: false,
             size: None,
             since: Instant::now(),
             progress: Instant::now(),
@@ -430,6 +457,7 @@ impl Supervisor {
                 }
             };
             if filled > 0 {
+                self.screen.process(&buffer[..filled]);
                 self.broadcast(&ServerMessage::Output(buffer[..filled].to_vec()));
             }
             if state != Pump::More {
@@ -549,7 +577,9 @@ impl Supervisor {
             ClientMessage::Hello { .. } | ClientMessage::Detach => {
                 self.clients[index].fate = Some(Fate::Leave);
             }
+            ClientMessage::Control(control) => self.control(index, control),
             ClientMessage::Input(data) => {
+                self.last_key = Some(Instant::now());
                 // Typing from another window brings the terminal to that window.
                 if self.active != Some(id)
                     && let Some(size) = self.clients[index].size
@@ -576,6 +606,109 @@ impl Supervisor {
         }
     }
 
+    /// Controls share the supervisor's serialization with the stream. No control
+    /// creates key activity, resizes the terminal or captures scrollback.
+    fn control(&mut self, index: usize, request: Control) {
+        if request == Control::WaitLauncher && !self.launcher_listening {
+            self.clients[index].wait_launcher = true;
+            return;
+        }
+        if request == Control::AwaitLaunch {
+            self.launcher_listening = true;
+            for client in self
+                .clients
+                .iter_mut()
+                .filter(|c| c.wait_launcher && c.live())
+            {
+                client.wait_launcher = false;
+                client.queue(&ServerMessage::Control(ControlReply::Applied(true)));
+            }
+            if !self.launch_ready {
+                self.clients[index].wait_launch = true;
+                return;
+            }
+        }
+        let answer = match request {
+            Control::AwaitLaunch => self.marker.as_ref().map_or_else(
+                || ControlReply::Error("the launch has no committed binding marker".into()),
+                |(_, marker)| ControlReply::Launched(marker.clone()),
+            ),
+            Control::WaitLauncher => ControlReply::Applied(true),
+            Control::LaunchReady { pane_pid } => {
+                let matches = pane_pid == self.child.id();
+                if matches {
+                    self.launch_ready = true;
+                    for client in self
+                        .clients
+                        .iter_mut()
+                        .filter(|c| c.wait_launch && c.live())
+                    {
+                        client.wait_launch = false;
+                        let answer = self.marker.as_ref().map_or_else(
+                            || {
+                                ControlReply::Error(
+                                    "the launch has no committed binding marker".into(),
+                                )
+                            },
+                            |(_, marker)| ControlReply::Launched(marker.clone()),
+                        );
+                        client.queue(&ServerMessage::Control(answer));
+                    }
+                }
+                ControlReply::Applied(matches)
+            }
+            Control::Inspect => ControlReply::State {
+                supervisor_pid: std::process::id(),
+                pane_pid: self.child.id(),
+                key_idle_ms: self
+                    .last_key
+                    .map(|at| u64::try_from(at.elapsed().as_millis()).unwrap_or(u64::MAX - 1)),
+                marker: self.marker.as_ref().map(|(_, marker)| marker.clone()),
+            },
+            Control::Publish {
+                pane_pid,
+                key,
+                marker,
+            } => {
+                let matches = pane_pid == self.child.id();
+                if matches {
+                    self.marker = Some((key, marker));
+                }
+                ControlReply::Applied(matches)
+            }
+            Control::Clear { key } => {
+                let matches = self.marker.as_ref().is_some_and(|(old, _)| old == &key);
+                if matches {
+                    self.marker = None;
+                }
+                ControlReply::Applied(matches)
+            }
+            Control::Capture => {
+                let text = self.screen.screen().contents();
+                if text.len() > MAX_PAYLOAD {
+                    ControlReply::Error("the visible screen exceeds the capture byte bound".into())
+                } else {
+                    ControlReply::Screen(text)
+                }
+            }
+            Control::Paste(data) => {
+                if self.screen.screen().bracketed_paste() {
+                    self.input.extend(b"\x1b[200~");
+                }
+                self.input.extend(data);
+                if self.screen.screen().bracketed_paste() {
+                    self.input.extend(b"\x1b[201~");
+                }
+                ControlReply::Applied(true)
+            }
+            Control::Enter => {
+                self.input.push_back(b'\r');
+                ControlReply::Applied(true)
+            }
+        };
+        self.clients[index].queue(&ServerMessage::Control(answer));
+    }
+
     fn resize(&mut self, size: Size) {
         if size == self.size {
             return;
@@ -583,6 +716,7 @@ impl Supervisor {
         // A terminal the program already closed cannot be resized; nothing to do.
         let _ = tmt_sys::set_window_size(self.master.as_fd(), size.cols, size.rows);
         self.size = size;
+        self.screen.screen_mut().set_size(size.rows, size.cols);
         self.broadcast(&ServerMessage::Resized(size));
     }
 

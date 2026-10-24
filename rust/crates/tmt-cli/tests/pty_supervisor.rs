@@ -146,10 +146,12 @@ fn the_program_has_a_terminal_of_its_own_and_the_supervisor_ends_with_it() {
         &[
             "sh",
             "-c",
-            "[ -t 0 ] && [ -t 1 ] && [ -t 2 ] && exec 3</dev/tty && echo terminal-ok; read l; exit 5",
+            "read ready; [ -t 0 ] && [ -t 1 ] && [ -t 2 ] && exec 3</dev/tty && echo terminal-ok; read l; exit 5",
         ],
     );
     let mut client = fixture.connect("pty_a");
+    // Start the terminal probe only after this output subscriber is connected.
+    client.input(b"ready\r").unwrap();
     output_until(&mut client, "terminal-ok");
     assert!(socket_path(&fixture.directory, "pty_a").exists());
     assert!(lock_path(&fixture.directory, "pty_a").exists());
@@ -225,12 +227,14 @@ fn a_start_that_cannot_proceed_fails_without_a_readiness_line_or_leftovers() {
     };
 
     // A terminal size outside the protocol's range.
-    let output = fixture
-        .serve("pty_d", "0", "24", &["sh"])
-        .wait_with_output()
-        .unwrap();
-    assert!(String::from_utf8_lossy(&output.stderr).contains("1 to 10000"));
-    assert_eq!(code(output), Some(2));
+    for cols in ["0", "1001"] {
+        let output = fixture
+            .serve("pty_d", cols, "24", &["sh"])
+            .wait_with_output()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&output.stderr).contains("1 to 1000"));
+        assert_eq!(code(output), Some(2));
+    }
 
     // A program that does not exist.
     let output = fixture

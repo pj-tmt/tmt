@@ -11,6 +11,7 @@ publish.workspace = true
 test-isolation = []
 
 [dependencies]
+vt100.workspace = true
 # Plain reply-notice columns share the pinned terminal-width implementation.
 unicode-width.workspace = true
 time.workspace = true

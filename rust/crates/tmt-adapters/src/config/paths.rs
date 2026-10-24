@@ -37,6 +37,11 @@ pub struct ConfigPaths {
 }
 
 impl ConfigPaths {
+    /// Per-member built-in host sockets and startup diagnostics.
+    pub fn pty_directory(&self) -> PathBuf {
+        self.global_dir.join("pty")
+    }
+
     /// Private recovery snapshots; never identity or presence authority.
     pub fn workspace_directory(&self, socket: &str) -> PathBuf {
         self.global_dir

@@ -657,6 +657,27 @@ fn dependency_policy_handles_normal_build_target_renamed_and_dev_entries() {
 }
 
 #[test]
+fn the_terminal_screen_dependency_belongs_only_to_adapters() {
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-adapters",
+            vec![dependency("vt100", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+    for owner in ["tmt-core", "tmt-cli", "tmt-pty-protocol"] {
+        assert!(
+            !policy::dependency_violations(&package(
+                owner,
+                vec![dependency("vt100", "normal", None, None)]
+            ))
+            .is_empty(),
+            "{owner} must not acquire the terminal screen parser"
+        );
+    }
+}
+
+#[test]
 fn dev_dependencies_require_an_exact_reviewed_edge() {
     assert!(
         policy::dependency_violations(&package(

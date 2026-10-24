@@ -21,6 +21,15 @@ async function mount(page: Page, width = 1586, theme: 'light' | 'dark' = 'light'
 test('website manager opens a new project through the existing write owner', async ({ page }) => {
   await mount(page);
   const manager = app(page).getByRole('dialog', { name: 'Manage projects', exact: true });
+  await expect(manager.getByRole('button', { name: 'Delete design', exact: true })).toHaveAttribute(
+    'data-variant',
+    'ghost',
+  );
+  const createAction = manager.getByRole('button', { name: 'New project', exact: true });
+  await expect(createAction).toHaveText('New project');
+  await expect(
+    createAction.locator('.tmt-ui-action-mark[data-leading][aria-hidden="true"] svg'),
+  ).toHaveCount(1);
   await expect(manager).toContainText('Keep related pages together.');
   const design = manager
     .locator('.project-manage li')

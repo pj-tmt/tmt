@@ -47,6 +47,28 @@ fn remove_if_same_file(path: &Path, open: &File) -> io::Result<bool> {
 /// The child must call enter, initialize its bounded work, then ready. Until
 /// that acknowledgment the parent retains kill/reap responsibility.
 pub fn start(program: &OsStr, args: &[OsString], log: File) -> io::Result<()> {
+    start_acknowledged(program, args, log, b"R", false).map(|_| ())
+}
+
+/// A member supervisor acknowledges its bounded startup with one complete line.
+/// Keeping this in the detached-process owner preserves kill/reap responsibility
+/// until the line is validated; only then may the launcher leave it running.
+pub(crate) fn start_line(
+    program: &OsStr,
+    args: &[OsString],
+    log: File,
+    prefix: &[u8],
+) -> io::Result<Vec<u8>> {
+    start_acknowledged(program, args, log, prefix, true)
+}
+
+fn start_acknowledged(
+    program: &OsStr,
+    args: &[OsString],
+    log: File,
+    prefix: &[u8],
+    line: bool,
+) -> io::Result<Vec<u8>> {
     let mut job = Exec::cmd(program)
         .args(args)
         .stdin(Redirection::Null)
@@ -59,6 +81,7 @@ pub fn start(program: &OsStr, args: &[OsString], log: File) -> io::Result<()> {
             .as_mut()
             .ok_or_else(|| io::Error::other("Missing startup pipe"))?;
         let deadline = Instant::now() + Duration::from_secs(3);
+        let mut acknowledgment = Vec::new();
         loop {
             let remaining = deadline
                 .checked_duration_since(Instant::now())
@@ -77,31 +100,37 @@ pub fn start(program: &OsStr, args: &[OsString], log: File) -> io::Result<()> {
             }
             let mut byte = [0];
             pipe.read_exact(&mut byte)?;
-            return if byte == *b"R" {
-                Ok(())
-            } else {
-                Err(io::Error::other("Invalid observer acknowledgment"))
-            };
+            acknowledgment.push(byte[0]);
+            let common = acknowledgment.len().min(prefix.len());
+            if acknowledgment[..common] != prefix[..common] || acknowledgment.len() > 64 {
+                return Err(io::Error::other("Invalid observer acknowledgment"));
+            }
+            if (!line && acknowledgment.len() == prefix.len()) || (line && byte[0] == b'\n') {
+                return Ok(acknowledgment);
+            }
         }
     })();
-    if let Err(error) = started {
-        // The unreaped child PID cannot be recycled. Before enter there is no
-        // owned group; after enter both signals target only this worker.
-        let _ = job.send_signal_group(nix::sys::signal::Signal::SIGKILL as i32);
-        let _ = job.kill();
-        if !matches!(job.wait_timeout(Duration::from_secs(1)), Ok(Some(_))) {
-            job.detach();
-            return Err(io::Error::other(format!(
-                "{error}; observer cleanup unavailable"
-            )));
+    let acknowledgment = match started {
+        Ok(acknowledgment) => acknowledgment,
+        Err(error) => {
+            // The unreaped child PID cannot be recycled. Before enter there is no
+            // owned group; after enter both signals target only this worker.
+            let _ = job.send_signal_group(nix::sys::signal::Signal::SIGKILL as i32);
+            let _ = job.kill();
+            if !matches!(job.wait_timeout(Duration::from_secs(1)), Ok(Some(_))) {
+                job.detach();
+                return Err(io::Error::other(format!(
+                    "{error}; observer cleanup unavailable"
+                )));
+            }
+            return Err(error);
         }
-        return Err(error);
-    }
+    };
     job.stdout.take();
     // Detaching never restarts the process. Its stored request deadline owns
     // its lifetime; the short-lived talk caller may now exit independently.
     job.detach();
-    Ok(())
+    Ok(acknowledgment)
 }
 
 #[cfg(test)]

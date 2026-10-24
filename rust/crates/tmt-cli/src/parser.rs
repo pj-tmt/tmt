@@ -336,6 +336,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 return Err("Use `tmt run --resume <name>` to resume, or pass the command's own flags after the name; do not combine both forms.".into());
             }
             Invocation::Run {
+                host: text(m, "host"),
                 name,
                 command,
                 resume,
@@ -344,6 +345,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             }
         }
         ["resume"] => Invocation::Resume {
+            host: text(m, "host"),
             name: text(m, "name"),
             driver: text(m, "driver"),
             move_running: flag(m, "move") || text(m, "driver").is_some(),

@@ -781,6 +781,16 @@ preference intact.
 Bare `tmt run <name>` launches the remembered registered executable through PATH
 with no arguments; without one, supply an explicit command.
 
+Outside tmux and Herdr, `tmt run` and named `tmt resume` create a built-in-host
+member in the background. They report the actual name, host and pane after managed
+startup is confirmed. Closing this terminal leaves it running; `tmt ls`, `talk`,
+`reply`, `check`, `unbind` and `rm` use the same identity and exchange contracts.
+`check` reads only the current screen, with no scrollback. Use
+`--host tmux|herdr|pty` before the name to choose; an unavailable explicit host
+refuses and never falls back. Attach/focus for this host is not yet available.
+If startup is unconfirmed, inspect the named pane before retrying: an agent may
+have started, and the command never resends the launch.
+
 `tmt resume` uses this pane's verified bound identity; an unbound pane refuses and
 lists saved names. `tmt resume <name>` (alias `tmt run --resume <name>`) resumes the exact
 hook-recorded session in the current pane. It replays the associated executable,
@@ -822,8 +832,10 @@ untouched. Unsupported/shared runtimes refuse before stopping anything. If the
 selected message channel cannot take initial handoff input, use the error's
 `--no-channel` command. Inspect both panes before retrying an uncertain launch.
 
-TMT records the owned command's exit and keeps the pane binding. Its exit status
-is the command's status, or 128 plus a terminating signal number. It reaps only
+TMT records the owned command's exit and keeps its remembered session. A foreground
+launch returns the command's status, or 128 plus a terminating signal number; a
+built-in background launch returns startup confirmation. Its supervisor ends when
+the owned launcher exits, so its binding can become offline. It reaps only
 its direct child; harness-created background processes are the harness's
 responsibility. Killing TMT with SIGKILL cannot guarantee child cleanup. A live
 child whose launch owner is lost is Unknown and is not a verified input target.
