@@ -13,9 +13,9 @@ use std::sync::{Weak, atomic::AtomicUsize, mpsc};
 const PROJECT: &str = "demo-native-pairing";
 const TARGET: &str = "66666666-6666-4666-8666-666666666666";
 #[test]
-fn serving_sender_keeps_a_claimed_request_unconfirmed_when_its_connection_is_unavailable() {
+fn serving_sender_preserves_a_typed_owner_refusal_even_with_a_prior_claim() {
     if crate::test_isolation::isolated_case(
-        "cloud_pairing::service::tests::serving_sender_keeps_a_claimed_request_unconfirmed_when_its_connection_is_unavailable",
+        "cloud_pairing::service::tests::serving_sender_preserves_a_typed_owner_refusal_even_with_a_prior_claim",
     ) {
         return;
     }
@@ -61,16 +61,18 @@ fn serving_sender_keeps_a_claimed_request_unconfirmed_when_its_connection_is_una
             .cloud_claim_outgoing(&sender.machine, &request.request_id)
             .unwrap()
     );
-    let answer = sender.send(&raw, None).unwrap();
-    assert_eq!(answer["state"], "unconfirmed");
-    assert_eq!(answer["reason"], "REMOTE_CLOUD_UNCONFIRMED");
+    assert_eq!(
+        sender.send(&raw, None).unwrap_err().code,
+        "REMOTE_CLOUD_UNAVAILABLE",
+        "the Service must preserve the typed sender-preparation refusal"
+    );
     drop(sender);
     drop(lease);
     let (sender, _lease) = service(&root, &core, make_ports());
     assert_eq!(
-        sender.send(&raw, None).unwrap()["state"],
-        "unconfirmed",
-        "restart cannot turn a durable claim into NotSent"
+        sender.send(&raw, None).unwrap_err().code,
+        "REMOTE_CLOUD_UNAVAILABLE",
+        "restart must not turn a typed owner refusal into blanket uncertainty"
     );
     assert!(wire.docs.lock().unwrap().is_empty());
     assert!(wire.commits.lock().unwrap().is_empty());
