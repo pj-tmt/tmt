@@ -826,7 +826,7 @@ retained, so `not_sent` carries one of the two generic reasons.
 | `answered_by_folded_turn`   | `answered`    | answered together with the earlier message: it was typed into the running turn                      |
 | `no_turn_started`           | `unconfirmed` | no answer captured: no turn started with this text, the agent may have taken it into a running turn |
 | `turn_ended_without_answer` | `unconfirmed` | no answer captured: the agent's turn ended without a final message                                  |
-| `turn_ended_without_reply`  | `unconfirmed` | no reply: the agent's turn ended without one                                                        |
+| `turn_ended_without_reply`  | `unconfirmed` | no reply yet: the agent's turn ended without one                                                    |
 
 A delivered message has reason `session_not_bound` when its current binding records
 an unadmitted provider SessionStart newer than its admitted session. Core supplies

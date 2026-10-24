@@ -5,8 +5,8 @@
 use super::*;
 use tmt_core::{
     request::passthrough::{
-        BIND_WINDOW_MS, BOUND_WINDOW_MS, CaptureState, PassthroughAnswer, PassthroughCapture,
-        RunningTurn, same_prompt,
+        ANSWER_BYTES, BIND_WINDOW_MS, BOUND_WINDOW_MS, CaptureState, PassthroughAnswer,
+        PassthroughCapture, RunningTurn, same_prompt,
     },
     responses::FinalText,
 };
@@ -194,23 +194,28 @@ pub(in crate::storage) fn settle_turn(
     let now_i64 = checked_i64(now, "Passthrough settlement time")?;
     let in_turn = "state='bound' AND bound_session=?2 AND (?3 IS NULL OR bound_turn IS NULL OR bound_turn=?3)
          AND request_id IN (SELECT request_id FROM request_attempts WHERE recipient_identity_id=?1)";
-    // The provider is whichever driver read the final; `recent_responses` bounds it the same way.
+    // The provider is whichever driver read the final. The capture keeps its own copy, cut to
+    // `ANSWER_BYTES`; `recent_responses` keeps the agent's answers at their own, larger cap.
     let changed = match final_text {
-        Some((text, provider)) => db.execute(
-            &format!(
+        Some((text, provider)) => {
+            let kept = tmt_core::responses::cut_scalars(text.text(), ANSWER_BYTES);
+            let truncated = text.truncated() || kept.len() < text.text().len();
+            db.execute(
+                &format!(
                 "UPDATE request_passthrough SET state='answered',answer_text=?4,answer_truncated=?5,
                  answer_provider=?6,answer_ended_ms=?7,settled_at_ms=?7 WHERE {in_turn}"
             ),
-            params![
-                identity,
-                session,
-                turn,
-                text.text(),
-                i64::from(text.truncated()),
-                provider,
-                now_i64
-            ],
-        ),
+                params![
+                    identity,
+                    session,
+                    turn,
+                    kept,
+                    i64::from(truncated),
+                    provider,
+                    now_i64
+                ],
+            )
+        }
         None => db.execute(
             &format!(
                 "UPDATE request_passthrough SET state='no_answer',settled_at_ms=?4 WHERE {in_turn}"

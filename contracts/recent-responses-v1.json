@@ -7,22 +7,19 @@
       "text": "same final text",
       "endedMs": 1000,
       "provider": "claude",
-      "sessionId": "fixture-session",
-      "retentionDays": 1
+      "sessionId": "fixture-session"
     },
     {
       "text": "same final text",
       "endedMs": 1000,
       "provider": "claude",
-      "sessionId": "fixture-session",
-      "retentionDays": 1
+      "sessionId": "fixture-session"
     },
     {
       "text": "last\r\nline\n",
       "endedMs": 999,
       "provider": "codex",
-      "sessionId": "fixture-session",
-      "retentionDays": 2
+      "sessionId": "fixture-session"
     }
   ],
   "request": {
@@ -40,45 +37,69 @@
         "endedMs": 999,
         "provider": "codex",
         "truncated": false,
-        "sessionId": "fixture-session"
+        "sessionId": "fixture-session",
+        "originalBytes": 11
       },
       {
         "text": "same final text",
         "endedMs": 1000,
         "provider": "claude",
         "truncated": false,
-        "sessionId": "fixture-session"
+        "sessionId": "fixture-session",
+        "originalBytes": 15
       },
       {
         "text": "same final text",
         "endedMs": 1000,
         "provider": "claude",
         "truncated": false,
-        "sessionId": "fixture-session"
+        "sessionId": "fixture-session",
+        "originalBytes": 15
       }
-    ]
+    ],
+    "coverage": {
+      "olderDropped": false
+    }
   },
   "expiry": {
-    "nowMs": 86401000,
+    "nowMs": 604800999,
     "items": [
       {
-        "text": "last\r\nline\n",
-        "endedMs": 999,
-        "provider": "codex",
+        "text": "same final text",
+        "endedMs": 1000,
+        "provider": "claude",
         "truncated": false,
+        "originalBytes": 15,
+        "sessionId": "fixture-session"
+      },
+      {
+        "text": "same final text",
+        "endedMs": 1000,
+        "provider": "claude",
+        "truncated": false,
+        "originalBytes": 15,
         "sessionId": "fixture-session"
       }
-    ]
+    ],
+    "coverage": {
+      "olderDropped": true,
+      "droppedThroughMs": 999
+    }
   },
   "unknownIdentityResource": {
     "identityId": "22222222-2222-4222-8222-222222222222",
-    "items": []
+    "items": [],
+    "coverage": {
+      "olderDropped": false
+    }
   },
   "limits": {
     "default": 10,
     "minimum": 1,
-    "maximum": 10,
-    "utf8TextBytes": 8192,
+    "maximum": 50,
+    "utf8TextBytes": 16384,
+    "retentionDays": 7,
+    "keptPerIdentity": 1000,
     "outOfRangeCode": "API_INPUT_INVALID"
   },
   "olderCore": {

@@ -91,7 +91,6 @@ fn event(
             deadline: Instant::now() + Duration::from_secs(2),
             response: response.map(|text| ResponseCapture {
                 text: FinalText::new(text).unwrap(),
-                retention_days: 1,
             }),
             boundary,
             family: None,

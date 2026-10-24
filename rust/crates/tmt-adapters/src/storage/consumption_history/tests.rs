@@ -935,7 +935,6 @@ fn recent_responses_share_the_binding_cas_without_text_deduplication() {
                 deadline: Instant::now() + std::time::Duration::from_secs(1),
                 response: text.map(|text| ResponseCapture {
                     text: FinalText::new(text).unwrap(),
-                    retention_days: 1,
                 }),
             })
             .unwrap()
@@ -982,7 +981,7 @@ fn recent_responses_share_the_binding_cas_without_text_deduplication() {
             row.get::<_, i64>(0)
         })
         .unwrap();
-    let value = storage.recent_responses(&id, 10, 9000).unwrap();
+    let value = storage.recent_responses(&id, 10, None, 9000).unwrap();
     assert_eq!(value["items"].as_array().unwrap().len(), 2);
     assert_eq!(value["items"][0]["text"], "identical final text");
     assert_eq!(value["items"][1]["text"], "identical final text");
@@ -1004,7 +1003,7 @@ fn recent_responses_share_the_binding_cas_without_text_deduplication() {
     );
     assert_eq!(
         storage
-            .recent_responses(&id, 10, 6000 + 86_400_000)
+            .recent_responses(&id, 10, None, 6000 + tmt_core::responses::RETENTION_MS)
             .unwrap()["items"]
             .as_array()
             .unwrap()
@@ -1040,7 +1039,7 @@ fn recent_responses_share_the_binding_cas_without_text_deduplication() {
 }
 
 #[test]
-fn recent_responses_keep_ten_in_capture_order_and_retirement_removes_them() {
+fn recent_responses_keep_by_age_in_capture_order_and_retirement_removes_them() {
     use crate::storage::ResponseCapture;
     use tmt_core::responses::FinalText;
     let (_directory, path, id) = fixture();
@@ -1072,36 +1071,45 @@ fn recent_responses_keep_ten_in_capture_order_and_retirement_removes_them() {
                     deadline: Instant::now() + std::time::Duration::from_secs(1),
                     response: Some(ResponseCapture {
                         text: FinalText::new(&format!("response-{sequence}")).unwrap(),
-                        retention_days: if sequence == 11 { 2 } else { 1 }
                     }),
                 })
                 .unwrap()
         );
     }
-    let value = storage.recent_responses(&id, 10, 20001).unwrap();
+    // A page of ten is the newest ten in capture order; the cursor reads the rest.
+    let value = storage.recent_responses(&id, 10, None, 20001).unwrap();
     assert_eq!(value["items"].as_array().unwrap().len(), 10);
     assert_eq!(value["items"][0]["text"], "response-11");
     assert_eq!(value["items"][9]["text"], "response-2");
+    assert_eq!(value["coverage"], json!({"olderDropped": false}));
+    let rest = storage
+        .recent_responses(&id, 10, value["nextBefore"].as_u64(), 20001)
+        .unwrap();
+    assert_eq!(rest["items"].as_array().unwrap().len(), 2);
+    assert_eq!(rest["items"][1]["text"], "response-0");
+    assert!(
+        rest.get("nextBefore").is_none(),
+        "the last page has no cursor"
+    );
     assert_eq!(
-        storage.recent_responses(&id, 1, 20001).unwrap()["items"]
+        storage.recent_responses(&id, 1, None, 20001).unwrap()["items"]
             .as_array()
             .unwrap()
             .len(),
         1
     );
+    // Every answer lives the same 7 days, so age alone drops the oldest and the read says so.
+    let aged = storage
+        .recent_responses(&id, 50, None, 19995 + tmt_core::responses::RETENTION_MS)
+        .unwrap();
+    assert_eq!(aged["items"].as_array().unwrap().len(), 5);
     assert_eq!(
-        storage
-            .recent_responses(&id, 10, 20000 + 86_400_000)
-            .unwrap()["items"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1,
-        "each capture freezes its own retention"
+        aged["coverage"],
+        json!({"olderDropped": true, "droppedThroughMs": 19995})
     );
     let unknown = "11111111-1111-4111-8111-111111111111";
     assert_eq!(
-        storage.recent_responses(unknown, 10, 20001).unwrap()["items"],
+        storage.recent_responses(unknown, 10, None, 20001).unwrap()["items"],
         serde_json::json!([])
     );
     let identity = storage.find_identity_by_id(&id).unwrap().unwrap();
@@ -1110,7 +1118,7 @@ fn recent_responses_keep_ten_in_capture_order_and_retirement_removes_them() {
         .retire_identity(&identity, false)
         .unwrap();
     assert_eq!(
-        storage.recent_responses(&id, 10, 20001).unwrap()["items"],
+        storage.recent_responses(&id, 10, None, 20001).unwrap()["items"],
         serde_json::json!([])
     );
     assert_eq!(
@@ -1154,12 +1162,11 @@ fn recent_response_failure_rolls_back_preferences_and_the_change_cursor() {
         locator: Some("project/session.jsonl"),
         sampled: false,
         consumption: None,
-        now_ms: 6000,
+        now_ms: tmt_core::limits::MAX_JS_SAFE_INTEGER,
         family: None,
         deadline: Instant::now() + std::time::Duration::from_secs(1),
         response: Some(crate::storage::ResponseCapture {
             text: tmt_core::responses::FinalText::new("must roll back").unwrap(),
-            retention_days: 3651,
         }),
     });
     assert!(result.is_err());
@@ -1176,7 +1183,7 @@ fn recent_response_failure_rolls_back_preferences_and_the_change_cursor() {
         .unwrap();
     assert_eq!(after, before);
     assert_eq!(
-        storage.recent_responses(&id, 10, 6000).unwrap()["items"],
+        storage.recent_responses(&id, 10, None, 6000).unwrap()["items"],
         json!([])
     );
     storage.close().unwrap();

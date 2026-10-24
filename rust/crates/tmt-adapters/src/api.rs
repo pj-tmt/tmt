@@ -179,6 +179,7 @@ pub enum Request {
     RecentResponses {
         identity_id: String,
         limit: u64,
+        before: Option<u64>,
     },
     PaneScreen {
         identity_id: String,
@@ -452,9 +453,11 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
         | Request::ExtensionUse { .. }
         | Request::SkillsInstall { .. }
         | Request::SkillsRemove { .. } => unreachable!("handled before storage"),
-        Request::RecentResponses { identity_id, limit } => {
-            responses::recent(&mut storage, &identity_id, limit)
-        }
+        Request::RecentResponses {
+            identity_id,
+            limit,
+            before,
+        } => responses::recent(&mut storage, &identity_id, limit, before),
         Request::PaneScreen { identity_id } => pane::screen(&mut storage, &identity_id),
         Request::ConsumptionHistory {
             identities,
@@ -550,6 +553,7 @@ mod tests {
             json!({"identityId": id}),
             json!({"identityId": id, "limit": 1}),
             json!({"identityId": id, "limit": 10}),
+            json!({"identityId": id, "limit": 50, "before": 7}),
         ] {
             let body = json!({"version": 1, "operation": "responses.recent", "input": input});
             assert!(decode(&body.to_string()).is_ok(), "{body}");
@@ -557,7 +561,9 @@ mod tests {
         assert!(capabilities_list().contains(&"responses.recent".to_owned()));
         for input in [
             json!({"identityId": id, "limit": 0}),
-            json!({"identityId": id, "limit": 11}),
+            json!({"identityId": id, "limit": 51}),
+            json!({"identityId": id, "before": -1}),
+            json!({"identityId": id, "before": null}),
             json!({"identityId": id, "limit": null}),
             json!({"identityId": "Ada"}),
             json!({"identityId": id, "extra": true}),

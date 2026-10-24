@@ -91,7 +91,7 @@ impl DeliveryReason {
             Self::AnsweredByFoldedTurn => {
                 "answered together with the earlier message: it was typed into the running turn"
             }
-            Self::TurnEndedWithoutReply => "no reply: the agent's turn ended without one",
+            Self::TurnEndedWithoutReply => "no reply yet: the agent's turn ended without one",
             Self::NoTurnStarted => {
                 "no answer captured: no turn started with this text, the agent may have taken it into a running turn"
             }

@@ -936,9 +936,9 @@ thread-ended signal. Setup does not approve provider hook trust on the user's be
 
 Consented `tmt setup` includes the Stop hook by default, exposing `resume.usage`
 (context size) and optional `resume.consumption` in ls/identity JSON. It also keeps
-bounded final-response history locally for [`responses.recent`](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md#recent-agent-responses):
-these are the agent's last final answers for display, not delivered replies.
-Responses already kept stop appearing when they expire; later collection
+the agent's recent answers locally (7 days, up to 1,000, 16 KiB each) for [`responses.recent`](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md#recent-agent-responses):
+these are the agent's own final answers for display, not delivered replies.
+Answers already kept stop appearing when they expire; later collection
 removes them. With `--no-usage` nothing new is collected, so expired responses stay
 on disk until collection runs again. Consumption reports cumulative
 completed-request counters; measure changes within an epoch. Cached input
@@ -983,7 +983,7 @@ never reset the batch deadline. tmux activity has second resolution, so quiet
 detection can take an extra second. It does not prove the input buffer is empty.
 
 `tmt config set exchange.retentionDays 90 --global` sets the duration for new
-requests and captured recent responses, from 1 through 3650 integer days.
+requests, from 1 through 3650 integer days (the agent's answers keep their own 7 days).
 Local overrides and local `config rm` are not supported for this global-only key.
 Changing it never extends existing data or changes the reply acceptance window
 or observer timeout. Results remain available without reading current configuration.
