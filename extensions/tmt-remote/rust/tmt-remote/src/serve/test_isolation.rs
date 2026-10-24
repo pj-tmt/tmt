@@ -6,7 +6,7 @@ use std::{
 /// Open project locks only after exec in a one-case process: parallel sibling
 /// publication forks must not inherit this fixture's credential/budget locks.
 /// The existing invocation owner bounds, terminates and reaps a failed child.
-pub(super) fn isolated_case(case: &str) -> bool {
+pub(crate) fn isolated_case(case: &str) -> bool {
     const MARKER: &str = "TMT_REMOTE_ISOLATED_TEST_CASE";
     if std::env::var(MARKER).as_deref() == Ok(case) {
         return false;

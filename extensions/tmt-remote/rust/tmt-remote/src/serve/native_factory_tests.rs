@@ -1,5 +1,6 @@
 //! Project-owner persistence is independent of provider activity and consumer count.
-use super::{native_factory::CheckpointOwner, test_isolation::isolated_case};
+use super::native_factory::CheckpointOwner;
+use crate::test_isolation::isolated_case;
 use std::{
     fs,
     path::PathBuf,
