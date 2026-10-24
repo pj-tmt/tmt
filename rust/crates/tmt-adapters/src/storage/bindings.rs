@@ -339,6 +339,12 @@ impl BindingRecords for BindingRows<'_> {
                 [&identity.id],
             )
             .map_err(|error| classify(error, "Remove recent responses"))?;
+        self.0
+            .execute(
+                "DELETE FROM recent_response_floor WHERE identity_id=?",
+                [&identity.id],
+            )
+            .map_err(|error| classify(error, "Remove the dropped-response floor"))?;
         if remove_content {
             self.0
                 .execute(

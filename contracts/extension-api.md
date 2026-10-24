@@ -51,7 +51,7 @@ independent of storage access.
 | `requests.show`          | `requestId`                                                                                         | Request detail including retained prompt/final state; a passthrough adds its turn-output capture ([Passthrough](request-response-v1.md#passthrough))              |
 | `requests.sendNow`       | `requestId`; the envelope names the caller (originator or the user)                                 | `status` (`sent`/`already`), `requestId`, `state`; a refusal is a `SEND_NOW_*` or `DELIVERY_*` fault ([Send now](request-response-v1.md#send-now))                |
 | `workspace.capture`      | Empty object                                                                                        | Bounded `attempted`, `published`, `skipped` counts for recorded sockets only (see [Workspace recovery](workspace-v1.md#capture-triggers-and-public-backstop))     |
-| `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–10, default 10)                                  | `identityId`, `items`: locally retained provider-final pane output (see below)                                                                                    |
+| `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–50, default 10), optional `before` (cursor)      | `identityId`, `items`, `coverage`, `nextBefore?`: locally retained provider-final pane output (see below)                                                         |
 | `pane.screen`            | `identityId` (canonical UUID)                                                                       | `identityId`, `host`, `format`, `text`: the identity's current visible pane screen, read-only (see below)                                                         |
 | `dispatch.show`          | `operationId`                                                                                       | Immutable acceptance receipt                                                                                                                                      |
 | `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`, `mode`                 | Acceptance receipt; optional independent `wake` on first direct request (see [Passthrough](#passthrough-dispatch))                                                |
@@ -84,20 +84,33 @@ create the root or read its files. `capabilities` remains a constant document.
 ## Recent agent responses
 
 `responses.recent` reads one exact identity's locally retained provider-final
-text. Input is `{identityId, limit?}`: a required canonical identity UUID and an
-optional integer from 1 through 10, default 10. Names, unknown fields and envelope
-originator attribution are not accepted. Invalid input, including an explicit
-out-of-range limit, is `API_INPUT_INVALID`.
-The resource is `{identityId, items:[...]}`, with no pagination. A valid UUID
+text, newest first. Input is `{identityId, limit?, before?}`: a required canonical
+identity UUID, an optional integer `limit` from 1 through 50 (default 10) and an
+optional `before` cursor, the `nextBefore` an earlier page returned (a non-negative
+integer; JSON null is refused). Names, unknown fields and envelope originator
+attribution are not accepted. Invalid input, including an explicit out-of-range
+limit, is `API_INPUT_INVALID`.
+The resource is `{identityId, items:[...], coverage, nextBefore?}`. `nextBefore` is
+present exactly when an older retained answer exists; passing it as `before` reads
+the next page, and a cursor past the oldest answer reads an empty page. A valid UUID
 with no retained entries, including an unknown or retired UUID, returns an empty
 `items` array; a same-name successor never inherits the previous UUID's entries.
+`coverage` is `{olderDropped, droppedThroughMs?}` and is the same on every page:
+`olderDropped` is true exactly when an answer of this identity was pruned (past the
+age or the count below) or has expired and not yet been pruned, and `droppedThroughMs`
+is then the newest `endedMs` among those dropped answers. A client that reaches the
+last page with `olderDropped` true says that older answers were not kept. An identity
+that was at the former cap of 10 when this field began reports `olderDropped` true
+from that moment.
 
-Each item is `{text, endedMs, provider, truncated, sessionId?}`:
+Each item is `{text, endedMs, provider, truncated, originalBytes, sessionId?}`:
 
 - `text` is the provider's final assistant text, preserving its text and line
-  endings. It contains at most 8,192 UTF-8 bytes, cut on a Unicode scalar boundary.
+  endings. It contains at most 16,384 UTF-8 bytes, cut on a Unicode scalar boundary.
   `truncated` is always a boolean and is true exactly when the byte cap omitted
-  text. Core appends no in-band marker and applies no display normalization.
+  text. `originalBytes` is the length the provider gave, in UTF-8 bytes (the stored
+  length for an answer captured before the field existed). Core appends no in-band
+  marker and applies no display normalization.
 - `endedMs` is Core's observed turn-end time in Unix milliseconds, not a provider
   timestamp or a delivery/completion proof. Newest means capture order; an
   internal committed sequence breaks equal timestamps and wall-clock rollback.
@@ -122,16 +135,18 @@ read for this feature. User text, tools and thinking are excluded. Neither drive
 scrapes pane text or follows an unverified transcript path. This is bounded turn-end observation, not a
 complete transcript backup or a guarantee that an identity has prior text.
 
-Core's SQLite store retains at most the newest 10 captures per identity. Capture
+Core's SQLite store retains each capture for 7 days after its turn ended, and at
+most the newest 1,000 captures per identity; the writer prunes the oldest first, in
+the capture's transaction, and records the newest answer it pruned for `coverage`.
+These numbers belong to the conversation and do not follow `exchange.retentionDays`. Capture
 occurs only when the existing Stop admission commits a turn end, in that same
 CAS transaction; a duplicate Stop treated as a no-op captures nothing. A Stop
 reported while the provider continues because a Stop hook blocked an earlier one
 (`stop_hook_active`, for example a Digest checklist) ends that continuation: it is
 admitted after the earlier end, and its text is captured. Text is
 not deduplicated: two distinct committed turns with identical text are retained
-separately. The transaction appends the capture and removes overflow. Each
-capture freezes the current global `exchange.retentionDays` policy (default 90,
-allowed 1–3650) and expires at `endedMs + retentionDays * 86,400,000`.
+separately. The transaction appends the capture and removes overflow and expired
+entries. A capture expires at `endedMs + 7 * 86,400,000`.
 At equality it is expired: reads omit it even before opportunistic cleanup.
 Reads and config changes never renew an existing entry's deadline.
 Identity removal/retirement deletes these entries; retained exchanges are

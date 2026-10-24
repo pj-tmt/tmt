@@ -57,7 +57,7 @@ it.each(['claude', 'codex'] as const)(
           i >= 10
             ? 'same text in two distinct turns'
             : i === 9
-              ? 'x'.repeat(8190) + '🦀tail'
+              ? 'x'.repeat(16382) + '🦀tail'
               : `final-${i}\r\nline\n`
         );
         const checkpoints = texts.map((_, i) => path.join(fixture.root, `before-stop-${i}`));
@@ -128,13 +128,15 @@ it.each(['claude', 'codex'] as const)(
           const expected = texts.slice(Math.max(0, i - 9), i + 1).reverse();
           expect(resource.identityId).toBe(identityId);
           expect(resource.items).toHaveLength(expected.length);
+          expect(resource.coverage).toEqual({ olderDropped: false });
           for (let n = 0; n < expected.length; n++) {
             const text = expected[n];
             expect(resource.items[n]).toEqual({
-              text: Buffer.byteLength(text) > 8192 ? 'x'.repeat(8190) : text,
+              text: Buffer.byteLength(text) > 16384 ? 'x'.repeat(16382) : text,
               endedMs: expect.any(Number),
               provider,
-              truncated: Buffer.byteLength(text) > 8192,
+              truncated: Buffer.byteLength(text) > 16384,
+              originalBytes: Buffer.byteLength(text),
               sessionId: session,
             });
           }
@@ -153,7 +155,7 @@ it.each(['claude', 'codex'] as const)(
             database
               .prepare('SELECT count(*) AS n FROM recent_responses WHERE identity_id=?')
               .get(identityId)
-          ).toEqual({ n: 10 });
+          ).toEqual({ n: 12 });
         } finally {
           database.close();
         }

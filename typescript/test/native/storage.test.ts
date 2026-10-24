@@ -143,6 +143,7 @@ function expectNativeSchema(
     { version: 68, name: 'confirm a checklist only when a prompt carries it' },
     { version: 69, name: 'mark a passthrough folded into a running turn' },
     { version: 70, name: 'record the turn that began after a request was handed over' },
+    { version: 71, name: "keep an agent's answers 7 days, 16 KiB each, and say what was dropped" },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -192,6 +193,7 @@ function expectNativeSchema(
       'consumption_family_files',
       'request_passthrough',
       'request_turns',
+      'recent_response_floor',
     ].sort()
   );
   expect(table(migrated, 'office_avatar_catalog').rows).toEqual([

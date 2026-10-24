@@ -268,17 +268,7 @@ fn observe_turn(
     {
         observation
             .and_then(|value| value.final_text)
-            .and_then(|text| {
-                let retention_days = tmt_adapters::config::ConfigFiles {
-                    paths: paths.clone(),
-                }
-                .global_retention_days()
-                .ok()?;
-                Some(tmt_adapters::storage::ResponseCapture {
-                    text,
-                    retention_days,
-                })
-            })
+            .map(|text| tmt_adapters::storage::ResponseCapture { text })
     } else {
         None
     };
