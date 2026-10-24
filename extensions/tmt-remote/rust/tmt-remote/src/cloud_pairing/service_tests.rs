@@ -157,6 +157,19 @@ impl Wire {
             .insert(service.machine.clone(), Arc::downgrade(service));
     }
 }
+/// Synchronous fixture notification models the worker: a per-operation diagnostic does not
+/// turn a successful provider commit into a lost HTTP answer. Shared failures still fail the test.
+fn reconcile_notified(service: &Service) {
+    let outcome = service.reconcile();
+    *service.last_error.lock().unwrap() = outcome.as_ref().err().map(|error| error.code.clone());
+    if let Err(error) = outcome {
+        assert!(
+            crate::cloud_inbox::permanent(&error.code),
+            "unexpected reconciliation failure: {}",
+            error.code
+        );
+    }
+}
 fn token(uid: &str) -> String {
     format!(
         "e30.{}.test",
@@ -336,7 +349,7 @@ impl Http for Wire {
                 .get(&machine)
                 .and_then(Weak::upgrade);
             if let Some(receiver) = receiver {
-                receiver.reconcile().unwrap();
+                reconcile_notified(&receiver);
             }
         }
         response(200, json!({"commitTime":stamp,"writeResults":[]}))
@@ -525,7 +538,7 @@ fn public_core_message_reaches_the_serving_owner_and_a_lost_answer_stays_uncerta
             origin: "cli".into(),
             name: "Sender".into(),
             agents: "all".into(),
-            scopes: vec!["talk".into()],
+            scopes: vec!["results.read".into(), "talk".into()],
             mode: "direct".into(),
             issued_at_ms: 1,
             expires_at_ms: None,
@@ -558,13 +571,29 @@ fn public_core_message_reaches_the_serving_owner_and_a_lost_answer_stays_uncerta
         .unwrap();
     wire.route(&owner);
     let control = message_control(&sender, &sender_lease);
-    for (index, (expected_state, lost)) in
-        [("sent", false), ("unconfirmed", true), ("refused", false)]
-            .into_iter()
-            .enumerate()
+    for (index, (expected_state, lost, narrow)) in [
+        ("sent", false, false),
+        ("unconfirmed", true, false),
+        ("refused", false, false),
+        ("refused", false, true),
+    ]
+    .into_iter()
+    .enumerate()
     {
         if expected_state == "refused" {
             owner.store().unwrap().talk(&sender.machine, false).unwrap();
+        }
+        if narrow {
+            owner.store().unwrap().talk(&sender.machine, true).unwrap();
+            owner
+                .store()
+                .unwrap()
+                .connection
+                .execute(
+                    "UPDATE grants SET agents='[]',revision=revision+1 WHERE client_id=?1",
+                    [&sender.machine],
+                )
+                .unwrap();
         }
         let proxy_root = core.root.join(format!("proxy{index}"));
         let directory = proxy_root.join("remote");
@@ -632,6 +661,15 @@ fn public_core_message_reaches_the_serving_owner_and_a_lost_answer_stays_uncerta
             core.sends(),
             (index + 1).min(2),
             "one effect through the existing inbox/dispatch owner"
+        );
+        assert_eq!(
+            owner.status().unwrap()["error"],
+            if narrow {
+                json!("REMOTE_SCOPE_DENIED")
+            } else {
+                Value::Null
+            },
+            "narrowing the original recipient records the final diagnostic without losing the new refusal"
         );
         assert_eq!(
             summary["deliveryState"],
