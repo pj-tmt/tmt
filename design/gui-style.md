@@ -67,7 +67,7 @@ name and a visible tooltip.
 - **Widths:** compact through the shared header's `compact-max-width`, full
   above it. Content columns center at up to 1080 px; the page canvas behind them is
   edge to edge.
-- **Header height:** 56 px, 48 px when compact (`header` tokens).
+- **Header height:** 62 px, 56 px when compact (`header` tokens).
 - **Overlays** open over the page from the right without reflow; see [Overlay](#overlay) for geometry and focus.
 - **Spacing** steps are 4, 8, 12, 16, 24 and 32 px (`space-xs` to `space-2xl`);
   containers space their children with a token gap, never by margins alone.
@@ -122,6 +122,14 @@ list) draws no title in the header: the header keeps its accessible name, and th
 The one TMT web UI frame (#3937): one header row, then a global rail, an optional
 module menu and the host's content. Every Colab and Remote page except the refusal
 page renders in it.
+
+The opt-in shared top bar keeps module actions followed by common Theme, Search with its
+platform shortcut hint, and a Remote icon/count. Search opens the host's one switcher; the
+leaf reads no product data. Remote counts live sessions; zero and unknown omit the badge
+but keep distinct accessible names. The bar draws no title or avatar: the rail names the
+module and the content supplies its real h1. Root-only bindings and the actions-only module
+adapter are defined in the [leaf contract](browser-ui/README.md#shared-top-bar). Existing
+product bars stay unchanged until their owning adoption.
 
 - **Rail:** one fixed list, identical on every page: the collapse toggle in its own
   row, ruled off above Home, then Home,

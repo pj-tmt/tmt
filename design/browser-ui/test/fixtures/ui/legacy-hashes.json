@@ -1,7 +1,7 @@
 {
   "baseline": "a5c85cb407003632dc9a5b3ac51ca2f6d92be355",
   "sha256": {
-    "generated/static.css": "d7a27c18bf402f1691f5c9a20d9f7a1bf641129c63a0368de46d4262372a7acf",
+    "generated/static.css": "8c5ccd8c065e5b29de372947e00671ab94620277813e9a517b6163cae75bd7c0",
     "src/action.css": "29316ae4fa5a30526240a48fc589043cbeeb5662d114b4be4f709fe99b40388a",
     "src/action.tsx": "bdb44de4902350c66e25ecbe88342545e76317ab611118faa6767f29bae7e6c4",
     "src/chips.css": "46ee249714c41bf206c7d8202835ac0b6014492222d3de0d35aa632e8ec61d19",
@@ -16,7 +16,7 @@
     "src/field.tsx": "c930047bc2f9070af9619fd9d1654336e2c4ecf4494dcb7900c695320e31c76c",
     "src/header.css": "3c16d01499450b3874d6bdd7c3650b071ecc63bd1942b03f121db0c4772cf6ba",
     "src/header.tsx": "4dbf240558f0d2cfe32df9c80ad861fef2d2206dd8b7b29f83dbc28d3a1abbe8",
-    "src/icon-action-tooltip.ts": "009c31cea47c889dfbb01b3478f8ea3ad73149f6d2495644b92e5af0a29efa49",
+    "src/icon-action-tooltip.ts": "c753600ad69c7d728b7e1e34fd7d16c4732c0d0b14e5083f1fdcf06381f8facc",
     "src/icon-action.css": "9ac674fab6ea97cb600b21424c95f5912e3aa73b797b373483348961a12107fa",
     "src/icon-action.tsx": "058a3c7e0e1925c63253f3328b3063e1cd80179ab03c160fa9ac07d4782d16c2",
     "src/list.css": "bdb83bf31da229ab48daba7141c76d34dc70ba860bff0f5db6830b4390b84167",
@@ -32,7 +32,7 @@
     "src/notifications.tsx": "2ba8d3206bc94fe4e700f5627f2e73405b989f9577938339f9ed4c865c45f89b",
     "src/overlay.ts": "1ea82859428c4136e01d619b27771260d5ff894fe132611a77d1b066f2afbae0",
     "src/popup.ts": "d76753fe162d2945d9ae6aae0bbefca1233ded3d2b9783be2dad5262666bd4ba",
-    "src/react.ts": "ac122fbb46458f5905f12a0bc794537c0fd9196ac2779f0dbd7eb60a74c4577c",
+    "src/react.ts": "c1e190895087a363a806090ac8dafc79dbbfac11114e4823039045ea88fe5377",
     "src/static.ts": "58348603ccab65e4469df286c5be5a23b47293fecb45ad6fec46ca5373a8d83a",
     "src/tabs.css": "72653d1a84cdcbab804ff0689085ce90fca1de2e756e02d018e5aa922833c948",
     "src/tabs.tsx": "c5287f786eb09c8b06a457cbe404016cadec4657b3a2ff15cc9b46f8ccc2cdbc",
