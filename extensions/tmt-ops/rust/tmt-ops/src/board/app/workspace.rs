@@ -1085,6 +1085,7 @@ impl App {
             }
             MemberSession => return self.open_member_session(),
             MemberNotes => return self.open_notes(),
+            MarkRead => return self.mark_read_selected(),
             NewMember => return self.open_new_member(),
             MonitorDetails => return self.overview_details(),
             WorkspaceSnapshots => return self.open_recovery(),

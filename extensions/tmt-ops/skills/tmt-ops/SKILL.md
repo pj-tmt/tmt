@@ -467,7 +467,9 @@ keeps the mark and words. The top bar shows your global unread count beside
 waiting. `N+` is a lower bound from the existing 50-result page, not an all-history
 count; zero observed unread never invents an unread state. Opening the agent's
 acquired conversation or successfully jumping with `j` advances your shared read
-marker. It survives restart, named views and reset-view. A save failure keeps the
+marker, and so does clicking `● N unread` in the composer line, the member
+menu entry "Mark read" or the `mark-read` action (no default key; bind it in Help
+or Settings). It survives restart, named views and reset-view. A save failure keeps the
 unread count and names the cause; reopen the conversation or jump to retry. These
 Ops markers never acknowledge Core results.
 
