@@ -2385,19 +2385,29 @@ stored in the invitation; it is neither the raw code nor its enrollment MAC/resp
 A join requires its matching unexpired gate. The owner attempts gate deletion when the ceremony ends
 (confirm, refusal, cancellation or expiry). Cleanup is best-effort and never replaces the ceremony's
 result; expiry refuses logically even when cleanup cannot reach the provider. These owner-only gates
-have no client update or list capability.
+have no client update capability. Only their machine owner may list them, with limit one for
+bounded expiry cleanup; an ordinary signed-in stranger cannot read or list gates.
 Only the owner lists (limit one), writes responses or deletes; a caller can GET its own exact row or
 a missing row. Kind and offer correlation are bound by the verified transcript. A competing, expired,
 cancelled or reused code refuses. An identical confirmed candidate may observe only its original
 receipt before the original deadline; this cannot create another grant. No offer secret or derived
 response key is persisted. Immutable enrollment rows are retained at most until bounded hourly
-cleanup observes them older than 24 hours; logical invite expiry remains ten minutes.
+cleanup observes them older than 24 hours. The same hourly maintenance pass also queries this
+machine's gates by `expiresAt <= now`, in expiry order with limit one, and deletes at most the
+existing operation cap. Strict gate admission precedes deletion; live or foreign-machine gates
+are never selected. A failed or ambiguous deletion stops the pass; a later pass observes the
+remaining documents rather than blindly retrying. Query/deletion uses the shared native
+Auth/runtime/budget and call deadline; logical invite expiry remains ten minutes even offline.
+No enrolled peer still means no provider polling. Before a new explicit `tmt remote invite`, the
+same bounded gate-only cleanup runs best-effort without blocking the new ceremony on failure.
+If a first invite was interrupted before any peer enrolled, its stale gate is collected by that
+next owner action; a project never invited from again keeps only a logically expired, harmless gate.
 
 Machine metadata `/m/<machine>` is created under its locally generated UUIDv4. Its exact fields
 are `{uid,authenticationKey,descriptor}` plus optional immutable `invitingOwner` (canonical UUID,
 not itself). A create requires `request.auth.uid == uid` and either the admin-owned
-`/owners/<uid>` allow-list or an unrevoked, unexpired `/m/<invitingOwner>/peers/<uid>` route whose
-`peer` is this new machine UUID. Anonymous sign-in alone authorizes no agent-talk write.
+`/owners/<uid>` allow-list whose stored `machine` equals this machine UUID, or an unrevoked,
+unexpired `/m/<invitingOwner>/peers/<uid>` route whose `peer` is this new machine UUID. Anonymous sign-in alone authorizes no agent-talk write.
 Only the stored uid may update the descriptor; it cannot change uid, key or inviter provenance,
 including old absence. Any authenticated caller may GET an exact machine row; there is no machine
 list/delete. Both participants check the fetched key against the native/invite pin; a conflict
