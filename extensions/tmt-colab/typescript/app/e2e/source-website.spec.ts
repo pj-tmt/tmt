@@ -29,8 +29,27 @@ for (const width of [1586, 390]) {
       await expect(drawer).toContainText('Changes remain in the draft until you save.');
       await expect(drawer.getByTestId('source-draft-status')).toHaveText('Draft unchanged');
       await editor.fill('<pre>Draft only: exact bytes</pre>');
-      await expect(drawer.getByTestId('source-draft-status')).toHaveText('Draft changed');
+      await expect(drawer.getByTestId('source-draft-status')).toHaveText('Unsaved changes');
       await expect(drawer.getByTestId('source-draft-status')).not.toContainText('Saved');
+      // The footer names the format, in the page's own sans; an unsaved draft takes the waiting tone.
+      const footer = drawer.locator('.source-metadata');
+      await expect(footer.locator('span').last()).toHaveText('HTML');
+      await expect(footer).not.toContainText('Local only');
+      await expect(footer).toHaveCSS('font-size', '11px');
+      await expect(footer).not.toHaveCSS('font-family', /mono/i);
+      await expect(drawer.getByTestId('source-draft-status')).toHaveCSS(
+        'color',
+        await page.evaluate(() => {
+          const probe = document.createElement('i');
+          probe.style.color = 'var(--tmt-ui-color-waiting)';
+          document.body.append(probe);
+          const value = getComputedStyle(probe).color;
+          probe.remove();
+          return value;
+        }),
+      );
+      // The website's editor is a point smaller on a phone.
+      await expect(editor).toHaveCSS('font-size', width === 390 ? '10px' : '11px');
       await expect(editor).toHaveCSS('resize', 'vertical');
       const geometry = await drawer.evaluate((node) => {
         const body = node.querySelector('.tmt-ui-drawer-body')!;
