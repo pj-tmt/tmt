@@ -298,6 +298,7 @@ fn run_observed(
         request,
         &settings,
         effect,
+        || incarnation(std::process::id()),
     );
     // The child's status remains authoritative after it has actually run.
     // Closing local state cannot turn a successful child into a different exit.
@@ -669,5 +670,126 @@ mod tests {
         assert!(!failure_is_trustworthy(130, true), "Ctrl-C (128 + SIGINT)");
         assert!(!failure_is_trustworthy(143, true), "SIGTERM");
         assert!(!failure_is_trustworthy(1, false), "hooks absent at launch");
+    }
+    #[test]
+    fn an_unconfirmed_provider_owner_refuses_before_launch_or_resume_pending() {
+        use tmt_core::{
+            binding::BindingRepository,
+            identity::{Lifetime, create_or_resolve},
+        };
+        struct Directory(std::path::PathBuf);
+        impl Drop for Directory {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        for provider in ["claude", "codex", "sh"] {
+            for resume in [false, true] {
+                if provider == "sh" && resume {
+                    continue;
+                }
+                let root = std::env::temp_dir().join(format!(
+                    "tmt-owner-refusal-{}",
+                    tmt_core::operation::new_operation_id()
+                ));
+                std::fs::create_dir(&root).unwrap();
+                let _cleanup = Directory(root.clone());
+                let paths = ConfigPaths {
+                    global_dir: root.clone(),
+                    global_config: root.join("config.json"),
+                    local_config: root.join("local.json"),
+                    database: root.join("state.db"),
+                };
+                let mut storage = Storage::open(&paths.database).unwrap();
+                let identity = create_or_resolve(&mut storage, "Alpha", Lifetime::Saved)
+                    .unwrap()
+                    .identity;
+                let mode = if provider == "claude" {
+                    CLAUDE_MODE_DEFAULT
+                } else {
+                    CODEX_MODE_EMBEDDED
+                };
+                let expected = preferences(provider, mode, SESSION);
+                storage
+                    .with_binding_transaction(|records| {
+                        records.set_session_preferences(&identity.id, &expected)
+                    })
+                    .unwrap();
+                let marker = root.join("spawned");
+                let program = root.join(provider);
+                tmt_test_support::write_executable(
+                    &program,
+                    format!("#!/bin/sh\nprintf spawned > '{}'\n", marker.display()).as_bytes(),
+                    0o755,
+                )
+                .unwrap();
+                let command = [program.into_os_string()];
+                // Any host work is pinned to a missing private socket; it
+                // cannot discover or select the user's server.
+                let host = Host::for_caller_with(
+                    &CallerEnvironment {
+                        tmux: Some(format!("{},1,0", root.join("private.sock").display()).into()),
+                        pane: Some("%1".into()),
+                        process_id: u64::from(std::process::id()),
+                        driver_env: Default::default(),
+                    },
+                    UnixCommandRunner,
+                );
+                let mut effect = LaunchEffect::NotLaunched;
+                let result = run_bound(
+                    &mut storage,
+                    &paths,
+                    &host,
+                    "%1",
+                    RunRequest {
+                        name: "Alpha",
+                        options: &Default::default(),
+                        command: if resume { &[] } else { &command },
+                        resume: resume.then_some(Resume::default()),
+                        save: true,
+                        channel: crate::invocation::ChannelMode::Disabled,
+                    },
+                    &Default::default(),
+                    &mut effect,
+                    || None,
+                );
+                if provider == "sh" {
+                    assert_eq!(result.unwrap(), 0, "non-provider launch remains available");
+                    assert!(marker.exists());
+                    assert!(matches!(effect, LaunchEffect::Launched));
+                    // Foreground completion closes its owned connection.
+                    storage = Storage::open(&paths.database).unwrap();
+                } else {
+                    let error = result.unwrap_err();
+                    assert_eq!(error.code, "RUNTIME_CONFLICT");
+                    assert!(error.message.contains("No new agent was launched"));
+                    assert!(
+                        error.document()["error"]["suggestion"]
+                            .as_str()
+                            .unwrap()
+                            .contains("rerun")
+                    );
+                    assert!(matches!(effect, LaunchEffect::NotLaunched));
+                    assert!(!marker.exists(), "provider must not spawn");
+                }
+                let actual = storage
+                    .with_binding_transaction(|records| records.session_preferences(&identity.id))
+                    .unwrap();
+                assert_eq!(actual, expected, "resume must not become pending");
+                let db = rusqlite::Connection::open_with_flags(
+                    &paths.database,
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                )
+                .unwrap();
+                let rows: i64 = db
+                    .query_row("SELECT count(*) FROM launch_observations", [], |row| {
+                        row.get(0)
+                    })
+                    .unwrap();
+                assert_eq!(rows, 0, "no launch intent without an owner");
+                drop(db);
+                storage.close().unwrap();
+            }
+        }
     }
 }

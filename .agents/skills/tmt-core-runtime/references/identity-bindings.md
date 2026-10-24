@@ -306,7 +306,9 @@ delivery. They install and launch nothing.
   flag; null keeps the driver default; flagless resume does not rewrite it.
 - `session_learning` coordinates the managed launch's single early SessionStart with
   `run_command::admission`; `launch_observations` holds the intent and pending event
-  in one binding-owned row. The session and pending consumption commit together,
+  in one binding-owned row. A provider launch without a confirmed native owner
+  refuses before spawn or resume-pending (`RUNTIME_CONFLICT`); non-provider
+  commands keep their existing behavior. The session and pending consumption commit together,
   before optional context work. Its preference fingerprint fences concurrent edits;
   it grants no authority. End cannot resurrect the pending key. Retention, fixed
   diagnostics and stored-only recovery projections have one owner in the

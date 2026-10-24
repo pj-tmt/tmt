@@ -186,6 +186,9 @@ trusted setup; missing hooks cannot supply an observation.
 ### Managed launch session learning
 
 A managed launch records a bounded observation before spawning its provider.
+Without a confirmed native owner incarnation, it refuses with `RUNTIME_CONFLICT`
+before spawn or marking a resume pending, says no new agent was launched and
+gives a retry step. Non-provider commands are unchanged.
 One binding-owned row per exact launch owner PID/start holds both the intent and
 any early SessionStart. It grants no presence, delivery or resume authority.
 Only the already verified private main provider may supply that event; the

@@ -5,7 +5,7 @@ use super::{
     channel::{
         HeldLease, enrollment_failure, paste_notice, preflight, verify_claim, verify_plain_fallback,
     },
-    diagnostic, incarnation, observe, observe_admission,
+    diagnostic, observe, observe_admission,
     resume::{ResumeExit, mark_resume_pending, select_command, settle_resume},
     storage_failure,
 };
@@ -63,6 +63,7 @@ fn selected_identity(
         .map_err(storage_failure)
 }
 
+#[allow(clippy::too_many_arguments)] // Native owner observation is invocation-local and injectable.
 pub(super) fn run_bound(
     storage: &mut Storage,
     paths: &ConfigPaths,
@@ -71,6 +72,7 @@ pub(super) fn run_bound(
     request: RunRequest<'_>,
     settings: &Settings,
     effect: &mut LaunchEffect,
+    observe_owner: impl FnOnce() -> Option<ProcessIncarnation>,
 ) -> Result<u8, Failure> {
     let observer = &mut super::EmptyObserver;
     let RunRequest {
@@ -254,6 +256,17 @@ pub(super) fn run_bound(
         .as_ref()
         .map(|session| session.harness.clone())
         .or_else(|| registry.claim(&launch.command.executable));
+    let owner = observe_owner();
+    if claim.is_some() && owner.is_none() {
+        return Err(Failure::new(
+            "RUNTIME_CONFLICT",
+            "TMT could not confirm this launch's owner process. No new agent was launched.",
+            5,
+        )
+        .suggestion(
+            "Check that this process can be inspected, then rerun the same command.".into(),
+        ));
+    }
     let lifecycle = claim
         .as_ref()
         .and_then(|harness| registry.lifecycle(harness))
@@ -487,7 +500,6 @@ pub(super) fn run_bound(
             .is_some_and(start_hook_installed),
         None => false,
     };
-    let owner = incarnation(std::process::id());
     let hook_command = match prepare_launch_hooks(
         lifecycle,
         &launch.command,
