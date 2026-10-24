@@ -300,7 +300,8 @@ facility. Literal quotes grant no request authority and need no source revalidat
 Notes draft. Links preselect Link and keep the full URL, with its last path segment
 (or host) as the editable title; selections preselect Todo with the selected source
 text flattened into the title. Kind, Title, Link and From share the Notes modal;
-Tab changes fields, Left/Right on Kind changes the explicit kind. An existing
+Tab changes fields; Kind uses the shared flat chips, with Left/Right or a current
+chip click selecting the explicit kind. An existing
 unsent draft is retained instead of being replaced. The held room/member/actor
 must still match at entry and submission; unread Notes cannot be written.
 `conversation::note_source` maps rendered rows to held message metadata, separately

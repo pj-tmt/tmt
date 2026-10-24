@@ -12,7 +12,9 @@ use crate::{
     },
     checklist::{Code, model::Id},
 };
-use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+};
 use std::{cell::RefCell, time::Instant};
 use tmt_tui::components::{ListRow, PickerEvent, PickerField, PickerInput};
 
@@ -32,6 +34,7 @@ pub(in crate::board) struct Controller {
     pub(super) reveal: RefCell<Option<Id>>,
     pub(super) ui: RefCell<picker_surface::State>,
     pub(super) template: RefCell<Option<(String, tmt_tui::components::surface::Template<()>)>>,
+    pub(super) kind_hits: RefCell<Vec<(ratatui::layout::Rect, NoteKind)>>,
     closed: bool,
 }
 
@@ -49,6 +52,7 @@ impl Controller {
             reveal: RefCell::new(None),
             ui: RefCell::new(picker_surface::State::new(None, vec![], None)),
             template: RefCell::new(None),
+            kind_hits: RefCell::new(Vec::new()),
             closed: false,
         }
     }
@@ -66,6 +70,7 @@ impl Controller {
     }
 
     pub fn invalidate(&self) {
+        self.kind_hits.borrow_mut().clear();
         self.ui.borrow_mut().invalidate();
     }
 
@@ -348,6 +353,23 @@ impl Controller {
                     }
                 }
             },
+            Event::Mouse(mouse)
+                if !sent && mouse.kind == MouseEventKind::Down(MouseButton::Left) =>
+            {
+                let kind = self
+                    .kind_hits
+                    .borrow()
+                    .iter()
+                    .find(|(area, _)| area.contains((mouse.column, mouse.row).into()))
+                    .map(|(_, kind)| *kind);
+                if let Some(kind) = kind
+                    && let Some(draft) = app.notes.draft_mut(&key)
+                    && let Some(seed) = &mut draft.seed
+                {
+                    seed.kind = kind;
+                    draft.focus = 0;
+                }
+            }
             Event::Paste(text) if !sent => {
                 if let Some(draft) = app.notes.draft_mut(&key)
                     && let Some(field) = draft.field()

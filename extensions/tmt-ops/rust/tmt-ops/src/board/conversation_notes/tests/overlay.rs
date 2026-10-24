@@ -603,7 +603,7 @@ fn add_to_notes_prefills_an_editable_link_and_freezes_the_source_in_the_write() 
     app.add_to_notes(seed);
     let screen = paint(&app);
     assert!(screen.contains("Add to Notes · worker"), "{screen}");
-    assert!(screen.contains("Kind    Todo  ‹ Link ›"), "{screen}");
+    assert!(screen.contains("Kind   Todo   Link "), "{screen}");
     assert!(screen.contains("Title › review_the_build▏"), "{screen}");
     assert!(screen.contains("From   worker · final"), "{screen}");
     assert!(
@@ -626,6 +626,62 @@ fn add_to_notes_prefills_an_editable_link_and_freezes_the_source_in_the_write() 
         press(&mut app, KeyCode::Enter),
         Effect::None,
         "saving cannot duplicate the write"
+    );
+}
+
+#[test]
+fn kind_chips_change_the_draft_only_with_current_enabled_hits() {
+    let (mut app, key) = read_with(vec![]);
+    app.add_to_notes(note_seed(&app, NoteKind::Link));
+    let screen = paint(&app);
+    assert!(
+        !screen.contains("‹ Todo") && !screen.contains("‹ Link"),
+        "{screen}"
+    );
+    let todo = app.notes_overlay.as_ref().unwrap().kind_hits.borrow()[0].0;
+    let click = |app: &mut App| {
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: todo.x,
+                row: todo.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            Instant::now(),
+        );
+    };
+    app.notes_overlay.as_ref().unwrap().invalidate();
+    click(&mut app);
+    assert_eq!(
+        app.notes.draft(&key).unwrap().seed.as_ref().unwrap().kind,
+        NoteKind::Link
+    );
+    paint(&app);
+    click(&mut app);
+    assert_eq!(
+        app.notes.draft(&key).unwrap().seed.as_ref().unwrap().kind,
+        NoteKind::Todo
+    );
+    assert_eq!(app.notes.draft(&key).unwrap().focus, 0);
+    press(&mut app, KeyCode::Right);
+    assert_eq!(
+        app.notes.draft(&key).unwrap().seed.as_ref().unwrap().kind,
+        NoteKind::Link
+    );
+    write_of(press(&mut app, KeyCode::Enter));
+    paint(&app);
+    assert!(
+        app.notes_overlay
+            .as_ref()
+            .unwrap()
+            .kind_hits
+            .borrow()
+            .is_empty()
+    );
+    click(&mut app);
+    assert_eq!(
+        app.notes.draft(&key).unwrap().seed.as_ref().unwrap().kind,
+        NoteKind::Link
     );
 }
 

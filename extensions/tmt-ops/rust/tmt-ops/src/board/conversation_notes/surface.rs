@@ -6,7 +6,10 @@ use super::{
     rows::{Kind, Row},
 };
 use crate::{
-    board::{app::App, picker_surface},
+    board::{
+        app::{App, Overlay},
+        chip_group, picker_surface,
+    },
     look::Look,
 };
 use ratatui::{Frame, layout::Rect};
@@ -200,10 +203,7 @@ impl Controller {
             })
             .unwrap_or_default();
         if let Some(seed) = draft.and_then(|draft| draft.seed.as_ref()) {
-            form.insert(0, json!({ "id":"kind", "text": match seed.kind {
-                super::NoteKind::Todo => "Kind  ‹ Todo ›  Link",
-                super::NoteKind::Link => "Kind    Todo  ‹ Link ›",
-            }, "role": if draft.is_some_and(|draft| draft.focus == 0) { "accent" } else { "text" } }));
+            form.insert(0, json!({ "id":"kind", "text":"Kind", "role":"muted" }));
             form.push(json!({"id":"source", "text":safe(&format!("From   {}", seed.source.label())), "role":"muted"}));
         }
         let status = if let Some(notice) = &self.notice {
@@ -236,6 +236,55 @@ impl Controller {
         });
         if form_only {
             ui.render_modal(FILE, template, data, frame, look, body);
+            self.kind_hits.borrow_mut().clear();
+            if let Some(draft) = draft
+                && let Some(seed) = &draft.seed
+                && let Some(map) = &ui.frame
+                && let Some(kind) = map
+                    .hits
+                    .iter()
+                    .find(|hit| hit.id.last().is_some_and(|id| id == "kind"))
+            {
+                let groups = [chip_group::ChipGroup {
+                    label: "Kind  ".into(),
+                    choices: [
+                        ("Todo", super::NoteKind::Todo),
+                        ("Link", super::NoteKind::Link),
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, (label, kind))| chip_group::Choice {
+                        id: format!("kind-{index}"),
+                        actionable: true,
+                        text: format!(" {label} "),
+                        gap: " ".into(),
+                        selected: seed.kind == kind,
+                        disabled: draft.sent(),
+                        cursor: draft.focus == 0 && seed.kind == kind,
+                    })
+                    .collect(),
+                }];
+                let area = Rect::new(
+                    map.areas.content.x,
+                    kind.rect.y,
+                    map.areas.content.width,
+                    kind.rect.height,
+                );
+                self.kind_hits.borrow_mut().extend(
+                    chip_group::paint(frame.buffer_mut(), area, &groups, app, Some(Overlay::Notes))
+                        .into_iter()
+                        .map(|hit| {
+                            (
+                                hit.area,
+                                if hit.id == "kind-0" {
+                                    super::NoteKind::Todo
+                                } else {
+                                    super::NoteKind::Link
+                                },
+                            )
+                        }),
+                );
+            }
         } else {
             ui.render(FILE, template, data, frame, look, body);
         }
