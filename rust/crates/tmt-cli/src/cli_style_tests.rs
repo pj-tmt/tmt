@@ -366,6 +366,7 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
             crate::run_command::MOVE_HINTS,
         ),
         ("run_command/resume.rs", crate::run_command::RESUME_HINTS),
+        ("run_command/pty.rs", crate::run_command::PTY_HINTS),
         ("run_command/run.rs", crate::run_command::RUN_HINTS),
         (
             "run_command/switch_driver.rs",

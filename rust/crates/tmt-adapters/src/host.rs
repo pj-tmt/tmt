@@ -18,6 +18,7 @@ pub(crate) mod driver;
 pub mod external;
 pub mod launch;
 mod nested;
+mod pty;
 
 use external::ExternalCaller;
 
@@ -118,7 +119,7 @@ impl CallerEnvironment {
     /// The current environment, with the caller variables that `records`
     /// declare.
     pub fn approved(records: &[crate::driver_protocol::registry::DriverRecord]) -> Self {
-        let driver_env = records
+        let mut driver_env: BTreeMap<String, OsString> = records
             .iter()
             .flat_map(|record| {
                 record
@@ -132,6 +133,11 @@ impl CallerEnvironment {
                 Some((name.clone(), value))
             })
             .collect();
+        for name in [pty::PANE_ENV, pty::SOCKET_ENV] {
+            if let Some(value) = std::env::var_os(name).filter(|value| !value.is_empty()) {
+                driver_env.insert(name.into(), value);
+            }
+        }
         Self {
             tmux: std::env::var_os("TMUX"),
             pane: std::env::var_os("TMUX_PANE"),
@@ -164,6 +170,17 @@ impl CallerEnvironment {
             })
             .collect();
         named.dedup_by(|a, b| a.name == b.name);
+        if self.driver_env.contains_key(pty::PANE_ENV)
+            || self.driver_env.contains_key(pty::SOCKET_ENV)
+        {
+            return if !named.is_empty() {
+                NamedHost::Ambiguous
+            } else if self.names_tmux() {
+                NamedHost::PtyNested
+            } else {
+                NamedHost::Pty
+            };
+        }
         match (self.names_tmux(), named.as_slice()) {
             (_, []) => NamedHost::Builtin,
             (false, [record]) => NamedHost::External(record),
@@ -179,6 +196,8 @@ impl CallerEnvironment {
 /// external host (unsupported).
 #[derive(Debug)]
 pub enum NamedHost<'a> {
+    Pty,
+    PtyNested,
     Builtin,
     External(&'a crate::driver_protocol::registry::DriverRecord),
     Nested(&'a crate::driver_protocol::registry::DriverRecord),
@@ -199,6 +218,8 @@ pub enum ScreenFormat {
 #[derive(Debug)]
 pub enum HostError {
     Tmux(TmuxError),
+    /// Built-in supervisor transport failure; never proof of process loss.
+    Pty(std::io::Error),
     /// A host no installed driver serves; nothing was attempted.
     Unavailable(String),
     /// An external host's driver could not be run or broke the protocol.
@@ -226,7 +247,8 @@ impl HostError {
             Self::Tmux(error) => error.cleanup_failed(),
             Self::Driver(external::CallError::Process { error, .. }) => error.cleanup_failed(),
             Self::Process(error) => error.cleanup_failed(),
-            Self::Unavailable(_)
+            Self::Pty(_)
+            | Self::Unavailable(_)
             | Self::Driver(_)
             | Self::Refused { .. }
             | Self::Evidence { .. }
@@ -237,7 +259,8 @@ impl HostError {
     pub fn socket_permission_denied(&self) -> bool {
         match self {
             Self::Tmux(error) => error.socket_permission_denied(),
-            Self::Unavailable(_)
+            Self::Pty(_)
+            | Self::Unavailable(_)
             | Self::Driver(_)
             | Self::Refused { .. }
             | Self::Evidence { .. }
@@ -258,6 +281,7 @@ impl fmt::Display for HostError {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Tmux(error) => error.fmt(output),
+            Self::Pty(error) => write!(output, "Built-in host: {error}"),
             Self::Unavailable(name) => write!(output, "Host driver {name} is not installed."),
             Self::Driver(error) => error.fmt(output),
             // The driver's message is untrusted text, bounded and free of
@@ -287,6 +311,7 @@ impl std::error::Error for HostError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Tmux(error) => error.source(),
+            Self::Pty(error) => Some(error),
             Self::Driver(error) => Some(error),
             Self::ServerIds(error) => Some(error.as_ref()),
             Self::Process(error) => Some(error),
@@ -384,6 +409,48 @@ impl<R: CommandRunner> Host<R> {
 }
 
 impl Host {
+    /// A newly created PTY replaces every inherited host locator in its child
+    /// only. The resulting locators still require native ancestry verification.
+    pub fn pty_environment(
+        directory: &std::path::Path,
+        pane: &str,
+    ) -> Vec<(OsString, Option<OsString>)> {
+        let mut names = vec!["TMUX".to_owned(), "TMUX_PANE".to_owned()];
+        for record in external::approved() {
+            if let Some(host) = record.capabilities.host() {
+                names.extend(host.caller_env.iter().cloned());
+            }
+        }
+        let mut values: Vec<_> = names
+            .into_iter()
+            .map(|name| (OsString::from(name), None))
+            .collect();
+        values.push((pty::PANE_ENV.into(), Some(pane.into())));
+        values.push((
+            pty::SOCKET_ENV.into(),
+            Some(crate::pty::socket_path(directory, pane).into_os_string()),
+        ));
+        values
+    }
+
+    /// Before any managed preparation or stop: make sure the launcher is
+    /// listening, including for a command that fails or exits immediately.
+    pub fn wait_for_launcher(&self, environment: &CallerEnvironment) -> Result<(), HostError> {
+        if self.primary != HostKind::pty() {
+            return Ok(());
+        }
+        pty::wait_for_launcher(environment)
+    }
+
+    /// A receipt to the background launcher after ordinary managed admission.
+    /// This is not a new session observation and changes no binding state.
+    pub fn notify_launch_ready(&self, binding: &Binding) -> Result<(), HostError> {
+        if self.primary != HostKind::pty() {
+            return Ok(());
+        }
+        pty::launch_ready(binding)
+    }
+
     /// The host a caller-scoped command runs in: the host whose pane shell is
     /// the caller's nearest ancestor. Without a host in the environment,
     /// tmux's default server serves, as it always has.
@@ -422,7 +489,11 @@ impl Host {
             .filter(|host| *host != HostKind::Tmux)
             .find(|host| host.is_target(&text))
             .unwrap_or(HostKind::Tmux);
-        Self::of(host, UnixCommandRunner).with_drivers(external::approved())
+        let handle = Self::of(host, UnixCommandRunner).with_drivers(external::approved());
+        if host == HostKind::pty() {
+            handle.external.set_target(text);
+        }
+        handle
     }
 }
 
@@ -441,7 +512,9 @@ impl<R: CommandRunner + Clone> Host<R> {
         records: Vec<crate::driver_protocol::registry::DriverRecord>,
     ) -> Self {
         let builtin = Self::of(HostKind::Tmux, runner.clone());
-        if environment.driver_env.is_empty() || records.is_empty() {
+        if environment.driver_env.is_empty()
+            || (records.is_empty() && !environment.driver_env.contains_key(pty::PANE_ENV))
+        {
             return builtin.with_drivers(records);
         }
         let probe = builtin.with_drivers(records.clone());
@@ -475,8 +548,8 @@ impl<R: CommandRunner + Clone> Host<R> {
         let builtin = Self::of(HostKind::Tmux, runner.clone()).with_drivers(records.clone());
         match environment.named_host(&records) {
             NamedHost::Builtin => return Ok(builtin),
-            NamedHost::External(_) => {}
-            NamedHost::Nested(_) => {
+            NamedHost::External(_) | NamedHost::Pty => {}
+            NamedHost::Nested(_) | NamedHost::PtyNested => {
                 return Self::for_nested_caller(
                     environment,
                     builtin,
@@ -537,7 +610,11 @@ impl<R: CommandRunner + Clone> Host<R> {
         let runner = self.external.runner().clone();
         let resolved = self.external.resolved().cloned();
         let caller = self.external.caller().cloned();
+        let target = self.external.target().map(str::to_owned);
         let external = external::Drivers::new(runner, records);
+        if let Some(target) = target {
+            external.set_target(target);
+        }
         if let Some(server) = resolved {
             external.set_resolved(server);
         }

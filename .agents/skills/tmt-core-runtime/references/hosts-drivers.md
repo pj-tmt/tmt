@@ -218,8 +218,11 @@ channels and the driver protocol. The owner map is in
 ## Built-in host
 
 The built-in host (#4605, design on #1339/#1340) gives a member a terminal when no
-tmux or Herdr hosts it. Only the supervisor exists so far: `tmt run`, the host driver,
-`tmt check`, `tmt attach` and the Ops stream are later slices of #4605.
+tmux or Herdr hosts it. `run`/`resume` default to this host outside a verified host;
+`--host tmux|herdr|pty` selects explicitly and never silently falls back. `HostKind`
+keeps the existing `External` shape for the reserved `pty` grammar. `Host::for_server`
+reaches its in-process `host::pty` driver; no executable approval is involved.
+Attach/focus and the Ops stream are not yet shipped.
 
 - **One process per member, no daemon.** `tmt __pty-serve DIRECTORY ID COLS ROWS PROGRAM...`
   (hidden; `tmt-adapters::pty::serve_process`) leaves its session, takes the member's lock,
@@ -234,21 +237,37 @@ tmux or Herdr hosts it. Only the supervisor exists so far: `tmt run`, the host d
   (`kind: u8`, `length: u32`, payload of at most 64 KiB; strict decode; the version is in
   `Hello`/`Welcome`). `tmt-adapters::pty` owns the effects (`Supervisor`, `Connection`);
   `tmt-sys` owns only the terminal system calls (`spawn_on_terminal`, `set_window_size`,
-  `peer_uid`). A new frame or message needs a protocol version decision.
+  `peer_uid`). Core-internal controls use kinds `0x20–0x2f` and `0xa0–0xaf` on the same socket at version 1; these are separate from the attach stream.
 - **Access.** The directory must be owner-only (`private_file::ensure_private_directory`,
   shared with the Claude channel), the socket is 0600, a peer whose user differs from the
   supervisor's is refused, at most 16 clients attach, and a client that does not say hello
   within 5 s is dropped. The socket path stays under 100 bytes.
 - **Clients.** Several may attach. Output is read whether or not anyone is attached and is
-  never stored (no scrollback). A client with 256 KiB queued pauses reading the program, so
+  not retained as scrollback. The supervisor owns one `vt100` screen with scrollback 0, resized with the terminal; capture returns that screen without a redraw nudge. A client with 256 KiB queued pauses reading the program, so
   a slow terminal slows the program instead of losing output; one that reads nothing for 3 s
   while output waits is evicted (`TooSlow`). `TakeSole` evicts the others (`TakenOver`).
-- **Window size.** Only a client that sent `Resize` has a size. The terminal takes the size
+- **Window size.** Each axis is 1–1000 (at most one million screen cells). Larger launch sizes refuse with `PTY_SIZE_INVALID`; larger wire sizes are malformed. Clients clamp before sending a resize. Only a client that sent `Resize` has a size. The terminal takes the size
   of the client that last resized, typed after another did, or took sole use, so a delivery
   that never resizes cannot change it. `Resized` tells every client.
 - **Input** from all clients is written to the terminal in arrival order; clients are not
-  read while 64 KiB are waiting. Delivery policy stays in Core: the supervisor adds no
-  `!` rewrite, paste delay or Enter.
+  read while 64 KiB are waiting. Real `Input` alone updates the user-key timestamp.
+  One bounded Core paste is queued as one frame, without keystroke-sized fragmentation.
+  Core controls paste only within bracketed-paste markers when the program enabled that mode,
+  then submit Enter separately; Core owns the `!` rewrite, delay and SQLite delivery stages.
+  Control clients drain output and disconnect promptly, including between paste and Enter;
+  they never resize. Failed post-paste transport is uncertain and never replayed.
+- **Managed startup.** `pty::start_member` uses the existing detached-process owner
+  to await the supervisor readiness line, retaining kill/reap ownership until that line.
+  Child-only locators replace inherited host variables. The ordinary managed launcher
+  runs inside the PTY: it waits until the outer launcher is listening, then applies
+  its existing bind/session/channel admission and reports the committed marker. Startup
+  receipt controls are ephemeral and grant no session authority. An uncertain launch
+  names the pane for inspection and never resends or stops a possibly running member.
+- **Evidence and markers.** Core observes the supervisor and pane process incarnations
+  and verifies their direct parent/child relationship. Publication requires the matching
+  pane PID; removal compares the binding key. Errors stay Unknown; only native process
+  loss/replacement proves a supervisor dead. The public identity and durable exchange
+  still belong to Core storage, not the supervisor.
 - **Tests** run real pseudo-terminals with `sh` programs, in process
   (`tmt-adapters/src/pty/tests.rs`) and as a process (`tmt-cli/tests/pty_supervisor.rs`:
   terminal ownership, SIGKILL hang-up and restart, second supervisor, refused starts).

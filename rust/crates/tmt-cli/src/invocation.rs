@@ -66,6 +66,7 @@ pub enum Invocation {
         name: tmt_core::workspace::SnapshotName,
     },
     Run {
+        host: Option<String>,
         name: String,
         command: Vec<std::ffi::OsString>,
         resume: bool,
@@ -89,6 +90,7 @@ pub enum Invocation {
         program: Vec<std::ffi::OsString>,
     },
     Resume {
+        host: Option<String>,
         name: Option<String>,
         driver: Option<String>,
         move_running: bool,

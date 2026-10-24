@@ -29,7 +29,20 @@ pub(in crate::grammar) fn run() -> Command {
             .trailing_var_arg(true)
             .value_parser(clap::builder::OsStringValueParser::new()),
     );
-    channel_options(command, false)
+    channel_options(launch_host(command, false), false)
+}
+
+fn launch_host(command: Command, resume: bool) -> Command {
+    let argument = Arg::new("host")
+        .long("host")
+        .value_parser(tmt_core::host::LAUNCH_HOSTS)
+        .help("Launch in this host; defaults to the caller host, or the built-in host outside one");
+    let argument = if resume {
+        argument.conflicts_with_all(["show", "forget", "forget-launch"])
+    } else {
+        argument
+    };
+    command.arg(argument)
 }
 
 /// Inspection and recovery of one `tmt run --channel` enrollment.
@@ -205,7 +218,7 @@ pub(in crate::grammar) fn resume() -> Command {
             .help("Override the recorded effort for this resume"),
     )
     .arg(operand("name", false).help("Identity name; omit to use this pane's verified identity"));
-    channel_options(command, true)
+    channel_options(launch_host(command, true), true)
 }
 
 /// Both foreground commands expose the same mutually exclusive launch policy.

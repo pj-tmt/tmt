@@ -120,6 +120,20 @@ impl<R: CommandRunner> Drivers<R> {
                 depth,
             });
         }
+        if environment
+            .driver_env
+            .contains_key(crate::host::pty::PANE_ENV)
+            || environment
+                .driver_env
+                .contains_key(crate::host::pty::SOCKET_ENV)
+        {
+            match crate::host::pty::caller(self.runner(), environment, pinned, deadline) {
+                Ok(Some(caller)) => found.push(caller),
+                Ok(None) => {}
+                Err(error) if error.cleanup_failed() => return Err(error),
+                Err(_) => conclusive = false,
+            }
+        }
         found.sort_by_key(|caller| caller.depth);
         Ok(Callers { found, conclusive })
     }
@@ -134,6 +148,11 @@ impl<R: CommandRunner> Drivers<R> {
         target: &str,
         deadline: Instant,
     ) -> Result<Option<String>, HostError> {
+        if tmt_core::host::HostKind::External(host) == tmt_core::host::HostKind::pty() {
+            let socket = crate::host::pty::target_socket(target)?;
+            return crate::host::pty::target_exists(self.runner(), &socket, target, deadline)
+                .map(|exists| exists.then(|| target.to_owned()));
+        }
         let Some(process) = self.open(host) else {
             return Ok(None);
         };

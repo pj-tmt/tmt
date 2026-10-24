@@ -773,6 +773,11 @@ pub(super) fn run_bound(
         binding,
         Instant::now() + Duration::from_secs(1),
     );
+    if let Err(error) = host.notify_launch_ready(binding) {
+        diagnostic(&format!(
+            "the agent was launched, but its background readiness receipt failed: {error}"
+        ));
+    }
     // Only committed observations reach hooks, with SQLite closed before any
     // subscriber runs. A fast exit emits both events without persisting Running.
     observe_admission(

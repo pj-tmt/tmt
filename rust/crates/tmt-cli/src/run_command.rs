@@ -26,6 +26,7 @@ use tmt_core::{
 mod agent_name;
 mod channel;
 mod move_session;
+mod pty;
 mod resume;
 mod run;
 mod switch_driver;
@@ -163,15 +164,19 @@ pub fn execute(
     resume: Option<Resume<'_>>,
     save: bool,
     channel: crate::invocation::ChannelMode,
+    host: Option<&str>,
 ) -> io::Result<u8> {
-    match run(RunRequest {
-        name,
-        command,
-        resume,
-        save,
-        channel,
-        options: &Default::default(),
-    }) {
+    match run(
+        RunRequest {
+            name,
+            command,
+            resume,
+            save,
+            channel,
+            options: &Default::default(),
+        },
+        host,
+    ) {
         Ok(status) => Ok(status),
         Err(error) => error.publish(OutputMode::default()),
     }
@@ -182,24 +187,28 @@ pub fn resume_with_options(
     resume: Resume<'_>,
     options: &tmt_adapters::runtime::launch_preset::LaunchSettings,
     channel: crate::invocation::ChannelMode,
+    host: Option<&str>,
 ) -> io::Result<u8> {
-    match run(RunRequest {
-        name,
-        command: &[],
-        resume: Some(resume),
-        save: false,
-        channel,
-        options,
-    }) {
+    match run(
+        RunRequest {
+            name,
+            command: &[],
+            resume: Some(resume),
+            save: false,
+            channel,
+            options,
+        },
+        host,
+    ) {
         Ok(status) => Ok(status),
         Err(error) => error.publish(OutputMode::default()),
     }
 }
 
-fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
+fn run(request: RunRequest<'_>, host: Option<&str>) -> Result<u8, Failure> {
     // This invocation-local fact reports effects; it grants no admission authority.
     let mut effect = LaunchEffect::NotLaunched;
-    run_observed(request, &mut effect).map_err(|error| launch_failure(error, request, effect))
+    run_observed(request, &mut effect, host).map_err(|error| launch_failure(error, request, effect))
 }
 
 fn launch_failure(error: Failure, request: RunRequest<'_>, effect: LaunchEffect) -> Failure {
@@ -223,7 +232,11 @@ fn launch_failure(error: Failure, request: RunRequest<'_>, effect: LaunchEffect)
     }
 }
 
-fn run_observed(request: RunRequest<'_>, effect: &mut LaunchEffect) -> Result<u8, Failure> {
+fn run_observed(
+    request: RunRequest<'_>,
+    effect: &mut LaunchEffect,
+    selected_host: Option<&str>,
+) -> Result<u8, Failure> {
     crate::caller_context::require_independent_host_for(Some(request.name))?;
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let settings = ConfigFiles {
@@ -235,16 +248,38 @@ fn run_observed(request: RunRequest<'_>, effect: &mut LaunchEffect) -> Result<u8
     channel::require_enabled(request.channel, settings.experimental_channel)?;
     let environment = CallerEnvironment::current();
     let host = Host::for_caller(&environment);
-    let pane = host
-        .caller_pane(&environment)
-        .map_err(endpoint_failure)?
-        .ok_or_else(|| {
-            Failure::new(
+    let explicit = selected_host.and_then(tmt_core::host::HostKind::parse);
+    if explicit == Some(tmt_core::host::HostKind::pty())
+        && host.kind() != tmt_core::host::HostKind::pty()
+    {
+        return pty::start(request, &paths);
+    }
+    if let Some(explicit) = explicit
+        && host.kind() != explicit
+    {
+        return Err(Failure::new("HOST_NOT_AVAILABLE", format!("The caller is not in the requested {} host; no member was launched and no fallback was used.",explicit.as_str()),3)
+            .suggestion("Run the same command in a pane of the requested host, or select the built-in host.".into()));
+    }
+    let pane = host.caller_pane(&environment).map_err(endpoint_failure)?;
+    let pane = match pane {
+        Some(pane) => pane,
+        None if selected_host.is_none()
+            && environment.tmux.is_none()
+            && environment.pane.is_none()
+            && environment.driver_env.is_empty() =>
+        {
+            return pty::start(request, &paths);
+        }
+        None => {
+            return Err(Failure::new(
                 "PANE_NOT_FOUND",
-                "Not running inside a resolvable tmux pane.",
+                "The caller pane could not be verified; no member was launched and no fallback was used.",
                 3,
-            )
-        })?;
+            ));
+        }
+    };
+    host.wait_for_launcher(&environment)
+        .map_err(endpoint_failure)?;
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
             error,
@@ -282,6 +317,9 @@ fn run_observed(request: RunRequest<'_>, effect: &mut LaunchEffect) -> Result<u8
 
 #[cfg(test)]
 pub(crate) use move_session::PRINTED_HINTS as MOVE_HINTS;
+
+#[cfg(test)]
+pub(crate) use pty::PRINTED_HINTS as PTY_HINTS;
 
 #[cfg(test)]
 pub(crate) use resume::PRINTED_HINTS as RESUME_HINTS;

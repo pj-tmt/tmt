@@ -20,15 +20,28 @@ fn storage_failure(error: StorageError) -> Failure {
 
 /// Named inspection stays storage-only. An unnamed operation uses the shared
 /// caller selector and refuses an empty pane with the saved-name inventory.
-pub fn execute(
-    name: Option<&str>,
-    show: bool,
-    forget_launch: bool,
-    forget: bool,
-    resume: crate::run_command::Resume<'_>,
-    options: tmt_adapters::runtime::launch_preset::LaunchSettings,
-    channel: crate::invocation::ChannelMode,
-) -> io::Result<u8> {
+pub struct Request<'a> {
+    pub host: Option<&'a str>,
+    pub name: Option<&'a str>,
+    pub show: bool,
+    pub forget_launch: bool,
+    pub forget: bool,
+    pub resume: crate::run_command::Resume<'a>,
+    pub options: tmt_adapters::runtime::launch_preset::LaunchSettings,
+    pub channel: crate::invocation::ChannelMode,
+}
+
+pub fn execute(request: Request<'_>) -> io::Result<u8> {
+    let Request {
+        host,
+        name,
+        show,
+        forget_launch,
+        forget,
+        resume,
+        options,
+        channel,
+    } = request;
     // Preserve named launch preflight and error behavior. Only inspection,
     // clearing, and implicit caller selection need this storage composition.
     if let Some(name) = name {
@@ -36,7 +49,7 @@ pub fn execute(
             return self::forget(name);
         }
         if !show && !forget_launch {
-            return crate::run_command::resume_with_options(name, resume, &options, channel);
+            return crate::run_command::resume_with_options(name, resume, &options, channel, host);
         }
     }
     let selected = (|| {
@@ -127,7 +140,7 @@ pub fn execute(
         }
         Ok((name, None)) if forget => self::forget(&name),
         Ok((name, None)) => {
-            crate::run_command::resume_with_options(&name, resume, &options, channel)
+            crate::run_command::resume_with_options(&name, resume, &options, channel, host)
         }
         Err(error) => error.publish(OutputMode::default()),
     }

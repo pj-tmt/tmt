@@ -344,6 +344,7 @@ mod tests {
             Invocation::CompletionScript("bash".into()),
             Invocation::Init,
             Invocation::Run {
+                host: None,
                 name: "runner".into(),
                 command: vec!["claude".into()],
                 resume: false,
