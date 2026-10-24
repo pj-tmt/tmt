@@ -144,6 +144,9 @@
   .tmt-ui-drawer {
     width: calc(100vw - 2 * var(--tmt-ui-drawer-gutter) - env(safe-area-inset-right, 0px));
   }
+  .tmt-ui-drawer[data-width='wide'] {
+    width: calc(100vw - 34px - env(safe-area-inset-right, 0px));
+  }
 }
 @media (max-width: 480px) {
   .tmt-ui-drawer {

@@ -458,7 +458,7 @@ Its independently scrolling body uses `overscroll-behavior: contain`. It leaves
 8px below the shared header and at the right/bottom edges, 4px through 480px,
 including safe-area insets. Regular width is `min(430px, 100vw - 18px)` and through 640px uses
 `100vw - 12px`, with safe-area space retained. Wide uses `min(680px, 100vw - 18px)`
-at every width, retaining the safe-area allowance. The opaque surface has one 1px edge, `radius-l` corners and the
+and through 640px uses `100vw - 34px`, matching the website's rendered phone width; both retain the safe-area allowance. The opaque surface has one 1px edge, `radius-l` corners and the
 overlay shadow, and slides from its edge with the base motion (see Motion). Its scrim covers the header and iframe: a first outside
 press dismisses only, a second press acts on the uncovered control. Browser-only
 `scrim` is `#12332942` in light and `#030A11AE` in dark; modal drawers
