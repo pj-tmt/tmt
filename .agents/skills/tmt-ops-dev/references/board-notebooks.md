@@ -53,6 +53,10 @@ while source mappings retain raw identities.
 Whole-token absolute Unix file paths in sent and received message prose render as
 atomic basename chips using the registered attachment mark. Matching single or double
 quotes delimit a path with spaces on one authored line; their contents stay literal.
+Bare paths need at least two nonempty segments, so slash commands such as `/compact`
+stay literal. Leading `(`, `[` and `{` and trailing `.`, `,`, `;`, `:`, `)`, `]` and `}`
+are prose outside a bare path's source range; quoted paths keep literal punctuation
+and may contain one segment.
 Code, links, URLs, relative paths and substrings of prose words stay unchanged. A chip
 moves intact on wrap and ellipsizes within the usable width. It retains its full path,
 occurrence and original token's byte range: message selection copies the original

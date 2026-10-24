@@ -53,19 +53,32 @@ pub(super) fn scan(text: &str) -> Vec<Reference> {
             }
         }
         let raw = &text[start..at];
+        let mut range = start..at;
         let path = match quote {
             Some(quote) => raw
                 .strip_prefix(quote)
                 .and_then(|text| text.strip_suffix(quote)),
-            None => Some(raw),
+            None => {
+                let bare = raw.trim_start_matches(['(', '[', '{']);
+                let path = bare.trim_end_matches(['.', ',', ';', ':', ')', ']', '}']);
+                range.start += raw.len() - bare.len();
+                range.end = range.start + path.len();
+                Some(path)
+            }
         };
         if let Some(path) = path
             && path.starts_with('/')
             && !path.ends_with('/')
             && !path.chars().any(char::is_control)
+            && (quote.is_some()
+                || path
+                    .split('/')
+                    .filter(|part| !part.is_empty())
+                    .nth(1)
+                    .is_some())
         {
             found.push(Reference {
-                range: start..at,
+                range,
                 path: path.to_owned(),
             });
         }
@@ -166,8 +179,60 @@ mod tests {
             "https://example.com/tmp/file.txt",
             "/",
             "/tmp/",
+            "/compact",
+            "/compact-style",
+            "/review",
+            "/help",
+            "//compact",
         ] {
             assert!(scan(source).is_empty(), "{source:?}");
         }
+    }
+
+    #[test]
+    fn bare_paths_exclude_prose_punctuation_from_the_path_and_source_range() {
+        let path = "/tmp/report_name.txt";
+        for (before, after) in [
+            ("(", ""),
+            ("[", ""),
+            ("{", ""),
+            ("", "."),
+            ("", ","),
+            ("", ";"),
+            ("", ":"),
+            ("", ")"),
+            ("", "]"),
+            ("", "}"),
+            ("([{", ".,;:)]}"),
+        ] {
+            // Multibyte prose checks that the retained source offsets are bytes.
+            let source = format!("See é {before}{path}{after} next");
+            let found = scan(&source);
+            assert_eq!(found.len(), 1, "{source}");
+            assert_eq!(found[0].path, path, "{source}");
+            let start = source.find(path).unwrap();
+            assert_eq!(found[0].range, start..start + path.len(), "{source}");
+            assert_eq!(&source[found[0].range.clone()], path, "{source}");
+        }
+    }
+
+    #[test]
+    fn quoted_paths_keep_one_segment_and_literal_punctuation() {
+        let source = "'/compact' \"/review\" '/one.)]}'";
+        let found = scan(source);
+        assert_eq!(
+            found
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>(),
+            ["/compact", "/review", "/one.)]}"]
+        );
+        assert_eq!(
+            found
+                .iter()
+                .map(|file| &source[file.range.clone()])
+                .collect::<Vec<_>>(),
+            ["'/compact'", "\"/review\"", "'/one.)]}'"]
+        );
     }
 }

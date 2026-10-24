@@ -257,86 +257,6 @@ impl App {
 pub(in crate::board) const SCENES: &[&str] = &["link-popover", "link-no-browser", "link-full"];
 
 #[cfg(test)]
-pub(in crate::board) const FILE_SCENES: &[&str] = &[
-    "file-message",
-    "file-popover",
-    "file-full",
-    "file-inert",
-    "file-sent",
-];
-
-#[cfg(test)]
-pub(in crate::board) fn capture_file_hits(app: &App) -> String {
-    format!("{:?}", app.member_links.borrow().hits)
-}
-
-#[cfg(test)]
-pub(in crate::board) fn capture_file_case(
-    scene: &str,
-    look: crate::look::Look,
-    width: u16,
-    height: u16,
-) -> App {
-    use crate::board::app::workspace::tests::{MEMBER, board};
-    use ratatui::{Terminal, backend::TestBackend};
-    let mut app = board();
-    app.focus = 1;
-    let response = if scene == "file-inert" {
-        "Code: `/tmp/file_name.rs`\nRelative: src/file_name.rs\nWord: prefix/tmp/file_name.rs\nURL: https://example.com/file_name.rs"
-    } else if scene == "file-sent" {
-        "A previous answer."
-    } else {
-        crate::board::markdown::reported::PATH
-    };
-    {
-        let view = app.view.as_mut().unwrap();
-        view.look = look;
-        view.replies = vec![serde_json::json!({
-            "recipientId": MEMBER, "requestId": "file-scene", "response": response,
-        })];
-        view.home.as_mut().unwrap().workspace.squad_looks.clear();
-    }
-    let draw = |app: &App| {
-        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-        terminal
-            .draw(|frame| crate::board::view::render(frame, app))
-            .unwrap();
-    };
-    draw(&app);
-    if scene == "file-sent" {
-        let owner = app.conversation_finals().unwrap();
-        app.apply_sent(crate::board::home_leads::SentKey { sender: owner.sender, agent: owner.agent },
-            Ok(vec![serde_json::json!({
-                "requestId": "file-sent", "preparedAtMs": crate::status::now_ms(),
-                "text": "Before '/tmp/my screenshot_file.png' after ", "truncated": false,
-                "mode": "passthrough", "messageState": {"state": "delivered", "reason": {"text": "delivered"}},
-                "passthrough": {"state": "pending"}
-            })]));
-        draw(&app);
-    }
-    if matches!(scene, "file-popover" | "file-full") {
-        let hit = app
-            .member_links
-            .borrow()
-            .hits
-            .iter()
-            .find(|hit| matches!(hit.target, Target::File(_)))
-            .unwrap()
-            .clone();
-        let Target::File(path) = &hit.target else {
-            unreachable!()
-        };
-        if scene == "file-full" {
-            app.file_show(path, hit.area);
-        } else {
-            app.file_popover(path, hit.area);
-        }
-    }
-    draw(&app);
-    app
-}
-
-#[cfg(test)]
 pub(in crate::board) fn capture_case(
     scene: &str,
     look: crate::look::Look,
@@ -401,6 +321,7 @@ pub(in crate::board) fn capture_case(
 mod tests {
     use super::*;
     use crate::board::app::workspace::tests::{MEMBER, board};
+    use crate::board::member_links::tests::capture_file_case;
     use ratatui::{
         Terminal,
         backend::TestBackend,

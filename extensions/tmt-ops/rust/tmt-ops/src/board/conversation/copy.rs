@@ -483,6 +483,18 @@ mod tests {
     }
 
     #[test]
+    fn file_caption_copy_excludes_surrounding_prose_punctuation() {
+        let source = "before (/tmp/report_name.txt), after";
+        let map = rendered_map(source, 200);
+        let row = &map.rows[0].shown;
+        let file = row.find("report_name").unwrap();
+        assert_eq!(cut(&map, 0, 0, file + 1, file + 4), "/tmp/report_name.txt");
+        assert_eq!(cut(&map, 0, 0, 0, row.len()), source);
+        let punctuation = row.find("),").unwrap();
+        assert_eq!(cut(&map, 0, 0, punctuation, punctuation + 2), "),");
+    }
+
+    #[test]
     fn equal_basenames_copy_the_selected_occurrence_after_wrapping() {
         for width in [12, 200] {
             let map = rendered_map("/tmp/one.txt /other/one.txt", width);

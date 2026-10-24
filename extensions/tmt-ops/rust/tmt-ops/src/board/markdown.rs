@@ -966,6 +966,25 @@ mod tests {
     }
 
     #[test]
+    fn file_chips_keep_surrounding_punctuation_and_slash_commands_as_prose() {
+        use super::super::member_links::Target;
+        let source = "/compact /review /help See (/tmp/report_name.txt), next.";
+        let mapped = render_conversation_with_members(source, 200, Look::default(), None);
+        assert_eq!(
+            text(&mapped.lines),
+            ["/compact /review /help See (⧉ report_name.txt), next."]
+        );
+        let references: Vec<_> = mapped.mentions.iter().flatten().collect();
+        assert_eq!(references.len(), 1);
+        assert_eq!(
+            references[0].target,
+            Target::File("/tmp/report_name.txt".into())
+        );
+        let origin = references[0].source.as_ref().unwrap();
+        assert_eq!(&source[origin.source.clone()], "/tmp/report_name.txt");
+    }
+
+    #[test]
     fn a_file_chip_fits_one_line_and_ellipsizes_instead_of_wrapping() {
         let source = "'/tmp/very_long_file_name_with_spaces_in_it.txt'";
         for width in [1, 2, 3, 4, 12, 24] {
