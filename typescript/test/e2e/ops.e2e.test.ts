@@ -1237,12 +1237,14 @@ renameSync(output+'.tmp',output);
         'tmt ops ui --squad product; echo NOTES_COUNT_BOARD_EXIT=$?',
         'Enter',
       ]);
+      const memberRow = (screen: string) =>
+        screen.split('\n').find((line) => /^[ \t]*[├└][^│\n]*auth-fix\b/.test(line));
       await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, '1', '/', 'auth-fix', 'Enter', 'End']);
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('○ 1 todo') &&
-          /auth-fix[^\n]*· 1 todo/.test(screen) &&
+          memberRow(screen)?.includes('· 1 todo') === true &&
           screen.includes('1 todo · 0 done'),
         shell.pane
       );
@@ -1259,13 +1261,15 @@ renameSync(output+'.tmp',output);
       );
       expect(read().items[0]).toMatchObject({ id: item, completion: 'complete', revision: 2 });
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
-      await fixture.waitForCapture(
-        (screen) =>
+      await fixture.waitForCapture((screen) => {
+        const row = memberRow(screen);
+        return (
+          row !== undefined &&
+          !row.includes('todo') &&
           screen.includes('○ 0 todo') &&
-          screen.includes('0 todo · 1 done') &&
-          !/auth-fix[^\n]*· 1 todo/.test(screen),
-        shell.pane
-      );
+          screen.includes('0 todo · 1 done')
+        );
+      }, shell.pane);
       expect(requestAttempts(fixture)).toEqual(beforeRequests);
       fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
       await fixture.waitForCapture(
