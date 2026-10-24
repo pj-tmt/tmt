@@ -240,3 +240,66 @@ fn apply_report_must_match_selected_products_versions_and_exit_status() {
         assert!(rows.iter().all(|row| row["status"] == "failed"));
     }
 }
+
+#[test]
+fn a_changed_target_after_whole_run_consent_never_invokes_apply() {
+    let approved = Plan::parse(&serde_json::to_vec(&plan()).unwrap()).unwrap();
+    let mut changed = plan();
+    changed["pending"][0]["selected"] = "1.2.0".into();
+    let runner = Runner::new(vec![(changed, 0)]);
+    let rows = upgrade_with_plan(
+        Path::new("/managed/releases/new/tmt"),
+        &runner,
+        |_| panic!("changed targets cannot ask for a second approval"),
+        |_| {},
+        Some(&approved),
+    );
+    assert_eq!(runner.inputs.borrow().len(), 1);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["status"], "failed");
+    assert!(
+        rows[0]["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("changed after the upgrade preview")
+    );
+}
+
+#[test]
+fn a_newly_installed_component_cannot_join_the_consented_targets() {
+    let approved = Plan::parse(&serde_json::to_vec(&plan()).unwrap()).unwrap();
+    let mut changed = plan();
+    changed["pending"].as_array_mut().unwrap().push(json!({
+        "product": "colab", "version": "1.0.0", "selected": "1.1.0"
+    }));
+    let runner = Runner::new(vec![(changed, 0)]);
+    let rows = upgrade_with_plan(
+        Path::new("/managed/releases/new/tmt"),
+        &runner,
+        |_| panic!("new components cannot join approval"),
+        |_| {},
+        Some(&approved),
+    );
+    assert_eq!(runner.inputs.borrow().len(), 1);
+    assert_eq!(rows[0]["status"], "failed");
+}
+
+#[test]
+fn the_new_executable_can_apply_the_same_frozen_legacy_plan_once() {
+    let approved = Plan::parse(&serde_json::to_vec(&plan()).unwrap()).unwrap();
+    let completed = json!({"products": [
+        {"product": "digest", "status": "changed", "version": "1.1.0"},
+        {"product": "ops", "status": "changed", "version": "1.1.0"},
+    ]});
+    let runner = Runner::new(vec![(plan(), 0), (completed, 0)]);
+    let rows = upgrade_with_plan(
+        Path::new("/managed/releases/new/tmt"),
+        &runner,
+        |_| Ok(true),
+        |_| {},
+        Some(&approved),
+    );
+    assert_eq!(runner.inputs.borrow().len(), 2);
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|row| row["status"] == "changed"));
+}

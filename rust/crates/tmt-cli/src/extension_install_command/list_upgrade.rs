@@ -89,11 +89,24 @@ pub(super) fn upgrade_at(
     channel: Option<Channel>,
     to: Option<&str>,
     unpin: bool,
-    selected: Option<&str>,
+    selected: Option<(&str, &str)>,
 ) -> Result<Outcome, Failure> {
     let name = product.as_str();
     let current = native_install::inspect_product_prefix(product, prefix)
         .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
+    // The immutable executable path below, and the adapter's current-id CAS,
+    // carry this snapshot through acquisition and publication.
+    if selected.is_some_and(|(previous, _)| {
+        current.state.version.to_string() != previous || current.state.pinned_version.is_some()
+    }) {
+        return Err(Failure::new(
+            "EXTENSION_UPGRADE_PLAN_INVALID",
+            format!(
+                "The {name} installation changed after the upgrade preview. No new release was activated; run tmt upgrade again."
+            ),
+            1,
+        ));
+    }
     let executable = current.active_executable;
     // The skills the replaced release carried: only those may be pruned.
     let previous = native_install::release_skill_names(product, &executable)
@@ -108,7 +121,7 @@ pub(super) fn upgrade_at(
     let checkpoint = interruptible("Extension update interrupted before activation.")?;
     let before = PostUpgradeNotice::capture(product, Some(&executable));
     let report = match selected {
-        Some(version) => native_install::upgrade_product_selected(
+        Some((_, version)) => native_install::upgrade_product_selected(
             product, request, version, verifier, checkpoint,
         ),
         None => native_install::upgrade_product(product, request, verifier, checkpoint),
@@ -457,6 +470,11 @@ fn exists(path: &Path) -> io::Result<bool> {
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "The {name} installation changed after the upgrade preview. No new release was activated; run tmt upgrade again.",
+        &[" again"],
+        &[("{name}", "ops")],
+    ),
     crate::cli_style_tests::HintSpec::core(
         "requires tmt {} or newer (running {}); run tmt upgrade",
         &[""],

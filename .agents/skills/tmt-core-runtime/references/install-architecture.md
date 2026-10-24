@@ -287,7 +287,9 @@ the move is a bootstrap reinstall.
   users first. `native_upgrade_command` refreshes managed skills in the new executable, then asks
   it for hidden `__native-upgrade-extensions --json --plan`, asks one consent question (`[Y/n]`:
   Enter agrees, end of input declines) and passes that exact plan on stdin with `--yes`. An unsupported older target fails with a rerun hint; there
-  is no old-process fallback or rollback. `upgrade_all` keeps each channel and pin; non-terminal
+  is no old-process fallback or rollback. Before acquisition, the apply child refuses a changed
+  old version or a newly pinned installation; its captured immutable executable and the adapter's
+  current-id publication fence retain that observation. `upgrade_all` keeps each channel and pin; non-terminal
   runs without `--yes` report `consentRequired`; product failures stay independent, a CLI failure
   stops the extension phase and a pinned CLI permits it.
 - `NATIVE_UPGRADE_FAILED` carries a diagnostic `cause`; HTTPS failures never echo URI or proxy

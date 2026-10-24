@@ -75,7 +75,7 @@ pub(crate) fn without_consent(plan: Plan, consent: Result<bool, Failure>) -> Vec
         plan.products,
         plan.pending,
         |_| consent,
-        |_, _| unreachable!("no apply without consent"),
+        |_, _, _| unreachable!("no apply without consent"),
     )
 }
 
@@ -106,8 +106,15 @@ pub(crate) fn execute(planning: bool, mode: OutputMode) -> io::Result<u8> {
             Vec::new(),
             plan.pending,
             |_| Ok(true),
-            |product, selected| {
-                upgrade_at(product, current.prefix(), None, None, false, Some(selected))
+            |product, previous, selected| {
+                upgrade_at(
+                    product,
+                    current.prefix(),
+                    None,
+                    None,
+                    false,
+                    Some((previous, selected)),
+                )
             },
         );
         let status = u8::from(products.iter().any(|product| product["status"] == "failed"));
@@ -135,7 +142,7 @@ fn settle(
     mut outcomes: Vec<Value>,
     pending: Vec<(Product, String, String)>,
     consent: impl FnOnce(&str) -> Result<bool, Failure>,
-    mut upgrade: impl FnMut(Product, &str) -> Result<super::Outcome, Failure>,
+    mut upgrade: impl FnMut(Product, &str, &str) -> Result<super::Outcome, Failure>,
 ) -> Vec<Value> {
     if pending.is_empty() {
         return outcomes;
@@ -146,7 +153,7 @@ fn settle(
         match &accepted {
             Ok(false) => outcomes.push(consent_required(product, &version, &selected)),
             Err(error) => outcomes.push(failed_ref(product, error)),
-            Ok(true) => match upgrade(product, &selected) {
+            Ok(true) => match upgrade(product, &version, &selected) {
                 Ok(Some((document, _))) => outcomes.push(upgraded(product, document)),
                 Ok(None) => unreachable!("consented upgrade always reports"),
                 Err(error) => outcomes.push(failed(product, error)),
