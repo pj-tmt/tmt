@@ -88,6 +88,22 @@ function declarationList(value, label, parse) {
   });
 }
 
+/** Authored message-protocol versions; the installer admits the same bounds in TMT-USES.json. */
+function parseProtocols(name, value) {
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > 8 ||
+    !value.every((version) => Number.isInteger(version) && version >= 1 && version <= 255) ||
+    value.some((version, index) => index > 0 && version <= value[index - 1])
+  )
+    throw new Error(
+      `components.${name}.messageProtocols needs one to eight ascending versions from 1 to 255.`
+    );
+  return [...value];
+}
+
 /** Authored feature inputs, not a second parser for generated TMT-USES.json. */
 function parseUses(name, value) {
   if (value === undefined) return undefined;
@@ -192,6 +208,7 @@ export function parseComponentMap(text, { historical = false } = {}) {
     initialVersion: component.initialVersion,
     requiresCliSha: component.requiresCliSha,
     uses: parseUses(name, component.uses),
+    messageProtocols: parseProtocols(name, component.messageProtocols),
     predecessor: component.predecessor,
     releaseConsumers:
       component.releaseConsumers === undefined

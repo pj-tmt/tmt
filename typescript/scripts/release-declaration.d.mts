@@ -15,6 +15,7 @@ export interface DeclarationContext {
   observeCli: ObserveCli;
 }
 export const DECLARATION_SUPPORT: string;
+export const MESSAGE_PROTOCOLS_SUPPORT: string;
 export const DECLARATION_FILE: string;
 export const DECLARATION_OUTPUT: string;
 export function declaresMinimumCli(product: string): boolean;
