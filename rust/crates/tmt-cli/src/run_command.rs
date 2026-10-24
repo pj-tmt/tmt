@@ -685,7 +685,15 @@ mod tests {
         }
         for provider in ["claude", "codex"] {
             for resume in [false, true] {
-                let root = std::env::temp_dir().join(format!(
+                assert!(
+                    std::env::var_os("TMUX").is_none(),
+                    "run with env -u TMUX -u TMUX_PANE"
+                );
+                assert!(
+                    std::env::var_os("TMUX_PANE").is_none(),
+                    "run with env -u TMUX -u TMUX_PANE"
+                );
+                let root = std::path::PathBuf::from("/tmp").join(format!(
                     "tmt-owner-refusal-{}",
                     tmt_core::operation::new_operation_id()
                 ));
@@ -723,11 +731,22 @@ mod tests {
                 let command = [program.into_os_string()];
                 // Any host work is pinned to a missing private socket; it
                 // cannot discover or select the user's server.
+                let socket = root.join("private.sock");
+                // A newly created child of physical /tmp cannot be a host
+                // socket directory; the selected socket must not be default.
+                let physical_root = std::fs::canonicalize(&root).unwrap();
+                assert_eq!(
+                    physical_root.parent(),
+                    Some(std::fs::canonicalize("/tmp").unwrap().as_path())
+                );
+                assert_eq!(socket.parent(), Some(root.as_path()));
+                assert!(!socket.exists());
+                assert_ne!(socket.file_name(), Some(std::ffi::OsStr::new("default")));
                 let host = Host::for_server_with(
                     &tmt_core::endpoint::ServerEvidence {
                         host: tmt_core::host::HostKind::Tmux,
                         server_id: tmt_core::operation::new_operation_id(),
-                        socket_path: root.join("private.sock").to_string_lossy().into(),
+                        socket_path: socket.to_string_lossy().into(),
                         server_pid: 1,
                         server_start_time: "unstarted-private-fixture".into(),
                     },
