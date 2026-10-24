@@ -143,7 +143,7 @@ fn records_reuse_exact_values_even_when_defaults_would_choose_another_resource()
 fn missing_input_error_has_the_standard_fixed_shape_without_provider_or_user_text() {
     let supplied = values(&[("account", "canary-https://provider.invalid/private")]);
     let refusal = required(&supplied, false);
-    let hint = defaults_hint("sample", MANIFEST, &supplied);
+    let hint = defaults_hint("sample", MANIFEST, &supplied, &refusal);
     let error = crate::error::RemoteError::deploy_inputs(refusal, &hint);
     assert_eq!(
         error.json_value(),
@@ -183,13 +183,61 @@ fn command() -> Command {
     )
 }
 #[test]
+fn the_defaults_hint_names_and_quotes_a_missing_must_provide_input() {
+    let supplied = Values::new();
+    let refusal = required(&supplied, false);
+    let hint = defaults_hint("sample", MANIFEST, &supplied, &refusal);
+    assert_eq!(
+        hint,
+        "tmt remote deploy 'sample' --account='<account>' --defaults"
+    );
+    let argv = tmt_cli_style::Example {
+        command: Box::leak(hint.into_boxed_str()),
+        note: "printed required-input hint",
+    }
+    .argv()
+    .unwrap();
+    let parsed = command().try_get_matches_from(argv).unwrap();
+    let parsed = parsed
+        .subcommand_matches("remote")
+        .unwrap()
+        .subcommand_matches("deploy")
+        .unwrap()
+        .subcommand_matches("sample")
+        .unwrap();
+    assert_eq!(parsed.get_one::<String>("account").unwrap(), "<account>");
+    assert!(parsed.get_flag("defaults"));
+    // Once the user replaces the named placeholder, defaults can fill the rest.
+    let supplied = values(&[("account", "chosen account")]);
+    assert!(
+        select(
+            MANIFEST,
+            &supplied,
+            &Values::new(),
+            parsed.get_flag("defaults")
+        )
+        .is_ok()
+    );
+}
+#[test]
+fn the_defaults_hint_keeps_recorded_must_provide_inputs_implicit() {
+    let supplied = Values::new();
+    let recorded = values(&[("account", "saved account")]);
+    let InputError::Required(refusal) = select(MANIFEST, &supplied, &recorded, false).unwrap_err()
+    else {
+        panic!("expected missing region/site");
+    };
+    let hint = defaults_hint("sample", MANIFEST, &supplied, &refusal);
+    assert_eq!(hint, "tmt remote deploy 'sample' --defaults");
+    assert!(select(MANIFEST, &supplied, &recorded, true).is_ok());
+}
+#[test]
 fn the_printed_defaults_hint_round_trips_through_registered_help_and_parser() {
     for name in ["-Saved account", "owner's account", "--defaults", ""] {
         let supplied = values(&[("account", name)]);
-        let error = crate::error::RemoteError::deploy_inputs(
-            required(&supplied, false),
-            &defaults_hint("sample", MANIFEST, &supplied),
-        );
+        let refusal = required(&supplied, false);
+        let hint = defaults_hint("sample", MANIFEST, &supplied, &refusal);
+        let error = crate::error::RemoteError::deploy_inputs(refusal, &hint);
         let human = error.hint.unwrap();
         let hint = human
             .lines()

@@ -170,10 +170,22 @@ pub fn register(mut command: Command, manifest: &[InputSpec]) -> Command {
 
 /// Build from trusted command/flag metadata and already admitted values only.
 /// Equals syntax keeps leading-dash values unambiguous after shell tokenization.
-pub fn defaults_hint(backend: &str, manifest: &[InputSpec], supplied: &Values) -> String {
+/// Only genuinely missing must-provide inputs get placeholders; saved inputs do not.
+pub fn defaults_hint(
+    backend: &str,
+    manifest: &[InputSpec],
+    supplied: &Values,
+    required: &RequiredInputs,
+) -> String {
     let mut command = format!("tmt remote deploy {}", crate::state::shell_quote(backend));
     for spec in manifest {
-        if let Some(value) = supplied.get(spec.input) {
+        let placeholder = (spec.default == DefaultChoice::MustProvide
+            && required
+                .missing
+                .iter()
+                .any(|missing| missing.input == spec.input))
+        .then(|| format!("<{}>", spec.input));
+        if let Some(value) = supplied.get(spec.input).or(placeholder.as_ref()) {
             command.push_str(&format!(
                 " --{}={}",
                 spec.flag,

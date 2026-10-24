@@ -3416,6 +3416,9 @@ publisher. There is no interactive missing-input prompt in v1: humans, agents, C
 `--defaults` would use and its conditional creation; then one `Needs these permissions`
 block and one `Would create` block for the whole manifest, deduplicated in first-occurrence
 order. A concrete rerun hint preserves already supplied input flags with shell-safe values.
+It includes a shell-quoted `--flag='<input>'` placeholder for each missing must-provide
+input; the user replaces those placeholders before rerunning. Recorded inputs need no
+placeholder. `--defaults` fills the remaining eligible omissions.
 The final line is:
 `Rerun with the flags above, or add --defaults to use the listed values.`
 
