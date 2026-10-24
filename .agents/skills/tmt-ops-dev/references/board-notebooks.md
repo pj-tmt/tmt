@@ -304,15 +304,17 @@ Tab changes fields; Kind uses the shared flat chips, with Left/Right or a curren
 chip click selecting the explicit kind. An existing
 unsent draft is retained instead of being replaced. The held room/member/actor
 must still match at entry and submission; unread Notes cannot be written.
+Conversation Notes records descriptive message provenance in the existing item body;
+its render metadata grants no request authority and introduces no schema or store.
 `conversation::note_source` maps rendered rows to held message metadata, separately
 from exact response/quote authority. From shows author, kind and time; the existing
 checklist body records one human-readable Source line with the exact request ID or
 pane-observation context and timestamp. Mixed and missing sources stay explicit.
 The link popover retains its opened source through Show full/back while the transcript
 refreshes; another clicked hit replaces it even for the same URL. No URL/text
-matching chooses a message source, no new checklist schema/store is introduced,
-and source descriptions grant no request or jump-back authority. All reads and
-writes retain the existing Notes worker, revision and failure ownership.
+matching chooses a message source, and source descriptions grant no jump-back
+authority. All reads and writes retain the existing Notes worker, revision and
+failure ownership.
 
 `board::conversation::screen` shows the selected agent's `pane.screen` in the Talk
 pane while `l` is on (`screen_mode`); it replaces the chat and every chat read,
