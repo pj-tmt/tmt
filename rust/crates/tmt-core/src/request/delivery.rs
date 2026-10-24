@@ -46,6 +46,7 @@ pub enum DeliveryReason {
     Refused,
     AnsweredByReply,
     AnsweredByTurn,
+    AnsweredByFoldedTurn,
     NoTurnStarted,
     TurnEndedWithoutAnswer,
 }
@@ -64,6 +65,7 @@ impl DeliveryReason {
             Self::Refused => "refused",
             Self::AnsweredByReply => "answered_by_reply",
             Self::AnsweredByTurn => "answered_by_turn",
+            Self::AnsweredByFoldedTurn => "answered_by_folded_turn",
             Self::NoTurnStarted => "no_turn_started",
             Self::TurnEndedWithoutAnswer => "turn_ended_without_answer",
         }
@@ -84,6 +86,9 @@ impl DeliveryReason {
             Self::Refused => "not sent, nothing reached the agent",
             Self::AnsweredByReply => "answered",
             Self::AnsweredByTurn => "answered, the agent's turn ended with this reply",
+            Self::AnsweredByFoldedTurn => {
+                "answered together with the earlier message: it was typed into the running turn"
+            }
             Self::NoTurnStarted => {
                 "no answer captured: no turn started with this text, the agent may have taken it into a running turn"
             }
@@ -124,8 +129,9 @@ pub enum ReturnedAnswer {
     None,
     /// A reply was submitted.
     Final,
-    /// A passthrough's captured turn ended with a final message.
-    Turn,
+    /// A passthrough's captured turn ended with a final message; `folded` says the text was
+    /// typed into a turn that was already running, so the answer is shared (#4912).
+    Turn { folded: bool },
     /// A passthrough's capture ended with no answer; `bound` says a turn did start with its text.
     NoCapture { bound: bool },
 }
@@ -312,7 +318,14 @@ pub fn delivery_view(facts: &DeliveryFacts, now_ms: u64) -> DeliveryView {
     match facts.answer {
         ReturnedAnswer::None => {}
         ReturnedAnswer::Final => return DeliveryView::of(State::Answered, Why::AnsweredByReply),
-        ReturnedAnswer::Turn => return DeliveryView::of(State::Answered, Why::AnsweredByTurn),
+        ReturnedAnswer::Turn { folded } => {
+            let why = if folded {
+                Why::AnsweredByFoldedTurn
+            } else {
+                Why::AnsweredByTurn
+            };
+            return DeliveryView::of(State::Answered, why);
+        }
         ReturnedAnswer::NoCapture { bound } => {
             let why = if bound {
                 Why::TurnEndedWithoutAnswer

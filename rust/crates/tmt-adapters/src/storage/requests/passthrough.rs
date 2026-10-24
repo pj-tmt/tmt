@@ -6,24 +6,32 @@ use super::*;
 use tmt_core::{
     request::passthrough::{
         BIND_WINDOW_MS, BOUND_WINDOW_MS, CaptureState, PassthroughAnswer, PassthroughCapture,
-        same_prompt,
+        RunningTurn, same_prompt,
     },
     responses::FinalText,
 };
 
-pub(super) fn start_capture(
+/// Starts the capture of a text just typed. Typed into a running turn (`folded_into`), it is
+/// bound to that turn at once: no prompt will announce it, and the turn's end settles it.
+pub(in crate::storage) fn start_capture(
     db: &Connection,
     request_id: &str,
     delivered_at_ms: u64,
+    folded_into: Option<&RunningTurn>,
 ) -> Result<(), StorageError> {
-    db.execute(
-        "INSERT INTO request_passthrough(request_id,delivered_at_ms,state) VALUES(?1,?2,'pending')
-         ON CONFLICT(request_id) DO NOTHING",
-        params![
-            request_id,
-            checked_i64(delivered_at_ms, "Passthrough delivery time")?
-        ],
-    )
+    let delivered = checked_i64(delivered_at_ms, "Passthrough delivery time")?;
+    match folded_into {
+        Some(turn) => db.execute(
+            "INSERT INTO request_passthrough(request_id,delivered_at_ms,state,bound_session,bound_turn,bound_at_ms,folded)
+             VALUES(?1,?2,'bound',?3,?4,?2,1) ON CONFLICT(request_id) DO NOTHING",
+            params![request_id, delivered, turn.session, turn.turn],
+        ),
+        None => db.execute(
+            "INSERT INTO request_passthrough(request_id,delivered_at_ms,state) VALUES(?1,?2,'pending')
+             ON CONFLICT(request_id) DO NOTHING",
+            params![request_id, delivered],
+        ),
+    }
     .map_err(|error| classify(error, "Start passthrough capture"))?;
     Ok(())
 }
@@ -34,7 +42,7 @@ pub(in crate::storage) fn capture(
 ) -> Result<Option<PassthroughCapture>, StorageError> {
     db.query_row(
         "SELECT delivered_at_ms,state,bound_session,bound_turn,bound_at_ms,answer_text,
-                answer_truncated,answer_provider,answer_ended_ms,settled_at_ms
+                answer_truncated,answer_provider,answer_ended_ms,settled_at_ms,folded
          FROM request_passthrough WHERE request_id=?",
         [request_id],
         |row| {
@@ -55,6 +63,7 @@ pub(in crate::storage) fn capture(
                 bound_session: row.get(2)?,
                 bound_turn: row.get(3)?,
                 bound_at_ms: rows::optional_u64_at(row, 4)?,
+                folded: row.get::<_, i64>(10)? == 1,
                 answer,
                 settled_at_ms: rows::optional_u64_at(row, 9)?,
             })

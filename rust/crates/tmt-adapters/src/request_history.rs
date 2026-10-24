@@ -234,7 +234,7 @@ fn item_document<T>(item: &HistoryItem<T>, content: impl FnOnce(&T) -> Option<Va
     if let Some(capture) = &item.capture {
         value["passthrough"] = json!({
             "state":capture.state.as_str(),"deliveredAtMs":capture.delivered_at_ms,
-            "boundAtMs":capture.bound_at_ms,"settledAtMs":capture.settled_at_ms,
+            "boundAtMs":capture.bound_at_ms,"folded":capture.folded,"settledAtMs":capture.settled_at_ms,
             "answer":capture.answer.as_ref().map(|answer| json!({
                 "text":answer.text,"truncated":answer.truncated,
                 "provider":answer.provider,"endedMs":answer.ended_ms

@@ -6,7 +6,7 @@ use super::{tests::fixture, *};
 use crate::storage::ResponseCapture;
 use std::time::Duration;
 use tmt_core::{
-    request::passthrough::{BIND_WINDOW_MS, BOUND_WINDOW_MS, CaptureState},
+    request::passthrough::{BIND_WINDOW_MS, BOUND_WINDOW_MS, CaptureState, RunningTurn},
     responses::FinalText,
 };
 
@@ -472,6 +472,90 @@ fn a_later_turn_of_the_same_session_settles_a_bound_capture_without_an_answer() 
     // The turn that binds a capture does not overtake it.
     started(&mut storage, &path, &id, None, "third job");
     assert_eq!(capture(&storage, "same").state, CaptureState::Bound);
+    storage.close().unwrap();
+}
+
+#[test]
+fn a_text_folded_into_a_running_turn_shares_that_turns_final_with_the_message_that_started_it() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    typed(&storage, &id, "first", "first job", 2_000);
+    started(&mut storage, &path, &id, Some("t1"), "first job");
+    // A second text typed while t1 runs: the send found the turn running, so it bound at once.
+    typed(&storage, &id, "folded", "and the other job", 500);
+    let connection = storage.connection().unwrap();
+    connection
+        .execute(
+            "DELETE FROM request_passthrough WHERE request_id='folded'",
+            [],
+        )
+        .unwrap();
+    super::super::requests::passthrough::start_capture(
+        connection,
+        "folded",
+        now() - 500,
+        Some(&RunningTurn {
+            session: SESSION.into(),
+            turn: Some("t1".into()),
+            since_ms: now() - 2_000,
+        }),
+    )
+    .unwrap();
+    let bound = capture(&storage, "folded");
+    assert_eq!((bound.state, bound.folded), (CaptureState::Bound, true));
+
+    let ended = TurnBoundary::Ended {
+        turn: Some("t1"),
+        continuation: false,
+    };
+    event(
+        &mut storage,
+        &path,
+        &id,
+        SESSION,
+        Some(ended),
+        Some("Both jobs done."),
+        true,
+    );
+    for request in ["first", "folded"] {
+        let settled = capture(&storage, request);
+        assert_eq!(settled.state, CaptureState::Answered, "{request}");
+        assert_eq!(settled.answer.unwrap().text, "Both jobs done.", "{request}");
+    }
+    assert!(capture(&storage, "folded").folded);
+    assert!(!capture(&storage, "first").folded);
+    storage.close().unwrap();
+}
+
+#[test]
+fn a_folded_capture_is_overtaken_like_any_bound_one_when_a_later_turn_starts() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    typed(&storage, &id, "folded", "queued job", 500);
+    let connection = storage.connection().unwrap();
+    connection
+        .execute(
+            "DELETE FROM request_passthrough WHERE request_id='folded'",
+            [],
+        )
+        .unwrap();
+    super::super::requests::passthrough::start_capture(
+        connection,
+        "folded",
+        now() - 500,
+        Some(&RunningTurn {
+            session: SESSION.into(),
+            turn: None,
+            since_ms: now() - 2_000,
+        }),
+    )
+    .unwrap();
+    // The provider queued the text as the next turn instead: that turn starting means the
+    // turn the text was folded into has ended, and no final of it answers this message.
+    started(&mut storage, &path, &id, None, "queued job");
+    let overtaken = capture(&storage, "folded");
+    assert_eq!(overtaken.state, CaptureState::NoAnswer);
+    assert!(overtaken.folded && overtaken.answer.is_none());
     storage.close().unwrap();
 }
 

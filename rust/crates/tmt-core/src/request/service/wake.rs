@@ -174,7 +174,14 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                     // It published no attention, so there is none to acknowledge; the
                     // typed text now in the pane answers the agent's oldest open request.
                     let now = positive(clock())?;
-                    records.create_passthrough_capture(request_id, now)?;
+                    // A turn already running when the send began swallows the text: no prompt
+                    // announces it, so it binds to that turn now (#4912).
+                    let running = records.running_turn(recipient_identity_id)?.filter(|turn| {
+                        turn.holds_text_typed_at(
+                            attempt.sending_at_ms.unwrap_or(attempt.prepared_at_ms),
+                        )
+                    });
+                    records.create_passthrough_capture(request_id, now, running.as_ref())?;
                     super::answers::answer_oldest_open(records, &attempt, now)?;
                 } else {
                     let attention = records
