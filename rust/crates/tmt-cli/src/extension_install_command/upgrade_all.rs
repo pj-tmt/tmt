@@ -1,6 +1,6 @@
 //! One consent decision over installed official extensions; activation keeps its existing owner.
-use super::{INSTALLABLE_EXTENSIONS, ask_declining, failure, installed, list_upgrade::upgrade_at};
-use crate::{consent, invocation::OutputMode, output::Failure};
+use super::{INSTALLABLE_EXTENSIONS, failure, installed, list_upgrade::upgrade_at};
+use crate::{invocation::OutputMode, output::Failure};
 use serde_json::{Value, json};
 use std::{
     io::{self, Read, Write},
@@ -55,19 +55,6 @@ fn plan_with(
         products: outcomes,
         pending,
     }
-}
-
-pub(crate) fn ask(plan: &Plan, yes: bool, mode: OutputMode) -> Result<bool, Failure> {
-    if !yes && !consent::interactive(mode, &tmt_cli_style::stream::stdout(mode.json)) {
-        return Ok(false);
-    }
-    ask_declining(
-        yes,
-        mode,
-        &question(&plan.pending),
-        "No extension changes made.",
-        true,
-    )
 }
 
 pub(crate) fn without_consent(plan: Plan, consent: Result<bool, Failure>) -> Vec<Value> {
