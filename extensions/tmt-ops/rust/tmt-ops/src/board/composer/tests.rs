@@ -1012,7 +1012,7 @@ fn colab_link_and_exact_source_context_survive_composer_reader_and_tab_transitio
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     app.paste(&format!("Literal Colab reference {url}"));
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    app.key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+    app.perform(&crate::action::Action::parse("view-reply").unwrap());
     assert!(app.row_details.reader.is_some());
     app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
     draw(&mut app, 160, 44);
@@ -1068,7 +1068,7 @@ fn open_blocking_owner(app: &mut crate::board::app::App, owner: &str) {
         "review" => app.key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
         "details" => app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE)),
         "help" => app.key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)),
-        "reader" => app.key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE)),
+        "reader" => app.perform(&crate::action::Action::parse("view-reply").unwrap()),
         "menu" => app.perform(&crate::action::Action::parse("menu").unwrap()),
         _ => unreachable!(),
     };

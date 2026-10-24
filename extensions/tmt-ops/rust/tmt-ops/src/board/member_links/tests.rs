@@ -763,7 +763,7 @@ mod named_surface_tests {
         });
     }
     #[test]
-    fn member_menu_reuses_all_five_row_actions_and_revalidates_before_activation() {
+    fn member_menu_reuses_configured_five_row_actions_and_revalidates_before_activation() {
         let mut app = app();
         let target = test_target();
         let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
@@ -773,6 +773,11 @@ mod named_surface_tests {
             .get_mut(&OpsKeyScope::Member)
             .unwrap()
             .insert("y".into(), Action::parse("copy {name}").unwrap());
+        snapshot
+            .keys
+            .get_mut(&OpsKeyScope::Member)
+            .unwrap()
+            .insert("a".into(), Action::parse("annotate lead").unwrap());
         open(&mut app);
         assert_eq!(
             app.menu
