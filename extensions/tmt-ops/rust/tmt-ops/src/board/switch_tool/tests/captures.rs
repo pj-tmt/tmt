@@ -31,6 +31,10 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
         .workspace
         .squad_looks
         .clear();
+    if scene == "switch-tool-copy-only" {
+        app.references.agents.get_mut(MEMBER).unwrap().parameters["location"]["host"] =
+            json!("herdr");
+    }
     let c = app.switch_tool.as_mut().unwrap();
     c.tools = vec!["codex".into(), "claude".into()];
     c.models

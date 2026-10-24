@@ -169,3 +169,28 @@ fn a_changed_selection_fences_confirmation_and_resize_drops_old_hits() {
         Stage::Result(_)
     ));
 }
+
+#[test]
+fn captured_copy_only_review_has_a_current_source_and_copies_without_launching() {
+    let mut app = captures::case("switch-tool-copy-only", crate::look::Look::default());
+    assert!(
+        app.switch_tool
+            .as_ref()
+            .unwrap()
+            .source
+            .as_ref()
+            .unwrap()
+            .still_selected(&app)
+    );
+    paint(&app, 150, 43);
+    key(&mut app, KeyCode::Tab);
+    paint(&app, 150, 43);
+    let Effect::Act(Request::Copy { text, .. }) = key(&mut app, KeyCode::Enter) else {
+        panic!("copy, never host launch")
+    };
+    assert!(text.starts_with("tmt resume --driver=claude -- "));
+    assert!(matches!(
+        app.switch_tool.as_ref().unwrap().stage,
+        Stage::Result(_)
+    ));
+}
