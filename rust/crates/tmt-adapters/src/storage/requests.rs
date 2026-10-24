@@ -331,6 +331,21 @@ impl RequestRecords for RequestRows<'_> {
     ) -> Result<Vec<tmt_core::request::digest::DigestItem>, Self::Error> {
         digest::items(self.0, id, batch, after, limit, now)
     }
+    fn digest_unconfirmed_items(
+        &self,
+        id: &str,
+        limit: u64,
+        now: u64,
+    ) -> Result<Vec<tmt_core::request::digest::DigestItem>, Self::Error> {
+        digest::unconfirmed_items(self.0, id, limit, now)
+    }
+    fn release_unconfirmed_digest(
+        &mut self,
+        id: &str,
+        sequences: &[u64],
+    ) -> Result<u64, Self::Error> {
+        digest::release_unconfirmed(self.0, id, sequences)
+    }
     fn digest_checklist(
         &self,
         id: &str,
@@ -1308,6 +1323,34 @@ impl RequestRepository for Storage {
             .map_err(|error| E::from(classify(error, "Commit request observation transaction")))?;
         Ok(result)
     }
+}
+
+/// A prompt that carries a request of an unconfirmed idle checklist confirms that checklist
+/// (#4858). Run in the transaction that admits the turn start.
+pub(super) fn confirm_digest_by_prompt(
+    db: &Connection,
+    identity: &str,
+    prompt: &str,
+    now: u64,
+) -> Result<u64, StorageError> {
+    digest::confirm_by_prompt(db, identity, prompt, now)
+}
+
+/// Whether a Stop continuation that a Digest checklist started is still running (#4858).
+pub(crate) fn digest_continuation_open(
+    db: &Connection,
+    identity: &str,
+) -> Result<bool, StorageError> {
+    digest::continuation_open(db, identity)
+}
+
+/// The continuation ended or a prompt arrived. Run in the transaction that admits the event.
+pub(super) fn end_digest_continuation(
+    db: &Connection,
+    identity: &str,
+    now: u64,
+) -> Result<u64, StorageError> {
+    digest::end_continuation(db, identity, now)
 }
 
 #[cfg(test)]

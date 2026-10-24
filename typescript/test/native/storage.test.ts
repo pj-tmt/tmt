@@ -140,6 +140,7 @@ function expectNativeSchema(
     { version: 65, name: 'let a request carry a remote route' },
     { version: 66, name: 'let a final answer a remote request' },
     { version: 67, name: 'retain early provider starts until exact launch admission' },
+    { version: 68, name: 'confirm a checklist only when a prompt carries it' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(

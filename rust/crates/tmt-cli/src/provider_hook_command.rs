@@ -290,6 +290,10 @@ fn observe_turn(
             turn: activity
                 .and_then(|activity| activity.event.turn.as_ref())
                 .map(ProviderSessionId::as_str),
+            continuation: activity.is_some_and(|activity| {
+                activity.event.kind
+                    == tmt_core::binding::session::activity::EventKind::ContinuationEnded
+            }),
         });
     let next = transition.or(usage);
     if Instant::now() >= deadline {

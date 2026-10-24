@@ -171,6 +171,27 @@ pub(super) fn oldest_held(
         .map_err(|e| classify(e,"Read oldest held digest timestamp"))
 }
 
+fn item_row(r: &rusqlite::Row<'_>, identity: &str) -> rusqlite::Result<DigestItem> {
+    Ok(DigestItem {
+        sequence: rows::u64_at(r, 0)?,
+        identity_id: identity.into(),
+        request_id: r.get(1)?,
+        kind: DigestKind::parse(&r.get::<_, String>(2)?).ok_or(rusqlite::Error::InvalidQuery)?,
+        created_at_ms: rows::u64_at(r, 3)?,
+        checklist_id: r.get(4)?,
+        source: DigestSource::parse(&r.get::<_, String>(5)?)
+            .ok_or(rusqlite::Error::InvalidQuery)?,
+        context_tokens_at_arrival: r
+            .get::<_, Option<i64>>(6)?
+            .map(|n| u64::try_from(n).map_err(|_| rusqlite::Error::InvalidQuery))
+            .transpose()?,
+        context_observed_at_ms: r
+            .get::<_, Option<i64>>(7)?
+            .map(|n| u64::try_from(n).map_err(|_| rusqlite::Error::InvalidQuery))
+            .transpose()?,
+    })
+}
+
 pub(super) fn items(
     db: &Connection,
     identity: &str,
@@ -190,27 +211,7 @@ pub(super) fn items(
             checked_i64(after, "Digest cursor")?,
             checked_limit(limit)?
         ],
-        |r| {
-            Ok(DigestItem {
-                sequence: rows::u64_at(r, 0)?,
-                identity_id: identity.into(),
-                request_id: r.get(1)?,
-                kind: DigestKind::parse(&r.get::<_, String>(2)?)
-                    .ok_or(rusqlite::Error::InvalidQuery)?,
-                created_at_ms: rows::u64_at(r, 3)?,
-                checklist_id: r.get(4)?,
-                source: DigestSource::parse(&r.get::<_, String>(5)?)
-                    .ok_or(rusqlite::Error::InvalidQuery)?,
-                context_tokens_at_arrival: r
-                    .get::<_, Option<i64>>(6)?
-                    .map(|n| u64::try_from(n).map_err(|_| rusqlite::Error::InvalidQuery))
-                    .transpose()?,
-                context_observed_at_ms: r
-                    .get::<_, Option<i64>>(7)?
-                    .map(|n| u64::try_from(n).map_err(|_| rusqlite::Error::InvalidQuery))
-                    .transpose()?,
-            })
-        },
+        |r| item_row(r, identity),
     )
     .and_then(|r| r.collect())
     .map_err(|e| classify(e, "Read digest items"))
@@ -272,6 +273,8 @@ pub(super) fn settle(
     now: u64,
 ) -> Result<(), StorageError> {
     // The existing writer transaction serializes allocation with every Core change.
+    // A delivered checklist waits on later evidence (#4858): `confirmed_at_ms` stays null until it
+    // comes (a prompt that carries an idle paste, the end of the continuation a Stop hook started).
     let changed=db.execute("UPDATE focus_checklists SET state=?1,settled_at_ms=?5,settlement_sequence=(SELECT value+1 FROM change_cursor WHERE id=1) WHERE id=?2 AND identity_id=?3 AND attempt_token=?4 AND state='claimed'",
         params![state.as_str(),b.id,b.identity_id,b.attempt_token,checked_now(now,"Digest settlement clock")?]).map_err(|e|classify(e,"Settle digest checklist"))?;
     if changed != 1 {
@@ -293,6 +296,101 @@ pub(super) fn settle(
         .map_err(|e| classify(e, "Release definitely-unsent digest membership"))?;
     }
     Ok(())
+}
+
+/// The scope of an idle checklist that was typed and no prompt has carried yet.
+const UNCONFIRMED: &str = "c.identity_id=?1 AND c.state='delivered' AND c.opportunity='idle' AND c.confirmed_at_ms IS NULL";
+
+pub(super) fn unconfirmed_items(
+    db: &Connection,
+    identity: &str,
+    limit: u64,
+    now: u64,
+) -> Result<Vec<DigestItem>, StorageError> {
+    let mut q = db
+        .prepare(&format!(
+            "SELECT i.sequence,i.request_id,i.kind,i.created_at_ms,i.checklist_id,i.source,i.context_tokens_at_arrival,i.context_observed_at_ms
+             FROM focus_items i JOIN focus_checklists c ON c.id=i.checklist_id JOIN request_attempts a USING(request_id)
+             WHERE {UNCONFIRMED} AND a.retention_expires_at_ms>?2 ORDER BY i.sequence LIMIT ?3"
+        ))
+        .map_err(|e| classify(e, "Prepare unconfirmed digest read"))?;
+    q.query_map(
+        params![
+            identity,
+            checked_now(now, "Digest read clock")?,
+            checked_limit(limit)?
+        ],
+        |r| item_row(r, identity),
+    )
+    .and_then(|r| r.collect())
+    .map_err(|e| classify(e, "Read unconfirmed digest items"))
+}
+
+/// Returns the named unconfirmed items to the held pool. The checklist keeps its settlement; only
+/// the membership moves, so a later claim seals each request again.
+pub(super) fn release_unconfirmed(
+    db: &Connection,
+    identity: &str,
+    sequences: &[u64],
+) -> Result<u64, StorageError> {
+    let mut released = 0;
+    for sequence in sequences {
+        released += db
+            .execute(
+                &format!(
+                    "UPDATE focus_items SET checklist_id=NULL WHERE identity_id=?1 AND sequence=?2 AND checklist_id IN
+                     (SELECT c.id FROM focus_checklists c WHERE {UNCONFIRMED})"
+                ),
+                params![identity, checked_i64(*sequence, "Digest release sequence")?],
+            )
+            .map_err(|e| classify(e, "Release unconfirmed digest members"))? as u64;
+    }
+    Ok(released)
+}
+
+/// Whether a Stop hook handed this identity a checklist and the continuation that follows has not
+/// ended: the provider is working although its activity reads idle.
+pub(super) fn continuation_open(db: &Connection, identity: &str) -> Result<bool, StorageError> {
+    db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM focus_checklists WHERE identity_id=?1 AND opportunity='turn_boundary'
+         AND state IN ('delivered','uncertain') AND confirmed_at_ms IS NULL)",
+        [identity],
+        |row| row.get(0),
+    )
+    .map_err(|e| classify(e, "Read an open Stop continuation"))
+}
+
+/// The continuation ended or a prompt arrived: the Stop that was blocked is over.
+pub(super) fn end_continuation(
+    db: &Connection,
+    identity: &str,
+    now: u64,
+) -> Result<u64, StorageError> {
+    db.execute(
+        "UPDATE focus_checklists SET confirmed_at_ms=?2 WHERE identity_id=?1 AND opportunity='turn_boundary'
+         AND state IN ('delivered','uncertain') AND confirmed_at_ms IS NULL",
+        params![identity, checked_now(now, "Digest continuation clock")?],
+    )
+    .map(|changed| changed as u64)
+    .map_err(|e| classify(e, "End a Stop continuation"))
+}
+
+/// A prompt that names a request of an unconfirmed idle checklist confirms that checklist.
+pub(super) fn confirm_by_prompt(
+    db: &Connection,
+    identity: &str,
+    prompt: &str,
+    now: u64,
+) -> Result<u64, StorageError> {
+    db.execute(
+        &format!(
+            "UPDATE focus_checklists AS c SET confirmed_at_ms=?3 WHERE {UNCONFIRMED}
+             AND EXISTS (SELECT 1 FROM focus_items i WHERE i.checklist_id=c.id AND instr(?2, i.request_id)>0)"
+        ),
+        params![identity, prompt, checked_now(now, "Digest confirmation clock")?],
+    )
+    .map(|changed| changed as u64)
+    .map_err(|e| classify(e, "Confirm a typed digest checklist"))
 }
 
 pub(super) fn has_item(

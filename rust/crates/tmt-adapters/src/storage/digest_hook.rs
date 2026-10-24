@@ -12,6 +12,12 @@ use tmt_core::{
 };
 
 impl Storage {
+    /// Whether the provider still works on the continuation a Stop-hook checklist started: its
+    /// activity reads idle until that continuation's own Stop (#4858).
+    pub fn digest_continuation_open(&mut self, identity: &str) -> Result<bool, StorageError> {
+        super::requests::digest_continuation_open(self.connection()?, identity)
+    }
+
     pub fn claim_digest_for_launch(
         &mut self,
         expected: &IdentityContextSnapshot,

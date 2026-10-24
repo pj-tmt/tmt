@@ -396,7 +396,7 @@ pub(super) fn set_state(
             SessionTransition::Ended => "ended",
         })
     };
-    connection.execute(
+    let changed = connection.execute(
         "UPDATE bindings SET runtime_state = ?, last_transition = ?, runtime_pid = ?, runtime_start_identity = ?, observed_provider_session_id = ?, launch_owner_pid = ?, launch_owner_start_identity = ?, runtime_start_refusal = ?
          WHERE id = ? AND runtime_state = ? AND last_transition IS ? AND runtime_pid IS ? AND runtime_start_identity IS ? AND observed_provider_session_id IS ? AND launch_owner_pid IS ? AND launch_owner_start_identity IS ? AND runtime_start_refusal IS ?
          AND EXISTS (SELECT 1 FROM identities i WHERE i.id = bindings.identity_id AND i.retired_at_ms IS NULL)",
@@ -414,7 +414,57 @@ pub(super) fn set_state(
             expected_owner_pid,
             expected.launch_owner.as_ref().map(ProcessIncarnation::start_identity),
             encode_refusal(expected.start_refusal.as_ref())],
-    ).map(|changed| changed == 1).map_err(|error| classify(error, "Write binding session state"))
+    ).map_err(|error| classify(error, "Write binding session state"))? == 1;
+    // A Stop continuation belongs to the provider process and session that was running. Once
+    // either ends or is replaced (SessionEnd, a crash seen as a process fact, a clear or a new
+    // launch), no Stop will ever close it, so it must not keep the seat reading as busy (#4858).
+    if changed && (value.state != RuntimeState::Running || run_replaced(expected, value)) {
+        end_continuation_of_binding(connection, binding_id)?;
+    }
+    Ok(changed)
+}
+
+/// A different process, or a different provider session than one already known. A thread ID
+/// disclosed late is the same run.
+fn run_replaced(expected: &BindingSessionState, value: &BindingSessionState) -> bool {
+    match (&expected.key, &value.key) {
+        (None, _) => false,
+        (Some(_), None) => true,
+        (Some(old), Some(new)) => {
+            old.incarnation != new.incarnation
+                || (old.provider_session.is_some() && old.provider_session != new.provider_session)
+        }
+    }
+}
+
+/// The run a binding's Digest continuation belonged to is over.
+pub(super) fn end_continuation_of_binding(
+    connection: &Connection,
+    binding_id: &str,
+) -> Result<(), StorageError> {
+    let identity = connection
+        .query_row(
+            "SELECT identity_id FROM bindings WHERE id = ?",
+            [binding_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| classify(error, "Read the binding of a Stop continuation"))?;
+    identity.map_or(Ok(()), |identity| {
+        end_continuation_of_identity(connection, &identity)
+    })
+}
+
+pub(super) fn end_continuation_of_identity(
+    connection: &Connection,
+    identity_id: &str,
+) -> Result<(), StorageError> {
+    super::super::requests::end_digest_continuation(
+        connection,
+        identity_id,
+        crate::request_runtime::wall_time_ms(),
+    )
+    .map(|_| ())
 }
 
 #[cfg(test)]
@@ -669,6 +719,122 @@ mod tests {
                 Ok::<_, StorageError>(())
             })
             .unwrap();
+        storage.close().unwrap();
+    }
+
+    /// A Stop continuation is closed by that run's own Stop. When the run is gone first, nothing
+    /// will ever close it, and the seat must not read as busy forever (#4858).
+    #[test]
+    fn a_stop_continuation_ends_with_the_provider_run_that_started_it() {
+        use tmt_core::binding::session::RuntimeLiveness;
+        let fixture = Fixture::new();
+        let mut storage = fixture.open();
+        let identity = create_or_resolve(&mut storage, "Continuing", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let key = |pid, start: &str, session: Option<&str>| ObservedSessionKey {
+            incarnation: ProcessIncarnation::new(pid, start).unwrap(),
+            provider_session: session.map(|id| ProviderSessionId::new(id).unwrap()),
+        };
+        let run = |key: ObservedSessionKey| {
+            BindingSessionState::default()
+                .admit(key, SessionTransition::Started, RuntimeLiveness::Alive)
+                .unwrap()
+        };
+        let hand_over = |storage: &crate::storage::Storage| {
+            storage
+                .connection()
+                .unwrap()
+                .execute(
+                    "INSERT INTO focus_checklists (id,identity_id,attempt_token,through_sequence,state,created_at_ms,opportunity,sealed_count,settled_at_ms)
+                     VALUES (lower(hex(randomblob(8))),?1,lower(hex(randomblob(8))),1,'delivered',1000,'turn_boundary',1,1000)",
+                    [&identity.id],
+                )
+                .unwrap();
+        };
+        let open = |storage: &mut crate::storage::Storage| {
+            storage.digest_continuation_open(&identity.id).unwrap()
+        };
+        let first = run(key(500, "start-a", None));
+        let binding = storage
+            .with_binding_transaction(|records| {
+                let binding = records.insert_binding(&identity, &server(), &pane("%7", 107))?;
+                assert!(records.set_session_state(
+                    &binding.id,
+                    &BindingSessionState::default(),
+                    &first
+                )?);
+                Ok::<_, StorageError>(binding)
+            })
+            .unwrap();
+
+        // A thread ID disclosed late is the same run: the continuation stays open.
+        hand_over(&storage);
+        assert!(open(&mut storage));
+        let disclosed = run(key(500, "start-a", Some("session-a")));
+        storage
+            .with_binding_transaction(|records| {
+                assert!(records.set_session_state(&binding.id, &first, &disclosed)?);
+                Ok::<_, StorageError>(())
+            })
+            .unwrap();
+        assert!(open(&mut storage));
+
+        // SessionEnd: the run is over.
+        let ended = disclosed
+            .transition(
+                disclosed.key.as_ref().unwrap(),
+                SessionTransition::Ended,
+                None,
+            )
+            .unwrap();
+        storage
+            .with_binding_transaction(|records| {
+                assert!(records.set_session_state(&binding.id, &disclosed, &ended)?);
+                Ok::<_, StorageError>(())
+            })
+            .unwrap();
+        assert!(!open(&mut storage));
+
+        // A launch that replaces a run nobody closed (a crash with no SessionEnd) ends it too,
+        // and so does a clear that moves the same process to another provider session.
+        let second = run(key(600, "start-b", Some("session-b")));
+        storage
+            .with_binding_transaction(|records| {
+                assert!(records.set_session_state(&binding.id, &ended, &second)?);
+                Ok::<_, StorageError>(())
+            })
+            .unwrap();
+        hand_over(&storage);
+        assert!(open(&mut storage));
+        let cleared = run(key(600, "start-b", Some("session-c")));
+        storage
+            .with_binding_transaction(|records| {
+                assert!(records.set_session_state(&binding.id, &second, &cleared)?);
+                Ok::<_, StorageError>(())
+            })
+            .unwrap();
+        assert!(!open(&mut storage));
+        hand_over(&storage);
+        let relaunched = run(key(700, "start-c", Some("session-d")));
+        storage
+            .with_binding_transaction(|records| {
+                assert!(records.set_session_state(&binding.id, &cleared, &relaunched)?);
+                Ok::<_, StorageError>(())
+            })
+            .unwrap();
+        assert!(!open(&mut storage));
+
+        // The binding going away ends it as well.
+        hand_over(&storage);
+        assert!(open(&mut storage));
+        storage
+            .with_binding_transaction(|records| {
+                records.detach_binding(&binding.id)?;
+                Ok::<_, StorageError>(())
+            })
+            .unwrap();
+        assert!(!open(&mut storage));
         storage.close().unwrap();
     }
 
