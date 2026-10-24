@@ -1,9 +1,10 @@
 .tmt-ui-dialog {
+  box-sizing: border-box;
   position: fixed;
   inset: 0;
-  /* 600px: the dialog's reading width; no token names a surface width. */
+  /* Regular and wide reading widths share the viewport/safe-area clamp. */
   width: min(
-    600px,
+    var(--tmt-ui-dialog-width),
     calc(
       100vw - 2 * var(--tmt-ui-space-l) - env(safe-area-inset-left, 0px) -
         env(safe-area-inset-right, 0px)
@@ -29,6 +30,7 @@
 }
 .tmt-ui-dialog::backdrop {
   background: var(--tmt-ui-surface-scrim);
+  backdrop-filter: blur(var(--tmt-ui-overlay-blur));
 }
 /* Enter and exit: the surface fades and settles by a small scale and rise; the scrim fades. A
    closed dialog stays rendered while it leaves (display and the top layer transition discretely),
@@ -118,10 +120,6 @@
 }
 @media (max-width: 480px) {
   .tmt-ui-dialog {
-    width: calc(
-      100vw - 2 * var(--tmt-ui-space-xs) - env(safe-area-inset-left, 0px) -
-        env(safe-area-inset-right, 0px)
-    );
     max-height: calc(
       100dvh - 2 * var(--tmt-ui-space-xs) - env(safe-area-inset-top, 0px) -
         env(safe-area-inset-bottom, 0px)
@@ -132,4 +130,40 @@
   .tmt-ui-dialog-actions {
     padding: var(--tmt-ui-space-m) var(--tmt-ui-space-l);
   }
+}
+
+.tmt-ui-dialog[data-size='wide'] {
+  --tmt-ui-dialog-width: var(--tmt-ui-dialog-wide-width);
+}
+.tmt-ui-dialog[data-presentation='confirm'] .tmt-ui-dialog-header {
+  position: relative;
+  flex-direction: column;
+  text-align: center;
+  border-bottom: 0;
+  padding-top: var(--tmt-ui-space-xl);
+}
+.tmt-ui-dialog[data-presentation='confirm'] .tmt-ui-dialog-header > .tmt-ui-icon-action {
+  position: absolute;
+  top: var(--tmt-ui-space-m);
+  right: var(--tmt-ui-space-m);
+}
+.tmt-ui-dialog[data-presentation='confirm'] .tmt-ui-dialog-body {
+  padding-top: 0;
+  text-align: center;
+}
+.tmt-ui-dialog[data-presentation='confirm'] .tmt-ui-dialog-actions {
+  justify-content: center;
+}
+.tmt-ui-dialog-confirm-mark {
+  display: grid;
+  place-items: center;
+  width: var(--tmt-ui-dialog-confirm-mark-size);
+  height: var(--tmt-ui-dialog-confirm-mark-size);
+  color: var(--tmt-ui-color-waiting);
+  background: var(--tmt-ui-surface-waiting-soft);
+  border-radius: var(--tmt-ui-radius-l);
+}
+.tmt-ui-dialog-confirm-mark svg {
+  width: var(--tmt-ui-space-xl);
+  height: var(--tmt-ui-space-xl);
 }
