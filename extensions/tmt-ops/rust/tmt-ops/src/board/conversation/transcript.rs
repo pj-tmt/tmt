@@ -126,14 +126,27 @@ impl App {
             (Observation::Observed(a), Observation::Observed(b)) => std::sync::Arc::ptr_eq(a, b),
             (a, b) => a == b,
         };
-        let changed = !same
-            || session.pane_failed != failed
-            || session.older_failed != (failed && read.before.is_some());
+        let failure = if failed {
+            Some(if read.before.is_some() {
+                AnswerFailure::Older
+            } else {
+                AnswerFailure::Latest
+            })
+        } else if read.before.is_none()
+            && !read.rebuild
+            && session.pane_failure == Some(AnswerFailure::Older)
+            && matches!(&observation, Observation::Observed(page) if page.next_before.is_some())
+        {
+            // Reading new answers did not retry the failed older cursor.
+            Some(AnswerFailure::Older)
+        } else {
+            None
+        };
+        let changed = !same || session.pane_failure != failure;
         if !failed || !matches!(session.pane_output, Observation::Observed(_)) {
             session.pane_output = observation;
         }
-        session.pane_failed = failed;
-        session.older_failed = failed && read.before.is_some();
+        session.pane_failure = failure;
         session.pane_rebuild = false;
         if read.before.is_some()
             || failed
@@ -378,7 +391,7 @@ impl Session {
         let sends: Vec<_> = self.restored_sends().collect();
         if self.finals.is_empty()
             && sends.is_empty()
-            && !(*enabled && self.pane_failed)
+            && !(*enabled && self.pane_failure.is_some())
             && !matches!(&self.pane_output, Observation::Observed(page)
                 if *enabled && (page.capture == Some(false) || page.coverage.older_dropped && page.next_before.is_none()))
             && (!enabled
@@ -934,11 +947,13 @@ impl Session {
                 append(Line::styled(note, look.role(Role::Muted)), vec![], None);
             }
         }
-        if *enabled && (self.pane_failed || matches!(self.pane_output, Observation::Unavailable)) {
+        if *enabled
+            && (self.pane_failure.is_some() || matches!(self.pane_output, Observation::Unavailable))
+        {
             next_note.set(unavailable);
             append(
                 Line::styled(
-                    if self.older_failed {
+                    if self.pane_failure == Some(AnswerFailure::Older) {
                         "Older answers unavailable · scroll up to retry"
                     } else {
                         "Recent pane output unavailable"

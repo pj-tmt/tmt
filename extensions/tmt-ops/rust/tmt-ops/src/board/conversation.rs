@@ -202,6 +202,12 @@ impl AuthoredLine {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AnswerFailure {
+    Latest,
+    Older,
+}
+
 struct Session {
     reply: Option<Reply>,
     finals: Vec<Reply>,
@@ -233,8 +239,7 @@ struct Session {
     pane_output_fresh: bool,
     older_demand: bool,
     pane_rebuild: bool,
-    pane_failed: bool,
-    older_failed: bool,
+    pane_failure: Option<AnswerFailure>,
     transcript_context: transcript::Context,
     /// When the exchanges first went unanswered, for the delayed loading line.
     pending_since_ms: Option<u64>,
@@ -276,8 +281,7 @@ impl Default for Session {
             pane_output_fresh: false,
             older_demand: false,
             pane_rebuild: false,
-            pane_failed: false,
-            older_failed: false,
+            pane_failure: None,
             transcript_context: Default::default(),
             pending_since_ms: None,
             refreshing_since_ms: None,
@@ -639,6 +643,7 @@ impl App {
         let Some(identity) = state.active.clone() else {
             return;
         };
+        let screen_mode = state.screen_mode;
         state.source_surfaces.clear();
         let response_area = state
             .response_area
@@ -654,6 +659,7 @@ impl App {
             || matches!(step, Step::Lines(lines) | Step::Pages(lines) if lines < 0);
         if upward
             && self.pane_output_enabled()
+            && !screen_mode
             && matches!(&session.pane_output, super::recent_responses::Observation::Observed(page)
                 if page.next_before.is_some())
             && session.rendered.as_ref().is_some_and(|rendered| {

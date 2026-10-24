@@ -14,6 +14,7 @@ pub(in crate::board) const SCENES: [&str; 6] = [
 pub(in crate::board) fn capture_case(scene: &str, look: Look) -> App {
     assert!(SCENES.contains(&scene));
     let mut app = workspace_fixture();
+    app.focus = 1;
     let view = app.view.as_mut().unwrap();
     view.look = look;
     view.home.as_mut().unwrap().workspace.squad_looks.clear();
@@ -56,6 +57,38 @@ pub(in crate::board) fn capture_case(scene: &str, look: Look) -> App {
         app.apply_answer_read(&older, Observation::Unavailable);
     }
     app
+}
+
+#[test]
+fn narrow_oracle_scenes_show_the_answer_state_in_the_focused_chat() {
+    let _no_commands = crate::runner::forbid_commands();
+    for scene in SCENES {
+        let mut app = capture_case(scene, Look::default());
+        let mut terminal = Terminal::new(TestBackend::new(60, 36)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        let expected = match scene {
+            "answer-truncated" => "answer truncated",
+            "answer-dropped" => "older answers not kept",
+            "answer-capture-disabled" | "answer-capture-disabled-empty" => {
+                "answers are not captured"
+            }
+            "answer-page-failed" => "Older answers unavailable",
+            _ => "Retained answer 0",
+        };
+        assert!(text.contains(expected), "{scene}: {text}");
+    }
 }
 
 fn page(start: u64, end: u64, next: Option<u64>) -> Arc<Page> {
@@ -169,6 +202,10 @@ fn failed_older_page_keeps_answers_and_cursor_without_an_automatic_retry() {
     app.apply_answer_read(&read, Observation::Unavailable);
     draw(&app, 100, 24);
     assert!(app.pane_output_plan().is_none());
+    app.conversation.borrow_mut().refresh_pane_output();
+    let latest = app.pane_output_plan().unwrap();
+    app.apply_answer_read(&latest, Observation::Observed(Arc::clone(&held)));
+    assert!(app.pane_output_plan().is_none());
     {
         let state = app.conversation.borrow();
         let session = &state.sessions[state.active.as_ref().unwrap()];
@@ -176,6 +213,10 @@ fn failed_older_page_keeps_answers_and_cursor_without_an_automatic_retry() {
             panic!()
         };
         assert!(Arc::ptr_eq(after, &held));
+        assert!(
+            session.pane_failure == Some(AnswerFailure::Older),
+            "a successful latest read did not retry the failed older cursor"
+        );
         assert!(
             session
                 .rendered
@@ -238,6 +279,23 @@ fn replaced_cursor_chain_and_sender_reject_late_older_completions() {
         panic!()
     };
     assert!(Arc::ptr_eq(held, &replacement));
+}
+
+#[test]
+fn scrolling_a_live_screen_does_not_request_an_older_chat_page() {
+    let mut app = workspace_fixture();
+    draw(&app, 100, 24);
+    let read = app.pane_output_plan().unwrap();
+    app.apply_answer_read(&read, Observation::Observed(page(50, 100, Some(50))));
+    draw(&app, 100, 24);
+    app.toggle_screen();
+    app.scroll_pane(Pane::Replies, Step::Top);
+    {
+        let state = app.conversation.borrow();
+        assert!(!state.sessions[&read.key].older_demand);
+    }
+    app.toggle_screen();
+    assert!(app.pane_output_plan().is_none());
 }
 
 #[test]

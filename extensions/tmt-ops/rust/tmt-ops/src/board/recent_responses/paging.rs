@@ -1,5 +1,5 @@
 //! Cursor-chain acquisition runs on the selected lane. No transcript or retention policy lives here.
-use super::{Coverage, Item, Observation, Page, canonical_identity, page_with};
+use super::{Coverage, Observation, Page, canonical_identity, page_with};
 use crate::{board::conversation::ConversationKey, core::Core, runner::Cancellation};
 use serde_json::Value;
 use std::sync::Arc;
@@ -69,8 +69,7 @@ impl AnswerRead {
         }
         let mut pages = vec![first];
         let held = self.held.as_ref();
-        let align = !self.rebuild
-            && held.is_some_and(|held| !held.is_empty() && held.coverage == pages[0].coverage);
+        let align = !self.rebuild && held.is_some_and(|held| !held.is_empty());
         loop {
             let page = pages.last()?;
             if align {
@@ -80,7 +79,7 @@ impl AnswerRead {
                     .items
                     .iter()
                     .enumerate()
-                    .filter(|(_, item)| same_anchor(item, anchor))
+                    .filter(|(_, item)| *item == anchor)
                     .map(|(index, _)| index)
                     .collect();
                 if let [position] = matches.as_slice() {
@@ -88,6 +87,8 @@ impl AnswerRead {
                     if pages.len() == 1
                         && *position + 1 == page.items.len()
                         && held.capture == pages[0].capture
+                        && held.coverage == pages[0].coverage
+                        && (pages[0].next_before.is_some() || held.next_before.is_none())
                     {
                         return Some(Arc::clone(held));
                     }
@@ -99,6 +100,10 @@ impl AnswerRead {
                         result.items.extend(newer.items.iter().cloned());
                     }
                     result.capture = pages[0].capture;
+                    result.coverage = pages[0].coverage.clone();
+                    if pages[0].next_before.is_none() {
+                        result.next_before = None;
+                    }
                     if result == **held {
                         return Some(Arc::clone(held));
                     }
@@ -119,7 +124,7 @@ impl AnswerRead {
             }
             pages.push(page_with(&self.key.1, Some(before), call)?);
         }
-        // A gap, retention cut, ambiguous/missing anchor or explicit refresh rebuilds
+        // An ambiguous/missing anchor (including a retention cut) or explicit refresh rebuilds
         // the chain. Core's public maximum is 1,000 answers, 50 per page. The bound
         // refuses an invalid resource; it never evicts a held answer locally.
         while let Some(before) = pages.last()?.next_before {
@@ -130,11 +135,6 @@ impl AnswerRead {
         }
         Some(Arc::new(join(pages)))
     }
-}
-
-fn same_anchor(a: &Item, b: &Item) -> bool {
-    (a.ended_ms, a.original_bytes, &a.text, &a.session)
-        == (b.ended_ms, b.original_bytes, &b.text, &b.session)
 }
 
 fn join(pages: Vec<Page>) -> Page {
@@ -174,13 +174,19 @@ mod tests {
 
     fn item(index: usize) -> Value {
         let text = format!("answer {index}");
-        json!({"text":text,"endedMs":index,"originalBytes":text.len(),"provider":"codex","sessionId":"session","truncated":false})
+        json!({"text":text,"endedMs":1000+index,"originalBytes":text.len(),"provider":"codex","sessionId":"session","truncated":false})
     }
 
     fn resource(end: usize, count: usize) -> Value {
-        let mut value = json!({"identityId":ID,"items":(end.saturating_sub(50)..end).rev().map(item).collect::<Vec<_>>(),"coverage":{"olderDropped":false},"capture":{"enabled":true}});
-        if end > 50 {
-            value["nextBefore"] = json!(end - 50);
+        let floor = count.saturating_sub(1000);
+        let start = end.saturating_sub(50).max(floor);
+        let mut coverage = json!({"olderDropped":floor > 0});
+        if floor > 0 {
+            coverage["droppedThroughMs"] = json!(1000 + floor - 1);
+        }
+        let mut value = json!({"identityId":ID,"items":(start..end).rev().map(item).collect::<Vec<_>>(),"coverage":coverage,"capture":{"enabled":true}});
+        if start > floor {
+            value["nextBefore"] = json!(start);
         }
         assert!(end <= count);
         value
@@ -238,6 +244,20 @@ mod tests {
         assert_eq!(calls.len(), 1, "the held newest turn is the splice anchor");
         assert_eq!(refreshed.len(), 1001, "no client-side retention rule");
         assert_eq!(refreshed.last().unwrap().text, "answer 1000");
+        assert!(refreshed.coverage.older_dropped);
+        assert_eq!(refreshed.coverage.dropped_through_ms, Some(1000));
+        calls.clear();
+        let rebuilt = observed(serve(
+            &request(Some(refreshed), None, true),
+            1001,
+            &mut calls,
+        ));
+        assert_eq!(calls.len(), 20);
+        assert_eq!(rebuilt.len(), 1000);
+        assert_eq!(
+            rebuilt[0].text, "answer 1",
+            "Core, rather than a local expiry rule, replaces the retained window"
+        );
     }
 
     #[test]
@@ -286,6 +306,38 @@ mod tests {
         });
         assert_eq!(calls, 1);
         assert_eq!(observed(result).len(), 3);
+    }
+
+    #[test]
+    fn a_different_provider_cannot_impersonate_the_held_anchor_at_a_page_boundary() {
+        let old = item(7);
+        let mut other_provider = old.clone();
+        other_provider["provider"] = json!("claude");
+        let held = Arc::new(
+            super::super::parse(
+                ID,
+                &json!({"identityId":ID,"items":[old.clone()],"coverage":{"olderDropped":false}}),
+            )
+            .unwrap(),
+        );
+        let mut newest = (10..59).rev().map(item).collect::<Vec<_>>();
+        newest.push(other_provider);
+        let mut reads = Vec::new();
+        let result=request(Some(held),None,false).read_with(|operation,input| {
+            if operation=="capabilities" {return Some(json!({"operations":["responses.recent"]}));}
+            reads.push(input.clone());
+            Some(if input.get("before").is_none() {
+                json!({"identityId":ID,"items":newest,"coverage":{"olderDropped":false},"nextBefore":1})
+            } else {
+                json!({"identityId":ID,"items":[old],"coverage":{"olderDropped":false}})
+            })
+        });
+        let page = observed(result);
+        assert_eq!(reads.len(), 2);
+        assert_eq!(reads[1]["before"], 1);
+        assert_eq!(page.len(), 51);
+        assert_eq!(page[0].provider, "codex");
+        assert_eq!(page[1].provider, "claude");
     }
 
     #[test]

@@ -204,10 +204,11 @@ exchange and capture heads by literal times, exchanges first on ties, without
 absorbing a final into a capture.
 
 `recent_responses` admits page metadata and reconciles cursor chains. An ordinary
-latest read splices at one exact held-newest anchor (ended time, original byte count,
-source bytes and session); ambiguous/missing alignment, changed coverage or explicit
+latest read splices at one exact held-newest answer record (including provider and
+truncation metadata); ambiguous/missing alignment (including an unalignable retention cut) or explicit
 refresh rebuilds the bounded chain serially and cancellably. Old content stays held
-until the coherent result arrives. Failed reads retain loaded answers and the cursor;
+until the coherent result arrives. Coverage changes update the held history caption
+without re-walking an otherwise aligned chain. Failed reads retain loaded answers and the cursor;
 a failed older page waits for another deliberate scroll or refresh, without a retry
 loop. Actor/member/revision/cursor fences reject obsolete completions.
 
