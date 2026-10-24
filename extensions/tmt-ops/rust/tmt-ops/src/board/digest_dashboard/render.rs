@@ -245,16 +245,16 @@ pub(super) fn detail_lines(
         super::band::fields(&summary, app.digest_window())
             .map(|line| line.replacen("List-price equiv.", "List-price equivalent:", 1)),
     );
-    text.push(super::band::DEFINITION.into());
-    if let Some(start) = crate::board::savings::savings_start(
-        &summary,
-        app.digest_window(),
-        app.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
-        usize::from(width),
-    ) {
-        text.push(start);
+    if let Some(points) = summary.percent.value {
+        text.push(format!(
+            "Estimated input reduction: {} ({}/{} agents)",
+            model::detail_percent(points),
+            summary.percent.included,
+            summary.total
+        ));
+    } else if summary.percent.conflict {
+        text.push("Estimated input reduction: — · intervals differ".into());
     }
-    text.push("Estimate basis".into());
     let price_column_shown = table::price_column_shown(app);
     if let Some(cost) = metrics::input_price(app, report, &ids) {
         text.push(format!(
@@ -267,6 +267,16 @@ pub(super) fn detail_lines(
     if !price_column_shown {
         text.push("Input tokens at list price; not a bill.".into());
     }
+    text.push(super::band::DEFINITION.into());
+    if let Some(start) = crate::board::savings::savings_start(
+        &summary,
+        app.digest_window(),
+        app.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
+        usize::from(width),
+    ) {
+        text.push(start);
+    }
+    text.push("Estimate basis".into());
     if let Some(id) = row.and_then(|row| row["id"].as_str()) {
         text.extend(model::details(
             &app.labels,

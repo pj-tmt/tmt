@@ -968,8 +968,8 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
         "Prices as of 2026-10-14 · table 2026-10-14 · standard-base-input (uncached input, list price) · source: fetched",
         "claude-opus-5-5: $4.00 per 1M input tokens · https://example.test/anthropic-pricing",
         "gpt-6-sol: $2.00 per 1M input tokens",
-        "List-price equivalent: $12.40 at list price · gpt-6-sol at $2.00 per 1M input tokens · price table 2026-10-14",
-        "Share of input: 18% (18.2k of 100k input tokens)",
+        "Quote basis: gpt-6-sol at $2.00 per 1M input tokens · price table 2026-10-14",
+        "Estimated input reduction: 18% (1/1 agents)",
     ] {
         assert!(
             shown
@@ -980,8 +980,8 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
             "{expected}\n{shown}"
         );
     }
-    assert!(shown.contains("Supplier context avoided 1d: 18.2k · under 1 s"));
-    assert!(shown.contains("over 1–2 min"));
+    assert!(shown.contains("Context evidence 1d: under 1 s · complete"));
+    assert!(shown.contains("Input-reduction window: 1–2 min"));
     assert!(!shown.contains(" ms"));
     // The origin is the supplier's word: each known one is named, others are not.
     for (origin, shown_as) in [
@@ -1194,7 +1194,7 @@ fn digest_shared_range_does_not_relabel_a_supplier_lifetime_estimate() {
     let shown = paint(&mut app, 160, 44);
     assert!(shown.contains("Est. ctx avoided —"), "{shown}");
     assert!(
-        shown.contains("Supplier context avoided all time: 18.2k"),
+        shown.contains("Context evidence all time: under 1 s · complete"),
         "{shown}"
     );
 }
@@ -1259,7 +1259,7 @@ fn window_choice_uses_the_existing_cas_and_never_relabels_old_evidence() {
         "old-window estimate cannot become a new-window value"
     );
     assert!(
-        shown.contains("Supplier context avoided 1d: 18.2k"),
+        shown.contains("Context evidence 1d: under 1 s · complete"),
         "the original source window remains inspectable"
     );
     assert_eq!(app.workspace.selected, selected);

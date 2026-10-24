@@ -59,6 +59,8 @@ pub(in crate::board) fn capture_case(
             "impact-zero" => {
                 member["savings"]["estimatedInputTokensAvoided"] = serde_json::json!(0);
                 member["savings"]["cost"]["usdMicros"] = serde_json::json!(0);
+                member["savings"]["percent"]["basisPoints"] = serde_json::json!(0);
+                member["savings"]["percent"]["estimatedInputTokensAvoided"] = serde_json::json!(0);
             }
             "impact-mixed-prices" if index > 0 => {
                 member["savings"]["cost"]["pricingVersion"] = serde_json::json!("2026-10-15")
@@ -221,4 +223,44 @@ fn basis_reveals_hidden_details_via_the_existing_panel_cas() {
     );
     app.finished_workspace_preferences(next, "saved".into());
     assert!(app.digest_panels().side_shown());
+}
+
+#[test]
+fn details_show_each_impact_amount_once_and_basis_has_only_evidence() {
+    let mut app = valued_board();
+    press(&mut app, '2');
+    select_worker(&mut app);
+    let lines = super::super::render::detail_lines(&app, 160, 121_000, app.selected_row());
+    let text = lines
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (impact, basis) = text.split_once("Estimate basis").unwrap();
+    for amount in ["18.2k", "$12.40", "18%"] {
+        assert_eq!(
+            text.matches(amount).count(),
+            1,
+            "{amount} appears once: {text}"
+        );
+        assert!(impact.contains(amount), "amount stays in Impact: {text}");
+        assert!(
+            !basis.contains(amount),
+            "basis contains evidence only: {text}"
+        );
+    }
+    assert_eq!(text.matches(super::super::band::DEFINITION).count(), 1);
+    assert!(
+        !basis.contains("Observed input quote"),
+        "usage amount stays outside basis"
+    );
+    for fact in [
+        "gpt-6-sol",
+        "$2.00 per 1M",
+        "price table 2026-10-14",
+        "under 1 s",
+        "1–2 min",
+    ] {
+        assert!(basis.contains(fact), "basis retains {fact}: {text}");
+    }
 }

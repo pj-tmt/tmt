@@ -265,7 +265,9 @@ The canonical roster owns membership and action admission.
 Digest's Impact band reads the saved `workspace.digest_window`, independently of
 the TOK range, and shows context and list-price equivalent with separate member
 coverage. A money field that cannot fit whole stays in Details; it is never
-clipped into a partial amount. Basis opens the existing Details evidence section
+clipped into a partial amount. Details keeps impact amounts once in its Impact
+block; Estimate basis carries model/rate/price-table and window/coverage evidence
+without repeating the amounts. Basis opens the existing Details evidence section
 (and reveals hidden Details through its existing preference CAS). The window chip
 and the Actions menu use the existing window choices and CAS. Configure is deferred
 to the delivery-settings panel; no placeholder control is painted. These figures
