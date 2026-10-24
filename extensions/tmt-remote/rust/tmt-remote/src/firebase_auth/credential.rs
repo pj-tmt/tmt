@@ -11,7 +11,7 @@ use std::{
     io::{Read, Write},
     os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::PathBuf,
-    sync::{Mutex, MutexGuard},
+    sync::{Mutex, MutexGuard, TryLockError},
 };
 
 pub struct FileStore {
@@ -102,7 +102,16 @@ impl FileStore {
         dir.directory.join(format!("{}.json", self.project))
     }
     fn lock(&self, dir: &tmt_extension_state::Layout) -> Result<CredentialLock<'_>, AuthError> {
-        let mut handle = self.handle.try_lock().map_err(|_| unavailable())?;
+        let mut handle = match self.handle.try_lock() {
+            Ok(handle) => handle,
+            Err(TryLockError::WouldBlock) => return Err(unavailable()),
+            Err(TryLockError::Poisoned(poisoned)) => {
+                let mut handle = poisoned.into_inner();
+                *handle = None;
+                self.handle.clear_poison();
+                return Err(unavailable());
+            }
+        };
         let path = dir.directory.join(format!("{}.lock", self.project));
         if handle.is_none() {
             *handle = Some(
@@ -121,12 +130,20 @@ impl FileStore {
         let file = handle
             .as_ref()
             .expect("credential lock handle was initialized");
-        admit(file, false)?;
         // A retained descriptor must never lock an old inode after its path is
-        // replaced. Keep the original strict no-symlink/owner/mode admission.
-        let current = fs::symlink_metadata(path).map_err(|_| invalid())?;
-        let opened = file.metadata().map_err(|_| invalid())?;
-        if !current.is_file() || current.dev() != opened.dev() || current.ino() != opened.ino() {
+        // replaced. Any failed admission or metadata read also invalidates it.
+        let matches = match (
+            admit(file, false),
+            fs::symlink_metadata(path),
+            file.metadata(),
+        ) {
+            (Ok(_), Ok(current), Ok(opened)) => {
+                current.is_file() && current.dev() == opened.dev() && current.ino() == opened.ino()
+            }
+            _ => false,
+        };
+        if !matches {
+            *handle = None;
             return Err(invalid());
         }
         file.try_lock().map_err(|_| unavailable())?;
@@ -512,5 +529,69 @@ mod tests {
                 "refusing the changed lock path must preserve the credential"
             );
         }
+    }
+
+    #[test]
+    fn credential_handle_recovers_after_an_inode_mismatch_refusal() {
+        let (root, store, credential) = fixture();
+        let dir = store.directory(false).unwrap().unwrap();
+        let path = dir.directory.join("demo-credential-lock.lock");
+        fs::rename(&path, dir.directory.join("previous.lock")).unwrap();
+        OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap();
+        assert_eq!(
+            store.load().err().unwrap().kind,
+            AuthErrorKind::InvalidCredential
+        );
+        let other =
+            FileStore::new(&Layout::open(&root.0).unwrap(), "demo-credential-lock").unwrap();
+        let competing = other.lock(&dir).unwrap();
+        assert_eq!(
+            store.load().err().unwrap().kind,
+            AuthErrorKind::Unavailable,
+            "the reopened path must still respect a genuine competing owner"
+        );
+        drop(competing);
+        assert_eq!(store.load().unwrap().credential, Some(credential));
+    }
+
+    #[test]
+    fn credential_handle_recovers_after_the_lock_path_is_deleted() {
+        let (_root, store, credential) = fixture();
+        let dir = store.directory(false).unwrap().unwrap();
+        let path = dir.directory.join("demo-credential-lock.lock");
+        fs::remove_file(&path).unwrap();
+        assert_eq!(
+            store.load().err().unwrap().kind,
+            AuthErrorKind::InvalidCredential
+        );
+        assert!(
+            !path.exists(),
+            "the refused operation must not recreate the lock"
+        );
+        assert_eq!(store.load().unwrap().credential, Some(credential));
+        assert!(
+            path.is_file(),
+            "the next operation must recreate and admit the lock"
+        );
+        assert_eq!(fs::metadata(path).unwrap().mode() & 0o777, 0o600);
+    }
+
+    #[test]
+    fn credential_handle_recovers_after_a_poisoned_mutex_refusal() {
+        let (_root, store, credential) = fixture();
+        let dir = store.directory(false).unwrap().unwrap();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _lock = store.lock(&dir).unwrap();
+            panic!("fixture poisons the credential operation guard");
+        }));
+        assert!(panic.is_err());
+        assert!(store.handle.is_poisoned());
+        assert_eq!(store.load().err().unwrap().kind, AuthErrorKind::Unavailable);
+        assert_eq!(store.load().unwrap().credential, Some(credential));
     }
 }
