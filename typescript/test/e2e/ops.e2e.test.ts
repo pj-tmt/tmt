@@ -487,7 +487,9 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         description: 'source lifecycle',
       });
       const identity = durableIdentity(fixture, 'worker');
-      expectJsonResult(await squadCli(fixture, ['add', '--squad', 'product', '--', identity.id]));
+      expectJsonResult(
+        await fixture.runCli(['ops', 'squad', 'add', '--squad', 'product', '--json', '--', identity.id])
+      );
       const notes = path.join(fixture.globalDir, 'notes', identity.id, 'notes.md');
       fs.mkdirSync(path.dirname(notes), { recursive: true });
       fs.writeFileSync(notes, 'Current work: causal Ops switch 4584.');
