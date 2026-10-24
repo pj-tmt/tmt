@@ -1020,7 +1020,8 @@ impl Service {
             }
             run(provider.enrollment_delete(&doc.id, io), io)?;
         }
-        self.cleanup_invites(provider, now, io)?;
+        // Older deployed Rules may deny this list; gate collection cannot stall reconciliation.
+        let _ = self.cleanup_invites(provider, now, io);
         self.store()?.prune_cloud_receipts(now)?;
         self.cleanup
             .lock()

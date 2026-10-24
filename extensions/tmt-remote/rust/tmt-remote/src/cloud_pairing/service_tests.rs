@@ -72,6 +72,7 @@ struct Wire {
     fail_invite_delete: AtomicBool,
     lost_invite_delete_reply: AtomicBool,
     invite_answer: Mutex<Option<Value>>,
+    deny_invite_queries: AtomicBool,
 }
 impl Wire {
     fn new() -> Self {
@@ -85,6 +86,7 @@ impl Wire {
             fail_invite_delete: AtomicBool::new(false),
             lost_invite_delete_reply: AtomicBool::new(false),
             invite_answer: Mutex::new(None),
+            deny_invite_queries: AtomicBool::new(false),
         }
     }
     fn route(&self, service: &Arc<Service>) {
@@ -154,6 +156,9 @@ impl Http for Wire {
             let collection = q["from"][0]["collectionId"].as_str().unwrap();
             let prefix = format!("{parent}/{collection}/");
             if collection == "invites" {
+                if self.deny_invite_queries.load(Ordering::Acquire) {
+                    return response(403, json!({"error":{"status":"PERMISSION_DENIED"}}));
+                }
                 assert_eq!(q["limit"], 1);
                 assert_eq!(q["from"][0]["allDescendants"], false);
                 assert_eq!(q["where"]["fieldFilter"]["field"]["fieldPath"], "expiresAt");
@@ -1687,11 +1692,7 @@ fn failed_invite_cleanup_preserves_expiry_and_observes_a_lost_delete_before_anot
     let name = gate["name"].as_str().unwrap().to_owned();
     wire.docs.lock().unwrap().insert(name.clone(), gate);
     wire.fail_invite_delete.store(true, Ordering::Release);
-    assert!(
-        owner
-            .cleanup_enrollment(&provider, now, &owner.io())
-            .is_err()
-    );
+    assert!(owner.cleanup_invites(&provider, now, &owner.io()).is_err());
     assert!(wire.docs.lock().unwrap().contains_key(&name));
     assert!(
         owner.cleanup.lock().unwrap().is_empty(),
@@ -1699,19 +1700,13 @@ fn failed_invite_cleanup_preserves_expiry_and_observes_a_lost_delete_before_anot
     );
     wire.fail_invite_delete.store(false, Ordering::Release);
     wire.lost_invite_delete_reply.store(true, Ordering::Release);
-    assert!(
-        owner
-            .cleanup_enrollment(&provider, now, &owner.io())
-            .is_err()
-    );
+    assert!(owner.cleanup_invites(&provider, now, &owner.io()).is_err());
     assert!(
         !wire.docs.lock().unwrap().contains_key(&name),
         "the delete effect preceded its missing confirmation"
     );
     let count = wire.commits.lock().unwrap().len();
-    owner
-        .cleanup_enrollment(&provider, now, &owner.io())
-        .unwrap();
+    owner.cleanup_invites(&provider, now, &owner.io()).unwrap();
     assert_eq!(
         wire.commits.lock().unwrap().len(),
         count,
@@ -1765,11 +1760,7 @@ fn malformed_invite_query_evidence_never_selects_a_delete() {
     cases.push(json!([{"document":nested}]));
     for answer in cases {
         *wire.invite_answer.lock().unwrap() = Some(answer);
-        assert!(
-            owner
-                .cleanup_enrollment(&provider, now, &owner.io())
-                .is_err()
-        );
+        assert!(owner.cleanup_invites(&provider, now, &owner.io()).is_err());
         assert!(wire.commits.lock().unwrap().is_empty());
         assert!(owner.cleanup.lock().unwrap().is_empty());
     }
@@ -1885,4 +1876,99 @@ fn next_explicit_invite_collects_a_killed_first_invite_best_effort_without_peer_
         );
         assert!(owner.store().unwrap().active_grants().unwrap().is_empty());
     }
+}
+
+#[test]
+fn denied_invite_cleanup_does_not_block_enrolled_reconciliation_or_receipt_pruning() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::denied_invite_cleanup_does_not_block_enrolled_reconciliation_or_receipt_pruning",
+    ) {
+        return;
+    }
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let make_ports = || ProjectPorts {
+        http: ports.clone(),
+        clock: ports.clone(),
+        jitter: ports.clone(),
+    };
+    let (owner, _owner_lease) = service(&core.root.join("owner"), &core, make_ports());
+    let (collaborator, _collaborator_lease) =
+        service(&core.root.join("collaborator"), &core, make_ports());
+    let events = pair_with_reciprocal_choice(&owner, &collaborator, false);
+    let remote = events
+        .iter()
+        .find(|event| event["event"] == "connected")
+        .unwrap()["remote"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(!owner.store().unwrap().active_grants().unwrap().is_empty());
+    assert!(
+        owner
+            .store()
+            .unwrap()
+            .connection
+            .execute("UPDATE cloud_pair_receipts SET deadline_ms=0", [])
+            .unwrap()
+            > 0
+    );
+    owner.cleanup.lock().unwrap().clear();
+    wire.queries.lock().unwrap().clear();
+    wire.deny_invite_queries.store(true, Ordering::Release);
+    owner
+        .reconcile()
+        .expect("an old-Rules invite-list denial cannot stop enrolled reconciliation");
+    let receipts: i64 = owner
+        .store()
+        .unwrap()
+        .connection
+        .query_row("SELECT count(*) FROM cloud_pair_receipts", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(
+        receipts, 0,
+        "receipt pruning is independent of gate cleanup"
+    );
+    assert!(
+        owner.cleanup.lock().unwrap().contains_key(PROJECT),
+        "a denied gate pass still records the hourly attempt"
+    );
+    let invite_queries = || {
+        wire.queries
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|q| q["structuredQuery"]["from"][0]["collectionId"] == "invites")
+            .count()
+    };
+    assert_eq!(
+        invite_queries(),
+        1,
+        "stop the gate pass at its first denial"
+    );
+    wire.route(&owner);
+    let sends = core.sends();
+    assert_eq!(
+        collaborator
+            .send(&prepared(&remote), Some(&remote))
+            .unwrap()["state"],
+        "sent"
+    );
+    assert_eq!(
+        core.sends(),
+        sends + 1,
+        "the enrolled inbox still delivers exactly once"
+    );
+    owner.reconcile().unwrap();
+    assert_eq!(
+        invite_queries(),
+        1,
+        "the next tick within the hour does not retry the gate query"
+    );
 }

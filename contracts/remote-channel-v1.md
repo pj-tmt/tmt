@@ -2459,8 +2459,9 @@ cleanup observes them older than 24 hours. The same hourly maintenance pass also
 machine's gates by `expiresAt <= now`, in expiry order with limit one, and deletes at most the
 existing operation cap. Strict gate admission precedes deletion; live or foreign-machine gates
 are never selected. A failed or ambiguous deletion stops the pass; a later pass observes the
-remaining documents rather than blindly retrying. Query/deletion uses the shared native
-Auth/runtime/budget and call deadline; logical invite expiry remains ten minutes even offline.
+remaining documents rather than blindly retrying. Gate collection is best-effort: a denied or failed
+query/delete never stops enrolled reconciliation or local receipt pruning, and its hourly attempt
+is recorded even on failure. Query/deletion uses the shared native Auth/runtime/budget and call deadline; logical invite expiry remains ten minutes even offline.
 No enrolled peer still means no provider polling. Before a new explicit `tmt remote invite`, the
 same bounded gate-only cleanup runs best-effort without blocking the new ceremony on failure.
 If a first invite was interrupted before any peer enrolled, its stale gate is collected by that
