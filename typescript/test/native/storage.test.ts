@@ -137,6 +137,7 @@ function expectNativeSchema(
     { version: 62, name: 'retain an inactive resume record per driver' },
     { version: 63, name: 'record refused runtime starts on their binding' },
     { version: 64, name: 'index the passthrough turns an originator has had answered' },
+    { version: 65, name: 'let a request carry a remote route' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -507,6 +508,11 @@ function expectNativeSchema(
       withdrawal_reason: null,
       // Schema 57: rows from before origins were recorded stay NULL (unknown).
       origin: null,
+      // Schema 65: only a remote route carries these.
+      remote_ref: null,
+      remote_target_id: null,
+      remote_target_name: null,
+      remote_sender_name: null,
     }))
   );
   expect(newAttempts.columns.map(({ name }) => name)).toContain('route_kind');
@@ -516,6 +522,10 @@ function expectNativeSchema(
     ['withdrawn_at_ms', 'INTEGER'],
     ['withdrawal_reason', 'TEXT'],
     ['origin', 'TEXT'],
+    ['remote_ref', 'TEXT'],
+    ['remote_target_id', 'TEXT'],
+    ['remote_target_name', 'TEXT'],
+    ['remote_sender_name', 'TEXT'],
   ]) {
     expect(newAttempts.columns.find((column) => column.name === name)).toMatchObject({
       name,

@@ -27,9 +27,13 @@ configuration. The owner map is in
   rebuilds a table, must recreate its triggers: `change_cursor_tests` fails until every table is
   covered or deliberately excluded and every column compared.
 - Host columns on `bindings`, `request_attempts`, `request_responses` and `host_servers` accept any
-  host name (1 to 32 of `[a-z0-9-]`, starting with a letter); NULL is tmux; inbox routes carry no
-  host. `host_servers` holds TMT's UUIDv4 per server incarnation of a host without its own
+  host name (1 to 32 of `[a-z0-9-]`, starting with a letter); NULL is tmux; inbox and remote routes
+  carry no host. `host_servers` holds TMT's UUIDv4 per server incarnation of a host without its own
   server-level store.
+- `request_attempts.route_kind` is `pane`, `inbox` or `remote`, and CHECKs tie each kind to its own
+  columns. A remote route stores the Remote reference, an optional target UUID, the target name and
+  the sender name; it has no local recipient or pane, so recipient-keyed readers never list it and
+  `find_active_request` never matches it. `request_responses` has no remote route.
 - Metadata is one value per key per identity UUID, at most 64 entries, revalidated against the
   active UUID inside the write transaction; retirement hides it and a same-name successor inherits
   nothing. Status is one atomic record per active UUID.
