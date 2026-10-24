@@ -134,7 +134,8 @@ function ShellHeader() {
 
 function ShellFrame({ params }: { params: URLSearchParams }) {
   const view = useMemo<ShellView>(() => {
-    const place = { origin, href: `${origin}/colab/pages` };
+    const path = params.get('page') === 'project' ? '/colab/p/release' : '/colab/pages';
+    const place = { origin, href: `${origin}${path}` };
     const colab = answer.modules[0]!;
     const menu = params.get('menu') === 'none' ? undefined : describedMenu(colab, place);
     if (menu) menu.groups[0]!.items[0]!.total = 12;
