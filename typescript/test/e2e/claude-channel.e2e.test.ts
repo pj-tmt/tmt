@@ -1315,9 +1315,9 @@ describe('Claude channel delivery', { concurrent: false }, () => {
             ])
           ).code
         ).toBe(0);
-        const board = fixture.createShellPane('chat-board').pane;
         const keyTrace = path.join(fixture.root, 'ops-key-trace.jsonl');
         fixture.tmux(['set-environment', '-g', 'TMT_OPS_TEST_KEY_TRACE', keyTrace]);
+        const board = fixture.createShellPane('chat-board').pane;
         await fixture.attachSessionClient('e2e');
         fixture.tmux(['select-window', '-t', board]);
         fixture.tmux(['select-pane', '-t', board]);
