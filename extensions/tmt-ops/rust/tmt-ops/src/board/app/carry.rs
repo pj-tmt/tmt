@@ -27,6 +27,7 @@ impl App {
             // A proven-gone target has the destination's ordinary cold default.
             if hint.selected.is_none() {
                 self.workspace.selected = None;
+                self.trace_selection(concat!(file!(), ":", line!()));
             }
         }
         self.carry(resume);
@@ -152,6 +153,7 @@ impl App {
         match resume.selected {
             Some(RowTarget::Workspace(target)) => {
                 self.workspace.selected = Some(target);
+                self.trace_selection(concat!(file!(), ":", line!()));
             }
             Some(anchor) => self.follow_member(&anchor),
             None => {}

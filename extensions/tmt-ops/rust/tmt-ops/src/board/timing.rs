@@ -123,6 +123,39 @@ impl Trace {
         (Self::new(Sink::Buffer(buffer.clone())), buffer)
     }
 
+    /// Test evidence only. Resolve once at interactive startup, never per key.
+    pub fn navigation_from_env() -> Option<Self> {
+        Self::navigation_destination(std::env::var_os("TMT_OPS_TEST_KEY_TRACE").as_deref())
+    }
+
+    fn navigation_destination(value: Option<&OsStr>) -> Option<Self> {
+        match value {
+            None => None,
+            Some(value) if value.is_empty() || value == "0" => None,
+            Some(path) => Self::open(Destination::File(path.into())),
+        }
+    }
+
+    pub(super) fn navigation(&self, mut record: serde_json::Value) {
+        record["version"] = json!(1);
+        record["pid"] = json!(std::process::id());
+        record["elapsed_us"] = json!(self.0.started.elapsed().as_micros());
+        self.record(&record);
+    }
+
+    fn record(&self, record: &serde_json::Value) {
+        let mut sink = self.0.sink.lock().unwrap();
+        if matches!(*sink, Sink::Disabled) {
+            return;
+        }
+        let mut bytes = serde_json::to_vec(record).expect("diagnostic record is JSON");
+        bytes.push(b'\n');
+        if let Err(error) = sink.write(&bytes) {
+            *sink = Sink::Disabled;
+            report(&error);
+        }
+    }
+
     pub fn startup(&self) -> Load {
         Load {
             trace: self.clone(),
@@ -167,10 +200,6 @@ impl Load {
     }
 
     fn emit(&self, event: &str, stage: &str, duration: Duration, ok: bool) {
-        let mut sink = self.trace.0.sink.lock().unwrap();
-        if matches!(*sink, Sink::Disabled) {
-            return;
-        }
         let record = json!({
             "version": 1, "pid": std::process::id(), "load_id": self.id,
             "generation": self.generation, "tab": self.tab, "event": event, "stage": stage,
@@ -178,12 +207,7 @@ impl Load {
             "status": if !ok { "error" } else if self.partial { "partial" } else { "ok" },
             "deferred_pending": self.pending,
         });
-        let mut bytes = serde_json::to_vec(&record).expect("timing record is JSON");
-        bytes.push(b'\n');
-        if let Err(error) = sink.write(&bytes) {
-            *sink = Sink::Disabled;
-            report(&error);
-        }
+        self.trace.record(&record);
     }
 
     pub fn finish(&self, started: Instant, ok: bool) {

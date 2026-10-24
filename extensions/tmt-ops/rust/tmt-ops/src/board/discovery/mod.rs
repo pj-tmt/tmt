@@ -135,6 +135,7 @@ impl super::app::App {
         }
         self.search.clear();
         self.workspace.selected = Some(target);
+        self.trace_selection(concat!(file!(), ":", line!()));
         self.shell.tab = OpsTab::Agents;
         self.focus = 0;
         self.workspace_reconcile();

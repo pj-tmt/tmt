@@ -1108,11 +1108,16 @@ fn session(
                 dirty = true;
                 Effect::None
             }
-            Ok(BoardEvent::Input(Event::Key(key))) if key.kind == KeyEventKind::Press => {
-                dirty = true;
-                view_state::input(state.as_deref_mut(), app, Some(key.code), |app| {
-                    app.key(key)
-                })
+            Ok(BoardEvent::Input(Event::Key(key))) => {
+                if key.kind == KeyEventKind::Press {
+                    dirty = true;
+                    view_state::input(state.as_deref_mut(), app, Some(key.code), |app| {
+                        app.key(key)
+                    })
+                } else {
+                    app.trace_key("key_ignored", key);
+                    Effect::None
+                }
             }
             Ok(BoardEvent::Input(Event::Mouse(mouse))) => {
                 if mouse.kind == MouseEventKind::Moved {
@@ -1535,6 +1540,7 @@ pub fn run(
     };
     app.workspace.visibility.scope = scope.into_iter().map(|squad| squad.room_id).collect();
     app.timing = trace.map(timing::Ui::new);
+    app.navigation_trace = timing::Trace::navigation_from_env();
     app.migration_notice = core.paths.board_notice();
     app.set_notice(
         crate::migration::paths(&core, None)?
@@ -3179,6 +3185,38 @@ print(json.dumps(out))
         )
         .unwrap();
         (app, root)
+    }
+
+    #[test]
+    fn ignored_key_kinds_are_traced_without_applying_navigation() {
+        use app::workspace::tests::{ROOM, board};
+        let mut app = board();
+        app.workspace.selected = Some(workspace::OpsTarget::Squad(ROOM.into()));
+        let (trace, bytes) = timing::Trace::buffer();
+        app.navigation_trace = Some(trace);
+        let mut end = KeyEvent::new(KeyCode::End, KeyModifiers::NONE);
+        end.kind = KeyEventKind::Release;
+        run_session(
+            &mut app,
+            vec![BoardEvent::Input(Event::Key(end)), BoardEvent::InputClosed],
+        );
+        assert_eq!(
+            app.workspace.selected,
+            Some(workspace::OpsTarget::Squad(ROOM.into()))
+        );
+        let rows: Vec<serde_json::Value> = String::from_utf8(bytes.lock().unwrap().clone())
+            .unwrap()
+            .lines()
+            .map(|s| serde_json::from_str(s).unwrap())
+            .collect();
+        let ignored = rows
+            .iter()
+            .find(|r| r["event"] == "key_ignored")
+            .expect("received non-Press keys must remain visible in failure evidence");
+        assert_eq!(ignored["key"], "End");
+        assert_eq!(ignored["kind"], "Release");
+        assert_eq!(ignored["selected"]["roomId"], ROOM);
+        assert!(!rows.iter().any(|r| r["event"] == "action"));
     }
 
     fn run_session(app: &mut App, events: Vec<BoardEvent>) -> Option<i32> {
