@@ -320,10 +320,10 @@ Attach/focus and the Ops stream are not yet shipped.
   declarations. `tmt ls` publishes it as
   [`driverSupport`](../../../../contracts/identity-status-v1.md#list-driver-support).
 
-  | Level   | Drivers                                         | Provides                                                                                                                      |
-  | ------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-  | `full`  | Claude, Codex                                   | detection, launch, skills, lifecycle hooks (activity, model, consumption), resume, optional message channel                   |
-  | `basic` | Gemini, Antigravity (`agy`), Pi, OpenCode, Muse | detection, skills and `tmt install` only; no driver launch, activity, model, usage or resume, so those stay blank, never idle |
+  | Level   | Drivers                            | Provides                                                                                                                      |
+  | ------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+  | `full`  | Claude, Codex, Antigravity (`agy`) | detection, launch, skills, lifecycle hooks (activity, model, consumption), resume, optional message channel                   |
+  | `basic` | Gemini, Pi, OpenCode, Muse         | detection, skills and `tmt install` only; no driver launch, activity, model, usage or resume, so those stay blank, never idle |
 
   Herdr is not an agent driver: it is an external **host** driver (pane discovery and
   delivery, [driver protocol](../../../../contracts/driver-protocol-v1.md)) with no level,

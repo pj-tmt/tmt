@@ -385,6 +385,55 @@ fn claude_message(line: &str) -> Result<Option<Message>, ()> {
     }))
 }
 
+/// Ok(None) is a foreign, sidechain or synthetic record; Err means a main
+/// assistant record cannot establish its consumption safely.
+fn agy_message(line: &str) -> Result<Option<Message>, ()> {
+    if !line.contains("\"PLANNER_RESPONSE\"")
+        && !line.contains('\\')
+        && line
+            .bytes()
+            .filter(|b| matches!(b, b'{' | b'['))
+            .take(128)
+            .count()
+            < 128
+    {
+        serde_json::from_str::<&serde_json::value::RawValue>(line).map_err(|_| ())?;
+        return Ok(None);
+    }
+    let entry: Value = serde_json::from_str(line).map_err(|_| ())?;
+    if entry["type"] != "PLANNER_RESPONSE" || entry["source"] != "MODEL" {
+        return Ok(None);
+    }
+    if entry["status"] != "DONE"
+        && entry.get("input_tokens").is_none()
+        && entry.get("output_tokens").is_none()
+    {
+        return Ok(None);
+    }
+    let cached = optional_count(&entry, "cache_read_tokens").ok_or(())?;
+    let counts = Counts {
+        input: entry["input_tokens"]
+            .as_u64()
+            .ok_or(())?
+            .checked_add(cached)
+            .ok_or(())?,
+        output: entry["output_tokens"].as_u64().ok_or(())?,
+        cached,
+    };
+    let step_index = entry["step_index"].as_u64().ok_or(())?;
+    let id = fingerprint(&step_index.to_string()).ok_or(())?;
+    if !counts.valid() {
+        return Err(());
+    }
+    Ok(Some(Message {
+        id,
+        request: None,
+        counts,
+        cache_write: None,
+        model: attribution::model(&entry["model"]),
+    }))
+}
+
 /// First observation baselines at EOF, without replaying historical requests.
 /// A lost cursor also baselines at EOF, explicitly marked as a gap.
 pub fn claude(
@@ -397,11 +446,35 @@ pub fn claude(
     claude_until(root, path, previous, now, || Instant::now() >= deadline)
 }
 
+pub fn agy(
+    root: &Path,
+    path: &Path,
+    previous: Option<&State>,
+    now: u64,
+    deadline: Instant,
+) -> Option<State> {
+    appended_until(root, path, previous, now, agy_message, false, || {
+        Instant::now() >= deadline
+    })
+}
+
 fn claude_until(
     root: &Path,
     path: &Path,
     previous: Option<&State>,
     now: u64,
+    expired: impl FnMut() -> bool,
+) -> Option<State> {
+    appended_until(root, path, previous, now, claude_message, true, expired)
+}
+
+fn appended_until(
+    root: &Path,
+    path: &Path,
+    previous: Option<&State>,
+    now: u64,
+    parse: fn(&str) -> Result<Option<Message>, ()>,
+    tracks_cache_write: bool,
     mut expired: impl FnMut() -> bool,
 ) -> Option<State> {
     if now == 0 || !is_valid_js_safe_integer(now) {
@@ -434,17 +507,20 @@ fn claude_until(
     let Some(previous) = previous else {
         if end == 0 {
             let mut next = baseline(false);
-            next.value.cache_write_tokens = Some(0);
+            if tracks_cache_write {
+                next.value.cache_write_tokens = Some(0);
+            }
             next.value.delta_by_model = Some(Vec::new());
             return Some(next);
         }
         // Absorb the last historical group if later content-block records
         // for it are appended. IDs absent from legacy fixtures mean no counter.
-        let message =
-            transcript::latest_at(&mut file, end, |line| claude_message(line).ok().flatten())?;
+        let message = transcript::latest_at(&mut file, end, |line| parse(line).ok().flatten())?;
         let mut next = baseline(false);
         next.value.complete = boundary;
-        next.value.cache_write_tokens = Some(0);
+        if tracks_cache_write {
+            next.value.cache_write_tokens = Some(0);
+        }
         next.value.model_id = message.model;
         next.value.delta_by_model = Some(Vec::new());
         let cursor = next.cursor.as_mut()?;
@@ -523,7 +599,7 @@ fn claude_until(
         if expired() {
             break false;
         }
-        let parsed = claude_message(line);
+        let parsed = parse(line);
         raw.clear();
         // Checkpoint only after validation, even if parsing crossed the
         // deadline. The next iteration checks time before reading more.

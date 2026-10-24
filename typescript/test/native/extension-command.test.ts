@@ -200,7 +200,7 @@ describe('PATH extension command contract', () => {
       );
       expect((await runCli(sandbox, ['ls', '--help'])).stdout).not.toContain('WRONG EXTENSION');
       expect((await runCli(sandbox, ['__complete', '--', 'run', ''])).stdout).toBe(
-        'identities\nclaude\ncodex\n'
+        'identities\nclaude\ncodex\nagy\n'
       );
       const help = await runCli(sandbox, ['help']);
       expect(help.stdout).toContain('\nExtensions:\n');
