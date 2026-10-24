@@ -235,16 +235,24 @@ impl Database {
         slot: &Slot,
         decode: impl FnOnce(Option<&[u8]>) -> Result<T, E>,
     ) -> Result<T, StateFailure<E>> {
-        let stored = self
+        let mut stored = self
             .store
             .read(|transaction| select(transaction, slot))
             .map_err(sql_refusal)?;
-        if stored.is_none() && exists(&slot.legacy)? {
-            return self.update(
-                slot,
-                |bytes| decode(bytes).map(|value| (None, value)),
-                |_, _| Ok(()),
-            );
+        if stored.is_none() {
+            if exists(&slot.legacy)? {
+                return self.update(
+                    slot,
+                    |bytes| decode(bytes).map(|value| (None, value)),
+                    |_, _| Ok(()),
+                );
+            }
+            // Another process may have imported the file and archived it after the snapshot
+            // above: it commits the row before the rename, so a second look finds it.
+            stored = self
+                .store
+                .read(|transaction| select(transaction, slot))
+                .map_err(sql_refusal)?;
         }
         let value = decode(stored.as_deref()).map_err(StateFailure::Change)?;
         if stored.is_some() {

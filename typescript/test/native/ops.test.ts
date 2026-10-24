@@ -4191,7 +4191,14 @@ describe('Squad checklist native commands', () => {
       expect(await events()).toMatchObject({
         status: 0,
         stderr: '',
-        body: { action: 'events', roomId: f.roomId, events: [], nextCursor: 0, more: false, gap: null },
+        body: {
+          action: 'events',
+          roomId: f.roomId,
+          events: [],
+          nextCursor: 0,
+          more: false,
+          gap: null,
+        },
       });
       expect(existsSync(f.directory)).toBe(false);
 
@@ -4199,13 +4206,13 @@ describe('Squad checklist native commands', () => {
         (await cli(['create', 'Manually authored', ...f.selected, '--expect-inventory', 'absent']))
           .status
       ).toBe(0);
-      expect(
-        (await cli(['complete', ...f.selected, '--expect-revision', '1'])).body.changed
-      ).toBe(true);
+      expect((await cli(['complete', ...f.selected, '--expect-revision', '1'])).body.changed).toBe(
+        true
+      );
       // Already complete: nothing moved, so nothing is logged.
-      expect(
-        (await cli(['complete', ...f.selected, '--expect-revision', '2'])).body.changed
-      ).toBe(false);
+      expect((await cli(['complete', ...f.selected, '--expect-revision', '2'])).body.changed).toBe(
+        false
+      );
       expect(
         (await cli(['edit', ...f.selected, '--expect-revision', '2', '--title', 'Renamed'])).status
       ).toBe(0);
@@ -4240,9 +4247,9 @@ describe('Squad checklist native commands', () => {
       expect(logged.every((event, index) => index === 0 || event.id > logged[index - 1]!.id)).toBe(
         true
       );
-      expect(logged.every((event, index) => index === 0 || event.atMs >= logged[index - 1]!.atMs)).toBe(
-        true
-      );
+      expect(
+        logged.every((event, index) => index === 0 || event.atMs >= logged[index - 1]!.atMs)
+      ).toBe(true);
       // The log carries identities and revisions, never the authored content.
       expect(JSON.stringify(all.body)).not.toContain('Renamed');
       expect(all.body).toMatchObject({ nextCursor: logged[2]!.id, more: false, gap: null });
@@ -4262,7 +4269,12 @@ describe('Squad checklist native commands', () => {
         body: { events: [], nextCursor: logged[2]!.id, more: false, gap: null },
       });
 
-      for (const bad of [['--limit', '0'], ['--limit', '501'], ['--after', '-1'], ['--after', 'x']]) {
+      for (const bad of [
+        ['--limit', '0'],
+        ['--limit', '501'],
+        ['--after', '-1'],
+        ['--after', 'x'],
+      ]) {
         expect(await events(bad)).toMatchObject({
           status: 1,
           body: { error: { code: 'CHECKLIST_INPUT_INVALID' } },
