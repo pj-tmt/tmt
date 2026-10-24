@@ -1,6 +1,21 @@
-//! Remote's native carrier namespace. Not an extension fragment or deploy-plan activation.
-/// Emulator qualification artifact. Its cap is generated from the same named document bound.
+//! Remote-owned native policy. Extension fragments cannot supply or replace this namespace.
+/// Qualification uses the ordinary deployment composer, including its final default deny.
 pub fn artifact() -> String {
+    let plan = crate::deploy_plan::compose(
+        crate::deploy_plan::Target {
+            backend: crate::deploy_plan::CloudBackend::Firestore,
+            physical_ttl: false,
+        },
+        &[],
+    )
+    .expect("fixed native Rules plan");
+    crate::rules::compose(&plan, &[])
+        .expect("fixed native Rules composition")
+        .rules
+}
+
+/// Trusted built-in body only; untrusted extension bytes still use the confined parser.
+pub(crate) fn namespace() -> String {
     include_str!("../../assets/cloud-inbox.rules")
         .replace(
             "CLOUD_CARRIER_BYTES",

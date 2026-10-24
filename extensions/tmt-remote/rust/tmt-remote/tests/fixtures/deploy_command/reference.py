@@ -37,6 +37,7 @@ def project(view, digest):
             f"Authorizing plan {digest[:12]} allows this replacement.",
         ])
     lines.extend("Destructive change: " + item for item in view["destructive"] if not item.startswith("replaces-rules:"))
+    lines.append("Agent talk Rules: /m/{machine}; carrier bound 778680 B")
     lines.append("Extensions and resources:")
     for extension in extensions["extensions"]:
         lines.append(f'{extension["name"]} (declaration {extension["declarationDigest"][:12]})')

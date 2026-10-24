@@ -2501,9 +2501,14 @@ owned state through a fresh signed session, without resending work.
 ### Shipped: layer-1 composition
 
 The composition below is shipped and is not part of the superseded admission-service proposal.
-In the `sharing` profile, Remote builds `firestore.rules` from text it owns (`rules_version`, one
-`match /x/<extension>` wrapper per extension of the plan, a default deny) and each extension's admission fragment, which
-it tokenizes and rebuilds, never splices. A fragment holds only nested `match` and `allow <methods>: if <condition>`
+In the `sharing` profile, Remote builds `firestore.rules` from text it owns (`rules_version`,
+the native `/m/{machine}` agent-talk namespace, one `match /x/<extension>` wrapper per extension
+of the plan, a default deny) and each extension's admission fragment, which it tokenizes and
+rebuilds, never splices. The native policy comes from the same generated-cap artifact used by
+carrier and enrollment qualification; extension fragments cannot replace it or escape their wrapper.
+The exact composed bytes are covered by the deployment's Rules digest and existing authorization.
+The full human plan names the native namespace and its bounds; JSON retains the existing Rules digest.
+A fragment holds only nested `match` and `allow <methods>: if <condition>`
 statements over an allow-list of request and document fields, operators and methods. Field/index
 postfix access includes `request.auth.token.firebase.sign_in_provider`; `+` supports string-ID
 composition without type checking. Nested match wildcards can compare document fields and enclosing
@@ -2522,7 +2527,10 @@ interests and discovery (optional sequence equality, document-name order) use Fi
 The canonical composite union is digest-bound and deduplicated across extensions by collection ID and ordered
 fields; no extension-specific field names are built in. TTL is written only when the target provisions it.
 Either more than 200 single-field configurations or more than 200 composites without billing is refused as
-`too-many-index-configs`, with no artifact (limits checked 2026-10-14). The device inbox, permit, chunk, response and checkpoint Rules above wait for the admission service.
+`too-many-index-configs`, with no artifact (limits checked 2026-10-14). Native inbox and enrollment
+queries use the automatic collection-scope `createdAt` ascending index and its same-direction
+`__name__` suffix; they require no composite. The superseded admission-service policy above
+is not deployed.
 
 ### Proposal: Cloudflare Worker and Durable Objects
 
@@ -3335,9 +3343,10 @@ sender, reader and guard work before releasing keys or opening a successor.
 
 ### Authorized deploy
 
-**Shipped:** the Firestore extension-sharing deployment described under **Current implementation**
-below. The operation-root/admission-service and Cloudflare provisioning in the following profile
-remain **proposed**; the shipped deploy does not enable cloud agent operations.
+**Shipped:** the Firestore deployment described under **Current implementation** below includes
+extension-sharing Rules and the native agent-talk carrier/enrollment policy. Publishing that
+policy does not enroll a peer or grant agent access. The superseded admission-service and
+Cloudflare provisioning in the following profile remain **proposed**.
 
 `tmt remote deploy <backend>` composes Remote's resources and all enabled extension declarations
 into one deployment in the owner's account. Before effects it shows the exact account/project,

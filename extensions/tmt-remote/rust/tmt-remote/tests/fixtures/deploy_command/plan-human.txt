@@ -8,6 +8,7 @@ Index configs: 3
 Roles: none created
 TTL: not set up
 Plan digest: 3bc5d86b6c19
+Agent talk Rules: /m/{machine}; carrier bound 778680 B
 Extensions and resources:
 colab (declaration de413d45bc3d)
   Admission: colabAdmitted (artifact f055b672317c)
