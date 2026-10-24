@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { commentsRegion } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import {
@@ -298,7 +299,7 @@ for (const [destination, forceFallback] of [
       if (destination === 'Proposal') {
         await expect(target).toHaveAttribute('data-proposal-id', proposalId!);
         if (detached)
-          await expect(page.locator('dialog:modal[data-panel="comments"]')).toBeVisible();
+          await expect(commentsRegion(page)).toBeVisible();
       }
       await expect(target).toBeFocused();
       await expect(target).toHaveAttribute('data-arrived', '');

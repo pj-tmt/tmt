@@ -93,8 +93,12 @@ for (const width of [1440, 390])
       await entries.first().click();
       await page.keyboard.press('Home');
       await expect.poll(() => scroller.evaluate((node) => node.scrollTop)).toBe(0);
-      await page.keyboard.press('End');
-      await expect.poll(() => visibleIn(last)).toBe(true);
+      // Chrome animates keyboard scrolls and can drop a key pressed into the tail of the previous
+      // scroll, so the key is pressed again until the end shows.
+      await expect(async () => {
+        await page.keyboard.press('End');
+        await expect.poll(() => visibleIn(last), { timeout: 1000 }).toBe(true);
+      }).toPass({ timeout: 10000 });
 
       await page.screenshot({ path: await capturePath(`comments-scroll-${width}-${theme}.png`) });
     });
@@ -107,6 +111,10 @@ test('a message arriving in the Comments panel stays reachable and does not move
   await scroller.evaluate((node) => {
     node.scrollTop = 0;
   });
+  // The scroll event reports the reader's new place on the next frame, before any arrival.
+  await scroller.evaluate(
+    () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+  );
   await run(page, 'scrollArrival');
   await expect(entries).toHaveCount(41);
   expect(await scroller.evaluate((node) => node.scrollTop)).toBe(0);
@@ -206,10 +214,29 @@ test('the on-screen keyboard shrinks the Comments message area and the reply fie
   expect(Math.abs(resting - bar!.height - 2 * line)).toBeLessThanOrEqual(1);
   // The composer is fully on screen and messages keep room above it.
   expect(box!.height - bar!.height).toBeGreaterThan(100);
-  // The last message stays reachable above the pinned composer.
+  // The last message stays reachable above the composer. The sheet is 75dvh high, so at the end of
+  // the scroll (the composer resting above the Resolve footer) it can leave less room than the
+  // message is tall: the message then fills that room and ends on the composer.
   await scroller.evaluate((node) => {
     node.scrollTop = node.scrollHeight;
   });
-  await expect.poll(() => visibleIn(panel.getByTestId('comment-entry').last())).toBe(true);
+  await expect
+    .poll(() =>
+      panel
+        .getByTestId('comment-entry')
+        .last()
+        .evaluate((node) => {
+          const body = node.closest('.tmt-ui-drawer-body')!.getBoundingClientRect();
+          const bar = node
+            .closest('.comments-panel')!
+            .querySelector('.conversation-composer')!
+            .getBoundingClientRect();
+          const item = node.getBoundingClientRect();
+          const room = bar.top - body.top;
+          const shown = Math.min(item.bottom, bar.top) - Math.max(item.top, body.top);
+          return item.bottom <= bar.top + 1 && shown >= Math.min(item.height, room) - 1;
+        }),
+    )
+    .toBe(true);
   await page.screenshot({ path: await capturePath('comments-composer-390-focused-short.png') });
 });

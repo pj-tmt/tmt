@@ -1043,7 +1043,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comments-panel .conversation-composer:has(> .annotation-compose[data-connection='ended']) {
   position: static;
 }
-/* Pinned flush with the drawer's bottom edge, so it does not shift at the end of the scroll. */
+/* Pinned flush with the panel's bottom edge, so it does not shift at the end of the scroll. */
 .tmt-ui-drawer-body:has(.comments-panel .conversation-composer) {
   padding-bottom: 0;
 }
@@ -1653,8 +1653,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comment-thread[data-layout='discussion'] .conversation-composer {
   background: var(--tmt-ui-surface-sheet);
 }
-/* The position (n / N) ends the drawer heading, next to Close, as on the website. */
-.tmt-ui-drawer[data-panel='comments'] .tmt-ui-drawer-heading {
+/* The position (n / N) ends the panel heading, next to Close, as on the website. */
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-heading {
   flex: 1;
   justify-content: space-between;
 }
@@ -2225,12 +2225,11 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .chat-panel .comment-header-end {
   flex: 0 0 34px;
 }
-/* A drawer's plain buttons take no fill or edge, except where the control owns its look: the list
-   row's rule and the view tab's selection tint (the only tabs in a drawer are Comments'). */
-.tmt-ui-drawer
-  button:not(.tmt-ui-action):not(.annotation-row):not(.tmt-ui-tab):not(
-    [data-testid='ask-send']
-  ):not(.tmt-ui-menu-item):not(.tmt-ui-menu-trigger) {
+/* A drawer's or panel's plain buttons take no fill or edge. `:where()` leaves the reset at the
+   specificity of the global `button` rule above, which it follows, so any control that owns its look
+   (the leaf's actions, tabs and menus, the list row's rule, the send button) wins with its own class
+   and needs no entry here. */
+:where(.tmt-ui-drawer, .tmt-ui-panel) button {
   background: transparent;
   border: 0;
   box-shadow: none;

@@ -147,8 +147,9 @@ async function flat(message: Locator) {
   expect(bounds.right).toBeLessThanOrEqual(1);
 }
 async function shell(window: Locator) {
-  // Chat and the Discussion view live in the drawer and use its header; a window draws its own bar.
-  const drawer = await window.evaluate((node) => !!node.closest('.tmt-ui-drawer'));
+  // Chat (a drawer) and the Discussion view (the Comments panel) use the shared header; a window
+  // draws its own bar.
+  const drawer = await window.evaluate((node) => !!node.closest('.tmt-ui-drawer, .tmt-ui-panel'));
   await expect(
     drawer
       ? openPanel(window.page()).locator(':scope > .tmt-ui-drawer-header')
@@ -174,7 +175,9 @@ async function shell(window: Locator) {
   for (const button of await window.locator('.conversation-composer button').all())
     await expect(button).toBeInViewport();
   const bounds = await window.evaluate((node) => {
-    const drawerHeader = node.closest('.tmt-ui-drawer')?.querySelector('.tmt-ui-drawer-header');
+    const drawerHeader = node
+      .closest('.tmt-ui-drawer, .tmt-ui-panel')
+      ?.querySelector('.tmt-ui-drawer-header');
     const header = (drawerHeader ??
       node.querySelector('.conversation-window-bar'))!.getBoundingClientRect();
     const actions = (drawerHeader?.querySelector('button') ??
@@ -1448,17 +1451,28 @@ for (const surface of ['chat', 'thread'] as const)
       const window =
         surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
       await run(page, 'conversationMessageState', { state: asked('sendable') });
-      const [clock, send, check] = await Promise.all(
+      // The countdown is inline text that wraps in a narrow window (the Comments column is 286px):
+      // its last line is the one Send now follows.
+      const clock = await window
+        .getByTestId('ask-state')
+        .locator('.agent-activity-clock')
+        .evaluate((node) => {
+          const line = [...node.getClientRects()].at(-1)!;
+          return { x: line.x, y: line.y, width: line.width, height: line.height };
+        });
+      const [send, check] = await Promise.all(
         [
-          window.getByTestId('ask-state').locator('.agent-activity-clock'),
           window.getByRole('button', { name: text.sendNow }),
           window.getByRole('button', { name: text.askRecheck }),
         ].map((locator) => locator.boundingBox()),
       );
       if (width === 390) expect(send!.height).toBeGreaterThanOrEqual(44);
-      expect(send!.x).toBeGreaterThanOrEqual(clock!.x + clock!.width);
-      expect(check!.x).toBeGreaterThanOrEqual(send!.x + send!.width);
-      expect(Math.abs(send!.y + send!.height / 2 - (clock!.y + clock!.height / 2))).toBeLessThan(
+      expect(send!.x).toBeGreaterThanOrEqual(clock.x + clock.width);
+      // Check again follows on the same line, or wraps to a later line when this one has no room.
+      expect(check!.x >= send!.x + send!.width || check!.y >= send!.y + send!.height / 2).toBe(
+        true,
+      );
+      expect(Math.abs(send!.y + send!.height / 2 - (clock.y + clock.height / 2))).toBeLessThan(
         send!.height / 2,
       );
     });

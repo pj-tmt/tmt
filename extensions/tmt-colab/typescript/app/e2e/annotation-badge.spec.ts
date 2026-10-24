@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { destination } from '../test/ask-fixtures.js';
 import { capturePath } from './captures.js';
-import { commentsRegion, openPanel } from '../test/comments-region.js';
+import { commentsRegion } from '../test/comments-region.js';
 import { pageAction } from '../test/page-actions.js';
 
 const fixture = '/test/ask-page-browser.tsx';
@@ -201,9 +201,10 @@ test('a row opens the Discussion view: status line, title, passage, turns, reply
   await drawer.getByRole('button', { name: 'All comments', exact: true }).click();
   await expect(drawer.getByRole('heading', { level: 2 })).toHaveText('Comments');
   await expect(drawer.getByRole('tablist', { name: 'Comment views' })).toBeVisible();
-  // Show in the page leaves the drawer for the passage.
+  // Show in the page scrolls to the passage; the non-modal panel stays beside or over it.
   await drawer.getByRole('tab', { name: 'Resolved', exact: true }).click();
   await drawer.getByTestId('annotation-row').click();
   await drawer.getByRole('button', { name: 'Show in the page', exact: true }).click();
-  await expect(openPanel(page)).toHaveCount(0);
+  await expect(commentsRegion(page)).toBeVisible();
+  await expect(drawer.getByRole('heading', { level: 2 })).toHaveText('Discussion');
 });
