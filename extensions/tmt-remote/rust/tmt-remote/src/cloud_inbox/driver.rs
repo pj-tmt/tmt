@@ -102,6 +102,11 @@ impl InboxDriver {
                 count += 1;
                 let delivery = async {
                     if let Some(frozen) = self.receiver.receive(&document, now)? {
+                        if !frozen.response_required() {
+                            // Keep the one-way final's local frozen outcome;
+                            // its sender does not need a provider response.
+                            return Ok(());
+                        }
                         let frozen = Arc::new(frozen);
                         let publication = Arc::clone(&frozen);
                         let observed = if frozen.publication_attempted()? {

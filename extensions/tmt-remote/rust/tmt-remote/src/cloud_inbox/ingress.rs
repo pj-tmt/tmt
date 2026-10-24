@@ -25,8 +25,12 @@ pub(crate) struct Reply {
     id: String,
     peer: String,
     sessions: Arc<DoorSessions>,
+    response_required: bool,
 }
 impl Reply {
+    pub(crate) fn response_required(&self) -> bool {
+        self.response_required
+    }
     pub(crate) fn publication_attempted(&self) -> Result<bool, RemoteError> {
         self.sessions
             .with_operation_store(|store| store.cloud_publication_attempted(&self.peer, &self.id))
@@ -68,12 +72,18 @@ impl Receiver {
         bytes: Vec<u8>,
         grant: Option<crate::store::Grant>,
     ) -> Reply {
+        // This is our locally sealed response, whose operation was derived from
+        // the verified envelope. Frozen replay keeps that exact owner-produced
+        // result; an unverified carrier never supplies this decision.
+        let response_required = crate::wire::strict_json(&bytes)
+            .is_none_or(|carrier| carrier["header"]["operation"] != "final");
         Reply {
             bytes,
             grant,
             id: document.id().into(),
             peer: document.peer().into(),
             sessions: self.sessions.clone(),
+            response_required,
         }
     }
     fn refuse(
@@ -274,6 +284,13 @@ pub(crate) fn permanent(code: &str) -> bool {
     matches!(
         code,
         "REMOTE_CLOSED"
+            | "RESPONSE_CONFLICT"
+            | "RESPONSE_REQUEST_NOT_FOUND"
+            | "RESPONSE_ATTEMPT_MISMATCH"
+            | "RESPONSE_RECIPIENT_MISMATCH"
+            | "RESPONSE_RECEIPT_MISMATCH"
+            | "RESPONSE_STATE_INVALID"
+            | "RESPONSE_EXPIRED"
             | "REMOTE_GRANT_CHANGED"
             | "REMOTE_SCOPE_DENIED"
             | "REMOTE_INPUT_INVALID"
@@ -292,6 +309,7 @@ pub(crate) fn permanent(code: &str) -> bool {
             | "REMOTE_CLOUD_DESCRIPTOR_REVISION"
             | "REMOTE_CLOUD_UPGRADE_REQUIRED"
             | "REMOTE_CLOUD_TIMESTAMP_INVALID"
+            | "REMOTE_CLOUD_MESSAGE_TOO_LARGE"
             | "REMOTE_CLOUD_MESSAGE_EXPIRED"
     )
 }

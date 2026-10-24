@@ -57,7 +57,82 @@ fn live(connection: &rusqlite::Connection, peer: &str, now: u64) -> Result<Grant
         .ok_or_else(refused)
 }
 
+fn discovery_key(project: &str, peer: &str) -> Result<String, RemoteError> {
+    if !crate::deploy_run::project_ok(project) {
+        return Err(refused());
+    }
+    crate::canonical::uuid(peer).map_err(|_| refused())?;
+    // This namespace cannot collide with enrollment UUIDs or the inbox cursor.
+    Ok(format!("peer-discovery:{project}:{peer}"))
+}
+
 impl Store {
+    /// The joiner creates its receiving grant only after verifying the owner's
+    /// receipt and obtaining its own local sending choice. Re-observation never
+    /// resets policy, revocation, or an existing UID route.
+    pub(crate) fn confirm_reciprocal(
+        &mut self,
+        connection: &Connection,
+        owner_uid: &str,
+        grant: &Grant,
+        local_key: &[u8; 32],
+        talk: bool,
+        reverse_token: &[u8; 32],
+    ) -> Result<Grant, RemoteError> {
+        if self.machine()?.id != connection.peer
+            || !connection.confirmed
+            || !super::uid_ok(owner_uid)
+            || grant.client_id != connection.owner
+            || grant.public_key != connection.owner_key
+            || grant.kind != "cli"
+            || grant.origin != "cli"
+        {
+            return Err(refused());
+        }
+        let project = connection.config["projectId"]
+            .as_str()
+            .ok_or_else(refused)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database)?;
+        if let Some(old) = grant_in(&tx, &grant.client_id)? {
+            if old.public_key != grant.public_key || old.kind != "cli" || old.origin != "cli" {
+                return Err(refused());
+            }
+            return Ok(old);
+        }
+        insert_grant_in(&tx, grant)?;
+        let grant = if talk {
+            crate::store::talk_in(&tx, &grant.client_id, true)?.ok_or_else(refused)?
+        } else {
+            grant.clone()
+        };
+        use sha2::{Digest, Sha256};
+        let reverse_hash = Sha256::digest(reverse_token);
+        tx.execute(
+            "INSERT INTO cloud_peers(project,client_id,owner,owner_key,generation,reroute_hash) VALUES(?1,?2,?3,?4,1,?5)",
+            params![
+                project,
+                connection.owner,
+                connection.peer,
+                local_key.as_slice(),
+                reverse_hash.as_slice()
+            ],
+        )
+        .map_err(database)?;
+        tx.execute(
+            "INSERT INTO cloud_peer_routes VALUES(?1,?2,?3,1,0,1)",
+            params![project, owner_uid, connection.owner],
+        )
+        .map_err(database)?;
+        tx.execute("INSERT INTO cloud_owner_projects(project,config) VALUES(?1,?2) ON CONFLICT(project) DO NOTHING",
+            params![project, connection.config.to_string()]).map_err(database)?;
+        tx.execute("INSERT INTO cloud_remotes(name,owner,connection) VALUES(?1,?2,?3) ON CONFLICT(name) DO UPDATE SET connection=excluded.connection",
+            params![connection.name, connection.owner, serde_json::to_string(connection).map_err(database)?]).map_err(database)?;
+        tx.commit().map_err(database)?;
+        Ok(grant)
+    }
     pub fn prune_cloud_receipts(&self, now: u64) -> Result<(), RemoteError> {
         self.connection.execute("DELETE FROM cloud_pair_receipts WHERE offer IN (SELECT offer FROM cloud_pair_receipts WHERE deadline_ms<=?1 LIMIT ?2)",params![now as i64,crate::journal::OPERATIONS]).map_err(database)?;
         Ok(())
@@ -89,6 +164,22 @@ impl Store {
         self.connection.execute("INSERT INTO cloud_remotes VALUES(?1,?2,?3) ON CONFLICT(name) DO UPDATE SET connection=excluded.connection",params![record.name,record.owner,serde_json::to_string(record).map_err(database)?]).map_err(database)?;
         Ok(())
     }
+    pub(crate) fn cloud_connections(&self) -> Result<Vec<Connection>, RemoteError> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT name FROM cloud_remotes ORDER BY name")
+            .map_err(database)?;
+        let names = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(database)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(database)?;
+        names
+            .into_iter()
+            .map(|name| self.cloud_connection(&name))
+            .collect::<Result<Vec<_>, _>>()
+            .map(|connections| connections.into_iter().flatten().collect())
+    }
     pub fn remember_cloud_owner(
         &self,
         project: &str,
@@ -103,6 +194,50 @@ impl Store {
             .into_iter()
             .map(|v| serde_json::from_str(&v).map_err(database))
             .collect()
+    }
+    /// Negative discovery is polling metadata, never a peer pin or grant.
+    pub(crate) fn cloud_peer_discovery_ready(
+        &self,
+        project: &str,
+        peer: &str,
+        now: u64,
+    ) -> Result<bool, RemoteError> {
+        crate::cloud_inbox::Checkpoint::new(now)?;
+        let key = discovery_key(project, peer)?;
+        let observed: Option<i64> = self.connection.query_row(
+            "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint' AND id=''",
+            [&key], |row| row.get(0),
+        ).optional().map_err(database)?;
+        let observed = observed
+            .map(|time| crate::cloud_inbox::Checkpoint::new(time as u64))
+            .transpose()?;
+        Ok(observed.is_none_or(|time| {
+            now.saturating_sub(time.created_at_ms()) >= crate::limits::CLOUD_PEER_DISCOVERY_RETRY_MS
+        }))
+    }
+    pub(crate) fn cloud_defer_peer_discovery(
+        &mut self,
+        project: &str,
+        peer: &str,
+        now: u64,
+    ) -> Result<(), RemoteError> {
+        self.cloud_complete(&[discovery_key(project, peer)?], now)
+    }
+    pub(crate) fn cloud_project_peers(&self, project: &str) -> Result<Vec<Grant>, RemoteError> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT client_id FROM cloud_peers WHERE project=?1 ORDER BY client_id")
+            .map_err(database)?;
+        let peers = statement
+            .query_map([project], |row| row.get::<_, String>(0))
+            .map_err(database)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(database)?;
+        peers
+            .into_iter()
+            .map(|peer| self.grant(&peer))
+            .collect::<Result<Vec<_>, _>>()
+            .map(|grants| grants.into_iter().flatten().collect())
     }
     pub fn recover_cloud_join(
         &self,
@@ -168,6 +303,7 @@ impl Store {
         response_key: &[u8; 32],
         now: u64,
         talk: bool,
+        reciprocal: Option<Connection>,
     ) -> Result<PairReceipt, RemoteError> {
         let challenge = verified.challenge();
         let candidate = verified.candidate();
@@ -265,6 +401,59 @@ impl Store {
             params![challenge.project, candidate.uid, candidate.peer],
         )
         .map_err(database)?;
+        if let Some(mut record) = reciprocal {
+            if record.version != 1
+                || !record.request.is_empty()
+                || record.owner != candidate.peer
+                || record.owner_key != candidate.public_key
+                || record.peer != challenge.owner
+                || !record.confirmed
+                || record.config["projectId"] != challenge.project
+                || !super::uid_ok(&record.uid)
+                || !crate::remote_catalog::name_ok(&record.name)
+            {
+                return Err(refused());
+            }
+            let old: Option<String> = tx
+                .query_row(
+                    "SELECT connection FROM cloud_remotes WHERE owner=?1",
+                    [&record.owner],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(database)?;
+            if let Some(old) = old {
+                let old: Connection = serde_json::from_str(&old).map_err(database)?;
+                if old.owner_key != record.owner_key || old.peer != record.peer {
+                    return Err(refused());
+                }
+            } else {
+                let occupied: bool = tx
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM cloud_remotes WHERE name=?1)",
+                        [&record.name],
+                        |row| row.get(0),
+                    )
+                    .map_err(database)?;
+                if occupied {
+                    record.name = record.owner.clone();
+                }
+                record.reroute_token = Some(super::wire::reverse_reroute_token(
+                    response_key,
+                    challenge,
+                    &candidate.peer,
+                )?);
+                tx.execute(
+                    "INSERT INTO cloud_remotes VALUES(?1,?2,?3)",
+                    params![
+                        record.name,
+                        record.owner,
+                        serde_json::to_string(&record).map_err(database)?
+                    ],
+                )
+                .map_err(database)?;
+            }
+        }
         crate::audit::append(
             &tx,
             crate::audit::AuditMetadata {

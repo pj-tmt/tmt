@@ -33,6 +33,8 @@ pub const CLOUD_INBOX_PAGE_DOCUMENTS: usize = 4;
 /// Named adaptive cadence, including jitter; local sealed-document policy is unchanged.
 pub const CLOUD_POLL_MIN_MS: u64 = 5_000;
 pub const CLOUD_POLL_IDLE_MS: u64 = 60_000;
+/// Missing legacy peer rows cost at most one discovery read per day, across restart.
+pub const CLOUD_PEER_DISCOVERY_RETRY_MS: u64 = 86_400_000;
 
 /// Fixed native Auth defaults. Policy settings and Keychain are later work.
 pub const FIREBASE_CREDENTIAL_BYTES: usize = 16 * 1024;

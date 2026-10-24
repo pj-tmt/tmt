@@ -536,15 +536,15 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 Owns listener/restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery)
 and `<dataRoot>/remote/` ([state leaf](#shared-extension-state-layout)).
 Home/Remote/SDK; read-only auto-pair; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
-`cloud_hpke`: bytes; `cloud_keys`: renewals; `cloud_inbox`: carriers, private reply binding.
+`cloud_hpke`: bytes; `cloud_keys`: renewals; `cloud_inbox`: carriers/finals, private reply binding.
 
 [Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
 settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
-Remote owns authority; UI grants none. Native invite/join and uid routing.
+Remote: authority, native invite/join, uid routes; UI grants none.
 Firestore: Auth/Rules only; Core never uses Remote trust.
 `message`: wire/grants/scope/allowlist/hold/uncertainty/audit; UUID/name checks.
-`talk --remote` → [message v1](contracts/remote-message-v1.md) → Remote
-Local: `transport`/`routes` → `message` → `session`/`operations`; same-ID public Core API dispatch/recovery.
+`talk --remote` → [message v1](contracts/remote-message-v1.md) → Remote.
+`message` → `session`/`operations`: same-ID Core dispatch/recovery; cloud finals → receipt-bound `reply`.
 Door: `remote-v1.js` ([SDK](extensions/tmt-remote/typescript/remote-client/README.md));
 owner-installed [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`; public CLI/SDK/`tmt-extension-objects` elsewhere; never Remote state files.
 

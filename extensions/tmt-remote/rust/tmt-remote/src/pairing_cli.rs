@@ -189,6 +189,18 @@ pub fn run(arguments: &ArgMatches, join: bool, remote: Option<&str>) -> Result<(
                 }
                 writeln!(stream, "{}", json!({"confirm":matched,"talk":talk}))?;
             }
+            Some("reverse-permission") => {
+                let talk = super::confirm_terminal(
+                    &mut std::io::stdin().lock(),
+                    &mut tmt_cli_style::stream::stderr(),
+                    &stop,
+                    &format!("Let {name} send messages to your agents? [y/N]"),
+                )?;
+                if stop.load(Ordering::Acquire) {
+                    continue;
+                }
+                writeln!(stream, "{}", json!({"talk":talk}))?;
+            }
             Some("connected") => {
                 let talk = event["talk"] == true;
                 if join {
@@ -215,6 +227,12 @@ pub fn run(arguments: &ArgMatches, join: bool, remote: Option<&str>) -> Result<(
                             tmt_remote::state::shell_quote(person)
                         )?;
                     }
+                }
+                if let Some(reference) = event["remote"].as_str() {
+                    writeln!(
+                        output,
+                        "Remote reference: {reference} (use with tmt talk --remote)"
+                    )?;
                 }
                 return Ok(());
             }

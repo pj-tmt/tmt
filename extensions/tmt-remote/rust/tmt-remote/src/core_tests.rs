@@ -7,6 +7,51 @@ use std::{
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 #[test]
+fn cloud_final_uses_fixed_receipt_bound_reply_and_exact_stdin() {
+    let id = "req_44444444-4444-4444-8444-444444444444";
+    let reply = crate::cloud_command::Reply {
+        request_id: id.into(),
+        receipt: "private-local-receipt".into(),
+    };
+    for body in ["", " \r\n\0\u{feff}π\n "] {
+        let fixture = Fixture::new(&format!(
+            "printf '%s\\n' \"$@\" > argv; cat > input; printf '{{\"status\":\"submitted\",\"requestId\":\"{id}\",\"bodyBytes\":{}}}'",
+            body.len()
+        ));
+        fixture
+            .client()
+            .deliver_final(&reply, body, &AtomicBool::new(false))
+            .unwrap();
+        assert_eq!(fs::read(fixture.0.join("input")).unwrap(), body.as_bytes());
+        assert_eq!(
+            fs::read_to_string(fixture.0.join("argv")).unwrap(),
+            format!("reply\n{id}\n--receipt\nprivate-local-receipt\n--stdin\n--json\n")
+        );
+    }
+    let conflict = Fixture::new(
+        "cat > input; printf '{\"error\":{\"code\":\"RESPONSE_CONFLICT\",\"message\":\"Immutable final conflict.\"}}'; exit 5",
+    );
+    assert_eq!(
+        conflict
+            .client()
+            .deliver_final(&reply, "different", &AtomicBool::new(false))
+            .unwrap_err()
+            .code,
+        "RESPONSE_CONFLICT"
+    );
+    let malformed = Fixture::new(
+        "cat > input; printf '{\"status\":\"submitted\",\"requestId\":\"wrong\",\"bodyBytes\":0}'",
+    );
+    assert_eq!(
+        malformed
+            .client()
+            .deliver_final(&reply, "", &AtomicBool::new(false))
+            .unwrap_err()
+            .code,
+        "REMOTE_CORE_UNAVAILABLE"
+    );
+}
+#[test]
 fn storage_root_lookup_obeys_its_callers_deadline_and_reaps_the_probe() {
     let fixture = Fixture::new("printf started > started; exec /bin/sleep 10");
     let began = Instant::now();
