@@ -693,6 +693,20 @@ fn captures() -> Value {
                 }
             }
         }
+        for (look_name, look) in looks() {
+            for state in crate::board::member_links::tests::FILE_SCENES {
+                for width in [160, 100, 80, 60] {
+                    let app = crate::board::member_links::tests::capture_file_case(
+                        state, look, width, 36,
+                    );
+                    let mut captured =
+                        capture_frame(&app, state, look_name, width, 36, &mut styles);
+                    captured["references"] =
+                        json!(crate::board::member_links::tests::capture_file_hits(&app));
+                    frames.push(captured);
+                }
+            }
+        }
         // The Talk pane's live screen of the selected agent, in each state it can be in.
         for (look_name, look) in looks() {
             for state in crate::board::conversation::screen::tests::SCENES {

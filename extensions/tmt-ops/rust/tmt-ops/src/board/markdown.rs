@@ -4,6 +4,7 @@
 //! executes, fetches or turns an untrusted destination into an action.
 
 mod blocks;
+mod files;
 mod inline;
 mod tables;
 
@@ -47,6 +48,7 @@ struct Part {
     style: Style,
     source: usize,
     member: Option<(super::member_links::Target, usize)>,
+    source_range: Option<std::ops::Range<usize>>,
 }
 impl Part {
     fn new(
@@ -60,6 +62,22 @@ impl Part {
             style,
             source,
             member,
+            source_range: None,
+        }
+    }
+
+    fn is_file(&self) -> bool {
+        matches!(
+            &self.member,
+            Some((super::member_links::Target::File(_), _))
+        )
+    }
+
+    fn width(&self) -> usize {
+        if self.is_file() {
+            unicode_width::UnicodeWidthStr::width(self.text.as_str())
+        } else {
+            cells(&self.text)
         }
     }
 }
@@ -89,6 +107,8 @@ struct Renderer<'a> {
     skip_until: usize,
     /// The table whose rows are being read.
     table: Option<tables::Build>,
+    files: Vec<files::Reference>,
+    next_file: usize,
 }
 
 impl Renderer<'_> {
@@ -153,6 +173,65 @@ impl Renderer<'_> {
                 self.source_line,
                 Some((super::member_links::Target::Url(url.into()), occurrence)),
             ));
+        }
+    }
+
+    fn push_file(&mut self, file: files::Reference) {
+        if self.current.is_none() {
+            let indent = self.lists.len() * 2;
+            self.start(" ".repeat(indent), indent);
+        }
+        let mut part = Part::new(
+            file.label(),
+            self.style()
+                .patch(self.look.role(Role::Code))
+                .patch(self.look.role(Role::Track)),
+            self.source_line,
+            Some((
+                super::member_links::Target::File(file.path),
+                self.next_mention,
+            )),
+        );
+        part.source_range = Some(file.range);
+        self.next_mention += 1;
+        self.current
+            .as_mut()
+            .expect("a block is open")
+            .spans
+            .push(part);
+    }
+
+    fn text(&mut self, text: &str, range: std::ops::Range<usize>) {
+        while self.next_file < self.files.len()
+            && self.files[self.next_file].range.end <= range.start
+        {
+            self.next_file += 1;
+        }
+        if self.next_file == self.files.len() || self.files[self.next_file].range.start >= range.end
+        {
+            self.prose(text);
+            return;
+        }
+        let mut at = range.start;
+        while self.next_file < self.files.len()
+            && self.files[self.next_file].range.start < range.end
+        {
+            let start = self.files[self.next_file].range.start;
+            let end = self.files[self.next_file].range.end;
+            if at < start {
+                self.prose(&self.source[at..start]);
+            }
+            if start >= range.start {
+                self.push_file(self.files[self.next_file].clone());
+            }
+            at = at.max(end);
+            if end > range.end {
+                break;
+            }
+            self.next_file += 1;
+        }
+        if at < range.end {
+            self.prose(&self.source[at..range.end]);
         }
     }
 
@@ -269,6 +348,14 @@ impl Renderer<'_> {
             .starts
             .partition_point(|start| *start <= range.start)
             .saturating_sub(1);
+        if files::inline(&event) {
+            let index = self
+                .files
+                .partition_point(|file| file.range.start <= range.start);
+            if index > 0 && range.end <= self.files[index - 1].range.end {
+                return;
+            }
+        }
         if self.table_event(&event, &range) {
             return;
         }
@@ -364,7 +451,7 @@ impl Renderer<'_> {
                 self.link_url = None;
             }
             Event::Text(text) => {
-                self.prose(&text);
+                self.text(&text, range);
             }
             Event::Code(code) => self.push(
                 &code,
@@ -433,7 +520,7 @@ pub(super) fn render_with_members<'a>(
     look: crate::look::Look,
     inventory: Option<&'a super::inventory::Inventory>,
 ) -> Mapped {
-    project(text, width, look, inventory, false, false)
+    project(text, width, look, inventory, Format::Markdown)
 }
 /// Conversation messages keep authored single newlines without rewriting source bytes.
 pub(super) fn render_conversation_with_members<'a>(
@@ -442,7 +529,16 @@ pub(super) fn render_conversation_with_members<'a>(
     look: crate::look::Look,
     inventory: Option<&'a super::inventory::Inventory>,
 ) -> Mapped {
-    project(text, width, look, inventory, false, true)
+    project(text, width, look, inventory, Format::Message)
+}
+/// Held screen output uses authored line breaks.
+pub(super) fn render_output_with_members<'a>(
+    text: &'a str,
+    width: usize,
+    look: crate::look::Look,
+    inventory: Option<&'a super::inventory::Inventory>,
+) -> Mapped {
+    project(text, width, look, inventory, Format::Output)
 }
 pub(super) fn render_plain_with_members<'a>(
     text: &'a str,
@@ -450,21 +546,41 @@ pub(super) fn render_plain_with_members<'a>(
     look: crate::look::Look,
     inventory: &'a super::inventory::Inventory,
 ) -> Mapped {
-    project(text, width, look, Some(inventory), true, true)
+    project(text, width, look, Some(inventory), Format::Plain)
 }
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Format {
+    Markdown,
+    Message,
+    Output,
+    Plain,
+}
+
 fn project<'a>(
     text: &'a str,
     width: usize,
     look: crate::look::Look,
     inventory: Option<&'a super::inventory::Inventory>,
-    plain: bool,
-    preserve_breaks: bool,
+    format: Format,
 ) -> Mapped {
+    let options = Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES;
+    let mut files = if format == Format::Message {
+        files::scan(text)
+    } else {
+        Vec::new()
+    };
+    // Source offsets protect a filename even when inline syntax fragments its text.
+    let events: Option<Vec<_>> =
+        (!files.is_empty()).then(|| Parser::new_ext(text, options).into_offset_iter().collect());
+    if let Some(events) = &events {
+        files::retain_prose(&mut files, events);
+    }
     let starts = std::iter::once(0)
         .chain(text.match_indices('\n').map(|(at, _)| at + 1))
         .collect();
     let mut renderer = Renderer {
-        preserve_breaks,
+        preserve_breaks: format != Format::Markdown,
         inventory,
         next_mention: 0,
         source: text,
@@ -483,13 +599,18 @@ fn project<'a>(
         lists: Vec::new(),
         skip_until: 0,
         table: None,
+        files,
+        next_file: 0,
     };
-    let options = Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES;
-    if plain {
+    if format == Format::Plain {
         for (source, line) in text.split('\n').enumerate() {
             renderer.source_line = source;
             renderer.push(line, look.role(Role::Text));
             renderer.finish();
+        }
+    } else if let Some(events) = events {
+        for (event, range) in events {
+            renderer.event(event, range);
         }
     } else {
         for (event, range) in Parser::new_ext(text, options).into_offset_iter() {
@@ -550,13 +671,29 @@ fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::mem
         let mut mentions = Vec::new();
         let mut column = 0;
         for part in block.spans {
-            let width = cells(&part.text);
+            let width = part.width();
+            let shown = spans
+                .iter()
+                .map(|span: &Span<'_>| span.content.len())
+                .sum::<usize>();
+            let source = part
+                .source_range
+                .clone()
+                .map(|source| super::member_links::Origin {
+                    source,
+                    shown: shown..shown + part.text.len(),
+                });
             if let Some((target, occurrence)) = part.member {
                 mentions.push(super::member_links::Link {
-                    column,
+                    column: if source.is_some() {
+                        spans.iter().map(Span::width).sum()
+                    } else {
+                        column
+                    },
                     width,
                     target,
                     occurrence,
+                    source,
                 });
             }
             column += width;
@@ -590,24 +727,61 @@ fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::mem
     let indent = "▎ ".repeat(block.quote_depth)
         + &" ".repeat(block.indent.saturating_sub(block.quote_depth * 2));
     let mut words = Vec::new();
-    for Part {
-        text,
-        style,
-        source,
-        member: identity,
-    } in block.spans
-    {
+    for part in block.spans {
+        if part.is_file() {
+            words.push(part);
+            continue;
+        }
+        let Part {
+            text,
+            style,
+            source,
+            member: identity,
+            ..
+        } = part;
         for word in text.split_inclusive(' ') {
             words.push(Part::new(word.to_owned(), style, source, identity.clone()));
         }
     }
-    for Part {
-        text: word,
-        style,
-        source,
-        member: identity,
-    } in words
-    {
+    for part in words {
+        if part.is_file() {
+            let caption = files::fit(&part.text, width.saturating_sub(block.indent).max(1));
+            used = line.iter().map(Span::width).sum();
+            let caption_width = unicode_width::UnicodeWidthStr::width(caption.as_str());
+            if used > start && used + caption_width > width {
+                lines.push((
+                    Line::from(std::mem::take(&mut line)),
+                    source_line,
+                    std::mem::take(&mut mentions),
+                ));
+                source_line = part.source;
+                line.push(Span::styled(indent.clone(), block.prefix_style));
+                used = block.indent;
+            }
+            let shown = line.iter().map(|span| span.content.len()).sum::<usize>();
+            if let Some((target, occurrence)) = part.member {
+                mentions.push(super::member_links::Link {
+                    column: used,
+                    width: caption_width,
+                    target,
+                    occurrence,
+                    source: part.source_range.map(|source| super::member_links::Origin {
+                        source,
+                        shown: shown..shown + caption.len(),
+                    }),
+                });
+            }
+            line.push(Span::styled(caption, part.style));
+            used += caption_width;
+            continue;
+        }
+        let Part {
+            text: word,
+            style,
+            source,
+            member: identity,
+            ..
+        } = part;
         let body = word.trim_end_matches(' ');
         if used > start && used + cells(body) > width {
             if let Some(space) = line.last_mut().filter(|span| span.content == " ") {
@@ -658,6 +832,7 @@ fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::mem
                         width: size,
                         target: target.clone(),
                         occurrence: *occurrence,
+                        source: None,
                     });
                 }
             }
@@ -672,6 +847,7 @@ fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::mem
                     width: 1,
                     target: target.clone(),
                     occurrence: *occurrence,
+                    source: None,
                 });
             }
             line.push(Span::styled(" ", style));
@@ -774,6 +950,220 @@ mod tests {
     }
 
     #[test]
+    fn message_file_paths_are_basename_chips_without_changing_other_prose() {
+        for (source, shown) in [
+            ("/tmp/report_name.txt", "⧉ report_name.txt"),
+            (
+                "see '/tmp/my report_name.txt' now",
+                "see ⧉ my report_name.txt now",
+            ),
+            ("\"/tmp/一個 檔案.txt\"", "⧉ 一個 檔案.txt"),
+        ] {
+            let mapped = render_conversation_with_members(source, 200, Look::default(), None);
+            assert_eq!(text(&mapped.lines), [shown], "{source:?}");
+            assert!(mapped.sources.iter().all(|line| *line == 0));
+        }
+    }
+
+    #[test]
+    fn file_chips_keep_surrounding_punctuation_and_slash_commands_as_prose() {
+        use super::super::member_links::Target;
+        let source = "/compact /review /help See (/tmp/report_name.txt), next.";
+        let mapped = render_conversation_with_members(source, 200, Look::default(), None);
+        assert_eq!(
+            text(&mapped.lines),
+            ["/compact /review /help See (⧉ report_name.txt), next."]
+        );
+        let references: Vec<_> = mapped.mentions.iter().flatten().collect();
+        assert_eq!(references.len(), 1);
+        assert_eq!(
+            references[0].target,
+            Target::File("/tmp/report_name.txt".into())
+        );
+        let origin = references[0].source.as_ref().unwrap();
+        assert_eq!(&source[origin.source.clone()], "/tmp/report_name.txt");
+    }
+
+    #[test]
+    fn a_file_chip_fits_one_line_and_ellipsizes_instead_of_wrapping() {
+        let source = "'/tmp/very_long_file_name_with_spaces_in_it.txt'";
+        for width in [1, 2, 3, 4, 12, 24] {
+            let mapped = render_conversation_with_members(source, width, Look::default(), None);
+            assert_eq!(
+                mapped.lines.len(),
+                1,
+                "width={width}: {:?}",
+                text(&mapped.lines)
+            );
+            assert!(mapped.lines[0].width() <= width);
+            assert!(mapped.lines[0].to_string().ends_with('…'));
+            assert_eq!(mapped.sources, [0]);
+        }
+        assert_eq!(
+            text(&render_conversation_with_members(source, 100, Look::default(), None).lines),
+            ["⧉ very_long_file_name_with_spaces_in_it.txt"]
+        );
+    }
+
+    #[test]
+    fn file_chips_exclude_code_urls_relative_paths_and_prose_word_substrings() {
+        for source in [
+            "`/tmp/my_file.txt`",
+            "```\n/tmp/my_file.txt\n```",
+            "https://example.com/tmp/my_file.txt",
+            "file:///tmp/my_file.txt",
+            "prefix/tmp/my_file.txt",
+            "src/my_file.txt",
+            "'relative path/my_file.txt'",
+        ] {
+            let mapped = render_conversation_with_members(source, 200, Look::default(), None);
+            assert!(
+                !mapped
+                    .lines
+                    .iter()
+                    .any(|line| line.to_string().contains('⧉')),
+                "{source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn file_tokens_keep_inline_syntax_literal_but_do_not_leak_style_into_prose() {
+        use super::super::member_links::Target;
+        let source = "before &amp; '/tmp/a&amp;_b*bold*.txt' after";
+        let mapped = render_conversation_with_members(source, 200, Look::default(), None);
+        assert_eq!(text(&mapped.lines), ["before & ⧉ a&amp;_b*bold*.txt after"]);
+        let links: Vec<_> = mapped.mentions.iter().flatten().collect();
+        assert_eq!(links.len(), 1);
+        assert_eq!(
+            links[0].target,
+            Target::File("/tmp/a&amp;_b*bold*.txt".into())
+        );
+        let origin = links[0].source.as_ref().unwrap();
+        assert_eq!(&source[origin.source.clone()], "'/tmp/a&amp;_b*bold*.txt'");
+        assert!(
+            !style_of(&mapped.lines, "after")
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        let mapped = render_conversation_with_members(
+            "**before '/tmp/my_file.txt' after** plain",
+            200,
+            Look::default(),
+            None,
+        );
+        assert!(
+            style_of(&mapped.lines, "after")
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        assert!(
+            !style_of(&mapped.lines, "plain")
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        for source in [
+            "`'/tmp/file with space.txt'`",
+            "[label '/tmp/file with space.txt'](https://example.com)",
+        ] {
+            let mapped = render_conversation_with_members(source, 200, Look::default(), None);
+            assert!(
+                !mapped
+                    .mentions
+                    .iter()
+                    .flatten()
+                    .any(|link| matches!(link.target, Target::File(_)))
+            );
+        }
+    }
+
+    #[test]
+    fn repeated_unicode_chips_keep_distinct_targets_and_fit_quote_list_and_table_rows() {
+        use super::super::member_links::Target;
+        for source in [
+            "> '/tmp/👩‍💻_one.txt' /other/one.txt",
+            "- '/tmp/👩‍💻_one.txt' /other/one.txt",
+            "| name |\n| --- |\n| '/tmp/👩‍💻_one.txt' /other/one.txt |",
+        ] {
+            for width in [12, 24, 80] {
+                let mapped = render_conversation_with_members(source, width, Look::default(), None);
+                assert!(
+                    mapped.lines.iter().all(|line| line.width() <= width),
+                    "{source}: {width}"
+                );
+                let links: Vec<_> = mapped
+                    .mentions
+                    .iter()
+                    .flatten()
+                    .filter(|link| matches!(link.target, Target::File(_)))
+                    .collect();
+                assert_eq!(links.len(), 2, "{source}: {width}");
+                assert_ne!(links[0].occurrence, links[1].occurrence);
+                for (row, links) in mapped.mentions.iter().enumerate() {
+                    for link in links {
+                        assert!(link.column + link.width <= mapped.lines[row].width());
+                        assert!(link.source.is_some());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn many_inline_fragments_in_one_filename_keep_one_atomic_reference() {
+        use super::super::member_links::Target;
+        // Lexical references do not stat a path: even a long synthetic filename
+        // must keep its source bytes while its many Markdown events are consumed.
+        let path = format!("/tmp/{}.txt", "a*b*".repeat(512));
+        let token = format!("'{path}'");
+        let source = format!("before {token} after");
+        let mapped = render_conversation_with_members(&source, 80, Look::default(), None);
+        let links: Vec<_> = mapped.mentions.iter().flatten().collect();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].target, Target::File(path));
+        assert_eq!(
+            &source[links[0].source.as_ref().unwrap().source.clone()],
+            token
+        );
+        assert_eq!(
+            mapped
+                .lines
+                .iter()
+                .map(ToString::to_string)
+                .collect::<String>()
+                .matches('⧉')
+                .count(),
+            1
+        );
+        assert!(
+            !style_of(&mapped.lines, "after")
+                .add_modifier
+                .contains(Modifier::ITALIC)
+        );
+    }
+
+    #[test]
+    fn file_tokens_do_not_cross_code_or_link_boundaries() {
+        use super::super::member_links::Target;
+        for source in [
+            "before '/tmp/a`b.txt' after` tail",
+            "before '/tmp/a[b.txt' after](https://example.com) tail",
+        ] {
+            let mapped = render_conversation_with_members(source, 80, Look::default(), None);
+            assert!(
+                !mapped
+                    .mentions
+                    .iter()
+                    .flatten()
+                    .any(|link| matches!(link.target, Target::File(_))),
+                "{source}"
+            );
+            let literal = render_output_with_members(source, 80, Look::default(), None);
+            assert_eq!(mapped.lines, literal.lines, "{source}");
+        }
+    }
+
+    #[test]
     fn reported_and_bare_paths_keep_underscores_spaces_and_source_mapping() {
         for source in [
             reported::PATH,
@@ -781,7 +1171,7 @@ mod tests {
             "src/some_module/file_name.rs",
         ] {
             for width in [512, 160, 100, 80, 60, 24] {
-                let mapped = render_conversation_with_members(source, width, Look::default(), None);
+                let mapped = render_output_with_members(source, width, Look::default(), None);
                 let rows = text(&mapped.lines);
                 let without_spaces =
                     |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
