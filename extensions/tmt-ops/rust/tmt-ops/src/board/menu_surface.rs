@@ -115,9 +115,9 @@ impl MenuSurface {
             // A list of lines of one address: Enter copies it, Esc goes back to the popover.
             Some(
                 if entries.len() > 1
-                    && entries
-                        .iter()
-                        .all(|entry| matches!(&entry.choice, Choice::LinkCopy(_)))
+                    && entries.iter().all(|entry| {
+                        matches!(&entry.choice, Choice::LinkCopy(_) | Choice::FileCopy(_))
+                    })
                 {
                     "Enter copies · Esc back"
                 } else {
@@ -196,7 +196,11 @@ impl MenuSurface {
             link: entries.iter().any(|entry| {
                 matches!(
                     entry.choice,
-                    Choice::LinkOpen(_) | Choice::LinkCopy(_) | Choice::LinkShow { .. }
+                    Choice::LinkOpen(_)
+                        | Choice::LinkCopy(_)
+                        | Choice::LinkShow { .. }
+                        | Choice::FileCopy(_)
+                        | Choice::FileShow { .. }
                 )
             }),
         }

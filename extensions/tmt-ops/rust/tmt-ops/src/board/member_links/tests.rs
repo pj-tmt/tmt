@@ -1130,7 +1130,7 @@ mod named_surface_tests {
                             .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
                             .collect();
                         let cells:Vec<_> = buffer.content.iter().map(|cell| serde_json::json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect();
-                        let hits:Vec<_> = app.member_links.borrow().hits.iter().map(|hit|serde_json::json!({"x":hit.area.x,"y":hit.area.y,"width":hit.area.width,"height":hit.area.height,"identity":match &hit.target { Target::Member(id) | Target::Url(id) => id },"reader":hit.reader})).collect();
+                        let hits:Vec<_> = app.member_links.borrow().hits.iter().map(|hit|serde_json::json!({"x":hit.area.x,"y":hit.area.y,"width":hit.area.width,"height":hit.area.height,"identity":match &hit.target { Target::Member(id) | Target::Url(id) | Target::File(id) => id },"reader":hit.reader})).collect();
                         frames.push(serde_json::json!({"scene":scene,"width":width,"height":36,"base":base,"depth":format!("{depth:?}"),"lines":lines,"cells":cells,"memberHits":hits}));
                     }
                 }
