@@ -446,7 +446,7 @@ fn stopped_port_reads_are_noncreating_and_legacy_state_is_not_migrated() {
     drop(stopped);
     // Model the previously shipped schema, preserving its exact migration names.
     let old = Connection::open(&db).unwrap();
-    old.execute_batch("DROP TABLE cloud_transport; DROP TABLE cloud_reroute_counters; DROP TABLE cloud_peer_routes; DROP TABLE cloud_pair_receipts; DROP TABLE cloud_peers; DROP TABLE device_last_use; DROP TABLE management_receipts; DROP TABLE settings_designation; DROP TABLE door_port; ALTER TABLE operations DROP COLUMN grant_revision; ALTER TABLE operations DROP COLUMN session_id;
+    old.execute_batch("DROP TABLE cloud_transport; DROP TABLE cloud_remotes; DROP TABLE cloud_owner_projects; DROP TABLE cloud_reroute_counters; DROP TABLE cloud_peer_routes; DROP TABLE cloud_pair_receipts; DROP TABLE cloud_peers; DROP TABLE device_last_use; DROP TABLE management_receipts; DROP TABLE settings_designation; DROP TABLE door_port; ALTER TABLE operations DROP COLUMN grant_revision; ALTER TABLE operations DROP COLUMN session_id;
             DROP TABLE sessions; CREATE TABLE sessions(client_id TEXT PRIMARY KEY REFERENCES grants(client_id),session_id TEXT NOT NULL UNIQUE,window_id TEXT NOT NULL,grant_revision INTEGER NOT NULL,next_client_sequence TEXT NOT NULL,next_server_sequence TEXT NOT NULL);
             DELETE FROM _migrations WHERE version >= 5")
         .unwrap();

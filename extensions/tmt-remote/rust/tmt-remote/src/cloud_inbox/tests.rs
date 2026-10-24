@@ -31,7 +31,7 @@ fn pre_cloud_store_migrates_without_changing_grants_then_recovers_frozen_bytes()
     // Exact previous schema history, with its existing identity/grant kept in place.
     let machine = store.machine().unwrap();
     let grants = store.grants().unwrap();
-    store.connection.execute_batch("DROP TABLE cloud_transport; DELETE FROM _migrations WHERE version=10 AND name='cloud_transport';").unwrap();
+    store.connection.execute_batch("DROP TABLE cloud_remotes; DROP TABLE cloud_owner_projects; DROP TABLE cloud_reroute_counters; DROP TABLE cloud_peer_routes; DROP TABLE cloud_pair_receipts; DROP TABLE cloud_peers; DROP TABLE cloud_transport; DELETE FROM _migrations WHERE version>=10;").unwrap();
     drop(store);
     let mut store = Store::open(&lease).unwrap();
     assert_eq!(store.machine().unwrap(), machine);

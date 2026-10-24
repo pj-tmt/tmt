@@ -150,6 +150,7 @@ impl Harness {
                 layers,
                 restart: None,
                 native: None,
+                cloud: None,
             },
         )
         .unwrap();

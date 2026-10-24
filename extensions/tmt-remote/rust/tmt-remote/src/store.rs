@@ -288,7 +288,7 @@ const MIGRATIONS: [(&str, &str); 11] = [
         PRIMARY KEY(project,client_id));
      CREATE TABLE cloud_pair_receipts(
         offer TEXT PRIMARY KEY, digest BLOB NOT NULL CHECK(length(digest)=32),
-        deadline_ms INTEGER NOT NULL, receipt BLOB NOT NULL,
+        deadline_ms INTEGER NOT NULL, receipt BLOB NOT NULL, challenge TEXT NOT NULL,
         proof BLOB NOT NULL CHECK(length(proof)=32));
      CREATE TABLE cloud_peer_routes(
         project TEXT NOT NULL, uid TEXT NOT NULL,
@@ -298,7 +298,9 @@ const MIGRATIONS: [(&str, &str); 11] = [
         pending INTEGER NOT NULL CHECK(pending IN(0,1)),
         PRIMARY KEY(project,uid));
      CREATE UNIQUE INDEX cloud_peer_live_route ON cloud_peer_routes(project,client_id) WHERE revoked=0;
-     CREATE TABLE cloud_reroute_counters(machine_id TEXT PRIMARY KEY,generation INTEGER NOT NULL CHECK(generation>0));"),
+     CREATE TABLE cloud_reroute_counters(machine_id TEXT PRIMARY KEY,generation INTEGER NOT NULL CHECK(generation>0));
+     CREATE TABLE cloud_owner_projects(project TEXT PRIMARY KEY,config TEXT NOT NULL);
+     CREATE TABLE cloud_remotes(name TEXT PRIMARY KEY,owner TEXT NOT NULL UNIQUE,connection TEXT NOT NULL);"),
 ];
 fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     let port: Option<i64> = connection

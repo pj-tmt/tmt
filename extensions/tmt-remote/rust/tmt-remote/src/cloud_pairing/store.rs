@@ -7,6 +7,23 @@ use crate::{
     store::{DEFAULT_SCOPES, Grant, Store, database, grant_in, insert_grant_in},
 };
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use serde::{Deserialize, Serialize};
+
+/// Private pairing record; the public catalog alone never supplies this pin.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Connection {
+    pub version: u64,
+    pub name: String,
+    pub owner: String,
+    pub owner_key: [u8; 32],
+    pub config: serde_json::Value,
+    pub peer: String,
+    pub uid: String,
+    pub request: Vec<u8>,
+    pub confirmed: bool,
+    pub descriptor: Vec<u8>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PairReceipt {
@@ -38,6 +55,79 @@ fn live(connection: &rusqlite::Connection, peer: &str, now: u64) -> Result<Grant
 }
 
 impl Store {
+    pub fn prune_cloud_receipts(&self, now: u64) -> Result<(), RemoteError> {
+        self.connection.execute("DELETE FROM cloud_pair_receipts WHERE offer IN (SELECT offer FROM cloud_pair_receipts WHERE deadline_ms<=?1 LIMIT ?2)",params![now as i64,crate::journal::OPERATIONS]).map_err(database)?;
+        Ok(())
+    }
+    pub fn cloud_connection(&self, name: &str) -> Result<Option<Connection>, RemoteError> {
+        self.connection
+            .query_row(
+                "SELECT connection FROM cloud_remotes WHERE name=?1 OR owner=?1 ORDER BY name=?1 DESC LIMIT 1",
+                [name],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(database)?
+            .map(|s| {
+                let record: Connection = serde_json::from_str(&s).map_err(database)?;
+                if record.version != 1 { return Err(super::wire::upgrade()); }
+                Ok(record)
+            })
+            .transpose()
+    }
+    pub fn save_cloud_connection(&self, record: &Connection) -> Result<(), RemoteError> {
+        if let Some(old) = self.cloud_connection(&record.name)?
+            && (old.owner != record.owner
+                || old.owner_key != record.owner_key
+                || old.peer != record.peer)
+        {
+            return Err(refused());
+        }
+        self.connection.execute("INSERT INTO cloud_remotes VALUES(?1,?2,?3) ON CONFLICT(name) DO UPDATE SET connection=excluded.connection",params![record.name,record.owner,serde_json::to_string(record).map_err(database)?]).map_err(database)?;
+        Ok(())
+    }
+    pub fn remember_cloud_owner(
+        &self,
+        project: &str,
+        config: &serde_json::Value,
+    ) -> Result<(), RemoteError> {
+        self.connection.execute("INSERT INTO cloud_owner_projects VALUES(?1,?2) ON CONFLICT(project) DO UPDATE SET config=excluded.config",params![project,serde_json::to_string(config).map_err(database)?]).map_err(database)?;
+        Ok(())
+    }
+    pub fn cloud_owner_configs(&self) -> Result<Vec<serde_json::Value>, RemoteError> {
+        let values:Vec<String>=self.connection.prepare("SELECT config FROM cloud_owner_projects WHERE EXISTS(SELECT 1 FROM cloud_peers WHERE cloud_peers.project=cloud_owner_projects.project)").and_then(|mut q|q.query_map([],|r|r.get(0))?.collect()).map_err(database)?;
+        values
+            .into_iter()
+            .map(|v| serde_json::from_str(&v).map_err(database))
+            .collect()
+    }
+    pub fn recover_cloud_join(
+        &self,
+        offer: &str,
+        submission: &super::wire::Submission,
+        uid: &str,
+        now: u64,
+    ) -> Result<PairReceipt, RemoteError> {
+        let raw: String = self
+            .connection
+            .query_row(
+                "SELECT challenge FROM cloud_pair_receipts WHERE offer=?1",
+                [offer],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(database)?
+            .ok_or_else(refused)?;
+        let challenge: Challenge = serde_json::from_str(&raw).map_err(database)?;
+        self.cloud_join_receipt(
+            &challenge,
+            &submission.candidate,
+            uid,
+            &submission.mac,
+            &submission.signature,
+            now,
+        )
+    }
     /// Return only the original confirmed receipt for an exact candidate retry.
     /// No raw code or response key is retained, and this path can create no grant.
     pub fn cloud_join_receipt(
@@ -74,6 +164,7 @@ impl Store {
         verified: &VerifiedCandidate,
         response_key: &[u8; 32],
         now: u64,
+        talk: bool,
     ) -> Result<PairReceipt, RemoteError> {
         let challenge = verified.challenge();
         let candidate = verified.candidate();
@@ -125,6 +216,11 @@ impl Store {
             disabled: false,
         };
         insert_grant_in(&tx, &grant)?;
+        let grant = if talk {
+            crate::store::talk_in(&tx, &grant.client_id, true)?.ok_or_else(refused)?
+        } else {
+            grant
+        };
         let bytes = crate::pairing::receipt(&grant, &challenge.owner, &challenge.owner_key)?;
         let proof = crypto::server_proof(response_key, &bytes).map_err(|_| refused())?;
         tx.execute(
@@ -138,12 +234,13 @@ impl Store {
         )
         .map_err(database)?;
         tx.execute(
-            "INSERT INTO cloud_pair_receipts VALUES(?1,?2,?3,?4,?5)",
+            "INSERT INTO cloud_pair_receipts VALUES(?1,?2,?3,?4,?5,?6)",
             params![
                 challenge.offer,
                 verified.digest().as_slice(),
                 challenge.expires_at_ms as i64,
                 bytes,
+                serde_json::to_string(challenge).map_err(database)?,
                 proof.as_slice()
             ],
         )
@@ -163,7 +260,7 @@ impl Store {
                 operation_id: None,
                 resources: std::slice::from_ref(&candidate.peer),
                 digest: verified.digest(),
-                revision: 1,
+                revision: grant.revision,
                 decision: "committed",
                 code: "",
             },

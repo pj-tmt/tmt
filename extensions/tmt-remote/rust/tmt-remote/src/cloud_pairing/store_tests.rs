@@ -26,7 +26,9 @@ fn confirmed_receipt_and_read_only_peer_reopen_and_lost_join_keeps_original_rece
     let (root, serving, candidate) = world();
     let mut store = Store::open(&serving).unwrap();
     let key = response_key(&[4; 16], &candidate.challenge, &candidate.candidate).unwrap();
-    let receipt = store.confirm_cloud_peer(&candidate, &key, 1).unwrap();
+    let receipt = store
+        .confirm_cloud_peer(&candidate, &key, 1, false)
+        .unwrap();
     crypto::verify_server_proof(&key, &receipt.bytes, &receipt.proof).unwrap();
     let grant = store.grant(&candidate.candidate.peer).unwrap().unwrap();
     assert!(!grant.permits_scope("talk"));
@@ -38,7 +40,9 @@ fn confirmed_receipt_and_read_only_peer_reopen_and_lost_join_keeps_original_rece
     drop(store);
     let mut store = Store::open(&serving).unwrap();
     assert_eq!(
-        store.confirm_cloud_peer(&candidate, &key, 2).unwrap(),
+        store
+            .confirm_cloud_peer(&candidate, &key, 2, false)
+            .unwrap(),
         receipt
     );
     assert!(
@@ -51,7 +55,7 @@ fn confirmed_receipt_and_read_only_peer_reopen_and_lost_join_keeps_original_rece
     assert_eq!(store.cloud_route_changes().unwrap().len(), 1);
     assert!(
         store
-            .confirm_cloud_peer(&candidate, &key, candidate.challenge.expires_at_ms)
+            .confirm_cloud_peer(&candidate, &key, candidate.challenge.expires_at_ms, false)
             .is_err()
     );
     assert_eq!(store.grants().unwrap().len(), 1);
@@ -64,7 +68,9 @@ fn confirmed_receipt_and_read_only_peer_reopen_and_lost_join_keeps_original_rece
 fn signed_uid_change_keeps_permissions_and_revokes_every_old_route_across_restart() {
     let (root, serving, candidate) = world();
     let mut store = Store::open(&serving).unwrap();
-    store.confirm_cloud_peer(&candidate, &[8; 32], 1).unwrap();
+    store
+        .confirm_cloud_peer(&candidate, &[8; 32], 1, false)
+        .unwrap();
     store.talk(&candidate.candidate.peer, true).unwrap();
     let before = store.grant(&candidate.candidate.peer).unwrap().unwrap();
     let generation = store
@@ -156,7 +162,9 @@ fn signed_uid_change_keeps_permissions_and_revokes_every_old_route_across_restar
 fn stale_publication_ack_cannot_hide_a_new_route_or_revocation() {
     let (root, serving, candidate) = world();
     let mut store = Store::open(&serving).unwrap();
-    store.confirm_cloud_peer(&candidate, &[8; 32], 1).unwrap();
+    store
+        .confirm_cloud_peer(&candidate, &[8; 32], 1, false)
+        .unwrap();
     let old = store.cloud_route_changes().unwrap().remove(0);
     store.revoke(&candidate.candidate.peer).unwrap();
     store.cloud_route_published(&old).unwrap();
@@ -175,14 +183,20 @@ fn confirmation_failure_rolls_back_the_grant_and_routing_together() {
     let (root, serving, candidate) = world();
     let mut store = Store::open(&serving).unwrap();
     store.connection.execute_batch("CREATE TRIGGER refuse_route BEFORE INSERT ON cloud_peer_routes BEGIN SELECT RAISE(ABORT,'fixture route failure'); END;").unwrap();
-    assert!(store.confirm_cloud_peer(&candidate, &[8; 32], 1).is_err());
+    assert!(
+        store
+            .confirm_cloud_peer(&candidate, &[8; 32], 1, false)
+            .is_err()
+    );
     assert!(store.grants().unwrap().is_empty());
     assert!(store.cloud_route_changes().unwrap().is_empty());
     store
         .connection
         .execute_batch("DROP TRIGGER refuse_route")
         .unwrap();
-    store.confirm_cloud_peer(&candidate, &[8; 32], 1).unwrap();
+    store
+        .confirm_cloud_peer(&candidate, &[8; 32], 1, false)
+        .unwrap();
     assert_eq!(store.grants().unwrap().len(), 1);
     drop(store);
     drop(serving);
@@ -207,7 +221,9 @@ fn lost_join_after_code_erasure_reads_only_the_exact_confirmed_receipt() {
             .is_err()
     );
     assert!(store.grants().unwrap().is_empty());
-    let receipt = store.confirm_cloud_peer(&candidate, &[8; 32], 1).unwrap();
+    let receipt = store
+        .confirm_cloud_peer(&candidate, &[8; 32], 1, false)
+        .unwrap();
     drop(store);
     let store = Store::open(&serving).unwrap();
     assert_eq!(
@@ -253,7 +269,9 @@ fn lost_join_after_code_erasure_reads_only_the_exact_confirmed_receipt() {
 fn current_expiry_owner_pin_and_native_key_are_rechecked_before_route_swap() {
     let (root, serving, candidate) = world();
     let mut store = Store::open(&serving).unwrap();
-    store.confirm_cloud_peer(&candidate, &[8; 32], 1).unwrap();
+    store
+        .confirm_cloud_peer(&candidate, &[8; 32], 1, false)
+        .unwrap();
     let before = store.cloud_route_changes().unwrap();
     let (request, key) = tests::reroute_fixture(2, "new-uid");
     let mut foreign = request.clone();
@@ -320,7 +338,9 @@ fn current_expiry_owner_pin_and_native_key_are_rechecked_before_route_swap() {
 fn additive_migration_preserves_schema_nine_identity_key_and_sending_policy() {
     let (root, serving, candidate) = world();
     let mut store = Store::open(&serving).unwrap();
-    store.confirm_cloud_peer(&candidate, &[8; 32], 1).unwrap();
+    store
+        .confirm_cloud_peer(&candidate, &[8; 32], 1, false)
+        .unwrap();
     let before = store
         .talk(&candidate.candidate.peer, true)
         .unwrap()
@@ -330,7 +350,7 @@ fn additive_migration_preserves_schema_nine_identity_key_and_sending_policy() {
         .unwrap()
         .public();
     // Simulated schema-nine boundary, not an assertion about a released build.
-    store.connection.execute_batch("DROP TABLE cloud_reroute_counters; DROP TABLE cloud_peer_routes; DROP TABLE cloud_pair_receipts; DROP TABLE cloud_peers; DROP TABLE cloud_transport; DELETE FROM _migrations WHERE version>=10;").unwrap();
+    store.connection.execute_batch("DROP TABLE cloud_remotes; DROP TABLE cloud_owner_projects; DROP TABLE cloud_reroute_counters; DROP TABLE cloud_peer_routes; DROP TABLE cloud_pair_receipts; DROP TABLE cloud_peers; DROP TABLE cloud_transport; DELETE FROM _migrations WHERE version>=10;").unwrap();
     drop(store);
     let mut store = Store::open(&serving).unwrap();
     assert_eq!(store.machine().unwrap(), machine);
@@ -346,6 +366,101 @@ fn additive_migration_preserves_schema_nine_identity_key_and_sending_policy() {
     );
     assert!(store.cloud_route_changes().unwrap().is_empty());
     drop(store);
+    drop(serving);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn one_ceremony_can_enable_talk_and_receipt_cleanup_never_changes_trust() {
+    let (root, serving, candidate) = world();
+    let mut store = Store::open(&serving).unwrap();
+    let key = response_key(&[4; 16], &candidate.challenge, &candidate.candidate).unwrap();
+    let receipt = store.confirm_cloud_peer(&candidate, &key, 1, true).unwrap();
+    let grant = store.grant(&candidate.candidate.peer).unwrap().unwrap();
+    assert!(grant.permits_scope("talk"));
+    let decoded: serde_json::Value = serde_json::from_slice(&receipt.bytes).unwrap();
+    assert!(
+        decoded["grant"]["scopes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "talk")
+    );
+    store
+        .prune_cloud_receipts(candidate.challenge.expires_at_ms - 1)
+        .unwrap();
+    assert_eq!(
+        store
+            .connection
+            .query_row("SELECT count(*) FROM cloud_pair_receipts", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    store
+        .prune_cloud_receipts(candidate.challenge.expires_at_ms)
+        .unwrap();
+    assert_eq!(
+        store
+            .connection
+            .query_row("SELECT count(*) FROM cloud_pair_receipts", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        store.grant(&grant.client_id).unwrap().unwrap().revision,
+        grant.revision
+    );
+    assert_eq!(store.cloud_route_changes().unwrap().len(), 1);
+    drop(store);
+    drop(serving);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn person_management_requires_a_unique_name_and_accepts_an_exact_client_id() {
+    let (root, serving, candidate) = world();
+    let mut store = Store::open(&serving).unwrap();
+    let key = response_key(&[4; 16], &candidate.challenge, &candidate.candidate).unwrap();
+    store
+        .confirm_cloud_peer(&candidate, &key, 1, false)
+        .unwrap();
+    let peer = candidate.candidate.peer.clone();
+    let name = candidate.candidate.name.clone();
+    let shared = std::sync::Arc::new(std::sync::Mutex::new(store));
+    let devices = crate::devices::Devices::new(shared.clone(), None);
+    assert!(devices.talk(&name, true).unwrap().permits_scope("talk"));
+    let mut other = shared.lock().unwrap().grant(&peer).unwrap().unwrap();
+    other.client_id = uuid_v4().unwrap();
+    other.public_key = ed25519_dalek::SigningKey::from_bytes(&[6; 32])
+        .verifying_key()
+        .to_bytes();
+    shared.lock().unwrap().insert_grant(&other).unwrap();
+    assert_eq!(
+        devices.talk(&name, false).unwrap_err().code,
+        "REMOTE_DEVICE_AMBIGUOUS"
+    );
+    assert_eq!(
+        devices.revoke(&name).unwrap_err().code,
+        "REMOTE_DEVICE_AMBIGUOUS"
+    );
+    assert!(
+        shared
+            .lock()
+            .unwrap()
+            .grant(&peer)
+            .unwrap()
+            .unwrap()
+            .permits_scope("talk")
+    );
+    assert!(devices.revoke(&peer).unwrap().disabled);
+    assert_eq!(
+        devices.talk(&name, false).unwrap().client_id,
+        other.client_id
+    );
+    drop(devices);
+    drop(shared);
     drop(serving);
     std::fs::remove_dir_all(root).unwrap();
 }

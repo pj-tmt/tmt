@@ -252,6 +252,13 @@ pub fn event_json(grant: &Grant) -> Value {
 fn observed_device(store: &Store, grant: &Grant) -> Result<Value, RemoteError> {
     let mut row = device_json(grant);
     row["lastUsedAtMs"] = json!(store.last_used(&grant.client_id)?);
+    let pending = store
+        .cloud_route_changes()?
+        .iter()
+        .any(|r| r.peer == grant.client_id);
+    if pending {
+        row["cloudCleanupPending"] = json!(true);
+    }
     Ok(row)
 }
 

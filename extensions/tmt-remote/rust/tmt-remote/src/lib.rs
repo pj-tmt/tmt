@@ -1,4 +1,6 @@
 //! Extension-only remote door. Core is reached only by fixed public commands.
+#[cfg(test)]
+extern crate self as tmt_remote;
 pub mod admission;
 pub mod approval;
 pub mod audit;
@@ -58,3 +60,8 @@ pub mod state;
 pub mod store;
 pub mod transport;
 pub mod wire;
+
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "../tests/support/core.rs"]
+pub(crate) mod core_fixture;

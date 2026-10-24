@@ -6,8 +6,12 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+mod provider;
 mod store;
-pub use store::{PairReceipt, RouteChange};
+pub mod wire;
+pub use provider::EnrollmentDocument;
+pub mod service;
+pub use store::{Connection, PairReceipt, RouteChange};
 
 #[cfg(test)]
 mod store_tests;
