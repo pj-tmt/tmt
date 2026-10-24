@@ -8,15 +8,20 @@
 .source-explanation {
   margin: 0;
   color: var(--c-muted);
-  font: 12px/1.8 var(--tmt-ui-font-body);
+  font: 12px/1.65 var(--tmt-ui-font-body);
 }
+/* The footer: what the draft is on the left, what the source is on the right, in the page's own
+ * type and quiet colour; an unsaved draft takes the waiting tone. */
 .source-metadata {
   display: flex;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px;
-  color: var(--c-muted);
-  font: 11px/1.5 var(--f-mono);
+  color: var(--tmt-ui-color-secondary);
+  font: 11px/1.5 var(--tmt-ui-font-body);
+}
+.source-metadata [data-changed] {
+  color: var(--tmt-ui-color-waiting);
 }
 .source-notice {
   padding: 0;
@@ -78,4 +83,11 @@
 .source textarea:focus-visible {
   border-color: var(--tmt-ui-color-focus);
   outline: none;
+}
+/* The website's phone editor is a point smaller. */
+@media (max-width: 760px) {
+  .source textarea {
+    font-size: 10px;
+    line-height: 1.9;
+  }
 }

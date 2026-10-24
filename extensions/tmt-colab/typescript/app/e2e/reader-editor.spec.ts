@@ -54,7 +54,7 @@ test('an editor link is marked Can edit, names what a save does, and saves from 
   await expect(page.getByTestId('source-draft-status')).toHaveText('Draft unchanged');
   await expect(save).toBeDisabled();
   await area.fill('<main><h1>Release notes v2</h1></main>');
-  await expect(page.getByTestId('source-draft-status')).toHaveText('Draft changed');
+  await expect(page.getByTestId('source-draft-status')).toHaveText('Unsaved changes');
   await expect(save).toBeEnabled();
   await save.click();
   await expect
@@ -159,7 +159,11 @@ for (const width of [390, 1024, 1280, 1440])
       // Actions use the standard action text size; the metadata and code keep their compact density.
       await expect(save).toHaveCSS('font-size', '14px');
       await expect(page.getByTestId('source-draft-status')).toHaveCSS('font-size', '11px');
-      await expect(page.locator('#source-edit')).toHaveCSS('font-size', '11px');
+      // The editor steps down a point on a phone, as the website's does.
+      await expect(page.locator('#source-edit')).toHaveCSS(
+        'font-size',
+        width <= 760 ? '10px' : '11px',
+      );
       const colors = await page.evaluate(() => {
         const probe = document.createElement('span');
         probe.style.color = 'var(--tmt-ui-color-disabled-text)';

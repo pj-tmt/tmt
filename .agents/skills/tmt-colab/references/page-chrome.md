@@ -310,7 +310,7 @@ All widths use native modal containment without body scroll locking; resizing pr
 Close/Escape restores focus, and media listeners/dialogs clean up on close or
 unmount. Chat initializes on first opening; closed Source and Chat drawers retain drafts and admitted history, and the
 Comments panel, which unmounts when closed, gets its drafts back from the router's draft store;
-closing never dispatches, abandons or retries. Source places its existing Save action before Close in the shared header. The owner and editor link share stateless editor presentation while retaining their separate draft and save/request owners. The paper editor scrolls long lines within its bordered field and resizes vertically; its lower metadata reports draft/base equality, never persistence. Export closes its preparation and
+closing never dispatches, abandons or retries. Source places its existing Save action before Close in the shared header. The owner and editor link share stateless editor presentation while retaining their separate draft and save/request owners. The paper editor scrolls long lines within its bordered field and resizes vertically; its lower metadata (the page's 11px sans in the secondary colour, the waiting tone while the draft differs) reports draft/base equality, never persistence, and names the format (HTML); the editor is 10px under 760px. Export closes its preparation and
 revokes download Blob URLs. Manage opens after its menu closes and initially
 focuses its non-interactive heading without an outline while metadata loads;
 Its title and Close stay fixed while only the management body scrolls.
