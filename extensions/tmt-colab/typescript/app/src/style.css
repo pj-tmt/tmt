@@ -359,18 +359,10 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   display: block;
   font-size: 24px;
 }
-/* About > Layout: the same stacked label-over-value row as the attribution rows above it, at every width. */
-.page-layout-info dl {
-  margin: 0 0 12px;
-  font: 12px/1.4 var(--f-body);
-  white-space: normal;
+/* About > Layout: the heading, its value and, for a canvas page, the clamped reason; the drawer's
+ * section rhythm is in about-drawer.css. */
+.page-layout-value {
   overflow-wrap: anywhere;
-}
-.page-layout-info dt {
-  color: var(--c-muted);
-}
-.page-layout-info dd {
-  margin: 0 0 8px;
 }
 .page-layout-reason {
   margin: 4px 0 0;
@@ -389,14 +381,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   padding-inline: 0;
 }
 /* About > Page size: flat, tabular label/value rows that wrap at 390 with no horizontal scroll. */
-.page-size h3 {
-  margin: 16px 0 8px;
-  font: 600 14px/1.4 var(--tmt-ui-font-body);
-}
-.page-size p {
-  margin: 6px 0;
-  font: 400 13px/1.5 var(--tmt-ui-font-body);
-}
 .page-size dl {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);

@@ -224,7 +224,7 @@ posts `colab.render.select` (the frame accepts only the current request and an I
 frame paints that passage in `::highlight(colab-selected)` above the hover look, or on its overlay
 marks without the Highlight API, and rings that thread's lane marker (`data-colab-selected`).
 `router.tsx` binds the renderer from the live view, so a metadata-only change remounts the
-frame, and the About drawer's `PageLayoutSection` names the layout and a canvas's reason. An inline `style`
+frame, and the About drawer's `PageLayoutSection` names the layout and a canvas's reason. The About drawer is four sections (Author and publisher, Layout, Page size, Page scripts), each a heading over a rule, in `about-drawer.css` scoped to that drawer; the reader's Page information keeps its own rows. An inline `style`
 with `!important` is the one author declaration the frame cannot override.
 
 Source revisions replace only the author renderer, not parent chrome. `router.tsx`

@@ -42,11 +42,11 @@ for (const [name, options, value] of [
     test(`About names a ${name} page's layout at ${width}`, async ({ page }) => {
       await mount(page, options, width);
       const section = await about(page);
-      await expect(section.locator('dt')).toHaveText('Layout');
-      await expect(section.locator('dd')).toContainText(value);
-      const label = await box(section.locator('dt'));
-      const text = await box(section.locator('dd'));
-      // Stacked at every width, like the attribution rows above it.
+      await expect(section.getByRole('heading', { name: 'Layout' })).toBeVisible();
+      await expect(section.locator('.page-layout-value')).toContainText(value);
+      const label = await box(section.getByRole('heading', { name: 'Layout' }));
+      const text = await box(section.locator('.page-layout-value'));
+      // The value sits under its heading, flush with it, at every width.
       expect(text.top).toBeGreaterThanOrEqual(label.bottom - 1);
       expect(Math.abs(text.left - label.left)).toBeLessThan(1);
       if ('layoutReason' in options) {
@@ -94,6 +94,29 @@ for (const width of [1440, 390])
     expect(overflow).toBeLessThanOrEqual(0);
   });
 
+// The drawer reads as headed sections divided by rules, as the website's About does.
+for (const width of [1440, 390])
+  test(`About is headed sections divided by rules at ${width}`, async ({ page }) => {
+    await mount(page, { layout: 'column' }, width);
+    await about(page);
+    const drawer = page.locator('#ask-page-fixture .tmt-ui-drawer[data-panel=about]');
+    await expect(drawer.getByRole('heading', { level: 3 })).toHaveText([
+      'Author and publisher',
+      'Layout',
+      'Page scripts',
+    ]);
+    const sections = drawer.locator('section');
+    await expect(sections).toHaveCount(3);
+    await expect(sections.first()).toHaveCSS('border-top-width', '0px');
+    for (const index of [1, 2])
+      await expect(sections.nth(index)).toHaveCSS('border-top-width', '1px');
+    // The attribution is name and value side by side.
+    const name = await box(drawer.locator('.page-attribution dt').first());
+    const value = await box(drawer.locator('.page-attribution dd').first());
+    expect(value.left).toBeGreaterThan(name.right - 1);
+    expect(Math.abs(value.top - name.top)).toBeLessThan(2);
+  });
+
 test('a live metadata-only layout change reframes the page and updates About without a new source', async ({
   page,
 }) => {
@@ -101,23 +124,23 @@ test('a live metadata-only layout change reframes the page and updates About wit
   const html = frame(page).locator('html');
   await expect(html).toHaveAttribute('data-colab-layout', 'column');
   const section = await about(page);
-  await expect(section.locator('dd')).toContainText('Column · max 1280 px');
+  await expect(section.locator('.page-layout-value')).toContainText('Column · max 1280 px');
   const title = await page.title();
 
   await run(page, 'setLayout', { layout: 'canvas', layoutReason: reason });
   await expect(frame(page).locator('#only')).toBeVisible();
   await expect(html).not.toHaveAttribute('data-colab-layout', /.+/);
-  await expect(section.locator('dd')).toContainText('Canvas · author layout');
+  await expect(section.locator('.page-layout-value')).toContainText('Canvas · author layout');
   await expect(section.locator('.page-layout-reason')).toHaveText(reason);
 
   await run(page, 'setLayout', { layout: 'full' });
   await expect(html).toHaveAttribute('data-colab-layout', 'full');
-  await expect(section.locator('dd')).toContainText('Full width');
+  await expect(section.locator('.page-layout-value')).toContainText('Full width');
   await expect(section.locator('.page-layout-reason')).toHaveCount(0);
 
   await run(page, 'setLayout', {});
   await expect(html).not.toHaveAttribute('data-colab-layout', /.+/);
-  await expect(section.locator('dd')).toContainText('Freeform · author layout');
+  await expect(section.locator('.page-layout-value')).toContainText('Freeform · author layout');
   expect(await page.title()).toBe(title);
   await expect(frame(page).locator('#only')).toHaveText('A page.');
 });

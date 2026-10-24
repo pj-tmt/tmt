@@ -1001,6 +1001,8 @@ export const text = {
   more: 'More',
   managePage: 'Manage page',
   aboutPage: 'About this page',
+  aboutAuthor: 'Author and publisher',
+  aboutScripts: 'Page scripts',
   /** The About panel's Layout row (#3926): how Colab frames the page, never a prompt or a badge. */
   /** A question line: its eyebrow, and the state word, Needs your answer until answered. */
   questionLine: {
