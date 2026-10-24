@@ -17,7 +17,7 @@ fn passthrough_capture_rows_are_consistent_wake_readers_and_leave_with_their_req
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 68);
+    assert_eq!(storage.health().unwrap().schema_version, 69);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -92,4 +92,63 @@ fn passthrough_capture_rows_are_consistent_wake_readers_and_leave_with_their_req
         })
         .unwrap();
     assert_eq!(left, 0);
+}
+
+#[test]
+fn a_fold_marks_only_a_bound_capture_and_moves_the_change_cursor() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("schema68.db");
+    let mut old = Connection::open(&path).unwrap();
+    apply_through(&mut old, 68).unwrap();
+    old.execute_batch(REQUEST).unwrap();
+    old.execute_batch(
+        "INSERT INTO request_passthrough(request_id,delivered_at_ms,state) VALUES('r1',2000,'pending')",
+    )
+    .unwrap();
+    old.close().unwrap();
+
+    let mut storage = Storage::open(&path).unwrap();
+    assert_eq!(storage.health().unwrap().schema_version, 69);
+    storage.close().unwrap();
+
+    let db = Connection::open(&path).unwrap();
+    let folded = || -> i64 {
+        db.query_row(
+            "SELECT folded FROM request_passthrough WHERE request_id='r1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
+    };
+    let cursor = || -> i64 {
+        db.query_row("SELECT value FROM change_cursor WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap()
+    };
+    assert_eq!(
+        folded(),
+        0,
+        "a capture from before the migration is not folded"
+    );
+    // A capture no turn is bound to was matched to nothing, so it cannot be folded.
+    for statement in [
+        "UPDATE request_passthrough SET folded=1 WHERE request_id='r1'",
+        "UPDATE request_passthrough SET folded=2 WHERE request_id='r1'",
+    ] {
+        assert!(db.execute(statement, []).is_err(), "{statement}");
+    }
+    db.execute(
+        "UPDATE request_passthrough SET state='bound',bound_session='s',bound_at_ms=2100 WHERE request_id='r1'",
+        [],
+    )
+    .unwrap();
+    let before = cursor();
+    db.execute(
+        "UPDATE request_passthrough SET folded=1 WHERE request_id='r1'",
+        [],
+    )
+    .unwrap();
+    assert_eq!(folded(), 1);
+    assert_eq!(cursor(), before + 1, "readers waiting on the cursor wake");
 }

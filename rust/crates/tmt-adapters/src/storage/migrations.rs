@@ -334,6 +334,10 @@ const MIGRATIONS: &[Migration] = &[
         "confirm a checklist only when a prompt carries it",
         "schema/068.sql"
     ),
+    migration!(
+        "mark a passthrough folded into a running turn",
+        "schema/069.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

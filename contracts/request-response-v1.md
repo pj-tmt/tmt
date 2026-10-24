@@ -618,7 +618,7 @@ never told it was answered.
 The text carries no request id, so what the passthrough earns back is the final assistant
 message of the turn it started, matched by prompt and never by time alone. `requests.list`
 and `requests.show` items with `mode: "passthrough"` carry
-`passthrough: {state, deliveredAtMs, boundAtMs?, settledAtMs?, answer?}`:
+`passthrough: {state, deliveredAtMs, boundAtMs?, folded, settledAtMs?, answer?}`:
 
 - `pending`: typed, and no turn has started with that prompt. At turn start Core compares the
   prompt the provider's hook reports with each pending text of that agent after the pane's own
@@ -627,7 +627,16 @@ and `requests.show` items with `mode: "passthrough"` carry
   binds when that turn actually starts. A prompt that matches nothing binds nothing, and no turn
   starting within 10 minutes of delivery settles `no_answer` (a read says so before anything
   writes it).
-- `bound`: a turn started with that prompt. Core waits for that turn's end for at most six
+- `bound`: a turn started with that prompt, or the text was typed into a turn that was already
+  running (`folded: true`). A running turn is one the recipient's verified binding shows
+  `Working` since before the send began; no prompt will announce text it takes in, so the
+  capture binds to that turn when the text is typed, and the turn's final message answers it
+  together with the message that started the turn (both read `answered`, the folded one with
+  reason `answered_by_folded_turn`). Only a driver that declares `folds_queued_text` folds,
+  and a driver declares it only once measured: `claude` does; `codex` and every other driver
+  keep the capture `pending` and prompt-matched, because `answered` is terminal and a driver
+  that runs queued text as its own next turn would be marked answered by the earlier turn.
+  Without that evidence the capture stays `pending`. Core waits for that turn's end for at most six
   hours; past that, or once a later turn of the same session has started (a turn that is
   not the bound one), it settles `no_answer`, and a read says so before anything writes it.
   The end of a turn that never arrives (a killed agent, a closed pane) therefore cannot
@@ -814,6 +823,7 @@ retained, so `not_sent` carries one of the two generic reasons.
 | `refused`                   | `not_sent`    | not sent, nothing reached the agent                                                                 |
 | `answered_by_reply`         | `answered`    | answered                                                                                            |
 | `answered_by_turn`          | `answered`    | answered, the agent's turn ended with this reply                                                    |
+| `answered_by_folded_turn`   | `answered`    | answered together with the earlier message: it was typed into the running turn                      |
 | `no_turn_started`           | `unconfirmed` | no answer captured: no turn started with this text, the agent may have taken it into a running turn |
 | `turn_ended_without_answer` | `unconfirmed` | no answer captured: the agent's turn ended without a final message                                  |
 

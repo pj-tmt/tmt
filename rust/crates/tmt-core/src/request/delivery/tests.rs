@@ -381,8 +381,14 @@ fn what_came_back_outranks_how_the_hand_over_went() {
     let mut typed = through_inbox(WakeState::Sent);
     typed.recipient = activity(ActivityPhase::Working, 900);
     assert_eq!(shown(&typed), ("working", "agent_working", false));
-    typed.answer = ReturnedAnswer::Turn;
+    typed.answer = ReturnedAnswer::Turn { folded: false };
     assert_eq!(shown(&typed), ("answered", "answered_by_turn", false));
+    // Typed into that turn while it ran, the same final answers it, and the reason says so.
+    typed.answer = ReturnedAnswer::Turn { folded: true };
+    assert_eq!(
+        shown(&typed),
+        ("answered", "answered_by_folded_turn", false)
+    );
     // No answer was captured: unconfirmed, and never `working`, however busy the agent is now.
     typed.answer = ReturnedAnswer::NoCapture { bound: false };
     assert_eq!(shown(&typed), ("unconfirmed", "no_turn_started", false));
