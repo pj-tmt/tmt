@@ -106,7 +106,7 @@ describe('consented provider setup and bounded hook boundary', () => {
             .join('')} and Stop (context usage, consumption, activity and recent responses) hooks`
         );
         expect(preview.stdout).toContain(
-          "keeps this agent's last 10 final responses on this computer (up to 8 KiB each, available for 90 days by default; set exchange.retentionDays to change it). Use --no-usage to stop collecting."
+          "keeps this agent's answers on this computer (up to 1,000 per agent, 16 KiB each, for 7 days). Use --no-usage to stop collecting."
         );
         expect(preview.stdout).toContain('Use --no-usage to stop collecting.');
         expect(preview.stdout).not.toContain('no transcript content is stored');
