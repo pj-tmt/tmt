@@ -43,6 +43,7 @@ export const covered = {
   BrandMark: 'brand',
   BrandLockup: 'brand',
   BrowserShell: 'shell',
+  BrowserTopBar: 'shell',
   HostedShell: 'shell',
   useShellBar: 'shell',
   useShellTools: 'shell',

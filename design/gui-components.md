@@ -29,6 +29,10 @@ header slot its `ColabHeader` portals into, and Remote's served pages through th
 shell reads only Remote's composed module descriptions; each product supplies its own module
 menu and keeps its routing.
 
+The opt-in [shared top bar](browser-ui/README.md#shared-top-bar) is rendered once by the shell;
+`BrowserTopBar` is its React action-slot adapter. Common Search/Remote bindings and the theme
+control stay root-owned. Existing product bars remain until their owning adoption PRs.
+
 Framework-free hosts use the leaf's [`menu-host`](browser-ui/README.md#framework-free-menu-host)
 entry; it shares BrowserMenu's controller and owns transient popup presentation only.
 

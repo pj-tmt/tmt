@@ -2,6 +2,8 @@ import { brandMarkSvg, freshMarkId } from './brand-mark-svg.js';
 import { claimIconActionTooltip } from './icon-action-tooltip.js';
 import { moduleIcon, shellIconNodes, type ShellIcon } from './shell-icons.js';
 import { countText } from './static.js';
+import { createShellTopBar, type ShellCommonControls, type ShellTopBar } from './topbar.js';
+export type { ShellCommonControls, ShellRemoteStatus, ShellTopBar } from './topbar.js';
 
 /**
  * The one TMT web shell (#3937, Colab page c5ccd17a): a global rail that collapses to icons,
@@ -336,6 +338,11 @@ export interface ShellTools {
 
 export interface ShellControls {
   readonly tools: ShellTools;
+  /** Root-only common bindings; route modules never receive this method. */
+  setCommonControls(options: ShellCommonControls | undefined): void;
+  setTopBar(): ShellTopBar;
+  /** The route owner releases the active action slot and transient common UI. */
+  clearTopBar(): void;
   update(view: ShellView): void;
   dispose(): void;
 }
@@ -389,6 +396,7 @@ export function mountShell(
   menu.className = 'tmt-ui-module-menu';
   root.prepend(open, rail);
   const bar = root.querySelector(':scope > .tmt-ui-shell-content > .tmt-ui-shell-bar')!;
+  const topBar = createShellTopBar(root, bar, open);
   bar.after(menu);
   // The cluster is the bar's second layer: it sits over the bar's right end and tells the host
   // header how much room to leave (`--tmt-ui-shell-tools-width`). A React shell draws the element
@@ -644,8 +652,12 @@ export function mountShell(
   render(view);
   return {
     tools,
+    setCommonControls: topBar.setCommonControls,
+    setTopBar: topBar.setTopBar,
+    clearTopBar: topBar.clear,
     update: render,
     dispose() {
+      topBar.dispose();
       watchTools?.disconnect();
       root.style.removeProperty('--tmt-ui-shell-tools-width');
       if (!drawn) toolsRoot.remove();

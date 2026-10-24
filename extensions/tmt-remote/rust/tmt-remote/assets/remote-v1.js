@@ -2560,14 +2560,192 @@ function claimIconActionTooltip(document, dismiss) {
 		if (activeTooltips.get(document) === dismiss) activeTooltips.delete(document);
 	};
 }
+function iconActionTooltipPosition(anchor, tooltipWidth, tooltipHeight, viewport, gutter) {
+	const maxWidth = Math.max(0, viewport.width - gutter * 2);
+	const width = Math.min(tooltipWidth, maxWidth);
+	const leftEdge = viewport.left + gutter;
+	const belowTop = Math.max(viewport.top, anchor.bottom);
+	const below = Math.max(0, viewport.top + viewport.height - gutter - belowTop);
+	const above = Math.max(0, anchor.top - viewport.top - gutter);
+	const flipped = tooltipHeight > below && above > below;
+	const maxHeight = flipped ? above : below;
+	const top = flipped ? anchor.top - Math.min(tooltipHeight, maxHeight) : belowTop;
+	return {
+		left: Math.max(leftEdge, Math.min((anchor.left + anchor.right - width) / 2, viewport.left + viewport.width - gutter - width)),
+		top,
+		maxWidth,
+		maxHeight
+	};
+}
+function placeIconActionTooltip(anchor, tooltip) {
+	const view = anchor.ownerDocument.defaultView;
+	if (!view) return () => {};
+	const viewport = view.visualViewport;
+	const place = () => {
+		const box = anchor.getBoundingClientRect();
+		if (!anchor.isConnected || !box.width || !box.height) {
+			if (tooltip.matches(":popover-open")) tooltip.hidePopover();
+			return;
+		}
+		const gutter = Number.parseFloat(view.getComputedStyle(tooltip).paddingTop) || 0;
+		const bounds = {
+			left: viewport?.offsetLeft ?? 0,
+			top: viewport?.offsetTop ?? 0,
+			width: viewport?.width ?? view.innerWidth,
+			height: viewport?.height ?? view.innerHeight
+		};
+		tooltip.style.maxWidth = `${Math.max(0, bounds.width - gutter * 2)}px`;
+		const tooltipBox = tooltip.getBoundingClientRect();
+		const next = iconActionTooltipPosition(box, tooltipBox.width, Math.max(tooltipBox.height, tooltip.scrollHeight), bounds, gutter);
+		tooltip.style.left = `${next.left}px`;
+		tooltip.style.top = `${next.top}px`;
+		tooltip.style.maxHeight = `${next.maxHeight}px`;
+	};
+	place();
+	const observer = new ResizeObserver(place);
+	observer.observe(anchor);
+	observer.observe(tooltip);
+	view.addEventListener("resize", place);
+	view.addEventListener("scroll", place, true);
+	viewport?.addEventListener("resize", place);
+	viewport?.addEventListener("scroll", place);
+	return () => {
+		observer.disconnect();
+		view.removeEventListener("resize", place);
+		view.removeEventListener("scroll", place, true);
+		viewport?.removeEventListener("resize", place);
+		viewport?.removeEventListener("scroll", place);
+	};
+}
+var escapeFocus = /* @__PURE__ */ new WeakSet();
+function guardEscapeFocus(document) {
+	escapeFocus.add(document);
+	const clear = () => {
+		escapeFocus.delete(document);
+		document.removeEventListener("keydown", nextKey, true);
+	};
+	const nextKey = (event) => {
+		if (event.key !== "Escape") clear();
+	};
+	document.addEventListener("keydown", nextKey, true);
+	document.defaultView?.requestAnimationFrame(clear);
+}
+/** Internal binding shared by icon renderers; activation and its busy fence stay with the caller. */
+function bindIconActionTooltip(wrapper, button, tooltip) {
+	const document = button.ownerDocument;
+	const view = document.defaultView;
+	let hovered = false;
+	let focused = false;
+	let dismissed = false;
+	let disposed = false;
+	let expanded = button.getAttribute("aria-expanded") === "true";
+	let returnGuard = false;
+	let returnFrame;
+	let release;
+	let position;
+	const close = () => {
+		position?.();
+		position = void 0;
+		release?.();
+		release = void 0;
+		document.removeEventListener("keydown", escape, true);
+		if (tooltip.matches(":popover-open")) tooltip.hidePopover();
+	};
+	const dismiss = () => {
+		dismissed = true;
+		close();
+	};
+	const escape = (event) => {
+		if (event.key !== "Escape" || !tooltip.matches(":popover-open")) return;
+		dismiss();
+		guardEscapeFocus(document);
+	};
+	const paint = () => {
+		if (!(!disposed && (hovered || focused) && !dismissed && !expanded && button.isConnected && button.getClientRects().length > 0)) {
+			close();
+			return;
+		}
+		if (tooltip.matches(":popover-open")) return;
+		release = claimIconActionTooltip(document, dismiss);
+		tooltip.showPopover();
+		position = placeIconActionTooltip(button, tooltip);
+		document.addEventListener("keydown", escape, true);
+	};
+	const clearReturnGuard = () => {
+		returnGuard = false;
+		document.removeEventListener("keydown", returnKey, true);
+		if (returnFrame !== void 0) view.cancelAnimationFrame(returnFrame);
+		returnFrame = void 0;
+	};
+	const returnKey = (event) => {
+		if (event.key !== "Escape") clearReturnGuard();
+	};
+	const refresh = () => {
+		const next = button.getAttribute("aria-expanded") === "true";
+		if (expanded && !next) {
+			clearReturnGuard();
+			returnGuard = true;
+			document.addEventListener("keydown", returnKey, true);
+			returnFrame = view.requestAnimationFrame(clearReturnGuard);
+		}
+		expanded = next;
+		if (expanded) dismissed = true;
+		paint();
+	};
+	const move = () => {
+		if (!hovered) {
+			hovered = true;
+			dismissed = false;
+		}
+		refresh();
+	};
+	const leave = () => {
+		hovered = false;
+		refresh();
+	};
+	const focus = () => {
+		if (!button.matches(":focus-visible")) return;
+		focused = true;
+		expanded = button.getAttribute("aria-expanded") === "true";
+		dismissed = expanded || returnGuard || escapeFocus.has(document);
+		paint();
+	};
+	const blur = () => {
+		focused = false;
+		refresh();
+	};
+	wrapper.addEventListener("pointermove", move);
+	wrapper.addEventListener("pointerleave", leave);
+	button.addEventListener("focus", focus);
+	button.addEventListener("blur", blur);
+	return {
+		refresh,
+		dismiss,
+		dispose() {
+			if (disposed) return;
+			disposed = true;
+			close();
+			clearReturnGuard();
+			wrapper.removeEventListener("pointermove", move);
+			wrapper.removeEventListener("pointerleave", leave);
+			button.removeEventListener("focus", focus);
+			button.removeEventListener("blur", blur);
+		}
+	};
+}
 //#endregion
 //#region ../../../../design/browser-ui/src/shell-icons.ts
 /**
 * Lucide 1.52.0 (ISC, see `LICENSE.lucide`) node data for the shell, so static hosts draw the
-* same icons without a React or Lucide runtime. The first eight are the module icon allow-list
+* same icons without a React or Lucide runtime. The module icon allow-list below is the subset
 * of Remote's describe contract; an unknown name falls back to `box`.
 */
 var shellIconNodes = {
+	sun: [["circle", {
+		cx: "12",
+		cy: "12",
+		r: "4"
+	}], ["path", { d: "M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" }]],
 	house: [["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" }], ["path", { d: "M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
 	"file-text": [
 		["path", { d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" }],
@@ -2705,6 +2883,725 @@ var moduleIcons = [
 	"box"
 ];
 var moduleIcon = (name) => moduleIcons.includes(name) ? name : "box";
+//#endregion
+//#region ../../../../design/browser-ui/src/glyph.ts
+var SVG$2 = "http://www.w3.org/2000/svg";
+/** A line icon from the shared icon nodes, for a framework-free page: it takes the text colour. */
+function createIcon(name, doc = document) {
+	const svg = doc.createElementNS(SVG$2, "svg");
+	svg.setAttribute("class", browserUiClasses.glyph);
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("aria-hidden", "true");
+	for (const [tag, attributes] of shellIconNodes[name]) {
+		const node = doc.createElementNS(SVG$2, tag);
+		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+		svg.append(node);
+	}
+	return svg;
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/overlay.ts
+/** Modified, repeated and composing keys cannot dismiss an actionable layer. */
+function admitsOverlayEscape(event) {
+	return event.isTrusted && !event.repeat && !(event.nativeEvent?.isComposing ?? event.isComposing) && event.keyCode !== 229 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+}
+function restoreOverlayFocus(origin, fallback) {
+	const usable = (node) => node instanceof HTMLElement && node.isConnected && node.getClientRects().length > 0 && !node.closest("[inert]") && !node.matches(":disabled");
+	if (usable(origin)) origin.focus({ preventScroll: true });
+	else {
+		const node = fallback?.() ?? null;
+		if (usable(node)) node.focus({ preventScroll: true });
+	}
+}
+function outsideOverlay(node, x, y) {
+	const box = node.getBoundingClientRect();
+	return x < box.left || x >= box.right || y < box.top || y >= box.bottom;
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/menu-position.ts
+/** Menus share the leaf's below/flip/clamp rule, aligning to the trigger's end. */
+function browserMenuPosition(anchor, width, height, viewport, gutter = 8) {
+	const placed = iconActionTooltipPosition(anchor, width, height, viewport, gutter);
+	return {
+		...placed,
+		left: Math.max(viewport.left + gutter, Math.min(anchor.right - Math.min(width, placed.maxWidth), viewport.left + viewport.width - gutter - Math.min(width, placed.maxWidth)))
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/popup.ts
+var activePopups = /* @__PURE__ */ new WeakMap();
+/** Menu and combobox surfaces share one replacement owner, without owning host commands. */
+function claimBrowserPopup(document, dismiss) {
+	activePopups.get(document)?.();
+	activePopups.set(document, dismiss);
+	return () => {
+		if (activePopups.get(document) === dismiss) activePopups.delete(document);
+	};
+}
+function placeBrowserPopup(anchor, surface, dismiss) {
+	const view = anchor.ownerDocument.defaultView;
+	const viewport = view.visualViewport;
+	const place = () => {
+		if (!anchor.isConnected || !anchor.getClientRects().length) return dismiss();
+		const bounds = {
+			left: viewport?.offsetLeft ?? 0,
+			top: viewport?.offsetTop ?? 0,
+			width: viewport?.width ?? view.innerWidth,
+			height: viewport?.height ?? view.innerHeight
+		};
+		surface.style.maxWidth = `${Math.max(0, bounds.width - 16)}px`;
+		const box = surface.getBoundingClientRect();
+		const position = browserMenuPosition(anchor.getBoundingClientRect(), box.width, Math.max(box.height, surface.scrollHeight + surface.offsetHeight - surface.clientHeight), bounds);
+		Object.assign(surface.style, {
+			left: `${position.left}px`,
+			top: `${position.top}px`,
+			maxHeight: `${position.maxHeight}px`
+		});
+	};
+	place();
+	let frame;
+	const observer = new ResizeObserver(() => {
+		if (frame !== void 0) return;
+		frame = view.requestAnimationFrame(() => {
+			frame = void 0;
+			place();
+		});
+	});
+	observer.observe(anchor);
+	observer.observe(surface);
+	view.addEventListener("resize", place);
+	view.addEventListener("scroll", place, true);
+	viewport?.addEventListener("resize", place);
+	viewport?.addEventListener("scroll", place);
+	return () => {
+		observer.disconnect();
+		if (frame !== void 0) view.cancelAnimationFrame(frame);
+		view.removeEventListener("resize", place);
+		view.removeEventListener("scroll", place, true);
+		viewport?.removeEventListener("resize", place);
+		viewport?.removeEventListener("scroll", place);
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/menu-controller.ts
+/** One transient menu owner for React and framework-free renderers; commands stay with callers. */
+function createMenuController(options) {
+	let snapshot = {
+		open: false,
+		present: false
+	};
+	const listeners = /* @__PURE__ */ new Set();
+	let first = "first";
+	let search = {
+		text: "",
+		at: 0
+	};
+	let focused;
+	let reported = false;
+	let disposed = false;
+	let detach;
+	let cancelExit;
+	const enabled = () => options.items().flatMap((item, index) => item.disabled ? [] : [index]);
+	const publish = (open, present) => {
+		if (snapshot.open === open && snapshot.present === present) return;
+		snapshot = {
+			open,
+			present
+		};
+		for (const notify of listeners) notify();
+	};
+	const report = (open) => {
+		if (reported === open) return;
+		reported = open;
+		options.onOpenChange(open);
+	};
+	const canOpen = () => !disposed && !options.disabled() && (enabled().length > 0 || options.hasDescription());
+	function open(edge = "first") {
+		if (!canOpen() || snapshot.open) return;
+		cancelExit?.();
+		cancelExit = void 0;
+		first = edge;
+		focused = void 0;
+		search = {
+			text: "",
+			at: 0
+		};
+		publish(true, true);
+	}
+	function close(refocus = true) {
+		if (!snapshot.open) return;
+		const node = options.surface();
+		publish(false, snapshot.present);
+		if (node) {
+			node.dataset.state = "closed";
+			if (node.open) node.close();
+		}
+		detach?.();
+		report(false);
+		if (refocus) restoreOverlayFocus(options.trigger());
+		const animations = node?.getAnimations?.() ?? [];
+		if (!animations.length) {
+			publish(false, false);
+			return;
+		}
+		let current = true;
+		cancelExit = () => {
+			current = false;
+		};
+		Promise.allSettled(animations.map((animation) => animation.finished)).then(() => {
+			if (current && !snapshot.open && !disposed) {
+				cancelExit = void 0;
+				publish(false, false);
+			}
+		});
+	}
+	function attachSurface() {
+		const node = options.surface();
+		const anchor = options.trigger();
+		if (!snapshot.open || !node || !anchor) return;
+		if (!node.isConnected || !anchor.isConnected || !anchor.getClientRects().length) {
+			close(false);
+			return;
+		}
+		if (detach) return detach;
+		const release = claimBrowserPopup(anchor.ownerDocument, () => close(false));
+		let position;
+		const cleanup = () => {
+			if (detach !== cleanup) return;
+			detach = void 0;
+			position?.();
+			release();
+			if (node.open) node.close();
+			queueMicrotask(() => {
+				const current = options.surface();
+				if (!node.isConnected && snapshot.open && (!current || current === node)) close(false);
+			});
+		};
+		detach = cleanup;
+		try {
+			node.showModal();
+			position = placeBrowserPopup(anchor, node, () => close(false));
+			if (!snapshot.open) return cleanup;
+			report(true);
+			if (!snapshot.open) return cleanup;
+			const choices = enabled();
+			const index = first === "last" ? choices.at(-1) : choices[0];
+			focused = index === void 0 ? void 0 : options.items()[index]?.key;
+			(index === void 0 ? node : options.entries()[index] ?? node).focus();
+		} catch (error) {
+			cleanup();
+			close(false);
+			throw error;
+		}
+		return cleanup;
+	}
+	function refresh() {
+		const node = options.surface();
+		if (!snapshot.open || !node) return;
+		const active = node.ownerDocument.activeElement;
+		if (active === node) return;
+		if (active !== node.ownerDocument.body && (!active || !node.contains(active))) return;
+		const entries = options.entries();
+		const choices = enabled();
+		if (choices.some((index) => entries[index] === active)) return;
+		const next = choices.find((index) => options.items()[index].key === focused) ?? choices[0];
+		(next === void 0 ? node : entries[next] ?? node).focus();
+	}
+	return {
+		getSnapshot: () => snapshot,
+		subscribe(notify) {
+			listeners.add(notify);
+			return () => {
+				listeners.delete(notify);
+			};
+		},
+		canOpen,
+		open,
+		close,
+		attachSurface,
+		refresh,
+		focused(key) {
+			if (snapshot.open) focused = key;
+		},
+		triggerKey(event) {
+			if (!["ArrowDown", "ArrowUp"].includes(event.key) || !event.isTrusted || (event.nativeEvent?.isComposing ?? event.isComposing)) return;
+			event.preventDefault();
+			open(event.key === "ArrowUp" ? "last" : "first");
+		},
+		menuKey(event) {
+			if (!snapshot.open || event.defaultPrevented) return;
+			if (event.key === "Escape") {
+				event.preventDefault();
+				event.stopPropagation();
+				if (admitsOverlayEscape(event)) close();
+				return;
+			}
+			if ((event.nativeEvent?.isComposing ?? event.isComposing) || event.altKey || event.ctrlKey || event.metaKey) return;
+			if (event.key === "Tab") {
+				close();
+				return;
+			}
+			const choices = enabled();
+			const entries = options.entries();
+			const at = choices.indexOf(entries.findIndex((node) => node === node?.ownerDocument.activeElement));
+			let next;
+			if (event.key === "ArrowDown") next = choices[(at + 1) % choices.length];
+			else if (event.key === "ArrowUp") next = choices[(at - 1 + choices.length) % choices.length];
+			else if (event.key === "Home") next = choices[0];
+			else if (event.key === "End") next = choices.at(-1);
+			else if (event.key.length === 1 && event.key !== " ") {
+				const now = performance.now();
+				search = {
+					text: (now - search.at > 700 ? "" : search.text) + event.key.toLocaleLowerCase(),
+					at: now
+				};
+				next = [...choices.slice(at + 1), ...choices.slice(0, at + 1)].find((index) => options.items()[index].label.toLocaleLowerCase().startsWith(search.text));
+			} else return;
+			event.preventDefault();
+			if (next !== void 0) {
+				focused = options.items()[next]?.key;
+				entries[next]?.focus();
+			}
+		},
+		select(key, event) {
+			const item = options.items().find((item) => item.key === key);
+			if (!snapshot.open || !event.isTrusted || !item || item.disabled) return;
+			const select = options.selection();
+			close();
+			select(key, event);
+		},
+		nativeClose(event) {
+			event.stopPropagation();
+			const node = options.surface();
+			if (snapshot.open && event.target === node && !node?.open) close();
+		},
+		cancel(event) {
+			event.preventDefault();
+			event.stopPropagation();
+			if (event.isTrusted) close();
+		},
+		pointerDown(event) {
+			const node = options.surface();
+			if (node && event.target === node && outsideOverlay(node, event.clientX, event.clientY)) event.preventDefault();
+		},
+		surfaceClick(event) {
+			const node = options.surface();
+			if (!node || event.target !== node || !outsideOverlay(node, event.clientX, event.clientY)) return;
+			event.preventDefault();
+			event.stopPropagation();
+			if (event.isTrusted) close();
+		},
+		dispose() {
+			if (disposed) return;
+			close(false);
+			detach?.();
+			cancelExit?.();
+			cancelExit = void 0;
+			disposed = true;
+			publish(false, false);
+			listeners.clear();
+		}
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/menu-host.ts
+/** Mount the existing menu presentation without a framework; hosts retain values and commands. */
+function mountBrowserMenu(container, initial) {
+	const document = container.ownerDocument;
+	const id = `tmt-menu-${document.defaultView.crypto.randomUUID()}`;
+	const root = document.createElement("span");
+	root.className = "tmt-ui-menu";
+	const wrapper = document.createElement("span");
+	const trigger = document.createElement("button");
+	trigger.type = "button";
+	trigger.setAttribute("aria-haspopup", "menu");
+	const tooltip = document.createElement("span");
+	tooltip.className = browserUiClasses.iconActionTooltip;
+	tooltip.setAttribute("popover", "manual");
+	tooltip.setAttribute("aria-hidden", "true");
+	const tooltipLabel = document.createElement("span");
+	tooltipLabel.className = browserUiClasses.iconActionTooltipLabel;
+	tooltip.append(tooltipLabel);
+	wrapper.append(trigger, tooltip);
+	const surface = document.createElement("dialog");
+	surface.className = "tmt-ui-menu-surface";
+	surface.tabIndex = -1;
+	surface.hidden = true;
+	const menu = document.createElement("div");
+	menu.id = id;
+	menu.setAttribute("role", "menu");
+	menu.tabIndex = -1;
+	const description = document.createElement("div");
+	description.id = `${id}-description`;
+	description.className = "tmt-ui-menu-description";
+	surface.append(menu);
+	root.append(wrapper, surface);
+	let options = initial;
+	let disposed = false;
+	let help;
+	const rows = /* @__PURE__ */ new Map();
+	const controller = createMenuController({
+		items: () => options.items,
+		disabled: () => options.disabled === true,
+		hasDescription: () => Boolean(options.description),
+		trigger: () => trigger,
+		surface: () => surface,
+		entries: () => options.items.map((item) => rows.get(item.key)?.button ?? null),
+		selection: () => options.onSelect,
+		onOpenChange: (open) => options.onOpenChange?.(open)
+	});
+	const display = (target, content) => target.replaceChildren(typeof content === "string" ? document.createTextNode(content) : content);
+	const validate = (next) => {
+		if (!next.label.trim()) throw new Error("Menu requires a nonempty label");
+		if (new Set(next.items.map((item) => item.key)).size !== next.items.length) throw new Error("Menu item keys must be unique");
+	};
+	function renderOptions() {
+		const iconOnly = options.triggerText === void 0;
+		wrapper.className = iconOnly ? browserUiClasses.iconAction : "";
+		trigger.className = iconOnly ? `${browserUiClasses.action} ${browserUiClasses.iconActionControl}` : "tmt-ui-menu-trigger";
+		if (iconOnly) trigger.dataset.variant = "text";
+		else delete trigger.dataset.variant;
+		trigger.setAttribute("aria-label", options.label);
+		tooltipLabel.textContent = options.label;
+		tooltip.hidden = !iconOnly;
+		surface.setAttribute("aria-label", options.label);
+		menu.setAttribute("aria-label", options.label);
+		trigger.disabled = !controller.canOpen();
+		if (iconOnly) {
+			const icon = document.createElement("span");
+			icon.className = browserUiClasses.iconActionIcon;
+			icon.setAttribute("aria-hidden", "true");
+			icon.append(options.icon ?? createIcon("ellipsis", document));
+			trigger.replaceChildren(icon);
+			help ??= bindIconActionTooltip(wrapper, trigger, tooltip);
+		} else {
+			help?.dispose();
+			help = void 0;
+			const label = document.createElement("span");
+			label.className = "tmt-ui-menu-value";
+			label.textContent = options.triggerText;
+			trigger.replaceChildren(label, createIcon("chevron-down", document));
+		}
+		if (options.description) {
+			display(description, options.description);
+			menu.setAttribute("aria-describedby", description.id);
+		} else menu.removeAttribute("aria-describedby");
+		const removed = new Set(rows.keys());
+		const children = options.description ? [description] : [];
+		for (const [index, item] of options.items.entries()) {
+			let row = rows.get(item.key);
+			if (!row) {
+				const button = document.createElement("button");
+				button.type = "button";
+				button.className = "tmt-ui-menu-item";
+				button.tabIndex = -1;
+				button.onclick = (event) => controller.select(item.key, event);
+				button.onfocus = () => controller.focused(item.key);
+				row = {
+					root: document.createElement("div"),
+					button,
+					label: document.createElement("span"),
+					check: document.createElement("span"),
+					reason: document.createElement("span")
+				};
+				row.check.setAttribute("aria-hidden", "true");
+				row.check.textContent = "✓";
+				row.reason.className = "tmt-ui-menu-reason";
+				row.root.append(button);
+				rows.set(item.key, row);
+			}
+			removed.delete(item.key);
+			display(row.label, item.content ?? item.label);
+			row.button.replaceChildren(row.label, ...item.checked ? [row.check] : []);
+			row.button.disabled = item.disabled === true;
+			row.button.setAttribute("role", item.role ?? (item.checked === void 0 ? "menuitem" : "menuitemradio"));
+			if (item.checked === void 0) row.button.removeAttribute("aria-checked");
+			else row.button.setAttribute("aria-checked", String(item.checked));
+			if (item.separated) row.button.dataset.separated = "true";
+			else delete row.button.dataset.separated;
+			if (item.disabledReason) {
+				row.reason.id = `${id}-reason-${index}`;
+				row.reason.textContent = item.disabledReason;
+				row.button.setAttribute("aria-describedby", row.reason.id);
+				if (!row.reason.isConnected) row.root.append(row.reason);
+			} else {
+				row.reason.remove();
+				row.button.removeAttribute("aria-describedby");
+			}
+			children.push(row.root);
+		}
+		for (const key of removed) {
+			rows.get(key).root.remove();
+			rows.delete(key);
+		}
+		for (const [index, child] of children.entries()) if (menu.childNodes[index] !== child) menu.insertBefore(child, menu.childNodes[index] ?? null);
+		while (menu.childNodes.length > children.length) menu.lastChild.remove();
+		controller.refresh();
+		help?.refresh();
+	}
+	function renderState() {
+		const { open, present } = controller.getSnapshot();
+		trigger.setAttribute("aria-expanded", String(open));
+		if (open) trigger.setAttribute("aria-controls", id);
+		else trigger.removeAttribute("aria-controls");
+		surface.hidden = !present;
+		surface.dataset.state = open ? "open" : "closed";
+		help?.refresh();
+		if (open) controller.attachSurface();
+	}
+	trigger.onclick = (event) => {
+		if (event.isTrusted) {
+			help?.dismiss();
+			controller.open();
+		}
+	};
+	trigger.onkeydown = controller.triggerKey;
+	surface.onkeydown = controller.menuKey;
+	surface.onclose = controller.nativeClose;
+	surface.oncancel = controller.cancel;
+	surface.onpointerdown = controller.pointerDown;
+	surface.onclick = controller.surfaceClick;
+	validate(initial);
+	container.append(root);
+	renderOptions();
+	const unsubscribe = controller.subscribe(renderState);
+	renderState();
+	return {
+		update(next) {
+			if (!disposed) {
+				validate(next);
+				options = next;
+				renderOptions();
+				renderState();
+			}
+		},
+		open: () => controller.open(),
+		close: () => controller.close(),
+		dispose() {
+			if (disposed) return;
+			disposed = true;
+			controller.dispose();
+			unsubscribe();
+			help?.dispose();
+			root.remove();
+			rows.clear();
+		}
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/theme.ts
+/**
+* The per-browser colour theme (#3937). The tokens answer to `data-theme` on the root: `light` and
+* `dark` pin a theme, and no attribute follows the device (`prefers-color-scheme`). The choice is
+* stored in this browser only; storage that is blocked or full never breaks the page, which then
+* follows the device.
+*/
+var THEMES = [
+	"system",
+	"light",
+	"dark"
+];
+var themeStorageKey = "tmt-ui-theme";
+function browserStore() {
+	try {
+		return globalThis.localStorage;
+	} catch {
+		return;
+	}
+}
+/** The stored choice; `system` when none is stored, storage is blocked or the value is unknown. */
+function storedTheme(store = browserStore()) {
+	try {
+		const value = store?.getItem(themeStorageKey);
+		return THEMES.find((theme) => theme === value) ?? "system";
+	} catch {
+		return "system";
+	}
+}
+/** Set the root's theme for a choice: `system` leaves the tokens to the device. */
+function applyTheme(choice, root = document.documentElement) {
+	if (choice === "system") root.removeAttribute("data-theme");
+	else root.setAttribute("data-theme", choice);
+}
+/** Apply the stored choice; call once when the app starts, before the first paint of a page. */
+function applyStoredTheme(root, store) {
+	applyTheme(storedTheme(store), root);
+}
+/** Store a choice for this browser and apply it now. `system` clears the stored choice. */
+function setStoredTheme(choice, root, store = browserStore()) {
+	try {
+		if (choice === "system") store?.removeItem(themeStorageKey);
+		else store?.setItem(themeStorageKey, choice);
+	} catch {}
+	applyTheme(choice, root);
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/topbar.ts
+/** Internal renderer shared by native and React shells. */
+function createShellTopBar(root, bar, navigation) {
+	const document = root.ownerDocument;
+	const view = document.defaultView;
+	let options;
+	let disposed = false;
+	let active;
+	const validate = (next) => {
+		const remote = next.remote;
+		if (remote.kind === "confirmed" && (!Number.isSafeInteger(remote.liveSessions) || remote.liveSessions < 0)) throw new Error("Remote live-session count must be a non-negative integer");
+	};
+	const clear = () => {
+		active?.dispose();
+		active = void 0;
+	};
+	function mount() {
+		const header = document.createElement("header");
+		header.className = "tmt-ui-topbar";
+		header.setAttribute("aria-label", "TMT");
+		const left = document.createElement("div");
+		left.className = "tmt-ui-topbar-navigation";
+		left.append(navigation);
+		const right = document.createElement("div");
+		right.className = "tmt-ui-topbar-controls";
+		const actions = document.createElement("div");
+		actions.className = "tmt-ui-topbar-actions";
+		const common = document.createElement("div");
+		common.className = "tmt-ui-topbar-common";
+		common.setAttribute("role", "group");
+		common.setAttribute("aria-label", "TMT controls");
+		const theme = document.createElement("span");
+		const search = document.createElement("button");
+		search.type = "button";
+		search.className = `${browserUiClasses.action} ${browserUiClasses.iconActionControl} tmt-ui-topbar-search`;
+		search.dataset.variant = "text";
+		search.setAttribute("aria-label", "Search TMT");
+		search.setAttribute("aria-haspopup", "dialog");
+		const command = /Mac|iPhone|iPad|iPod/.test(view.navigator.platform);
+		search.setAttribute("aria-keyshortcuts", command ? "Meta+K" : "Control+K");
+		const searchMark = document.createElement("span");
+		searchMark.className = browserUiClasses.iconActionIcon;
+		searchMark.setAttribute("aria-hidden", "true");
+		const hint = document.createElement("kbd");
+		hint.textContent = command ? "⌘K" : "Ctrl K";
+		searchMark.append(createIcon("search", document), hint);
+		search.append(searchMark);
+		const remote = document.createElement("a");
+		remote.className = `${browserUiClasses.action} ${browserUiClasses.iconActionControl} tmt-ui-topbar-remote`;
+		remote.dataset.variant = "text";
+		const remoteMark = document.createElement("span");
+		remoteMark.className = browserUiClasses.iconActionIcon;
+		remoteMark.setAttribute("aria-hidden", "true");
+		remoteMark.append(createIcon("monitor-smartphone", document));
+		const badge = document.createElement("span");
+		badge.className = browserUiClasses.count;
+		badge.setAttribute("aria-hidden", "true");
+		remote.append(remoteMark, badge);
+		const help = (control, label) => {
+			const wrapper = document.createElement("span");
+			wrapper.className = browserUiClasses.iconAction;
+			const tooltip = document.createElement("span");
+			tooltip.className = browserUiClasses.iconActionTooltip;
+			tooltip.setAttribute("popover", "manual");
+			tooltip.setAttribute("aria-hidden", "true");
+			const text = document.createElement("span");
+			text.className = browserUiClasses.iconActionTooltipLabel;
+			text.textContent = label;
+			tooltip.append(text);
+			wrapper.append(control, tooltip);
+			return {
+				wrapper,
+				text,
+				binding: bindIconActionTooltip(wrapper, control, tooltip)
+			};
+		};
+		const searchHelp = help(search, "Search TMT");
+		const remoteHelp = help(remote, "Remote: session count unconfirmed");
+		common.append(theme, searchHelp.wrapper, remoteHelp.wrapper);
+		right.append(actions, common);
+		header.append(left, right);
+		const choice = () => {
+			const explicit = document.documentElement.getAttribute("data-theme");
+			return explicit === "light" || explicit === "dark" ? explicit : "system";
+		};
+		const themeOptions = () => ({
+			label: `Theme: ${choice()}`,
+			icon: createIcon("sun", document),
+			items: THEMES.map((key) => ({
+				key,
+				label: key === "system" ? "System" : key === "light" ? "Light" : "Dark",
+				checked: choice() === key
+			})),
+			onSelect: (key) => setStoredTheme(key, document.documentElement)
+		});
+		const themeMenu = mountBrowserMenu(theme, themeOptions());
+		const observeTheme = new MutationObserver(() => themeMenu.update(themeOptions()));
+		observeTheme.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ["data-theme"]
+		});
+		const openSearch = () => {
+			themeMenu.close();
+			searchHelp.binding.dismiss();
+			options.openSearch(search);
+		};
+		search.onclick = (event) => {
+			if (event.isTrusted) openSearch();
+		};
+		const shortcut = (event) => {
+			if (!event.isTrusted || event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229 || event.key.toLowerCase() !== "k" || event.altKey || event.shiftKey || (command ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey)) return;
+			if (event.composedPath().some((node) => node instanceof view.HTMLElement && (node.isContentEditable || node.closest("input,textarea,select,[role=\"textbox\"],[role=\"combobox\"]")))) return;
+			event.preventDefault();
+			openSearch();
+		};
+		document.addEventListener("keydown", shortcut);
+		root.dataset.topbar = "";
+		bar.replaceChildren(header);
+		const update = () => {
+			const status = options.remote;
+			const label = status.kind === "unconfirmed" ? "Remote: session count unconfirmed" : status.liveSessions === 0 ? "Remote: no live sessions" : `Remote: ${status.liveSessions} live ${status.liveSessions === 1 ? "session" : "sessions"}`;
+			remote.setAttribute("href", status.href);
+			remote.setAttribute("aria-label", label);
+			remoteHelp.text.textContent = label;
+			badge.hidden = status.kind !== "confirmed" || status.liveSessions === 0;
+			badge.textContent = status.kind === "confirmed" ? countText(status.liveSessions) : "";
+		};
+		update();
+		return {
+			slot: { actions },
+			update,
+			dispose() {
+				document.removeEventListener("keydown", shortcut);
+				observeTheme.disconnect();
+				themeMenu.dispose();
+				searchHelp.binding.dispose();
+				remoteHelp.binding.dispose();
+				root.prepend(navigation);
+				delete root.dataset.topbar;
+				header.remove();
+			}
+		};
+	}
+	return {
+		setCommonControls(next) {
+			if (disposed) return;
+			if (next) validate(next);
+			options = next;
+			if (!next) clear();
+			else active?.update();
+		},
+		setTopBar() {
+			if (disposed) throw new Error("The shell has been disposed");
+			if (!options) throw new Error("The root must install common controls before adopting the top bar");
+			active ??= mount();
+			return active.slot;
+		},
+		clear,
+		dispose() {
+			if (disposed) return;
+			disposed = true;
+			clear();
+			options = void 0;
+		}
+	};
+}
 //#endregion
 //#region ../../../../design/browser-ui/src/shell.ts
 /** The counts a menu entry draws, in order: a plain total only above zero (a page list of none has
@@ -2884,7 +3781,7 @@ function shellRail(answer, place, host) {
 	};
 }
 var RAIL_KEY = "tmt.shell.rail";
-var SVG$2 = "http://www.w3.org/2000/svg";
+var SVG$1 = "http://www.w3.org/2000/svg";
 function railCollapsed() {
 	try {
 		return localStorage.getItem(RAIL_KEY) === "collapsed";
@@ -2898,12 +3795,12 @@ function rememberRail(collapsed) {
 	} catch {}
 }
 function icon(document, name) {
-	const svg = document.createElementNS(SVG$2, "svg");
+	const svg = document.createElementNS(SVG$1, "svg");
 	svg.setAttribute("class", "tmt-ui-shell-icon");
 	svg.setAttribute("viewBox", "0 0 24 24");
 	svg.setAttribute("aria-hidden", "true");
 	for (const [tag, attributes] of shellIconNodes[name]) {
-		const node = document.createElementNS(SVG$2, tag);
+		const node = document.createElementNS(SVG$1, tag);
 		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
 		svg.append(node);
 	}
@@ -2957,6 +3854,7 @@ function mountShell(root, view, select) {
 	menu.className = "tmt-ui-module-menu";
 	root.prepend(open, rail);
 	const bar = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar");
+	const topBar = createShellTopBar(root, bar, open);
 	bar.after(menu);
 	const slotOf = (parent, name) => {
 		const existing = parent.querySelector(`:scope > .tmt-ui-shell-tools-${name}`);
@@ -3177,8 +4075,12 @@ function mountShell(root, view, select) {
 	render(view);
 	return {
 		tools,
+		setCommonControls: topBar.setCommonControls,
+		setTopBar: topBar.setTopBar,
+		clearTopBar: topBar.clear,
 		update: render,
 		dispose() {
+			topBar.dispose();
 			watchTools?.disconnect();
 			root.style.removeProperty("--tmt-ui-shell-tools-width");
 			if (!drawn) toolsRoot.remove();
@@ -3263,6 +4165,7 @@ function startShellHost(root, routes, options = {}) {
 	let settled = false;
 	const listeners = [];
 	let generation = 0;
+	let disposed = false;
 	const place = () => ({
 		origin: window.location.origin,
 		href: window.location.href.split(/[?#]/)[0]
@@ -3294,6 +4197,7 @@ function startShellHost(root, routes, options = {}) {
 		main,
 		bar,
 		tools: controls.tools,
+		setTopBar: () => current?.generation === mine ? controls.setTopBar() : { actions: document.createElement("div") },
 		basePath: route.paths.at(-1),
 		answer: () => answer,
 		setMenu(next, handler) {
@@ -3338,11 +4242,13 @@ function startShellHost(root, routes, options = {}) {
 		show();
 	}
 	async function show() {
+		if (disposed) return;
 		const route = matchRoute(routes, window.location.pathname);
 		if (!route) return elsewhere();
 		remember(void 0);
 		if (current?.route === route) return paint();
 		current?.release?.();
+		controls.clearTopBar();
 		const mine = ++generation;
 		current = {
 			route,
@@ -3367,18 +4273,19 @@ function startShellHost(root, routes, options = {}) {
 		if (!route.quiet) describe();
 		try {
 			const module = await route.load(answer, () => new Promise((resolve) => settled ? resolve(answer) : listeners.push(resolve)));
-			if (current.generation !== mine) return;
+			if (current?.generation !== mine) return;
 			const release = await module.mount(slot(route, mine));
-			if (current.generation !== mine) return release?.();
+			if (current?.generation !== mine) return release?.();
 			current.release = release ?? void 0;
 		} catch (error) {
-			if (current.generation !== mine) return;
+			if (current?.generation !== mine) return;
 			main.replaceChildren();
 			options.failed?.(main, route, error);
 		}
 	}
 	/** Same-origin URL this app owns: change the history entry and show its route. */
 	function go(href, { replace = false } = {}) {
+		if (disposed) return false;
 		const url = linkTo(href);
 		if (url.origin !== window.location.origin || !matchRoute(routes, url.pathname)) return false;
 		const here = window.location;
@@ -3408,8 +4315,10 @@ function startShellHost(root, routes, options = {}) {
 	window.addEventListener("popstate", popstate);
 	show();
 	return {
+		setCommonControls: controls.setCommonControls,
 		navigate: (href, options) => void go(href, options),
 		redescribe: () => new Promise((resolve) => {
+			if (disposed) return resolve(void 0);
 			asked = false;
 			settled = false;
 			listeners.push(resolve);
@@ -3417,10 +4326,15 @@ function startShellHost(root, routes, options = {}) {
 		}),
 		route: (pathname) => matchRoute(routes, pathname),
 		dispose() {
+			if (disposed) return;
+			disposed = true;
+			++generation;
 			loading.remove();
 			document.removeEventListener("click", click);
 			window.removeEventListener("popstate", popstate);
 			current?.release?.();
+			current = void 0;
+			for (const listener of listeners.splice(0)) listener(void 0);
 			controls.dispose();
 		}
 	};
@@ -3567,9 +4481,9 @@ function monotonePath(points) {
 * DOM helpers the leaf's chart painters share. No style attributes in markup: every look comes from a
 * `tmt-ui-chart-*` class, so a chart works under a strict style policy.
 */
-var SVG$1 = "http://www.w3.org/2000/svg";
+var SVG = "http://www.w3.org/2000/svg";
 function svgEl(name, attrs = {}, className) {
-	const node = document.createElementNS(SVG$1, name);
+	const node = document.createElementNS(SVG, name);
 	for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
 	if (className) node.setAttribute("class", className);
 	return node;
@@ -5275,22 +6189,6 @@ function moduleLoad(rail, entry, here, fallback) {
 	} : { link };
 }
 //#endregion
-//#region ../../../../design/browser-ui/src/glyph.ts
-var SVG = "http://www.w3.org/2000/svg";
-/** A line icon from the shared icon nodes, for a framework-free page: it takes the text colour. */
-function createIcon(name, doc = document) {
-	const svg = doc.createElementNS(SVG, "svg");
-	svg.setAttribute("class", browserUiClasses.glyph);
-	svg.setAttribute("viewBox", "0 0 24 24");
-	svg.setAttribute("aria-hidden", "true");
-	for (const [tag, attributes] of shellIconNodes[name]) {
-		const node = doc.createElementNS(SVG, tag);
-		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
-		svg.append(node);
-	}
-	return svg;
-}
-//#endregion
 //#region src/ops-source.ts
 /**
 * What the Ops web view (`/ops/`) reads: the owner's squad board through the owner browser read
@@ -6205,53 +7103,6 @@ async function remoteApp(shell, main, bar, settingsStyles, pages) {
 	}, { signal: shell.signal });
 	window.addEventListener("popstate", () => void show().catch(() => {}), { signal: shell.signal });
 	await show();
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/theme.ts
-/**
-* The per-browser colour theme (#3937). The tokens answer to `data-theme` on the root: `light` and
-* `dark` pin a theme, and no attribute follows the device (`prefers-color-scheme`). The choice is
-* stored in this browser only; storage that is blocked or full never breaks the page, which then
-* follows the device.
-*/
-var THEMES = [
-	"system",
-	"light",
-	"dark"
-];
-var themeStorageKey = "tmt-ui-theme";
-function browserStore() {
-	try {
-		return globalThis.localStorage;
-	} catch {
-		return;
-	}
-}
-/** The stored choice; `system` when none is stored, storage is blocked or the value is unknown. */
-function storedTheme(store = browserStore()) {
-	try {
-		const value = store?.getItem(themeStorageKey);
-		return THEMES.find((theme) => theme === value) ?? "system";
-	} catch {
-		return "system";
-	}
-}
-/** Set the root's theme for a choice: `system` leaves the tokens to the device. */
-function applyTheme(choice, root = document.documentElement) {
-	if (choice === "system") root.removeAttribute("data-theme");
-	else root.setAttribute("data-theme", choice);
-}
-/** Apply the stored choice; call once when the app starts, before the first paint of a page. */
-function applyStoredTheme(root, store) {
-	applyTheme(storedTheme(store), root);
-}
-/** Store a choice for this browser and apply it now. `system` clears the stored choice. */
-function setStoredTheme(choice, root, store = browserStore()) {
-	try {
-		if (choice === "system") store?.removeItem(themeStorageKey);
-		else store?.setItem(themeStorageKey, choice);
-	} catch {}
-	applyTheme(choice, root);
 }
 //#endregion
 //#region src/settings-source.ts

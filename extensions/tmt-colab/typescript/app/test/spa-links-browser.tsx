@@ -151,6 +151,7 @@ function newSlot(url: string): ShellSlot {
   const bar = document.createElement('div');
   const main = document.createElement('div');
   const tools = { search: document.createElement('div'), chip: document.createElement('div') };
+  const actions = document.createElement('div');
   slotHost.append(bar, tools.search, tools.chip, main);
   document.body.append(slotHost);
   history.replaceState(null, '', url);
@@ -158,6 +159,10 @@ function newSlot(url: string): ShellSlot {
     main,
     bar,
     tools,
+    setTopBar: () => {
+      bar.append(actions);
+      return { actions };
+    },
     basePath: '/colab/',
     answer: () => undefined,
     setMenu: () => {},
