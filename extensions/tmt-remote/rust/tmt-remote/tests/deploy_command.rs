@@ -2211,8 +2211,10 @@ fn preview_names_and_digest_binds_the_native_agent_talk_policy() {
     )
     .unwrap();
     assert!(out.human.contains(&format!(
-        "Agent talk Rules: /m/{{machine}}; carrier bound {} B",
-        tmt_remote::limits::CLOUD_CARRIER_BYTES
+        "Agent talk Rules: /m/{{machine}}; carrier bound {} B; descriptor bound {} B; enrollment bound {} B",
+        tmt_remote::limits::CLOUD_CARRIER_BYTES,
+        tmt_remote::limits::CLOUD_DESCRIPTOR_BYTES,
+        tmt_remote::limits::CLOUD_ENROLLMENT_BYTES
     )));
     assert_eq!(
         out.json["plan"]["rules"]["digest"],

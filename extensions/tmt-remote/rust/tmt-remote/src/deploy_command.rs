@@ -261,8 +261,10 @@ fn render(
     }
     writeln!(
         human,
-        "Agent talk Rules: /m/{{machine}}; carrier bound {} B",
-        crate::limits::CLOUD_CARRIER_BYTES
+        "Agent talk Rules: /m/{{machine}}; carrier bound {} B; descriptor bound {} B; enrollment bound {} B",
+        crate::limits::CLOUD_CARRIER_BYTES,
+        crate::limits::CLOUD_DESCRIPTOR_BYTES,
+        crate::limits::CLOUD_ENROLLMENT_BYTES
     )
     .expect("String write");
     human.push_str("Extensions and resources:\n");
