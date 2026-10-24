@@ -55,6 +55,37 @@ global.fetch = async (url, options) => {
   if (value.readFailure && url.includes(value.readFailure.path)) {
     return new Response(JSON.stringify({ error: { message: value.canary } }), { status: value.readFailure.status });
   }
+  // Strict owner-registration fake; native Auth is separately seeded through
+  // its ordinary owner with an injected Http, never a real provider/account.
+  const documents = `projects/${value.project}/databases/(default)/documents`;
+  const name = parsed.pathname.slice('/v1/'.length);
+  if (parsed.origin === 'https://firestore.googleapis.com' &&
+      (name === `${documents}:commit` || name.startsWith(`${documents}/m/`) || name.startsWith(`${documents}/owners/`))) {
+    const rows = value.ownerDocuments ?? {};
+    let result, status = 200;
+    if (options.method === 'GET') {
+      result = rows[name];
+      if (!result) { status = 404; result = {}; }
+    } else {
+      if (name !== `${documents}:commit` || options.method !== 'POST') throw Error('TOKEN_CANARY_OWNER_ROUTE');
+      const writes = JSON.parse(options.body).writes;
+      for (const write of writes) {
+        const target = write.update?.name ?? write.delete;
+        if (!target.startsWith(`${documents}/m/`) && !target.startsWith(`${documents}/owners/`)) throw Error('TOKEN_CANARY_OWNER_TARGET');
+        const old = rows[target];
+        if (write.currentDocument?.exists === false && old) throw Error('TOKEN_CANARY_OWNER_EXISTS');
+        if (write.currentDocument?.updateTime && old?.updateTime !== write.currentDocument.updateTime) throw Error('TOKEN_CANARY_OWNER_CHANGED');
+        if (write.delete) { delete rows[target]; continue; }
+        if (write.updateMask && JSON.stringify(write.updateMask.fieldPaths) !== '["uid"]') throw Error('TOKEN_CANARY_OWNER_MASK');
+        const fields = write.updateMask ? {...old.fields, ...write.update.fields} : write.update.fields;
+        rows[target] = {name:target, fields, updateTime:'2026-10-24T00:00:00Z'};
+      }
+      value.ownerDocuments = rows;
+      fs.writeFileSync(path.join(__dirname, '../state.json'), JSON.stringify(value));
+      result = {commitTime:'2026-10-24T00:00:00Z',writeResults:writes.map(()=>({updateTime:'2026-10-24T00:00:00Z'}))};
+    }
+    return new Response(JSON.stringify(result), {status});
+  }
   if (
     value.hosting &&
     (url.startsWith('https://firebasehosting.googleapis.com/') ||

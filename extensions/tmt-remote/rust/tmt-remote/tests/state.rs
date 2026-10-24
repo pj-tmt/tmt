@@ -299,7 +299,8 @@ fn schema_history_uses_core_migrations() {
             (9, "device_last_use".to_owned()),
             (10, "cloud_transport".to_owned()),
             (11, "cloud_pairing".to_owned()),
-            (12, "cloud_final_binding".to_owned())
+            (12, "cloud_final_binding".to_owned()),
+            (13, "cloud_pair_tokens".to_owned())
         ]
     );
     let journal: String = inspect
@@ -313,11 +314,11 @@ fn schema_history_uses_core_migrations() {
         .unwrap()
         .query_row("SELECT COUNT(*) FROM _migrations", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(count, 12);
+    assert_eq!(count, 13);
     // A newer build's history refuses instead of being reinterpreted.
     Connection::open(&db)
         .unwrap()
-        .execute("INSERT INTO _migrations VALUES (13, 'future', 'now')", [])
+        .execute("INSERT INTO _migrations VALUES (14, 'future', 'now')", [])
         .unwrap();
     assert_eq!(
         Store::open(&layout.serve_lock().unwrap())
@@ -329,7 +330,7 @@ fn schema_history_uses_core_migrations() {
     // A renamed step refuses as damaged history.
     let damage = Connection::open(&db).unwrap();
     damage
-        .execute("DELETE FROM _migrations WHERE version = 12", [])
+        .execute("DELETE FROM _migrations WHERE version = 14", [])
         .unwrap();
     damage
         .execute(

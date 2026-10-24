@@ -1061,6 +1061,18 @@ mod cli_composition {
             let mut no = |out: &tmt_remote::deploy_command::DeployCommandOutput| {
                 asked = true;
                 assert_eq!(out.json["plan"]["hosting"]["replaces"], view.replaces);
+                assert_eq!(
+                    out.human.matches("Register this machine as owner").count(),
+                    1,
+                    "both short and full interactive previews disclose owner access exactly once"
+                );
+                assert!(
+                    out.json["plan"]["steps"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|id| id == "owner:register")
+                );
                 assert!(
                     out.human.contains(match kind {
                         "own" => "Website files   no change",

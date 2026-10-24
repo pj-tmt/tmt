@@ -2360,8 +2360,18 @@ expiry and 128-bit secret. Firestore never stores that secret. Its separate enro
 binds every field, the candidate native UUID/key, authenticated uid, name and nonce. Existing HMAC,
 Ed25519 possession, fingerprint and response-proof primitives are reused with distinct framing.
 The mailbox is one create-only collection `/m/<machine>/enroll`: `<offerId>` holds a candidate,
-`<offerId>-response` the owner's receipt. Exact fields are `{uid,kind,body,createdAt}`; Rules bind a
-candidate's uid to `request.auth.uid`, exact kinds/UUIDs, bounded bytes and server request time.
+`<offerId>-response` the owner's receipt. Responses contain only `{uid,kind,body,createdAt}`.
+Candidates carry those fields plus `token` (32 bytes) for a join, or `token` and its canonical
+native `peer` for a reroute. Rules bind the candidate uid to `request.auth.uid`, exact kinds/UUIDs,
+bounded bytes and server request time.
+Before exposing a code, the owner creates `/m/<machine>/invites/<offerId>` with
+`{tokenHash,expiresAt}`. The join token is HMAC-SHA256 under the code over LP of
+`"tmt-cloud-invite-token-v1"`, project, owner UUID and offer UUID. Only SHA-256 of that token is
+stored in the invitation; it is neither the raw code nor its enrollment MAC/response key.
+A join requires its matching unexpired gate. The owner attempts gate deletion when the ceremony ends
+(confirm, refusal, cancellation or expiry). Cleanup is best-effort and never replaces the ceremony's
+result; expiry refuses logically even when cleanup cannot reach the provider. These owner-only gates
+have no client update or list capability.
 Only the owner lists (limit one), writes responses or deletes; a caller can GET its own exact row or
 a missing row. Kind and offer correlation are bound by the verified transcript. A competing, expired,
 cancelled or reused code refuses. An identical confirmed candidate may observe only its original
@@ -2369,18 +2379,33 @@ receipt before the original deadline; this cannot create another grant. No offer
 response key is persisted. Immutable enrollment rows are retained at most until bounded hourly
 cleanup observes them older than 24 hours; logical invite expiry remains ten minutes.
 
-Machine metadata `/m/<machine>` is created once under the locally generated random UUIDv4.
-The exact fields are `{uid,authenticationKey,descriptor}` with type/size bounds. Create requires
-`request.auth.uid == uid`; only the stored owner may update, and uid/key are immutable. Only the
-descriptor changes; no machine delete or list is allowed. Any authenticated caller may GET an exact
-machine row. Both participants verify the fetched key against their invite/native pin. A conflicting
-pre-existing uid or key gives `REMOTE_CLOUD_MACHINE_CONFLICT` and is never overwritten. A public
-sign-in method permits signed-in users to create rows under their own uid; this storage-only limit
-gives no access to another owner's machine. Peer-route CRUD belongs only to that stored owner,
-with exact `{peer,revoked,expiresAt}` fields and bounds.
+Machine metadata `/m/<machine>` is created under its locally generated UUIDv4. Its exact fields
+are `{uid,authenticationKey,descriptor}` plus optional immutable `invitingOwner` (canonical UUID,
+not itself). A create requires `request.auth.uid == uid` and either the admin-owned
+`/owners/<uid>` allow-list or an unrevoked, unexpired `/m/<invitingOwner>/peers/<uid>` route whose
+`peer` is this new machine UUID. Anonymous sign-in alone authorizes no agent-talk write.
+Only the stored uid may update the descriptor; it cannot change uid, key or inviter provenance,
+including old absence. Any authenticated caller may GET an exact machine row; there is no machine
+list/delete. Both participants check the fetched key against the native/invite pin; a conflict
+returns `REMOTE_CLOUD_MACHINE_CONFLICT` and is never overwritten.
 
-Confirmation atomically persists the grant, exact receipt/proof, native trust and pending uid route
-in the existing Store. Cloud publication runs outside SQLite and acknowledges only an unchanged
+The inviter alone may move a child's uid after verifying its native-signed reroute. Rules check
+that `/m/<invitingOwner>.uid == request.auth.uid`, that only `uid` changes, and that `getAfter` of
+the inviter's new-uid route is live, unexpired and bound to the child UUID. Route publication and
+the child's uid-only masked update commit together; a route already live also satisfies Rules.
+The key, descriptor and provenance stay unchanged. An uninvited owner's uid has no client update
+exception: recovery belongs to the explicitly [authorized deploy](#authorized-deploy).
+Peer-route CRUD stays with the stored owner; each row has exact `{peer,revoked,expiresAt}` fields.
+
+Confirmation atomically persists the grant, exact receipt/proof, native trust, reroute-token hash
+and pending uid route in the existing Store. The receipt carries `rerouteToken`, authenticated by
+its existing response proof: HMAC-SHA256 under the response key over LP of
+`"tmt-cloud-reroute-token-v1"`, project, owner UUID and native peer UUID. The joiner keeps only
+this distinct capability in its private connection, not the code or response key. The owner writes
+`/m/<machine>/reroutes/<peer>` with `{tokenHash}` alongside routes; revoke deletes it in that same
+publication. A reroute create requires the matching capability hash as well as the new uid.
+Old private connections still parse unchanged; pre-token test pairings need one re-pair. They
+predate deployable native agent-talk Rules, so this compatibility exception has no production peers. Cloud publication runs outside SQLite and acknowledges only an unchanged
 snapshot. Local revoke disables authority at the existing effect fence and marks every historical
 uid route for cleanup in the same transaction. Offline cloud cleanup stays visibly pending; it never
 restores local authority. Confirmed state, native keys and policy survive reopen/upgrades. An
@@ -2389,7 +2414,8 @@ unsupported saved connection version refuses with `REMOTE_CLOUD_UPGRADE_REQUIRED
 
 A changed sender uid creates `<rerouteId>` in the same mailbox with `kind=reroute`. Its confirmed
 native key signs `{machineId,owner pin,peer,new uid,generation,timestampMs}`; the sender reserves
-its increasing counter durably before signing. Rules bind the writer to the new uid. The owner checks
+its increasing counter durably before signing. Rules bind the writer to the new uid and require
+the peer's reroute token; native signatures and generation checks remain with the existing receiver. The owner checks
 signature, pin, current non-revoked/non-expired grant, generation strictly greater than stored, and
 timestamp within 60 seconds of provider createTime. It atomically replaces the live uid route and
 writes `<rerouteId>-response`, signed over the exact request and ID. Old-generation replay cannot
@@ -2794,7 +2820,7 @@ state invalidates consent.
 
 Declared Hosting refuses before login when the lazy provider factory does not support the
 complete lifecycle. Executable steps create only the named app/site, associate the site when listed,
-finish database/sign-in/index prerequisites, stage a Version (create, populate, required-hash uploads,
+finish database/sign-in/index prerequisites, register this machine as owner, stage a Version (create, populate, required-hash uploads,
 finalize), switch Rules, release Hosting, then verify both. Pending app/stage work blocks subsequent steps. Rules and
 Hosting publication are not atomic: a single writer is required, switches re-read captured state,
 and ambiguity stays partial/unknown without rollback or a usable binding. Provider-generated
@@ -3363,6 +3389,19 @@ per-namespace Durable Object bindings, scoped connector credentials and only dec
 Private device/machine encryption material is never provisioned to either provider. A backend
 with missing required services/permissions is refused before publishing an active binding.
 
+A hosted Firestore plan includes the explicit `owner:register` step after its public configuration
+and sign-in setup, before Rules publication and Verify. The short summary and details disclose
+`Register this machine as owner`; its step ID is in the authorized digest. It reuses ordinary
+anonymous Auth (included in the displayed plan), then uses the authorized deploy credential to
+admit `/owners/<uid>` and create the pinned native machine row. Clients can never write `/owners`.
+On uid loss, the same authorized step may update only the original owner's uid, preserve its native
+key/descriptor, and retire the previous uid's matching owner entry in one conditional commit.
+A conflicting key, inviter provenance or foreign allow-list binding refuses with
+`REMOTE_DEPLOY_OWNER_CONFLICT`; nothing is overwritten. The original snapshot preconditions guard
+against concurrent pin replacement. Exact reruns observe before writing, including a lost commit
+answer; there is no mutation retry. Verify remains read-only and checks this step too. Deploying
+these gates grants no native operation permission or public Core delivery activation by itself.
+
 Remote records deployment identity, plan/declaration digests and per-resource outcomes durably in
 its own state. Validate all declarations first; publish a usable binding only after the complete
 authorized plan succeeds. A partial failure reports completed/pending resources and leaves new
@@ -3499,8 +3538,8 @@ including unrelated indexes, separately from single-field configurations. Existi
 a new authorized plan reconciles its required indexes. Index readiness is a recorded prerequisite of sharing, as defined by the status-layer projection. Each step is observed
 first and applied only when absent, so an exact-plan retry skips what exists and never repeats an
 effect; a provider answer lost after a possible effect is recorded `unknown` and resolved by the next
-observation, never reported as failed. An existing equivalent object is adopted and kept; nothing is
-ever deleted. A destructive replacement of foreign live Rules names their exact fingerprint in the
+observation, never reported as failed. Equivalent user resources are adopted and kept;
+owner-access metadata follows the registration rule above. A destructive replacement of foreign live Rules names their exact fingerprint in the
 plan; authorizing that plan digest consents to replacement. A changed foreign fingerprint invalidates
 that authorization and is refused before switching the release.
 The deployed Rules begin with a Remote marker line naming the deployment and the digest of the
@@ -3513,7 +3552,7 @@ until the run completes no binding is usable; a failure before that call leaves 
 valid; running a finished plan again is a fresh check that keeps the binding until a Rules call is made.
 Preflight HTTP failures expose `error.provider: {operation, status}` in JSON and name the
 operation and numeric HTTP status in fixed human text. `operation` is one of `identity`,
-`project`, `database`, `fields`, `indexes`, `rules-release`, `rules-set`, `web-apps`,
+`project`, `database`, `owner-registration`, `fields`, `indexes`, `rules-release`, `rules-set`, `web-apps`,
 `web-app-config`, `web-app-operation`, `sign-in-config`, `google-sign-in-config`,
 `hosting-site`, `hosting-channel`, `hosting-version`, `hosting-files`, `hosting-release`,
 `hosting-upload`; `status` is a numeric HTTP code. No URL, resource name, project ID or
@@ -3527,7 +3566,7 @@ Records carry fixed reason codes, never provider text, and Remote fixes the owne
   `_DEPLOYMENT_INVALID`, `_SIGN_IN_MISSING`, `_AUTHORIZATION_STALE`, `_ACCOUNT_CHANGED`,
   `_ACCOUNT_UNREADABLE`, `_PROJECT_CONFLICT`, `_HOSTING_UNAVAILABLE`.
 - Step faults: `REMOTE_DEPLOY_PERMISSION_DENIED`, `_API_DISABLED`, `_QUOTA_EXCEEDED`,
-  `_PROVIDER_REJECTED`, `_DATABASE_MISMATCH`, `_RULES_FOREIGN`, `_VERIFY_FAILED`.
+  `_PROVIDER_REJECTED`, `_OWNER_CONFLICT`, `_DATABASE_MISMATCH`, `_RULES_FOREIGN`, `_VERIFY_FAILED`.
 - Owner steps: `REMOTE_DEPLOY_OWNER_INITIALIZE_AUTH`, `_ENABLE_GOOGLE_SIGN_IN`.
 
 The public `<extension> deploy-declaration --json` reply has exactly six fields:

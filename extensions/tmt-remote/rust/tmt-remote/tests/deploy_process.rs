@@ -21,6 +21,15 @@ fn base(root: &Root) -> Command {
     let mut command = Command::new(BINARY);
     command
         .env_clear()
+        .env("TMT_AGENT", "1")
+        .env("BROWSER", "/usr/bin/true")
+        // Fail closed if this fixture ever reaches the native HTTP transport.
+        // Helper fetch is an in-process fake; native Auth is seeded through its
+        // ordinary owner with FakeSignup below, never the public endpoint.
+        .env("HTTPS_PROXY", "http://127.0.0.1:9")
+        .env("HTTP_PROXY", "http://127.0.0.1:9")
+        .env("ALL_PROXY", "http://127.0.0.1:9")
+        .env("NO_PROXY", "")
         .env("HOME", &root.0)
         .env("PATH", "/usr/bin:/bin")
         .env("TMT_EXECUTABLE", root.0.join("tmt"))
@@ -202,7 +211,14 @@ fn installed(root: &Root, mode: &str) -> std::path::PathBuf {
     package
 }
 fn invoke(root: &Root, extra: &[&str]) -> std::process::Output {
-    base(root)
+    // No forwarding server exists: a future accidental native Auth call can
+    // connect only to this owned loopback listener and must fail the assertion.
+    let fence = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let proxy = format!("http://{}", fence.local_addr().unwrap());
+    let output = base(root)
+        .env("HTTPS_PROXY", &proxy)
+        .env("HTTP_PROXY", &proxy)
+        .env("ALL_PROXY", &proxy)
         .env(
             "PATH",
             std::env::join_paths([root.0.join("bin"), "/usr/bin".into(), "/bin".into()]).unwrap(),
@@ -210,7 +226,13 @@ fn invoke(root: &Root, extra: &[&str]) -> std::process::Output {
         .args(ARGS)
         .args(extra)
         .output()
-        .unwrap()
+        .unwrap();
+    fence.set_nonblocking(true).unwrap();
+    assert!(
+        matches!(fence.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+        "deploy process fixture attempted native HTTP; seed/inject its ordinary Auth owner instead"
+    );
+    output
 }
 fn json_output(output: &std::process::Output) -> serde_json::Value {
     assert!(output.status.success(), "{:?}", output);
@@ -416,9 +438,55 @@ fn declare_hosting(root: &Root, html: &[u8]) {
 api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"dataRoot\":\"{}\"}}';; *) exit 5;; esac;;
 *) exit 6;; esac",root.0.join("reply.json").display(),root.0.join("bundle.json").display(),root.0.display())).unwrap();
 }
+fn seed_owner_sign_in(root: &Root) {
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    use std::sync::atomic::AtomicBool;
+    use tmt_remote::firebase_auth::{
+        AuthError, Cancellation, Client, FileStore, Http, Jitter, Operation, Project, Request,
+        Response, SystemClock,
+    };
+    struct FakeSignup;
+    impl Http for FakeSignup {
+        fn send(
+            &self,
+            request: &Request,
+            _: u64,
+            _: &dyn Cancellation,
+        ) -> Result<Response, AuthError> {
+            assert_eq!(request.operation(), Operation::SignUp);
+            let claims = serde_json::json!({"aud":"demo-remote-1","sub":"native-owner","firebase":{"sign_in_provider":"anonymous"}});
+            let token = format!("e30.{}.fixture", URL_SAFE_NO_PAD.encode(claims.to_string()));
+            Ok(Response {status:200,retry_after_ms:None,body:serde_json::to_vec(&serde_json::json!({"localId":"native-owner","idToken":token,"refreshToken":"fixture-only-refresh","expiresIn":"3600"})).unwrap()})
+        }
+    }
+    struct NoJitter;
+    impl Jitter for NoJitter {
+        fn milliseconds(&self, _: u64) -> u64 {
+            0
+        }
+    }
+    let layout = root.layout();
+    let credentials = FileStore::new(&layout, "demo-remote-1").unwrap();
+    let clock = SystemClock::default();
+    let cancel = AtomicBool::new(false);
+    let mut auth = Client::load(
+        Project::new("demo-remote-1", "123", "public-api-key").unwrap(),
+        &credentials,
+        &FakeSignup,
+        &clock,
+        &NoJitter,
+        &cancel,
+    )
+    .unwrap();
+    auth.sign_in().unwrap();
+    assert_eq!(auth.status().uid.as_deref(), Some("native-owner"));
+    auth.stop();
+}
+
 fn hosted_fixture(root: &Root, html: &[u8]) -> std::path::PathBuf {
     use serde_json::{Value, json};
     declare_hosting(root, html);
+    seed_owner_sign_in(root);
     let package = installed(root, "process");
     let mut state: Value =
         serde_json::from_slice(&fs::read(package.join("state.json")).unwrap()).unwrap();
@@ -447,6 +515,24 @@ fn completed_hosting_is_own_on_identical_and_changed_bundle_replans() {
         ],
     ));
     assert_eq!(complete["record"]["run"]["state"], "complete");
+    let owner = complete["record"]["run"]["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|step| step["id"] == "owner:register")
+        .expect("explicit owner step");
+    assert_eq!(owner["state"], "done");
+    let registered: Value =
+        serde_json::from_slice(&fs::read(package.join("state.json")).unwrap()).unwrap();
+    let allowlist = "projects/demo-remote-1/databases/(default)/documents/owners/native-owner";
+    let machine = registered["ownerDocuments"][allowlist]["fields"]["machine"]["stringValue"]
+        .as_str()
+        .unwrap();
+    let machine_row = format!("projects/demo-remote-1/databases/(default)/documents/m/{machine}");
+    assert_eq!(
+        registered["ownerDocuments"][&machine_row]["fields"]["uid"]["stringValue"],
+        "native-owner"
+    );
     let calls: Vec<Value> = fs::read_to_string(package.join("calls.jsonl"))
         .unwrap()
         .lines()

@@ -23,6 +23,8 @@ pub struct Connection {
     pub request: Vec<u8>,
     pub confirmed: bool,
     pub descriptor: Vec<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reroute_token: Option<[u8; 32]>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,6 +42,7 @@ pub struct RouteChange {
     pub peer: String,
     pub generation: u64,
     pub revoked: bool,
+    pub reroute_hash: Option<[u8; 32]>,
 }
 
 fn refused() -> RemoteError {
@@ -221,15 +224,27 @@ impl Store {
         } else {
             grant
         };
-        let bytes = crate::pairing::receipt(&grant, &challenge.owner, &challenge.owner_key)?;
+        use sha2::{Digest, Sha256};
+        let mut token = super::wire::reroute_token(response_key, challenge, &candidate.peer)?;
+        let hash: [u8; 32] = Sha256::digest(token).into();
+        let mut receipt: serde_json::Value = serde_json::from_slice(&crate::pairing::receipt(
+            &grant,
+            &challenge.owner,
+            &challenge.owner_key,
+        )?)
+        .map_err(database)?;
+        receipt["rerouteToken"] = serde_json::json!(crate::canonical::base64url(&token));
+        token.fill(0);
+        let bytes = serde_json::to_vec(&receipt).map_err(database)?;
         let proof = crypto::server_proof(response_key, &bytes).map_err(|_| refused())?;
         tx.execute(
-            "INSERT INTO cloud_peers VALUES(?1,?2,?3,?4,1)",
+            "INSERT INTO cloud_peers(project,client_id,owner,owner_key,generation,reroute_hash) VALUES(?1,?2,?3,?4,1,?5)",
             params![
                 challenge.project,
                 candidate.peer,
                 challenge.owner,
-                challenge.owner_key.as_slice()
+                challenge.owner_key.as_slice(),
+                hash.as_slice()
             ],
         )
         .map_err(database)?;
@@ -341,9 +356,9 @@ impl Store {
 
     /// Pending desired rows survive provider failure and process restart.
     pub fn cloud_route_changes(&self) -> Result<Vec<RouteChange>, RemoteError> {
-        self.connection.prepare("SELECT project,uid,client_id,generation,revoked FROM cloud_peer_routes WHERE pending=1 ORDER BY project,client_id,uid")
+        self.connection.prepare("SELECT r.project,r.uid,r.client_id,r.generation,r.revoked,p.reroute_hash FROM cloud_peer_routes r JOIN cloud_peers p ON p.project=r.project AND p.client_id=r.client_id WHERE r.pending=1 ORDER BY r.project,r.client_id,r.uid")
             .and_then(|mut query| query.query_map([], |r| Ok(RouteChange {
-                project:r.get(0)?, uid:r.get(1)?, peer:r.get(2)?, generation:r.get::<_, i64>(3)? as u64, revoked:r.get(4)?,
+                project:r.get(0)?, uid:r.get(1)?, peer:r.get(2)?, generation:r.get::<_, i64>(3)? as u64, revoked:r.get(4)?, reroute_hash:r.get(5)?,
             }))?.collect()).map_err(database)
     }
 

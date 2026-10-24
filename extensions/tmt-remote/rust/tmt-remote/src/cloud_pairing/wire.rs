@@ -23,6 +23,14 @@ pub(super) fn upgrade() -> RemoteError {
         "This connection needs a newer Remote. Run tmt upgrade; your pairing is kept.",
     )
 }
+// Only pre-token test pairings can reach this compatibility boundary: native
+// agent-talk Rules had not shipped, so upgrades do not strand real enrollments.
+pub(super) fn missing_reroute_token() -> RemoteError {
+    RemoteError::new(
+        "REMOTE_CLOUD_UPGRADE_REQUIRED",
+        "This older pairing has no sign-in recovery token. Pair these machines again.",
+    )
+}
 fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, RemoteError> {
     if bytes.len() > limits::CLOUD_ENROLLMENT_BYTES {
         return Err(invalid());
@@ -118,6 +126,17 @@ impl Invite {
         }
         Ok(())
     }
+    /// Separate from the enrollment MAC and response key; only its hash is public.
+    pub(super) fn gate_token(&self) -> Result<[u8; 32], RemoteError> {
+        let context = canonical::framed(&[
+            b"tmt-cloud-invite-token-v1",
+            self.challenge.project.as_bytes(),
+            self.challenge.owner.as_bytes(),
+            self.challenge.offer.as_bytes(),
+        ])
+        .map_err(|_| invalid())?;
+        Ok(crypto::mac(&self.code, &context))
+    }
     pub fn token(&self) -> Result<String, RemoteError> {
         let raw = serde_json::to_vec(self).map_err(|_| invalid())?;
         if raw.len() > limits::CLOUD_INVITE_BYTES {
@@ -172,6 +191,21 @@ impl Invite {
     pub fn response_key(&self, candidate: &Candidate) -> Result<[u8; 32], RemoteError> {
         super::response_key(&self.code, &self.challenge, candidate).map_err(|_| invalid())
     }
+}
+
+pub(super) fn reroute_token(
+    response_key: &[u8; 32],
+    challenge: &Challenge,
+    peer: &str,
+) -> Result<[u8; 32], RemoteError> {
+    let context = canonical::framed(&[
+        b"tmt-cloud-reroute-token-v1",
+        challenge.project.as_bytes(),
+        challenge.owner.as_bytes(),
+        peer.as_bytes(),
+    ])
+    .map_err(|_| invalid())?;
+    Ok(crypto::mac(response_key, &context))
 }
 
 pub struct Submission {
@@ -270,6 +304,41 @@ pub fn read_route(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn capabilities_use_distinct_domains_and_fixed_independent_vectors() {
+        let (challenge, candidate, _) = super::super::tests::fixture();
+        let mut invite = Invite {
+            version: 1,
+            challenge,
+            public_config: json!({"projectId":"demo-pairing-test","appId":"1:123:web:test","apiKey":"public-test"}),
+            machine_name: "Owner".into(),
+            code: [4; 16],
+        };
+        // Independently computed with Python hmac/hashlib and u32 big-endian LP.
+        let token = invite.gate_token().unwrap();
+        assert_eq!(
+            canonical::base64url(&token),
+            "K-xvdbtkMxJprrZ-VLXrtxYVjZSsirSjMhyOe9ATAz0"
+        );
+        let response = invite.response_key(&candidate).unwrap();
+        let transcript = super::super::enrollment(&invite.challenge, &candidate).unwrap();
+        assert_ne!(token, response);
+        assert_ne!(token, crypto::enrollment_mac(&invite.code, &transcript));
+        let route = reroute_token(&[8; 32], &invite.challenge, &candidate.peer).unwrap();
+        assert_eq!(
+            canonical::base64url(&route),
+            "OrChJQgzIEIT2nk7coc9r-3vJoda-CG4foTULVHeMH0"
+        );
+        assert_ne!(route, token);
+        invite.challenge.offer = "44444444-4444-4444-8444-444444444444".into();
+        assert_ne!(invite.gate_token().unwrap(), token);
+        invite.challenge.owner = "55555555-5555-4555-8555-555555555555".into();
+        assert_ne!(
+            reroute_token(&[8; 32], &invite.challenge, &candidate.peer).unwrap(),
+            route
+        );
+    }
+
     #[test]
     fn token_and_submission_refuse_duplicate_fields_versions_and_uid_substitution() {
         let (challenge, candidate, _) = super::super::tests::fixture();
