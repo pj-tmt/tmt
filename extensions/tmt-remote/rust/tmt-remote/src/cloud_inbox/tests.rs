@@ -7,6 +7,80 @@ const PEER: &str = "33333333-3333-4333-8333-333333333333";
 const ID: &str = "44444444-4444-4444-8444-444444444444";
 
 #[test]
+fn inbox_continuation_is_independent_of_the_machine_enrollment_checkpoint() {
+    use super::{document::Cursor, store::Continuation};
+    let root = std::env::temp_dir().join(format!("tmt-cloud-query-scope-{}", uuid_v4().unwrap()));
+    let layout = Layout::open(&root).unwrap();
+    let lease = layout.serve_lock().unwrap();
+    let mut store = Store::open(&lease).unwrap();
+    let machine = store.machine().unwrap().id;
+    store
+        .cloud_progress(&Continuation {
+            from_ms: 0,
+            read_ms: 1_800_000_000_000,
+            cursor: Cursor {
+                created_at: "2027-01-15T08:00:00Z".into(),
+                id: ID.into(),
+            },
+        })
+        .unwrap();
+    // Enrollment uses the legacy peer-keyed API with the machine UUID.
+    store
+        .cloud_complete(std::slice::from_ref(&machine), 1_800_000_000_100)
+        .unwrap();
+    let inbox = store.cloud_query_checkpoint().unwrap().unwrap();
+    assert!(
+        inbox.continuation.is_some(),
+        "enrollment must never clear inbox progress"
+    );
+    assert_eq!(
+        inbox.completed.created_at_ms(),
+        0,
+        "the enrollment scan must not move the inbox scan's floor"
+    );
+    assert_eq!(
+        store.cloud_checkpoint(&machine).unwrap().created_at_ms(),
+        1_800_000_000_100
+    );
+    store.cloud_finish_query(1_800_000_000_000).unwrap();
+    assert!(
+        store
+            .cloud_query_checkpoint()
+            .unwrap()
+            .unwrap()
+            .continuation
+            .is_none()
+    );
+    assert_eq!(
+        store.cloud_checkpoint(&machine).unwrap().created_at_ms(),
+        1_800_000_000_100,
+        "inbox completion must never overwrite the enrollment floor"
+    );
+    store
+        .cloud_complete(std::slice::from_ref(&machine), 1_800_000_000_200)
+        .unwrap();
+    drop(store);
+    let store = Store::open(&lease).unwrap();
+    assert_eq!(
+        store
+            .cloud_query_checkpoint()
+            .unwrap()
+            .unwrap()
+            .completed
+            .created_at_ms(),
+        1_800_000_000_000,
+        "later enrollment progress stays in its own stream across restart"
+    );
+    assert_eq!(
+        store.cloud_checkpoint(&machine).unwrap().created_at_ms(),
+        1_800_000_000_200
+    );
+    drop(store);
+    drop(lease);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn machine_query_continuation_preserves_legacy_rows_and_exact_ties_across_restart() {
     use super::{document::Cursor, store::Continuation};
     let root = std::env::temp_dir().join(format!("tmt-cloud-query-{}", uuid_v4().unwrap()));
@@ -78,7 +152,7 @@ fn machine_query_continuation_preserves_legacy_rows_and_exact_ties_across_restar
         store
             .connection
             .execute(
-                "UPDATE cloud_transport SET carrier=?1 WHERE id='inbox-query'",
+                "UPDATE cloud_transport SET carrier=?1 WHERE peer_id='inbox-query' AND kind='checkpoint' AND id=''",
                 [serde_json::to_vec(&bad).unwrap()],
             )
             .unwrap();
@@ -90,14 +164,13 @@ fn machine_query_continuation_preserves_legacy_rows_and_exact_ties_across_restar
     store
         .connection
         .execute(
-            "UPDATE cloud_transport SET carrier=?1 WHERE id='inbox-query'",
+            "UPDATE cloud_transport SET carrier=?1 WHERE peer_id='inbox-query' AND kind='checkpoint' AND id=''",
             [serde_json::to_vec(&valid).unwrap()],
         )
         .unwrap();
-    store
-        .cloud_complete(&[PEER.into()], 1_800_000_000_001)
-        .unwrap();
-    store.cloud_complete(&[PEER.into()], 1000).unwrap();
+    store.cloud_finish_query(1_800_000_000_001).unwrap();
+    store.cloud_finish_query(1000).unwrap();
+    assert_eq!(store.cloud_checkpoint(PEER).unwrap().created_at_ms(), 1000);
     let completed = store.cloud_query_checkpoint().unwrap().unwrap();
     assert!(completed.continuation.is_none());
     assert_eq!(completed.completed.created_at_ms(), 1_800_000_000_001);

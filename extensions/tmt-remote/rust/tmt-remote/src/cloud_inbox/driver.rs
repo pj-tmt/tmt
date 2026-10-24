@@ -58,7 +58,6 @@ impl InboxDriver {
             self.sessions
                 .with_operation_store(|s| s.cloud_forget(&peer, &id, now))?;
         }
-        let peers = self.sessions.with_operation_store(|s| s.cloud_peers())?;
         let (from, mut cursor, mut snapshot) = self.sessions.with_operation_store(|store| {
             if let Some(checkpoint) = store.cloud_query_checkpoint()? {
                 return Ok(match checkpoint.continuation {
@@ -72,8 +71,11 @@ impl InboxDriver {
             }
             // Old Stores have peer checkpoints only. Once a machine query starts,
             // its own continuation/checkpoint owns progress, even for quiet peers.
-            let from = peers
+            let from = store
+                .cloud_peers()?
                 .iter()
+                // The machine UUID's legacy checkpoint belongs to enrollment (#4788).
+                .filter(|peer| peer.as_str() != self.provider.machine())
                 .map(|p| store.cloud_checkpoint(p).map(|c| c.query_from_ms()))
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
@@ -161,7 +163,7 @@ impl InboxDriver {
             }
         }
         self.sessions
-            .with_operation_store(|s| s.cloud_complete(&peers, snapshot.unwrap_or(0)))?;
+            .with_operation_store(|s| s.cloud_finish_query(snapshot.unwrap_or(0)))?;
         Ok(count)
     }
 }

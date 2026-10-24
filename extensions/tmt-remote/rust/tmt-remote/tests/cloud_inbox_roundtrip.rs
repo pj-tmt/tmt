@@ -833,7 +833,7 @@ fn transient_stop_resumes_after_unconfirmed_prefix_then_durable_poison() {
     );
     let continuation: Vec<u8> = database
         .query_row(
-            "SELECT carrier FROM cloud_transport WHERE kind='checkpoint' AND id='inbox-query'",
+            "SELECT carrier FROM cloud_transport WHERE kind='checkpoint' AND peer_id='inbox-query' AND id=''",
             [],
             |r| r.get(0),
         )
@@ -890,7 +890,7 @@ fn poison_between_good_carriers_is_durable_per_document_and_transient_reads_do_n
         inspect()
             .query_row(
                 "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint'",
-                [PEER],
+                ["inbox-query"],
                 |r| r.get::<_, i64>(0),
             )
             .optional()
@@ -1111,7 +1111,7 @@ fn lost_response_post_does_not_block_later_carriers_or_repeat_after_restart() {
         inspect()
             .query_row(
                 "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint'",
-                [PEER],
+                ["inbox-query"],
                 |row| row.get::<_, i64>(0)
             )
             .unwrap(),
@@ -1274,7 +1274,7 @@ fn response_budget_refusal_before_claim_holds_the_checkpoint_and_retries_without
         inspect()
             .query_row(
                 "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint'",
-                [PEER],
+                ["inbox-query"],
                 |row| row.get::<_, i64>(0)
             )
             .unwrap(),
@@ -1380,7 +1380,7 @@ fn unknown_owned_lookup_is_permanent_but_real_store_failure_holds_the_checkpoint
     assert_eq!(
         db.query_row(
             "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint'",
-            [PEER],
+            ["inbox-query"],
             |row| row.get::<_, i64>(0)
         )
         .unwrap(),
