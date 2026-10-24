@@ -15,6 +15,7 @@ mod notification;
 mod origin;
 mod passthrough;
 mod receipts;
+mod remote_route;
 mod response;
 mod results;
 mod retention;

@@ -24,6 +24,19 @@ pub fn response_token(request_id: &str, attempt_id: &str, route: &RequestRoute) 
             digest.update(b"inbox\0");
             append_string(&mut digest, recipient_identity_id);
         }
+        // No local recipient answers a remote request, so no receipt is ever derived for it;
+        // the domain is still separate so the preimage can never collide with another route.
+        RequestRoute::Remote {
+            remote,
+            target_id,
+            target_name,
+            ..
+        } => {
+            digest.update(b"remote\0");
+            append_string(&mut digest, remote);
+            append_string(&mut digest, target_id.as_deref().unwrap_or(""));
+            append_string(&mut digest, target_name);
+        }
     }
     let hash = digest.finalize();
     let mut token = [0; 16];
