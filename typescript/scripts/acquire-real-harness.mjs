@@ -13,6 +13,16 @@ import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
+// BuildKit RUN stages do not carry Docker runtime's /.dockerenv marker.
+// Only the derived image creates this explicit build-stage marker.
+export function assertHarnessImage({ platform = process.platform, exists = existsSync } = {}) {
+  if (
+    platform !== 'linux' ||
+    (!exists('/.dockerenv') && !exists('/opt/tmt-real-harness-image-build'))
+  )
+    throw new Error('HARNESS_CONTAINER_REQUIRED: downloads run only inside the image build');
+}
+
 export function validateHarnessPins(pins) {
   const packages = pins?.packages;
   const expected = [
@@ -50,8 +60,7 @@ export async function downloadHarnessArchive(
   archive,
   { fetchImpl = fetch, maxBytes = 256 * 1024 * 1024 } = {}
 ) {
-  if (fetchImpl === fetch && !existsSync('/.dockerenv'))
-    throw new Error('HARNESS_CONTAINER_REQUIRED: provider downloads run only in the image build');
+  if (fetchImpl === fetch) assertHarnessImage();
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 256 * 1024 * 1024)
     throw new Error('HARNESS_DOWNLOAD_LIMIT: invalid byte bound');
   const signal = AbortSignal.timeout(90000);
@@ -86,8 +95,7 @@ export async function downloadHarnessArchive(
 
 async function acquire(manifest, target) {
   // This entry point cannot fetch or install provider payloads on a developer host.
-  if (!existsSync('/.dockerenv'))
-    throw new Error('HARNESS_CONTAINER_REQUIRED: downloads run only inside the image build');
+  assertHarnessImage();
   const pins = validateHarnessPins(JSON.parse(readFileSync(manifest, 'utf8')));
   mkdirSync(target, { recursive: true, mode: 0o755 });
   const records = [];
