@@ -1491,7 +1491,10 @@ fn commit_observation(
         family: None,
         response,
         boundary,
-        now_ms: reading.as_ref().map_or(0, |r| r.now_ms),
+        // A kept answer is stamped even when no usage was read.
+        now_ms: reading
+            .as_ref()
+            .map_or_else(tmt_adapters::request_runtime::wall_time_ms, |r| r.now_ms),
         deadline,
     });
     let cleanup = storage.close();
