@@ -182,3 +182,10 @@ export async function applyProjectChanges(
   }
   return outcome;
 }
+
+/** Stable presentation only: every project name uses one of the existing semantic role tints. */
+export function projectTone(name: string): 'blue' | 'violet' | 'amber' | 'green' {
+  let hash = 2166136261;
+  for (const point of name) hash = Math.imul(hash ^ point.codePointAt(0)!, 16777619);
+  return (['blue', 'violet', 'amber', 'green'] as const)[(hash >>> 0) % 4];
+}

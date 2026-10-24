@@ -124,9 +124,8 @@ async function containment(page: Page) {
   const result = await page.evaluate(() => {
     const nested = Array.from(document.querySelectorAll<HTMLElement>('body *'))
       .filter((node) => {
-        // The page list is one screen whose rows scroll inside it (page-index.spec.ts owns that).
-        if (!node.getClientRects().length || node.classList.contains('page-list-scroll'))
-          return false;
+        // Home is the list viewport, including hero and controls (page-index.spec.ts owns that).
+        if (!node.getClientRects().length || node.hasAttribute('data-page-list')) return false;
         const style = getComputedStyle(node);
         return /^(auto|scroll)$/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 1;
       })

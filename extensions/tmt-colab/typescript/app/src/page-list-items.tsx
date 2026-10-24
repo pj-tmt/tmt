@@ -3,6 +3,7 @@ import { FileText, Lock, Pin } from 'lucide-react';
 import { HomeTitleLink, type HomeTitleHints } from './home-titles.js';
 import { pageStage } from './list-stage.js';
 import { pageUpdate } from './page-index.js';
+import { projectTone } from './projects.js';
 import { PageWork } from './page-work.js';
 import type { PageSummary } from './transport.js';
 import { text } from './strings.js';
@@ -45,7 +46,9 @@ export function PinnedPages({
             <HomeTitleLink page={page} hints={hints} scope={scope} />
             <div className="page-pin-meta">
               {(page.projects ?? []).map((name) => (
-                <span key={name}>{name}</span>
+                <span key={name} className="page-pin-project" data-project-tone={projectTone(name)}>
+                  {name}
+                </span>
               ))}
               <Stage page={page} />
             </div>
@@ -91,40 +94,36 @@ export function PageListItem({
         <HomeTitleLink page={page} hints={hints} scope={scope} />
         {page.summary?.work ? <PageWork work={page.summary.work} /> : null}
       </div>
-      <div className="page-row-projects">{projects}</div>
-      <div className="page-row-stage">
-        {page.summary?.waiting ? (
-          <span className="page-waiting" data-waiting>
-            <span className="page-waiting-mark" aria-hidden="true">
-              ◆
-            </span>{' '}
-            {t.waitingForYou}
-            {page.summary.needsYou > 0 ? ` · ${page.summary.needsYou}` : ''}
-          </span>
-        ) : (
-          <Stage page={page} />
-        )}
+      <div className="page-row-detail">
+        <div className="page-row-projects">{projects}</div>
+        <div className="page-row-stage">
+          {page.summary?.waiting ? (
+            <span className="page-waiting" data-waiting>
+              <span className="page-waiting-mark" aria-hidden="true" /> {t.waitingForYou}
+              {page.summary.needsYou > 0 ? ` · ${page.summary.needsYou}` : ''}
+            </span>
+          ) : (
+            <Stage page={page} />
+          )}
+        </div>
+        <span className="page-metadata">
+          {page.summary?.author ? <span className="page-author">{page.summary.author}</span> : null}
+          {updated.dateTime ? (
+            <time
+              className="page-updated"
+              dateTime={updated.dateTime}
+              title={updated.absolute}
+              aria-label={`${text.lastUpdated}: ${updated.label}`}
+            >
+              {updated.label}
+            </time>
+          ) : null}
+        </span>
+        <span className="page-row-access">
+          {page.sharing === 'private' ? <Lock size={16} aria-hidden="true" /> : null}
+          {page.sharing === 'private' ? text.private : text.shared}
+        </span>
       </div>
-      <span className="page-metadata">
-        {page.summary?.author ? <span className="page-author">{page.summary.author}</span> : null}
-        {updated.dateTime ? (
-          <time
-            className="page-updated"
-            dateTime={updated.dateTime}
-            title={updated.absolute}
-            aria-label={`${text.lastUpdated}: ${updated.label}`}
-          >
-            {updated.label}
-          </time>
-        ) : null}
-        {page.summary?.comments !== undefined ? (
-          <span className="page-comments">{t.commentCount(page.summary.comments)}</span>
-        ) : null}
-      </span>
-      <span className="page-row-access">
-        {page.sharing === 'private' ? <Lock size={16} aria-hidden="true" /> : null}
-        {page.sharing === 'private' ? text.private : text.shared}
-      </span>
       {actions ? <span className="tmt-ui-list-actions">{actions}</span> : null}
     </li>
   );
