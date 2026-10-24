@@ -203,7 +203,7 @@ pub struct DeliveryView {
 }
 
 impl DeliveryView {
-    pub fn of(state: DeliveryState, reason: DeliveryReason) -> Self {
+    pub(crate) fn of(state: DeliveryState, reason: DeliveryReason) -> Self {
         Self {
             state,
             reason,

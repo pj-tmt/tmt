@@ -464,6 +464,31 @@ pub trait RequestRecords {
         identity_id: &str,
         sequences: &[u64],
     ) -> Result<u64, Self::Error>;
+    /// Confirms the idle checklists whose unconfirmed members are all closed, so a claim does not
+    /// scan them again. A checklist that holds one of the `open` sequences, or a member past
+    /// `scanned_through` (the scan stopped before it), is kept.
+    fn retire_unconfirmed_digest(
+        &mut self,
+        identity_id: &str,
+        open: &[u64],
+        scanned_through: u64,
+        now_ms: u64,
+    ) -> Result<u64, Self::Error>;
+    /// The identity's turn-boundary claim that was made at or before `claimed_before_ms` and is
+    /// still claimed: a Stop hook that never settled it.
+    fn stale_turn_boundary_claim(
+        &self,
+        identity_id: &str,
+        claimed_before_ms: u64,
+    ) -> Result<Option<digest::DigestChecklist>, Self::Error>;
+    /// Settles a stranded claim `uncertain` (it is never typed again) and confirmed (it opens no
+    /// continuation), and returns the `release` sequences to the held pool.
+    fn reap_digest_claim(
+        &mut self,
+        checklist: &digest::DigestChecklist,
+        release: &[u64],
+        now_ms: u64,
+    ) -> Result<(), Self::Error>;
     fn digest_checklist(&self, id: &str) -> Result<Option<digest::DigestChecklist>, Self::Error>;
     fn active_digest_checklist(
         &self,

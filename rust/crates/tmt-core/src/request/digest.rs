@@ -204,6 +204,11 @@ impl DigestState {
     }
 }
 
+/// A turn-boundary claim still claimed this long after it was made was stranded. The provider
+/// stops a Stop hook after a few seconds, so the hook that made the claim can no longer print or
+/// settle it (#4871).
+pub const STALE_HOOK_CLAIM_MS: u64 = 10_000;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DigestChecklist {
     pub id: String,
