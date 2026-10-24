@@ -185,3 +185,39 @@
 .tmt-ui-menu-trigger > svg {
   flex: none;
 }
+/* Only the opt-in textual trigger changes; the shared popup remains the same menu. */
+.tmt-ui-menu[data-presentation='compact'] {
+  width: var(--tmt-ui-compact-menu-width);
+}
+.tmt-ui-menu[data-presentation='compact'] .tmt-ui-menu-trigger {
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--tmt-ui-compact-menu-height);
+  justify-content: space-between;
+  font-size: var(--tmt-ui-compact-menu-size);
+  line-height: var(--tmt-ui-compact-menu-line-height);
+  padding: 10px var(--tmt-ui-space-m);
+  background: color-mix(in srgb, var(--tmt-ui-surface-sheet) 40%, var(--tmt-ui-surface-paper));
+}
+.tmt-ui-menu[data-presentation='compact'] .tmt-ui-menu-trigger > .tmt-ui-menu-value {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.tmt-ui-menu[data-presentation='compact'] .tmt-ui-menu-trigger > svg {
+  width: var(--tmt-ui-compact-menu-icon-size);
+  height: var(--tmt-ui-compact-menu-icon-size);
+  flex: none;
+}
+@media (max-width: 640px) {
+  .tmt-ui-menu[data-presentation='compact'] {
+    width: var(--tmt-ui-compact-menu-phone-width);
+  }
+}
+
+.tmt-ui-menu[data-presentation='compact'] > .tmt-ui-menu-trigger-wrapper {
+  width: 100%;
+}

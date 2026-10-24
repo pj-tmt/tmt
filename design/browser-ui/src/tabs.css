@@ -190,3 +190,34 @@
 .tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab[aria-selected='true'] .tmt-ui-tab-count {
   color: var(--tmt-ui-color-text);
 }
+/* Compact is an opt-in flat presentation; default mint tabs and panel ownership stay intact. */
+.tmt-ui-tabs[data-variant='flat'][data-presentation='compact'] .tmt-ui-tab {
+  font-size: var(--tmt-ui-compact-tab-size);
+  line-height: var(--tmt-ui-compact-tab-line-height);
+  padding: var(--tmt-ui-compact-tab-padding);
+  border-radius: var(--tmt-ui-radius-s);
+}
+.tmt-ui-tabs[data-variant='flat'][data-presentation='compact'] .tmt-ui-tab-count {
+  font-size: var(--tmt-ui-compact-tab-count-size);
+}
+.tmt-ui-tabs[data-variant='flat'][data-presentation='compact'] .tmt-ui-tab[aria-selected='true'] {
+  color: var(--tmt-ui-color-text);
+  background: var(--tmt-ui-surface-hover);
+  border-color: var(--tmt-ui-surface-rule);
+}
+/* Secondary ink on the light neutral fill is 4.496:1; primary neutral keeps counts above AA. */
+.tmt-ui-tabs[data-variant='flat'][data-presentation='compact']
+  .tmt-ui-tab[aria-selected='true']
+  .tmt-ui-tab-count {
+  color: var(--tmt-ui-color-text);
+}
+.tmt-ui-tabs[data-variant='flat'][data-presentation='compact'] .tmt-ui-tab:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+}
+@media (max-width: 640px) {
+  .tmt-ui-tabs[data-variant='flat'][data-presentation='compact'] .tmt-ui-tab {
+    font-size: var(--tmt-ui-compact-tab-phone-size);
+    line-height: var(--tmt-ui-compact-tab-phone-line-height);
+    padding: var(--tmt-ui-compact-tab-phone-padding);
+  }
+}

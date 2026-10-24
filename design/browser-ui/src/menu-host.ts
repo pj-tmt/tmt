@@ -16,6 +16,8 @@ export interface BrowserMenuHostOptions<Key extends string = string> {
   items: readonly BrowserMenuHostItem<Key>[];
   onSelect(key: Key, event: MouseEvent): void;
   triggerText?: string;
+  /** Textual trigger only; popup/controller metrics remain unchanged. */
+  presentation?: 'compact';
   icon?: Node;
   description?: string | Node;
   disabled?: boolean;
@@ -96,7 +98,9 @@ export function mountBrowserMenu<Key extends string>(
   };
   function renderOptions() {
     const iconOnly = options.triggerText === undefined;
-    wrapper.className = iconOnly ? c.iconAction : '';
+    if (!iconOnly && options.presentation) root.dataset.presentation = options.presentation;
+    else delete root.dataset.presentation;
+    wrapper.className = iconOnly ? c.iconAction : 'tmt-ui-menu-trigger-wrapper';
     trigger.className = iconOnly ? `${c.action} ${c.iconActionControl}` : 'tmt-ui-menu-trigger';
     if (iconOnly) trigger.dataset.variant = 'text';
     else delete trigger.dataset.variant;

@@ -122,6 +122,32 @@ wrapper and retain width limits, layout and scrolling. Page titles are 37px/720
 
 ## Controlled input contracts
 
+### Compact page-list controls
+
+`presentation="compact"` is an opt-in on flat `BrowserTabs`, `BrowserAction`, and textual
+field `BrowserMenu` triggers; `mountBrowserMenu` mirrors it when `triggerText` is present.
+Omitting it keeps all existing defaults, including the mint flat selection and Action's
+centered-label mark reservation. Compact does not change boxed/flush tabs or icon/count/crumb
+menu triggers. The menu controller and popup geometry remain unchanged.
+
+Compact flat tabs use 11px labels and 31px height, then 10px and 28px through 640px; counts
+are 9px. Selection uses the neutral hover surface with primary neutral ink for the label
+and count (secondary ink falls below 4.5:1 on the light fill). Tabs retain their named
+counts/state, roving focus, wrapping, host selection and mounted panels.
+
+Compact Actions use 12px labels and 37px height, then 10px and 35px through 640px. Their
+17px decorative mark sits adjacent to the label in the same slot the busy mark replaces;
+there is no trailing reservation. Busy timing, idle paint, focus and activation fences
+remain unchanged. Compact textual menu triggers are 164×39px, then 145×39px through
+640px, with 12px type, a single-line truncated value and the shared chevron. A host using
+`triggerText` must include the current value in the required accessible label; clipping
+the visible value never removes that full name. The host still owns sort state.
+
+The metrics are generated from the bounded `compact-*` token roles; they do not change
+the global body scale. Gallery `?frame=compact-controls&presentation=compact` exercises
+both menu renderers, tab drafts and busy Actions. Product adoption stays with each host;
+no product overrides of leaf internals are needed.
+
 ### Shared top bar
 
 The shell offers an opt-in shared top bar through the existing `./shell`, `./shell-host`

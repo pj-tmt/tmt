@@ -157,3 +157,29 @@
 .tmt-ui-action-mark[data-busy='false']:not([data-leading]) {
   visibility: hidden;
 }
+/* Compact places the decorative/busy mark beside its label in one stable shared slot. */
+.tmt-ui-action[data-presentation='compact'] {
+  display: inline-flex;
+  font-size: var(--tmt-ui-compact-action-size);
+  font-weight: var(--tmt-ui-compact-action-weight);
+  line-height: var(--tmt-ui-compact-action-line-height);
+  min-height: var(--tmt-ui-compact-action-height);
+  padding: var(--tmt-ui-compact-action-padding);
+  gap: var(--tmt-ui-space-s);
+}
+.tmt-ui-action[data-presentation='compact']:has(> .tmt-ui-action-mark + .tmt-ui-action-label) {
+  display: inline-flex;
+}
+.tmt-ui-action[data-presentation='compact'] > .tmt-ui-action-mark,
+.tmt-ui-action[data-presentation='compact'] > .tmt-ui-action-mark > svg {
+  width: var(--tmt-ui-compact-action-mark-size);
+  height: var(--tmt-ui-compact-action-mark-size);
+  flex: none;
+}
+@media (max-width: 640px) {
+  .tmt-ui-action[data-presentation='compact'] {
+    font-size: var(--tmt-ui-compact-action-phone-size);
+    min-height: var(--tmt-ui-compact-action-phone-height);
+    padding: var(--tmt-ui-compact-action-phone-padding);
+  }
+}

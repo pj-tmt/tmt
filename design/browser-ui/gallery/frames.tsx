@@ -1,3 +1,4 @@
+import { CompactControlsFrame } from './compact-controls-frame.js';
 import { ChartsSection } from './charts.js';
 import { MenuHostFrame } from './menu-host-frame.js';
 import { TopBarFrame } from './topbar-frame.js';
@@ -590,6 +591,8 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
       return <DrawerFrame params={params} />;
     case 'source':
       return <SourceFrame params={params} />;
+    case 'compact-controls':
+      return <CompactControlsFrame params={params} />;
     case 'menu-host':
       return <MenuHostFrame params={params} />;
     case 'topbar':

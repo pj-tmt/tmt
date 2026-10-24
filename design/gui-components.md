@@ -74,3 +74,7 @@ starts work. Copy success has visible **Copied.** feedback; denial leaves the
 exact value available for manual selection. Hosts retain asynchronous lifetime
 and permission rules. Author HTML, handbook command presentation and terminal/TUI
 presentation retain their own owners.
+
+The leaf's [compact page-list controls](browser-ui/README.md#compact-page-list-controls)
+are opt-in presentations of Tabs, Action and textual Menu; their defaults and state owners
+are unchanged. Product hosts adopt through that public input rather than internal CSS selectors.
