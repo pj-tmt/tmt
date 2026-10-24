@@ -24,6 +24,8 @@ pub(in crate::board) fn capture_case(
     look: crate::look::Look,
 ) -> crate::board::app::App {
     let mut app = super::layout::fixture();
+    // Oracle clocks use the same fixed zone as the neighboring Digest captures.
+    app.local_zone = Some(jiff::tz::TimeZone::get("Asia/Tokyo").unwrap());
     let now = crate::status::now_ms();
     let mut doc = valued_document();
     doc["observedAtMs"] = serde_json::json!(now);
@@ -295,4 +297,15 @@ fn details_show_each_impact_amount_once_and_basis_has_only_evidence() {
     ] {
         assert!(basis.contains(fact), "basis retains {fact}: {text}");
     }
+}
+
+#[test]
+fn impact_capture_pins_the_clock_zone() {
+    let app = capture_case("impact-complete", crate::look::Look::default());
+    assert_eq!(
+        app.local_zone
+            .as_ref()
+            .and_then(jiff::tz::TimeZone::iana_name),
+        Some("Asia/Tokyo")
+    );
 }
