@@ -3,7 +3,6 @@ import { expect, it } from 'vite-plus/test';
 import { mockDocument } from '../src/digest-mock.js';
 import type { UsageDocument } from '../src/digest-source.js';
 import {
-  activity,
   allowance,
   exchange,
   historyCharts,
@@ -111,11 +110,6 @@ it('a large team ranks the top 8 and folds the rest into one Other row', () => {
   expect(ranking(team.map((row) => ({ ...row, partial: false }))).partial).toBe(false);
 });
 
-it('activity lists seats in the ranking order: most tokens first', () => {
-  for (const doc of [day, mockDocument('7d', { seats: 24 })])
-    expect(activity(doc)!.rows.map((row) => row.id)).toEqual(rankRows(doc).map((row) => row.id));
-});
-
 it('a one-provider sample has only the OpenAI weekly window and history', () => {
   const one = mockDocument('24h', { oneProvider: true });
   expect(providers(one).map((view) => view.provider)).toEqual(['OpenAI']);
@@ -152,37 +146,6 @@ it('exchange retains every seat instead of silently keeping only the busiest eig
   expect(view.participants.map((person) => person.id).sort()).toEqual(
     document.usage.seats.map((seat) => seat.id).sort(),
   );
-});
-
-it('activity aggregates observed buckets without turning missing reads into quiet blocks', () => {
-  for (const range of ['24h', '7d', '30d'] as const) {
-    const doc = mockDocument(range);
-    const view = activity(doc)!;
-    expect(view.starts.length).toBeGreaterThanOrEqual(6);
-    expect(view.starts.length).toBeLessThanOrEqual(7);
-    expect(view.rows.every((row) => row.slots.length === view.starts.length)).toBe(true);
-    if (range === '24h')
-      expect(view.starts.slice(1).every((at) => new Date(at).getHours() % 4 === 0)).toBe(true);
-    for (const row of view.rows) {
-      const seat = doc.usage.seats.find((seat) => seat.id === row.id)!;
-      row.slots.forEach((value, i) => {
-        const points = seat.series.filter(
-          (point) => point.fromMs >= view.starts[i]! && point.fromMs < view.ends[i]!,
-        );
-        const expectedCount =
-          (view.ends[i]! - view.starts[i]!) / (range === '24h' ? 3_600_000 : 86_400_000);
-        expect(value).toBe(
-          points.length === expectedCount
-            ? points.reduce((sum, point) => sum + point.input + point.output, 0)
-            : null,
-        );
-      });
-    }
-    expect(view.ends[view.ends.length - 1]! - view.starts[0]!).toBe(
-      (range === '24h' ? 1 : range === '7d' ? 7 : 30) * 86_400_000,
-    );
-    expect(view.rows.find((row) => row.label === 'night-1')!.slots).toContain(null);
-  }
 });
 
 it('allowance lists the weekly windows only, left = 100 - used, with the provider named', () => {

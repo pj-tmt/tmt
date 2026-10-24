@@ -4993,7 +4993,13 @@ test('an unpaired Digest and Ops say what they wait for and show no invented num
       'This browser has no owner session for your machine. Pair it from Remote to see your usage.',
     );
     await expect(usage.locator('a')).toHaveCount(0);
-    await expect(page.getByRole('tab')).toHaveText(['24h', '7d', '30d']);
+    await expect(page.locator('#usage-ranges').getByRole('tab')).toHaveText(['24h', '7d', '30d']);
+    const order = page.getByRole('tablist', { name: 'Seat order', exact: true });
+    await expect(order.getByRole('tab')).toHaveText(['Usage', 'Name']);
+    await expect(order.getByRole('tab', { name: 'Usage', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
     await expect(page.locator('#digest-sections .digest-card')).toHaveCount(0);
     await expect(page.locator('body')).not.toContainText('Sample data');
     await captureState(
