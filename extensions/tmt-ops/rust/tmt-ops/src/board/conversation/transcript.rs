@@ -114,6 +114,7 @@ impl App {
         })
     }
 
+    #[cfg(test)]
     pub(in crate::board) fn apply_pane_output(
         &self,
         key: ConversationKey,

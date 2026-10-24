@@ -312,12 +312,14 @@ fn scrolling_a_live_screen_does_not_request_an_older_chat_page() {
 
 #[test]
 fn capture_and_coverage_captions_keep_data_and_never_create_request_authority() {
-    let mut session = Session::default();
-    session.transcript_context = transcript::Context {
-        enabled: true,
-        name: "worker".into(),
-        exchanges: transcript::Exchanges::Observed,
-        dropped_age: Some("2m ago".into()),
+    let mut session = Session {
+        transcript_context: transcript::Context {
+            enabled: true,
+            name: "worker".into(),
+            exchanges: transcript::Exchanges::Observed,
+            dropped_age: Some("2m ago".into()),
+            ..Default::default()
+        },
         ..Default::default()
     };
     let mut value = (*page(0, 1, None)).clone();

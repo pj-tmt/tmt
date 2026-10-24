@@ -1,5 +1,5 @@
 //! Cursor-chain acquisition runs on the selected lane. No transcript or retention policy lives here.
-use super::{Coverage, Observation, Page, canonical_identity, page_with};
+use super::{Observation, Page, canonical_identity, page_with};
 use crate::{board::conversation::ConversationKey, core::Core, runner::Cancellation};
 use serde_json::Value;
 use std::sync::Arc;
@@ -142,7 +142,7 @@ fn join(pages: Vec<Page>) -> Page {
     let coverage = pages
         .last()
         .map(|page| page.coverage.clone())
-        .unwrap_or_else(Coverage::default);
+        .unwrap_or_default();
     let next_before = pages.last().and_then(|page| page.next_before);
     Page {
         items: pages
