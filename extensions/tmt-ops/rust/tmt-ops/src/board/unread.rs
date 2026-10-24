@@ -1,8 +1,9 @@
-//! Unread submitted results from one bounded originator page, never Core acks.
+//! Unread answers from one bounded originator page of Core's `answers` view, never Core acks:
+//! a submitted final and a passthrough's answered turn count alike.
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-pub(super) const RESULTS_LIMIT: usize = 50;
+pub(super) const ANSWERS_LIMIT: usize = 50;
 const MAX_TIMESTAMP: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -35,13 +36,13 @@ impl Page {
     /// Missing or malformed optional observations cannot erase a held page.
     pub fn read(actor: &str, document: &Value) -> Option<Self> {
         let items = document["items"].as_array()?;
-        if actor.is_empty() || items.len() > RESULTS_LIMIT {
+        if actor.is_empty() || items.len() > ANSWERS_LIMIT {
             return None;
         }
         let has_older = match document.get("nextBefore")? {
             Value::Null => false,
             cursor => {
-                timestamp(&cursor["submittedAtMs"])?;
+                timestamp(&cursor["answeredAtMs"])?;
                 nonempty(&cursor["requestId"])?;
                 if items.is_empty() {
                     return None;
@@ -52,18 +53,15 @@ impl Page {
         let mut requests = BTreeMap::new();
         let mut oldest = None;
         for item in items {
-            if item["kind"] != "request"
+            if !matches!(item["kind"].as_str()?, "request" | "announcement")
                 || item["sender"]["identityId"].as_str()? != actor
-                || !matches!(
-                    item["final"]["status"].as_str()?,
-                    "retained" | "expired" | "unavailable"
-                )
+                || !matches!(item["answer"].as_str()?, "final" | "turn")
             {
                 return None;
             }
             let request = nonempty(&item["requestId"])?;
             let member = nonempty(&item["recipientId"])?;
-            let at = timestamp(&item["final"]["submittedAtMs"])?;
+            let at = timestamp(&item["answeredAtMs"])?;
             oldest = Some(oldest.map_or(at, |previous: u64| previous.min(at)));
             if let Some(previous) = requests.insert(request, (member, at))
                 && previous != (member, at)

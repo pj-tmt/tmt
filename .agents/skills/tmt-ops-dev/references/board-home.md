@@ -88,14 +88,16 @@ sooner paints nothing; a job the user did not ask to wait on (`Job::shows_progre
 none, and a result or failure is shown at once. Persistent
 migration and acquisition failures retain their existing footer priority.
 
-`board::unread` projects submitted finals from the existing originator-results
-page, limited to 50 with no continuation fetch just to count. Request IDs deduplicate
-repeated room evidence; squad/global counts deduplicate member UUIDs. Only the
-originator page supplies this count, never blended recipient histories or pane
-output. Optional failed/malformed reads retain the previous page for the same
+`board::unread` projects what answered the user's messages from one page of Core's
+originator `answers` view (a submitted final, or a passthrough's captured turn), limited
+to 50 with no continuation fetch just to count; it is read by the same Leads job that
+reads the results page, which still feeds the reply list. A request is one item, so a
+final and a turn never count twice. Request IDs deduplicate repeated room evidence;
+squad/global counts deduplicate member UUIDs. Only the originator page supplies this
+count, never blended recipient histories or pane output. Optional failed/malformed reads retain the previous page for the same
 actor; actor changes discard it. A member's count is `N+ unread` only when
 `nextBefore` is present and that pair's marker precedes the page's oldest
-`submittedAtMs`. Aggregate `+` is the OR of eligible members' partial flags;
+`answeredAtMs`. Aggregate `+` is the OR of eligible members' partial flags;
 observed zero renders no unread state, even when older replies are possible.
 
 StateCell supplies `● N unread` in place of the glyph and activity words

@@ -253,6 +253,26 @@ impl Session {
         self.stale && !self.outgoing.is_empty()
     }
 
+    /// The requests whose answered turn this conversation shows, from live sends and storage.
+    pub(in crate::board) fn answered_turns(&self) -> impl Iterator<Item = &str> {
+        let live = self.outgoing.iter().filter_map(|entry| {
+            matches!(
+                entry.capture,
+                Some(crate::board::row_detail::Capture::Answered { .. })
+            )
+            .then(|| entry.request())
+            .flatten()
+        });
+        let stored = self.restored_sends().filter_map(|send| {
+            matches!(
+                send.capture,
+                Some(crate::board::row_detail::Capture::Answered { .. })
+            )
+            .then_some(send.request.as_str())
+        });
+        live.chain(stored)
+    }
+
     /// Durable sends from storage that this session has no live entry for.
     pub(super) fn restored_sends(&self) -> impl Iterator<Item = &crate::board::row_detail::Sent> {
         self.sent.iter().filter(|send| {
