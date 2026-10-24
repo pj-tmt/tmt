@@ -127,7 +127,7 @@ fn native_export_has_exact_compiled_source_closure_without_storage_or_credential
         let bytes = fs::read(root.join(file["path"].as_str().unwrap())).unwrap();
         assert_eq!(file["sha256"], tmt_core::content_digest::sha256(&bytes));
     }
-    assert_eq!(value["source_files"].as_array().unwrap().len(), 67);
+    assert_eq!(value["source_files"].as_array().unwrap().len(), 68);
     // A caller can supply a descriptive SHA; it cannot change compiled authority.
     let (status, other, stderr) =
         fixture.run(&["__native-schema", "--source-sha", &"b".repeat(40), "--json"]);
@@ -369,7 +369,7 @@ fn native_pr_handoff_checks_compiled_schema_and_preserves_installation_on_refusa
     );
     assert_eq!(
         tmt_adapters::storage::Storage::application_schema(&database).unwrap(),
-        64
+        65
     );
 }
 

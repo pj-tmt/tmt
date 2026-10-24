@@ -698,6 +698,8 @@ impl RequestRecords for RequestRows<'_> {
                  ORDER BY prepared_at_ms, attempt_id LIMIT 1",
                 vec![recipient_identity_id.clone().into()],
             ),
+            // A remote request is never waited on from here.
+            RequestRoute::Remote { .. } => return Ok(None),
         };
         self.0
             .query_row(sql, rusqlite::params_from_iter(args), |row| row.get(0))
@@ -714,7 +716,23 @@ impl RequestRecords for RequestRows<'_> {
         let (route_kind, endpoint) = match &attempt.route {
             RequestRoute::Pane(endpoint) => ("pane", Some(endpoint)),
             RequestRoute::Inbox { .. } => ("inbox", None),
+            RequestRoute::Remote { .. } => ("remote", None),
         };
+        let (remote_ref, remote_target_id, remote_target_name, remote_sender_name) =
+            match &attempt.route {
+                RequestRoute::Remote {
+                    remote,
+                    target_id,
+                    target_name,
+                    sender_name,
+                } => (
+                    Some(remote.as_str()),
+                    target_id.as_deref(),
+                    Some(target_name.as_str()),
+                    Some(sender_name.as_str()),
+                ),
+                _ => (None, None, None, None),
+            };
         let server_pid = endpoint
             .map(|e| checked_i64(e.server.server_pid, "Server PID"))
             .transpose()?;
@@ -763,12 +781,14 @@ impl RequestRecords for RequestRows<'_> {
                 retention_expires_at_ms, attention_revision,
                 attention_acknowledged_revision, recipient_attention_revision,
                 recipient_attention_acknowledged_revision, message_text, message_bytes,
-                message_expires_at_ms, request_kind, room_id, host, origin
+                message_expires_at_ms, request_kind, room_id, host, origin,
+                remote_ref, remote_target_id, remote_target_name, remote_sender_name
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?
             )",
                 params![
                     attempt.attempt_id,
@@ -809,6 +829,10 @@ impl RequestRecords for RequestRows<'_> {
                     attempt.room_id,
                     endpoint.map(|e| e.server.host.as_str()),
                     attempt.origin.stored(),
+                    remote_ref,
+                    remote_target_id,
+                    remote_target_name,
+                    remote_sender_name,
                 ],
             )
             .map_err(|error| classify(error, "Create request attempt"))?;
@@ -843,6 +867,14 @@ impl RequestRecords for RequestRows<'_> {
             RequestRoute::Inbox {
                 recipient_identity_id,
             } => ("inbox", Some(recipient_identity_id.as_str()), None),
+            // The reply path for a remote request comes with the two-way slice; until then no
+            // final can be stored for one, and nothing in the service asks to.
+            RequestRoute::Remote { .. } => {
+                return Err(StorageError::new(
+                    StorageErrorCode::Unknown,
+                    "A remote request has no local final yet",
+                ));
+            }
         };
         let server_pid = endpoint
             .map(|e| checked_i64(e.server.server_pid, "Server PID"))

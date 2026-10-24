@@ -41,7 +41,9 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(drawer).toBeVisible();
         const box = (await drawer.boundingBox())!;
         expect(box.width).toBe(
-          variant === 'wide' ? (width === 390 ? 382 : 660) : Math.min(430, width - 12),
+          variant === 'wide'
+            ? Math.min(680, width - (width <= 640 ? 34 : 18))
+            : Math.min(430, width - 12),
         );
         expect(box.x).toBeGreaterThanOrEqual(0);
         expect(box.x + box.width).toBeLessThanOrEqual(width);
