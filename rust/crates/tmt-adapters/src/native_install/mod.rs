@@ -47,7 +47,7 @@ mod uses;
 pub use uses::{
     Affected, CheckError, CliCompatibility, CliRequired, Unavailable, Use, UseStatus, affected,
     check as check_use, cli_required, declared as declared_uses, extension_named,
-    statuses as use_statuses, valid_feature,
+    message_protocols, statuses as use_statuses, valid_feature,
 };
 mod upgrade;
 pub use upgrade::{

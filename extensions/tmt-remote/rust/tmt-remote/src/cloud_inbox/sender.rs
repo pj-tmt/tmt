@@ -93,6 +93,7 @@ impl Sender {
                     version: 1,
                     state: State::Unconfirmed,
                     remote: resolved.into(),
+                    target: request.target,
                     reason: Some(error.code),
                 });
             }
@@ -124,6 +125,7 @@ impl Sender {
             version: 1,
             state,
             remote: resolved.into(),
+            target: request.target,
             reason: reason.map(str::to_owned),
         })
     }

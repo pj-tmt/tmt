@@ -2309,8 +2309,17 @@ causes a mutation retry. Reopening the same Store resumes the checkpoint without
 
 The provisional public boundary is `tmt remote message --json`, one bounded version-1 JSON document
 on stdin/stdout. `cloud_command` owns its schema: request `{version,remote,requestId,createdAtMs,from:{id,name},
-target:{id,name},message}`, with required nullable `remote`; answer `{version,state,remote}` and optional
-fixed `reason`. States are `sent`, `held`, `refused`, `unconfirmed`, `unavailable`. Core owns preparation,
+target:{name,id?},message}`, with required nullable `remote`; answer `{version,state,remote,target}` and optional
+fixed `reason`. `target.name` is required (1–128 UTF-8 bytes, no controls); `target.id` may be omitted,
+but null or a noncanonical UUID is refused. The sender seals and echoes the target exactly as sent,
+including an omitted ID. The receiver resolves a bare name through Core's public `identity show`
+lookup to one live local identity; no match (`REMOTE_AGENT_NOT_FOUND`) or ambiguity
+(`REMOTE_AGENT_AMBIGUOUS`) is a durable per-document refusal. Before adoption, it freezes that UUID
+and current name in the existing dispatch intent, applies the same recipient grant, and retains the
+UUID-pinned expected-name check before effect. Recovery uses the frozen UUID, never a new name lookup.
+An explicit target UUID keeps its existing pinned path and treats the name as the expected name.
+The sender needs no directory or extra provider read. States are `sent`, `held`, `refused`,
+`unconfirmed`, `unavailable`. Core owns preparation,
 receipts and retention; `createdAtMs` is the immutable original creation time in integer milliseconds,
 identical on every repeat. A request at least `journal::RECOVERY` old refuses with
 `REMOTE_CLOUD_MESSAGE_EXPIRED` before any write; a future time beyond the 60-second skew bound refuses.

@@ -173,6 +173,10 @@ delivery. They install and launch nothing.
   state in the same transaction. No session ID or running observation grants ownership.
 - Resume coordinates pair session ID, harness and driver-owned mode (Claude `default`, Codex
   `shared`/`embedded`); provider hooks must record the same tokens.
+- A resume, `--move` and `--driver` resolve their operand once through `Storage::resolve_identity`
+  (an active UUID wins over a UUID-shaped name; an unknown or retired UUID is `NAME_NOT_FOUND`
+  before any stop, handoff or launch), then work on that identity by id: the launch binds with
+  `bind_existing_identity`, which never looks the name up again, so a rename cannot retarget it.
 - Driver state is an opaque versioned document of at most 1 KiB that core stores and never
   parses. `RuntimeLifecycle::reads_state` names readable versions and
   `RuntimeRegistry::reconcile` drops what no registered driver can read. It holds resume

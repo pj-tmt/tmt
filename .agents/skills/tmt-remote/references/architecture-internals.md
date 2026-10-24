@@ -279,8 +279,12 @@ refusals share that row and the existing audit transaction. Attempted response u
 block later recovery; pre-claim transient polls back off without advancing. The journal owns typed
 owned-read provenance; the message layer preserves it internally without changing signed wire bytes.
 `cloud_command`
-owns the provisional public JSON schema; the production UUID query remains refused until Core's seam
-is agreed. Cross-person enrollment and production activation stay separate; `serve::native_factory::ProjectOwner::prepare`
+owns the provisional public JSON schema and unchanged target echo. A target may carry only a name;
+`Operations` resolves it with Core's public `identity show --json -- <name>` before adoption, freezes
+the returned UUID/current name, and applies the same recipient grant and UUID-pinned effect check.
+Missing/ambiguous names are durable per-document refusals. Explicit UUID targets never perform a
+name lookup, and adopted targets never resolve again. The production UUID query remains refused
+until Core's seam is agreed. Cross-person enrollment and production activation stay separate; `serve::native_factory::ProjectOwner::prepare`
 is the future composition point. No cloud poll starts in production now. The contract owns all bounds.
 
 `tests/cloud_hpke.rs` pins RFC 9180 A.3.1; `tests/fixtures/cloud-hpke-reference.mjs` independently

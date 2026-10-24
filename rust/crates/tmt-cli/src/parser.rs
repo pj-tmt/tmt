@@ -608,7 +608,17 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["identity", "create"] => {
             Invocation::Identity(IdentityRequest::Create(required(m, "name")))
         }
-        ["identity", "show"] => Invocation::Identity(IdentityRequest::Show(text(m, "name"))),
+        ["identity", "show"] => {
+            let (name, expect_name) = (text(m, "name"), text(m, "expect-name"));
+            if expect_name.is_some()
+                && !name
+                    .as_deref()
+                    .is_some_and(tmt_core::dispatch::canonical_id)
+            {
+                return Err("--expect-name needs the identity's UUID.".into());
+            }
+            Invocation::Identity(IdentityRequest::Show { name, expect_name })
+        }
         ["identity", "ls"] => {
             let mut filters = Vec::new();
             for expression in texts(m, "where") {

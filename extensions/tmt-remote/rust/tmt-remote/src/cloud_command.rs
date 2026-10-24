@@ -7,6 +7,13 @@ pub struct PeerIdentity {
     pub id: String,
     pub name: String,
 }
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Target {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub name: String,
+}
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Request {
@@ -17,7 +24,7 @@ pub struct Request {
     pub request_id: String,
     pub created_at_ms: u64,
     pub from: PeerIdentity,
-    pub target: PeerIdentity,
+    pub target: Target,
     pub message: String,
 }
 #[derive(Serialize, Debug, PartialEq, Eq)]
@@ -34,6 +41,7 @@ pub struct Answer {
     pub version: u64,
     pub state: State,
     pub remote: String,
+    pub target: Target,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
@@ -52,17 +60,20 @@ impl Request {
         {
             return Err(invalid());
         }
+        if value["target"].get("id").is_some_and(|id| !id.is_string()) {
+            return Err(invalid());
+        }
         let mut request: Self = serde_json::from_value(value).map_err(|_| invalid())?;
         if request.version != 1 || request.created_at_ms > crate::cloud_hpke::INTEGER_MAX {
             return Err(invalid());
         }
         canonical::uuid(&request.request_id).map_err(|_| invalid())?;
-        for identity in [&request.from, &request.target] {
-            canonical::uuid(&identity.id).map_err(|_| invalid())?;
-            if identity.name.is_empty()
-                || identity.name.len() > 128
-                || identity.name.chars().any(char::is_control)
-            {
+        canonical::uuid(&request.from.id).map_err(|_| invalid())?;
+        if let Some(id) = &request.target.id {
+            canonical::uuid(id).map_err(|_| invalid())?;
+        }
+        for name in [&request.from.name, &request.target.name] {
+            if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
                 return Err(invalid());
             }
         }
@@ -82,7 +93,7 @@ impl Request {
     }
     /// Core's prepared identity describes the remote sender, never a local owner identity.
     pub fn dispatch(&self) -> serde_json::Value {
-        serde_json::json!({"version":1,"operation":"dispatch.create","originator":"anonymous","requestDigest":crate::canonical::base64url(&self.fingerprint),"createdAtMs":self.created_at_ms,"input":{"operationId":self.request_id,"recipientIds":[self.target.id],"expectedName":self.target.name,"message":self.message,"kind":"request"}})
+        serde_json::json!({"version":1,"operation":"dispatch.create","originator":"anonymous","requestDigest":crate::canonical::base64url(&self.fingerprint),"createdAtMs":self.created_at_ms,"input":{"operationId":self.request_id,"recipientIds":self.target.id.iter().collect::<Vec<_>>(),"expectedName":self.target.name,"message":self.message,"kind":"request"}})
     }
 }
 /// Transport freshness and the prepared request lifetime are separate clocks. Recovery controls

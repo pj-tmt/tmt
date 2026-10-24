@@ -49,11 +49,61 @@ async function response(pages: unknown[], extra: unknown[] = []) {
       ]),
     ].sort(),
     pages,
-    pageIds: pages.map((page) => ({ pageId: (page as { pageId: string }).pageId, deleted: false })),
+    pageIds: pages
+      .map((page) => ({ pageId: (page as { pageId: string }).pageId, deleted: false }))
+      .sort((a, b) => a.pageId.localeCompare(b.pageId)),
   });
   vi.stubGlobal('fetch', async () => new Response(body));
   return body;
 }
+it('preserves out-of-ID-order pins while matching the sorted catalog with deleted history', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  const id = (n: number) => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const pages = [
+    { ...metadata, pageId: id(5), pinned: true, title: 'First pin' },
+    { ...metadata, pageId: id(3), pinned: true, title: 'Second pin' },
+    { ...metadata, pageId: id(1), title: 'Unpinned page' },
+    { ...metadata, pageId: id(2), title: 'Another unpinned page' },
+  ];
+  const body = JSON.parse(await response(pages));
+  body.pageIds.splice(3, 0, { pageId: id(4), deleted: true });
+  vi.stubGlobal('fetch', async () => new Response(JSON.stringify(body)));
+  const verify = vi.fn(async () => {});
+  const boot = await discover(mount, verify);
+  expect(boot.pages).toEqual(pages);
+  expect(boot.pageIds).toEqual(body.pageIds);
+  expect(verify).toHaveBeenCalledWith(boot.space, boot.owner);
+});
+it('refuses duplicate or mismatched live IDs even when pins use display order', async () => {
+  const id = (n: number) => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const pages = [
+    { ...metadata, pageId: id(3), pinned: true },
+    { ...metadata, pageId: id(1) },
+  ];
+  const body = JSON.parse(await response(pages));
+  const verify = vi.fn(async () => {});
+  for (const patch of [
+    { pages: [pages[0], pages[0], pages[1]] },
+    { pages: [pages[0], { ...pages[1], pageId: id(2) }] },
+    { pages: [pages[0]] },
+    { pageIds: [...body.pageIds, { pageId: id(4), deleted: false }] },
+    {
+      pageIds: [
+        { pageId: id(1), deleted: true },
+        { pageId: id(3), deleted: false },
+      ],
+    },
+    { pageIds: [...body.pageIds].reverse() },
+    { pageIds: [body.pageIds[0], ...body.pageIds] },
+  ]) {
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ ...body, ...patch })));
+    await expect(discover(mount, verify), JSON.stringify(patch)).rejects.toThrow();
+  }
+  expect(verify).not.toHaveBeenCalled();
+  expect(record).not.toHaveBeenCalled();
+});
 it('accepts 1000 worst-sized valid expiry rows within the existing bounded response', async () => {
   vi.stubGlobal('navigator', {
     locks: { request: async (_key: string, run: () => unknown) => run() },

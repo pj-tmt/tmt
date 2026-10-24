@@ -470,6 +470,10 @@ fn prepared_core_boundary_delivers_or_refuses_the_uuid_query_without_a_name_fall
             ready(sender.prepared(raw.as_bytes(), &world.descriptor, "team", NOW, &io)).unwrap();
         assert_eq!(answer.state, state);
         assert_eq!(answer.reason.as_deref(), reason);
+        assert_eq!(
+            serde_json::to_value(&answer).unwrap()["target"],
+            json!({"id":TARGET,"name":"target"})
+        );
         assert_eq!(world.core.sends(), usize::from(state == State::Sent));
         let mut local: Value = serde_json::from_str(&raw).unwrap();
         local["remote"] = json!("local");
@@ -1303,4 +1307,89 @@ fn missing_response_then_owner_reply_within_the_call_returns_the_confirmed_outco
         3,
         "sender observes missing then present, plus the owner's publication readback"
     );
+}
+
+#[test]
+fn prepared_name_targets_resolve_once_or_record_a_per_document_refusal() {
+    use tmt_remote::cloud_command::State;
+    for (rows, expected, reason) in [
+        (json!([{"id":TARGET,"name":"target"}]), State::Sent, None),
+        (json!([]), State::Refused, Some("REMOTE_AGENT_NOT_FOUND")),
+        (
+            json!([{"id":TARGET,"name":"target"},{"id":ID,"name":"target"}]),
+            State::Refused,
+            Some("REMOTE_AGENT_AMBIGUOUS"),
+        ),
+    ] {
+        let mut world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+        std::fs::write(
+            world.core.root.join("identities"),
+            json!({"identities":rows}).to_string(),
+        )
+        .unwrap();
+        let wire = Arc::new(Wire {
+            documents: Mutex::new(BTreeMap::new()),
+            owner: Mutex::new(Weak::new()),
+            cancel_after_create: Mutex::new(None),
+            requests: Mutex::new(vec![]),
+            deny_responses: AtomicBool::new(false),
+            fail_queries: AtomicBool::new(false),
+            lose_response_for: Mutex::new(None),
+        });
+        let driver = world.driver(provider(wire.clone(), "owner"));
+        *wire.owner.lock().unwrap() = Arc::downgrade(&driver);
+        let sender = Sender::new(
+            provider(wire.clone(), "peer"),
+            Arc::new(Mutex::new(world.sender_store.take().unwrap())),
+            PEER,
+            world.key.clone(),
+        )
+        .unwrap();
+        let stopped = AtomicBool::new(false);
+        let io = IoBudget {
+            deadline: Instant::now() + Duration::from_secs(10),
+            cancelled: &stopped,
+        };
+        let raw = json!({"version":1,"remote":"team","createdAtMs":NOW,"requestId":ID,"from":{"id":PEER,"name":"peer"},"target":{"name":"target"},"message":"resolve at receiver"}).to_string();
+        let answer =
+            ready(sender.prepared(raw.as_bytes(), &world.descriptor, "team", NOW, &io)).unwrap();
+        assert_eq!(answer.state, expected);
+        assert_eq!(answer.reason.as_deref(), reason);
+        assert_eq!(
+            serde_json::to_value(&answer).unwrap()["target"],
+            json!({"name":"target"})
+        );
+        assert_eq!(world.core.sends(), usize::from(expected == State::Sent));
+        if expected == State::Sent {
+            let calls = world.core.calls();
+            let created = calls
+                .iter()
+                .find(|c| c["operation"] == "dispatch.create")
+                .unwrap();
+            assert_eq!(created["input"]["recipientIds"], json!([TARGET]));
+            assert_eq!(
+                created["input"]["message"],
+                "[remote: Peer]\nresolve at receiver"
+            );
+        }
+        if let Some(reason) = reason {
+            let db =
+                rusqlite::Connection::open(world.owner_layout.directory.join("remote.db")).unwrap();
+            let stored: String = db
+                .query_row(
+                    "SELECT refusal FROM cloud_transport WHERE id=?1 AND kind='inbox'",
+                    [ID],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(stored, reason);
+        }
+        let calls = world.core.calls().len();
+        ready(driver.reconcile(NOW, &io)).unwrap();
+        assert_eq!(
+            world.core.calls().len(),
+            calls,
+            "duplicates never resolve or dispatch again"
+        );
+    }
 }

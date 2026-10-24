@@ -92,7 +92,10 @@ Maintained module reference. Commands and admitted spellings are in [development
   empty rows cannot activate. Ordinary panes use `collection::compile/render`;
   modal lists and picker slots use `surface::compile/render_list`. Clipped row
   maps retain the painted model and scroll offset, so stale mouse geometry cannot
-  activate. Ordinary panes reserve a dim `N more ↓` line while content overflows.
+  activate. Ordinary panes reserve a dim `N more ↓` line while content overflows. A modal
+  list's position counter (`1–5 of 5 · 2 more ↓`) counts the choosable rows, those not
+  `disabled`, numbered from the first to the last one painted; a heading, or an action disabled
+  for another reason, is not counted, and a list with no choosable row in view has no counter.
 - `strip` paints one line of styled spans (left or right aligned) through the
   text owner's fitting, with no template, binding or geometry pass: a strip is
   one text cell per span, so each span is clipped to the room left, filled with

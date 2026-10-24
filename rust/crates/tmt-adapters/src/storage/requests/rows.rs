@@ -21,8 +21,9 @@ pub(super) const ATTEMPT_COLUMNS: &str = "
     expires_at_ms, retention_days, retention_expires_at_ms,
     attention_revision, attention_acknowledged_revision,
     recipient_attention_revision, recipient_attention_acknowledged_revision, request_kind, room_id,
-    host, withdrawn_at_ms, withdrawal_reason, origin";
-pub(super) const ATTEMPT_COLUMN_COUNT: usize = 37;
+    host, withdrawn_at_ms, withdrawal_reason, origin,
+    remote_ref, remote_target_id, remote_target_name, remote_sender_name";
+pub(super) const ATTEMPT_COLUMN_COUNT: usize = 41;
 pub(super) fn qualified_attempt_columns() -> String {
     ATTEMPT_COLUMNS
         .split(',')
@@ -91,6 +92,12 @@ pub(super) fn attempt_row(row: &Row<'_>) -> rusqlite::Result<RequestAttempt> {
         "pane" => pane_route_at(row, 8, 33)?,
         "inbox" => RequestRoute::Inbox {
             recipient_identity_id: row.get::<_, Option<String>>(4)?.ok_or_else(invalid_row)?,
+        },
+        "remote" => RequestRoute::Remote {
+            remote: row.get::<_, Option<String>>(37)?.ok_or_else(invalid_row)?,
+            target_id: row.get(38)?,
+            target_name: row.get::<_, Option<String>>(39)?.ok_or_else(invalid_row)?,
+            sender_name: row.get::<_, Option<String>>(40)?.ok_or_else(invalid_row)?,
         },
         _ => return Err(invalid_row()),
     };
