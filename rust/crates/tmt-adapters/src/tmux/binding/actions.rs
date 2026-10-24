@@ -146,7 +146,7 @@ impl<R: CommandRunner> HostDriver for BindingSession<'_, R> {
     }
 
     /// Only the pane tmt opened, once; the tmux layer re-proves the process and the mark and
-    /// never closes a server's last pane.
+    /// never closes a session's only pane.
     fn close_pane(&mut self, binding: &Binding) -> Result<(), ActionError> {
         self.tmux
             .close_opened_pane(

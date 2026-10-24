@@ -60,8 +60,9 @@ impl<R: CommandRunner> Tmux<R> {
 
     /// Closes exactly this pane with one `kill-pane`, and no retry. It reads the pane again in
     /// the same listing as every other pane and refuses unless the pane still runs `pane_pid`
-    /// and still carries the mark. It also refuses when the pane is the server's only one:
-    /// closing it would end the server and every session on it.
+    /// and still carries the mark. It also refuses when the pane is its session's only one:
+    /// `kill-pane` on it would end that session, and on the server's last session the server.
+    /// A window that holds only this pane goes with it; a session never ends.
     pub fn close_opened_pane(
         &self,
         socket: &str,
@@ -80,35 +81,45 @@ impl<R: CommandRunner> Tmux<R> {
                 "list-panes".into(),
                 "-a".into(),
                 "-F".into(),
-                format!("#{{pane_id}} #{{pane_pid}} #{{{OPENED_OPTION}}}"),
+                format!("#{{pane_id}} #{{pane_pid}} #{{session_id}} #{{{OPENED_OPTION}}}"),
             ],
             deadline,
             1024 * 1024,
             TmuxFailure::Evidence,
         )?;
-        let mut count = 0;
-        let mut found = None;
-        for row in listing.lines() {
-            let mut fields = row.split(' ');
-            let (Some(id), Some(pid)) = (fields.next(), fields.next()) else {
-                continue;
-            };
-            count += 1;
-            if id == pane {
-                found = Some((pid.parse::<u64>().ok(), fields.next()));
-            }
-        }
+        // (pane id, pane pid, session id, mark) of every pane on the server.
+        let panes: Vec<_> = listing
+            .lines()
+            .filter_map(|row| {
+                let mut fields = row.split(' ');
+                Some((
+                    fields.next()?,
+                    fields.next()?,
+                    fields.next()?,
+                    fields.next(),
+                ))
+            })
+            .collect();
+        let found = panes.iter().find(|(id, ..)| *id == pane);
         match found {
             None => Err(TmuxError::evidence("the pane no longer exists")),
-            Some((pid, _)) if pid != Some(pane_pid) => Err(TmuxError::evidence(
-                "the pane no longer runs the verified process",
-            )),
-            Some((_, mark)) if mark != Some("1") => Err(TmuxError::evidence(
+            Some((_, pid, ..)) if pid.parse::<u64>().ok() != Some(pane_pid) => Err(
+                TmuxError::evidence("the pane no longer runs the verified process"),
+            ),
+            Some((.., mark)) if *mark != Some("1") => Err(TmuxError::evidence(
                 "the pane no longer carries the mark that tmt opened it",
             )),
-            Some(_) if count < 2 => Err(TmuxError::evidence(
-                "closing the server's only pane would end the tmux server",
-            )),
+            Some((_, _, session, _))
+                if panes
+                    .iter()
+                    .filter(|(_, _, other, _)| other == session)
+                    .count()
+                    < 2 =>
+            {
+                Err(TmuxError::evidence(
+                    "closing the session's only pane would end that session",
+                ))
+            }
             Some(_) => self
                 .run(
                     "tmux",
@@ -164,24 +175,40 @@ mod tests {
 
     #[test]
     fn a_marked_pane_still_running_the_verified_process_is_closed_with_one_kill_pane() {
-        let (result, calls) = close_calls("%1 100 \n%7 4242 1\n");
-        result.unwrap();
-        assert_eq!(calls.len(), 2, "{calls:?}");
-        assert!(calls[0].iter().any(|arg| arg == "list-panes"));
-        assert_eq!(
-            &calls[1][calls[1].len() - 5..],
-            ["-S", "/tmp/private.sock", "kill-pane", "-t", "%7"]
-        );
+        // Beside another pane of its own session, with or without other sessions.
+        for listing in [
+            "%1 100 $1 \n%7 4242 $1 1\n",
+            "%2 5 $2 \n%7 4242 $1 1\n%1 100 $1 \n",
+        ] {
+            let (result, calls) = close_calls(listing);
+            result.unwrap();
+            assert_eq!(calls.len(), 2, "{calls:?}");
+            assert!(calls[0].iter().any(|arg| arg == "list-panes"));
+            assert!(calls[0].iter().any(|arg| arg.contains("#{session_id}")));
+            assert_eq!(
+                &calls[1][calls[1].len() - 5..],
+                ["-S", "/tmp/private.sock", "kill-pane", "-t", "%7"]
+            );
+        }
     }
 
     #[test]
     fn a_pane_that_changed_is_never_closed() {
         for (listing, reason) in [
-            ("%1 100 \n", "no longer exists"),
-            ("%1 100 \n%7 999 1\n", "no longer runs the verified process"),
-            ("%1 100 \n%7 4242 \n", "no longer carries the mark"),
-            ("%1 100 \n%7 4242 0\n", "no longer carries the mark"),
-            ("%7 4242 1\n", "only pane"),
+            ("%1 100 $1 \n", "no longer exists"),
+            (
+                "%1 100 $1 \n%7 999 $1 1\n",
+                "no longer runs the verified process",
+            ),
+            ("%1 100 $1 \n%7 4242 $1 \n", "no longer carries the mark"),
+            ("%1 100 $1 \n%7 4242 $1 0\n", "no longer carries the mark"),
+            // The server's last pane, and a session's only pane while others live on.
+            ("%7 4242 $1 1\n", "session's only pane"),
+            ("%1 100 $1 \n%7 4242 $2 1\n", "session's only pane"),
+            (
+                "%1 100 $1 \n%2 5 $1 \n%7 4242 $2 1\n",
+                "session's only pane",
+            ),
         ] {
             let (result, calls) = close_calls(listing);
             let error = result.unwrap_err().to_string();
@@ -241,10 +268,10 @@ mod tests {
     }
 
     /// The close `stop --close` runs, against a real server: only the marked pane the caller
-    /// verified goes, and never the server's last one.
+    /// verified goes, and never the only pane of a session.
     #[test]
     #[ignore = "requires tmux; creates and stops only a private explicit-socket server"]
-    fn only_the_marked_verified_pane_is_closed_and_never_the_last_one() {
+    fn only_the_marked_verified_pane_is_closed_and_never_a_sessions_only_one() {
         use crate::{test_support::TestDirectory, tmux::server_id_tests::PrivateServer};
         let server = PrivateServer::new(TestDirectory::new(), "close.sock");
         let command = |args: &[&str]| server.command(args).unwrap().trim().to_owned();
@@ -295,8 +322,26 @@ mod tests {
         close(&opened, pid_of(&opened)).unwrap();
         assert!(!panes().contains(&opened), "the marked pane is gone");
         assert!(panes().contains(&first), "its neighbour stays");
+        // The window that held only that pane went with it; the session stays.
+        assert_eq!(
+            command(&["list-windows", "-t", "=squad:", "-F", "#{window_id}"])
+                .lines()
+                .count(),
+            1
+        );
+        // A marked pane that is its session's only one is refused although the server has
+        // other sessions: closing it would end that session.
+        command(&["new-session", "-d", "-s", "other", "sleep 60"]);
+        let alone = command(&["display-message", "-p", "-t", "=other:", "#{pane_id}"]);
+        command(&["set-option", "-p", "-t", &alone, OPENED_OPTION, "1"]);
+        assert!(
+            close(&alone, pid_of(&alone)).is_err(),
+            "the session's only pane"
+        );
+        assert!(panes().contains(&alone));
+        assert!(command(&["list-sessions", "-F", "#{session_name}"]).contains("other"));
         command(&["set-option", "-p", "-t", &first, OPENED_OPTION, "1"]);
-        assert!(close(&first, pid_of(&first)).is_err(), "the only pane");
+        assert!(close(&first, pid_of(&first)).is_err(), "squad's only pane");
         assert!(panes().contains(&first), "the server is still up");
     }
 }

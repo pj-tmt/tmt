@@ -357,10 +357,10 @@ policy, and a driver adds no delay of its own.
   pane the snapshot does not list, or an unknown answer is never closed. Core
   sends at most one `close` per command and never retries it, whatever the answer.
 - **What the driver closes:** exactly that pane, and only while it still runs the
-  shell `panePid`; otherwise it answers `not_found`. It closes no neighbouring pane
-  and no window, tab, workspace or session that merely holds the pane. A driver
-  that cannot close the pane without ending its host server (the only pane left)
-  refuses with `failed`.
+  shell `panePid`; otherwise it answers `not_found`. It closes no neighbouring
+  pane. A window or tab that holds only that pane goes with it, but a session,
+  workspace or the host server never ends: a driver that cannot close the pane
+  without ending one of them (the session's only pane) refuses with `failed`.
 - **Missing pane:** `not_found`.
 
 ### `prompt`

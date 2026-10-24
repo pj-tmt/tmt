@@ -211,7 +211,7 @@ channels and the driver protocol. The owner map is in
   runs the verified stop first (`verified_stop`, shared with `resume --move`), then asks the
   host to close that one pane (`HostDriver::{close_preflight, opened_by_tmt, close_pane}`,
   policy in `host::driver::close_opened_pane`). The op is optional and capability-gated: tmux
-  closes through `Tmux::close_opened_pane` (one `kill-pane`, never the server's last pane),
+  closes through `Tmux::close_opened_pane` (one `kill-pane`, never a session's only pane),
   an external driver through its `close` op, and a host without either leaves the pane open.
   An unmarked, unknown or unlisted pane is never closed, and no close is retried.
 - A runtime driver's hook path is declarative (`RuntimeDeclaration` plus `decode_hook`, no

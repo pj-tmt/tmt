@@ -249,7 +249,8 @@ pub struct FocusRequest {
 /// Closes exactly this pane, and only while it still runs `pane_pid`; otherwise
 /// `not_found`. Core asks only after it verified the pane and read the host's
 /// own mark that tmt opened it. The driver closes nothing else: no neighbouring
-/// pane, and no window, tab, workspace or session that merely holds it.
+/// pane. A window or tab holding only this pane goes with it, but a session,
+/// workspace or the host server never ends.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloseRequest {
