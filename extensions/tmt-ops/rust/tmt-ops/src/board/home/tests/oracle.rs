@@ -904,6 +904,20 @@ fn captures() -> Value {
             crate::board::app::workspace::tests::review_modal::CRUD_SCENES,
             &mut styles,
         ));
+        // The unread count under the pointer: one additive scene, appended so the style table keeps its order.
+        for (look_name, look) in looks() {
+            for width in [160, 100, 80, 60] {
+                let app = capture_case("unread-chip-hover", look);
+                frames.push(capture_frame(
+                    &app,
+                    "unread-chip-hover",
+                    look_name,
+                    width,
+                    36,
+                    &mut styles,
+                ));
+            }
+        }
         let styles = styles
             .0
             .into_iter()

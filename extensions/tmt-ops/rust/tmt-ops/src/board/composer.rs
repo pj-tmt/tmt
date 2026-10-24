@@ -1,7 +1,7 @@
 //! Session-only editor state keyed by sender and recipient identity. Routing and
 //! send admission remain in App/RowSend; a retained draft grants no permission.
 use ratatui::layout::Rect;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use tmt_tui::components::Editor;
 
@@ -58,6 +58,9 @@ pub(super) struct State {
     drafts: BTreeMap<DraftKey, Draft>,
     pending: Option<(DraftKey, Draft)>,
     pub send_hit: RefCell<Option<SendHit>>,
+    /// The painted `● N unread` count and the recipient it counts; clicking marks that conversation read.
+    pub unread_hit: RefCell<Option<SendHit>>,
+    pub unread_hover: Cell<bool>,
     pub(super) paste_hits: RefCell<Vec<paste::Hit>>,
     pub(super) paste_preview: RefCell<Option<paste::Preview>>,
     /// What is known of the files dropped in this session, and the worker that learns more.
@@ -68,6 +71,7 @@ pub(super) struct State {
 impl State {
     pub(super) fn invalidate(&self) {
         *self.send_hit.borrow_mut() = None;
+        *self.unread_hit.borrow_mut() = None;
         self.paste_hits.borrow_mut().clear();
         if let Some(preview) = self.paste_preview.borrow().as_ref() {
             preview.invalidate();

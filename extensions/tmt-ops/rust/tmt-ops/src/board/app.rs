@@ -2582,6 +2582,21 @@ impl App {
                 choice: Choice::Action(Action::parse("update-status").expect("status action")),
             });
         }
+        // Mark read has no default key: the menu is where an unbound action is found.
+        if let Some(super::workspace::OpsTarget::Member { identity_id, .. }) =
+            self.workspace_selected_member()
+            && self.unread_count(identity_id).total > 0
+            && !entries.iter().any(|entry| {
+                matches!(&entry.choice, Choice::Action(action)
+                    if action.verb == Verb::Ui(crate::action::OpsUiAction::MarkRead))
+            })
+        {
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: "Mark read".into(),
+                choice: Choice::Action(Action::parse("mark-read").expect("mark-read action")),
+            });
+        }
         entries.sort_by_key(|entry| match &entry.choice {
             Choice::Action(action) => action.order(),
             _ => u8::MAX,
@@ -3889,6 +3904,7 @@ impl App {
         self.buttons.clear_hover();
         self.meter_hover = None;
         self.header_hover = None;
+        self.composer.unread_hover.set(false);
         self.idle_alert_hover = None;
         if key.kind == ratatui::crossterm::event::KeyEventKind::Release {
             return Effect::None;
@@ -4247,10 +4263,23 @@ impl App {
             Some(Choice::IdleAlert(room)) => Some(room),
             _ => None,
         };
+        let unread = !self.loading()
+            && self.overlay().is_none()
+            && self.menu.is_none()
+            && self.input.is_none()
+            && !self.searching
+            && self
+                .composer
+                .unread_hit
+                .borrow()
+                .as_ref()
+                .is_some_and(|hit| hit.area.contains((event.column, event.row).into()));
+        let unread_changed = unread != self.composer.unread_hover.replace(unread);
         let changed = chart_changed
             || resize_changed
             || buttons_changed
             || links_changed
+            || unread_changed
             || next != self.meter_hover
             || header != self.header_hover
             || idle_alert_hover != self.idle_alert_hover;
@@ -4318,7 +4347,10 @@ impl App {
         self.buttons.clear_hover();
         // A button/wheel event carries the current position too. Reconcile an
         // existing hover, without inventing hover on terminals lacking motion.
-        if self.meter_hover.is_some() || self.header_hover.is_some() {
+        if self.meter_hover.is_some()
+            || self.header_hover.is_some()
+            || self.composer.unread_hover.get()
+        {
             self.move_pointer(event);
         }
         // A peek window closes on an outside press and the press goes on below.
@@ -4347,6 +4379,29 @@ impl App {
         }
         if self.mention_mouse(event) {
             return Effect::None;
+        }
+        let unread = self
+            .composer
+            .unread_hit
+            .borrow()
+            .clone()
+            .filter(|hit| hit.area.contains((event.column, event.row).into()));
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && let Some(hit) = unread
+        {
+            if self
+                .composer_projection()
+                .and_then(|projection| projection.key)
+                .as_ref()
+                != Some(&hit.key)
+            {
+                return self.say("The painted unread count changed; repaint before marking read.");
+            }
+            return if self.mark_read(&hit.key.1) {
+                Effect::None
+            } else {
+                self.say("Nothing unread here.")
+            };
         }
         if event.kind == MouseEventKind::Down(MouseButton::Left) {
             let send = self

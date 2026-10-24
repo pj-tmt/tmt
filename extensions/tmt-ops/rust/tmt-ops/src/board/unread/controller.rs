@@ -87,6 +87,35 @@ impl App {
                 self.unread_members(page, snapshot.roster.members.keys().map(String::as_str))
             })
     }
+    /// Marks every answer the held page lists for `member` read: the same watermark an opened
+    /// conversation writes, queued here and published by the lane. Nothing unread, or no page,
+    /// queues nothing. The count drops when the publish succeeds, not before.
+    pub(in crate::board) fn mark_read(&mut self, member: &str) -> bool {
+        let Some(page) = self.unread_page() else {
+            return false;
+        };
+        let Some(seen) = page
+            .newest(member)
+            .and_then(|at| self.admit_seen(&page.actor, member, at))
+        else {
+            return false;
+        };
+        self.unread.writer.seen(&seen);
+        true
+    }
+    /// The key and menu form: the selected member.
+    pub(in crate::board) fn mark_read_selected(&mut self) -> crate::board::app::Effect {
+        let member = self
+            .workspace_selected_member()
+            .and_then(|target| match target {
+                OpsTarget::Member { identity_id, .. } => Some(identity_id.clone()),
+                _ => None,
+            });
+        match member {
+            Some(member) if self.mark_read(&member) => crate::board::app::Effect::None,
+            _ => self.say("Nothing unread here."),
+        }
+    }
     /// Seal the admitted actor, UUID and observed watermark before leaving the UI.
     /// The lane saves it only after Core's guarded jump succeeds.
     pub(in crate::board) fn unread_jump(&self, member: &str) -> Option<Seen> {

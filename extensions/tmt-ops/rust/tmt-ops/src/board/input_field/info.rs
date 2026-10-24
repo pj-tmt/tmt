@@ -2,6 +2,7 @@
 use super::*;
 use crate::board::{inventory::ContextUsage, unread::Count};
 use ratatui::text::Span;
+use tmt_cli_style::theme::screen::{self, ChipKind, ChipState};
 use unicode_width::UnicodeWidthStr;
 
 pub(in crate::board) struct Info<'a> {
@@ -11,6 +12,11 @@ pub(in crate::board) struct Info<'a> {
     pub unread: Count,
     pub open: Option<usize>,
     pub context: Option<ContextUsage>,
+}
+/// Where the info line answers a click: the send hint, and the unread count when something is unread.
+pub(in crate::board) struct Hits {
+    pub send: Option<Rect>,
+    pub unread: Option<Rect>,
 }
 impl Info<'_> {
     fn left(&self, window: bool, words: bool, look: Look) -> Line<'static> {
@@ -61,9 +67,14 @@ impl Info<'_> {
         buffer: &mut Buffer,
         area: Rect,
         look: Look,
-    ) -> Option<Rect> {
+        hover: bool,
+    ) -> Hits {
+        let none = Hits {
+            send: None,
+            unread: None,
+        };
         if area.is_empty() || area.height < 2 {
-            return None;
+            return none;
         }
         let line = Rect::new(area.x, area.bottom() - 1, area.width, 1);
         let newline = self.newline.glyph();
@@ -94,17 +105,35 @@ impl Info<'_> {
         let width = right.width().min(usize::from(line.width)) as u16;
         let right_area = Rect::new(line.right() - width, line.y, width, 1);
         let left_area = Rect::new(line.x, line.y, line.width.saturating_sub(width + 2), 1);
+        let unread = (self.unread.total > 0)
+            .then(|| {
+                // Name and two spaces, then the mark and its count: the spans `left` builds first.
+                let before: usize = left.spans[..2].iter().map(Span::width).sum();
+                let chip: usize = left.spans[2..4].iter().map(Span::width).sum();
+                Rect::new(left_area.x + before as u16, line.y, chip as u16, 1)
+                    .intersection(left_area)
+            })
+            .filter(|rect| !rect.is_empty());
         strip::paint_left(buffer, left_area, left);
+        if let Some(rect) = unread.filter(|_| hover) {
+            let style = screen::chip(&look.theme, ChipKind::Secondary, ChipState::Hot, look.depth);
+            for x in rect.x..rect.right() {
+                buffer[(x, rect.y)].set_style(style);
+            }
+        }
         strip::paint_left(
             buffer,
             right_area,
             Line::styled(right, look.role(Role::Muted)),
         );
         let send = right.split("  ").next().unwrap_or_default();
-        (send.width() <= usize::from(right_area.width)).then_some(Rect {
-            width: send.width() as u16,
-            ..right_area
-        })
+        Hits {
+            send: (send.width() <= usize::from(right_area.width)).then_some(Rect {
+                width: send.width() as u16,
+                ..right_area
+            }),
+            unread,
+        }
     }
 }
 
@@ -136,7 +165,7 @@ mod tests {
         );
         let mut buffer = Buffer::empty(Rect::new(0, 0, 40, 4));
         let area = buffer.area;
-        let hit = info.paint(&mut buffer, area, look).unwrap();
+        let hit = info.paint(&mut buffer, area, look, false).send.unwrap();
         assert_eq!(hit.y, 3);
         let row: String = buffer
             .content
@@ -166,7 +195,7 @@ mod tests {
             for width in [160, 100, 60, 40, 20] {
                 let mut buffer = Buffer::empty(Rect::new(0, 0, width, 2));
                 let area = buffer.area;
-                let hit = info.paint(&mut buffer, area, look).unwrap();
+                let hit = info.paint(&mut buffer, area, look, false).send.unwrap();
                 let row: String = buffer
                     .content
                     .chunks(usize::from(width))
