@@ -72,7 +72,12 @@ pub(super) fn start(
 }
 
 fn command(fixture: &Fixture, pane: &str) -> std::process::Command {
-    let mut command = fixture.command_in(Some(pane), &["resume", "--move", "worker"]);
+    command_for(fixture, pane, "worker")
+}
+
+/// The move command naming its member by `selector`: a display name or the identity UUID.
+fn command_for(fixture: &Fixture, pane: &str, selector: &str) -> std::process::Command {
+    let mut command = fixture.command_in(Some(pane), &["resume", "--move", selector]);
     command.env(
         "PATH",
         format!(
@@ -100,7 +105,13 @@ fn resume_move_stops_only_the_recorded_agent_and_preserves_the_identity_and_sess
             0o755,
         )
         .unwrap();
-        let mut resumed = Launched::start(&fixture, command(&fixture, "f2"));
+        // Ops hands members off by UUID, so one provider moves by it.
+        let selector = if provider == "codex" {
+            before.entry.identity.id.clone()
+        } else {
+            "worker".to_owned()
+        };
+        let mut resumed = Launched::start(&fixture, command_for(&fixture, "f2", &selector));
         wait_until("move launches or refuses", || {
             fixture.root.join("agent.pid").exists()
                 || resumed

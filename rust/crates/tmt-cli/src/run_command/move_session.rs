@@ -4,6 +4,7 @@
 use crate::{
     binding_error::{binding_failure, endpoint_failure},
     output::Failure,
+    verified_stop::{self, Recheck, refusal, stop_failed},
 };
 use std::time::{Duration, Instant};
 use tmt_adapters::{
@@ -11,31 +12,18 @@ use tmt_adapters::{
     host::{Host, OperationOptions},
     process::{
         UnixCommandRunner,
-        runtime::{observe_runtime_process, observe_start, request_runtime_stop},
+        runtime::{observe_runtime_process, observe_start},
     },
     runtime::lifecycle::RuntimeLifecycle,
-    storage::{IdentityContextSnapshot, Storage, StorageError},
+    storage::{IdentityContextSnapshot, Storage},
 };
 use tmt_core::{
     binding::{
-        self, BindingEndpoint, BindingEvidence, BindingRepository, BindingTargetEvidence,
-        BoundIdentity, GuardedBindingEndpoint, evaluate_binding,
-        session::{RuntimeLiveness, SessionPreferences},
+        self, BindingEndpoint, BindingTargetEvidence, BoundIdentity, GuardedBindingEndpoint,
+        session::SessionPreferences,
     },
     identity::Identity,
 };
-
-const STOP_ALLOWANCE: Duration = Duration::from_secs(3);
-
-fn refusal(code: impl Into<String>, reason: impl std::fmt::Display) -> Failure {
-    let code = code.into();
-    let status = if matches!(code.as_str(), "RUNTIME_CONFLICT" | "IDENTITY_CONFLICT") {
-        5
-    } else {
-        1
-    };
-    Failure::new(code, reason.to_string(), status)
-}
 
 pub(super) fn launch_failure(
     mut error: Failure,
@@ -76,13 +64,6 @@ pub(super) fn launch_failure(
         }
     };
     error.suggestion(format!("After resolving this refusal, retry: {command}"))
-}
-
-fn stop_failed(error: impl std::fmt::Display) -> Failure {
-    refusal(
-        "PROCESS_ERROR",
-        format!("{error}. Exit the old agent in its pane before retrying."),
-    )
 }
 
 fn context(paths: &ConfigPaths, identity: &Identity) -> Result<IdentityContextSnapshot, Failure> {
@@ -215,76 +196,8 @@ pub(super) fn move_binding(
             })?;
         target.discovery = Some(fence);
     }
-    let probe = host
-        .probe(
-            &old.server,
-            OperationOptions {
-                deadline: Some(deadline),
-                pane_ids: Some(std::slice::from_ref(&old.pane_id)),
-            },
-        )
-        .map_err(endpoint_failure)?;
-    let old_evidence = evaluate_binding(&captured.entry, &probe);
-    if !matches!(
-        old_evidence,
-        BindingEvidence::Active(_) | BindingEvidence::EndpointLost
-    ) {
-        return Err(refusal(
-            "RUNTIME_CONFLICT",
-            "The old binding's ownership could not be verified.",
-        ));
-    }
-    let key = old
-        .session
-        .key
-        .as_ref()
-        .filter(|key| key.provider_session.as_ref() == Some(&session.provider_session))
-        .ok_or_else(|| {
-            refusal(
-                "RESUME_UNAVAILABLE",
-                "The old binding has no exact recorded agent session.",
-            )
-        })?;
-    let observed = observe_runtime_process(&UnixCommandRunner, key.incarnation.pid(), deadline)
-        .map_err(|error| refusal("PROCESS_ERROR", error))?;
-    match observed.matches(&key.incarnation) {
-        RuntimeLiveness::Alive => {
-            if key.incarnation.pid() == old.pane_pid {
-                return Err(refusal(
-                    "RUNTIME_CONFLICT",
-                    "The agent is the pane process; stopping it would close the pane.",
-                ));
-            }
-            if !matches!(old_evidence, BindingEvidence::Active(_)) {
-                return Err(refusal(
-                    "RUNTIME_CONFLICT",
-                    "The old agent is alive but its pane ownership is no longer verified.",
-                ));
-            }
-            if lifecycle
-                .movable_process(&UnixCommandRunner, old, &captured.preferences, deadline)
-                .as_ref()
-                != Some(&key.incarnation)
-            {
-                return Err(refusal(
-                    "RESUME_UNSUPPORTED",
-                    format!(
-                        "The {} driver cannot prove a private main foreground for this {} runtime; shared/channel servers are not stopped.",
-                        session.harness.as_str(),
-                        session.mode.as_str()
-                    ),
-                ));
-            }
-        }
-        RuntimeLiveness::Unknown => {
-            return Err(refusal(
-                "RUNTIME_CONFLICT",
-                "The old agent is suspended or its process could not be verified.",
-            ));
-        }
-        RuntimeLiveness::Gone => (),
-    }
-    if observed.matches(&key.incarnation) == RuntimeLiveness::Alive
+    let source = verified_stop::prove(host, &captured, old, session, lifecycle, deadline)?;
+    if source.agent_alive()
         && let Some(handoff) = handoff
     {
         handoff(old)?;
@@ -320,17 +233,20 @@ pub(super) fn move_binding(
     let runner = UnixCommandRunner;
     // Recheck both endpoints and all captured records under the same writer
     // that serializes replacement bindings. Only the TERM request runs here.
-    let requested = storage
-        .with_binding_transaction::<_, StorageError>(|records| {
-            if records.entry_by_id(&identity.id)?.as_ref() != Some(&captured.entry)
-                || records.session_preferences(&identity.id)? != captured.preferences
-                || records
-                    .entry_by_pane(target.server.host, pane, &target.server.server_id)?
-                    .is_some()
+    let requested = verified_stop::request(
+        storage,
+        host,
+        &runner,
+        &source,
+        lifecycle,
+        "The source or destination ownership changed before the stop.",
+        |records, stop_deadline| {
+            if records
+                .entry_by_pane(target.server.host, pane, &target.server.server_id)?
+                .is_some()
             {
-                return Ok(None);
+                return Ok(Recheck::RecordsChanged);
             }
-            let stop_deadline = Instant::now() + STOP_ALLOWANCE;
             let target_probe = host.observe_snapshot(OperationOptions {
                 deadline: Some(stop_deadline),
                 pane_ids: Some(&[pane.into()]),
@@ -343,51 +259,16 @@ pub(super) fn move_binding(
                             && candidate.marker.is_none()
                     })
             });
-            let source_probe = host.probe(
-                &old.server,
-                OperationOptions {
-                    deadline: Some(stop_deadline),
-                    pane_ids: Some(std::slice::from_ref(&old.pane_id)),
-                },
-            );
-            let source_matches = source_probe.as_ref().is_ok_and(|probe| {
-                matches!(
-                    (evaluate_binding(&captured.entry, probe), &old_evidence),
-                    (BindingEvidence::Active(_), BindingEvidence::Active(_))
-                        | (BindingEvidence::EndpointLost, BindingEvidence::EndpointLost)
-                )
-            });
             let target_start_matches = observe_start(&runner, target.pane_pid, stop_deadline)
                 .is_ok_and(|start| start == target.pane_incarnation);
-            if !target_matches || !source_matches || !target_start_matches {
-                return Ok(Some(Err(refusal(
-                    "RUNTIME_CONFLICT",
-                    "The source or destination ownership changed before the stop.",
-                ))));
-            }
-            if observed.matches(&key.incarnation) == RuntimeLiveness::Alive
-                && lifecycle
-                    .movable_process(&runner, old, &captured.preferences, stop_deadline)
-                    .as_ref()
-                    != Some(&key.incarnation)
-            {
-                return Ok(Some(Err(refusal(
-                    "RUNTIME_CONFLICT",
-                    "The old agent's exclusive foreground proof changed before the stop.",
-                ))));
-            }
-            Ok(Some(
-                request_runtime_stop(&runner, &key.incarnation, stop_deadline).map_err(stop_failed),
-            ))
-        })
-        .map_err(super::storage_failure)?
-        .ok_or_else(|| {
-            refusal(
-                "IDENTITY_CONFLICT",
-                "A binding or its session preferences changed before the stop.",
-            )
-        })?;
-    requested?.wait().map_err(stop_failed)?;
+            Ok(if target_matches && target_start_matches {
+                Recheck::Holds
+            } else {
+                Recheck::OwnershipChanged
+            })
+        },
+    )?;
+    requested.wait().map_err(stop_failed)?;
     *effect = super::LaunchEffect::OldStopped;
     let refreshed = context(paths, identity)?;
     let same_attachment = refreshed.entry.binding.as_ref().is_some_and(|binding| {
@@ -435,7 +316,7 @@ pub(super) fn move_binding(
         &mut endpoint,
         &refreshed.entry,
         &refreshed.preferences,
-        &key.incarnation,
+        &source.key.incarnation,
         &target,
     )
     .map(Some)

@@ -443,6 +443,14 @@ impl Missing<'_, '_> {
                     pane_id: pane,
                 },
             ),
+            Op::Close => self.not_found(
+                op,
+                CloseRequest {
+                    socket,
+                    pane_id: pane,
+                    pane_pid: 1,
+                },
+            ),
             Op::NameAgent => self.not_found(
                 op,
                 NameAgentRequest {
@@ -470,6 +478,7 @@ mod tests {
         clears_anything: bool,
         publishes_anywhere: bool,
         names_anywhere: bool,
+        closes_anything: bool,
     }
 
     fn gone() -> DriverError {
@@ -491,6 +500,7 @@ mod tests {
                 "clear",
                 "capture",
                 "focus",
+                "close",
                 "name-agent",
             ]
             .map(String::from)
@@ -544,6 +554,13 @@ mod tests {
         }
         fn focus(&mut self, _: Request<FocusRequest>) -> Result<(), DriverError> {
             Err(gone())
+        }
+        fn close(&mut self, _: Request<CloseRequest>) -> Result<(), DriverError> {
+            if self.closes_anything {
+                Ok(())
+            } else {
+                Err(gone())
+            }
         }
         fn name_agent(&mut self, _: Request<NameAgentRequest>) -> Result<(), DriverError> {
             if self.names_anywhere {
@@ -615,6 +632,13 @@ mod tests {
                 ..NoPanes::default()
             }),
             ["name-agent"]
+        );
+        assert_eq!(
+            checks(NoPanes {
+                closes_anything: true,
+                ..NoPanes::default()
+            }),
+            ["close"]
         );
         let slow: Vec<String> = findings_with(
             NoPanes::default(),

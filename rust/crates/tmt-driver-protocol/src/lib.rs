@@ -67,6 +67,7 @@ pub enum Op {
     Input,
     Prompt,
     Focus,
+    Close,
     NameAgent,
     Locations,
     Resume,
@@ -85,7 +86,7 @@ const SMALL: usize = 4 * 1024;
 const LARGE: usize = 1024 * 1024;
 
 impl Op {
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 17] = [
         Self::Capabilities,
         Self::Caller,
         Self::Server,
@@ -98,6 +99,7 @@ impl Op {
         Self::Input,
         Self::Prompt,
         Self::Focus,
+        Self::Close,
         Self::NameAgent,
         Self::Locations,
         Self::Resume,
@@ -119,6 +121,7 @@ impl Op {
             Self::Input => "input",
             Self::Prompt => "prompt",
             Self::Focus => "focus",
+            Self::Close => "close",
             Self::NameAgent => "name-agent",
             Self::Locations => "locations",
             Self::Resume => "resume",
@@ -148,6 +151,7 @@ impl Op {
             | Self::Publish
             | Self::Clear
             | Self::Focus
+            | Self::Close
             | Self::Locations
             | Self::Resume
             | Self::Usage => (1000, SMALL),

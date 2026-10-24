@@ -98,6 +98,23 @@ pub trait HostDriver {
         Err(ActionError::HostUnsupported)
     }
 
+    /// Whether this invocation could close a pane at all, decided before any evidence is read.
+    fn close_preflight(&self) -> Result<(), ActionError> {
+        Err(ActionError::HostUnsupported)
+    }
+
+    /// Whether tmt itself opened the binding's pane: the host's own mark, which is evidence
+    /// of intent and never authority. `None` when the host cannot say.
+    fn opened_by_tmt(&mut self, _binding: &Binding) -> Result<Option<bool>, HostError> {
+        Ok(None)
+    }
+
+    /// Closes the binding's pane and nothing else. Unsupported hosts never invent a close
+    /// operation or a wire call.
+    fn close_pane(&mut self, _binding: &Binding) -> Result<(), ActionError> {
+        Err(ActionError::HostUnsupported)
+    }
+
     /// Gives the agent the host recognizes in the binding's pane the agent
     /// name `name`. Never a pane label. A driver's refusal is
     /// [`HostError::Refused`]. Taking a name away belongs to `clear`.
@@ -316,6 +333,59 @@ pub fn focus(
     match driver.focus(binding) {
         Ok(focused) => ActionResult::Completed(focused),
         Err(error) => ActionResult::Failed(error),
+    }
+}
+
+/// What `tmt stop --close` did with the member's pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaneClose {
+    Closed,
+    Kept(Kept),
+}
+
+/// Why a pane was left open. Each is final for this command: nothing is retried.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kept {
+    /// The host says tmt did not open it, or its mark is not there.
+    NotOpenedByTmt,
+    /// The host cannot say whether tmt opened it.
+    Unknown,
+    /// The host has no way to close a pane.
+    Unsupported,
+}
+
+/// Closes the pane the binding names, once, only when the host says tmt opened it. The same
+/// present-endpoint evidence as focus comes first. An unknown mark never closes.
+pub fn close_opened_pane(
+    driver: &mut dyn HostDriver,
+    entry: &BindingEntry,
+) -> Result<PaneClose, ActionError> {
+    match driver.close_preflight() {
+        Ok(()) => {}
+        Err(ActionError::HostUnsupported) => return Ok(PaneClose::Kept(Kept::Unsupported)),
+        Err(error) => return Err(error),
+    }
+    let binding = entry.binding.as_ref().ok_or(ActionError::Unverified)?;
+    match status(driver, entry) {
+        ActionResult::Completed(InterfaceStatus {
+            presence: InterfacePresence::Present,
+            ..
+        }) => {}
+        ActionResult::Failed(error) => return Err(error),
+        _ => return Err(ActionError::Unverified),
+    }
+    match driver
+        .opened_by_tmt(binding)
+        .map_err(ActionError::Evidence)?
+    {
+        Some(true) => {}
+        Some(false) => return Ok(PaneClose::Kept(Kept::NotOpenedByTmt)),
+        None => return Ok(PaneClose::Kept(Kept::Unknown)),
+    }
+    match driver.close_pane(binding) {
+        Ok(()) => Ok(PaneClose::Closed),
+        Err(ActionError::HostUnsupported) => Ok(PaneClose::Kept(Kept::Unsupported)),
+        Err(error) => Err(error),
     }
 }
 

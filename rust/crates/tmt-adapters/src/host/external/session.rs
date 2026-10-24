@@ -36,9 +36,9 @@ use tmt_core::{
     identity::Identity,
 };
 use tmt_driver_protocol::{
-    CaptureRequest, CaptureResponse, ClearRequest, ClearResponse, DriverError, ErrorCode,
-    FocusRequest, InputRequest, Marker, NameAgentRequest, Op, Pane, PromptRequest, PublishRequest,
-    ServerRequest, ServerResponse, SnapshotRequest, SnapshotResponse,
+    CaptureRequest, CaptureResponse, ClearRequest, ClearResponse, CloseRequest, DriverError,
+    ErrorCode, FocusRequest, InputRequest, Marker, NameAgentRequest, Op, Pane, PromptRequest,
+    PublishRequest, ServerRequest, ServerResponse, SnapshotRequest, SnapshotResponse,
 };
 
 /// A handle's approved drivers and, when its primary host is external, that
@@ -670,6 +670,53 @@ impl<R: CommandRunner> HostDriver for ExternalDriver<'_, R> {
             }),
             Err(error) => Err(ActionError::Evidence(error)),
         }
+    }
+
+    fn close_preflight(&self) -> Result<(), ActionError> {
+        if self.process.supports(Op::Close) {
+            Ok(())
+        } else {
+            Err(ActionError::HostUnsupported)
+        }
+    }
+
+    /// The driver's own mark on the one pane, read from a one-pane snapshot. A pane that is
+    /// gone, or no longer the verified shell, reads as no answer.
+    fn opened_by_tmt(&mut self, binding: &Binding) -> Result<Option<bool>, HostError> {
+        let answer = self.call::<SnapshotResponse>(SnapshotRequest {
+            socket: binding.server.socket_path.clone(),
+            panes: Some(vec![binding.pane_id.clone()]),
+        })?;
+        match answer {
+            Ok(snapshot) => Ok(snapshot
+                .panes
+                .iter()
+                .find(|pane| pane.id == binding.pane_id && pane.pane_pid == binding.pane_pid)
+                .map(|pane| pane.opened_by_tmt)),
+            Err(error) if matches!(error.code, ErrorCode::Unavailable | ErrorCode::NotFound) => {
+                Ok(None)
+            }
+            Err(error) => Err(refused(&self.process, error)),
+        }
+    }
+
+    /// One `close` for exactly this pane; the driver refuses unless it still runs the
+    /// verified shell. No retry, whatever the answer.
+    fn close_pane(&mut self, binding: &Binding) -> Result<(), ActionError> {
+        self.close_preflight()?;
+        let request = CloseRequest {
+            socket: binding.server.socket_path.clone(),
+            pane_id: binding.pane_id.clone(),
+            pane_pid: binding.pane_pid,
+        };
+        self.process
+            .call_done(
+                Op::Close,
+                request,
+                Instant::now() + Op::Close.bounds().deadline,
+            )
+            .map_err(|error| ActionError::Evidence(HostError::Driver(error)))?
+            .map_err(|error| ActionError::Evidence(refused(&self.process, error)))
     }
 
     fn name_agent(&mut self, binding: &Binding, name: &str) -> Result<AgentNaming, HostError> {
