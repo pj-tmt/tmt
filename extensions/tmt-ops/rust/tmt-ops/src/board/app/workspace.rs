@@ -192,6 +192,39 @@ impl App {
                 )
             })
     }
+    pub(in crate::board) fn digest_window_menu(&mut self) -> Effect {
+        let entries = [
+            crate::config::DigestWindow::Day,
+            crate::config::DigestWindow::Week,
+            crate::config::DigestWindow::AllTime,
+        ]
+        .into_iter()
+        .map(|window| MenuEntry {
+            key: String::new(),
+            label: format!(
+                "{}{}",
+                window.label(),
+                if self.digest_window() == window {
+                    " (current)"
+                } else {
+                    ""
+                }
+            ),
+            choice: Choice::DigestWindow(window),
+        })
+        .collect();
+        self.menu = Some(Menu {
+            row_send: None,
+            link: None,
+            prefill: String::new(),
+            title: "Digest estimate window".into(),
+            entries,
+            selected: 0,
+            anchor: None,
+            surface: Default::default(),
+        });
+        Effect::None
+    }
     pub(in crate::board) fn select_digest_window(
         &mut self,
         window: crate::config::DigestWindow,

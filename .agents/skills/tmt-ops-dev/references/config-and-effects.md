@@ -160,7 +160,10 @@ for every Digest estimate surface, through the same format-preserving Config CAS
 same write. `SavingsUnit::shown` reads percent as tokens for lifetime, and `next` skips
 it there. The `savings-unit` action ships without a default key so that no frozen
 binding table moves; a click on a painted estimate (`Choice::SavingsUnit`) and the Actions
-menu reach it, and the footer hint appears only while a frame painted an estimate.
+menu reach it, and the footer hint appears only while a frame painted a unit-switchable
+estimate. Digest's fixed Impact band instead shows context and cost together,
+without changing this preference; its window chip saves `digest_window` independently
+of the TOK range.
 The Agents TOK figures read the same preference (`App::tok_money`: unit `cost`); a click on a
 painted figure (`Choice::TokMoney`) or on the unit word of the column heading (`Choice::TokUnit`) writes tokens or cost through the same CAS and skips percent.
 Money comes from the shared usage report through `usage_report::valuation` (the Digest table

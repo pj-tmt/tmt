@@ -960,6 +960,23 @@ fn captures() -> Value {
                 ));
             }
         }
+        for (look_name, look) in looks() {
+            for scene in crate::board::digest_dashboard::tests::impact::SCENES {
+                for (width, height) in [(160, 50), (120, 40), (100, 32)] {
+                    let mut app =
+                        crate::board::digest_dashboard::tests::impact::capture_case(scene, look);
+                    if *scene == "impact-basis" {
+                        let _ = capture_frame(&app, scene, look_name, width, height, &mut styles);
+                        app.choose(crate::board::app::Choice::DigestBasis);
+                    }
+                    let mut captured =
+                        capture_frame(&app, scene, look_name, width, height, &mut styles);
+                    captured["stripHits"] =
+                        json!(format!("{:?}", app.workspace_strip_hits.borrow()));
+                    frames.push(captured);
+                }
+            }
+        }
         let styles = styles
             .0
             .into_iter()
