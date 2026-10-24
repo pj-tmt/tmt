@@ -134,7 +134,10 @@ page renders in it.
   Each item is a Lucide icon plus its label; the current item has the selected
   fill, the accent icon and a straight marker (`indicator-width`) in the rail's gutter,
   outside the rounded row and never its border. The current module's pages nest under
-  it as sub-items; the page you are on has the same fill and marker. A count is a
+  it as sub-items; the current sub-item uses accent/on-accent fill without a gutter
+  marker, with an on-accent focus frame. A labelled group is a named nested list
+  whose items add 8 px of indent (Ben direct); unlabelled entries keep their base
+  indent and counts keep the same right edge. A count is a
   small box after the label: a plain total in the hover fill, a needs-you count a
   pill in the waiting colour on its soft fill; `99+` above 99; a count of zero draws
   nothing. The number alone is
@@ -150,7 +153,7 @@ page renders in it.
   with its page count and needs-you count, then New project and Manage projects; Remote:
   each saved remote, Add remote, Remote settings). It replaces header dropdowns. On a
   wide screen its pages nest under the current rail item and share the rail's surface,
-  rows and selection marker; on a phone they are a tab strip under the title bar. It has
+  rows and current-page fill; on a phone they are a tab strip under the title bar. It has
   no title of its own.
 - **Header:** one continuous sticky row: the host's header (moved into the shell's bar)
   shows the page title and the page's own actions, with one bottom rule. There is no
@@ -262,12 +265,12 @@ The space list follows the concept website `/#/colab/pages`: hero with New page,
 pinned-page cards, state strip, project scope, search/sort and the page list. Numbered
 concept 17 is the fallback only for states absent from that website. Actual pins keep owner order, wrap after three
 on wide screens and stack on compact screens; absent pins leave no empty section.
-Projects use neutral token colours and keep every membership. Stage, creator, time and
+Projects keep every membership and use a stable project-name mapping onto the existing blue, violet, amber and green role tints. Row stages use soft-filled role chips with dots; Needs you keeps its real count. Stage, creator, time and
 progress show only available metadata; no missing summary becomes a false zero or stage.
 
 Wide rows separate title, projects, stage, updated, author and access; compact rows stack
 these without horizontal page overflow. Rows with divider rules remain square inside the
-fully bordered rounded list frame. Selection, keyboard actions, incremental rendering and
+fully bordered rounded list frame. Task progress is compact count text, without a repeated bar or comments line. Home is the sole vertical viewport, with the shared page insets and a truthful count/access footer. Successful action feedback remains an unobtrusive live region, while errors stay visible. Selection, keyboard actions, incremental rendering and
 management refusals retain their product owners. The shared flat state tabs show muted numeric
 counts and wrap on compact screens; the hero owns the heading and the shell bar keeps only tools.
 
@@ -585,7 +588,8 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   inside modal Chat. The field grows to a bounded height, then scrolls. Square corners
   and existing ink/accent tokens apply. Basis: own parent chrome with Lexical editing.
 
-Mention chips share an icon and named roles in editors, sent messages and lists:
+Mention chips share an icon and named roles in editors, sent messages and lists
+(a bordered chip rounds at the small radius token, as the website's tags do):
 agent chips are neutral grey with bold ink; person chips use pale blue and
 blue-grey text. Unknown identity kinds default to agent. Current directory data
 has no person kind: the person variant is tokens and explicit presentation fixtures,

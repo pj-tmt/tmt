@@ -110,7 +110,10 @@ The shell and heading metrics follow the concept website: 232px rail, 45px modul
 rows, 33px sub-items and a 45px brand mark. Body and display text use
 `Inter, -apple-system, system-ui, "Segoe UI", sans-serif`, without bundled fonts or
 external font requests. Rail sub-item text starts 8px beyond the parent's icon
-left edge (Ben direct); its smaller type and separate current-page marker retain hierarchy.
+left edge (Ben direct). Labelled groups render as named nested lists with one extra
+8px indent; unlabelled entries stay flat and counts retain their right edge. The
+selected sub-item uses accent/on-accent fill without a gutter marker, with an
+on-accent focus frame. The parent module keeps its marker.
 
 The optional static `page` class (`tmt-ui-page`) applies shared content insets:
 33px/36px block/inline, 24px/18px through 760px. Hosts opt in on their content

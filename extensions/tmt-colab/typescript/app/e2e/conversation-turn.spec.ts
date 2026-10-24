@@ -549,7 +549,7 @@ test('editable mention chips send only their original text; annotation keeps its
   await expect(token.locator('.agent-chip-name')).toHaveText('@Agent 1');
   await expect(token.getByRole('button', { name: /^Remove mention:/ })).toBeVisible();
   await expect(token).toHaveCSS('border-top-width', '1px');
-  await expect(token).toHaveCSS('border-radius', '0px');
+  await expect(token).toHaveCSS('border-radius', '6px');
   await input.press('Enter');
   // The double publishes the admitted Ask attribution separately, like the signed own stream.
   await run(page, 'windowReply');

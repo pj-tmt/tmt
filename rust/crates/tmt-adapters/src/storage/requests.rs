@@ -559,8 +559,10 @@ impl RequestRecords for RequestRows<'_> {
         self.0
             .query_row(
                 &format!(
-                    "SELECT {} FROM request_responses WHERE request_id = ?",
-                    rows::RESPONSE_COLUMNS
+                    "SELECT {} FROM {} WHERE r.request_id = ?
+                       AND (r.route_kind <> 'remote' OR a.attempt_id IS NOT NULL)",
+                    rows::RESPONSE_COLUMNS,
+                    rows::RESPONSE_FROM
                 ),
                 [request_id],
                 rows::response_row,
@@ -867,14 +869,7 @@ impl RequestRecords for RequestRows<'_> {
             RequestRoute::Inbox {
                 recipient_identity_id,
             } => ("inbox", Some(recipient_identity_id.as_str()), None),
-            // The reply path for a remote request comes with the two-way slice; until then no
-            // final can be stored for one, and nothing in the service asks to.
-            RequestRoute::Remote { .. } => {
-                return Err(StorageError::new(
-                    StorageErrorCode::Unknown,
-                    "A remote request has no local final yet",
-                ));
-            }
+            RequestRoute::Remote { .. } => ("remote", None, None),
         };
         let server_pid = endpoint
             .map(|e| checked_i64(e.server.server_pid, "Server PID"))

@@ -7,15 +7,21 @@ use crate::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Cursor {
+    pub(crate) created_at: String,
+    pub(crate) id: String,
+}
 pub(crate) struct Document {
     peer: String,
     id: String,
     created_ms: u64,
     bytes: Vec<u8>,
-    cursor: Value,
+    cursor: Cursor,
 }
 impl Document {
-    pub(crate) fn cursor(&self) -> &Value {
+    pub(crate) fn cursor(&self) -> &Cursor {
         &self.cursor
     }
     pub(crate) fn peer(&self) -> &str {
@@ -69,12 +75,10 @@ impl Document {
         {
             return Err(invalid(Reason::IndexedTime));
         }
-        let indexed = timestamp(
-            value["fields"]["createdAt"]["timestampValue"]
-                .as_str()
-                .ok_or_else(|| invalid(Reason::IndexedTime))?,
-        )
-        .map_err(|_| invalid(Reason::IndexedTime))?;
+        let indexed_at = value["fields"]["createdAt"]["timestampValue"]
+            .as_str()
+            .ok_or_else(|| invalid(Reason::IndexedTime))?;
+        let indexed = timestamp(indexed_at).map_err(|_| invalid(Reason::IndexedTime))?;
         // REQUEST_TIME is the server's routing/order key, not the document's creation instant.
         // Only output-only createTime establishes signed ingress freshness.
         if indexed.abs_diff(created_ms) > crate::session::CLOCK_SKEW.as_millis() as u64 {
@@ -104,7 +108,10 @@ impl Document {
             id: suffix.into(),
             created_ms,
             bytes,
-            cursor: json!({"values":[fields["createdAt"].clone(),{"referenceValue":name}],"before":false}),
+            cursor: Cursor {
+                created_at: indexed_at.into(),
+                id: suffix.into(),
+            },
         })
     }
 }

@@ -519,7 +519,7 @@ renameSync(output+'.tmp',output);
         return (
           header !== undefined &&
           rule !== undefined &&
-          /^ +SQUAD \/ AGENT( [↑↓])?[ \t]+STATE[ \t]+TOK 1h[ \t]+◷[ \t]+MODEL \/ NOW[ \t]*$/.test(
+          /^ +SQUAD \/ AGENT( [↑↓])?[ \t]+STATE[ \t]+TOK 1h[ \t]+◷[ \t]+MODEL \/ ALERT[ \t]*$/.test(
             header.slice(0, 75)
           ) &&
           /Talk[ \t]+Measure[ \t]+[─━]{2} Common pool /.test(rule.slice(75)) &&

@@ -369,6 +369,10 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
         seen.push(action.verb);
     }
     if tab == crate::board::shell::OpsTab::Agents {
+        if let Some(key) = find(Verb::Ui(Ui::IdleAlert), "i") {
+            first.push((key_label(&key).into(), "idle alert".into()));
+            seen.push(Verb::Ui(Ui::IdleAlert));
+        }
         for (action, preferred, word) in [
             (Ui::NewMember, "n", "new"),
             (Ui::RenameMember, "r", "rename"),

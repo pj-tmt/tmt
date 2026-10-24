@@ -3465,7 +3465,7 @@ proven default-added chip, preserving manually typed/picked mentions and surroun
 text. The preference is a storage-safe, device-local convenience, never authority.
 Provenance stays in editing/page memory and is stripped from the unchanged encrypted
 v1 draft format; restored unknown-provenance mentions count as manual.
-Bound mentions are atomic, square, flat chips: a solid online dot, muted offline
+Bound mentions are atomic, flat chips with the small radius token: a solid online dot, muted offline
 state, or a dashed not-found border. Unknown/unavailable presence is labeled explicitly.
 Same-name agents include their machine name. Hover/focus exposes the full name,
 machine and state; the trailing remove action drops the binding without sending.

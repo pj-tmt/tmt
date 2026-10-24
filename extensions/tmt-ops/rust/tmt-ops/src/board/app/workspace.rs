@@ -604,6 +604,7 @@ impl App {
                     action.verb,
                     Verb::Ui(
                         OpsUiAction::AgentsFilter
+                            | OpsUiAction::IdleAlert
                             | OpsUiAction::NewMember
                             | OpsUiAction::DiscoverAgents
                             | OpsUiAction::RenameMember
@@ -712,7 +713,7 @@ impl App {
             for (event, action) in self.workspace_factory_actions() {
                 let source = sources.get(&event);
                 if source.is_some_and(|source| source == "workspace default")
-                    || (event == "e" && source.is_none())
+                    || (matches!(event.as_str(), "e" | "i") && source.is_none())
                 {
                     keys.insert(event, action);
                 }
@@ -730,6 +731,12 @@ impl App {
 
     fn workspace_factory_actions(&self) -> Bindings {
         let mut keys = Bindings::new();
+        if self.shell.tab == OpsTab::Agents && self.focused() == Pane::Rows {
+            keys.insert(
+                "i".into(),
+                Action::parse("idle-alert").expect("idle alert action"),
+            );
+        }
         if self.shell.tab == OpsTab::Digest && self.focused() == Pane::Rows {
             keys.insert(
                 "e".into(),
@@ -1099,6 +1106,7 @@ impl App {
             }
             MemberSession => return self.open_member_session(),
             MemberNotes => return self.open_notes(),
+            IdleAlert => return self.open_idle_alert(None),
             NewMember => return self.open_new_member(),
             MonitorDetails => return self.overview_details(),
             WorkspaceSnapshots => return self.open_recovery(),
@@ -1322,7 +1330,7 @@ impl App {
         use crate::board::shell::OpsInputOwner;
         let overlay = self.overlay();
         let editing = match overlay {
-            Some(Overlay::NewMember) => true,
+            Some(Overlay::NewMember | Overlay::IdleAlert) => true,
             Some(Overlay::Workspace) => self.input.is_some(),
             Some(Overlay::Settings) => self
                 .settings

@@ -558,6 +558,26 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         None
     }
 
+    /// Claude keeps one `<session>.jsonl` per project directory.
+    fn session_presence(
+        &self,
+        session: &ProviderSessionId,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        deadline: std::time::Instant,
+    ) -> crate::runtime::session_presence::SessionPresence {
+        let root = config_root(environment).join("projects");
+        crate::runtime::session_presence::probe(
+            &crate::runtime::session_presence::Layout {
+                root: &root,
+                depth: 1,
+                names: |name, session| name.strip_suffix(".jsonl") == Some(session),
+            },
+            session,
+            deadline,
+            crate::runtime::session_presence::PRESENCE_ENTRIES,
+        )
+    }
+
     fn turn_state(
         &self,
         turn: &crate::runtime::lifecycle::TurnEnd,

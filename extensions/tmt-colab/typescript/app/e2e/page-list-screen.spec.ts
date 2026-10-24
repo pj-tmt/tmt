@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 
-/** The website list keeps its hero and controls above independently scrolling page rows. */
+/** Home is the one vertical viewport for the website hero, controls and lazy-drawn rows. */
 async function mount(page: Page, width: number, theme: 'light' | 'dark') {
   await page.setViewportSize({ width, height: width < 480 ? 844 : 900 });
   await page.emulateMedia({ colorScheme: theme });
@@ -18,7 +18,7 @@ const rows = (page: Page) => app(page).locator('.pages > li');
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
-    test(`one screen with a fixed top block and a scrolling list at ${width} ${theme}`, async ({
+    test(`one page viewport with a scrolling hero and lazy rows at ${width} ${theme}`, async ({
       page,
     }) => {
       await mount(page, width, theme);
@@ -44,7 +44,7 @@ for (const width of [1440, 390])
       await expect(app(page).getByRole('button', { name: 'New page' })).toBeVisible();
       await expect(rows(page)).toHaveCount(50);
       const count = app(page).locator('[data-page-list-count]');
-      await expect(count).toHaveText('Showing 50 of 75');
+      await expect(count.locator('span').first()).toHaveText('Showing 50 of 75');
 
       const top = async () => {
         const box = (selector: string) =>
@@ -74,12 +74,17 @@ for (const width of [1440, 390])
       }
       await page.screenshot({ path: await capturePath(`4273-list-${width}-${theme}.png`) });
 
-      const list = app(page).locator('.page-list-scroll');
+      const list = app(page).locator('[data-page-list]');
       await list.evaluate((node) => (node.scrollTop = node.scrollHeight));
       await expect(rows(page)).toHaveCount(75);
-      await expect(count).toHaveText('75 pages');
+      await expect(count.locator('span').first()).toHaveText('75 pages in this view');
       await list.evaluate((node) => (node.scrollTop = node.scrollHeight / 2));
-      expect(await top()).toEqual(before);
+      expect((await top()).search.y).toBeLessThan(before.search.y);
+      expect(
+        await app(page)
+          .locator('.page-list-scroll')
+          .evaluate((node) => node.scrollTop),
+      ).toBe(0);
       expect(await page.evaluate(() => document.documentElement.scrollHeight > innerHeight)).toBe(
         false,
       );
@@ -160,4 +165,51 @@ for (const width of [1586, 390])
       await expect(archive).toHaveCount(0);
       await expect(menu).toBeFocused();
       expect(await page.evaluate(() => window.__pageOperations)).toEqual([]);
+    });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`website list density and truthful metadata at ${width} ${theme}`, async ({ page }) => {
+      await mount(page, width, theme);
+      const home = app(page).locator('[data-page-list]');
+      await expect(home).toHaveClass(/tmt-ui-page/);
+      await expect(home).toHaveCSS('padding-left', width === 1440 ? '36px' : '18px');
+      await expect(rows(page).first().locator('progress')).toHaveCount(0);
+      await expect(rows(page).first().locator('.page-comments')).toHaveCount(0);
+      await expect(app(page).getByRole('button', { name: 'Sort: Recently updated' })).toHaveText(
+        'Recently updated',
+      );
+      const search = app(page).getByRole('combobox', { name: 'Search pages' });
+      await expect(search).toHaveCSS('font-size', '11px');
+      expect((await search.boundingBox())!.height).toBe(34);
+      const ordinary = rows(page)
+        .filter({ has: page.locator('[data-page-stage="discussion"]') })
+        .first();
+      // This fixture's Discussion pages still carry four tasks, so they retain a task line.
+      if (width === 1440) expect((await ordinary.boundingBox())!.height).toBe(70);
+      expect((await ordinary.locator('.page-stage').boundingBox())!.height).toBe(20);
+      expect((await rows(page).locator('.page-waiting').first().boundingBox())!.height).toBe(20);
+      expect(await home.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      if (width === 390) {
+        const first = rows(page).first();
+        await expect(first.locator('.page-row-detail')).toHaveCSS('display', 'flex');
+        const title = (await first.locator('.page-row-title').boundingBox())!;
+        const detail = (await first.locator('.page-row-detail').boundingBox())!;
+        expect(detail.y).toBeGreaterThanOrEqual(title.y + title.height);
+      }
+
+      expect(
+        await app(page)
+          .locator('.page-list-status')
+          .evaluate((node) => getComputedStyle(node).position),
+      ).toBe('absolute');
+      await expect(rows(page).locator('.page-project').first()).toHaveAttribute(
+        'data-project-tone',
+        /blue|violet|amber|green/,
+      );
+      await page.evaluate(async () => {
+        const path = '/test/page-list-browser.tsx';
+        await (await import(path)).mountPageList('quiet');
+      });
+      if (width === 1440) expect((await rows(page).first().boundingBox())!.height).toBe(64);
     });

@@ -1,11 +1,14 @@
 //! A request with a remote route has an originator and no local recipient (#4536). The readers
 //! that key on a recipient must neither fail on it nor list it as someone's work.
-use super::support::{Fixture, NOW_MS, service};
+use super::support::{Fixture, NOW_MS, count_rows, service};
+use crate::storage::Storage;
 use tmt_core::{
     identity::{Lifetime, create_or_resolve},
     request::{
-        AttemptStatus, Originator, PrepareRequest, RequestKind, RequestOrigin, RequestRoute,
-        Settlement,
+        AttemptStatus, Originator, PrepareRequest, RequestError, RequestKind, RequestOrigin,
+        RequestRoute, ResponseLookup, ResponseProof, ResponseRejection, Settlement, SubmitResponse,
+        attention::FinalState,
+        correlation::response_token,
         history::{AnswersQuery, HistoryQuery, HistoryScope},
     },
 };
@@ -170,5 +173,171 @@ fn a_remote_request_needs_a_confirmed_sender_a_request_kind_and_a_canonical_targ
         Originator::Verified(ben),
         canonical
     ));
+    f.storage.close().unwrap();
+}
+
+#[test]
+fn a_remote_request_takes_one_final_with_its_receipt_and_every_reader_lists_it() {
+    let mut f = Fixture::new();
+    let ben = create_or_resolve(&mut f.storage, "Ben", Lifetime::Saved)
+        .unwrap()
+        .identity
+        .id;
+    let prepared = service(&mut f)
+        .prepare(
+            PrepareRequest {
+                origin: RequestOrigin::Person,
+                room_id: None,
+                kind: RequestKind::Request,
+                request_id: REQUEST.into(),
+                message: "hello across machines".into(),
+                route: remote_route(),
+                wait: false,
+                expires_at_ms: NOW_MS + 3_600_001,
+                originator: Originator::Explicit(ben.clone()),
+                recipient_identity_id: None,
+                preamble: None,
+            },
+            "attempt-remote".into(),
+            7,
+        )
+        .unwrap();
+    service(&mut f).begin_send(&prepared.attempt_id).unwrap();
+    service(&mut f)
+        .settle(&prepared.attempt_id, Settlement::Sent)
+        .unwrap();
+    let submission = |token: [u8; 16], body: &str| SubmitResponse {
+        request_id: REQUEST.into(),
+        proof: ResponseProof::Compact(token),
+        body: body.into(),
+    };
+    let receipt = response_token(REQUEST, &prepared.attempt_id, &remote_route());
+
+    // Another request's receipt is not this one's.
+    let foreign = response_token(REQUEST, "another-attempt", &remote_route());
+    assert!(matches!(
+        service(&mut f).submit_response(submission(foreign, "no")),
+        Err(RequestError::Response(ResponseRejection::ReceiptMismatch))
+    ));
+    assert_eq!(count_rows(&f.database, "request_responses"), 0);
+
+    let first = service(&mut f)
+        .submit_response(submission(receipt, "peer answer"))
+        .unwrap();
+    assert_eq!(first.route, remote_route());
+    assert_eq!(count_rows(&f.database, "request_responses"), 1);
+
+    // The stored final keeps the route, so a retry after a restart still proves its receipt.
+    f.storage.close().unwrap();
+    f.storage = Storage::open(&f.database).unwrap();
+    let ResponseLookup::Available(stored) = service(&mut f).get_response(REQUEST).unwrap() else {
+        panic!("the final is retained");
+    };
+    assert_eq!(stored.route, remote_route());
+    assert_eq!(stored.body, "peer answer");
+    assert_eq!(
+        service(&mut f)
+            .submit_response(submission(receipt, "peer answer"))
+            .unwrap(),
+        first
+    );
+    assert!(matches!(
+        service(&mut f).submit_response(submission(receipt, "another answer")),
+        Err(RequestError::Response(ResponseRejection::Conflict))
+    ));
+    assert!(matches!(
+        service(&mut f).submit_response(submission(foreign, "peer answer")),
+        Err(RequestError::Response(ResponseRejection::ReceiptMismatch))
+    ));
+
+    // Result, exchanges, results and the answers view all carry it.
+    let detail = service(&mut f).request_detail(REQUEST).unwrap();
+    assert_eq!(detail.item.recipient_identity_id, None);
+    let exchange = service(&mut f).show_exchange(&ben, REQUEST).unwrap();
+    assert!(matches!(
+        exchange.exchange.final_state,
+        FinalState::Retained { body_bytes: 11, .. }
+    ));
+    let results = service(&mut f)
+        .request_history(HistoryQuery {
+            scope: HistoryScope::OriginatorResults {
+                originator_id: ben.clone(),
+                recipient_id: None,
+            },
+            before: None,
+            limit: 20,
+        })
+        .unwrap();
+    assert_eq!(results.items.len(), 1);
+    let answers = service(&mut f)
+        .request_answers(AnswersQuery {
+            originator_id: ben,
+            before: None,
+            limit: 20,
+        })
+        .unwrap();
+    assert_eq!(answers.items.len(), 1);
+    f.storage.close().unwrap();
+}
+
+#[test]
+fn an_expired_remote_final_whose_attempt_is_gone_reads_as_absent() {
+    let mut f = Fixture::new();
+    let ben = create_or_resolve(&mut f.storage, "Ben", Lifetime::Saved)
+        .unwrap()
+        .identity
+        .id;
+    let prepared = service(&mut f)
+        .prepare(
+            PrepareRequest {
+                origin: RequestOrigin::Person,
+                room_id: None,
+                kind: RequestKind::Request,
+                request_id: REQUEST.into(),
+                message: "hello across machines".into(),
+                route: remote_route(),
+                wait: false,
+                expires_at_ms: NOW_MS + 3_600_001,
+                originator: Originator::Explicit(ben),
+                recipient_identity_id: None,
+                preamble: None,
+            },
+            "attempt-remote".into(),
+            7,
+        )
+        .unwrap();
+    service(&mut f).begin_send(&prepared.attempt_id).unwrap();
+    service(&mut f)
+        .settle(&prepared.attempt_id, Settlement::Sent)
+        .unwrap();
+    service(&mut f)
+        .submit_response(SubmitResponse {
+            request_id: REQUEST.into(),
+            proof: ResponseProof::Compact(response_token(
+                REQUEST,
+                &prepared.attempt_id,
+                &remote_route(),
+            )),
+            body: "peer answer".into(),
+        })
+        .unwrap();
+
+    // Housekeeping lets an attempt go once its finals have expired, even if a batch limit left
+    // an expired final behind; the final then has no route to read.
+    f.storage.close().unwrap();
+    let oracle = rusqlite::Connection::open(&f.database).unwrap();
+    oracle
+        .execute(
+            "DELETE FROM request_attempts WHERE request_id = ?",
+            [REQUEST],
+        )
+        .unwrap();
+    drop(oracle);
+    f.storage = Storage::open(&f.database).unwrap();
+    assert_eq!(count_rows(&f.database, "request_responses"), 1);
+    assert_eq!(
+        service(&mut f).get_response(REQUEST).unwrap(),
+        ResponseLookup::Unavailable
+    );
     f.storage.close().unwrap();
 }
