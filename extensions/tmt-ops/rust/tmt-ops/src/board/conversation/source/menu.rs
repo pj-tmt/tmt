@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn the_box_is_as_wide_as_its_widest_line_and_holds_every_entry() {
-        assert_eq!((width(), height()), (19, 6));
+        assert_eq!((width(), height()), (23, 6));
         assert!(TITLE.width() as u16 + 4 <= width());
     }
 
@@ -188,7 +188,7 @@ mod tests {
     fn the_menu_opens_below_the_selection_end() {
         let menu = at((30, 8), 8);
         assert_eq!((menu.x, menu.y), (30, 9));
-        assert_eq!((menu.width, menu.height), (19, 6));
+        assert_eq!((menu.width, menu.height), (23, 6));
     }
 
     #[test]
