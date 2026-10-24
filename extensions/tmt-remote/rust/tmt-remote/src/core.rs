@@ -46,6 +46,59 @@ impl CoreClient {
         Err(crate::cloud_command::upgrade())
     }
 
+    /// Core alone resolves its name syntax and excludes retired identities. The returned
+    /// UUID/name pair is frozen before dispatch and checked by the UUID-pinned seam at effect.
+    pub(crate) fn cloud_target(
+        &self,
+        name: &str,
+        stop: &AtomicBool,
+    ) -> Result<crate::cloud_command::PeerIdentity, RemoteError> {
+        let answer = self
+            .call(
+                &["identity", "show", "--json", "--", name],
+                &[],
+                stop,
+                crate::limits::CORE_CALL,
+                OUTPUT_LIMIT,
+            )
+            .map_err(|error| match error.code.as_str() {
+                "NAME_NOT_FOUND" | "INVALID_NAME" => RemoteError::new(
+                    "REMOTE_AGENT_NOT_FOUND",
+                    "The recipient name was not found.",
+                ),
+                "NAME_AMBIGUOUS" => {
+                    RemoteError::new("REMOTE_AGENT_AMBIGUOUS", "The recipient name is ambiguous.")
+                }
+                _ => error,
+            })?;
+        let identity = &answer["identity"];
+        // `identity show` also accepts UUID selectors. A name-only target must not
+        // accidentally select a different display name through that shortcut.
+        if crate::canonical::is_core_id(name) && identity["name"] != name {
+            return Err(RemoteError::new(
+                "REMOTE_AGENT_NOT_FOUND",
+                "The recipient name was not found.",
+            ));
+        }
+        let id = identity["id"]
+            .as_str()
+            .filter(|id| crate::canonical::is_core_id(id));
+        let name = identity["name"].as_str().filter(|name| {
+            !name.is_empty() && name.len() <= 128 && !name.chars().any(char::is_control)
+        });
+        match (id, name) {
+            (Some(id), Some(name)) if identity["retired"] != true => {
+                Ok(crate::cloud_command::PeerIdentity {
+                    id: id.into(),
+                    name: name.into(),
+                })
+            }
+            _ => Err(failure(
+                "Core identity show returned invalid identity evidence.",
+            )),
+        }
+    }
+
     pub fn discover() -> Result<Self, RemoteError> {
         let executable = tmt_invoke::invoking_tmt().map_err(|error| match error {
             DiscoveryError::Missing => {

@@ -497,6 +497,52 @@ fn ordinary_users_deliver_recover_restart_revoke_and_stop_before_budget_io() {
     assert_eq!(answer.state, tmt_remote::cloud_command::State::Sent);
     assert_eq!(world.core.sends(), 1, "recovery cannot dispatch again");
     wire.report("restart-recovery");
+    // Separate operation receipts let each target control prove its own effect count.
+    std::fs::write(world.core.root.join("multi"), "").unwrap();
+    for (rows, state, reason) in [
+        (
+            json!([{"id":TARGET,"name":"target"}]),
+            tmt_remote::cloud_command::State::Sent,
+            None,
+        ),
+        (
+            json!([]),
+            tmt_remote::cloud_command::State::Refused,
+            Some("REMOTE_AGENT_NOT_FOUND"),
+        ),
+        (
+            json!([{"id":TARGET,"name":"target"},{"id":PEER,"name":"target"}]),
+            tmt_remote::cloud_command::State::Refused,
+            Some("REMOTE_AGENT_AMBIGUOUS"),
+        ),
+    ] {
+        std::fs::write(
+            world.core.root.join("identities"),
+            json!({"identities":rows}).to_string(),
+        )
+        .unwrap();
+        let named = json!({"version":1,"remote":"team","createdAtMs":wire.clock.now().wall_ms,"requestId":uuid_v4().unwrap(),"from":{"id":PEER,"name":"peer"},"target":{"name":"target"},"message":"emulator name resolution"}).to_string();
+        let answer = ready(sender.prepared(
+            named.as_bytes(),
+            &world.descriptor,
+            "team",
+            wire.clock.now().wall_ms,
+            &io,
+        ))
+        .unwrap();
+        assert_eq!(answer.state, state);
+        assert_eq!(answer.reason.as_deref(), reason);
+        assert_eq!(
+            serde_json::to_value(&answer).unwrap()["target"],
+            json!({"name":"target"})
+        );
+        assert_eq!(
+            world.core.sends(),
+            2,
+            "only the one unambiguous name dispatches"
+        );
+    }
+    wire.report("name-targets");
     budget.refuse.store(true, Ordering::SeqCst);
     let blocked = raw.replace(&id, &uuid_v4().unwrap());
     let error = ready(sender.prepared(
@@ -527,7 +573,7 @@ fn ordinary_users_deliver_recover_restart_revoke_and_stop_before_budget_io() {
     .err()
     .unwrap();
     assert_eq!(error.code, "REMOTE_CLOUD_ACCESS_DENIED");
-    assert_eq!(world.core.sends(), 1);
+    assert_eq!(world.core.sends(), 2);
     wire.report("revoked");
     admin.call(
         "DELETE",

@@ -375,3 +375,77 @@ fn check_never_captures_absent_retired_or_ambiguous_identity() {
         assert!(!fixture.0.join("captured").exists());
     }
 }
+
+#[test]
+fn cloud_name_lookup_uses_core_resolution_and_refuses_bad_evidence() {
+    let id = "66666666-6666-4666-8666-666666666666";
+    let answer = json!({"identity":{"id":id,"name":"Current"}});
+    let fixture = Fixture::new(&format!(
+        "printf '%s\\n' \"$@\" > argv; cat > input; printf '%s' '{answer}'"
+    ));
+    let target = fixture
+        .client()
+        .cloud_target("--name", &AtomicBool::new(false))
+        .unwrap();
+    assert_eq!(target.id, id);
+    assert_eq!(target.name, "Current");
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("argv")).unwrap(),
+        "identity\nshow\n--json\n--\n--name\n"
+    );
+    assert_eq!(
+        fixture
+            .client()
+            .cloud_target(id, &AtomicBool::new(false))
+            .err()
+            .unwrap()
+            .code,
+        "REMOTE_AGENT_NOT_FOUND"
+    );
+    for (answer, expected) in [
+        (
+            json!({"error":{"code":"NAME_NOT_FOUND","message":"absent"}}),
+            "REMOTE_AGENT_NOT_FOUND",
+        ),
+        (
+            json!({"error":{"code":"INVALID_NAME","message":"not a Core name"}}),
+            "REMOTE_AGENT_NOT_FOUND",
+        ),
+        (
+            json!({"error":{"code":"NAME_AMBIGUOUS","message":"ambiguous"}}),
+            "REMOTE_AGENT_AMBIGUOUS",
+        ),
+        (
+            json!({"error":{"code":"STORAGE_UNAVAILABLE","message":"busy"}}),
+            "STORAGE_UNAVAILABLE",
+        ),
+    ] {
+        let fixture = Fixture::new(&format!("printf '%s' '{answer}'; exit 1"));
+        assert_eq!(
+            fixture
+                .client()
+                .cloud_target("target", &AtomicBool::new(false))
+                .err()
+                .unwrap()
+                .code,
+            expected
+        );
+    }
+    for answer in [
+        json!({}),
+        json!({"identity":{"id":id,"name":""}}),
+        json!({"identity":{"id":id,"name":"target","retired":true}}),
+        json!({"identity":[{"id":id,"name":"target"}]}),
+    ] {
+        let fixture = Fixture::new(&format!("printf '%s' '{answer}'"));
+        assert_eq!(
+            fixture
+                .client()
+                .cloud_target("target", &AtomicBool::new(false))
+                .err()
+                .unwrap()
+                .code,
+            "REMOTE_CORE_UNAVAILABLE"
+        );
+    }
+}

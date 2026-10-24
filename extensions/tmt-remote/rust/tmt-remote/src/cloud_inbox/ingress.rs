@@ -277,6 +277,8 @@ pub(crate) fn permanent(code: &str) -> bool {
             | "REMOTE_GRANT_CHANGED"
             | "REMOTE_SCOPE_DENIED"
             | "REMOTE_INPUT_INVALID"
+            | "REMOTE_AGENT_NOT_FOUND"
+            | "REMOTE_AGENT_AMBIGUOUS"
             | "REMOTE_INTENT_CONFLICT"
             | "REMOTE_CURSOR_EXPIRED"
             | "REMOTE_CLOUD_CONFLICT"
