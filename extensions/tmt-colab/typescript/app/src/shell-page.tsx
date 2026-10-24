@@ -7,11 +7,13 @@ import { shellCells } from './shell-grid.js';
 import { ChapterPanel, type EmbedPage } from './shell-panel.js';
 import { detailPageIds, shellModel, startOfDay } from './shell-model.js';
 import {
-  ShellChapter,
+  ShellAside,
   ShellCounts,
-  ShellEarlier,
-  ShellGreeting,
+  ShellHead,
+  ShellPages,
+  ShellSummary,
   ShellUnavailable,
+  shellItems,
   type Jump,
 } from './shell-sections.js';
 import { text } from './strings.js';
@@ -31,16 +33,19 @@ const t = text.shellPage;
  * own. A page with no admitted value says so instead of drawing nothing. */
 export function ShellPage({
   shell,
+  title,
   embed,
 }: {
   shell: Shell | undefined;
+  /** The page's own title: the headline of the dashboard. */
+  title: string;
   /** Hosts the chapter's page itself in its panel; absent where the app cannot (no panel). */
   embed?: EmbedPage;
 }) {
   return shell ? (
-    <ShellContent shell={shell} embed={embed} />
+    <ShellContent shell={shell} title={title} embed={embed} />
   ) : (
-    <div className="shell-page">
+    <div className="shell-page tmt-ui-page">
       <p className="shell-state" role="status">
         {t.notShown}
       </p>
@@ -48,7 +53,15 @@ export function ShellPage({
   );
 }
 
-function ShellContent({ shell, embed }: { shell: Shell; embed: EmbedPage | undefined }) {
+function ShellContent({
+  shell,
+  title,
+  embed,
+}: {
+  shell: Shell;
+  title: string;
+  embed: EmbedPage | undefined;
+}) {
   const { transport } = rootRoute.useRouteContext();
   const [home, setHome] = useState<SpaceHome | 'failed' | undefined>();
   useEffect(() => {
@@ -63,7 +76,7 @@ function ShellContent({ shell, embed }: { shell: Shell; embed: EmbedPage | undef
   }, [transport]);
   if (home === undefined)
     return (
-      <div className="shell-page">
+      <div className="shell-page tmt-ui-page">
         <p className="shell-state" role="status">
           {t.loading}
         </p>
@@ -72,6 +85,7 @@ function ShellContent({ shell, embed }: { shell: Shell; embed: EmbedPage | undef
   return (
     <ShellBody
       shell={shell}
+      title={title}
       home={home === 'failed' ? { title: '', pages: [] } : home}
       failed={home === 'failed'}
       embed={embed}
@@ -113,11 +127,13 @@ function useWide(): boolean {
 
 function ShellBody({
   shell,
+  title,
   home,
   failed,
   embed,
 }: {
   shell: Shell;
+  title: string;
   home: SpaceHome;
   failed: boolean;
   embed: EmbedPage | undefined;
@@ -167,78 +183,99 @@ function ShellBody({
       });
     });
 
-  // Coming back from a page restores focus to the chapter's title; the browser restores the scroll.
+  // Coming back from a page selects that page again and puts focus on its row; the browser restores
+  // the scroll.
+  const items = useMemo(() => shellItems(model), [model]);
+  const all = useMemo(() => [...items.chapters, ...items.earlier], [items]);
+  const returned = useRef((window.history.state as { shellFocus?: string } | null)?.shellFocus);
+  const [chosen, setChosen] = useState<string | undefined>(returned.current);
+  const selected = all.find((item) => item.pageId === chosen) ?? all[0];
   useEffect(() => {
-    const id = (window.history.state as { shellFocus?: string } | null)?.shellFocus;
+    const id = returned.current;
     if (!id) return;
-    const link = root.current?.querySelector<HTMLElement>(`[data-page-id="${id}"] a`);
-    link?.focus({ preventScroll: true });
-    link?.scrollIntoView({ block: 'nearest' });
+    const row = root.current?.querySelector<HTMLElement>(`[data-page-id="${id}"] button.shell-row`);
+    row?.focus({ preventScroll: true });
+    row?.scrollIntoView({ block: 'nearest' });
   }, []);
   const remember = (pageId: string) => () => {
     window.history.replaceState({ ...window.history.state, shellFocus: pageId }, '');
   };
+  const calm = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Where the list and the summary stack, a chosen row brings its summary into view.
+  const select = (pageId: string) => {
+    setChosen(pageId);
+    const columns = root.current?.querySelector<HTMLElement>('.shell-columns');
+    if (columns && getComputedStyle(columns).gridTemplateColumns.trim().split(/\s+/).length === 1)
+      requestAnimationFrame(() =>
+        root.current
+          ?.querySelector('#shell-aside')
+          ?.scrollIntoView({ block: 'nearest', behavior: calm() ? 'auto' : 'smooth' }),
+      );
+  };
   const jump = (to: Jump) => {
     const row = root.current?.querySelector<HTMLElement>(
-      to === 'today' ? '[data-today]' : `.shell-chapter[data-stage="${to}"]`,
+      to === 'today' ? '.shell-row-item[data-today]' : `.shell-row-item[data-stage="${to}"]`,
     );
     if (!row) return;
-    const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    row.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' });
-    row.querySelector<HTMLElement>('a')?.focus({ preventScroll: true });
+    setChosen(row.dataset.pageId);
+    row.scrollIntoView({ block: 'start', behavior: calm() ? 'auto' : 'smooth' });
+    row.querySelector<HTMLElement>('button')?.focus({ preventScroll: true });
   };
 
   const empty = cells.length === 0;
   return (
-    <div className="shell-page" ref={root}>
-      <ShellGreeting model={model} shell={shell} cells={cells} now={now} />
-      {failed && (
-        <p className="shell-state" role="status">
-          {t.pagesUnavailable}
-        </p>
-      )}
-      {empty ? (
-        <p className="shell-state" role="status">
-          {t.empty}
-        </p>
-      ) : (
-        <>
-          <ShellCounts model={model} onJump={jump} />
-          <ol className="shell-chapters" aria-label={t.chapters}>
-            {model.chapters.map((chapter) => (
-              <ShellChapter
-                key={chapter.pageId}
-                chapter={chapter}
-                page={byId.get(chapter.pageId)}
+    <div className="shell-page tmt-ui-page" ref={root}>
+      <ShellHead title={title} model={model} />
+      <section className="tmt-ui-card shell-glance" aria-labelledby="shell-glance-heading">
+        <h2 id="shell-glance-heading" className="tmt-ui-card-title">
+          {t.glance}
+        </h2>
+        <ShellSummary shell={shell} cells={cells} now={now} />
+        {failed && (
+          <p className="shell-state" role="status">
+            {t.pagesUnavailable}
+          </p>
+        )}
+        {empty ? (
+          <p className="shell-state" role="status">
+            {t.empty}
+          </p>
+        ) : (
+          <>
+            <ShellCounts model={model} onJump={jump} />
+            <div className="shell-columns">
+              <ShellPages
+                items={items}
+                pages={byId}
                 hints={hints}
                 now={now}
                 today={today}
-                onOpen={remember(chapter.pageId)}
-                onPanel={wide ? openPanel : undefined}
+                selected={selected?.pageId}
+                onSelect={select}
               />
-            ))}
-          </ol>
-          <ShellEarlier
-            rows={model.earlier}
-            start={model.chapters.length + 1}
-            pages={byId}
-            hints={hints}
-            now={now}
-            today={today}
-            onOpen={() => undefined}
-          />
-          <ShellUnavailable count={model.unavailable.length} />
-          {opened && (
-            <ChapterPanel
-              chapter={opened}
-              details={details.get(opened.pageId)}
-              now={now}
-              onDismiss={closePanel}
-              onOpen={remember(opened.pageId)}
-              embed={embed}
-            />
-          )}
-        </>
+              {selected && (
+                <ShellAside
+                  item={selected}
+                  page={byId.get(selected.pageId)}
+                  now={now}
+                  onOpen={remember(selected.pageId)}
+                  onPanel={wide ? openPanel : undefined}
+                />
+              )}
+            </div>
+            <ShellUnavailable count={model.unavailable.length} />
+          </>
+        )}
+      </section>
+      {opened && (
+        <ChapterPanel
+          chapter={opened}
+          details={details.get(opened.pageId)}
+          now={now}
+          onDismiss={closePanel}
+          onOpen={remember(opened.pageId)}
+          embed={embed}
+        />
       )}
     </div>
   );
