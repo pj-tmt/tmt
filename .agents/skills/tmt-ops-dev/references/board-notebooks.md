@@ -43,6 +43,9 @@ no control byte, percent-encoded non-ASCII, at most 2000 bytes). Support is deci
 at start by `hyperlinks::supported` (`FORCE_HYPERLINK`, positive terminal signals, tmux
 3.4+ with the `hyperlinks` client feature); off, the backend's bytes are unchanged.
 
+Conversation Markdown preserves authored soft and hard line breaks. A continuation
+inside a quote carries only its list indent forward; the quote gutter is added
+once per displayed line. Source mappings and copied message bytes stay unchanged.
 Conversation bodies always render in full: there is no fold state, caption or
 control, and the pane scrolls. A separate anchor map preserves reading position
 while source mappings retain raw identities.

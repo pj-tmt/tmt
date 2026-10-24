@@ -1,6 +1,30 @@
 //! Explicit test-owned look evidence; never modifies a frozen fixture.
 use super::*;
 
+pub(in crate::board) const REPORTED_SCENES: [&str; 1] = ["markdown-reported-quote"];
+
+pub(in crate::board) fn reported_case(scene: &str, look: Look) -> App {
+    let source = match scene {
+        "markdown-reported-quote" => crate::board::markdown::reported::QUOTE,
+        _ => panic!("unknown reported Markdown scene: {scene}"),
+    };
+    let mut app = loading_workspace();
+    app.view.as_mut().unwrap().look = look;
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .squad_looks
+        .clear();
+    workspace_frame(&app);
+    let plan = app.conversation_read().unwrap();
+    app.apply_conversation(plan.clone(), plan.test_projection(source, None));
+    app
+}
+
 #[test]
 #[ignore = "exports Markdown look scenes only to an explicitly supplied task-owned path"]
 fn capture_conversation_markdown_packet() {
