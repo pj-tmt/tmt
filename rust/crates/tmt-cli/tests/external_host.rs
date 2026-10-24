@@ -11,6 +11,8 @@ mod caller_session;
 mod driver_switch;
 #[path = "external_host/hand_resume.rs"]
 mod hand_resume;
+#[path = "external_host/identity_pin.rs"]
+mod identity_pin;
 #[path = "external_host/move_session.rs"]
 mod move_session;
 #[path = "external_host/nested_host.rs"]

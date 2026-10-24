@@ -404,7 +404,11 @@ pub enum ConfigRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub enum IdentityRequest {
     Create(String),
-    Show(Option<String>),
+    /// `expect_name` pins the selected UUID to the name its caller last saw.
+    Show {
+        name: Option<String>,
+        expect_name: Option<String>,
+    },
     List(Vec<IdentityFilterRequest>),
     Metadata {
         identity: Option<String>,
