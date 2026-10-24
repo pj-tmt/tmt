@@ -26,6 +26,8 @@ pub const CLOUD_ENVELOPE_BYTES: usize =
     ((CLOUD_CARRIER_BYTES - METADATA_BYTES - 4 * 65_usize.div_ceil(3)) / 4) * 3 - 16;
 /// Reconcile the boundary again; operation IDs are deduplicated by the journal.
 pub const CLOUD_CHECKPOINT_OVERLAP_MS: u64 = 120_000;
+/// Private machine query continuation, including one timestamp/UUID tie-breaker.
+pub const CLOUD_QUERY_CHECKPOINT_BYTES: usize = 256;
 /// Named adaptive cadence, including jitter; local sealed-document policy is unchanged.
 pub const CLOUD_POLL_MIN_MS: u64 = 5_000;
 pub const CLOUD_POLL_IDLE_MS: u64 = 60_000;

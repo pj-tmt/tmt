@@ -88,7 +88,7 @@ for (const width of [1440, 390])
       await page.screenshot({ path: await capturePath(`2168-archived-${width}-${theme}.png`) });
     });
 
-    test(`200 rows draw 50 at a time inside the list while the search stays put: ${width}px ${theme}`, async ({
+    test(`200 rows draw 50 at a time in the shared Home viewport: ${width}px ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -103,14 +103,14 @@ for (const width of [1440, 390])
         document.documentElement.dataset.theme = theme;
       }, theme);
       const rows = page.locator('#index-fixture .pages > li');
-      const count = page.locator('#index-fixture [data-page-list-count]');
-      const list = page.locator('#index-fixture .page-list-scroll');
+      const count = page.locator('#index-fixture [data-page-list-count] > span').first();
+      const list = page.locator('#index-fixture [data-page-list]');
       const search = page.locator('#index-fixture .page-list-search');
       await expect(rows).toHaveCount(50);
       await expect(count).toHaveText('Showing 50 of 200');
       await expect(rows.first().getByRole('link')).toHaveText('Page 001');
       await expect(rows.first()).toHaveCSS('box-shadow', 'none');
-      await expect(rows.first()).toHaveCSS('border-top-width', '1px');
+      await expect(rows.first()).toHaveCSS('border-bottom-width', '1px');
       await page.screenshot({ path: await capturePath(`2168-many-${width}-${theme}.png`) });
       const searchTop = (await search.boundingBox())!.y;
       // Each time the list's end comes near, it draws the next 50, until every row is drawn.
@@ -118,11 +118,11 @@ for (const width of [1440, 390])
         await list.evaluate((node) => (node.scrollTop = node.scrollHeight));
         await expect(rows).toHaveCount(drawn);
       }
-      await expect(count).toHaveText('200 pages');
+      await expect(count).toHaveText('200 pages in this view');
       await list.evaluate((node) => (node.scrollTop = node.scrollHeight));
       await expect(rows.last().getByRole('link')).toBeInViewport();
       await expect(rows.last().getByRole('link')).toHaveText('Page 200');
-      expect((await search.boundingBox())!.y).toBe(searchTop);
+      expect((await search.boundingBox())!.y).toBeLessThan(searchTop);
       expect((await page.locator('.tmt-ui-header:visible').boundingBox())!.y).toBe(0);
       const scroll = await page.evaluate(() => {
         const visible = Array.from(document.querySelectorAll<HTMLElement>('body *')).filter(
@@ -143,13 +143,13 @@ for (const width of [1440, 390])
             .map((node) => node.className),
         };
       });
-      // The list is one screen: only its rows scroll, so the window has nothing to scroll. Only
+      // Home scrolls the hero, controls and rows together; the window has nothing to scroll. Only
       // the shell's own chrome is positioned: the TMT mark, the bar (one header row) and its tools cluster with the
       // rail and module menu (a phone's menu button instead of the mark and rail).
       expect(scroll).toEqual({
         window: false,
         horizontal: false,
-        nested: ['page-list-scroll'],
+        nested: ['home tmt-ui-page'],
         fixed:
           width < 480
             ? ['tmt-ui-shell-open', 'tmt-ui-shell-bar', 'tmt-ui-shell-tools']
@@ -181,7 +181,7 @@ test('website rows keep symmetric insets and control size while columns stack at
         return {
           height: node.getBoundingClientRect().height,
           padding: [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft],
-          rule: style.borderTopWidth,
+          rule: style.borderBottomWidth,
           action: [action.width, action.height],
           stacked: meta.top >= title.bottom,
           separateColumn: meta.left >= title.right,
@@ -191,13 +191,13 @@ test('website rows keep symmetric insets and control size while columns stack at
     );
   }
   await writeFile(capturePath('2168-row-geometry.json'), JSON.stringify(measures, null, 2));
-  expect(measures[0].padding).toEqual(['12px', '16px', '12px', '16px']);
-  expect(measures[1].padding).toEqual(['12px', '8px', '12px', '8px']);
+  expect(measures[0].padding).toEqual(['0px', '0px', '0px', '0px']);
+  expect(measures[1].padding).toEqual(['14px', '12px', '14px', '12px']);
   expect(measures[0].rule).toBe('1px');
   expect(measures[1].rule).toBe(measures[0].rule);
   expect(measures[0].action).toEqual(measures[1].action);
   for (const measure of measures) {
-    expect(measure.height).toBeGreaterThanOrEqual(68);
+    expect(measure.height).toBeGreaterThanOrEqual(64);
     expect(measure.contained).toBe(true);
   }
   expect(measures[0].separateColumn).toBe(true);

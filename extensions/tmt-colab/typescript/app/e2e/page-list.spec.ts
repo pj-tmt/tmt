@@ -59,7 +59,9 @@ async function scopeTo(page: Page, name: string) {
  * module menu).
  */
 async function filterProject(page: Page, name: string) {
-  await search(page).click();
+  // Focus the editor directly: its centre can be a token's Remove button.
+  await search(page).focus();
+  await page.keyboard.press('End');
   await page.keyboard.type(`project:${name.split(' ')[0]}`);
   await page.getByRole('option', { name: new RegExp(`^${name} \\(\\d+\\)$`) }).click();
   await page.keyboard.press('Enter');
@@ -250,24 +252,21 @@ for (const width of [1440, 390])
       await page.screenshot({ path: await capturePath(`4356-pin-refused-${width}-${theme}.png`) });
     });
 
-test('a row shows the creator, the comment count and a proposal waiting for you', async ({
+test('a row shows the real creator and waiting count without a repeated comments line', async ({
   page,
 }) => {
   await mount(page);
   const metadata = (title: string) =>
     rows(page).filter({ hasText: title }).locator('.page-metadata');
   await expect(metadata('Alpha plan')).toContainText('Studio agent');
-  await expect(metadata('Alpha plan')).toContainText('3 comments');
-  await expect(metadata('Beta review')).toContainText('1 comment');
-  await expect(metadata('Beta review')).not.toContainText('1 comments');
-  await expect(metadata('Delta ops')).toContainText('0 comments');
+  await expect(rows(page).locator('.page-comments')).toHaveCount(0);
   // Desktop metadata has distinct Updated and Author columns; compact rows keep the same values.
   await expect(metadata('Alpha plan').locator('time')).toHaveAttribute('dateTime', /T/);
   await expect(metadata('Alpha plan').locator('.page-author')).toHaveText('Studio agent');
-  // The mark is the word with the diamond; only the page with a proposal awaiting the owner has it.
+  // The dot accompanies the readable word; only the page with a proposal awaiting the owner has it.
   await expect(app(page).locator('[data-waiting]')).toHaveCount(1);
   await expect(rows(page).filter({ hasText: 'Alpha plan' }).locator('[data-waiting]')).toHaveText(
-    '◆ Needs you · 1',
+    'Needs you · 1',
   );
   // A page the owner has not summarized yet shows what the list already knows, with no placeholder.
   const gamma = metadata('Gamma notes');
@@ -463,12 +462,12 @@ const operations = (page: Page) => page.evaluate(() => window.__pageOperations);
 const confirmDialog = (page: Page, name: string) => page.getByRole('dialog', { name });
 const status = (page: Page) => app(page).locator('.page-list-status');
 
-test('a page waiting on the viewer shows the ◆ in the waiting colour with the word and its count', async ({
+test('a page waiting on the viewer shows a dot in the waiting colour with the word and its count', async ({
   page,
 }) => {
   await mount(page);
   const waiting = rows(page).filter({ hasText: 'Alpha plan' }).locator('[data-waiting]');
-  await expect(waiting).toHaveText('◆ Needs you · 1');
+  await expect(waiting).toHaveText('Needs you · 1');
   const colours = await app(page).evaluate((root) => {
     const colour = (selector: string) => getComputedStyle(root.querySelector(selector)!).color;
     return {

@@ -70,15 +70,15 @@ impl IdleAlertSetting {
             after_ms: setting["afterMs"].as_u64()?,
         })
     }
-    /// `idle alert 30m` while the alert is on, `alert 30m` where the cell is too
-    /// narrow for the full words; an off alert shows nothing.
-    pub fn label(self, width: usize) -> Option<String> {
-        use unicode_width::UnicodeWidthStr;
-        let full = crate::idle_alert::setting_label(self.enabled, self.after_ms)?;
-        Some(if full.width() <= width {
-            full
+    /// Compact, editable squad-cell value; an absent observation stays absent.
+    pub fn label(self, _width: usize) -> Option<String> {
+        Some(if self.enabled {
+            format!(
+                "◷ {}",
+                crate::idle_alert::threshold(std::time::Duration::from_millis(self.after_ms))
+            )
         } else {
-            full.trim_start_matches("idle ").to_owned()
+            "○ off".into()
         })
     }
 }

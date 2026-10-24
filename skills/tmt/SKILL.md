@@ -813,9 +813,18 @@ ones, even when empty. `--show` displays the preset without launching and
 `--forget-launch` clears it while retaining the session. Without an associated preset, resume reports that it uses the registered driver.
 Ordinary resume never starts fresh: when nothing is remembered or the driver cannot resume it,
 it fails and says
-`Start fresh with: tmt run <name>`. Starting fresh is the user's call. A resume
-that fails before the provider confirms the session marks it stale; a stale
-session needs `tmt resume --retry <name>` or `tmt resume --forget <name>`. Never
+`Start fresh with: tmt run <name>`. Starting fresh is the user's call. Before it
+launches, resume checks that a Claude or Codex session still has its transcript.
+A session that is gone or expired, or whose file TMT may not read, is refused
+with `RESUME_UNAVAILABLE` and `error.reason` `session_missing` or
+`session_unreadable`; nothing is marked or forgotten. A resume
+that fails before the provider confirms the session marks it stale
+(`session_stale`); a stale session needs `tmt resume --retry <name>` or
+`tmt resume --forget <name>`. `--retry` also tries a session the check refused,
+and `--move` skips the check, as does a resume that replays a wrapper (a launch
+preset whose executable file name is not the driver's own). A wrapper installed
+under the driver's own name, such as `~/bin/claude` that sets `CLAUDE_CONFIG_DIR`,
+is still checked; use `--retry` for it. Never
 combine `--resume` with an explicit command, and never resend a task after a
 failed resume. Codex's opt-in channel resumes the exact selected thread, never
 a fresh substitute. Claude exact resume also creates a fresh channel enrollment

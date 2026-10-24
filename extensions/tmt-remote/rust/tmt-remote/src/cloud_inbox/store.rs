@@ -10,6 +10,34 @@ use crate::{
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
 
+// Not a UUID: neither a peer nor the enrollment scan can own this checkpoint key.
+const QUERY_CHECKPOINT: &str = "inbox-query";
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Continuation {
+    pub(crate) from_ms: u64,
+    pub(crate) read_ms: u64,
+    pub(crate) cursor: super::document::Cursor,
+}
+impl Continuation {
+    fn validate(&self) -> Result<(), RemoteError> {
+        Checkpoint::new(self.from_ms)?;
+        Checkpoint::new(self.read_ms)?;
+        let indexed = super::document::timestamp(&self.cursor.created_at).map_err(database)?;
+        canonical::uuid(&self.cursor.id).map_err(database)?;
+        // Later pages can see documents newer than the earliest snapshot. Keep
+        // that conservative snapshot for overlap without rejecting those arrivals.
+        if self.from_ms > indexed || self.from_ms > self.read_ms {
+            return Err(database("invalid cloud query continuation"));
+        }
+        Ok(())
+    }
+}
+pub(crate) struct QueryCheckpoint {
+    pub(crate) completed: Checkpoint,
+    pub(crate) continuation: Option<Continuation>,
+}
+
 struct InboxRow {
     digest: Vec<u8>,
     created_ms: i64,
@@ -194,6 +222,42 @@ impl Store {
 }
 
 impl Store {
+    pub(crate) fn cloud_query_checkpoint(&self) -> Result<Option<QueryCheckpoint>, RemoteError> {
+        let row: Option<(i64, Vec<u8>)> = self.connection.query_row(
+            "SELECT created_ms,carrier FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint' AND id=''",
+            [QUERY_CHECKPOINT], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).optional().map_err(database)?;
+        row.map(|(completed, bytes)| {
+            // One fixed-size cursor, never an unbounded provider value or carrier.
+            if bytes.len() > limits::CLOUD_QUERY_CHECKPOINT_BYTES {
+                return Err(database("oversized cloud query continuation"));
+            }
+            let continuation: Option<Continuation> = if bytes.is_empty() {
+                None
+            } else {
+                let value: Continuation = serde_json::from_slice(&bytes).map_err(database)?;
+                value.validate()?;
+                Some(value)
+            };
+            Ok(QueryCheckpoint {
+                completed: Checkpoint::new(completed as u64)?,
+                continuation,
+            })
+        })
+        .transpose()
+    }
+    pub(crate) fn cloud_progress(&mut self, progress: &Continuation) -> Result<(), RemoteError> {
+        progress.validate()?;
+        let bytes = serde_json::to_vec(progress).map_err(database)?;
+        self.connection.execute(
+            "INSERT INTO cloud_transport(peer_id,kind,id,carrier,created_ms) VALUES (?1,'checkpoint','',?2,0) ON CONFLICT(peer_id,kind,id) DO UPDATE SET carrier=excluded.carrier",
+            params![QUERY_CHECKPOINT, bytes],
+        ).map_err(database)?;
+        Ok(())
+    }
+    pub(crate) fn cloud_finish_query(&mut self, read_ms: u64) -> Result<(), RemoteError> {
+        self.cloud_complete(&[QUERY_CHECKPOINT.into()], read_ms)
+    }
     pub(crate) fn cloud_peers(&self) -> Result<Vec<String>, RemoteError> {
         Ok(self
             .grants()?
@@ -202,8 +266,8 @@ impl Store {
             .map(|g| g.client_id)
             .collect())
     }
-    /// A complete machine query covers even quiet peers. Its trusted snapshot time becomes
-    /// their checkpoint; overlap plus journal adoption handles documents seen again.
+    /// Complete only the supplied stream keys. Enrollment uses the machine UUID;
+    /// the inbox query uses its reserved non-UUID key, never a peer's checkpoint.
     pub(crate) fn cloud_complete(
         &mut self,
         peers: &[String],
@@ -215,7 +279,7 @@ impl Store {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database)?;
         for peer in peers {
-            tx.execute("INSERT INTO cloud_transport(peer_id,kind,id,carrier,created_ms) VALUES (?1,'checkpoint','',x'',?2) ON CONFLICT(peer_id,kind,id) DO UPDATE SET created_ms=MAX(created_ms,excluded.created_ms)",params![peer,read_ms as i64]).map_err(database)?;
+            tx.execute("INSERT INTO cloud_transport(peer_id,kind,id,carrier,created_ms) VALUES (?1,'checkpoint','',x'',?2) ON CONFLICT(peer_id,kind,id) DO UPDATE SET carrier=x'',created_ms=MAX(created_ms,excluded.created_ms)",params![peer,read_ms as i64]).map_err(database)?;
         }
         tx.commit().map_err(database)
     }

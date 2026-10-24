@@ -91,7 +91,6 @@ footer {
 .home {
   max-width: 1080px;
   margin: auto;
-  padding: 56px 32px 80px;
 }
 .eyebrow {
   text-transform: uppercase;
@@ -437,10 +436,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   left: 20px;
 }
 @media (max-width: 800px) {
-  .home {
-    padding-left: 20px;
-    padding-right: 20px;
-  }
   footer {
     padding: 16px 20px;
   }

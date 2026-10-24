@@ -883,6 +883,7 @@ fn captures() -> Value {
                 }
             }
         }
+        frames.extend(idle_alert_frames(&mut styles));
         frames.extend(crud_frames(
             crate::board::app::workspace::tests::review_modal::CRUD_SCENES,
             &mut styles,
@@ -1084,4 +1085,40 @@ fn dump_chat_fallback_oracle() {
         serde_json::to_string_pretty(&captured).unwrap() + "\n",
     )
     .unwrap();
+}
+
+fn idle_alert_frames(styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        for scene in crate::board::idle_alert_editor::tests::captures::SCENES {
+            for width in [160, 100, 80, 60] {
+                for height in [36, 8] {
+                    let app = crate::board::idle_alert_editor::tests::captures::case(scene, look);
+                    let mut frame = capture_frame(&app, scene, look_name, width, height, styles);
+                    frame["idleAlertEditor"] =
+                        crate::board::idle_alert_editor::tests::captures::metadata(&app);
+                    frames.push(frame);
+                }
+            }
+        }
+    }
+    frames
+}
+#[test]
+#[ignore = "exports only the revised idle-alert scenes, never records fixtures"]
+fn dump_idle_alert_editor_oracle() {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut styles = Styles::default();
+        let frames = idle_alert_frames(&mut styles);
+        let styles = styles
+            .0
+            .into_iter()
+            .map(|(text, id)| (id, text))
+            .collect::<BTreeMap<_, _>>();
+        fs::write(
+            std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path"),
+            serde_json::to_string_pretty(&json!({"styles":styles,"frames":frames})).unwrap() + "\n",
+        )
+        .unwrap();
+    });
 }

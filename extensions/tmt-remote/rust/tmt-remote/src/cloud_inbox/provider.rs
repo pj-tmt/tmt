@@ -202,7 +202,7 @@ impl Provider {
         &self,
         from_ms: u64,
         limit: usize,
-        after: Option<&Value>,
+        after: Option<&super::document::Cursor>,
         io: &IoBudget<'_>,
     ) -> Result<Page, RemoteError> {
         if limit == 0 || limit > crate::journal::OPERATIONS as usize {
@@ -210,7 +210,10 @@ impl Provider {
         }
         let mut value = json!({"structuredQuery":{"from":[{"collectionId":"inbox","allDescendants":false}],"where":{"fieldFilter":{"field":{"fieldPath":"createdAt"},"op":"GREATER_THAN_OR_EQUAL","value":{"timestampValue":stamp(from_ms)}}},"orderBy":[{"field":{"fieldPath":"createdAt"},"direction":"ASCENDING"},{"field":{"fieldPath":"__name__"},"direction":"ASCENDING"}],"limit":limit}});
         if let Some(after) = after {
-            value["structuredQuery"]["startAt"] = after.clone();
+            value["structuredQuery"]["startAt"] = json!({"values":[
+                {"timestampValue":after.created_at},
+                {"referenceValue":self.name(&self.machine, "inbox", &after.id)?}
+            ],"before":false});
         }
         let response = self
             .call(

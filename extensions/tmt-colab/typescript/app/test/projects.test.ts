@@ -7,6 +7,7 @@ import {
   filterPages,
   authorCounts,
   projectCounts,
+  projectTone,
   projectNameError,
   projectRequests,
   withProject,
@@ -328,4 +329,12 @@ describe('the phone page-header pin item', () => {
     expect(pinMenuItem(state, true, false, false)).toBeUndefined();
     expect(pinMenuItem(state, true, true, true)).toBeUndefined();
   });
+});
+
+it('project tints are stable per exact name and use only the existing four role tints', () => {
+  const names = ['spec', 'blog', 'pm', 'infra', 'Release notes', '🚀', 'a'.repeat(32)];
+  const before = names.map(projectTone);
+  expect([...names].reverse().map(projectTone).reverse()).toEqual(before);
+  for (const tone of before) expect(['blue', 'violet', 'amber', 'green']).toContain(tone);
+  expect(new Set(before).size).toBeGreaterThan(1);
 });
