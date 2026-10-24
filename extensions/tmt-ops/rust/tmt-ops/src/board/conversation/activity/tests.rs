@@ -138,6 +138,13 @@ fn wrapped_activity_is_literal_copyable_and_has_no_source_or_acknowledgment_span
         let inventory = Inventory::default();
         let mapped = markdown::render_conversation_with_members("", width, look, None);
         let rendered = session.merge_pane_output(mapped, width, 0, look, &inventory);
+        if width == 160 {
+            assert_eq!(
+                rendered.mapped.lines.len(),
+                10,
+                "consecutive activity is compact"
+            );
+        }
         assert!(rendered.final_spans.is_empty());
         assert!(rendered.capture_spans.is_empty());
         assert!(

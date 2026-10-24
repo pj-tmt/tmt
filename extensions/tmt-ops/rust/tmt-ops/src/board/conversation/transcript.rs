@@ -650,6 +650,7 @@ impl Session {
         group(&mut run, &mut places);
         let mut first = true;
         let mut previous: Option<&str> = None;
+        let mut previous_activity = false;
         for source in order {
             if matches!(source, Source::Pane(index) if captured_outputs.contains(&index)) {
                 continue;
@@ -676,7 +677,9 @@ impl Session {
             let spaced = stacked
                 && matches!((previous, current),
                     (Some(previous), Some(current)) if super::answer_order::spaced(previous, current));
-            if !first && (!stacked || spaced) {
+            let compact_activity = previous_activity && matches!(source, Source::Checklist(_));
+            previous_activity = matches!(source, Source::Checklist(_));
+            if !first && (!stacked || spaced) && !compact_activity {
                 append(Line::default(), vec![], None);
             }
             previous = current;

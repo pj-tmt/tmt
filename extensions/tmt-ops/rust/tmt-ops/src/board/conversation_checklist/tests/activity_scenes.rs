@@ -105,5 +105,22 @@ pub(in crate::board) fn capture_case(
             later,
         );
     }
+    if matches!(
+        scene,
+        "checklist-activity-legacy" | "checklist-activity-pruned"
+    ) {
+        use ratatui::{Terminal, backend::TestBackend};
+        let mut terminal = Terminal::new(TestBackend::new(100, 36)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        app.scroll_pane(
+            crate::config::Pane::Replies,
+            crate::board::scroll::Step::Top,
+        );
+    }
     app
 }
