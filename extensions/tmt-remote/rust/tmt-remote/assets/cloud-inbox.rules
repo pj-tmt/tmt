@@ -1,6 +1,3 @@
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
     function machineOwner(machine) {
       return request.auth != null &&
         get(/databases/$(database)/documents/m/$(machine)).data.uid == request.auth.uid;
@@ -68,8 +65,3 @@ service cloud.firestore {
       allow get: if machineOwner(machine) || peerRead(machine);
       allow delete: if machineOwner(machine);
     }
-    match /{document=**} {
-      allow read, write: if false;
-    }
-  }
-}

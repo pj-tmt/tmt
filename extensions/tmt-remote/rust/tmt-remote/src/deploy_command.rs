@@ -259,6 +259,14 @@ fn render(
     }) {
         writeln!(human, "Destructive change: {item}").expect("String write");
     }
+    writeln!(
+        human,
+        "Agent talk Rules: /m/{{machine}}; carrier bound {} B; descriptor bound {} B; enrollment bound {} B",
+        crate::limits::CLOUD_CARRIER_BYTES,
+        crate::limits::CLOUD_DESCRIPTOR_BYTES,
+        crate::limits::CLOUD_ENROLLMENT_BYTES
+    )
+    .expect("String write");
     human.push_str("Extensions and resources:\n");
     for extension in &input.extensions.view().extensions {
         writeln!(
