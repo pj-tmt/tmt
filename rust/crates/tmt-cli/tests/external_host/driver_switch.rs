@@ -4,7 +4,7 @@ use super::*;
 use tmt_core::{binding::session::RuntimeState, endpoint::ProcessIncarnation};
 const SESSION: &str = "4f8c2a7e-0d3b-4c61-9a52-7b1e6d0c9f13";
 
-fn switch_provider(fixture: &Fixture, provider: &str, session: &str, source: &str) {
+pub(super) fn switch_provider(fixture: &Fixture, provider: &str, session: &str, source: &str) {
     let executable = fixture.root.join("bin").join(provider);
     fs::create_dir_all(executable.parent().unwrap()).unwrap();
     if executable.exists() {
@@ -36,14 +36,14 @@ fn switch_provider(fixture: &Fixture, provider: &str, session: &str, source: &st
     .unwrap();
 }
 
-struct ExpectedLaunch<'a> {
+pub(super) struct ExpectedLaunch<'a> {
     driver: &'a str,
     session: &'a str,
     provider: ProcessIncarnation,
     owner: ProcessIncarnation,
 }
 
-fn expected_launch<'a>(
+pub(super) fn expected_launch<'a>(
     launched: &Launched,
     provider: &'a str,
     session: &'a str,
@@ -90,7 +90,7 @@ fn assert_switch_admitted(
 
 /// The existing readiness wait and final assertion require the same complete
 /// storage transition, not merely preferences written before launch settlement.
-fn missing_launch_evidence(
+pub(super) fn missing_launch_evidence(
     stored: &tmt_adapters::storage::IdentityContextSnapshot,
     expected: &ExpectedLaunch<'_>,
 ) -> Option<&'static str> {

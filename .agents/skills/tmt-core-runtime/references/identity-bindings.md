@@ -223,7 +223,8 @@ delivery. They install and launch nothing.
   Retirement clears both. A switch archives only an exactly associated launch preset
   under `resume.driver.<harness>`; another driver's settings never apply.
   [Driver switching](../../../../contracts/driver-protocol-v1.md#built-in-driver-switch)
-  owns handoff, stop and caller-pane launch behavior.
+  owns handoff, stop and caller-pane launch behavior, and the fresh start (`resume --new`):
+  its handoff, replayed launch preset, and why a failed start keeps the remembered record.
 - An independent provider hook, attributed by pane ancestry, records only the pane's main
   provider: the nearest provider process above the hook with no built-in provider above it up
   to the verified pane. The pane process itself may be that provider after a shell exec.
@@ -265,7 +266,8 @@ delivery. They install and launch nothing.
   `Unknown`. A wrapper installed under the driver's own name (for example `~/bin/claude`) is
   still probed, so it needs `--retry` when its sessions live elsewhere. The preset's
   environment keys cannot change the config root. The probe marks, forgets and launches nothing; `--retry`
-  skips it. A stale refusal carries `error.reason: session_stale`. Read `error.reason` with
+  skips it. The missing, unreadable and stale refusals name `tmt resume --new -- <name>`; `--new`
+  skips the probe and the stale check. A stale refusal carries `error.reason: session_stale`. Read `error.reason` with
   `error.code`: a runtime refusal keeps its own reason vocabulary.
 - Explicit `resume <name> --move` preflights the exact session and caller destination before
   stopping anything. The lifecycle driver proves the captured process is its private main
