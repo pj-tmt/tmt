@@ -247,6 +247,14 @@ fn permission_metadata_covers_non_flag_effects_without_hosting_requirements_when
         ))
     );
     let hosted = permission_requirements(&plan, true);
+    for permission in ["datastore.entities.update", "datastore.entities.delete"] {
+        assert!(
+            hosted
+                .iter()
+                .any(|requirement| requirement.step == "owner:register"
+                    && requirement.permission == permission)
+        );
+    }
     assert!(
         hosted
             .iter()

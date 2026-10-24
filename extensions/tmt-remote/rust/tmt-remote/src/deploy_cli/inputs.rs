@@ -37,7 +37,12 @@ const INDEXES: &[&str] = &[
     "datastore.indexes.create",
     "datastore.indexes.update",
 ];
-const OWNER: &[&str] = &["datastore.entities.get", "datastore.entities.create"];
+const OWNER: &[&str] = &[
+    "datastore.entities.get",
+    "datastore.entities.create",
+    "datastore.entities.update",
+    "datastore.entities.delete",
+];
 
 const MANIFEST: &[InputSpec] = &[
     InputSpec {
