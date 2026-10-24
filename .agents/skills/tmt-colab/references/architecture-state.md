@@ -735,15 +735,13 @@ The list follows the concept website’s `/#/colab/pages` composition: a hero wi
 then view tabs, project-scope pills, search and Sort, then the list. `page-list-items.tsx`
 owns display-only pinned cards and rows; Home retains filtering, selection and all write lifetimes.
 Pins wrap after three on a wide screen and stack on compact screens; no pins means no card block.
-Project membership remains plural and neutral; missing summaries never become a fabricated stage.
-Wide rows have Title, Project, Stage, Updated, Author and Access columns, with comment counts
-under the title; compact rows stack the same metadata without sideways overflow. The shared
+Project membership remains plural; `projectTone` maps exact names deterministically to existing role tints for header, pin and row tags; missing summaries never become a fabricated stage.
+Wide rows have Title, Project, Stage, Updated, Author and Access columns, with compact task-count words under the title; compact rows stack metadata without sideways overflow. Unknown authors stay absent. The shared
 flat tabs show separate numeric counts and wrap on compact screens, without a horizontal scroller. The `New page` action (`new-page-dialog.tsx`) still gives the
 `tmt colab page create` command with `CopyCommand`; the browser creates no page.
-The list fills the shell content pane. Rows scroll in `.page-list-scroll`; tall wrapped pin groups
-or compact controls may also scroll the containing home vertically so every control stays reachable.
+The list fills the shell content pane using the shared `tmt-ui-page` insets. Home is its one vertical viewport: hero, pins, controls, rows and footer scroll together; `.page-list-scroll` adds no nested scroller. Successful action feedback stays in a visually hidden live region; refusals remain visible.
 `useShownRows` (`page-list-rows.ts`) draws 50 rows and 50 more each time the count line
-(`Showing N of M`) comes within a screen of the list's end. Selection and its header checkbox
+(`Showing N of M`) comes within a screen of Home's end. Home passes the count line explicitly as the observer sentinel; changing a filter/view/sort resets drawing and Home scroll to the top. Selection and its header checkbox
 operate on the current matching pages, including rows not yet drawn.
 
 `NewPageDialog` adds Close through the shared dialog footer; it offers the literal machine command,
@@ -755,7 +753,7 @@ names the first five titles for bulk actions; Home retains statement submission,
 and verified, awaiting or refused outcomes. The shared dialog owns the divider and action layout.
 
 The views are the tabs All, Needs you, Discussion, In progress, Done and Archived, in that order
-(`BrowserTabs variant="flush"`); `list-stage.ts` owns the stage vocabulary (`HOME_STAGES`,
+(`BrowserTabs variant="flat"` with wrapping); `list-stage.ts` owns the stage vocabulary (`HOME_STAGES`,
 `DEFAULT_VIEW`, `HomeView`, `pageStage`, `stageCounts`, `takeStage`). `stage` in the route search selects a stage or `all`, `archived`
 selects Archived and wins over `needs`, which selects Needs you, and the absent key is `DEFAULT_VIEW`, All (a list without the
 management port has no tabs and is every active page). A mounted address names the list as `/colab/` and carries none of this search, so `keepListSearch` (`list-history.ts`) stores it in the history entry's state and `parseLocation` reads it back: a reload, Back and Forward return to the list as it was left, and a fresh visit opens `DEFAULT_VIEW`. Each label counts what the scope holds: an archived page
@@ -763,12 +761,12 @@ counts only under Archived, and a page whose summary has not arrived (`pageStage
 fresh summary without `work` is in discussion) under no stage, so it is in All only. A stage is one
 state with the search: a typed `stage:<name>` (`takeStage`, applied with Enter) or a suggestion pick
 selects the tab and leaves the search text, and a tab click removes one still typed. A row shows its
-progress and who works (`page-work.tsx`: a `<progress>`, the count in digits and at most three
+progress and who works (`page-work.tsx`: the count as `done of total tasks done` and at most three
 assignees from `summary.work`, the rest counted); an empty stage tab names its stage, an empty
 In progress offers Discussion and All and never opens another tab by itself, and a stage tab says
 `Reading page details…` while `useSummaryFill` is still reading (at most 15 re-reads) and a page in
 the scope has not reported, so a cold start never claims a tab is empty. A page waiting on the viewer
-shows `◆ Needs you · N`: the badge uses the waiting colour for both the ◆ and its readable word/count, so
+shows a waiting-colour dot with `Needs you · N`: the badge retains its readable word/count, so
 the state remains explicit without colour. The row's actions (open in a new tab, projects, archive, the ⋯
 menu with `Manage page`, `Archive…` (or `Restore…` when archived) and `Delete…`) show on hover or focus where there is a pointer
 and stay on touch; under 480px the new-tab and archive icons give way to the ⋯ menu. `Home` owns the open `ManagePage` dialog and its captured page ID/title above the rows: a list refresh that removes a row, including the last page after deletion, does not discard its pending request. Explicit Close or leaving the list ends that dialog. Archive and

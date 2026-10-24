@@ -202,18 +202,36 @@ impl Http for Wire {
                     input["structuredQuery"]["from"],
                     json!([{"collectionId":"inbox","allDescendants":false}])
                 );
-                let after =
-                    input["structuredQuery"]["startAt"]["values"][1]["referenceValue"].as_str();
-                let rows: Vec<_> = self
-                    .documents
-                    .lock()
-                    .unwrap()
+                let query = &input["structuredQuery"];
+                let from = query["where"]["fieldFilter"]["value"]["timestampValue"]
+                    .as_str()
+                    .unwrap();
+                let after = query["startAt"]["values"][0]["timestampValue"]
+                    .as_str()
+                    .zip(query["startAt"]["values"][1]["referenceValue"].as_str());
+                let documents = self.documents.lock().unwrap();
+                let mut ordered: Vec<_> = documents
                     .iter()
-                    .filter(|(name, _)| {
+                    .filter(|(name, doc)| {
+                        let timestamp = doc["fields"]["createdAt"]["timestampValue"]
+                            .as_str()
+                            .unwrap();
                         name.starts_with(&format!("{ROOT}/m/{MACHINE}/"))
                             && name.contains("/inbox/")
-                            && after.is_none_or(|after| name.as_str() > after)
+                            && timestamp >= from
+                            && after.is_none_or(|after| (timestamp, name.as_str()) > after)
                     })
+                    .collect();
+                ordered.sort_by_key(|(name, doc)| {
+                    (
+                        doc["fields"]["createdAt"]["timestampValue"]
+                            .as_str()
+                            .unwrap(),
+                        name.as_str(),
+                    )
+                });
+                let rows: Vec<_> = ordered
+                    .into_iter()
                     .take(1)
                     .map(|(_, doc)| json!({"document":doc,"readTime":STAMP}))
                     .collect();
@@ -247,7 +265,7 @@ fn provider(wire: Arc<Wire>, uid: &'static str) -> Provider {
     provider_clock(wire, uid, Arc::new(ClockPort))
 }
 fn provider_clock(
-    wire: Arc<Wire>,
+    wire: Arc<dyn Http + Send + Sync>,
     uid: &'static str,
     clock: Arc<dyn Clock + Send + Sync>,
 ) -> Provider {
@@ -271,6 +289,15 @@ fn request(key: &MachineKey, id: &str) -> Vec<u8> {
     signed_request(key, id, "dispatch.create", &payload)
 }
 fn signed_request(key: &MachineKey, id: &str, operation: &str, payload: &str) -> Vec<u8> {
+    signed_request_as(PEER, id, operation, payload, |bytes| key.sign(bytes))
+}
+fn signed_request_as(
+    peer: &str,
+    id: &str,
+    operation: &str,
+    payload: &str,
+    sign: impl FnOnce(&[u8]) -> [u8; 64],
+) -> Vec<u8> {
     let window = "22222222-2222-4222-8222-222222222222";
     let session = "55555555-5555-4555-8555-555555555555";
     let envelope = Envelope {
@@ -279,7 +306,7 @@ fn signed_request(key: &MachineKey, id: &str, operation: &str, payload: &str) ->
         correlation_id: None,
         machine_id: MACHINE,
         window_id: window,
-        client_id: PEER,
+        client_id: peer,
         session_id: session,
         sequence: "1",
         timestamp_ms: NOW,
@@ -287,7 +314,7 @@ fn signed_request(key: &MachineKey, id: &str, operation: &str, payload: &str) ->
         operation,
         payload: payload.as_bytes(),
     };
-    json!({"version":1,"profile":"local-v1","kind":"request","id":id,"correlationId":null,"machineId":MACHINE,"windowId":window,"clientId":PEER,"sessionId":session,"sequence":"1","timestampMs":NOW,"origin":"cli","operation":operation,"payload":canonical::base64url(payload.as_bytes()),"signature":canonical::base64url(&key.sign(&canonical::envelope(&envelope).unwrap()))}).to_string().into_bytes()
+    json!({"version":1,"profile":"local-v1","kind":"request","id":id,"correlationId":null,"machineId":MACHINE,"windowId":window,"clientId":peer,"sessionId":session,"sequence":"1","timestampMs":NOW,"origin":"cli","operation":operation,"payload":canonical::base64url(payload.as_bytes()),"signature":canonical::base64url(&sign(&canonical::envelope(&envelope).unwrap()))}).to_string().into_bytes()
 }
 #[test]
 fn sender_restart_recovers_frozen_outcomes_after_lost_create_answer_or_response_post() {
@@ -580,6 +607,244 @@ fn unreadable_response_after_a_confirmed_request_is_unconfirmed_not_refused() {
 }
 
 #[test]
+fn dense_backlog_over_the_round_cap_drains_after_restart_without_repeating_effects() {
+    use ed25519_dalek::Signer;
+    let mut world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+    std::fs::write(world.core.root.join("multi"), b"per-operation receipts").unwrap();
+    let wire = Arc::new(Wire {
+        documents: Mutex::new(BTreeMap::new()),
+        owner: Mutex::new(Weak::new()),
+        cancel_after_create: Mutex::new(None),
+        requests: Mutex::new(vec![]),
+        deny_responses: AtomicBool::new(false),
+        fail_queries: AtomicBool::new(false),
+        lose_response_for: Mutex::new(None),
+    });
+    let bound = tmt_remote::journal::OPERATIONS as usize;
+    let total = bound + 3;
+    // Keep the real per-peer sending budget and transport-storage cap intact. The
+    // original peer stays quiet, so its checkpoint cannot pin machine progress.
+    for first in (0..total).step_by(tmt_remote::budgets::SENDS as usize) {
+        let group = first / tmt_remote::budgets::SENDS as usize;
+        let peer = format!("00000000-0000-4000-8000-{:012x}", group + 1);
+        let key = ed25519_dalek::SigningKey::from_bytes(&[(group + 100) as u8; 32]);
+        let public = key.verifying_key().to_bytes();
+        world
+            .owner_store
+            .lock()
+            .unwrap()
+            .insert_grant(&tmt_remote::store::Grant {
+                client_id: peer.clone(),
+                public_key: public,
+                kind: "cli".into(),
+                origin: "cli".into(),
+                name: format!("Backlog peer {group}"),
+                agents: "all".into(),
+                scopes: vec!["talk".into()],
+                mode: "direct".into(),
+                issued_at_ms: 1,
+                expires_at_ms: None,
+                revision: 1,
+                disabled: false,
+            })
+            .unwrap();
+        for ordinal in first..(first + tmt_remote::budgets::SENDS as usize).min(total) {
+            let id = format!("99999999-9999-4999-8999-{:012x}", ordinal + 1);
+            let payload = json!({"version":1,"operation":"dispatch.create","originator":"anonymous","createdAtMs":NOW,"input":{"operationId":id,"recipientIds":[TARGET],"expectedName":"target","message":"one backlog effect","kind":"request"}}).to_string();
+            let exact = signed_request_as(&peer, &id, "dispatch.create", &payload, |bytes| {
+                key.sign(bytes).to_bytes()
+            });
+            let (carrier, _) = tmt_remote::cloud_inbox::seal_native(
+                &exact,
+                &world.descriptor,
+                NOW,
+                tmt_remote::cloud_hpke::Sender {
+                    client_id: &peer,
+                    authentication_key: &public,
+                },
+                |bytes| key.sign(bytes).to_bytes(),
+            )
+            .unwrap();
+            wire.seed_inbox(&id, &carrier);
+            // Every document has the exact same indexed/create time. Timestamp-only
+            // progress cannot distinguish the prefix from its unprocessed suffix.
+            wire.documents
+                .lock()
+                .unwrap()
+                .get_mut(&format!("{ROOT}/m/{MACHINE}/inbox/{id}"))
+                .unwrap()["fields"]["peer"] = json!({"stringValue":peer});
+        }
+    }
+    let stopped = AtomicBool::new(false);
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(300),
+        cancelled: &stopped,
+    };
+    let driver = world.driver(provider(wire.clone(), "owner"));
+    assert_eq!(
+        ready(driver.reconcile(NOW, &io)).unwrap_err().code,
+        "REMOTE_CLOUD_CAPACITY"
+    );
+    assert_eq!(
+        world.core.sends(),
+        bound,
+        "the first round performs only its bounded prefix"
+    );
+    drop(driver);
+    world = world.reopen(NOW, Arc::new(CurrentIdentity));
+    let driver = world.driver(provider(wire.clone(), "owner"));
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(30),
+        cancelled: &stopped,
+    };
+    assert_eq!(
+        ready(driver.reconcile(NOW, &io)).unwrap(),
+        total - bound,
+        "restart must continue after the durable prefix, including tied timestamps"
+    );
+    assert_eq!(world.core.sends(), total);
+    let mut effects = BTreeMap::new();
+    for call in world
+        .core
+        .calls()
+        .into_iter()
+        .filter(|call| call["operation"] == "dispatch.create")
+    {
+        *effects
+            .entry(call["input"]["operationId"].as_str().unwrap().to_owned())
+            .or_insert(0) += 1;
+    }
+    assert_eq!(effects.len(), total);
+    assert!(
+        effects.values().all(|count| *count == 1),
+        "every operation has exactly one effect"
+    );
+}
+
+#[test]
+fn transient_stop_resumes_after_unconfirmed_prefix_then_durable_poison() {
+    struct FailSecondQuery {
+        wire: Arc<Wire>,
+        queries: std::sync::atomic::AtomicUsize,
+    }
+    impl Http for FailSecondQuery {
+        fn send(
+            &self,
+            request: &Request,
+            deadline: u64,
+            cancelled: &dyn Cancellation,
+        ) -> Result<Response, AuthError> {
+            if request.operation() == Operation::Query
+                && self.queries.fetch_add(1, Ordering::SeqCst) == 1
+            {
+                return Err(AuthError::unavailable());
+            }
+            self.wire.send(request, deadline, cancelled)
+        }
+    }
+    let mut world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
+    std::fs::write(world.core.root.join("multi"), b"per-operation receipts").unwrap();
+    let wire = Arc::new(Wire {
+        documents: Mutex::new(BTreeMap::new()),
+        owner: Mutex::new(Weak::new()),
+        cancel_after_create: Mutex::new(None),
+        requests: Mutex::new(vec![]),
+        deny_responses: AtomicBool::new(false),
+        fail_queries: AtomicBool::new(false),
+        lose_response_for: Mutex::new(Some(format!("{ROOT}/m/{MACHINE}/responses/{ID}"))),
+    });
+    let bad = "55555555-5555-4555-8555-555555555555";
+    let good2 = "77777777-7777-4777-8777-777777777777";
+    for id in [ID, bad, good2] {
+        let carrier = if id == bad {
+            b"{}".to_vec()
+        } else {
+            tmt_remote::cloud_inbox::seal_native(
+                &request(&world.key, id),
+                &world.descriptor,
+                NOW,
+                tmt_remote::cloud_hpke::Sender {
+                    client_id: PEER,
+                    authentication_key: &world.key.public(),
+                },
+                |bytes| world.key.sign(bytes),
+            )
+            .unwrap()
+            .0
+        };
+        wire.seed_inbox(id, &carrier);
+    }
+    let fault = Arc::new(FailSecondQuery {
+        wire: wire.clone(),
+        queries: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let stopped = AtomicBool::new(false);
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(10),
+        cancelled: &stopped,
+    };
+    let driver = world.driver(provider_clock(fault.clone(), "owner", Arc::new(ClockPort)));
+    assert_eq!(
+        ready(driver.reconcile(NOW, &io)).unwrap_err().code,
+        "REMOTE_STATE_UNAVAILABLE"
+    );
+    assert_eq!(fault.queries.load(Ordering::SeqCst), 2);
+    assert_eq!(world.core.sends(), 1);
+    drop(driver);
+    world = world.reopen(NOW, Arc::new(CurrentIdentity));
+    let driver = world.driver(provider_clock(fault, "owner", Arc::new(ClockPort)));
+    assert_eq!(
+        ready(driver.reconcile(NOW, &io)).unwrap(),
+        2,
+        "the resumed query skips its durable unconfirmed prefix"
+    );
+    assert_eq!(world.core.sends(), 2);
+    let database = rusqlite::Connection::open_with_flags(
+        world.owner_layout.directory.join("remote.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )
+    .unwrap();
+    assert_eq!(
+        database
+            .query_row(
+                "SELECT refusal FROM cloud_transport WHERE peer_id=?1 AND id=?2",
+                [PEER, bad],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+        "REMOTE_CLOUD_CARRIER_INVALID"
+    );
+    assert!(
+        database
+            .query_row(
+                "SELECT attempted FROM cloud_transport WHERE peer_id=?1 AND id=?2",
+                [PEER, ID],
+                |r| r.get::<_, bool>(0)
+            )
+            .unwrap()
+    );
+    assert!(
+        !wire
+            .documents
+            .lock()
+            .unwrap()
+            .contains_key(&format!("{ROOT}/m/{MACHINE}/responses/{ID}")),
+        "advancing never retries an unconfirmed response mutation"
+    );
+    let continuation: Vec<u8> = database
+        .query_row(
+            "SELECT carrier FROM cloud_transport WHERE kind='checkpoint' AND peer_id='inbox-query' AND id=''",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(
+        continuation.is_empty(),
+        "only a fully drained query clears the continuation"
+    );
+}
+
+#[test]
 fn poison_between_good_carriers_is_durable_per_document_and_transient_reads_do_not_advance() {
     use rusqlite::OptionalExtension;
     let mut world = cloud_fixture::World::new(NOW, Arc::new(CurrentIdentity));
@@ -625,7 +890,7 @@ fn poison_between_good_carriers_is_durable_per_document_and_transient_reads_do_n
         inspect()
             .query_row(
                 "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint'",
-                [PEER],
+                ["inbox-query"],
                 |r| r.get::<_, i64>(0),
             )
             .optional()
@@ -846,7 +1111,7 @@ fn lost_response_post_does_not_block_later_carriers_or_repeat_after_restart() {
         inspect()
             .query_row(
                 "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint'",
-                [PEER],
+                ["inbox-query"],
                 |row| row.get::<_, i64>(0)
             )
             .unwrap(),
@@ -1009,7 +1274,7 @@ fn response_budget_refusal_before_claim_holds_the_checkpoint_and_retries_without
         inspect()
             .query_row(
                 "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint'",
-                [PEER],
+                ["inbox-query"],
                 |row| row.get::<_, i64>(0)
             )
             .unwrap(),
@@ -1115,7 +1380,7 @@ fn unknown_owned_lookup_is_permanent_but_real_store_failure_holds_the_checkpoint
     assert_eq!(
         db.query_row(
             "SELECT created_ms FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint'",
-            [PEER],
+            ["inbox-query"],
             |row| row.get::<_, i64>(0)
         )
         .unwrap(),

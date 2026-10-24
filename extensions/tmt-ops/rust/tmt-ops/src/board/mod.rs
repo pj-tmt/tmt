@@ -41,6 +41,7 @@ mod member_session;
 mod new_member;
 pub(crate) use limits::history::document as limits_history;
 mod conversation_notes;
+mod idle_alert_editor;
 mod markdown;
 mod member_links;
 mod mentions;
@@ -145,6 +146,7 @@ pub(in crate::board) enum BoardEvent {
     Discovery(discovery::load::Completed),
     MemberSession(member_session::Completed),
     NewMember(new_member::Completed),
+    IdleAlert(idle_alert_editor::Completed),
     Input(Event),
     InputClosed,
     Snapshot {
@@ -753,6 +755,11 @@ fn session(
                 dirty = true;
                 app.finished_recovery(completed)
             }
+            Ok(BoardEvent::IdleAlert(completed)) => {
+                app.in_flight = app.in_flight.saturating_sub(1);
+                dirty = true;
+                app.finished_idle_alert(completed)
+            }
             Ok(BoardEvent::NewMember(completed)) => {
                 app.in_flight = app.in_flight.saturating_sub(1);
                 dirty = true;
@@ -1172,6 +1179,10 @@ fn session(
             }
             Effect::Checklist(task) => checklist(task),
             Effect::Recovery(task) => submit(app, lane::Job::Recovery(task)),
+            Effect::IdleAlert(task) => {
+                app.in_flight += 1;
+                io(lane::Job::IdleAlert(task));
+            }
             Effect::NewMember(task) => {
                 app.in_flight += 1;
                 io(lane::Job::NewMember(task));

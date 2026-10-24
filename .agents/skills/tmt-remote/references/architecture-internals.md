@@ -277,8 +277,15 @@ maintenance callback renews without adding a worker and a failure never stops lo
 HTTP and recovers a lost context with a fresh signed ID lookup. `store` uses the authoritative Store
 connection/lease and existing journal effect owner, never a second replay ledger. Permanent carrier
 refusals share that row and the existing audit transaction. Attempted response uncertainty cannot
-block later recovery; pre-claim transient polls back off without advancing. The journal owns typed
+block later recovery; pre-claim transient failures keep the affected carrier pending. The journal owns typed
 owned-read provenance; the message layer preserves it internally without changing signed wire bytes.
+The existing checkpoint owner also saves one machine-wide query continuation in `cloud_transport`
+(`kind=checkpoint`, reserved non-UUID `peer_id=inbox-query`, empty `id`). Its bounded private bytes retain the query lower
+bound, earliest provider snapshot time, exact indexed timestamp and document-ID tie-breaker after
+each durable outcome. A capacity stop, transient failure or restart resumes that prefix without
+changing operation authority or replaying an effect. A fully drained query clears the continuation
+and advances the machine timestamp; the next query uses the normal overlap. Legacy peer-only
+checkpoints seed the first query except the machine UUID, which belongs to enrollment. Inbox completion never updates those peer keys; a quiet peer cannot hold subsequent machine progress back.
 `cloud_command`
 owns the provisional public JSON schema and unchanged target echo. A target may carry only a name;
 `Operations` resolves it with Core's public `identity show --json -- <name>` before adoption, freezes

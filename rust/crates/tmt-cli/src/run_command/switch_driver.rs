@@ -337,7 +337,7 @@ mod tests {
         };
         let mut registry = tmt_adapters::runtime::RuntimeRegistry::first_party();
         let error =
-            crate::run_command::resume::select_command(&mut registry, request, &preferences)
+            crate::run_command::resume::select_command(&mut registry, request, &preferences, None)
                 .err()
                 .expect("stale record must refuse before launch");
         let error = crate::run_command::launch_failure(error, request, LaunchEffect::NotLaunched);

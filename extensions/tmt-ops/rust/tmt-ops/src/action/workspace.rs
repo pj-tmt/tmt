@@ -40,6 +40,7 @@ pub enum OpsUiAction {
     Manage,
     CreateSquad,
     NewMember,
+    IdleAlert,
     RemoveMembership,
     MoveMembership,
     RenameMember,
@@ -71,6 +72,13 @@ macro_rules! spec {
     };
 }
 const SPECS: &[OpsUiSpec] = &[
+    spec!(
+        IdleAlert,
+        "idle-alert",
+        "idle alert",
+        "edit the selected squad idle alert",
+        7
+    ),
     spec!(
         NewMember,
         "new-member",

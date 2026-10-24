@@ -97,7 +97,7 @@ test('a page that loses its summary later gets a fresh set of tries', async ({ p
 
 // The router scrolls the window to the top when a load renders; a re-read must not move a reader
 // who is part-way down the list (#4226), nor take back the rows the list has drawn so far. The rows
-// scroll inside the list (one screen), so the list's own offset is the reader's place.
+// scroll with Home's hero and controls, so Home's own offset is the reader's place.
 for (const width of [1440, 390, 320])
   test(`a re-read keeps the reader where they scrolled: ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 700 });
@@ -109,7 +109,7 @@ for (const width of [1440, 390, 320])
     });
     const list = page.locator('#list-fixture');
     const rows = list.locator('.pages > li');
-    const scroller = list.locator('.page-list-scroll');
+    const scroller = list.locator('[data-page-list]');
     await expect(rows.first()).toBeVisible();
     await scroller.evaluate((node) => (node.scrollTop = node.scrollHeight));
     await expect(rows).toHaveCount(100);

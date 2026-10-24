@@ -17,7 +17,7 @@
   padding: 0 6px;
   overflow: hidden;
   border: 1px solid var(--tmt-ui-color-edge);
-  border-radius: 0;
+  border-radius: var(--tmt-ui-radius-s);
   background: var(--tmt-ui-surface-sheet);
   color: var(--tmt-ui-color-text);
   font: inherit;
@@ -93,4 +93,24 @@
 }
 .page-pin-notice-content > span {
   flex: 1;
+}
+
+/* Stable project-name role mapping is shared by header, pin and list tags. */
+[data-project-tone='blue'] {
+  --project-ink: var(--tmt-ui-color-link);
+}
+[data-project-tone='violet'] {
+  --project-ink: var(--tmt-ui-color-review);
+}
+[data-project-tone='amber'] {
+  --project-ink: var(--tmt-ui-color-waiting);
+}
+[data-project-tone='green'] {
+  --project-ink: var(--tmt-ui-color-working);
+}
+
+.page-header-project-chip[data-project-tone] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--project-ink) 13%, transparent);
+  color: var(--project-ink);
 }
