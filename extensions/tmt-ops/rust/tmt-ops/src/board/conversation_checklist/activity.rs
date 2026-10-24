@@ -7,7 +7,10 @@ use crate::{
     },
     core::Core,
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 const PAGE_SIZE: u64 = 500;
 const PAGES_PER_READ: usize = 2;
@@ -129,6 +132,25 @@ impl Held {
         if !self.observed {
             return;
         }
+        // The preview may be much larger than the retained activity. Copy labels only for
+        // IDs in that activity, so unrelated list/roster edits do not invalidate its cache.
+        let items: BTreeSet<_> = self
+            .events
+            .iter()
+            .filter_map(|event| event.item_id.as_deref())
+            .collect();
+        // Events can confirm deletion while a failed preview still holds the old item.
+        let deleted: BTreeSet<_> = self
+            .events
+            .iter()
+            .filter(|event| event.action == "delete")
+            .filter_map(|event| event.item_id.as_deref())
+            .collect();
+        let actors: BTreeSet<_> = self
+            .events
+            .iter()
+            .map(|event| event.actor_id.as_str())
+            .collect();
         let snapshot = Snapshot {
             events: self.events.clone(),
             user: self.user.clone(),
@@ -138,6 +160,10 @@ impl Held {
             titles: preview
                 .into_iter()
                 .flat_map(|preview| &preview.current.items)
+                .filter(|view| {
+                    items.contains(view.item.id.as_str())
+                        && !deleted.contains(view.item.id.as_str())
+                })
                 .map(|view| {
                     (
                         view.item.id.as_str().into(),
@@ -148,6 +174,7 @@ impl Held {
             names: preview
                 .into_iter()
                 .flat_map(|preview| &preview.members)
+                .filter(|(id, _)| actors.contains(id.as_str()))
                 .map(|(id, name)| (id.as_str().into(), name.clone()))
                 .collect(),
         };

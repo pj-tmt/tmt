@@ -38,7 +38,12 @@ pub(in crate::board) fn admit_empty(app: &mut crate::board::app::App) {
     app.notes = state;
 }
 
-fn view(n: u8, reference: Option<&str>, completion: Completion, archived: bool) -> ItemView {
+pub(super) fn view(
+    n: u8,
+    reference: Option<&str>,
+    completion: Completion,
+    archived: bool,
+) -> ItemView {
     ItemView {
         item: Item {
             id: Id::parse(&format!("33333333-3333-4333-8333-3333333333{n:02}")).unwrap(),

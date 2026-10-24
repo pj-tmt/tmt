@@ -319,12 +319,14 @@ projects its typed results/errors. The board consumes the same typed service dir
   on a conflict.
 - The selected conversation's same checklist read also calls public `Service::events` after
   its held cursor (at most two 500-event pages per turn). `conversation_checklist::activity`
-  retains at most 1000 ID-ordered facts per room/member; failures and stale write epochs
-  never advance the cursor or erase held events. Preview and event failures are independent.
+  retains at most 1000 ID-ordered facts per room/member and copies only labels referenced by
+  those events. Failed reads and stale write epochs never advance the cursor or erase held
+  events. Preview and event failures are independent.
   Core's user UUID, acquired separately from the caller, suppresses the user's events;
   an unresolved user suppresses attribution. The transcript's `conversation::activity` projects
   current sanitized item titles (even after a later revision), with `an item` for missing content
-  and roster/global names or `an agent` for actors. Legacy/pruned gaps, further pages and
+  and roster/global names or `an agent` for actors. A deletion event suppresses a stale
+  preview title. Legacy/pruned gaps, further pages and
   failed reads stay explicit. Literal event times merge stream heads while event IDs preserve
   order through clock rollback. Room/member/event anchors and acquired-fact/label generations
   invalidate the existing transcript cache. These muted, inert rows grant no request, source,

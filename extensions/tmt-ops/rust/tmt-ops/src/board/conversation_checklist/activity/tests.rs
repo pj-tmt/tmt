@@ -337,3 +337,118 @@ fn successful_and_unknown_local_writes_do_not_invent_activity() {
         assert_eq!(state.lists[&key].activity.cursor(), 1);
     }
 }
+
+#[test]
+fn labels_are_limited_to_event_references_and_unused_edits_keep_the_snapshot() {
+    use super::super::tests::view;
+    use crate::checklist::model::Completion;
+    let mut preview = preview(vec![
+        view(1, None, Completion::Open, false),
+        view(2, None, Completion::Open, false),
+    ]);
+    let mut held = Held::default();
+    held.adopt(read(Ok(vec![page(&[], false)])));
+    held.present(Some(&preview));
+    let empty = held.snapshot.as_ref().unwrap();
+    assert!(
+        empty.titles.is_empty() && empty.names.is_empty(),
+        "no events need no copied titles or roster labels"
+    );
+
+    let mut event = event(1, 1000);
+    event.item_id = Some(preview.current.items[0].item.id.as_str().into());
+    event.actor_id = preview.members[0].0.as_str().into();
+    held.adopt(read(Ok(vec![Page {
+        events: vec![event],
+        next_cursor: 1,
+        more: false,
+        gap: None,
+    }])));
+    held.present(Some(&preview));
+    let used = held.snapshot.clone().unwrap();
+    assert_eq!(used.titles.len(), 1);
+    assert_eq!(used.names.len(), 1);
+    preview.current.items[1].item.content.title = "An unrelated edit".into();
+    preview.members[1].1 = "An unrelated rename".into();
+    held.present(Some(&preview));
+    assert!(
+        Arc::ptr_eq(&used, held.snapshot.as_ref().unwrap()),
+        "unused labels do not invalidate the transcript"
+    );
+    preview.current.items[0].item.content.title = "Current used title".into();
+    held.present(Some(&preview));
+    let changed = held.snapshot.as_ref().unwrap();
+    assert!(!Arc::ptr_eq(&used, changed));
+    assert_eq!(
+        changed.titles.values().next().unwrap(),
+        "Current used title"
+    );
+    assert_eq!(changed.events.len(), 1);
+    assert_eq!(held.cursor(), 1);
+}
+
+#[test]
+fn deletion_discards_a_title_even_when_a_failed_preview_keeps_the_old_item() {
+    use super::super::tests::view;
+    use super::super::{Completed, FRESH, Outcome, State};
+    use crate::checklist::model::Completion;
+    use std::time::Instant;
+    let now = Instant::now();
+    let key = key();
+    let preview = preview(vec![view(1, None, Completion::Open, false)]);
+    let item = preview.current.items[0].item.id.as_str().to_owned();
+    let mut added = event(1, 1000);
+    added.item_id = Some(item.clone());
+    let mut state = State::reading();
+    let task = state.offer(Some(&key), now).unwrap();
+    state.finished(
+        Completed {
+            key: key.clone(),
+            epoch: task.epoch,
+            outcome: Outcome::Read {
+                preview: Ok(preview),
+                activity: read(Ok(vec![Page {
+                    events: vec![added],
+                    next_cursor: 1,
+                    more: false,
+                    gap: None,
+                }])),
+            },
+        },
+        now,
+    );
+    assert!(state.activity(&key).unwrap().titles.contains_key(&item));
+    let later = now + FRESH;
+    let task = state.offer(Some(&key), later).unwrap();
+    let mut deleted = event(2, 2000);
+    deleted.item_id = Some(item.clone());
+    deleted.action = "delete".into();
+    state.finished(
+        Completed {
+            key: key.clone(),
+            epoch: task.epoch,
+            outcome: Outcome::Read {
+                preview: Err("preview unavailable".into()),
+                activity: read(Ok(vec![Page {
+                    events: vec![deleted],
+                    next_cursor: 2,
+                    more: false,
+                    gap: None,
+                }])),
+            },
+        },
+        later,
+    );
+    assert_eq!(
+        state.preview(&key).unwrap().current.items.len(),
+        1,
+        "the independent preview remains held"
+    );
+    let facts = state.activity(&key).unwrap();
+    assert_eq!(facts.events.len(), 2);
+    assert_eq!(state.lists[&key].activity.cursor(), 2);
+    assert!(
+        !facts.titles.contains_key(&item),
+        "deleted items never borrow a stale held title"
+    );
+}
