@@ -271,6 +271,10 @@ impl Service {
         let descriptor = self.keys.advertised(now)?;
         self.register(&provider, descriptor.bytes(), &self.io())?;
         self.store()?.remember_cloud_owner(project, &config)?;
+        // An explicit owner action may collect a gate left by its first interrupted invite.
+        // Without an enrolled peer, background reconciliation intentionally does no I/O.
+        let _ = self.cleanup_invites(&provider, now, &self.io());
+        let now = crate::pairing::now_ms()?;
         let owner_name = std::env::var("USER")
             .ok()
             .filter(|v| canonical::device_name(v))
@@ -696,11 +700,26 @@ impl Service {
             }
             run(provider.enrollment_delete(&doc.id, io), io)?;
         }
+        self.cleanup_invites(provider, now, io)?;
         self.store()?.prune_cloud_receipts(now)?;
         self.cleanup
             .lock()
             .map_err(crate::store::database)?
             .insert(project.clone(), Instant::now());
+        Ok(())
+    }
+    fn cleanup_invites(
+        &self,
+        provider: &Provider,
+        now: u64,
+        io: &IoBudget<'_>,
+    ) -> Result<(), RemoteError> {
+        for _ in 0..crate::journal::OPERATIONS {
+            let Some(offer) = run(provider.expired_invite(now, io), io)? else {
+                break;
+            };
+            run(provider.delete_invite(&offer, io), io)?;
+        }
         Ok(())
     }
     fn process_reroute(
