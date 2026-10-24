@@ -68,8 +68,57 @@
     },
     {
       "host": "herdr",
+      "source": "ok",
+      "candidate": "unknown",
+      "native": "verified",
+      "ownership": "unmarked",
+      "adoptable": true
+    },
+    {
+      "host": "herdr",
+      "source": "ok",
+      "candidate": "unknown",
+      "native": "unknown",
+      "ownership": "unmarked",
+      "adoptable": false
+    },
+    {
+      "host": "herdr",
       "source": "unsupported",
-      "reason": "inventory_deferred_to_host_epics",
+      "reason": "driver_not_approved",
+      "candidate": null,
+      "adoptable": false
+    },
+    {
+      "host": "herdr",
+      "source": "unsupported",
+      "reason": "driver_approval_outdated",
+      "candidate": null,
+      "adoptable": false
+    },
+    {
+      "host": "herdr",
+      "source": "unsupported",
+      "reason": "driver_lacks_inventory",
+      "candidate": null,
+      "adoptable": false
+    },
+    {
+      "host": "herdr",
+      "source": "unknown",
+      "reason": "driver_registry_unreadable",
+      "candidate": null,
+      "adoptable": false
+    },
+    {
+      "host": "herdr",
+      "source": "offline",
+      "candidate": null,
+      "adoptable": false
+    },
+    {
+      "host": "herdr",
+      "source": "unknown",
       "candidate": null,
       "adoptable": false
     }

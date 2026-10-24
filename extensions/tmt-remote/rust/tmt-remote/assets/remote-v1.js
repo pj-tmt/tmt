@@ -1003,7 +1003,7 @@ var syncFieldName = (value) => /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(value);
 function valid$4(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
-function row$3(value, keys) {
+function row$2(value, keys) {
 	valid$4(typeof value === "object" && value !== null && !Array.isArray(value));
 	const r = value;
 	valid$4(Object.keys(r).sort().join(",") === keys.sort().join(","));
@@ -1011,7 +1011,7 @@ function row$3(value, keys) {
 }
 function parseSyncMapping(value) {
 	valid$4(typeof value === "object" && value !== null);
-	const r = row$3(value, [
+	const r = row$2(value, [
 		"fields",
 		"spaceField",
 		"uidField",
@@ -1031,7 +1031,7 @@ function parseSyncMapping(value) {
 	let query = null;
 	if (r.query !== null) {
 		valid$4(typeof r.query === "object" && r.query !== null);
-		const q = row$3(r.query, [
+		const q = row$2(r.query, [
 			"scopeFields",
 			"streamField",
 			"seqField",
@@ -1044,7 +1044,7 @@ function parseSyncMapping(value) {
 		valid$4(declared(q.streamField) && declared(q.seqField) && q.streamField !== q.seqField && q.streamField !== r.spaceField && q.streamField !== r.uidField && q.seqField !== r.uidField && q.order === "asc" && scope.has(r.spaceField) && scope.has(q.streamField) && !scope.has(q.seqField));
 		let discovery;
 		if (q.discovery !== void 0) {
-			const d = row$3(q.discovery, [
+			const d = row$2(q.discovery, [
 				"name",
 				"scopeFields",
 				"seqEquals"
@@ -1401,7 +1401,7 @@ function hostRemote(slot, signal) {
 	};
 }
 /** A shared list row (`tmt-ui-list*`): mark, linked title, then its detail as metadata. */
-function row$2(href, mark, title, detail) {
+function row$1(href, mark, title, detail) {
 	const item = document.createElement("li");
 	item.className = "tmt-ui-list-row";
 	item.dataset.leading = "";
@@ -1437,8 +1437,8 @@ function homePage(shell, open) {
 	const offer = fetch("/sdk/pair-offer", { cache: "no-store" }).then((response) => response.status === 200).catch(() => false);
 	shell.described(async (answer) => {
 		const rows = [];
-		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row$2(open(module.rail.path), "◆", `${module.needsYou} in ${module.rail.label}`, "Needs you"));
-		if (await offer) rows.push(row$2(new URL("/remote/pair", location.href).href, "◆", "A device is waiting to pair", "Remote · confirm the four words in the terminal"));
+		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row$1(open(module.rail.path), "◆", `${module.needsYou} in ${module.rail.label}`, "Needs you"));
+		if (await offer) rows.push(row$1(new URL("/remote/pair", location.href).href, "◆", "A device is waiting to pair", "Remote · confirm the four words in the terminal"));
 		needs.replaceChildren(...rows);
 		if (answer) note.textContent = rows.length ? "" : "Nothing needs you.";
 		else {
@@ -1449,7 +1449,7 @@ function homePage(shell, open) {
 			note.replaceChildren(pair, " in Remote to see what needs you.");
 		}
 		note.hidden = !note.textContent;
-		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row$2(open(card.path), "▤", card.title, module.rail.label)));
+		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row$1(open(card.path), "▤", card.title, module.rail.label)));
 		recent.replaceChildren(...cards);
 		recentBlock.hidden = cards.length === 0;
 	});
@@ -2560,14 +2560,192 @@ function claimIconActionTooltip(document, dismiss) {
 		if (activeTooltips.get(document) === dismiss) activeTooltips.delete(document);
 	};
 }
+function iconActionTooltipPosition(anchor, tooltipWidth, tooltipHeight, viewport, gutter) {
+	const maxWidth = Math.max(0, viewport.width - gutter * 2);
+	const width = Math.min(tooltipWidth, maxWidth);
+	const leftEdge = viewport.left + gutter;
+	const belowTop = Math.max(viewport.top, anchor.bottom);
+	const below = Math.max(0, viewport.top + viewport.height - gutter - belowTop);
+	const above = Math.max(0, anchor.top - viewport.top - gutter);
+	const flipped = tooltipHeight > below && above > below;
+	const maxHeight = flipped ? above : below;
+	const top = flipped ? anchor.top - Math.min(tooltipHeight, maxHeight) : belowTop;
+	return {
+		left: Math.max(leftEdge, Math.min((anchor.left + anchor.right - width) / 2, viewport.left + viewport.width - gutter - width)),
+		top,
+		maxWidth,
+		maxHeight
+	};
+}
+function placeIconActionTooltip(anchor, tooltip) {
+	const view = anchor.ownerDocument.defaultView;
+	if (!view) return () => {};
+	const viewport = view.visualViewport;
+	const place = () => {
+		const box = anchor.getBoundingClientRect();
+		if (!anchor.isConnected || !box.width || !box.height) {
+			if (tooltip.matches(":popover-open")) tooltip.hidePopover();
+			return;
+		}
+		const gutter = Number.parseFloat(view.getComputedStyle(tooltip).paddingTop) || 0;
+		const bounds = {
+			left: viewport?.offsetLeft ?? 0,
+			top: viewport?.offsetTop ?? 0,
+			width: viewport?.width ?? view.innerWidth,
+			height: viewport?.height ?? view.innerHeight
+		};
+		tooltip.style.maxWidth = `${Math.max(0, bounds.width - gutter * 2)}px`;
+		const tooltipBox = tooltip.getBoundingClientRect();
+		const next = iconActionTooltipPosition(box, tooltipBox.width, Math.max(tooltipBox.height, tooltip.scrollHeight), bounds, gutter);
+		tooltip.style.left = `${next.left}px`;
+		tooltip.style.top = `${next.top}px`;
+		tooltip.style.maxHeight = `${next.maxHeight}px`;
+	};
+	place();
+	const observer = new ResizeObserver(place);
+	observer.observe(anchor);
+	observer.observe(tooltip);
+	view.addEventListener("resize", place);
+	view.addEventListener("scroll", place, true);
+	viewport?.addEventListener("resize", place);
+	viewport?.addEventListener("scroll", place);
+	return () => {
+		observer.disconnect();
+		view.removeEventListener("resize", place);
+		view.removeEventListener("scroll", place, true);
+		viewport?.removeEventListener("resize", place);
+		viewport?.removeEventListener("scroll", place);
+	};
+}
+var escapeFocus = /* @__PURE__ */ new WeakSet();
+function guardEscapeFocus(document) {
+	escapeFocus.add(document);
+	const clear = () => {
+		escapeFocus.delete(document);
+		document.removeEventListener("keydown", nextKey, true);
+	};
+	const nextKey = (event) => {
+		if (event.key !== "Escape") clear();
+	};
+	document.addEventListener("keydown", nextKey, true);
+	document.defaultView?.requestAnimationFrame(clear);
+}
+/** Internal binding shared by icon renderers; activation and its busy fence stay with the caller. */
+function bindIconActionTooltip(wrapper, button, tooltip) {
+	const document = button.ownerDocument;
+	const view = document.defaultView;
+	let hovered = false;
+	let focused = false;
+	let dismissed = false;
+	let disposed = false;
+	let expanded = button.getAttribute("aria-expanded") === "true";
+	let returnGuard = false;
+	let returnFrame;
+	let release;
+	let position;
+	const close = () => {
+		position?.();
+		position = void 0;
+		release?.();
+		release = void 0;
+		document.removeEventListener("keydown", escape, true);
+		if (tooltip.matches(":popover-open")) tooltip.hidePopover();
+	};
+	const dismiss = () => {
+		dismissed = true;
+		close();
+	};
+	const escape = (event) => {
+		if (event.key !== "Escape" || !tooltip.matches(":popover-open")) return;
+		dismiss();
+		guardEscapeFocus(document);
+	};
+	const paint = () => {
+		if (!(!disposed && (hovered || focused) && !dismissed && !expanded && button.isConnected && button.getClientRects().length > 0)) {
+			close();
+			return;
+		}
+		if (tooltip.matches(":popover-open")) return;
+		release = claimIconActionTooltip(document, dismiss);
+		tooltip.showPopover();
+		position = placeIconActionTooltip(button, tooltip);
+		document.addEventListener("keydown", escape, true);
+	};
+	const clearReturnGuard = () => {
+		returnGuard = false;
+		document.removeEventListener("keydown", returnKey, true);
+		if (returnFrame !== void 0) view.cancelAnimationFrame(returnFrame);
+		returnFrame = void 0;
+	};
+	const returnKey = (event) => {
+		if (event.key !== "Escape") clearReturnGuard();
+	};
+	const refresh = () => {
+		const next = button.getAttribute("aria-expanded") === "true";
+		if (expanded && !next) {
+			clearReturnGuard();
+			returnGuard = true;
+			document.addEventListener("keydown", returnKey, true);
+			returnFrame = view.requestAnimationFrame(clearReturnGuard);
+		}
+		expanded = next;
+		if (expanded) dismissed = true;
+		paint();
+	};
+	const move = () => {
+		if (!hovered) {
+			hovered = true;
+			dismissed = false;
+		}
+		refresh();
+	};
+	const leave = () => {
+		hovered = false;
+		refresh();
+	};
+	const focus = () => {
+		if (!button.matches(":focus-visible")) return;
+		focused = true;
+		expanded = button.getAttribute("aria-expanded") === "true";
+		dismissed = expanded || returnGuard || escapeFocus.has(document);
+		paint();
+	};
+	const blur = () => {
+		focused = false;
+		refresh();
+	};
+	wrapper.addEventListener("pointermove", move);
+	wrapper.addEventListener("pointerleave", leave);
+	button.addEventListener("focus", focus);
+	button.addEventListener("blur", blur);
+	return {
+		refresh,
+		dismiss,
+		dispose() {
+			if (disposed) return;
+			disposed = true;
+			close();
+			clearReturnGuard();
+			wrapper.removeEventListener("pointermove", move);
+			wrapper.removeEventListener("pointerleave", leave);
+			button.removeEventListener("focus", focus);
+			button.removeEventListener("blur", blur);
+		}
+	};
+}
 //#endregion
 //#region ../../../../design/browser-ui/src/shell-icons.ts
 /**
 * Lucide 1.52.0 (ISC, see `LICENSE.lucide`) node data for the shell, so static hosts draw the
-* same icons without a React or Lucide runtime. The first eight are the module icon allow-list
+* same icons without a React or Lucide runtime. The module icon allow-list below is the subset
 * of Remote's describe contract; an unknown name falls back to `box`.
 */
 var shellIconNodes = {
+	sun: [["circle", {
+		cx: "12",
+		cy: "12",
+		r: "4"
+	}], ["path", { d: "M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" }]],
 	house: [["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" }], ["path", { d: "M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
 	"file-text": [
 		["path", { d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" }],
@@ -2705,6 +2883,725 @@ var moduleIcons = [
 	"box"
 ];
 var moduleIcon = (name) => moduleIcons.includes(name) ? name : "box";
+//#endregion
+//#region ../../../../design/browser-ui/src/glyph.ts
+var SVG$2 = "http://www.w3.org/2000/svg";
+/** A line icon from the shared icon nodes, for a framework-free page: it takes the text colour. */
+function createIcon(name, doc = document) {
+	const svg = doc.createElementNS(SVG$2, "svg");
+	svg.setAttribute("class", browserUiClasses.glyph);
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("aria-hidden", "true");
+	for (const [tag, attributes] of shellIconNodes[name]) {
+		const node = doc.createElementNS(SVG$2, tag);
+		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+		svg.append(node);
+	}
+	return svg;
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/overlay.ts
+/** Modified, repeated and composing keys cannot dismiss an actionable layer. */
+function admitsOverlayEscape(event) {
+	return event.isTrusted && !event.repeat && !(event.nativeEvent?.isComposing ?? event.isComposing) && event.keyCode !== 229 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+}
+function restoreOverlayFocus(origin, fallback) {
+	const usable = (node) => node instanceof HTMLElement && node.isConnected && node.getClientRects().length > 0 && !node.closest("[inert]") && !node.matches(":disabled");
+	if (usable(origin)) origin.focus({ preventScroll: true });
+	else {
+		const node = fallback?.() ?? null;
+		if (usable(node)) node.focus({ preventScroll: true });
+	}
+}
+function outsideOverlay(node, x, y) {
+	const box = node.getBoundingClientRect();
+	return x < box.left || x >= box.right || y < box.top || y >= box.bottom;
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/menu-position.ts
+/** Menus share the leaf's below/flip/clamp rule, aligning to the trigger's end. */
+function browserMenuPosition(anchor, width, height, viewport, gutter = 8) {
+	const placed = iconActionTooltipPosition(anchor, width, height, viewport, gutter);
+	return {
+		...placed,
+		left: Math.max(viewport.left + gutter, Math.min(anchor.right - Math.min(width, placed.maxWidth), viewport.left + viewport.width - gutter - Math.min(width, placed.maxWidth)))
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/popup.ts
+var activePopups = /* @__PURE__ */ new WeakMap();
+/** Menu and combobox surfaces share one replacement owner, without owning host commands. */
+function claimBrowserPopup(document, dismiss) {
+	activePopups.get(document)?.();
+	activePopups.set(document, dismiss);
+	return () => {
+		if (activePopups.get(document) === dismiss) activePopups.delete(document);
+	};
+}
+function placeBrowserPopup(anchor, surface, dismiss) {
+	const view = anchor.ownerDocument.defaultView;
+	const viewport = view.visualViewport;
+	const place = () => {
+		if (!anchor.isConnected || !anchor.getClientRects().length) return dismiss();
+		const bounds = {
+			left: viewport?.offsetLeft ?? 0,
+			top: viewport?.offsetTop ?? 0,
+			width: viewport?.width ?? view.innerWidth,
+			height: viewport?.height ?? view.innerHeight
+		};
+		surface.style.maxWidth = `${Math.max(0, bounds.width - 16)}px`;
+		const box = surface.getBoundingClientRect();
+		const position = browserMenuPosition(anchor.getBoundingClientRect(), box.width, Math.max(box.height, surface.scrollHeight + surface.offsetHeight - surface.clientHeight), bounds);
+		Object.assign(surface.style, {
+			left: `${position.left}px`,
+			top: `${position.top}px`,
+			maxHeight: `${position.maxHeight}px`
+		});
+	};
+	place();
+	let frame;
+	const observer = new ResizeObserver(() => {
+		if (frame !== void 0) return;
+		frame = view.requestAnimationFrame(() => {
+			frame = void 0;
+			place();
+		});
+	});
+	observer.observe(anchor);
+	observer.observe(surface);
+	view.addEventListener("resize", place);
+	view.addEventListener("scroll", place, true);
+	viewport?.addEventListener("resize", place);
+	viewport?.addEventListener("scroll", place);
+	return () => {
+		observer.disconnect();
+		if (frame !== void 0) view.cancelAnimationFrame(frame);
+		view.removeEventListener("resize", place);
+		view.removeEventListener("scroll", place, true);
+		viewport?.removeEventListener("resize", place);
+		viewport?.removeEventListener("scroll", place);
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/menu-controller.ts
+/** One transient menu owner for React and framework-free renderers; commands stay with callers. */
+function createMenuController(options) {
+	let snapshot = {
+		open: false,
+		present: false
+	};
+	const listeners = /* @__PURE__ */ new Set();
+	let first = "first";
+	let search = {
+		text: "",
+		at: 0
+	};
+	let focused;
+	let reported = false;
+	let disposed = false;
+	let detach;
+	let cancelExit;
+	const enabled = () => options.items().flatMap((item, index) => item.disabled ? [] : [index]);
+	const publish = (open, present) => {
+		if (snapshot.open === open && snapshot.present === present) return;
+		snapshot = {
+			open,
+			present
+		};
+		for (const notify of listeners) notify();
+	};
+	const report = (open) => {
+		if (reported === open) return;
+		reported = open;
+		options.onOpenChange(open);
+	};
+	const canOpen = () => !disposed && !options.disabled() && (enabled().length > 0 || options.hasDescription());
+	function open(edge = "first") {
+		if (!canOpen() || snapshot.open) return;
+		cancelExit?.();
+		cancelExit = void 0;
+		first = edge;
+		focused = void 0;
+		search = {
+			text: "",
+			at: 0
+		};
+		publish(true, true);
+	}
+	function close(refocus = true) {
+		if (!snapshot.open) return;
+		const node = options.surface();
+		publish(false, snapshot.present);
+		if (node) {
+			node.dataset.state = "closed";
+			if (node.open) node.close();
+		}
+		detach?.();
+		report(false);
+		if (refocus) restoreOverlayFocus(options.trigger());
+		const animations = node?.getAnimations?.() ?? [];
+		if (!animations.length) {
+			publish(false, false);
+			return;
+		}
+		let current = true;
+		cancelExit = () => {
+			current = false;
+		};
+		Promise.allSettled(animations.map((animation) => animation.finished)).then(() => {
+			if (current && !snapshot.open && !disposed) {
+				cancelExit = void 0;
+				publish(false, false);
+			}
+		});
+	}
+	function attachSurface() {
+		const node = options.surface();
+		const anchor = options.trigger();
+		if (!snapshot.open || !node || !anchor) return;
+		if (!node.isConnected || !anchor.isConnected || !anchor.getClientRects().length) {
+			close(false);
+			return;
+		}
+		if (detach) return detach;
+		const release = claimBrowserPopup(anchor.ownerDocument, () => close(false));
+		let position;
+		const cleanup = () => {
+			if (detach !== cleanup) return;
+			detach = void 0;
+			position?.();
+			release();
+			if (node.open) node.close();
+			queueMicrotask(() => {
+				const current = options.surface();
+				if (!node.isConnected && snapshot.open && (!current || current === node)) close(false);
+			});
+		};
+		detach = cleanup;
+		try {
+			node.showModal();
+			position = placeBrowserPopup(anchor, node, () => close(false));
+			if (!snapshot.open) return cleanup;
+			report(true);
+			if (!snapshot.open) return cleanup;
+			const choices = enabled();
+			const index = first === "last" ? choices.at(-1) : choices[0];
+			focused = index === void 0 ? void 0 : options.items()[index]?.key;
+			(index === void 0 ? node : options.entries()[index] ?? node).focus();
+		} catch (error) {
+			cleanup();
+			close(false);
+			throw error;
+		}
+		return cleanup;
+	}
+	function refresh() {
+		const node = options.surface();
+		if (!snapshot.open || !node) return;
+		const active = node.ownerDocument.activeElement;
+		if (active === node) return;
+		if (active !== node.ownerDocument.body && (!active || !node.contains(active))) return;
+		const entries = options.entries();
+		const choices = enabled();
+		if (choices.some((index) => entries[index] === active)) return;
+		const next = choices.find((index) => options.items()[index].key === focused) ?? choices[0];
+		(next === void 0 ? node : entries[next] ?? node).focus();
+	}
+	return {
+		getSnapshot: () => snapshot,
+		subscribe(notify) {
+			listeners.add(notify);
+			return () => {
+				listeners.delete(notify);
+			};
+		},
+		canOpen,
+		open,
+		close,
+		attachSurface,
+		refresh,
+		focused(key) {
+			if (snapshot.open) focused = key;
+		},
+		triggerKey(event) {
+			if (!["ArrowDown", "ArrowUp"].includes(event.key) || !event.isTrusted || (event.nativeEvent?.isComposing ?? event.isComposing)) return;
+			event.preventDefault();
+			open(event.key === "ArrowUp" ? "last" : "first");
+		},
+		menuKey(event) {
+			if (!snapshot.open || event.defaultPrevented) return;
+			if (event.key === "Escape") {
+				event.preventDefault();
+				event.stopPropagation();
+				if (admitsOverlayEscape(event)) close();
+				return;
+			}
+			if ((event.nativeEvent?.isComposing ?? event.isComposing) || event.altKey || event.ctrlKey || event.metaKey) return;
+			if (event.key === "Tab") {
+				close();
+				return;
+			}
+			const choices = enabled();
+			const entries = options.entries();
+			const at = choices.indexOf(entries.findIndex((node) => node === node?.ownerDocument.activeElement));
+			let next;
+			if (event.key === "ArrowDown") next = choices[(at + 1) % choices.length];
+			else if (event.key === "ArrowUp") next = choices[(at - 1 + choices.length) % choices.length];
+			else if (event.key === "Home") next = choices[0];
+			else if (event.key === "End") next = choices.at(-1);
+			else if (event.key.length === 1 && event.key !== " ") {
+				const now = performance.now();
+				search = {
+					text: (now - search.at > 700 ? "" : search.text) + event.key.toLocaleLowerCase(),
+					at: now
+				};
+				next = [...choices.slice(at + 1), ...choices.slice(0, at + 1)].find((index) => options.items()[index].label.toLocaleLowerCase().startsWith(search.text));
+			} else return;
+			event.preventDefault();
+			if (next !== void 0) {
+				focused = options.items()[next]?.key;
+				entries[next]?.focus();
+			}
+		},
+		select(key, event) {
+			const item = options.items().find((item) => item.key === key);
+			if (!snapshot.open || !event.isTrusted || !item || item.disabled) return;
+			const select = options.selection();
+			close();
+			select(key, event);
+		},
+		nativeClose(event) {
+			event.stopPropagation();
+			const node = options.surface();
+			if (snapshot.open && event.target === node && !node?.open) close();
+		},
+		cancel(event) {
+			event.preventDefault();
+			event.stopPropagation();
+			if (event.isTrusted) close();
+		},
+		pointerDown(event) {
+			const node = options.surface();
+			if (node && event.target === node && outsideOverlay(node, event.clientX, event.clientY)) event.preventDefault();
+		},
+		surfaceClick(event) {
+			const node = options.surface();
+			if (!node || event.target !== node || !outsideOverlay(node, event.clientX, event.clientY)) return;
+			event.preventDefault();
+			event.stopPropagation();
+			if (event.isTrusted) close();
+		},
+		dispose() {
+			if (disposed) return;
+			close(false);
+			detach?.();
+			cancelExit?.();
+			cancelExit = void 0;
+			disposed = true;
+			publish(false, false);
+			listeners.clear();
+		}
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/menu-host.ts
+/** Mount the existing menu presentation without a framework; hosts retain values and commands. */
+function mountBrowserMenu(container, initial) {
+	const document = container.ownerDocument;
+	const id = `tmt-menu-${document.defaultView.crypto.randomUUID()}`;
+	const root = document.createElement("span");
+	root.className = "tmt-ui-menu";
+	const wrapper = document.createElement("span");
+	const trigger = document.createElement("button");
+	trigger.type = "button";
+	trigger.setAttribute("aria-haspopup", "menu");
+	const tooltip = document.createElement("span");
+	tooltip.className = browserUiClasses.iconActionTooltip;
+	tooltip.setAttribute("popover", "manual");
+	tooltip.setAttribute("aria-hidden", "true");
+	const tooltipLabel = document.createElement("span");
+	tooltipLabel.className = browserUiClasses.iconActionTooltipLabel;
+	tooltip.append(tooltipLabel);
+	wrapper.append(trigger, tooltip);
+	const surface = document.createElement("dialog");
+	surface.className = "tmt-ui-menu-surface";
+	surface.tabIndex = -1;
+	surface.hidden = true;
+	const menu = document.createElement("div");
+	menu.id = id;
+	menu.setAttribute("role", "menu");
+	menu.tabIndex = -1;
+	const description = document.createElement("div");
+	description.id = `${id}-description`;
+	description.className = "tmt-ui-menu-description";
+	surface.append(menu);
+	root.append(wrapper, surface);
+	let options = initial;
+	let disposed = false;
+	let help;
+	const rows = /* @__PURE__ */ new Map();
+	const controller = createMenuController({
+		items: () => options.items,
+		disabled: () => options.disabled === true,
+		hasDescription: () => Boolean(options.description),
+		trigger: () => trigger,
+		surface: () => surface,
+		entries: () => options.items.map((item) => rows.get(item.key)?.button ?? null),
+		selection: () => options.onSelect,
+		onOpenChange: (open) => options.onOpenChange?.(open)
+	});
+	const display = (target, content) => target.replaceChildren(typeof content === "string" ? document.createTextNode(content) : content);
+	const validate = (next) => {
+		if (!next.label.trim()) throw new Error("Menu requires a nonempty label");
+		if (new Set(next.items.map((item) => item.key)).size !== next.items.length) throw new Error("Menu item keys must be unique");
+	};
+	function renderOptions() {
+		const iconOnly = options.triggerText === void 0;
+		wrapper.className = iconOnly ? browserUiClasses.iconAction : "";
+		trigger.className = iconOnly ? `${browserUiClasses.action} ${browserUiClasses.iconActionControl}` : "tmt-ui-menu-trigger";
+		if (iconOnly) trigger.dataset.variant = "text";
+		else delete trigger.dataset.variant;
+		trigger.setAttribute("aria-label", options.label);
+		tooltipLabel.textContent = options.label;
+		tooltip.hidden = !iconOnly;
+		surface.setAttribute("aria-label", options.label);
+		menu.setAttribute("aria-label", options.label);
+		trigger.disabled = !controller.canOpen();
+		if (iconOnly) {
+			const icon = document.createElement("span");
+			icon.className = browserUiClasses.iconActionIcon;
+			icon.setAttribute("aria-hidden", "true");
+			icon.append(options.icon ?? createIcon("ellipsis", document));
+			trigger.replaceChildren(icon);
+			help ??= bindIconActionTooltip(wrapper, trigger, tooltip);
+		} else {
+			help?.dispose();
+			help = void 0;
+			const label = document.createElement("span");
+			label.className = "tmt-ui-menu-value";
+			label.textContent = options.triggerText;
+			trigger.replaceChildren(label, createIcon("chevron-down", document));
+		}
+		if (options.description) {
+			display(description, options.description);
+			menu.setAttribute("aria-describedby", description.id);
+		} else menu.removeAttribute("aria-describedby");
+		const removed = new Set(rows.keys());
+		const children = options.description ? [description] : [];
+		for (const [index, item] of options.items.entries()) {
+			let row = rows.get(item.key);
+			if (!row) {
+				const button = document.createElement("button");
+				button.type = "button";
+				button.className = "tmt-ui-menu-item";
+				button.tabIndex = -1;
+				button.onclick = (event) => controller.select(item.key, event);
+				button.onfocus = () => controller.focused(item.key);
+				row = {
+					root: document.createElement("div"),
+					button,
+					label: document.createElement("span"),
+					check: document.createElement("span"),
+					reason: document.createElement("span")
+				};
+				row.check.setAttribute("aria-hidden", "true");
+				row.check.textContent = "✓";
+				row.reason.className = "tmt-ui-menu-reason";
+				row.root.append(button);
+				rows.set(item.key, row);
+			}
+			removed.delete(item.key);
+			display(row.label, item.content ?? item.label);
+			row.button.replaceChildren(row.label, ...item.checked ? [row.check] : []);
+			row.button.disabled = item.disabled === true;
+			row.button.setAttribute("role", item.role ?? (item.checked === void 0 ? "menuitem" : "menuitemradio"));
+			if (item.checked === void 0) row.button.removeAttribute("aria-checked");
+			else row.button.setAttribute("aria-checked", String(item.checked));
+			if (item.separated) row.button.dataset.separated = "true";
+			else delete row.button.dataset.separated;
+			if (item.disabledReason) {
+				row.reason.id = `${id}-reason-${index}`;
+				row.reason.textContent = item.disabledReason;
+				row.button.setAttribute("aria-describedby", row.reason.id);
+				if (!row.reason.isConnected) row.root.append(row.reason);
+			} else {
+				row.reason.remove();
+				row.button.removeAttribute("aria-describedby");
+			}
+			children.push(row.root);
+		}
+		for (const key of removed) {
+			rows.get(key).root.remove();
+			rows.delete(key);
+		}
+		for (const [index, child] of children.entries()) if (menu.childNodes[index] !== child) menu.insertBefore(child, menu.childNodes[index] ?? null);
+		while (menu.childNodes.length > children.length) menu.lastChild.remove();
+		controller.refresh();
+		help?.refresh();
+	}
+	function renderState() {
+		const { open, present } = controller.getSnapshot();
+		trigger.setAttribute("aria-expanded", String(open));
+		if (open) trigger.setAttribute("aria-controls", id);
+		else trigger.removeAttribute("aria-controls");
+		surface.hidden = !present;
+		surface.dataset.state = open ? "open" : "closed";
+		help?.refresh();
+		if (open) controller.attachSurface();
+	}
+	trigger.onclick = (event) => {
+		if (event.isTrusted) {
+			help?.dismiss();
+			controller.open();
+		}
+	};
+	trigger.onkeydown = controller.triggerKey;
+	surface.onkeydown = controller.menuKey;
+	surface.onclose = controller.nativeClose;
+	surface.oncancel = controller.cancel;
+	surface.onpointerdown = controller.pointerDown;
+	surface.onclick = controller.surfaceClick;
+	validate(initial);
+	container.append(root);
+	renderOptions();
+	const unsubscribe = controller.subscribe(renderState);
+	renderState();
+	return {
+		update(next) {
+			if (!disposed) {
+				validate(next);
+				options = next;
+				renderOptions();
+				renderState();
+			}
+		},
+		open: () => controller.open(),
+		close: () => controller.close(),
+		dispose() {
+			if (disposed) return;
+			disposed = true;
+			controller.dispose();
+			unsubscribe();
+			help?.dispose();
+			root.remove();
+			rows.clear();
+		}
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/theme.ts
+/**
+* The per-browser colour theme (#3937). The tokens answer to `data-theme` on the root: `light` and
+* `dark` pin a theme, and no attribute follows the device (`prefers-color-scheme`). The choice is
+* stored in this browser only; storage that is blocked or full never breaks the page, which then
+* follows the device.
+*/
+var THEMES = [
+	"system",
+	"light",
+	"dark"
+];
+var themeStorageKey = "tmt-ui-theme";
+function browserStore() {
+	try {
+		return globalThis.localStorage;
+	} catch {
+		return;
+	}
+}
+/** The stored choice; `system` when none is stored, storage is blocked or the value is unknown. */
+function storedTheme(store = browserStore()) {
+	try {
+		const value = store?.getItem(themeStorageKey);
+		return THEMES.find((theme) => theme === value) ?? "system";
+	} catch {
+		return "system";
+	}
+}
+/** Set the root's theme for a choice: `system` leaves the tokens to the device. */
+function applyTheme(choice, root = document.documentElement) {
+	if (choice === "system") root.removeAttribute("data-theme");
+	else root.setAttribute("data-theme", choice);
+}
+/** Apply the stored choice; call once when the app starts, before the first paint of a page. */
+function applyStoredTheme(root, store) {
+	applyTheme(storedTheme(store), root);
+}
+/** Store a choice for this browser and apply it now. `system` clears the stored choice. */
+function setStoredTheme(choice, root, store = browserStore()) {
+	try {
+		if (choice === "system") store?.removeItem(themeStorageKey);
+		else store?.setItem(themeStorageKey, choice);
+	} catch {}
+	applyTheme(choice, root);
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/topbar.ts
+/** Internal renderer shared by native and React shells. */
+function createShellTopBar(root, bar, navigation) {
+	const document = root.ownerDocument;
+	const view = document.defaultView;
+	let options;
+	let disposed = false;
+	let active;
+	const validate = (next) => {
+		const remote = next.remote;
+		if (remote.kind === "confirmed" && (!Number.isSafeInteger(remote.liveSessions) || remote.liveSessions < 0)) throw new Error("Remote live-session count must be a non-negative integer");
+	};
+	const clear = () => {
+		active?.dispose();
+		active = void 0;
+	};
+	function mount() {
+		const header = document.createElement("header");
+		header.className = "tmt-ui-topbar";
+		header.setAttribute("aria-label", "TMT");
+		const left = document.createElement("div");
+		left.className = "tmt-ui-topbar-navigation";
+		left.append(navigation);
+		const right = document.createElement("div");
+		right.className = "tmt-ui-topbar-controls";
+		const actions = document.createElement("div");
+		actions.className = "tmt-ui-topbar-actions";
+		const common = document.createElement("div");
+		common.className = "tmt-ui-topbar-common";
+		common.setAttribute("role", "group");
+		common.setAttribute("aria-label", "TMT controls");
+		const theme = document.createElement("span");
+		const search = document.createElement("button");
+		search.type = "button";
+		search.className = `${browserUiClasses.action} ${browserUiClasses.iconActionControl} tmt-ui-topbar-search`;
+		search.dataset.variant = "text";
+		search.setAttribute("aria-label", "Search TMT");
+		search.setAttribute("aria-haspopup", "dialog");
+		const command = /Mac|iPhone|iPad|iPod/.test(view.navigator.platform);
+		search.setAttribute("aria-keyshortcuts", command ? "Meta+K" : "Control+K");
+		const searchMark = document.createElement("span");
+		searchMark.className = browserUiClasses.iconActionIcon;
+		searchMark.setAttribute("aria-hidden", "true");
+		const hint = document.createElement("kbd");
+		hint.textContent = command ? "⌘K" : "Ctrl K";
+		searchMark.append(createIcon("search", document), hint);
+		search.append(searchMark);
+		const remote = document.createElement("a");
+		remote.className = `${browserUiClasses.action} ${browserUiClasses.iconActionControl} tmt-ui-topbar-remote`;
+		remote.dataset.variant = "text";
+		const remoteMark = document.createElement("span");
+		remoteMark.className = browserUiClasses.iconActionIcon;
+		remoteMark.setAttribute("aria-hidden", "true");
+		remoteMark.append(createIcon("monitor-smartphone", document));
+		const badge = document.createElement("span");
+		badge.className = browserUiClasses.count;
+		badge.setAttribute("aria-hidden", "true");
+		remote.append(remoteMark, badge);
+		const help = (control, label) => {
+			const wrapper = document.createElement("span");
+			wrapper.className = browserUiClasses.iconAction;
+			const tooltip = document.createElement("span");
+			tooltip.className = browserUiClasses.iconActionTooltip;
+			tooltip.setAttribute("popover", "manual");
+			tooltip.setAttribute("aria-hidden", "true");
+			const text = document.createElement("span");
+			text.className = browserUiClasses.iconActionTooltipLabel;
+			text.textContent = label;
+			tooltip.append(text);
+			wrapper.append(control, tooltip);
+			return {
+				wrapper,
+				text,
+				binding: bindIconActionTooltip(wrapper, control, tooltip)
+			};
+		};
+		const searchHelp = help(search, "Search TMT");
+		const remoteHelp = help(remote, "Remote: session count unconfirmed");
+		common.append(theme, searchHelp.wrapper, remoteHelp.wrapper);
+		right.append(actions, common);
+		header.append(left, right);
+		const choice = () => {
+			const explicit = document.documentElement.getAttribute("data-theme");
+			return explicit === "light" || explicit === "dark" ? explicit : "system";
+		};
+		const themeOptions = () => ({
+			label: `Theme: ${choice()}`,
+			icon: createIcon("sun", document),
+			items: THEMES.map((key) => ({
+				key,
+				label: key === "system" ? "System" : key === "light" ? "Light" : "Dark",
+				checked: choice() === key
+			})),
+			onSelect: (key) => setStoredTheme(key, document.documentElement)
+		});
+		const themeMenu = mountBrowserMenu(theme, themeOptions());
+		const observeTheme = new MutationObserver(() => themeMenu.update(themeOptions()));
+		observeTheme.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ["data-theme"]
+		});
+		const openSearch = () => {
+			themeMenu.close();
+			searchHelp.binding.dismiss();
+			options.openSearch(search);
+		};
+		search.onclick = (event) => {
+			if (event.isTrusted) openSearch();
+		};
+		const shortcut = (event) => {
+			if (!event.isTrusted || event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229 || event.key.toLowerCase() !== "k" || event.altKey || event.shiftKey || (command ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey)) return;
+			if (event.composedPath().some((node) => node instanceof view.HTMLElement && (node.isContentEditable || node.closest("input,textarea,select,[role=\"textbox\"],[role=\"combobox\"]")))) return;
+			event.preventDefault();
+			openSearch();
+		};
+		document.addEventListener("keydown", shortcut);
+		root.dataset.topbar = "";
+		bar.replaceChildren(header);
+		const update = () => {
+			const status = options.remote;
+			const label = status.kind === "unconfirmed" ? "Remote: session count unconfirmed" : status.liveSessions === 0 ? "Remote: no live sessions" : `Remote: ${status.liveSessions} live ${status.liveSessions === 1 ? "session" : "sessions"}`;
+			remote.setAttribute("href", status.href);
+			remote.setAttribute("aria-label", label);
+			remoteHelp.text.textContent = label;
+			badge.hidden = status.kind !== "confirmed" || status.liveSessions === 0;
+			badge.textContent = status.kind === "confirmed" ? countText(status.liveSessions) : "";
+		};
+		update();
+		return {
+			slot: { actions },
+			update,
+			dispose() {
+				document.removeEventListener("keydown", shortcut);
+				observeTheme.disconnect();
+				themeMenu.dispose();
+				searchHelp.binding.dispose();
+				remoteHelp.binding.dispose();
+				root.prepend(navigation);
+				delete root.dataset.topbar;
+				header.remove();
+			}
+		};
+	}
+	return {
+		setCommonControls(next) {
+			if (disposed) return;
+			if (next) validate(next);
+			options = next;
+			if (!next) clear();
+			else active?.update();
+		},
+		setTopBar() {
+			if (disposed) throw new Error("The shell has been disposed");
+			if (!options) throw new Error("The root must install common controls before adopting the top bar");
+			active ??= mount();
+			return active.slot;
+		},
+		clear,
+		dispose() {
+			if (disposed) return;
+			disposed = true;
+			clear();
+			options = void 0;
+		}
+	};
+}
 //#endregion
 //#region ../../../../design/browser-ui/src/shell.ts
 /** The counts a menu entry draws, in order: a plain total only above zero (a page list of none has
@@ -2884,7 +3781,7 @@ function shellRail(answer, place, host) {
 	};
 }
 var RAIL_KEY = "tmt.shell.rail";
-var SVG$2 = "http://www.w3.org/2000/svg";
+var SVG$1 = "http://www.w3.org/2000/svg";
 function railCollapsed() {
 	try {
 		return localStorage.getItem(RAIL_KEY) === "collapsed";
@@ -2898,12 +3795,12 @@ function rememberRail(collapsed) {
 	} catch {}
 }
 function icon(document, name) {
-	const svg = document.createElementNS(SVG$2, "svg");
+	const svg = document.createElementNS(SVG$1, "svg");
 	svg.setAttribute("class", "tmt-ui-shell-icon");
 	svg.setAttribute("viewBox", "0 0 24 24");
 	svg.setAttribute("aria-hidden", "true");
 	for (const [tag, attributes] of shellIconNodes[name]) {
-		const node = document.createElementNS(SVG$2, tag);
+		const node = document.createElementNS(SVG$1, tag);
 		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
 		svg.append(node);
 	}
@@ -2957,6 +3854,7 @@ function mountShell(root, view, select) {
 	menu.className = "tmt-ui-module-menu";
 	root.prepend(open, rail);
 	const bar = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar");
+	const topBar = createShellTopBar(root, bar, open);
 	bar.after(menu);
 	const slotOf = (parent, name) => {
 		const existing = parent.querySelector(`:scope > .tmt-ui-shell-tools-${name}`);
@@ -3177,8 +4075,12 @@ function mountShell(root, view, select) {
 	render(view);
 	return {
 		tools,
+		setCommonControls: topBar.setCommonControls,
+		setTopBar: topBar.setTopBar,
+		clearTopBar: topBar.clear,
 		update: render,
 		dispose() {
+			topBar.dispose();
 			watchTools?.disconnect();
 			root.style.removeProperty("--tmt-ui-shell-tools-width");
 			if (!drawn) toolsRoot.remove();
@@ -3263,6 +4165,7 @@ function startShellHost(root, routes, options = {}) {
 	let settled = false;
 	const listeners = [];
 	let generation = 0;
+	let disposed = false;
 	const place = () => ({
 		origin: window.location.origin,
 		href: window.location.href.split(/[?#]/)[0]
@@ -3294,6 +4197,7 @@ function startShellHost(root, routes, options = {}) {
 		main,
 		bar,
 		tools: controls.tools,
+		setTopBar: () => current?.generation === mine ? controls.setTopBar() : { actions: document.createElement("div") },
 		basePath: route.paths.at(-1),
 		answer: () => answer,
 		setMenu(next, handler) {
@@ -3338,11 +4242,13 @@ function startShellHost(root, routes, options = {}) {
 		show();
 	}
 	async function show() {
+		if (disposed) return;
 		const route = matchRoute(routes, window.location.pathname);
 		if (!route) return elsewhere();
 		remember(void 0);
 		if (current?.route === route) return paint();
 		current?.release?.();
+		controls.clearTopBar();
 		const mine = ++generation;
 		current = {
 			route,
@@ -3367,18 +4273,19 @@ function startShellHost(root, routes, options = {}) {
 		if (!route.quiet) describe();
 		try {
 			const module = await route.load(answer, () => new Promise((resolve) => settled ? resolve(answer) : listeners.push(resolve)));
-			if (current.generation !== mine) return;
+			if (current?.generation !== mine) return;
 			const release = await module.mount(slot(route, mine));
-			if (current.generation !== mine) return release?.();
+			if (current?.generation !== mine) return release?.();
 			current.release = release ?? void 0;
 		} catch (error) {
-			if (current.generation !== mine) return;
+			if (current?.generation !== mine) return;
 			main.replaceChildren();
 			options.failed?.(main, route, error);
 		}
 	}
 	/** Same-origin URL this app owns: change the history entry and show its route. */
 	function go(href, { replace = false } = {}) {
+		if (disposed) return false;
 		const url = linkTo(href);
 		if (url.origin !== window.location.origin || !matchRoute(routes, url.pathname)) return false;
 		const here = window.location;
@@ -3408,8 +4315,10 @@ function startShellHost(root, routes, options = {}) {
 	window.addEventListener("popstate", popstate);
 	show();
 	return {
+		setCommonControls: controls.setCommonControls,
 		navigate: (href, options) => void go(href, options),
 		redescribe: () => new Promise((resolve) => {
+			if (disposed) return resolve(void 0);
 			asked = false;
 			settled = false;
 			listeners.push(resolve);
@@ -3417,10 +4326,15 @@ function startShellHost(root, routes, options = {}) {
 		}),
 		route: (pathname) => matchRoute(routes, pathname),
 		dispose() {
+			if (disposed) return;
+			disposed = true;
+			++generation;
 			loading.remove();
 			document.removeEventListener("click", click);
 			window.removeEventListener("popstate", popstate);
 			current?.release?.();
+			current = void 0;
+			for (const listener of listeners.splice(0)) listener(void 0);
 			controls.dispose();
 		}
 	};
@@ -3436,7 +4350,7 @@ var landing_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"landin
 var settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link\n      rel=\"icon\"\n      type=\"image/svg+xml\"\n      href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\"\n    />\n    <title>Remote settings · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <link rel=\"stylesheet\" href=\"/sdk/settings.css\" />\n    <script type=\"module\" src=\"/sdk/settings-v1.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\" aria-label=\"Remote · Remote settings\">\n      <h1 class=\"header-title tmt-ui-title\">Remote settings</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page settings-page\">\n      <h2 class=\"settings-title\" data-view=\"settings\">Remote settings</h2>\n      <p class=\"settings-intro\" data-view=\"settings\">\n        Control browser opening, sessions and paired devices for this Remote.\n      </p>\n      <section\n        id=\"access-notice\"\n        class=\"tmt-ui-notice\"\n        data-tone=\"waiting\"\n        data-view=\"devices machine settings\"\n        aria-labelledby=\"access\"\n      >\n        <p class=\"eyebrow tmt-ui-notice-eyebrow\">Settings access</p>\n        <div class=\"tmt-ui-notice-mark\">\n          <span aria-hidden=\"true\">◆</span>\n          <p id=\"access\">Checking current access…</p>\n          <p\n            id=\"access-announcement\"\n            class=\"tmt-ui-visually-hidden\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n        </div>\n        <p id=\"read-only\">\n          Read-only in this browser. To remove devices here, run this on the machine:\n        </p>\n        <div id=\"designation-command\" class=\"tmt-ui-command\" hidden>\n          <code id=\"designation-code\" class=\"tmt-ui-code\"></code\n          ><button\n            id=\"copy-designation\"\n            class=\"tmt-ui-command-copy\"\n            type=\"button\"\n            aria-label=\"Copy command\"\n          >\n            Copy\n          </button>\n        </div>\n        <p id=\"designation-copy-feedback\" role=\"status\"></p>\n        <p class=\"settings-cli\">\n          <code class=\"tmt-ui-code\">tmt remote settings</code> ·\n          <code class=\"tmt-ui-code\">tmt remote devices</code>\n        </p>\n        <p id=\"warning\" class=\"tmt-ui-field-error\" role=\"alert\" hidden></p>\n        <p id=\"controls-reason\">Checking current access before changes are available.</p>\n        <button\n          class=\"tmt-ui-action\"\n          aria-describedby=\"controls-reason\"\n          id=\"refresh\"\n          type=\"button\"\n          disabled\n        >\n          <span class=\"tmt-ui-action-label\">Refresh values</span>\n        </button>\n      </section>\n      <div class=\"change-feedback\" data-feedback=\"shared\" data-view=\"devices machine settings\">\n        <p id=\"outcome\" data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n        <p data-original hidden></p>\n        <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n          <span class=\"tmt-ui-action-label\">Check the saved value</span>\n        </button>\n      </div>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"machine\" aria-labelledby=\"opening-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"opening-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">\n              Browser opening\n            </h2>\n            <p id=\"opening-value\">Loading…</p>\n          </div>\n          <form class=\"settings-fields\" id=\"opening-form\" aria-describedby=\"read-only\">\n            <label id=\"opening-label\" class=\"tmt-ui-field-label\" for=\"opening\"\n              >Open a browser when pairing</label\n            >\n            <button\n              id=\"opening\"\n              class=\"tmt-ui-menu-trigger\" data-variant=\"select\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"opening-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"opening-label opening-choice-value\"\n              value=\"on\"\n              disabled\n            >\n              <span id=\"opening-choice-value\" data-choice-value>Loading…</span\n              >\n            </button>\n            <div\n              id=\"opening-options\"\n              class=\"tmt-ui-menu-surface\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"opening-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"on\"\n                aria-label=\"On\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                On\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off\n              </button>\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save browser opening</span>\n              </button>\n\n              <p id=\"opening-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"open\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"machine\" aria-labelledby=\"limit-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"limit-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">\n              Session limit per device\n            </h2>\n            <p id=\"limit-value\">Loading…</p>\n            <p id=\"limit-help\">\n              No limit by default. A limit can stop another tab from connecting; it does not remove\n              the browser's pairing.\n            </p>\n          </div>\n          <form class=\"settings-fields\" id=\"limit-form\" aria-describedby=\"limit-help read-only\">\n            <label id=\"limit-mode-label\" class=\"tmt-ui-field-label\" for=\"limit-mode\"\n              >Session limit</label\n            >\n            <button\n              id=\"limit-mode\"\n              class=\"tmt-ui-menu-trigger\" data-variant=\"select\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"limit-mode-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"limit-mode-label limit-mode-choice-value\"\n              value=\"default\"\n              disabled\n            >\n              <span id=\"limit-mode-choice-value\" data-choice-value>Loading…</span\n              >\n            </button>\n            <div\n              id=\"limit-mode-options\"\n              class=\"tmt-ui-menu-surface\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"limit-mode-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"default\"\n                aria-label=\"Default (off, not configured)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Default (off, not configured)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off (unlimited)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off (unlimited)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"custom\"\n                aria-label=\"Custom\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Custom\n              </button>\n            </div>\n            <div class=\"tmt-ui-field\">\n              <label id=\"limit-custom-label\" class=\"tmt-ui-field-label\" for=\"limit-custom\"\n                >Positive integer</label\n              >\n              <input\n                id=\"limit-custom\"\n                class=\"tmt-ui-field-control\"\n                aria-labelledby=\"limit-custom-label\"\n                type=\"text\"\n                inputmode=\"numeric\"\n                pattern=\"[1-9][0-9]*\"\n                autocomplete=\"off\"\n                disabled\n              />\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save session limit</span>\n              </button>\n\n              <p id=\"limit-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"sessions-per-device\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"firestore-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"firestore-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Firestore</h2>\n          <p>Recorded setup, not a live Firebase check.</p>\n          <p\n            id=\"firestore-announcement\"\n            class=\"tmt-ui-visually-hidden\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n          <div id=\"firestore-content\">Checking recorded Firestore setup…</div>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"devices\" aria-labelledby=\"devices-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"devices-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Paired devices</h2>\n          <p>“This device” marks the pairing this browser uses. It does not give access to settings.</p>\n          <button\n            id=\"remove-others\"\n            class=\"tmt-ui-action\"\n            data-variant=\"destructive\"\n            type=\"button\"\n            disabled\n            aria-expanded=\"false\"\n            aria-controls=\"remove-others-confirmation\"\n          >\n            <span class=\"tmt-ui-action-label\">Remove the others</span>\n          </button>\n          <div id=\"remove-others-confirmation\" class=\"tmt-ui-notice\" hidden>\n            <p id=\"remove-others-consequence\" class=\"tmt-ui-notice-body\" role=\"status\"></p>\n            <div class=\"tmt-ui-notice-actions\">\n              <button id=\"cancel-remove-others\" class=\"tmt-ui-action\" type=\"button\">\n                <span class=\"tmt-ui-action-label\">Cancel</span>\n              </button>\n            </div>\n          </div>\n          <div id=\"devices\"></div>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"first\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">First devices</span>\n          </button>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"more\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">Next devices</span>\n          </button>\n        </div>\n      </section>\n      <section id=\"remotes\" class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"remote-heading\">\n        <h2 id=\"remote-heading\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Remotes in this browser</h2>\n        <p class=\"entry-note\">\n          Names and addresses are saved here. Each remote keeps its own pairing.\n        </p>\n        <ul id=\"remote-list\" class=\"tmt-ui-list\"></ul>\n        <p id=\"remote-status\" role=\"status\"></p>\n        <button id=\"remote-add\" class=\"tmt-ui-action\" type=\"button\">Add remote</button>\n      </section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/tmt-settings.html?raw
-var tmt_settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"tmt-settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>TMT settings · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">TMT settings</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page tmt-settings\">\n      <p id=\"tmt-settings-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"tmt-settings-section\" class=\"tmt-settings-section tmt-ui-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+var tmt_settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"tmt-settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>TMT settings · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">TMT settings</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main id=\"tmt-settings-page\" class=\"tmt-page tmt-settings\">\n      <p id=\"tmt-settings-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"tmt-settings-section\" class=\"tmt-settings-section tmt-ui-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/ops.html?raw
 var ops_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"ops\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Ops · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">Ops</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page ops\">\n      <p id=\"ops-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"ops-section\" class=\"ops-section tmt-ui-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
@@ -3520,16 +4434,6 @@ function compactCount(value) {
 	if (abs >= 1e3) return `${Math.round(value / 1e3)}K`;
 	return String(Math.round(value));
 }
-/**
-* Intensity of `value` against the largest `max`: null for a missing observation, 0 for a
-* known zero, otherwise 1..`steps` (LEVELS by default) on a square-root scale so small counts stay visible next to
-* one busy pair.
-*/
-function level(value, max, steps = 5) {
-	if (value == null) return null;
-	if (value <= 0 || max <= 0) return 0;
-	return Math.min(steps, Math.max(1, Math.ceil(Math.sqrt(value / max) * steps)));
-}
 /** SVG path data for a polyline through `points`. */
 function linePath(points) {
 	return points.map(([x, y], at) => `${at ? "L" : "M"}${round(x)} ${round(y)}`).join("");
@@ -3567,9 +4471,9 @@ function monotonePath(points) {
 * DOM helpers the leaf's chart painters share. No style attributes in markup: every look comes from a
 * `tmt-ui-chart-*` class, so a chart works under a strict style policy.
 */
-var SVG$1 = "http://www.w3.org/2000/svg";
+var SVG = "http://www.w3.org/2000/svg";
 function svgEl(name, attrs = {}, className) {
-	const node = document.createElementNS(SVG$1, name);
+	const node = document.createElementNS(SVG, name);
 	for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
 	if (className) node.setAttribute("class", className);
 	return node;
@@ -3623,112 +4527,6 @@ function dataTable(caption, columns, rows) {
 	const box = htmlEl("div", "tmt-ui-chart-data");
 	box.append(table);
 	return box;
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/chart-matrix-model.ts
-/** The matrix as plain data: every cell's text, intensity and spoken label. */
-function matrixModel(options) {
-	const people = options.participants;
-	let max = 0;
-	for (const from of people) for (const to of people) if (from.id !== to.id) max = Math.max(max, options.value(from.id, to.id) ?? 0);
-	return {
-		columns: [...people.map((person) => person.label), ...options.sum ? ["sum"] : []],
-		rows: people.map((from) => {
-			let sent = null;
-			const cells = people.map((to) => {
-				if (from.id === to.id) return {
-					text: options.numeric ? "—" : "",
-					level: 0,
-					self: true,
-					label: `${from.label} to itself`
-				};
-				const count = options.value(from.id, to.id);
-				if (count != null) sent = (sent ?? 0) + count;
-				return {
-					text: count == null ? "—" : count === 0 ? options.numeric ? "0" : "·" : compactCount(count),
-					level: level(count, max) ?? 0,
-					self: false,
-					label: `${from.label} to ${to.label}: ${count == null ? "unavailable" : count}`
-				};
-			});
-			return {
-				label: from.label,
-				cells,
-				sum: options.sum ? sent == null ? "—" : compactCount(sent) : void 0
-			};
-		})
-	};
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/chart-matrix.ts
-/**
-* Who talks to whom: sender rows, recipient columns. A cell reads a number, `·` (observed none)
-* or `—` (unavailable); the default diagonal is blank. Default intensity is a square-root step of the busiest
-* pair, carried by class names that keep their text readable on both themes.
-*/
-function createMatrix(options) {
-	const figure = htmlEl("figure", "tmt-ui-chart");
-	if (options.numeric) figure.dataset.numeric = "";
-	figure.append(htmlEl("figcaption", "tmt-ui-chart-title", options.title));
-	if (!options.participants.length) {
-		figure.append(htmlEl("p", "tmt-ui-chart-empty", options.empty ?? "No agents observed."));
-		return figure;
-	}
-	const model = matrixModel(options);
-	const table = htmlEl("table", "tmt-ui-chart-matrix");
-	const head = htmlEl("tr");
-	const corner = htmlEl("th", "tmt-ui-chart-matrix-corner", options.numeric ? "From →" : "from\\to");
-	corner.scope = "col";
-	head.append(corner);
-	for (const label of model.columns) {
-		const column = htmlEl("th", "tmt-ui-chart-matrix-column");
-		column.scope = "col";
-		column.title = label;
-		column.append(htmlEl("span", "tmt-ui-chart-matrix-name", label));
-		head.append(column);
-	}
-	const thead = htmlEl("thead");
-	thead.append(head);
-	const body = htmlEl("tbody");
-	for (const row of model.rows) {
-		const line = htmlEl("tr");
-		const name = htmlEl("th", "tmt-ui-chart-matrix-row");
-		name.scope = "row";
-		name.title = row.label;
-		name.append(htmlEl("span", "tmt-ui-chart-matrix-name", row.label));
-		line.append(name);
-		for (const cell of row.cells) {
-			const node = htmlEl("td", "tmt-ui-chart-cell", cell.text);
-			node.setAttribute("aria-label", cell.label);
-			if (cell.self) node.classList.add("tmt-ui-chart-cell-self");
-			if (cell.level) node.classList.add(`tmt-ui-chart-level-${cell.level}`);
-			line.append(node);
-		}
-		if (row.sum !== void 0) line.append(htmlEl("td", "tmt-ui-chart-cell tmt-ui-chart-cell-sum", row.sum));
-		body.append(line);
-	}
-	table.append(thead, body);
-	const scroll = htmlEl("div", "tmt-ui-chart-scroll");
-	scroll.tabIndex = 0;
-	scroll.setAttribute("role", "region");
-	scroll.setAttribute("aria-label", options.title);
-	scroll.append(table);
-	const viewport = htmlEl("div", "tmt-ui-chart-matrix-viewport");
-	const edge = htmlEl("span", "tmt-ui-chart-matrix-edge");
-	edge.setAttribute("aria-hidden", "true");
-	edge.hidden = true;
-	const updateEdge = () => {
-		edge.hidden = scroll.scrollWidth - scroll.clientWidth - scroll.scrollLeft <= 1;
-	};
-	scroll.addEventListener("scroll", updateEdge, { passive: true });
-	if (typeof ResizeObserver !== "undefined") {
-		const observer = new ResizeObserver(updateEdge);
-		observer.observe(scroll);
-		observer.observe(table);
-	}
-	viewport.append(scroll, edge);
-	figure.append(viewport);
-	return figure;
 }
 var OTHER_STYLE = 7;
 var styleOf = (layer, i, first = 0) => layer.key === "other" ? OTHER_STYLE : (first + i) % 7;
@@ -4013,176 +4811,6 @@ function createSeriesChart(options) {
 	frame.append(plot, tip);
 	figure.append(frame, readout, legend, dataTable(options.title, first.table.columns, first.table.rows));
 	paintAtWidth(figure, 640, paint);
-	return figure;
-}
-/**
-* Each row scaled to its own busiest slot, so a quiet seat still shows its pattern. An unknown
-* slot stays hollow and a known quiet one is the empty step: no data never reads as silence.
-*/
-function stripsModel(options) {
-	const format = options.format ?? compactCount;
-	return { rows: options.rows.map((row) => {
-		const max = Math.max(0, ...row.slots.map((v) => v ?? 0));
-		const active = row.slots.filter((v) => (v ?? 0) > 0).length;
-		const known = row.slots.filter((v) => v != null).length;
-		return {
-			label: row.label,
-			summary: `${row.label}: active in ${active} of ${known} observed slots`,
-			slots: Array.from({ length: options.slotCount }, (_, at) => {
-				const value = row.slots[at];
-				const range = options.slotRange(at);
-				const text = value == null ? "not observed" : `${format(value)} tokens`;
-				return {
-					level: level(value, max, 4),
-					tip: {
-						seat: row.label,
-						range,
-						value: text
-					},
-					label: `${row.label}, ${range}: ${text}`
-				};
-			})
-		};
-	}) };
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/chart-strips.ts
-/** `Less ▢▢▢▢▢ More`: the swatches of the intensity steps, for a strip's caption or card header. */
-function stripsLegend() {
-	const legend = htmlEl("div", "tmt-ui-chart-strip-legend");
-	legend.setAttribute("aria-hidden", "true");
-	legend.append(htmlEl("span", void 0, "Less"));
-	for (let step = 0; step <= 4; step += 1) legend.append(htmlEl("span", `tmt-ui-chart-slot tmt-ui-chart-slot-${step}`));
-	legend.append(htmlEl("span", void 0, "More"));
-	return legend;
-}
-/**
-* Rows of fixed square slots, like a contribution graph: when each seat was active, scaled to
-* that row's busiest slot. The row is as long as its slot count; a slot's tip (hover or focus)
-* names the seat, the time range and the tokens.
-*/
-function createStrips(options) {
-	const figure = htmlEl("figure", "tmt-ui-chart");
-	if (options.layout) figure.dataset.layout = options.layout;
-	figure.append(htmlEl("figcaption", "tmt-ui-chart-title", options.title));
-	if (!options.rows.length) {
-		figure.append(htmlEl("p", "tmt-ui-chart-empty", options.empty ?? "No agents observed."));
-		return figure;
-	}
-	const frame = htmlEl("div", "tmt-ui-chart-frame");
-	const list = htmlEl("ul", "tmt-ui-chart-strips");
-	list.style.setProperty("--tmt-chart-strip-count", String(options.slotCount));
-	const tip = htmlEl("div", "tmt-ui-chart-tip");
-	tip.hidden = true;
-	tip.setAttribute("aria-hidden", "true");
-	if (options.labels) {
-		const dates = htmlEl("li", "tmt-ui-chart-strip-row");
-		dates.setAttribute("aria-hidden", "true");
-		const labels = htmlEl("div", "tmt-ui-chart-strip tmt-ui-chart-strip-ends");
-		for (const label of options.labels) labels.append(htmlEl("span", "tmt-ui-chart-strip-date", label));
-		dates.append(htmlEl("span", "tmt-ui-chart-strip-label"), labels);
-		list.append(dates);
-	}
-	const grid = [];
-	for (const row of stripsModel(options).rows) {
-		const item = htmlEl("li", "tmt-ui-chart-strip-row");
-		item.setAttribute("aria-label", row.summary);
-		const name = htmlEl("span", "tmt-ui-chart-strip-label", row.label);
-		name.title = row.label;
-		const strip = htmlEl("div", "tmt-ui-chart-strip");
-		const cells = [];
-		for (const slot of row.slots) {
-			const node = htmlEl("span", "tmt-ui-chart-slot");
-			node.classList.add(slot.level === null ? "tmt-ui-chart-slot-none" : `tmt-ui-chart-slot-${slot.level}`);
-			node.setAttribute("role", "img");
-			node.setAttribute("aria-label", slot.label);
-			node.tabIndex = -1;
-			strip.append(node);
-			cells.push({
-				node,
-				tip: slot.tip
-			});
-		}
-		grid.push(cells);
-		item.append(name, strip);
-		list.append(item);
-	}
-	grid[0][0].node.tabIndex = 0;
-	const ends = htmlEl("li", "tmt-ui-chart-strip-row");
-	ends.setAttribute("aria-hidden", "true");
-	const span = htmlEl("div", "tmt-ui-chart-strip-ends");
-	span.append(htmlEl("span", void 0, options.ends[0]), htmlEl("span", void 0, options.ends[1]));
-	ends.append(htmlEl("span", "tmt-ui-chart-strip-label"), span);
-	if (options.layout !== "heatmap") list.append(ends);
-	const find = (target) => {
-		const node = target?.closest(".tmt-ui-chart-slot");
-		if (!node) return void 0;
-		for (const [r, cells] of grid.entries()) {
-			const c = cells.findIndex((cell) => cell.node === node);
-			if (c >= 0) return {
-				r,
-				c
-			};
-		}
-	};
-	function show(r, c) {
-		const cell = grid[r][c];
-		tip.replaceChildren(htmlEl("div", "tmt-ui-chart-tip-title", cell.tip.seat), htmlEl("div", void 0, cell.tip.range), htmlEl("div", "tmt-ui-chart-legend-value", cell.tip.value));
-		tip.hidden = false;
-		const box = cell.node.getBoundingClientRect();
-		const at = frame.getBoundingClientRect();
-		const left = box.left - at.left + box.width / 2 - tip.offsetWidth / 2;
-		tip.style.left = `${Math.max(0, Math.min(left, at.width - tip.offsetWidth))}px`;
-		tip.style.top = `${box.bottom - at.top + 6}px`;
-	}
-	const hide = () => tip.hidden = true;
-	list.addEventListener("pointerover", (event) => {
-		const at = find(event.target);
-		if (at) show(at.r, at.c);
-	});
-	list.addEventListener("pointerleave", () => {
-		const focused = find(document.activeElement);
-		if (focused) show(focused.r, focused.c);
-		else hide();
-	});
-	list.addEventListener("focusin", (event) => {
-		const at = find(event.target);
-		if (at) show(at.r, at.c);
-	});
-	list.addEventListener("focusout", hide);
-	list.addEventListener("keydown", (event) => {
-		const at = find(event.target);
-		if (!at) return;
-		const row = grid[at.r];
-		const to = event.key === "ArrowRight" ? {
-			r: at.r,
-			c: Math.min(row.length - 1, at.c + 1)
-		} : event.key === "ArrowLeft" ? {
-			r: at.r,
-			c: Math.max(0, at.c - 1)
-		} : event.key === "ArrowDown" ? {
-			r: Math.min(grid.length - 1, at.r + 1),
-			c: at.c
-		} : event.key === "ArrowUp" ? {
-			r: Math.max(0, at.r - 1),
-			c: at.c
-		} : event.key === "Home" ? {
-			r: at.r,
-			c: 0
-		} : event.key === "End" ? {
-			r: at.r,
-			c: row.length - 1
-		} : void 0;
-		if (!to) return;
-		event.preventDefault();
-		grid[at.r][at.c].node.tabIndex = -1;
-		const next = grid[to.r][to.c].node;
-		next.tabIndex = 0;
-		next.focus();
-	});
-	frame.append(list, tip);
-	figure.append(frame);
-	if (options.legend !== false) figure.append(stripsLegend());
 	return figure;
 }
 //#endregion
@@ -4558,63 +5186,6 @@ function exchange(doc) {
 		value: (from, to) => pairs.get(`${from}>${to}`) ?? 0
 	};
 }
-/** Seats by tokens in the window, largest first (ties by name), as `rankRows` orders them. */
-function ranked(seats) {
-	return [...seats].sort((a, b) => tokensOf(b.totals) - tokensOf(a.totals) || seatName(a).localeCompare(seatName(b)));
-}
-var SLOTS = {
-	"24h": {
-		count: 24,
-		stepMs: HOUR,
-		group: 4
-	},
-	"7d": {
-		count: 7,
-		stepMs: DAY,
-		group: 1
-	},
-	"30d": {
-		count: 30,
-		stepMs: DAY,
-		group: 5
-	}
-};
-/**
-* Group real hourly/daily reads into four-hour, daily or five-day activity bars. Bins align to
-* the displayed local four-hour clock (daily groups retain report boundaries). A rolling 24h
-* normally has seven clipped bars, with
-* partial first/last bins. No extra observations are invented. If any constituent is missing,
-* the whole bar is hollow; an observed zero remains zero. Incomplete reads remain lower bounds.
-*/
-function activity(doc) {
-	const shape = SLOTS[doc.since];
-	if (!shape) return null;
-	const latest = Math.max(...doc.usage.seats.flatMap((seat) => seat.series.map((point) => point.fromMs)));
-	if (!Number.isFinite(latest)) return null;
-	const first = latest - (shape.count - 1) * shape.stepMs;
-	const end = latest + shape.stepMs;
-	const stepMs = shape.stepMs * shape.group;
-	const groupAt = (at) => Math.floor((at - (doc.since === "24h" ? new Date(at).getTimezoneOffset() * 6e4 : 0)) / stepMs);
-	const bins = [];
-	for (let at = first; at < end; at += shape.stepMs) {
-		const bucket = groupAt(at);
-		const previous = bins[bins.length - 1];
-		if (previous && groupAt(previous[0]) === bucket) previous.push(at);
-		else bins.push([at]);
-	}
-	return {
-		starts: bins.map((bin) => bin[0]),
-		ends: bins.map((bin) => bin[bin.length - 1] + shape.stepMs),
-		rows: ranked(doc.usage.seats).map((seat) => {
-			const byStart = new Map(seat.series.map((point) => [point.fromMs, point]));
-			return {
-				id: seat.id,
-				label: seatName(seat),
-				slots: bins.map((bin) => bin.every((at) => byStart.has(at)) ? bin.reduce((sum, at) => sum + tokensOf(byStart.get(at)), 0) : null)
-			};
-		})
-	};
-}
 var PROVIDER_LABELS = {
 	claude: "Claude",
 	codex: "OpenAI"
@@ -4729,8 +5300,8 @@ function notAvailable(note, text) {
 //#endregion
 //#region src/digest-page.ts
 /**
-* The Digest usage report follows the concept website: provider allowance rows, the token
-* chart and seat legend, activity beside messages, and a coverage/method footer. It depends
+* The Digest usage report follows the concept website: provider allowance cards, the token
+* chart and seat legend, a full-width Messages heatmap, and a coverage/method footer. It depends
 * only on DigestSource; product data comes from the existing owner reads. Samples are injected
 * by tests, the gallery and local development. Range and view state belong to this mounted page.
 */
@@ -4745,6 +5316,19 @@ function el$1(name, className, text) {
 	if (className) node.className = className;
 	if (text !== void 0) node.textContent = text;
 	return node;
+}
+var SEAT_ORDER_KEY = "tmt-digest-seat-order";
+function readSeatOrder() {
+	try {
+		return localStorage.getItem(SEAT_ORDER_KEY) === "name" ? "name" : "usage";
+	} catch {
+		return "usage";
+	}
+}
+function writeSeatOrder(value) {
+	try {
+		localStorage.setItem(SEAT_ORDER_KEY, value);
+	} catch {}
 }
 /** A flat sheet with a sentence-case title and an optional right-hand slot in its head. */
 function card(id, title, body, options = {}) {
@@ -4761,11 +5345,6 @@ function card(id, title, body, options = {}) {
 	} else head.append(heading);
 	if (options.actions) head.append(options.actions);
 	node.append(head, ...body);
-	return node;
-}
-function row$1(className, ...cards) {
-	const node = el$1("div", `digest-row ${className}`);
-	node.append(...cards);
 	return node;
 }
 function table(head, rows) {
@@ -4879,10 +5458,12 @@ function providerRow(view, nowMs) {
 		minute: "2-digit",
 		timeZoneName: "short"
 	});
-	row.append(label, meter, observation, el$1("p", "usage-note", `Resets ${reset}`), el$1("p", "usage-note digest-reporters", `Reported by ${view.reporters.join(", ") || "unknown seats"}`), details);
+	const metadata = el$1("div", "digest-provider-metadata");
+	metadata.append(observation, el$1("p", "usage-note", `Resets ${reset}`), el$1("p", "usage-note digest-reporters", `Reported by ${view.reporters.join(", ") || "unknown seats"}`));
+	row.append(label, meter, metadata, details);
 	return row;
 }
-function allowanceRow(report) {
+function allowanceRow(report, state) {
 	const doc = report.allowance;
 	const intro = el$1("div", "digest-allowance-intro");
 	intro.append(el$1("h2", browserUiClasses.cardTitle, "Allowance"), el$1("p", "digest-subtitle", "Latest known weekly windows. Independent of the usage range."));
@@ -4891,7 +5472,12 @@ function allowanceRow(report) {
 	intro.querySelector("h2").id = "digest-allowance-title";
 	node.setAttribute("aria-labelledby", "digest-allowance-title");
 	const groups = el$1("div", "digest-provider-groups");
-	for (const group of providerGroups(doc)) {
+	groups.id = "digest-provider-groups";
+	groups.setAttribute("role", "region");
+	groups.setAttribute("aria-label", "Provider allowances");
+	const providers = providerGroups(doc);
+	if (providers.length > 2) groups.dataset.many = "";
+	for (const group of providers) {
 		const host = el$1("div", "digest-provider-group");
 		host.id = `digest-provider-${encodeURIComponent(group.source)}`;
 		if (group.primary) host.append(providerRow(group.primary, doc.observedAtMs));
@@ -4908,8 +5494,51 @@ function allowanceRow(report) {
 			other.append(summary, ...group.other.map((view) => providerRow(view, doc.observedAtMs)));
 			host.append(other);
 		}
+		const symbol = el$1("span", "digest-provider-symbol", group.source === "claude" ? "✳" : group.source === "codex" ? "⌘" : "○");
+		symbol.setAttribute("aria-hidden", "true");
+		host.querySelector(".digest-provider-label")?.prepend(symbol);
 		groups.append(host);
 	}
+	const controls = el$1("div", "digest-carousel-controls");
+	const previous = el$1("button", browserUiClasses.action, "←");
+	const next = el$1("button", browserUiClasses.action, "→");
+	for (const [button, name, direction] of [[
+		previous,
+		"Previous provider",
+		-1
+	], [
+		next,
+		"Next provider",
+		1
+	]]) {
+		button.type = "button";
+		button.dataset.variant = "secondary";
+		button.setAttribute("aria-label", name);
+		button.setAttribute("aria-controls", groups.id);
+		button.addEventListener("click", () => {
+			const step = (groups.firstElementChild?.getBoundingClientRect().width ?? groups.clientWidth) + Number.parseFloat(getComputedStyle(groups).columnGap);
+			groups.scrollBy({
+				left: direction * step,
+				behavior: "smooth"
+			});
+		});
+	}
+	const sync = () => {
+		const overflow = groups.scrollWidth > groups.clientWidth + 1;
+		controls.hidden = !overflow;
+		groups.tabIndex = overflow ? 0 : -1;
+		previous.disabled = groups.scrollLeft <= 1;
+		next.disabled = groups.scrollLeft + groups.clientWidth >= groups.scrollWidth - 1;
+	};
+	groups.addEventListener("scroll", sync);
+	const observer = new ResizeObserver(sync);
+	observer.observe(groups);
+	state.dispose.push(() => {
+		observer.disconnect();
+		groups.removeEventListener("scroll", sync);
+	});
+	controls.append(previous, next);
+	intro.append(controls);
 	node.append(intro, groups);
 	if (report.allowanceUnavailable) node.append(el$1("p", "usage-note", report.allowanceUnavailable));
 	else if (doc?.limits.some((limit) => !limit.provider)) node.append(el$1("p", "usage-note", "Some allowance windows have no reported provider. Upgrade TMT on your machine to identify them."));
@@ -4924,13 +5553,26 @@ function tokensCard(doc, state) {
 	chart.append(el$1("p", "digest-total-label", `Total${data.partial || doc.usage.unavailable.length > 0 || rows.some((row) => row.partial) ? " (lower bound)" : ""} · ${doc.since}`), el$1("p", "digest-total", rows.length ? compactCount(total) : "—"));
 	const host = el$1("div");
 	const draw = () => {
+		const layers = state.lines ? topLayers(data.layers, data.layers.length) : topLayers(data.layers, SERIES_KEPT);
+		const series = state.lines && state.share ? layers.map((layer) => ({
+			...layer,
+			values: layer.values.map((value, at) => {
+				if (value === null) return null;
+				const total = layers.reduce((sum, item) => sum + (item.values[at] ?? 0), 0);
+				return total ? value / total * 100 : 0;
+			})
+		})) : layers;
 		host.setAttribute("aria-labelledby", `digest-tokens-chart-${state.share ? "share" : "absolute"}`);
 		host.replaceChildren(createSeriesChart({
-			title: state.share ? "Share of tokens by seat" : "Tokens by seat",
-			kind: state.share ? "share" : "stack",
+			title: `${state.share ? "Share of tokens" : "Tokens"} by seat${state.lines ? " · Lines" : ""}`,
+			kind: state.lines ? "line" : state.share ? "share" : "stack",
 			curve: "monotone",
 			x: data.x,
-			series: topLayers(data.layers, SERIES_KEPT),
+			series,
+			...state.lines && state.share ? {
+				max: 100,
+				format: (value) => `${Math.round(value)}%`
+			} : {},
 			empty: "No token observations in this range."
 		}));
 		const plot = host.querySelector(".tmt-ui-chart-plot");
@@ -4938,7 +5580,8 @@ function tokensCard(doc, state) {
 	};
 	draw();
 	chart.append(host);
-	body.append(chart, legendTable(doc, state));
+	let legend = legendTable(doc, state);
+	body.append(chart, legend);
 	if (data.partial) chart.append(el$1("p", "usage-note", "Some buckets are incomplete: they are lower bounds, not errors."));
 	if (doc.usage.unavailable.length) chart.append(el$1("p", "usage-note", "Unavailable seats are not included in this total."));
 	host.id = "digest-tokens-chart";
@@ -4954,8 +5597,23 @@ function tokensCard(doc, state) {
 		state.share = value === "share";
 		draw();
 	});
+	const style = tabChoice("Chart style", host.id, [{
+		value: "stacked",
+		text: "Stacked"
+	}, {
+		value: "lines",
+		text: "Lines"
+	}], state.lines ? "lines" : "stacked", (value) => {
+		state.lines = value === "lines";
+		draw();
+		const next = legendTable(doc, state);
+		legend.replaceWith(next);
+		legend = next;
+	});
+	const controls = el$1("div", "digest-chart-controls");
+	controls.append(control, style);
 	return card("digest-tokens", "Token usage", [body], {
-		actions: control,
+		actions: controls,
 		subtitle: "A shared view, seat by seat."
 	});
 }
@@ -4967,9 +5625,11 @@ function seatLabel(name, partial) {
 	return node;
 }
 function legendTable(doc, state) {
-	const rows = rankRows(doc);
-	const view = ranking(rows, SERIES_KEPT);
-	const hue = new Map(topLayers(tokenSeries(doc).layers, SERIES_KEPT).filter((layer) => layer.key !== "other").map((layer, at) => [layer.key, at % 7]));
+	const ranked = rankRows(doc);
+	const rows = [...ranked].sort((a, b) => (state.order === "usage" ? b.tokens - a.tokens : 0) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+	const view = ranking(ranked, SERIES_KEPT);
+	const chartLayers = state.lines ? topLayers(tokenSeries(doc).layers, tokenSeries(doc).layers.length) : topLayers(tokenSeries(doc).layers, SERIES_KEPT);
+	const hue = new Map(chartLayers.filter((layer) => layer.key !== "other").map((layer, at) => [layer.key, at % 7]));
 	function legendSeat(id, name, partial) {
 		const label = el$1("span", "digest-legend-seat");
 		const dot = el$1("span", `tmt-ui-status-tile-dot tmt-ui-chart-s${hue.get(id) ?? OTHER_STEP}`);
@@ -4980,12 +5640,12 @@ function legendTable(doc, state) {
 	const host = el$1("div", "digest-ranking-table");
 	host.id = "digest-ranking-rows";
 	const draw = (all) => {
-		const lines = (all ? rows : view.top).map((entry) => [
+		const lines = (all || state.lines ? rows : rows.filter((row) => view.top.some((top) => top.id === row.id))).map((entry) => [
 			legendSeat(entry.id, entry.name, entry.partial),
 			compactCount(entry.tokens),
 			`${entry.share}%`
 		]);
-		if (!all && view.other) lines.push([
+		if (!all && !state.lines && view.other) lines.push([
 			legendSeat("other", `Other (${view.other.seats} seats)`, false),
 			compactCount(view.other.tokens),
 			`${view.other.share}%`
@@ -4999,7 +5659,7 @@ function legendTable(doc, state) {
 	draw(state.allSeats);
 	const body = [host];
 	if (view.partial) body.push(el$1("p", "usage-note", "* Partial: some of this range has no data for the seat."));
-	if (view.other) {
+	if (view.other && !state.lines) {
 		const toggle = el$1("button", browserUiClasses.action);
 		toggle.dataset.variant = "text";
 		toggle.type = "button";
@@ -5023,48 +5683,82 @@ function legendTable(doc, state) {
 	legend.append(...body);
 	return legend;
 }
-function activityCard(doc) {
-	const view = activity(doc);
-	if (!view) return void 0;
-	const clock = (at) => new Date(at).toLocaleTimeString("en-GB", {
-		hour: "2-digit",
-		minute: "2-digit"
-	});
-	const day = (at) => new Date(at).toLocaleDateString("en-GB", {
-		weekday: "short",
-		day: "numeric",
-		month: "short"
-	});
-	const hourly = doc.since === "24h";
-	const range = (at) => {
-		const start = view.starts[at];
-		return hourly ? `${clock(start)}–${clock(view.ends[at])}` : `${day(start)}–${day(view.ends[at] - 1)}`;
-	};
-	return card("digest-activity", "Activity by seat", [createStrips({
-		layout: "heatmap",
-		labels: view.starts.map((at) => hourly ? clock(at) : new Date(at).toLocaleDateString("en-GB", {
-			month: "short",
-			day: "numeric"
-		})),
-		title: `Relative token activity · ${hourly ? "4-hour blocks" : doc.since === "7d" ? "daily" : "5-day blocks"}`,
-		rows: view.rows,
-		slotCount: view.starts.length,
-		slotRange: range,
-		ends: [doc.since + " ago", "now"],
-		legend: false
-	}), el$1("p", "usage-note", "Edge blocks cover only the reported window. A block with any missing bucket stays hollow; incomplete buckets are lower bounds.")]);
-}
-function exchangeCard(doc) {
+/** This one caller owns its count heatmap; report aggregation remains in exchange(). */
+function exchangeCard(doc, state) {
 	const flow = exchange(doc);
-	const matrix = flow ? createMatrix({
-		title: `Messages, last ${doc.since}`,
-		participants: flow.participants,
-		value: flow.value,
-		numeric: true
-	}) : el$1("p", "usage-note", "Message traffic is not available in this read.");
-	const scroll = matrix.querySelector(".tmt-ui-chart-scroll");
-	if (scroll) scroll.id = "digest-exchange-scroll";
-	return card("digest-exchange", "Messages between seats", [el$1("p", "digest-subtitle", `Talk and reply messages · ${doc.since}`), matrix]);
+	if (!flow) return card("digest-exchange", "Messages between seats", [el$1("p", "usage-note", "Message traffic is not available in this read.")]);
+	const totals = new Map(rankRows(doc).map((seat) => [seat.id, seat.tokens]));
+	const seats = [...flow.participants].sort((a, b) => (state.order === "usage" ? (totals.get(b.id) ?? 0) - (totals.get(a.id) ?? 0) : 0) || a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+	const maximum = Math.max(0, ...seats.flatMap((from) => seats.map((to) => from.id === to.id ? 0 : flow.value(from.id, to.id) ?? 0)));
+	const matrix = el$1("table", "digest-messages");
+	matrix.style.setProperty("--digest-message-columns", String(seats.length + 1));
+	if (seats.length > 6) matrix.dataset.large = "";
+	const caption = el$1("caption", "digest-visually-hidden", `Messages, last ${doc.since}`);
+	const header = el$1("tr");
+	const corner = el$1("th", void 0, "From →");
+	corner.scope = "col";
+	header.append(corner);
+	for (const seat of seats) {
+		const cell = el$1("th");
+		cell.scope = "col";
+		cell.dataset.seatId = seat.id;
+		cell.append(messageName(seat.label));
+		header.append(cell);
+	}
+	const head = el$1("thead");
+	head.append(header);
+	const body = el$1("tbody");
+	for (const from of seats) {
+		const row = el$1("tr");
+		const label = el$1("th");
+		label.scope = "row";
+		label.dataset.seatId = from.id;
+		label.append(messageName(from.label));
+		row.append(label);
+		for (const to of seats) {
+			const self = from.id === to.id;
+			const count = self ? null : flow.value(from.id, to.id);
+			const cell = el$1("td", void 0, count === null ? "—" : compactCount(count));
+			cell.dataset.from = from.id;
+			cell.dataset.to = to.id;
+			if (self) cell.dataset.self = "";
+			else if (count === null) cell.dataset.missing = "";
+			else if (count > 0) cell.dataset.level = String(Math.min(4, Math.ceil(count / maximum * 4)));
+			const text = self ? "same seat" : count === null ? "not observed" : `${count} messages`;
+			cell.setAttribute("aria-label", `${from.label} to ${to.label}: ${text}`);
+			cell.title = `${from.label} to ${to.label}: ${text}`;
+			row.append(cell);
+		}
+		body.append(row);
+	}
+	matrix.append(caption, head, body);
+	const viewport = el$1("div", "digest-messages-viewport");
+	const scroll = el$1("div", "digest-messages-scroll");
+	scroll.id = "digest-exchange-scroll";
+	scroll.setAttribute("role", "region");
+	scroll.setAttribute("aria-label", `Messages, last ${doc.since}`);
+	scroll.append(matrix);
+	const edge = el$1("span", "digest-messages-edge");
+	edge.setAttribute("aria-hidden", "true");
+	const sync = () => {
+		const overflow = scroll.scrollWidth > scroll.clientWidth + 1;
+		scroll.tabIndex = overflow ? 0 : -1;
+		edge.hidden = !overflow || scroll.scrollLeft + scroll.clientWidth >= scroll.scrollWidth - 1;
+	};
+	scroll.addEventListener("scroll", sync);
+	const observer = new ResizeObserver(sync);
+	observer.observe(scroll);
+	state.dispose.push(() => {
+		observer.disconnect();
+		scroll.removeEventListener("scroll", sync);
+	});
+	viewport.append(scroll, edge);
+	return card("digest-exchange", "Messages between seats", [el$1("p", "digest-subtitle", `Talk and reply messages · ${doc.since}`), viewport]);
+}
+function messageName(text) {
+	const label = el$1("span", "digest-message-name", text);
+	label.title = text;
+	return label;
 }
 /** The sources the usage read does not carry yet, one line each, with the method below. */
 function coverageCard() {
@@ -5079,12 +5773,15 @@ function coverageCard() {
 		const line = el$1("div", "digest-gap");
 		const status = el$1("dd");
 		status.append(el$1("span", "digest-subtitle", "Not connected"));
-		line.append(el$1("dt", void 0, term === "Machine" ? "Machine load" : term), status);
+		const name = el$1("dt", void 0, term === "Machine" ? "Machine load" : term);
+		const marker = el$1("span", "digest-coverage-marker");
+		marker.setAttribute("aria-hidden", "true");
+		name.prepend(marker);
+		line.append(name, status);
 		line.title = source;
 		list.append(line);
 	}
 	const method = el$1("details", browserUiClasses.disclosure);
-	method.dataset.divided = "";
 	method.id = "digest-method";
 	const summary = el$1("summary", void 0, "Method & caveats");
 	summary.id = "digest-method-summary";
@@ -5127,13 +5824,39 @@ function digestPage(source = createDigestSource(), signal) {
 	let good;
 	const state = {
 		share: false,
-		allSeats: false
+		allSeats: false,
+		lines: false,
+		order: readSeatOrder(),
+		dispose: []
 	};
+	signal?.addEventListener("abort", () => {
+		state.dispose.splice(0).forEach((dispose) => dispose());
+	}, { once: true });
+	const sort = el$1("div", "digest-seat-order");
+	const renderSort = () => {
+		sort.replaceChildren(el$1("span", "digest-sort-label", "Seat order"), tabChoice("Seat order", "usage-panel", [{
+			value: "usage",
+			text: "Usage"
+		}, {
+			value: "name",
+			text: "Name"
+		}], state.order, (value) => {
+			state.order = value;
+			writeSeatOrder(value);
+			if (good?.range === current) paint(good, false);
+			renderSort();
+			document.getElementById(`usage-panel-${state.order}`)?.focus({ preventScroll: true });
+		}));
+	};
+	renderSort();
+	tabs.closest(".digest-controls")?.append(sort);
 	const disclosures = /* @__PURE__ */ new Map();
 	let matrixLeft = 0;
+	let providerLeft = 0;
 	function rememberView() {
 		for (const detail of panel.querySelectorAll("details[id]")) disclosures.set(detail.id, detail.hasAttribute("open"));
 		matrixLeft = document.getElementById("digest-exchange-scroll")?.scrollLeft ?? matrixLeft;
+		providerLeft = document.getElementById("digest-provider-groups")?.scrollLeft ?? providerLeft;
 	}
 	const buttons = USAGE_RANGES.map((range) => {
 		const button = el$1("button", browserUiClasses.tab, range);
@@ -5153,7 +5876,7 @@ function digestPage(source = createDigestSource(), signal) {
 		return button;
 	});
 	tabs.replaceChildren(...buttons);
-	function paint(report) {
+	function paint(report, updateNotice = true) {
 		rememberView();
 		const focusId = panel.contains(document.activeElement) ? document.activeElement?.id : void 0;
 		shown = fingerprint(report);
@@ -5161,20 +5884,23 @@ function digestPage(source = createDigestSource(), signal) {
 		badge.hidden = true;
 		badgeLabel.textContent = "";
 		if (report.unavailable || !report.document) {
+			state.dispose.splice(0).forEach((dispose) => dispose());
 			panel.replaceChildren();
 			return notAvailable(note, report.unavailable ?? "Usage is not available.");
 		}
 		good = report;
 		const doc = report.document;
-		const activityBlock = activityCard(doc);
-		panel.replaceChildren(allowanceRow(report), tokensCard(doc, state), row$1("digest-row-activity", ...activityBlock ? [activityBlock] : [], exchangeCard(doc)), coverageCard());
+		state.dispose.splice(0).forEach((dispose) => dispose());
+		panel.replaceChildren(allowanceRow(report, state), tokensCard(doc, state), exchangeCard(doc, state), coverageCard());
 		for (const detail of panel.querySelectorAll("details[id]")) detail.open = disclosures.get(detail.id) ?? false;
 		const scroll = document.getElementById("digest-exchange-scroll");
 		if (scroll) scroll.scrollLeft = matrixLeft;
+		const providers = document.getElementById("digest-provider-groups");
+		if (providers) providers.scrollLeft = providerLeft;
 		if (focusId) document.getElementById(focusId)?.focus({ preventScroll: true });
 		if (report.sample) badgeLabel.textContent = "Sample data";
 		badge.hidden = !report.sample;
-		ordinaryNote(report);
+		if (updateNotice) ordinaryNote(report);
 	}
 	/** The note a good report carries: the sample's preview line, else nothing. */
 	function ordinaryNote(report) {
@@ -5210,6 +5936,7 @@ function digestPage(source = createDigestSource(), signal) {
 			button.tabIndex = selected ? 0 : -1;
 		}
 		rememberView();
+		state.dispose.splice(0).forEach((dispose) => dispose());
 		panel.replaceChildren(pageLoading());
 		const report = await source.report(range, signal);
 		if (mine !== generation || signal?.aborted) return;
@@ -5273,22 +6000,6 @@ function moduleLoad(rail, entry, here, fallback) {
 		link,
 		entry: target.href
 	} : { link };
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/glyph.ts
-var SVG = "http://www.w3.org/2000/svg";
-/** A line icon from the shared icon nodes, for a framework-free page: it takes the text colour. */
-function createIcon(name, doc = document) {
-	const svg = doc.createElementNS(SVG, "svg");
-	svg.setAttribute("class", browserUiClasses.glyph);
-	svg.setAttribute("viewBox", "0 0 24 24");
-	svg.setAttribute("aria-hidden", "true");
-	for (const [tag, attributes] of shellIconNodes[name]) {
-		const node = doc.createElementNS(SVG, tag);
-		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
-		svg.append(node);
-	}
-	return svg;
 }
 //#endregion
 //#region src/ops-source.ts
@@ -5408,6 +6119,34 @@ function boardFromAnswer(answer) {
 var opsSource = { async board(signal) {
 	return boardFromAnswer(await ownerRead("ops", signal));
 } };
+//#endregion
+//#region src/command-copy.ts
+/** A terminal reference with best-effort Copy and inline status; it never executes the command. */
+function commandCopy(text) {
+	const command = document.createElement("div");
+	command.className = browserUiClasses.command;
+	const code = document.createElement("code");
+	code.className = browserUiClasses.commandText;
+	code.textContent = text;
+	const copy = document.createElement("button");
+	copy.className = browserUiClasses.commandCopy;
+	copy.type = "button";
+	copy.setAttribute("aria-label", `Copy ${text}`);
+	copy.append(createIcon("copy"), "Copy");
+	const feedback = document.createElement("span");
+	feedback.className = browserUiClasses.commandFeedback;
+	feedback.setAttribute("role", "status");
+	copy.addEventListener("click", async () => {
+		try {
+			await navigator.clipboard.writeText(text);
+			feedback.textContent = "Copied.";
+		} catch {
+			feedback.textContent = "Copy failed. Select the command and copy it manually.";
+		}
+	});
+	command.append(code, copy, feedback);
+	return command;
+}
 //#endregion
 //#region src/ops-parts.ts
 /** The pieces the Ops sections share: element and mark helpers, the state chip, the count strip,
@@ -5533,23 +6272,7 @@ function terminalCard(options) {
 	tile.append(createIcon("terminal"));
 	const title = el("h3", browserUiClasses.cardTitle, options.title);
 	title.id = options.id;
-	const command = el("span", browserUiClasses.command);
-	const copy = el("button", browserUiClasses.commandCopy);
-	copy.type = "button";
-	copy.setAttribute("aria-label", "Copy tmt ops ui");
-	copy.append(createIcon("copy"), "Copy");
-	const feedback = el("span", browserUiClasses.commandFeedback);
-	feedback.setAttribute("role", "status");
-	copy.addEventListener("click", async () => {
-		try {
-			await navigator.clipboard.writeText("tmt ops ui");
-			feedback.textContent = "Copied.";
-		} catch {
-			feedback.textContent = "Copy failed. Select the command and copy it manually.";
-		}
-	});
-	command.append(el("code", browserUiClasses.commandText, "tmt ops ui"), copy, feedback);
-	card.append(tile, title, el("p", void 0, options.text), command);
+	card.append(tile, title, el("p", void 0, options.text), commandCopy("tmt ops ui"));
 	return card;
 }
 var keyOf = (agent) => `${agent.squad}/${agent.name}`;
@@ -6246,53 +6969,6 @@ async function remoteApp(shell, main, bar, settingsStyles, pages) {
 	await show();
 }
 //#endregion
-//#region ../../../../design/browser-ui/src/theme.ts
-/**
-* The per-browser colour theme (#3937). The tokens answer to `data-theme` on the root: `light` and
-* `dark` pin a theme, and no attribute follows the device (`prefers-color-scheme`). The choice is
-* stored in this browser only; storage that is blocked or full never breaks the page, which then
-* follows the device.
-*/
-var THEMES = [
-	"system",
-	"light",
-	"dark"
-];
-var themeStorageKey = "tmt-ui-theme";
-function browserStore() {
-	try {
-		return globalThis.localStorage;
-	} catch {
-		return;
-	}
-}
-/** The stored choice; `system` when none is stored, storage is blocked or the value is unknown. */
-function storedTheme(store = browserStore()) {
-	try {
-		const value = store?.getItem(themeStorageKey);
-		return THEMES.find((theme) => theme === value) ?? "system";
-	} catch {
-		return "system";
-	}
-}
-/** Set the root's theme for a choice: `system` leaves the tokens to the device. */
-function applyTheme(choice, root = document.documentElement) {
-	if (choice === "system") root.removeAttribute("data-theme");
-	else root.setAttribute("data-theme", choice);
-}
-/** Apply the stored choice; call once when the app starts, before the first paint of a page. */
-function applyStoredTheme(root, store) {
-	applyTheme(storedTheme(store), root);
-}
-/** Store a choice for this browser and apply it now. `system` clears the stored choice. */
-function setStoredTheme(choice, root, store = browserStore()) {
-	try {
-		if (choice === "system") store?.removeItem(themeStorageKey);
-		else store?.setItem(themeStorageKey, choice);
-	} catch {}
-	applyTheme(choice, root);
-}
-//#endregion
 //#region src/settings-source.ts
 /**
 * What the TMT settings page (`/settings`) reads: this machine's identities, installed modules,
@@ -6439,29 +7115,24 @@ function row(item) {
 	node.append(sign, name, info);
 	return node;
 }
-function heading(text) {
-	const node = document.createElement("h2");
-	node.className = browserUiClasses.sectionHeading;
-	node.textContent = text;
-	return node;
-}
 /** The theme choice: one tab per theme; picking one stores it for this browser and applies it. */
 function themeChoice() {
 	const group = document.createElement("div");
-	group.className = "tmt-ui-tab-list";
+	group.className = "tmt-settings-themes";
 	group.setAttribute("role", "tablist");
 	group.setAttribute("aria-label", "Theme");
 	let current = storedTheme();
 	const buttons = THEMES.map((theme) => {
 		const button = document.createElement("button");
 		button.type = "button";
-		button.className = "tmt-ui-tab";
+		button.className = "tmt-settings-theme";
 		button.setAttribute("role", "tab");
 		button.dataset.choice = theme;
-		const label = document.createElement("span");
-		label.className = "tmt-ui-tab-label";
-		label.textContent = THEME_LABELS[theme];
-		button.append(label);
+		const label = element$1("span", "tmt-settings-theme-label");
+		const radio = element$1("span", "tmt-settings-theme-radio");
+		radio.setAttribute("aria-hidden", "true");
+		label.append(radio, element$1("span", void 0, THEME_LABELS[theme]));
+		button.append(themePreview(theme), label);
 		return button;
 	});
 	const show = (theme) => {
@@ -6491,8 +7162,96 @@ function themeChoice() {
 	group.append(...buttons);
 	return group;
 }
+/** General owns its presentation; the source and theme owner supply the only values. */
+function element$1(tag, className, text) {
+	const node = document.createElement(tag);
+	if (className) node.className = className;
+	if (text !== void 0) node.textContent = text;
+	return node;
+}
+function themePreview(theme) {
+	const preview = element$1("span", "tmt-settings-theme-preview");
+	preview.setAttribute("aria-hidden", "true");
+	for (const choice of theme === "system" ? ["dark", "light"] : [theme]) {
+		const half = element$1("span", "tmt-settings-theme-preview-half");
+		half.setAttribute("data-theme", choice);
+		const side = element$1("span", "tmt-settings-theme-preview-side");
+		const main = element$1("span", "tmt-settings-theme-preview-main");
+		for (let index = 0; index < 4; index += 1) {
+			side.append(element$1("i"));
+			main.append(element$1("i"));
+		}
+		half.append(side, main);
+		preview.append(half);
+	}
+	return preview;
+}
+function settingsCard(title, id) {
+	const card = element$1("section", `${browserUiClasses.card} tmt-settings-card`);
+	card.setAttribute("aria-labelledby", id);
+	const heading = element$1("h2", browserUiClasses.cardTitle, title);
+	heading.id = id;
+	card.append(heading);
+	return card;
+}
+function generalView(settings) {
+	const head = element$1("div", browserUiClasses.pageHead);
+	head.append(element$1("h2", browserUiClasses.pageTitle, "Make TMT feel like yours."), element$1("p", browserUiClasses.pageSubtitle, "A familiar space, with just the right amount of you."));
+	const appearance = settingsCard("Appearance", "tmt-settings-appearance-title");
+	appearance.append(element$1("p", "tmt-settings-intro", "Choose how TMT looks in this browser."), themeChoice(), element$1("p", "tmt-settings-help", "Saved in this browser only. System follows this device."));
+	const core = settingsCard("Core configuration", "tmt-settings-core-title");
+	const badge = element$1("span", `${browserUiClasses.chip} tmt-settings-read-only`);
+	badge.append(createIcon("lock"), element$1("span", browserUiClasses.chipLabel, "Read only"));
+	core.append(badge);
+	const rows = settingsRows("general", settings);
+	if (rows.length) {
+		const list = element$1("ul", "tmt-ui-list");
+		list.append(...rows.map(row));
+		core.append(list);
+	}
+	if (!rows.length || settings.general.unavailable) {
+		const warning = element$1("div", "tmt-settings-warning");
+		warning.setAttribute("role", "note");
+		const title = element$1("strong");
+		const mark = createIcon("triangle-alert");
+		title.append(mark, element$1("span", void 0, settings.general.unavailable ? "This browser cannot read Core settings yet." : "No settings to show."));
+		warning.append(title, element$1("p", void 0, "View machine configuration in your terminal."));
+		const reason = settings.general.unavailable;
+		if (reason && reason !== notInBrowser("TMT settings", "tmt config show")) {
+			const detail = element$1("p");
+			notAvailable(detail, reason);
+			warning.append(detail);
+		}
+		warning.append(commandCopy("tmt config show"));
+		core.append(warning);
+	} else core.append(commandCopy("tmt config show"));
+	const primary = element$1("div", "tmt-settings-stack");
+	primary.append(appearance, core);
+	const machine = settingsCard("Your machine.", "tmt-settings-machine-title");
+	machine.firstElementChild.append(element$1("br"), element$1("span", void 0, "Your configuration."));
+	const tile = element$1("span", browserUiClasses.glyphTile);
+	tile.append(createIcon("terminal"));
+	machine.prepend(tile);
+	const machineText = element$1("p", "tmt-settings-help");
+	machineText.append(element$1("span", void 0, "Core settings live on your machine. Use "), element$1("code", void 0, "tmt config show"), element$1("span", void 0, " to read the current values."));
+	const link = element$1("a", "tmt-settings-link", "Browse modules →");
+	link.href = `${location.pathname}#modules`;
+	machine.append(machineText, element$1("hr", "tmt-settings-rule"), element$1("h3", void 0, "Looking for a module?"), element$1("p", "tmt-settings-help", "Find each module’s own settings, together in one place."), link);
+	const browser = settingsCard("Browser appearance", "tmt-settings-browser-title");
+	browser.append(element$1("p", "tmt-settings-help", "Appearance stays local to this browser. Machine configuration is managed with the existing terminal commands."));
+	const side = element$1("aside", "tmt-settings-stack");
+	side.append(machine, browser);
+	const grid = element$1("div", "tmt-settings-grid");
+	grid.append(primary, side);
+	return [
+		head,
+		grid,
+		element$1("p", "tmt-settings-foot", "Browser appearance · Machine configuration stays in the terminal")
+	];
+}
 /** The section's content. */
 function settingsSection(section, settings, links) {
+	if (section === "general") return generalView(settings);
 	const rows = settingsRows(section, settings, links);
 	const body = [];
 	if (rows.length) {
@@ -6506,17 +7265,7 @@ function settingsSection(section, settings, links) {
 		notAvailable(none, emptyText(section, settings));
 		body.push(none);
 	}
-	if (section !== "general") return body;
-	const help = document.createElement("p");
-	help.className = "home-note";
-	help.textContent = "System follows this device. Your choice is kept in this browser only.";
-	return [
-		heading("Theme"),
-		themeChoice(),
-		help,
-		heading("Settings"),
-		...body
-	];
+	return body;
 }
 /** The page in its route; everything it starts ends on the route's `shell.signal`. */
 function tmtSettingsPage(shell, source = settingsSource) {
@@ -6532,6 +7281,11 @@ function tmtSettingsPage(shell, source = settingsSource) {
 	const paint = () => {
 		if (!live()) return;
 		const section = current();
+		const page = document.getElementById("tmt-settings-page");
+		if (page) {
+			page.dataset.section = section;
+			page.className = `tmt-page tmt-settings${section === "general" ? " tmt-ui-page" : ""}`;
+		}
 		shell.setMenu({
 			title: "TMT settings",
 			groups: [{ items: SECTIONS.map((item) => ({

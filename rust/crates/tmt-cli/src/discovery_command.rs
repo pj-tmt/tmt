@@ -8,14 +8,121 @@ use std::{
 };
 use tmt_adapters::{
     config::ConfigPaths,
-    host::{CallerEnvironment, Host},
+    driver_protocol::registry::Admitted,
+    host::{CallerEnvironment, Host, HostError, Unselectable},
+    process::{CommandRunner, UnixCommandRunner},
 };
-use tmt_core::{discovery::*, host::HostKind};
+use tmt_core::{
+    discovery::*,
+    host::{HostKind, HostName},
+};
 
-/// `host` is the observed host, for a row without a fence.
+/// `host` is the observed host, for a row without a fence. A host's agent
+/// name is display only, and a row without one has no member.
 pub(super) fn candidate_document(c: &DiscoveryCandidate, host: HostKind) -> Value {
+    let mut row = row_document(c, host);
+    if let Some(name) = &c.agent_name {
+        row["display"]["agentName"] = name.as_str().into();
+    }
+    row
+}
+
+fn row_document(c: &DiscoveryCandidate, host: HostKind) -> Value {
     let fence = c.fence.as_ref();
     json!({"host":fence.map_or(host, |f| f.host).as_str(),"socket":fence.map(|f|&f.socket),"server":fence.map(|f|json!({"pid":f.server.pid(),"start":f.server.start_identity(),"identity":f.server_id})),"session":c.session,"window":c.window,"pane":c.pane,"target":c.target,"native":fence.map(|f|json!({"pid":f.process.pid(),"start":f.process.start_identity()})),"runtime":{"driver":fence.and_then(|f|f.runtime.as_ref()),"state":"unknown","reason":"executable_hint_is_advisory","recordedState":c.identity.as_ref().and_then(|e|e.binding.as_ref()).map(|b|b.session.state.as_str())},"identity":c.identity.as_ref().map(|e|json!({"id":e.identity.id,"name":e.identity.name,"binding":e.binding.as_ref().map(|b|&b.id)})),"state":c.state,"reason":c.reason,"duplicate":c.duplicate,"display":{"title":c.title,"command":c.command,"cwd":c.cwd,"truncated":c.text_truncated},"adoptable":c.adoptable(),"expect":fence.filter(|_|c.adoptable()).map(DiscoveryTarget::digest)})
+}
+
+/// The sources a scan reports instead of observing a host.
+struct Refusal {
+    hosts: Vec<String>,
+    status: &'static str,
+    reason: &'static str,
+}
+
+/// What selection chose: a host to observe, with any gap host reported
+/// beside it, or the sources a scan reports instead.
+enum Selected<R> {
+    Host(Box<Host<R>>, Option<Refusal>),
+    Refused(Refusal),
+}
+
+/// The host a scan observes. An explicit tmux selection or socket is never
+/// affected by driver approvals. An explicit external host runs only its
+/// admitted driver, on the caller's own server of that host when no socket
+/// is given. Implicit selection refuses, running nothing, when the caller's
+/// host cannot be known without a driver it must not run; tmux inside a gap
+/// host is scanned as usual, with the gap host reported beside it. Finding
+/// the caller's pane spends at most 1 s of the scan; a read that fails to
+/// clean up is an error, and nothing is observed.
+fn select<R: CommandRunner + Clone>(
+    runner: R,
+    selected_host: Option<&str>,
+    socket: Option<&str>,
+    admitted: &Admitted,
+    caller: &CallerEnvironment,
+    deadline: Instant,
+) -> Result<Selected<R>, HostError> {
+    let refuse = |host: &str, status, reason| {
+        Selected::Refused(Refusal {
+            hosts: vec![host.to_owned()],
+            status,
+            reason,
+        })
+    };
+    let records = || admitted.records.clone();
+    let within = deadline.min(Instant::now() + Duration::from_secs(1));
+    Ok(match selected_host {
+        Some(name) if name == HostKind::Tmux.as_str() => {
+            Selected::Host(Box::new(Host::for_caller_with(caller, runner)), None)
+        }
+        None if socket.is_some() => {
+            Selected::Host(Box::new(Host::for_caller_with(caller, runner)), None)
+        }
+        Some(name) => {
+            let host = HostName::new(name)
+                .filter(|_| admitted.records.iter().any(|record| record.name == name));
+            if let Some(host) = host {
+                let host = HostKind::External(host);
+                return Ok(Selected::Host(
+                    Box::new(match socket {
+                        Some(_) => Host::for_host(host, runner, records()),
+                        None => Host::for_selected_host(host, caller, runner, records(), within)?,
+                    }),
+                    None,
+                ));
+            }
+            match admitted.gaps.iter().find(|gap| gap.name == name) {
+                Some(gap) => refuse(name, "unsupported", gap.reason),
+                None if admitted.unreadable.is_some() => {
+                    refuse(name, "unknown", "driver_registry_unreadable")
+                }
+                None => refuse(name, "unsupported", "driver_not_approved"),
+            }
+        }
+        None => match caller.unselectable(admitted) {
+            Some(Unselectable::Gap(gap)) => refuse(&gap.name, "unsupported", gap.reason),
+            // Every named host is unknown; none is chosen.
+            Some(Unselectable::Ambiguous(hosts)) => Selected::Refused(Refusal {
+                hosts: hosts.into_iter().map(str::to_owned).collect(),
+                status: "unknown",
+                reason: "ambiguous_caller_host",
+            }),
+            // Without the registry only tmux is known, and it is not scanned.
+            Some(Unselectable::RegistryUnreadable) => refuse(
+                HostKind::Tmux.as_str(),
+                "unknown",
+                "driver_registry_unreadable",
+            ),
+            None => Selected::Host(
+                Box::new(Host::for_caller_within(caller, runner, records(), within)?),
+                caller.gap_beside_tmux(admitted).map(|gap| Refusal {
+                    hosts: vec![gap.name.clone()],
+                    status: "unsupported",
+                    reason: gap.reason,
+                }),
+            ),
+        },
+    })
 }
 
 pub fn execute(
@@ -25,27 +132,49 @@ pub fn execute(
 ) -> io::Result<u8> {
     let deadline = Instant::now() + Duration::from_millis(SCAN_BUDGET_MS);
     let mut document = json!({"version":1,"observedAtMs":tmt_adapters::request_runtime::wall_time_ms(),"sources":[],"candidates":[],"truncated":false});
-    let mut source = json!({"host":selected_host.unwrap_or(tmt_core::host::HostKind::Tmux.as_str()),"socket":socket,"status":"unknown","reason":null});
-    if selected_host.is_some_and(|h| h != tmt_core::host::HostKind::Tmux.as_str()) {
-        source["status"] = "unsupported".into();
-        source["reason"] = "Candidate discovery is unavailable for this host.".into();
-    } else {
-        let caller = CallerEnvironment::current();
-        let host =
-            if selected_host == Some(tmt_core::host::HostKind::Tmux.as_str()) || socket.is_some() {
-                Host::for_caller_with(&caller, tmt_adapters::process::UnixCommandRunner)
-            } else {
-                Host::for_caller(&caller)
-            };
-        match host.discover(socket, None, deadline) {
-            Ok(Some(mut observation)) => {
+    let mut source = json!({"host":selected_host.unwrap_or(HostKind::Tmux.as_str()),"socket":socket,"status":"unknown","reason":null});
+    // One read of the approvals; discovery never adopts or rewrites one.
+    let admitted = tmt_adapters::host::external::admitted();
+    tmt_adapters::host::external::register(&admitted.records);
+    let caller = CallerEnvironment::admitted(&admitted);
+    let selected = select(
+        UnixCommandRunner,
+        selected_host,
+        socket,
+        &admitted,
+        &caller,
+        deadline,
+    );
+    let mut selected = match selected {
+        Ok(selected) => selected,
+        Err(error) => return Failure::new("CLEANUP_ERROR", error.to_string(), 1).publish(mode),
+    };
+    // A gap host beside the scan is reported as the scan would have been
+    // before it observed anything: implicit, so with no socket.
+    let gap = match &mut selected {
+        Selected::Host(_, gap) => gap.take().map(|gap| refused_sources(&source, &gap)),
+        Selected::Refused(_) => None,
+    };
+    match selected {
+        Selected::Refused(refusal) => {
+            // An unknown source never claims a complete scan.
+            document["truncated"] = (refusal.status == "unknown").into();
+            document["sources"] = refused_sources(&source, &refusal).into();
+            return print(document, mode);
+        }
+        Selected::Host(host, _) => match host.discover(socket, None, deadline) {
+            Ok(mut observation) => {
                 let (status, reason) = observation.source.status();
                 source["host"] = observation.host.as_str().into();
                 source["socket"] = observation.socket.clone().into();
                 source["status"] = status.into();
                 source["reason"] = reason.into();
-                match ConfigPaths::discover() {
-                    Ok(paths) => {
+                // A source with no inventory (offline, unsupported or empty)
+                // has nothing to annotate; its outcome stands.
+                let paths = (!observation.candidates.is_empty()).then(ConfigPaths::discover);
+                match paths {
+                    None => {}
+                    Some(Ok(paths)) => {
                         if let Err(error) = tmt_adapters::discovery::annotate(
                             &mut observation,
                             &paths.database,
@@ -58,7 +187,7 @@ pub fn execute(
                             }
                         }
                     }
-                    Err(error) => {
+                    Some(Err(error)) => {
                         source["status"] = "unknown".into();
                         source["reason"] = error.to_string().into();
                         for c in &mut observation.candidates {
@@ -89,24 +218,45 @@ pub fn execute(
                 document["candidates"] = rows.into();
                 document["truncated"] = observation.truncated.into();
             }
-            Ok(None) => {
-                source["host"] = host.kind().as_str().into();
-                source["status"] = "unsupported".into();
-                source["reason"] = "Candidate discovery is unavailable for this host.".into();
-            }
             Err(error) => {
                 if error.cleanup_failed() {
                     return Failure::new("CLEANUP_ERROR", error.to_string(), 1).publish(mode);
                 }
                 source["host"] = host.kind().as_str().into();
-                source["status"] = tmt_adapters::discovery::source_status(&error, socket).into();
+                // A driver failure is never evidence that its server is gone.
+                source["status"] = match host.kind() {
+                    HostKind::Tmux => tmt_adapters::discovery::tmux_source_status(&error, socket),
+                    HostKind::External(_) => "unknown",
+                }
+                .into();
                 source["reason"] = error.to_string().into();
                 // An unavailable bounded acquisition never claims a complete scan.
                 document["truncated"] = true.into();
             }
-        }
+        },
     }
-    document["sources"] = json!([source]);
+    let mut sources = vec![source];
+    sources.extend(gap.into_iter().flatten());
+    document["sources"] = sources.into();
+    print(document, mode)
+}
+
+/// One source per refused host, each with the refusal's status and reason.
+fn refused_sources(template: &Value, refusal: &Refusal) -> Vec<Value> {
+    refusal
+        .hosts
+        .iter()
+        .map(|host| {
+            let mut source = template.clone();
+            source["host"] = host.as_str().into();
+            source["status"] = refusal.status.into();
+            source["reason"] = refusal.reason.into();
+            source
+        })
+        .collect()
+}
+
+fn print(document: Value, mode: OutputMode) -> io::Result<u8> {
     let mut output = tmt_cli_style::stream::stdout(mode.json);
     if mode.json {
         writeln!(output, "{document}")?;
@@ -147,6 +297,7 @@ mod tests {
             title: String::new(),
             command: String::new(),
             cwd: String::new(),
+            agent_name: None,
             fence,
             identity: None,
             state: "unknown",
@@ -176,5 +327,153 @@ mod tests {
         let row = candidate_document(&candidate(None), herdr);
         assert_eq!(row["host"], "herdr");
         assert_eq!(row["expect"], Value::Null);
+    }
+
+    /// Answers the caller's pane (its shell is this test process) and logs
+    /// every operation.
+    const DRIVER: &str = r#"#!/bin/sh
+d=$(dirname "$0")
+echo "$3" >> "$d/calls"
+cat > /dev/null
+case "$3" in
+  capabilities) printf '%s' '{"ok":{"protocols":[1],"kind":"host","name":"fake","version":"0.0.0-test","ops":["caller","server","snapshot"],"paneId":{"prefix":"fake-"},"target":"f{n}","callerEnv":["FAKE_PANE_ID"]}}' ;;
+  caller) printf '{"ok":{"pane":{"id":"fake-1","socket":"/tmp/fake.sock","shellPid":%s}}}' "$(cat "$d/pid")" ;;
+  *) printf '{"error":{"code":"unsupported","message":"no %s"}}' "$3" ;;
+esac
+"#;
+
+    /// The production runner, except that one read reports its child as not
+    /// cleaned up: the driver's `caller` call (`"caller"`), or any ancestry
+    /// `ps` read (`"ps"`). It never runs tmux, and logs every program.
+    #[derive(Clone)]
+    struct Unclean {
+        read: &'static str,
+        programs: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+    }
+
+    impl tmt_adapters::process::CommandRunner for Unclean {
+        fn execute(
+            &self,
+            request: tmt_adapters::process::CommandRequest<'_>,
+        ) -> Result<tmt_adapters::process::CommandOutput, tmt_adapters::process::CommandError>
+        {
+            use tmt_adapters::process::CommandRequest;
+            let program = request.program.to_string_lossy().into_owned();
+            let args: Vec<String> = request
+                .args
+                .iter()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            self.programs.borrow_mut().push(program.clone());
+            let failed = |cleanup: bool| {
+                let mut error = UnixCommandRunner
+                    .execute(CommandRequest {
+                        program: std::ffi::OsStr::new("/nonexistent/tmt-select-test"),
+                        args: &[],
+                        input: b"",
+                        deadline: Instant::now() + Duration::from_secs(1),
+                        max_output_bytes: 16,
+                    })
+                    .unwrap_err();
+                error.cleanup_error = cleanup.then(|| io::Error::other("not reaped"));
+                Err(error)
+            };
+            if program.ends_with("tmux") {
+                return failed(false);
+            }
+            let ps = program == "ps" || args.iter().any(|arg| arg.ends_with("/ps"));
+            let hit = match self.read {
+                "caller" => args.iter().any(|arg| arg == "caller"),
+                _ => ps,
+            };
+            if !hit {
+                return UnixCommandRunner.execute(request);
+            }
+            let _ = UnixCommandRunner.execute(request);
+            failed(true)
+        }
+    }
+
+    /// Discovery's selection (#4063): a selection read that fails to clean
+    /// up, implicit or explicit, plain or nested, is an error; no inventory,
+    /// fallback or tmux call follows. The production runner selects the fake
+    /// host from the same environment.
+    #[test]
+    fn a_failed_cleanup_while_selecting_is_an_error_and_scans_nothing() {
+        let root = std::env::temp_dir().join(format!("tmt-select-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("driver")).unwrap();
+        let driver = root.join("driver/tmt-driver-fake");
+        tmt_test_support::write_executable(&driver, DRIVER.as_bytes(), 0o755).unwrap();
+        std::fs::write(root.join("driver/pid"), std::process::id().to_string()).unwrap();
+        let record = tmt_adapters::driver_protocol::registry::approve(
+            &root.join("global"),
+            &driver,
+            &UnixCommandRunner,
+        )
+        .unwrap();
+        let admitted = Admitted {
+            records: vec![record],
+            ..Admitted::default()
+        };
+        // A private, absent socket: even a tmux call could reach no server.
+        let socket = root.join("none.sock");
+        let caller = |nested: bool| CallerEnvironment {
+            tmux: nested.then(|| format!("{},1,0", socket.display()).into()),
+            pane: nested.then(|| "%1".into()),
+            process_id: u64::from(std::process::id()),
+            driver_env: [("FAKE_PANE_ID".to_owned(), "f1".into())].into(),
+        };
+        let calls = || std::fs::read_to_string(root.join("driver/calls")).unwrap_or_default();
+        let deadline = || Instant::now() + Duration::from_secs(5);
+        let fake = HostKind::External(HostName::new("fake").unwrap());
+        for host in [None, Some("fake")] {
+            let selected = select(
+                UnixCommandRunner,
+                host,
+                None,
+                &admitted,
+                &caller(false),
+                deadline(),
+            );
+            match selected {
+                Ok(Selected::Host(chosen, _)) => assert_eq!(chosen.kind(), fake, "{host:?}"),
+                _ => panic!("{host:?}: the fake host is selected"),
+            }
+            for (nested, read) in [
+                (false, "caller"),
+                (false, "ps"),
+                (true, "caller"),
+                (true, "ps"),
+            ] {
+                let case = format!("{host:?} nested={nested} {read}");
+                let before = calls();
+                let runner = Unclean {
+                    read,
+                    programs: Default::default(),
+                };
+                let selected = select(
+                    runner.clone(),
+                    host,
+                    None,
+                    &admitted,
+                    &caller(nested),
+                    deadline(),
+                );
+                match selected {
+                    Err(error) => assert!(error.cleanup_failed(), "{case}: {error}"),
+                    Ok(_) => panic!("{case}: a cleanup failure selects nothing"),
+                }
+                let after = calls();
+                let new: Vec<&str> = after[before.len()..].lines().collect();
+                assert!(new.iter().all(|op| *op == "caller"), "{case}: {new:?}");
+                let programs = runner.programs.borrow();
+                assert!(
+                    !programs.iter().any(|program| program.ends_with("tmux")),
+                    "{case}: {programs:?}"
+                );
+            }
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

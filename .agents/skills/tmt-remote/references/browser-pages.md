@@ -188,13 +188,30 @@ Unchanged access and Firestore projections do not repaint on unrelated draft inp
 slots announce only changed settled states; the layer lists, budget and Details stay outside
 those live regions. Presentation equality never suppresses signed reads or authority checks.
 
+## TMT Settings General
+
+General and the Ops terminal cards share `commandCopy(text)`: a terminal reference, a Copy button and inline success/manual-copy feedback, with no command execution.
+
+General uses the shared shell module menu and page inset. Its appearance previews keep the existing
+browser-only System/Light/Dark theme owner and keyboard choice. Core configuration remains read-only:
+observed source rows are shown as supplied; without a browser read, the amber card names
+`tmt config show` and its Copy control reports success or manual-copy guidance. Copy never executes
+commands. No reference defaults or sample records are substituted for machine values. Specific source
+refusals remain visible, and sample injection stays labelled. The route signal still fences late reads.
+The machine-guidance card links to the existing Modules section; it does not introduce a source read.
+
 ## Digest presentation
 
-`digest-page` groups activity into clock-aligned four-hour (24h), daily (7d) and five-day (30d)
-bars clipped to the reported window; any missing constituent keeps the entire bar hollow.
+`digest-page` combines per-seat activity with Token usage through its Stacked/Lines and Absolute/Share
+views, reusing the same reported buckets and palette. Missing observations break lines rather than
+becoming zero. A browser-local Name/Usage view preference sorts the seat table and both axes of the
+full-width Messages heatmap. Invalid or unreadable stored preferences initially fall back to Usage;
+later choices remain active for the mounted page even when persistence fails. Storage holds no report data.
+Messages retains all observed participants, quiet zeros and diagonal, and a focusable internal scroller
+for large teams. Its owner-local table uses existing accent/text tokens for the sequential tint.
 Token areas use the leaf's pastel seat palette and monotone interpolation; sampled values and
-incomplete-bucket notes remain unchanged. `digest-page` derives the allowance rows, combined token chart and seat legend, activity and
-message views, and coverage/method footer from `DigestSource`. Allowance uses a fixed
+incomplete-bucket notes remain unchanged. `digest-page` derives the allowance cards, combined token chart and seat legend,
+Messages heatmap and coverage/method footer from `DigestSource`. Allowance uses a fixed
 `digest/7d` owner read independently of the selected usage range (the 7d selection shares that
 read); `limits` supplies history. Each mounted source reuses that one allowance result
 across range switches (including in-flight reads). A switch reads only its selected usage
@@ -204,7 +221,9 @@ never seat model families. Active weekly windows group by provider, duration and
 newest observation reported by a current seat leads each provider, with other windows folded
 and labeled by reset, reporter seats and observation age. Histories match that exact window.
 Claude stays explicitly not reported until Core has a real source. Provider history and method
-stay disclosures. The page owns range, scale, expanded legend and disclosure state; changed
+stay disclosures. Provider cards use a horizontal snap carousel with equal heights, a next-card peek
+on phones and previous/next controls when it overflows. The page owns range, chart style, scale,
+seat order, expanded legend and disclosure state; changed
 reports restore open disclosures and summary focus, while unchanged reads retain the existing
 DOM and scroll position. Failed refreshes retain the last good report for that range; an
 unavailable newly selected range does not display the preceding range's observations. The

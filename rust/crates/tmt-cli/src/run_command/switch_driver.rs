@@ -148,11 +148,13 @@ pub(super) fn activate(
     Ok(())
 }
 
+/// The launch preset this launch records: `session` is the resumed session whose
+/// reported model the launch replayed, if any.
 pub(super) fn rebound_preset(
     previous: &tmt_adapters::runtime::launch_preset::LaunchPreset,
     binding: &Binding,
     owner: &tmt_core::endpoint::ProcessIncarnation,
-    session: &tmt_core::binding::session::RememberedSession,
+    session: Option<&tmt_core::binding::session::RememberedSession>,
     lifecycle: &dyn tmt_adapters::runtime::lifecycle::RuntimeLifecycle,
     options: &tmt_adapters::runtime::launch_preset::LaunchSettings,
 ) -> tmt_adapters::runtime::launch_preset::LaunchPreset {
@@ -167,8 +169,7 @@ pub(super) fn rebound_preset(
         .clone()
         .or_else(|| {
             session
-                .state
-                .as_ref()
+                .and_then(|session| session.state.as_ref())
                 .and_then(|state| lifecycle.state_model(state))
         })
         .or(preset.model);
@@ -184,7 +185,15 @@ pub(super) fn rebound_preset(
 }
 
 pub(super) fn retry(request: super::RunRequest<'_>, driver: &str) -> String {
-    let driver = crate::output::shell_word(driver);
+    rerun(request, Some(driver))
+}
+
+/// The same handoff launch once more: a switch to `driver`, else `--new`.
+fn rerun(request: super::RunRequest<'_>, driver: Option<&str>) -> String {
+    let selection = match driver {
+        Some(driver) => format!("--driver {}", crate::output::shell_word(driver)),
+        None => "--new".into(),
+    };
     let name = crate::output::shell_word(request.name);
     let mut options = String::new();
     if request.resume.is_some_and(|resume| resume.retry) {
@@ -203,11 +212,12 @@ pub(super) fn retry(request: super::RunRequest<'_>, driver: &str) -> String {
         crate::invocation::ChannelMode::Required => options.push_str(" --channel"),
         crate::invocation::ChannelMode::Default => (),
     }
-    format!("tmt resume --driver {driver}{options} -- {name}")
+    format!("tmt resume {selection}{options} -- {name}")
 }
 
-pub(super) fn channel_retry(request: super::RunRequest<'_>, driver: &str) -> String {
-    let retry = retry(
+/// `driver` is the switch target; `None` is a fresh start (`--new`).
+pub(super) fn channel_retry(request: super::RunRequest<'_>, driver: Option<&str>) -> String {
+    let retry = rerun(
         super::RunRequest {
             channel: crate::invocation::ChannelMode::Disabled,
             ..request
@@ -217,7 +227,7 @@ pub(super) fn channel_retry(request: super::RunRequest<'_>, driver: &str) -> Str
     format!("Retry without the channel: {retry}")
 }
 
-pub(super) fn channel_refusal(request: super::RunRequest<'_>, driver: &str) -> Failure {
+pub(super) fn channel_refusal(request: super::RunRequest<'_>, driver: Option<&str>) -> Failure {
     Failure::new("CHANNEL_UNSUPPORTED", "This driver's message-channel launch cannot accept initial handoff input. No agent was stopped or launched.", 1)
         .suggestion(channel_retry(request, driver))
 }
@@ -225,10 +235,10 @@ pub(super) fn channel_refusal(request: super::RunRequest<'_>, driver: &str) -> F
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core(
-        "tmt resume --driver {driver}{options} -- {name}",
+        "tmt resume {selection}{options} -- {name}",
         &[""],
         &[
-            ("{driver}", "claude"),
+            ("{selection}", "--new"),
             ("{options}", " --no-channel"),
             ("{name}", "worker"),
         ],
@@ -273,6 +283,7 @@ mod tests {
                 driver: Some("codex"),
                 retry: true,
                 move_running: false,
+                fresh: false,
             }),
         };
         assert_eq!(
@@ -280,7 +291,7 @@ mod tests {
             "tmt resume --driver codex --retry --model 'model name' --effort high --channel -- '-Saved agent'"
         );
         let refusal = crate::run_command::launch_failure(
-            channel_refusal(request, "codex"),
+            channel_refusal(request, Some("codex")),
             request,
             LaunchEffect::NotLaunched,
         );
@@ -333,6 +344,7 @@ mod tests {
                 driver: Some("codex"),
                 retry: false,
                 move_running: false,
+                fresh: false,
             }),
         };
         let mut registry = tmt_adapters::runtime::RuntimeRegistry::first_party();

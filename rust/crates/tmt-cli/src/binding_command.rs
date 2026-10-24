@@ -1,6 +1,8 @@
 //! Thin composition of typed commands, one storage handle and binding policy.
 //! Preflight caller/target checks precede configuration and database effects.
 
+#[cfg(test)]
+mod guarded_tests;
 mod presentation;
 mod session;
 
@@ -400,25 +402,37 @@ fn run(request: Invocation) -> Result<(Report, Option<AgentNameOutcome>), Failur
                 .map(|binding| (binding, &result.identity)),
             _ => None,
         };
-        // tmux has no agent names, so a tmux binding asks nothing and its
-        // result gains no member.
-        let named = named
-            .filter(|(binding, _)| !matches!(binding.server.host, tmt_core::host::HostKind::Tmux));
         let outcome = match named {
             Some((binding, identity)) => {
-                match Host::for_server(&binding.server).name_agent(binding, identity, None) {
-                    Err(error) if error.cleanup_failed() => return Err(cosmetic_cleanup(error)),
-                    result => Some(AgentNameOutcome {
-                        name: identity.name.clone(),
-                        result,
-                    }),
-                }
+                name_bound_agent(&Host::for_server(&binding.server), binding, identity)?
             }
             None => None,
         };
         Ok((report, outcome))
     });
     after_cleanup(pending, || storage.close())
+}
+
+/// After a committed bind: gives the agent in the binding's pane the
+/// identity's name, through `host`'s drivers. tmux has no agent names, so a
+/// tmux binding asks nothing and its result gains no member. A refusal or an
+/// unknown outcome keeps the binding; only a driver process that could not
+/// be cleaned up fails the command.
+fn name_bound_agent<R: tmt_adapters::process::CommandRunner>(
+    host: &Host<R>,
+    binding: &tmt_core::binding::Binding,
+    identity: &Identity,
+) -> Result<Option<AgentNameOutcome>, Failure> {
+    if binding.server.host == tmt_core::host::HostKind::Tmux {
+        return Ok(None);
+    }
+    match host.name_agent(binding, identity, None) {
+        Err(error) if error.cleanup_failed() => Err(cosmetic_cleanup(error)),
+        result => Ok(Some(AgentNameOutcome {
+            name: identity.name.clone(),
+            result,
+        })),
+    }
 }
 
 fn cosmetic_cleanup(error: tmt_adapters::host::HostError) -> Failure {
@@ -705,13 +719,7 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     if mode.json {
         let mut document = presentation::document(&report);
         if let Some(outcome) = &agent_name {
-            let (member, warning) = presentation::agent_name_json(outcome);
-            if let Some(member) = member {
-                document["agentName"] = member;
-            }
-            if let Some(warning) = warning {
-                document["warnings"] = serde_json::json!([warning]);
-            }
+            presentation::add_agent_name(&mut document, outcome);
         }
         if let Some(completion) = &completion {
             document["session"] = serde_json::json!({"unbound":completion.unbound});
@@ -798,81 +806,125 @@ pub(crate) use presentation::PRINTED_HINTS as PRESENTATION_HINTS;
 #[cfg(test)]
 pub(crate) use session::PRINTED_HINTS as SESSION_HINTS;
 
-/// Guarded add bypasses optional learning/capture on refusal. It shares the
-/// existing binding/publication policy, with admission before storage creation.
-pub fn execute_guarded(request: Invocation, mode: OutputMode) -> io::Result<u8> {
+/// A pane ID no admitted host reads: tmux's, or an approved driver's
+/// declared syntax. A host whose approval is a gap registers none.
+fn unknown_pane_syntax(admitted: &tmt_adapters::driver_protocol::registry::Admitted) -> Failure {
+    let mut message =
+        String::from("Guarded add requires an exact pane ID of tmux or an approved host driver.");
+    for gap in &admitted.gaps {
+        message.push_str(&format!(
+            " The {} driver is not usable: {}.",
+            gap.name, gap.reason
+        ));
+    }
+    Failure::new("USAGE_ERROR", message, 1)
+}
+
+/// A changed or unverifiable discovered target is drift; anything else is
+/// the endpoint's own failure.
+fn guarded_failure(error: tmt_adapters::host::HostError) -> Failure {
+    match error {
+        error @ tmt_adapters::host::HostError::Evidence { .. } => {
+            Failure::new("PANE_CHANGED", error.to_string(), 3).caused_by(error)
+        }
+        error => endpoint_failure(error),
+    }
+}
+
+/// The guarded add after parsing, on `host`, with the drivers the command
+/// read once. Admission 1 reads only; an external host's server is then
+/// recorded for the fenced incarnation alone, before the binding
+/// transaction admits the target twice more. `partial` turns true once host
+/// effects may have happened.
+fn run_guarded<R: tmt_adapters::process::CommandRunner + Clone>(
+    runner: R,
+    host: tmt_core::host::HostKind,
+    admitted: &tmt_adapters::driver_protocol::registry::Admitted,
+    paths: &ConfigPaths,
+    request: &GuardedRequest<'_>,
+    partial: &mut bool,
+) -> Result<GuardedOutcome, Failure> {
     use std::time::{Duration, Instant};
     use tmt_core::binding::{BindingError, GuardedIdentity};
-    let Invocation::GuardedBind {
-        pane,
-        name,
-        identity,
-        expect,
-        socket,
-        save,
-    } = request
-    else {
-        unreachable!("guarded add")
-    };
-    let mut partial = false;
-    let outcome: Result<_, Failure> = (|| {
-        // Register approved target syntax in memory before name admission, as
-        // ordinary add does; discovery does not widen driver permissions.
-        tmt_adapters::host::external::register_approved();
-        if let Some(name) = &name {
-            tmt_core::names::validate_name(name)
-                .map_err(|error| Failure::new("USAGE_ERROR", error.to_string(), 1))?;
+    let host = match host {
+        tmt_core::host::HostKind::Tmux => {
+            Host::for_caller_with(&CallerEnvironment::admitted(admitted), runner)
         }
-        let caller = CallerEnvironment::current();
-        let host = Host::for_caller_with(&caller, tmt_adapters::process::UnixCommandRunner);
-        let paths = ConfigPaths::discover().map_err(Failure::from)?;
-        let candidate = tmt_adapters::discovery::guarded_candidate(
-            &host,
-            socket.as_deref(),
-            &pane,
-            &paths.database,
-            &expect,
-            Instant::now() + Duration::from_secs(2),
-        )
-        .map_err(|error| match error {
-            error @ tmt_adapters::host::HostError::Evidence { .. } => {
-                Failure::new("PANE_CHANGED", error.to_string(), 3).caused_by(error)
-            }
-            error => endpoint_failure(error),
-        })?;
-        let fence = candidate.fence.expect("admitted native fence");
-        let mut storage = open_storage(&paths)?;
+        external => Host::for_host(external, runner, admitted.records.clone()),
+    };
+    let candidate = tmt_adapters::discovery::guarded_candidate(
+        &host,
+        request.socket,
+        request.pane,
+        &paths.database,
+        request.expect,
+        Instant::now() + Duration::from_secs(2),
+    )
+    .map_err(guarded_failure)?;
+    let mut fence = candidate.fence.expect("admitted native fence");
+    let mut storage = open_storage(paths)?;
+    let result = (|| {
+        if let Some(server_id) = host
+            .resolve_fenced_server(&fence, &mut storage)
+            .map_err(guarded_failure)?
+        {
+            fence.server_id = Some(server_id);
+        }
         let mut endpoint = host.session().with_discovery_target(fence.clone());
-        let selector = match identity.as_deref() {
+        let selector = match request.identity {
             Some(id) => GuardedIdentity::Uuid(id),
-            None => GuardedIdentity::Name(name.as_deref().expect("parser selected name")),
+            None => GuardedIdentity::Name(request.name.expect("parser selected name")),
         };
-        let result = binding::bind_guarded(&mut storage, &mut endpoint, &fence, selector, save)
-            .map_err(|error| match error {
-                BindingError::Partial(error) => {
-                    partial = true;
-                    binding_failure(*error)
-                }
-                error => binding_failure(error),
-            });
-        if result.is_ok() {
-            partial = true;
-        } // A close failure follows admitted effects.
-        after_cleanup(result, || storage.close())
+        let bound =
+            binding::bind_guarded(&mut storage, &mut endpoint, &fence, selector, request.save)
+                .map_err(|error| match error {
+                    BindingError::Partial(error) => {
+                        *partial = true;
+                        binding_failure(*error)
+                    }
+                    error => binding_failure(error),
+                })?;
+        // A naming or close failure follows admitted effects.
+        *partial = true;
+        let presence = &bound.bound.presence;
+        let agent_name = match &presence.binding {
+            Some(binding) => name_bound_agent(&host, binding, &presence.identity)?,
+            None => None,
+        };
+        Ok((bound, agent_name))
     })();
-    let mut output = tmt_cli_style::stream::stdout(mode.json);
+    after_cleanup(result, || storage.close())
+}
+
+/// A guarded add's one result: its document, or its failure with `partial`
+/// once host effects may have happened.
+fn present_guarded(
+    output: &mut impl Write,
+    mode: OutputMode,
+    pane: &str,
+    outcome: Result<GuardedOutcome, Failure>,
+    partial: bool,
+) -> io::Result<u8> {
     match outcome {
-        Ok(result) => {
+        Ok((result, agent_name)) => {
             let row = &result.bound.presence;
             let pane = &row.pane.as_ref().expect("verified binding").id;
             if mode.json {
-                writeln!(
-                    output,
-                    "{}",
-                    serde_json::json!({"version":1,"status":if result.already_bound {"already_bound"}else{"bound"},"bound":true,"id":row.identity.id,"name":row.identity.name,"pane":pane,"lifetime":row.identity.lifetime.as_str()})
-                )?;
+                let mut document = serde_json::json!({"version":1,"status":if result.already_bound {"already_bound"}else{"bound"},"bound":true,"id":row.identity.id,"name":row.identity.name,"pane":pane,"lifetime":row.identity.lifetime.as_str()});
+                if let Some(outcome) = &agent_name {
+                    presentation::add_agent_name(&mut document, outcome);
+                }
+                writeln!(output, "{document}")?;
             } else {
                 writeln!(output, "Bound {:?} on {}", row.identity.name, pane)?;
+                if let Some(AgentNameOutcome {
+                    name,
+                    result: Err(error),
+                }) = &agent_name
+                {
+                    let mut stderr = tmt_cli_style::stream::stderr();
+                    presentation::agent_name_warning(&mut stderr, name, error)?;
+                }
             }
             Ok(0)
         }
@@ -888,4 +940,69 @@ pub fn execute_guarded(request: Invocation, mode: OutputMode) -> io::Result<u8> 
             }
         }
     }
+}
+
+/// A committed guarded bind and what the host did with the agent name.
+type GuardedOutcome = (
+    tmt_core::binding::GuardedBoundIdentity,
+    Option<AgentNameOutcome>,
+);
+
+/// One guarded add, as parsed.
+struct GuardedRequest<'a> {
+    pane: &'a str,
+    name: Option<&'a str>,
+    identity: Option<&'a str>,
+    expect: &'a str,
+    socket: Option<&'a str>,
+    save: bool,
+}
+
+/// Guarded add bypasses optional learning/capture on refusal. It shares the
+/// existing binding/publication policy, with admission before storage creation.
+pub fn execute_guarded(request: Invocation, mode: OutputMode) -> io::Result<u8> {
+    let Invocation::GuardedBind {
+        pane,
+        name,
+        identity,
+        expect,
+        socket,
+        save,
+    } = request
+    else {
+        unreachable!("guarded add")
+    };
+    let mut partial = false;
+    let outcome: Result<_, Failure> = (|| {
+        // One read of the approvals: guarded add never adopts or rewrites
+        // one, and only their syntax is registered, before name admission.
+        let paths = ConfigPaths::discover();
+        let admitted = tmt_adapters::host::external::admitted_at(paths.as_ref());
+        tmt_adapters::host::external::register(&admitted.records);
+        if let Some(name) = &name {
+            tmt_core::names::validate_name(name)
+                .map_err(|error| Failure::new("USAGE_ERROR", error.to_string(), 1))?;
+        }
+        let host = tmt_core::host::HostKind::of_pane_id(&pane)
+            .ok_or_else(|| unknown_pane_syntax(&admitted))?;
+        let paths = paths.map_err(Failure::from)?;
+        let request = GuardedRequest {
+            pane: &pane,
+            name: name.as_deref(),
+            identity: identity.as_deref(),
+            expect: &expect,
+            socket: socket.as_deref(),
+            save,
+        };
+        run_guarded(
+            tmt_adapters::process::UnixCommandRunner,
+            host,
+            &admitted,
+            &paths,
+            &request,
+            &mut partial,
+        )
+    })();
+    let mut output = tmt_cli_style::stream::stdout(mode.json);
+    present_guarded(&mut output, mode, &pane, outcome, partial)
 }

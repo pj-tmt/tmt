@@ -8,8 +8,9 @@ use crate::{
 use std::{path::Path, time::Instant};
 use tmt_core::{
     binding::{self, BindingEvidence},
-    discovery::{DiscoveryCandidate, DiscoveryObservation},
+    discovery::{DiscoveryCandidate, DiscoveryObservation, DiscoverySource},
     endpoint::EndpointProbe,
+    host::{HostKind, HostServerIncarnation},
 };
 
 pub fn annotate(
@@ -17,10 +18,47 @@ pub fn annotate(
     database: &Path,
     deadline: Instant,
 ) -> Result<(), StorageError> {
-    // A fresh installation has no stored identities. Never open/create a database.
-    let (entries, truncated) =
-        Storage::discovery_entries(database, observation.host, &observation.socket, deadline)?;
-    observation.truncated |= truncated;
+    // A fresh installation has no stored identities. Never open/create a
+    // database. Each read starts only within the scan's allowance; a spent
+    // allowance truncates the scan instead.
+    let mut entries = Vec::new();
+    if Instant::now() < deadline {
+        let truncated;
+        (entries, truncated) =
+            Storage::discovery_entries(database, observation.host, &observation.socket, deadline)?;
+        observation.truncated |= truncated;
+    }
+    // An external host keeps no server ID of its own: a bind recorded it.
+    // The fences of one scan name the one server it observed, read once.
+    let server = observation
+        .candidates
+        .iter()
+        .find_map(|candidate| candidate.fence.as_ref())
+        .filter(|fence| fence.host != HostKind::Tmux)
+        .map(|fence| (fence.host, fence.socket.clone(), fence.server.clone()));
+    if let Some((host, socket, server)) = server
+        && Instant::now() < deadline
+    {
+        let id =
+            crate::storage::RecordedHostServers::new(database).lookup(&HostServerIncarnation {
+                host,
+                socket_path: &socket,
+                server_pid: server.pid(),
+                server_start_time: server.start_identity(),
+            })?;
+        for fence in observation
+            .candidates
+            .iter_mut()
+            .filter_map(|candidate| candidate.fence.as_mut())
+            .filter(|fence| fence.socket == socket && fence.server == server)
+        {
+            fence.server_id.clone_from(&id);
+        }
+    }
+    // Past the deadline no expectation is usable, whatever was read.
+    if Instant::now() >= deadline {
+        observation.truncated = true;
+    }
     for candidate in &mut observation.candidates {
         let owners: Vec<_> = entries
             .iter()
@@ -74,9 +112,14 @@ pub fn guarded_candidate<R: CommandRunner>(
     expect: &str,
     deadline: Instant,
 ) -> Result<DiscoveryCandidate, HostError> {
-    let mut observation = host
-        .discover(socket, Some(pane), deadline)?
-        .ok_or_else(|| HostError::Unavailable("discovery is supported only on tmux".into()))?;
+    let mut observation = host.discover(socket, Some(pane), deadline)?;
+    if let DiscoverySource::Unsupported(reason) = observation.source {
+        return Err(HostError::Refused {
+            driver: observation.host.as_str().into(),
+            code: tmt_driver_protocol::ErrorCode::Unsupported,
+            message: format!("the host cannot list its panes ({reason})"),
+        });
+    }
     annotate(&mut observation, database, deadline)
         .map_err(|e| HostError::ServerIds(Box::new(e)))?;
     let driver = observation.host.as_str().into();
@@ -94,8 +137,10 @@ pub fn guarded_candidate<R: CommandRunner>(
         })
 }
 
-/// Observation failure does not infer endpoint absence from diagnostic text.
-pub fn source_status(error: &HostError, socket: Option<&str>) -> &'static str {
+/// A failed tmux observation's source status; it does not infer endpoint
+/// absence from diagnostic text. An external host's failure is always
+/// `unknown`.
+pub fn tmux_source_status(error: &HostError, socket: Option<&str>) -> &'static str {
     if error.socket_permission_denied() {
         return "permission_denied";
     }
@@ -182,5 +227,93 @@ mod tests {
         let external = &fence["externalVectors"];
         assert_ne!(external["base"]["host"], HostKind::Tmux.as_str());
         assert_eq!(check(external), 5);
+    }
+
+    /// A scan of three fenced panes on one external server, whose server ID
+    /// a bind recorded, in a store with no binding for them.
+    #[test]
+    fn a_spent_allowance_truncates_annotation_and_leaves_no_expectation() {
+        use std::time::{Duration, Instant};
+        use tmt_core::{
+            discovery::{DiscoveryCandidate, DiscoveryObservation, DiscoverySource},
+            host::{HostServerIds, HostServerIncarnation},
+        };
+        let directory = crate::test_support::TestDirectory::new();
+        let database = directory.path.join("state.db");
+        let herdr = HostKind::parse("herdr").unwrap();
+        let server = ProcessIncarnation::new(41, "Tue 22:09").unwrap();
+        let mut storage = crate::storage::Storage::open(&database).unwrap();
+        let recorded = storage
+            .server_id(&HostServerIncarnation {
+                host: herdr,
+                socket_path: "/tmp/herdr.sock",
+                server_pid: 41,
+                server_start_time: "Tue 22:09",
+            })
+            .unwrap();
+        storage.close().unwrap();
+        let candidate = |pane: &str, pid: u64| DiscoveryCandidate {
+            pane: pane.into(),
+            session: None,
+            window: None,
+            target: None,
+            title: String::new(),
+            command: String::new(),
+            cwd: String::new(),
+            agent_name: None,
+            fence: Some(DiscoveryTarget {
+                host: herdr,
+                socket: "/tmp/herdr.sock".into(),
+                server: server.clone(),
+                server_id: None,
+                server_start_time: "Tue 22:09".into(),
+                pane: pane.into(),
+                process: ProcessIncarnation::new(pid, "Tue 22:10").unwrap(),
+                runtime: None,
+                marker: None,
+            }),
+            identity: None,
+            state: "unknown",
+            reason: None,
+            duplicate: false,
+            text_truncated: false,
+        };
+        let observation = || DiscoveryObservation {
+            host: herdr,
+            source: DiscoverySource::Ok,
+            socket: "/tmp/herdr.sock".into(),
+            candidates: vec![
+                candidate("term_1", 51),
+                candidate("term_2", 52),
+                candidate("term_3", 53),
+            ],
+            truncated: false,
+        };
+        // Within the allowance: one recorded ID for every fence, all adoptable.
+        let mut within = observation();
+        super::annotate(
+            &mut within,
+            &database,
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap();
+        assert!(!within.truncated);
+        for candidate in &within.candidates {
+            assert!(candidate.adoptable(), "{}", candidate.pane);
+            assert_eq!(
+                candidate.fence.as_ref().unwrap().server_id,
+                Some(recorded.clone())
+            );
+        }
+        // Spent: nothing more is read, the scan is truncated, and no row is
+        // adoptable, so no expectation is offered.
+        let mut spent = observation();
+        super::annotate(&mut spent, &database, Instant::now()).unwrap();
+        assert!(spent.truncated);
+        for candidate in &spent.candidates {
+            assert!(!candidate.adoptable(), "{}", candidate.pane);
+            assert_eq!(candidate.reason, Some("scan_truncated"));
+            assert_eq!(candidate.fence.as_ref().unwrap().server_id, None);
+        }
     }
 }

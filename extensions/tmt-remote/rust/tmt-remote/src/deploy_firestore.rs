@@ -19,6 +19,7 @@ use std::{
 };
 use tmt_invoke::{EnvironmentPolicy, LaunchOptions, Request};
 
+mod owner;
 const HELPER: &str = include_str!("deploy_firestore/helper.cjs");
 /// Versions whose private auth/layout interface this release has qualified.
 pub const FIREBASE_TOOLS_VERSIONS: &[&str] = &["15.29.0"];
@@ -203,6 +204,7 @@ pub struct DeployFirestore<'a> {
     package: PathBuf,
     stop: &'a AtomicBool,
     hosting: Option<deploy_run::HostingCheckpoint>,
+    owner: Option<owner::OwnerContext>,
     compressed: std::collections::BTreeMap<String, Vec<u8>>,
     content_digest: Option<String>,
     steps: Vec<deploy_run::StepRecord>,
@@ -226,6 +228,7 @@ impl<'a> DeployFirestore<'a> {
             package,
             stop,
             hosting: None,
+            owner: None,
             compressed: std::collections::BTreeMap::new(),
             content_digest: None,
             steps: Vec::new(),
@@ -433,6 +436,7 @@ impl<'a> DeployFirestore<'a> {
                 "deployment":plan.deployment_id(),"replacedDigest":plan.view().rules.replaced_digest})
             }
             StepKind::Hosting(_) => return self.hosting_step(operation, plan, step, deadline),
+            StepKind::OwnerAccess => return self.owner_step(operation == "apply", plan, deadline),
             StepKind::Verify => return Err(unknown()),
         };
         let kind = match step.kind {
@@ -441,7 +445,7 @@ impl<'a> DeployFirestore<'a> {
             StepKind::Index { .. } => "index",
             StepKind::CompositeIndex(_) => "composite",
             StepKind::Rules => "rules",
-            StepKind::Hosting(_) | StepKind::Verify => unreachable!(),
+            StepKind::Hosting(_) | StepKind::OwnerAccess | StepKind::Verify => unreachable!(),
         };
         self.exchange(
             &format!("{operation}-{kind}"),
@@ -651,6 +655,7 @@ fn provider_error(error: HelperFailure) -> DeployProviderError {
         "quota-exceeded" => DeployFault::QuotaExceeded,
         "database-mismatch" => DeployFault::DatabaseMismatch,
         "rules-foreign" => DeployFault::RulesForeign,
+        "owner-conflict" => DeployFault::OwnerConflict,
         "verify-failed" => return unknown(),
         "provider-rejected" | "unsupported-tool" | "login-required" | "account-changed" => {
             DeployFault::ProviderRejected
@@ -1030,6 +1035,7 @@ mod cause_tests {
                 progress: None,
                 composite_started: None,
                 hosting: None,
+                owner: None,
                 compressed: Default::default(),
                 content_digest: None,
                 steps: Vec::new(),

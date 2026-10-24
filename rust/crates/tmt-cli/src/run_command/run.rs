@@ -85,6 +85,9 @@ pub(super) fn run_bound(
     } = request;
     let switching = resume.and_then(|resume| resume.driver);
     let moving = resume.is_some_and(|resume| resume.move_running || resume.driver.is_some());
+    let fresh = resume.is_some_and(|resume| resume.fresh);
+    // A switch and a fresh start both open their new session with a handoff.
+    let handing_off = switching.is_some() || fresh;
     let mut registry = RuntimeRegistry::first_party();
     let existing = selected_identity(storage, &request)?;
     // A UUID operand is shown by the identity's display name from here on.
@@ -98,6 +101,13 @@ pub(super) fn run_bound(
         return Err(Failure::new(
             "NAME_NOT_FOUND",
             "The identity to switch does not exist; no agent was stopped or launched.",
+            3,
+        ));
+    }
+    if fresh && existing.is_none() {
+        return Err(Failure::new(
+            "NAME_NOT_FOUND",
+            "The identity to start fresh does not exist; no agent was launched.",
             3,
         ));
     }
@@ -204,9 +214,11 @@ pub(super) fn run_bound(
         &selected_preferences,
         preset.as_ref(),
     )?;
+    // A fresh start keeps the old session's launcher: a wrapper may own the account.
     let replay = launch
         .resumed
         .as_ref()
+        .or(selected_preferences.remembered.as_ref().filter(|_| fresh))
         .and_then(|session| preset.as_ref().filter(|preset| preset.matches(session)));
     let environment = replay
         .map(|preset| preset.environment(|key| std::env::var_os(key).is_some()))
@@ -281,10 +293,27 @@ pub(super) fn run_bound(
             1,
         ));
     }
+    if fresh {
+        let mut settings = replay.map(|preset| preset.settings()).unwrap_or_default();
+        if options.model.is_some() {
+            settings.model = options.model.clone();
+        }
+        if options.effort.is_some() {
+            settings.effort = options.effort.clone();
+        }
+        if !lifecycle.resume_settings(&mut launch.command, &settings) {
+            return Err(Failure::new(
+                "RESUME_SETTINGS_INVALID",
+                "The driver cannot use the selected launch settings; no new agent was launched.",
+                1,
+            ));
+        }
+        if let Some(preset) = replay {
+            launch.command.executable = preset.executable.clone().into();
+        }
+    }
     let before_handoff = launch.command.clone();
-    if switching.is_some()
-        && !lifecycle.initial_message(&mut launch.command, "TMT driver-switch handoff")
-    {
+    if handing_off && !lifecycle.initial_message(&mut launch.command, "TMT driver-switch handoff") {
         return Err(Failure::new(
             "RESUME_UNSUPPORTED",
             "The selected driver cannot accept a handoff as first input; no new agent was launched.",
@@ -306,19 +335,17 @@ pub(super) fn run_bound(
         launch.resumed.is_none() || channel != crate::invocation::ChannelMode::Default;
     let mut channel =
         preflight(&registry, mode, claim.as_ref(), &launch.command, paths).map_err(|error| {
-            if let Some(driver) = switching
+            if handing_off
                 && channel == crate::invocation::ChannelMode::Default
                 && mode == crate::invocation::ChannelMode::Required
             {
-                error.suggestion(super::switch_driver::channel_retry(request, driver))
+                error.suggestion(super::switch_driver::channel_retry(request, switching))
             } else {
                 channel_preflight_failure(error, channel, mode, name)
             }
         })?;
-    if let Some(driver) = switching
-        && channel.channel.is_some()
-    {
-        return Err(super::switch_driver::channel_refusal(request, driver));
+    if handing_off && channel.channel.is_some() {
+        return Err(super::switch_driver::channel_refusal(request, switching));
     }
     host.resolve_servers(storage).map_err(endpoint_failure)?;
     let mut handoff_request = |binding: &Binding| {
@@ -357,15 +384,17 @@ pub(super) fn run_bound(
     } else {
         None
     };
-    if switching.is_some() {
-        *effect = if moved.is_some() {
-            LaunchEffect::BoundHere
-        } else {
-            LaunchEffect::OldEnded
-        };
+    if handing_off {
+        if switching.is_some() {
+            *effect = if moved.is_some() {
+                LaunchEffect::BoundHere
+            } else {
+                LaunchEffect::OldEnded
+            };
+        }
         let identity = existing
             .as_ref()
-            .expect("an explicit switch has an identity");
+            .expect("a switch or fresh start has an identity");
         let handoff = super::switch_driver::context(storage, paths, identity)?;
         launch.command = before_handoff;
         if !lifecycle.initial_message(&mut launch.command, &handoff) {
@@ -639,13 +668,23 @@ pub(super) fn run_bound(
             )
         }))
         .collect::<Vec<_>>();
-    let captured_preset = if switching.is_some() && launch.resumed.is_some() {
+    let rebound = if switching.is_some() {
+        launch.resumed.as_ref()
+    } else {
+        // A fresh start rebinds the old launcher only when it replays one.
+        selected_preferences
+            .remembered
+            .as_ref()
+            .filter(|_| fresh && replay.is_some())
+    };
+    let captured_preset = if let Some(session) = rebound {
         replay.zip(owner.as_ref()).map(|(preset, owner)| {
+            // A fresh start ran the preset's own model, not the old session's.
             super::switch_driver::rebound_preset(
                 preset,
                 binding,
                 owner,
-                launch.resumed.as_ref().unwrap(),
+                switching.is_some().then_some(session),
                 lifecycle,
                 options,
             )

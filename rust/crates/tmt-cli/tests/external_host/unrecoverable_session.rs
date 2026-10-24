@@ -56,7 +56,7 @@ fn a_gone_or_unreadable_session_is_explained_and_nothing_is_launched() {
             assert!(error.contains(text), "{provider} {reason}: {error}");
             assert!(error.contains("tmt resume --retry worker"), "{error}");
             assert!(
-                error.contains("Start fresh with: tmt run worker"),
+                error.contains("Start fresh from its notes: tmt resume --new -- worker"),
                 "{error}"
             );
             assert!(

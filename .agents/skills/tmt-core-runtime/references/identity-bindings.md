@@ -38,19 +38,29 @@ The [discovery v1 contract](../../../../contracts/discovery-v1.md) owns the publ
 shape and bounds. `tmt-core::discovery` owns native/UUID expectation values and
 the observation shape; the fence starts with the pane's host, so one host's
 expectation never admits another host's pane, and guarded add and discovery
-storage look up bindings by that host. `tmux::discovery` reads escaped topology without initializing a server marker,
-with one batched native-start observation. `storage::discovery` reads only the
-existing schema/rows, without reconciliation, creation or migration. Unknown
-markers and conflicting rows supply no adoption authority. Explicit external inventory selections remain unsupported without executing
-their driver; implicit caller selection uses the existing verified host lookup.
+storage look up bindings by that host. `tmux::discovery` reads escaped topology
+without initializing a server marker, and `host::external::discovery` reads a
+driver's `server` and `snapshot`; each makes one batched native-start
+observation. `registry::admitted_read_only` reads the approvals once per
+discovery or guarded add, never adopting, probing or locking: an approval it
+cannot use is a gap, whose driver never runs: its caller variables alone make
+implicit selection refuse, and with tmux variables the gap is reported beside
+the tmux scan. `storage::discovery` reads only the existing schema/rows, without
+reconciliation, creation or migration, and an external host's server ID comes
+from the recorded `host_servers` row. Unknown markers and conflicting rows
+supply no adoption authority.
 
 `binding::bind_guarded` admits the frozen target inside the binding transaction
 before creation or promotion. It shares `bind_selected` with ordinary binding;
 the guard adds native-start and ownership checks, not a second publication path.
 Name mode is insert-only; existing linking takes an exact UUID. Refused admissions
-have no identity or host effects. Failures after admission are partial host attempts
+have no identity or host effects. On an external host, `Host::resolve_fenced_server`
+records the server UUID between the first admission and the transaction, and only
+for the incarnation the fence names, re-verified first. Failures after admission are partial host attempts
 with rolled-back SQL on an in-transaction refusal or uncertain commit/close;
-they never claim host rollback or automatic replay. Guarded
+they never claim host rollback or automatic replay. After the commit, guarded add
+names the host agent through the same `name_bound_agent` as ordinary add, with the
+host handle built from the drivers it read once. Guarded
 add and discovery bypass optional caller learning, workspace capture and hook
 delivery. They install and launch nothing.
 
@@ -213,7 +223,8 @@ delivery. They install and launch nothing.
   Retirement clears both. A switch archives only an exactly associated launch preset
   under `resume.driver.<harness>`; another driver's settings never apply.
   [Driver switching](../../../../contracts/driver-protocol-v1.md#built-in-driver-switch)
-  owns handoff, stop and caller-pane launch behavior.
+  owns handoff, stop and caller-pane launch behavior, and the fresh start (`resume --new`):
+  its handoff, replayed launch preset, and why a failed start keeps the remembered record.
 - An independent provider hook, attributed by pane ancestry, records only the pane's main
   provider: the nearest provider process above the hook with no built-in provider above it up
   to the verified pane. The pane process itself may be that provider after a shell exec.
@@ -255,7 +266,8 @@ delivery. They install and launch nothing.
   `Unknown`. A wrapper installed under the driver's own name (for example `~/bin/claude`) is
   still probed, so it needs `--retry` when its sessions live elsewhere. The preset's
   environment keys cannot change the config root. The probe marks, forgets and launches nothing; `--retry`
-  skips it. A stale refusal carries `error.reason: session_stale`. Read `error.reason` with
+  skips it. The missing, unreadable and stale refusals name `tmt resume --new -- <name>`; `--new`
+  skips the probe and the stale check. A stale refusal carries `error.reason: session_stale`. Read `error.reason` with
   `error.code`: a runtime refusal keeps its own reason vocabulary.
 - Explicit `resume <name> --move` preflights the exact session and caller destination before
   stopping anything. The lifecycle driver proves the captured process is its private main

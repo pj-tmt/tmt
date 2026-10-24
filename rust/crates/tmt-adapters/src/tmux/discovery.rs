@@ -58,14 +58,6 @@ fn decode(value: &str) -> Option<String> {
     Some(result)
 }
 
-fn display(value: &str) -> (String, bool) {
-    let mut end = value.len().min(MAX_DISPLAY_BYTES);
-    while !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    (value[..end].into(), end != value.len())
-}
-
 impl<R: CommandRunner> Tmux<R> {
     pub fn discover(
         &self,
@@ -183,10 +175,10 @@ impl<R: CommandRunner> Tmux<R> {
             if truncated {
                 reason = Some("scan_truncated");
             }
-            let (title, a) = display(&row[8]);
-            let (command, b) = display(&row[9]);
-            let (cwd, c) = display(&row[10]);
-            let (session, d) = display(&row[5]);
+            let (title, a) = display_text(&row[8]);
+            let (command, b) = display_text(&row[9]);
+            let (cwd, c) = display_text(&row[10]);
+            let (session, d) = display_text(&row[5]);
             candidates.push(DiscoveryCandidate {
                 pane: row[3].clone(),
                 session: Some(session),
@@ -195,6 +187,7 @@ impl<R: CommandRunner> Tmux<R> {
                 title,
                 command,
                 cwd,
+                agent_name: None,
                 fence,
                 identity: None,
                 state: "unknown",

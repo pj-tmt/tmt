@@ -41,95 +41,120 @@ async function openShell(page: Page, kind = 'full') {
   await page.goto('/');
 }
 
+const aside = (page: Page) => page.locator('#shell-aside');
+const chapterRows = (page: Page) => page.locator('.shell-row-item[data-stage]');
+const rowButton = (page: Page, pageId: string) =>
+  page.locator(`.shell-row-item[data-page-id="${pageId}"] button.shell-row`);
+
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const) {
-    test(`a shell page reads as a greeting, three counts and chapters joined by hairlines ${width} ${theme}`, async ({
+    test(`a shell page reads as a head, one card of counts, a Pages list and the selected page ${width} ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme });
       await openShell(page);
       await expect(page.locator('iframe')).toHaveCount(0);
-      await expect(page.locator('header')).toContainText('Release shell');
-      // The greeting names the local time of day and the number waiting (1 + 2), spelled out.
-      await expect(page.locator('.shell-greeting')).toHaveText(
+      await expect(page.locator('header').first()).toContainText('Release shell');
+      // The page owns its headline; the greeting is its subtitle and names the local time of day
+      // and the number waiting (1 + 2), spelled out.
+      // (The shell bar still carries the title as well, until the shared top bar drops it, #4779.)
+      await expect(page.locator('.tmt-ui-page-title')).toHaveText('Release shell');
+      await expect(page.locator('h1.tmt-ui-page-title')).toHaveCount(1);
+      await expect(page.locator('.tmt-ui-page-subtitle')).toHaveText(
         /^Good (morning|afternoon|evening)\. Three things need you\.$/,
       );
+      await expect(page.locator('.shell-glance > h2')).toHaveText(text.shellPage.glance);
       await expect(page.locator('.shell-summary-line1')).toHaveText('Release is on track');
       await expect(page.locator('.shell-summary-line2')).toHaveText(
         'Two reviews still need a decision before Friday.',
       );
       await expect(page.locator('.shell-summary-meta .agent-chip')).toHaveText('Atlas');
-      // The three counts, with the mark only on the waiting one.
+      // The three counts.
       const counts = page.locator('.shell-counts li');
       await expect(counts.locator('.shell-count-number')).toHaveText(['3', '1', '3']);
       await expect(counts.locator('.shell-count-label')).toHaveText([
-        '◆ Needs you',
+        'Needs you',
         'In progress',
         'Updated today',
       ]);
       // Waiting pages first, then in progress; the archived page and the vanished one are not chapters.
-      const chapters = page.locator('.shell-chapter');
+      const chapters = chapterRows(page);
       await expect(chapters).toHaveCount(3);
-      await expect(chapters.locator('.shell-chapter-title')).toHaveText([
+      await expect(chapters.locator('.shell-row-title')).toHaveText([
         'Release plan',
         'Design notes',
         'Weekly report',
       ]);
-      await expect(chapters.locator('.shell-chapter-number')).toHaveText([
-        '01 · ◆ Waiting',
-        '02 · ◆ Waiting',
-        '03 · In progress',
+      await expect(chapters.locator('.shell-row-number')).toHaveText(['01', '02', '03']);
+      await expect(chapters.locator('.shell-row-status')).toHaveText([
+        'Needs you',
+        'Needs you',
+        'In progress',
       ]);
-      await expect(chapters.first().locator('.shell-chapter-meta')).toContainText('tmt-feat-lead');
-      await expect(chapters.first().locator('.tmt-ui-chip-label')).toHaveText('Design');
-      // Each chapter's right side: the passage that most needs the owner, else the latest comment.
-      await expect(chapters.nth(0).locator('.shell-passage-lead')).toContainText('To confirm');
-      await expect(chapters.nth(0).locator('.shell-passage-title')).toHaveText(
+      await expect(chapters.first().locator('.shell-row-meta')).toContainText('tmt-feat-lead');
+      await expect(chapters.first().locator('.shell-row-label')).toHaveText('Design');
+      // The first chapter is selected and its passage is the page beside the list; choosing a row
+      // shows that chapter's passage: what most needs the owner, else the latest comment.
+      await expect(chapters.first().locator('button')).toHaveAttribute('aria-current', 'true');
+      await expect(aside(page).locator('.shell-aside-title')).toHaveText('Release plan');
+      await expect(aside(page).locator('.shell-passage-lead')).toContainText('To confirm');
+      await expect(aside(page).locator('.shell-passage-title')).toHaveText(
         'Review the release scope',
       );
-      await expect(chapters.nth(0).locator('.shell-passage-more')).toHaveText('1 more waiting');
-      await expect(chapters.nth(1).locator('.shell-passage-lead')).toContainText(
-        'Question for you',
-      );
-      await expect(chapters.nth(1).locator('.shell-passage-title')).toHaveText(
-        'Which hosting plan?',
-      );
-      await expect(chapters.nth(2).locator('.shell-passage-lead')).toHaveText('Latest');
-      await expect(chapters.nth(2).locator('.shell-passage-text')).toHaveText(
+      await expect(aside(page).locator('.shell-passage-more')).toHaveText('1 more waiting');
+      await chapters.nth(1).locator('button').click();
+      await expect(chapters.nth(1).locator('button')).toHaveAttribute('aria-current', 'true');
+      await expect(chapters.first().locator('button')).not.toHaveAttribute('aria-current', 'true');
+      await expect(aside(page).locator('.shell-passage-lead')).toContainText('Question for you');
+      await expect(aside(page).locator('.shell-passage-title')).toHaveText('Which hosting plan?');
+      await chapters.nth(2).locator('button').click();
+      await expect(aside(page).locator('.shell-passage-lead')).toHaveText('Latest');
+      await expect(aside(page).locator('.shell-passage-text')).toHaveText(
         'Merged the review blocks.',
       );
-      // Older pages fold into one list of large-type rows, newest first.
+      await chapters.first().locator('button').click();
+      // Older pages follow in the same list, under their own heading, newest first.
       await expect(page.locator('.shell-earlier-heading')).toHaveText('Earlier · 2 pages');
-      await expect(page.locator('.shell-earlier-title')).toHaveText([
+      const earlier = page.locator('.shell-earlier-heading + ol .shell-row-item');
+      await expect(earlier.locator('.shell-row-title')).toHaveText([
         'Usage chart round two',
         'Last quarter',
       ]);
+      await expect(earlier.locator('.shell-row-number')).toHaveText(['04', '05']);
       await expect(page.locator('.shell-state[data-unavailable]')).toHaveText(
         "1 page can't be shown",
       );
-      // Full bleed and borderless: no card, a hairline between chapters, nothing scrolls sideways.
+      // One rounded card with a rule edge holds it all; the list and the selected page sit side by
+      // side where there is room and stack where there is not; nothing scrolls sideways.
       const geometry = await page.evaluate(() => {
         const rect = (node: Element) => node.getBoundingClientRect();
-        const chapter = document.querySelector('.shell-chapter')!;
-        const style = getComputedStyle(chapter);
-        const head = rect(chapter.querySelector('.shell-chapter-head')!);
-        const passage = rect(chapter.querySelector('.shell-passage')!);
+        const card = document.querySelector('.shell-glance')!;
+        const style = getComputedStyle(card);
+        const list = rect(document.querySelector('.shell-pages')!);
+        const side = rect(document.querySelector('#shell-aside')!);
+        const stat = getComputedStyle(document.querySelector('.shell-stat')!);
+        const row = getComputedStyle(document.querySelector('.shell-row')!);
         return {
-          sideBySide: passage.left > head.left + 100 && Math.abs(passage.top - head.top) < 4,
+          sideBySide: side.left > list.left + 100 && Math.abs(side.top - list.top) < 4,
+          stacked: side.top >= list.bottom - 1,
           pageWidth: rect(document.querySelector('.shell-page')!).width,
           scrollWidth: document.documentElement.scrollWidth,
           clientWidth: document.documentElement.clientWidth,
-          shadow: style.boxShadow,
-          radius: style.borderRadius,
-          rule: style.borderBottomWidth,
+          cardRadius: Number.parseFloat(style.borderTopLeftRadius),
+          cardRule: style.borderTopWidth,
+          cardShadow: style.boxShadow,
+          statRadius: Number.parseFloat(stat.borderTopLeftRadius),
+          rowRadius: row.borderTopLeftRadius,
         };
       });
-      expect(geometry.sideBySide).toBe(width >= 720);
+      expect(width >= 720 ? geometry.sideBySide : geometry.stacked).toBe(true);
       expect(geometry.pageWidth).toBeLessThanOrEqual(1680);
       expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
-      expect(geometry).toMatchObject({ shadow: 'none', radius: '0px', rule: '1px' });
-      await chapters.first().locator('.shell-chapter-title a').focus();
+      expect(geometry.cardRadius).toBeGreaterThan(0);
+      expect(geometry.statRadius).toBeGreaterThan(0);
+      expect(geometry).toMatchObject({ cardRule: '1px', cardShadow: 'none', rowRadius: '0px' });
+      await chapters.first().locator('button').focus();
       await page.screenshot({
         path: capturePath(`shell-page-${width}-${theme}.png`),
         fullPage: true,
@@ -144,16 +169,49 @@ test('each count jumps to the first row it counts and a zero count is plain text
   await openShell(page);
   const counts = page.locator('.shell-counts li');
   await counts.nth(1).getByRole('button').click();
-  await expect(page.locator('.shell-chapter[data-stage="in-progress"] a').first()).toBeFocused();
+  await expect(page.locator('.shell-row-item[data-stage="in-progress"] button')).toBeFocused();
+  await expect(page.locator('.shell-row-item[data-stage="in-progress"] button')).toHaveAttribute(
+    'aria-current',
+    'true',
+  );
   await counts.nth(0).getByRole('button').click();
-  await expect(page.locator('.shell-chapter[data-stage="waiting"] a').first()).toBeFocused();
+  await expect(page.locator('.shell-row-item[data-stage="waiting"] button').first()).toBeFocused();
   await counts.nth(2).getByRole('button').click();
-  await expect(page.locator('[data-today] a').first()).toBeFocused();
+  await expect(page.locator('.shell-row-item[data-today] button').first()).toBeFocused();
   await page.unroute('**/src/main.tsx');
   await openShell(page, 'settled');
-  await expect(page.locator('.shell-greeting')).toHaveText(/Nothing needs you\.$/);
+  await expect(page.locator('.tmt-ui-page-subtitle')).toHaveText(/Nothing needs you\.$/);
   await expect(page.locator('.shell-counts li').first().getByRole('button')).toHaveCount(0);
   await expect(page.locator('.shell-counts li').nth(1).getByRole('button')).toHaveCount(1);
+});
+
+test('rows select with Enter, arrows only move between them, and a row is a button', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openShell(page);
+  const first = rowButton(page, PLAN);
+  const second = rowButton(page, NOTES);
+  await expect(page.locator('a.shell-row, .shell-row-item a')).toHaveCount(0);
+  await first.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(second).toBeFocused();
+  // Moving focus selects nothing: the page beside the list is still the first one.
+  await expect(first).toHaveAttribute('aria-current', 'true');
+  await expect(aside(page).locator('.shell-aside-title')).toHaveText('Release plan');
+  await page.keyboard.press('Enter');
+  await expect(second).toHaveAttribute('aria-current', 'true');
+  await expect(first).not.toHaveAttribute('aria-current', 'true');
+  await expect(aside(page).locator('.shell-aside-title')).toHaveText('Design notes');
+  await page.keyboard.press('ArrowUp');
+  await expect(first).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(aside(page).locator('.shell-aside-title')).toHaveText('Release plan');
+  // An older page is a row as well: it shows its title and the way to open it, no passage.
+  await page.locator('.shell-earlier-heading + ol .shell-row').first().click();
+  await expect(aside(page).locator('.shell-aside-title')).toHaveText('Usage chart round two');
+  await expect(aside(page).locator('.shell-passage')).toHaveCount(0);
+  await expect(aside(page).getByRole('link', { name: text.shellPage.openFullPage })).toHaveCount(1);
 });
 
 test('a reading item names the pending reading that leads its chapter, and opening goes there', async ({
@@ -162,21 +220,21 @@ test('a reading item names the pending reading that leads its chapter, and openi
   // Below the panel width a chapter has no panel: it opens its page.
   await page.setViewportSize({ width: 600, height: 900 });
   await openShell(page, 'named');
-  const first = page.locator('.shell-chapter').first();
-  await expect(first.locator('.shell-passage-lead')).toContainText('To read');
-  await expect(first.locator('.shell-passage-title')).toHaveText('Decide the scope');
-  await expect(first.locator('.shell-passage-why')).toHaveText('Read before the review');
-  const open = first.locator('.shell-passage a');
-  await expect(open).toHaveText('Open to decide →');
+  await expect(aside(page).locator('.shell-passage-lead')).toContainText('To read');
+  await expect(aside(page).locator('.shell-passage-title')).toHaveText('Decide the scope');
+  await expect(aside(page).locator('.shell-passage-why')).toHaveText('Read before the review');
+  const open = aside(page).getByRole('link', { name: 'Open to decide →' });
   await expect(open).toHaveAttribute('href', `/#/pages/${PLAN}?read=${READING}`);
-  // The chapter title and the full-page link carry no target of their own.
-  await expect(first.locator('.shell-chapter-title a')).toHaveAttribute('href', `/#/pages/${PLAN}`);
+  // The full-page link carries no target of its own.
+  await expect(
+    aside(page).getByRole('link', { name: text.shellPage.openFullPage }),
+  ).toHaveAttribute('href', `/#/pages/${PLAN}`);
 });
 
 test.describe('a chapter opens in a panel beside the shell from 900 px', () => {
   const panel = (page: Page) => page.getByRole('dialog', { name: 'Release plan' });
   const trigger = (page: Page) =>
-    page.locator(`.shell-chapter[data-page-id="${PLAN}"] button[data-opens-panel]`);
+    page.locator(`#shell-aside[data-page-id="${PLAN}"] button[data-opens-panel]`);
 
   test('Open to decide shows what waits on that page, in the URL, and Esc closes it', async ({
     page,
@@ -258,43 +316,44 @@ test.describe('a chapter opens in a panel beside the shell from 900 px', () => {
     await page.evaluate(() => {
       location.hash = location.hash.split('?')[0] + '?open=10000000-0000-4000-8000-0000000000ff';
     });
-    await expect(page.locator('.shell-chapter')).toHaveCount(3);
+    await expect(chapterRows(page)).toHaveCount(3);
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.locator('button[data-opens-panel]')).toHaveCount(0);
-    await expect(
-      page.locator(`.shell-chapter[data-page-id="${PLAN}"] .shell-passage a`),
-    ).toHaveText('Open to decide →');
+    await expect(aside(page).getByRole('link', { name: 'Open to decide →' })).toHaveCount(1);
   });
 
-  test('opening the full page from the panel and coming back keeps the shell where it was', async ({
+  test('opening the full page from the selected page and coming back keeps the shell where it was', async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 1440, height: 600 });
+    await page.setViewportSize({ width: 1440, height: 500 });
     await openShell(page);
-    await page.locator('.shell-chapter').nth(2).scrollIntoViewIfNeeded();
+    const link = aside(page).getByRole('link', { name: text.shellPage.openFullPage });
+    await link.scrollIntoViewIfNeeded();
     const before = await page.evaluate(() => window.scrollY);
-    expect(before).toBeGreaterThan(300);
-    await page.locator('.shell-chapter').nth(2).locator('.shell-open').click();
+    expect(before).toBeGreaterThan(100);
+    await link.click();
     await expect(page).toHaveURL(/#\/pages\/[^?]+$/);
     await expect(page.locator('.shell-page')).toHaveCount(0);
     await page.goBack();
-    await expect(page.locator('.shell-chapter')).toHaveCount(3);
+    await expect(chapterRows(page)).toHaveCount(3);
     expect(Math.abs((await page.evaluate(() => window.scrollY)) - before)).toBeLessThan(40);
   });
 });
 
-test('opening a chapter and coming back lands on the shell with focus on that chapter', async ({
+test('opening a chapter and coming back lands on the shell with that chapter selected and focused', async ({
   page,
 }) => {
   await openShell(page);
-  const link = page.locator('.shell-chapter').nth(1).locator('.shell-chapter-title a');
-  await link.click();
+  await rowButton(page, NOTES).click();
+  await aside(page).getByRole('link', { name: text.shellPage.openFullPage }).click();
   await expect(page).toHaveURL(new RegExp(`#/pages/${NOTES}$`));
   await expect(page.locator('.shell-page')).toHaveCount(0);
   await page.goBack();
-  await expect(page.locator('.shell-chapter')).toHaveCount(3);
-  await expect(link).toBeFocused();
+  await expect(chapterRows(page)).toHaveCount(3);
+  await expect(rowButton(page, NOTES)).toBeFocused();
+  await expect(rowButton(page, NOTES)).toHaveAttribute('aria-current', 'true');
+  await expect(aside(page).locator('.shell-aside-title')).toHaveText('Design notes');
 });
 
 test('an anchor item opens its page at that exact element and says when it is not there', async ({
@@ -303,7 +362,8 @@ test('an anchor item opens its page at that exact element and says when it is no
   await page.setViewportSize({ width: 600, height: 900 });
   await openShell(page);
   // The notes page is named by an anchor item: its passage opens the page at that element.
-  const anchor = page.locator('.shell-chapter').nth(1).locator('.shell-passage a');
+  await rowButton(page, NOTES).click();
+  const anchor = aside(page).getByRole('link', { name: 'Open to decide →' });
   await expect(anchor).toHaveAttribute('href', `/#/pages/${NOTES}?anchor=decisions`);
   await anchor.click();
   await expect(page).toHaveURL(new RegExp(`#/pages/${NOTES}\\?anchor=decisions$`));
@@ -321,7 +381,7 @@ test('an anchor item opens its page at that exact element and says when it is no
 
 test('a shell reads the details of at most twenty chapters', async ({ page }) => {
   await openShell(page, 'details-many');
-  await expect(page.locator('.shell-chapter')).toHaveCount(25);
+  await expect(chapterRows(page)).toHaveCount(25);
   await expect.poll(() => page.evaluate(() => window.detailCalls.length)).toBe(20);
   expect(await page.evaluate(() => new Set(window.detailCalls).size)).toBe(20);
   await page.waitForTimeout(300);
@@ -332,39 +392,37 @@ test('a failed details read leaves each chapter with its note and no passage, ne
   page,
 }) => {
   await openShell(page, 'details-failed');
-  const chapters = page.locator('.shell-chapter');
-  await expect(chapters).toHaveCount(3);
-  await expect(chapters.locator('.shell-passage-pending')).toHaveCount(0);
-  await expect(chapters.first().locator('.shell-passage-note')).toHaveText('Start with the plan.');
-  await expect(chapters.first().locator('.shell-passage-lead')).toHaveCount(0);
-  await expect(chapters.first().locator('.shell-chapter-title a')).toHaveAttribute(
-    'href',
-    `/#/pages/${PLAN}`,
-  );
+  await expect(chapterRows(page)).toHaveCount(3);
+  await expect(page.locator('.shell-passage-pending')).toHaveCount(0);
+  await expect(aside(page).locator('.shell-passage-note')).toHaveText('Start with the plan.');
+  await expect(aside(page).locator('.shell-passage-lead')).toHaveCount(0);
+  await expect(
+    aside(page).getByRole('link', { name: text.shellPage.openFullPage }),
+  ).toHaveAttribute('href', `/#/pages/${PLAN}`);
 });
 
-test('the focus ring on a chapter title clears the eyebrow above and the meta line below', async ({
+test('the focus ring on a row stays inside the list card, whose edge clips anything outside it', async ({
   page,
 }) => {
   await openShell(page, 'full');
   const geometry = await page.evaluate(() => {
-    const chapter = document.querySelector('.shell-chapter')!;
-    const link = chapter.querySelector<HTMLElement>('.shell-chapter-title a')!;
-    link.focus({ focusVisible: true } as FocusOptions);
-    const style = getComputedStyle(link);
-    const ring = Number.parseFloat(style.outlineOffset) + Number.parseFloat(style.outlineWidth);
-    const box = link.getBoundingClientRect();
-    const above = chapter.querySelector('.shell-chapter-number')!.getBoundingClientRect();
-    const below = chapter.querySelector('.shell-chapter-meta')!.getBoundingClientRect();
+    const row = document.querySelector<HTMLElement>('.shell-row')!;
+    row.focus({ focusVisible: true } as FocusOptions);
+    const style = getComputedStyle(row);
+    const box = row.getBoundingClientRect();
+    const card = document.querySelector('.shell-pages')!.getBoundingClientRect();
+    const reach = Number.parseFloat(style.outlineOffset) + Number.parseFloat(style.outlineWidth);
     return {
-      matches: link.matches(':focus-visible'),
-      top: box.top - ring - above.bottom,
-      bottom: below.top - (box.bottom + ring),
+      matches: row.matches(':focus-visible'),
+      width: Number.parseFloat(style.outlineWidth),
+      left: box.left - reach - card.left,
+      right: card.right - (box.right + reach),
     };
   });
   expect(geometry.matches).toBe(true);
-  expect(geometry.top).toBeGreaterThanOrEqual(0);
-  expect(geometry.bottom).toBeGreaterThanOrEqual(0);
+  expect(geometry.width).toBeGreaterThan(0);
+  expect(geometry.left).toBeGreaterThanOrEqual(0);
+  expect(geometry.right).toBeGreaterThanOrEqual(0);
 });
 
 test('an empty shell, one without a summary and a failed page list stay readable', async ({
@@ -372,26 +430,27 @@ test('an empty shell, one without a summary and a failed page list stay readable
 }) => {
   await openShell(page, 'empty');
   await expect(page.getByText(text.shellPage.empty, { exact: true })).toBeVisible();
-  await expect(page.locator('.shell-greeting')).toHaveText(/Nothing needs you\.$/);
-  await expect(page.locator('.shell-chapter')).toHaveCount(0);
+  await expect(page.locator('.tmt-ui-page-subtitle')).toHaveText(/Nothing needs you\.$/);
+  await expect(page.locator('.shell-row-item')).toHaveCount(0);
   await page.unroute('**/src/main.tsx');
   await openShell(page, 'no-summary');
   await expect(page.locator('.shell-summary-line1')).toHaveCount(0);
   await expect(page.getByText(text.shellPage.noSummary, { exact: true })).toBeVisible();
-  await expect(page.locator('.shell-chapter')).toHaveCount(3);
+  await expect(chapterRows(page)).toHaveCount(3);
   await page.unroute('**/src/main.tsx');
   await openShell(page, 'not-admitted');
   await expect(page.getByText(text.shellPage.notShown, { exact: true })).toBeVisible();
-  await expect(page.locator('.shell-chapter')).toHaveCount(0);
+  await expect(page.locator('.shell-row-item')).toHaveCount(0);
   await page.unroute('**/src/main.tsx');
   await openShell(page, 'pages-failed');
   await expect(page.getByText(text.shellPage.pagesUnavailable, { exact: true })).toBeVisible();
-  // Titles are not known, but every page still has a link, in the older list.
-  await expect(page.locator('.shell-earlier-row a')).toHaveCount(7);
-  await expect(page.locator('.shell-earlier-row a').first()).toHaveAttribute(
-    'href',
-    `/#/pages/${PLAN}`,
-  );
+  // Titles are not known, but every page is still a row, in the older list, and opens from the
+  // selected page.
+  await expect(page.locator('.shell-earlier-heading + ol .shell-row-item')).toHaveCount(7);
+  await expect(chapterRows(page)).toHaveCount(0);
+  await expect(
+    aside(page).getByRole('link', { name: text.shellPage.openFullPage }),
+  ).toHaveAttribute('href', `/#/pages/${PLAN}`);
 });
 
 test('an editor reader link shows the shell notice as read-only, never a Source control', async ({

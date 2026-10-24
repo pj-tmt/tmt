@@ -13,6 +13,15 @@ fn unverified(reason: &str) -> HostError {
     HostError::Unavailable(format!("caller host unverified: {reason}"))
 }
 
+/// Doubt as `None`; only a failed cleanup stays an error.
+fn unless_doubt<T>(result: Result<T, HostError>) -> Result<Option<T>, HostError> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if error.cleanup_failed() => Err(error),
+        Err(_) => Ok(None),
+    }
+}
+
 /// Only a failed cleanup is an error of its own; anything else is doubt.
 fn cleanup(error: CommandError, reason: &str) -> HostError {
     if error.cleanup_failed() {
@@ -35,24 +44,29 @@ impl<R: CommandRunner> Host<R> {
     /// or both name one pane process. tmux doubt counts as tmux absent, as a
     /// tmux environment left from a closed tmux does. Any other doubt, and a
     /// change from the caller up to the external pane before the answer,
-    /// keep tmux.
+    /// keep tmux. A failed cleanup is an error, never doubt.
     pub(super) fn nearest_nested_external(
         &self,
         environment: &CallerEnvironment,
         deadline: Instant,
-    ) -> Option<ExternalCaller> {
-        let (chain, callers) = self.pinned_callers(environment, deadline).ok()?;
-        let external = callers.found.into_iter().next()?;
-        let tmux = self
-            .tmux
-            .proven_caller_pane(environment, deadline)
-            .ok()
-            .and_then(|pid| chain.position(pid));
+    ) -> Result<Option<ExternalCaller>, HostError> {
+        let Some((chain, callers)) = unless_doubt(self.pinned_callers(environment, deadline))?
+        else {
+            return Ok(None);
+        };
+        let Some(external) = callers.found.into_iter().next() else {
+            return Ok(None);
+        };
+        let tmux = match self.tmux.proven_caller_pane(environment, deadline) {
+            Ok(pid) => chain.position(pid),
+            Err(error) if error.cleanup_failed() => return Err(HostError::Tmux(error)),
+            Err(_) => None,
+        };
         if tmux.is_some_and(|tmux| tmux <= external.depth) {
-            return None;
+            return Ok(None);
         }
-        Self::unchanged(self.external.runner(), &chain, external.depth, deadline).ok()?;
-        Some(external)
+        let unchanged = Self::unchanged(self.external.runner(), &chain, external.depth, deadline);
+        Ok(unless_doubt(unchanged)?.map(|_| external))
     }
 
     /// The caller's ancestry, pinned once, and the external panes the

@@ -4940,9 +4940,13 @@ test('Home and TMT settings render in the shell and fit both sizes and themes', 
     await expect(page.locator('html')).not.toHaveAttribute('data-theme');
     // Without a browser read each section names the terminal command and shows no values.
     await expect(page.locator('#tmt-settings-section')).toContainText(
-      'TMT settings is not in the browser yet. Run tmt config show in a terminal.',
+      'This browser cannot read Core settings yet.',
     );
-    await expect(page.locator('#tmt-settings-section code')).toHaveText('tmt config show');
+    await expect(page.locator('#tmt-settings-section')).toContainText(
+      'View machine configuration in your terminal.',
+    );
+    await expect(page.locator('.tmt-settings-warning code')).toHaveText('tmt config show');
+    await expect(page.getByRole('button', { name: 'Copy tmt config show' })).toBeVisible();
     await expect(page.locator('#tmt-settings-note')).toBeHidden();
     await expect(page.locator('#tmt-settings-section .tmt-ui-list-row')).toHaveCount(0);
     // The only route-prefixed read is the owner's composed shell (display data).
@@ -4993,7 +4997,13 @@ test('an unpaired Digest and Ops say what they wait for and show no invented num
       'This browser has no owner session for your machine. Pair it from Remote to see your usage.',
     );
     await expect(usage.locator('a')).toHaveCount(0);
-    await expect(page.getByRole('tab')).toHaveText(['24h', '7d', '30d']);
+    await expect(page.locator('#usage-ranges').getByRole('tab')).toHaveText(['24h', '7d', '30d']);
+    const order = page.getByRole('tablist', { name: 'Seat order', exact: true });
+    await expect(order.getByRole('tab')).toHaveText(['Usage', 'Name']);
+    await expect(order.getByRole('tab', { name: 'Usage', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
     await expect(page.locator('#digest-sections .digest-card')).toHaveCount(0);
     await expect(page.locator('body')).not.toContainText('Sample data');
     await captureState(

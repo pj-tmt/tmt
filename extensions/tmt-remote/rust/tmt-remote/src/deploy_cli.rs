@@ -66,6 +66,8 @@ pub enum DeployCliError {
 pub trait FirestoreCommandPort: DeployPort {
     const SUPPORTS_HOSTING: bool = false;
     fn prepare_hosting(&mut self, _content: &crate::hosting::HostingComposition) {}
+    /// Supply private layout only; preview never signs in or registers a machine.
+    fn prepare_owner(&mut self, _layout: &crate::state::Layout) {}
     fn login(&mut self) -> Result<(), crate::deploy_firestore::DeploySetupError>;
     /// Return database presence observed by the existing budget read, if known.
     fn check_index_budget(
@@ -89,6 +91,9 @@ impl FirestoreCommandPort for crate::deploy_firestore::DeployFirestore<'_> {
     const SUPPORTS_HOSTING: bool = true;
     fn prepare_hosting(&mut self, content: &crate::hosting::HostingComposition) {
         self.prepare_content(content);
+    }
+    fn prepare_owner(&mut self, layout: &crate::state::Layout) {
+        self.prepare_owner_access(layout);
     }
     fn hosting_inventory(
         &mut self,
@@ -242,6 +247,7 @@ pub fn execute_with_confirmation<P: FirestoreCommandPort>(
     )
     .map_err(DeployCliError::Local)?;
     let mut provider = provider_factory()?;
+    provider.prepare_owner(&layout);
     provider.login().map_err(DeployCliError::Setup)?;
     let path = store.record_path();
     let mut output = execute_prepared(
@@ -582,6 +588,9 @@ fn short_preview(
         },
     );
     text.push_str(&change_lines(plan, website_live));
+    if plan.steps().iter().any(|s| s.kind == StepKind::OwnerAccess) {
+        text.push_str("  Register this machine as owner\n");
+    }
     let indexes = plan
         .steps()
         .iter()

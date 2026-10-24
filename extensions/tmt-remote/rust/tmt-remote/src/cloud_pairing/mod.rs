@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 mod provider;
 mod store;
 pub mod wire;
-pub use provider::EnrollmentDocument;
+pub use provider::{EnrollmentDocument, EnrollmentProof};
 pub mod service;
 pub use store::{Connection, PairReceipt, RouteChange};
 

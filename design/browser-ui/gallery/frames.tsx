@@ -1,5 +1,6 @@
 import { ChartsSection } from './charts.js';
 import { MenuHostFrame } from './menu-host-frame.js';
+import { TopBarFrame } from './topbar-frame.js';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Settings } from 'lucide-react';
@@ -591,6 +592,8 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
       return <SourceFrame params={params} />;
     case 'menu-host':
       return <MenuHostFrame params={params} />;
+    case 'topbar':
+      return <TopBarFrame params={params} />;
     case 'menu':
       return <MenuFrame />;
     case 'notifications':
@@ -605,6 +608,13 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
 export function ShellSection() {
   return (
     <Section id="shell">
+      <FramePair title="Shared common top bar · React adapter" frame="topbar" height={400} />
+      <FramePair
+        title="Shared common top bar · native renderer"
+        frame="topbar"
+        params={{ renderer: 'native' }}
+        height={400}
+      />
       <FramePair
         title="BrowserShell · rail expanded with module menu"
         note="mountShell renders the rail and module menu; BrowserShell hosts React and its header through useShellBar."

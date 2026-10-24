@@ -2417,6 +2417,7 @@ function OpenPage({
                   {(view.shell || !endedError) && (
                     <ShellPage
                       shell={view.shell}
+                      title={view.title || snapshot.title}
                       embed={embedded ? undefined : (pageId) => <EmbeddedPage pageId={pageId} />}
                     />
                   )}
