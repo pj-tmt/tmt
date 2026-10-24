@@ -1309,7 +1309,9 @@ fn pointer_selection_retires_a_pending_hint_but_hover_keeps_it() {
 #[ignore = "release-only per-key Session input cost; writes task-owned samples, never frozen fixtures"]
 fn retained_hint_input_timing() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    assert!(!cfg!(debug_assertions), "run with --release");
+    if cfg!(debug_assertions) {
+        panic!("run with --release");
+    }
     let output = std::env::var("TMT_VIEW_INPUT_SAMPLES").expect("task-owned sample path");
     let scratch = Scratch::new();
     let mut reports = Vec::new();
