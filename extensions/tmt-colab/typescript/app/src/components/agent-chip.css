@@ -81,7 +81,8 @@
   align-items: baseline;
   padding: 0 6px;
   border: 1px solid var(--tmt-ui-surface-rule);
-  border-radius: 0;
+  /* The website's tags and chips round at 5 to 7px. */
+  border-radius: var(--tmt-ui-radius-s);
   background: none;
   font-size: var(--tmt-ui-caption-size);
   --tmt-ui-host-icon-action-size: 24px;
