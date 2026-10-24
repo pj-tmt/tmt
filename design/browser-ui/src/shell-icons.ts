@@ -88,6 +88,26 @@ export const shellIconNodes = {
     ['path', { d: 'M12 9v4' }],
     ['path', { d: 'M12 17h.01' }],
   ],
+  lock: [
+    ['rect', { width: '18', height: '11', x: '3', y: '11', rx: '2', ry: '2' }],
+    ['path', { d: 'M7 11V7a5 5 0 0 1 10 0v4' }],
+  ],
+  clock: [
+    ['circle', { cx: '12', cy: '12', r: '10' }],
+    ['path', { d: 'M12 6v6l4 2' }],
+  ],
+  terminal: [
+    ['path', { d: 'M12 19h8' }],
+    ['path', { d: 'm4 17 6-6-6-6' }],
+  ],
+  copy: [
+    ['rect', { width: '14', height: '14', x: '8', y: '8', rx: '2', ry: '2' }],
+    ['path', { d: 'M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2' }],
+  ],
+  x: [
+    ['path', { d: 'M18 6 6 18' }],
+    ['path', { d: 'm6 6 12 12' }],
+  ],
 } as const satisfies Record<string, readonly (readonly [string, Record<string, string>])[]>;
 
 export type ShellIcon = keyof typeof shellIconNodes;

@@ -186,3 +186,15 @@
   overflow-wrap: anywhere;
   min-width: 0;
 }
+/* A passive chip with a glyph before its label, such as Read only. */
+.tmt-ui-chip:has(> .tmt-ui-glyph) {
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  padding-inline-start: var(--tmt-ui-space-m);
+  font-size: var(--tmt-ui-caption-size);
+}
+.tmt-ui-chip > .tmt-ui-glyph {
+  width: 0.75rem;
+  height: 0.75rem;
+  color: var(--tmt-ui-color-secondary);
+}

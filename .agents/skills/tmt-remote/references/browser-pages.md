@@ -28,10 +28,9 @@ browser roles, fonts/header tokens and Header/Notice/Field/Action presentation;
 Remote defines host metrics, viewport layout, safe-area offsets and one window
 scrollbar. Regeneration and drift checks belong to the
 [shared package](../../../../design/browser-ui/README.md). Remote has no copied palette or shadow styling. Host pages use 14px body text,
-controls at least 36px on desktop and 44px on narrow/touch screens, with flat, unframed states. Its six static templates carry the approved
-inline TMT mark (one even-odd path in a 96 × 96 viewBox, currentColor fill) from the
-leaf’s static-host contract (#2608), pinned by a Remote-owned literal
-test; Cargo does not read the leaf’s React source or fetch the mark at runtime.
+controls at least 36px on desktop and 44px on narrow/touch screens, with flat, unframed states. Static hosts use the shared aurora SVG from the
+leaf’s static-host contract, pinned by Remote-owned literal
+tests; Cargo does not read the leaf’s React source or fetch the mark at runtime.
 
 Static markup uses shared class/slot and native accessibility contracts.
 `browser.ts` supplies explicit notice tones and visible state words; decorative marks
@@ -116,6 +115,15 @@ the document visible, at once on showing again, doubling the wait after each fai
 eight times. `/ops` reads `ops` every 5 s through `ops-source.ts`, repaints only when the board
 changed and gives each reason one sentence with what to do; Digest uses the same client.
 `test/owner-reads.test.ts` runs every vector of `owner-reads-v1.json` through it.
+
+`ops-page.ts` owns the section menu and that read lifetime; `ops-agents.ts`,
+`ops-squads.ts` and `ops-timers.ts` render the observed board through shared
+`ops-parts.ts` presentation helpers. Squads shows member cards and delegates its
+read-only detail dialog to `ops-drawer.ts`. A refresh updates an open detail view;
+an absent agent is reported without retaining stale facts. Dismissal resolves the
+current member button after refresh, with the Squads heading as its focus fallback.
+Leaving the section or aborting the route closes the dialog. These views add no
+agent or schedule controls, owner reads or persistence.
 
 ## Settings page
 
