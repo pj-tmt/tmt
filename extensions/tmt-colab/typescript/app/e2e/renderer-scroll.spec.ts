@@ -1,6 +1,18 @@
 import { headerHeight } from './tokens.js';
 import { expect, test, type Page } from '@playwright/test';
 
+/** What the reader's note takes above the page frame, margins included; 0 in the owner app. */
+const noteSize = (page: Page) =>
+  page
+    .locator('.reader-note')
+    .evaluateAll((notes) =>
+      notes.length
+        ? notes[0]!.getBoundingClientRect().height +
+          Number.parseFloat(getComputedStyle(notes[0]!).marginTop) +
+          Number.parseFloat(getComputedStyle(notes[0]!).marginBottom)
+        : 0,
+    );
+
 async function mount(page: Page, source: string, reader: boolean, readerOnly = false) {
   await page.goto('/');
   // The shipped reader bundle never loads the owner stylesheet; drop it so the reader rules stand alone.
@@ -107,7 +119,9 @@ for (const reader of [false, true]) {
     const frame = page.locator('iframe');
     await expect(frame).toHaveAttribute('data-scroll-mode', 'frame');
     await expect(frame).toHaveAttribute('scrolling', 'auto');
-    expect((await frame.boundingBox())!.height).toBe(900 - headerHeight(1440));
+    expect((await frame.boundingBox())!.height).toBe(
+      900 - headerHeight(1440) - (await noteSize(page)),
+    );
     await page
       .frameLocator('iframe')
       .locator('html')
@@ -123,7 +137,7 @@ for (const reader of [false, true]) {
       'height',
       `${headerHeight(390)}px`,
     );
-    // The frame fills the viewport below the header. In the TMT shell the header is the shell's bar
+    // The frame fills the viewport below the header (and, in the reader, its note). In the TMT shell the header is the shell's bar
     // (plus the module menu) and the frame fills the shell's main area; the reader has no shell,
     // so its fixed header's token height sits above the frame.
     await expect
@@ -131,7 +145,10 @@ for (const reader of [false, true]) {
         const box = (await frame.boundingBox())!;
         const shellMain = page.locator('.tmt-ui-shell-main');
         const main = (await shellMain.count()) ? await shellMain.boundingBox() : null;
-        return [box.y + box.height, box.y - (main?.y ?? headerHeight(390))];
+        return [
+          box.y + box.height,
+          box.y - (main?.y ?? headerHeight(390)) - (await noteSize(page)),
+        ];
       })
       .toEqual([700, 0]);
     await expect(frame).toHaveAttribute('data-scroll-mode', 'frame');

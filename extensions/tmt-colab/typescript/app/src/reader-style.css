@@ -15,37 +15,42 @@ body {
 }
 .chip,
 .status {
-  font-family: var(--f-mono);
+  font-family: var(--tmt-ui-font-body);
 }
 main {
   flex: 1;
   min-width: 0;
 }
 .page {
-  min-height: calc(100dvh - var(--reader-bar-size));
+  min-height: calc(100dvh - var(--reader-bar-size) - var(--reader-note-size, 0px));
 }
 .chip {
-  border: 1px solid var(--c-text);
-  padding: 3px 5px;
-  color: var(--c-muted);
+  padding: 4px 10px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-pill);
+  color: var(--tmt-ui-color-link);
   font-size: 11px;
+  line-height: 1.4;
   white-space: nowrap;
+}
+.chip[data-mode='edit'] {
+  color: var(--tmt-ui-color-working);
 }
 .status {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: 11px;
   white-space: nowrap;
 }
 .status.live {
-  color: var(--c-working);
+  color: var(--tmt-ui-color-working);
 }
 .status.waiting {
-  color: var(--c-waiting);
+  color: var(--tmt-ui-color-waiting);
 }
 .status.blocked {
-  color: var(--c-blocked);
+  color: var(--tmt-ui-color-blocked);
 }
 .workspace,
 .canvas {
@@ -55,9 +60,13 @@ main {
   position: relative;
 }
 .frame-host {
-  min-height: calc(100dvh - var(--reader-bar-size));
+  min-height: calc(100dvh - var(--reader-bar-size) - var(--reader-note-size, 0px));
   /* Same canvas as the full app: a page without its own background is white in light and dark. */
   background: #fff;
+}
+.frame-host iframe[data-scroll-mode='frame'] {
+  /* A frame that fills the viewport leaves room for the note above it, so it ends at the viewport's edge. */
+  max-height: calc(100dvh - var(--reader-bar-size) - var(--reader-note-size, 0px));
 }
 .frame-host iframe {
   display: block;
