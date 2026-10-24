@@ -10,7 +10,7 @@ import {
   type BrowserTab,
 } from '@tmt/browser-ui/react';
 import { getRouteApi, useRouter } from '@tanstack/react-router';
-import { Archive, ArchiveRestore, ExternalLink, Pin } from 'lucide-react';
+import { Archive, ArchiveRestore, ExternalLink, Pin, Plus, Search } from 'lucide-react';
 import { useContext, useEffect, useRef, useState } from 'react';
 import {
   ProjectWriting,
@@ -26,6 +26,7 @@ import {
   waitingCount,
   filterPages,
   projectCounts,
+  projectTone,
   projectNameError,
   withProject,
   type PageSort,
@@ -363,8 +364,14 @@ export function Home() {
     tab('archived', t.tabArchived, archivedInScope),
   ];
   const pages = filterPages(scoped, filter, sort);
-  const listScroll = useRef<HTMLDivElement>(null);
-  const drawn = useShownRows(listScroll, pages.length, JSON.stringify([view, filter, sort, scope]));
+  const section = useRef<HTMLElement>(null);
+  const listEnd = useRef<HTMLParagraphElement>(null);
+  const drawn = useShownRows(
+    section,
+    listEnd,
+    pages.length,
+    JSON.stringify([view, filter, sort, scope]),
+  );
   const counts = projectCounts(scoped);
   const waiting = waitingCount(scoped);
   const showNeeds = waiting > 0 || filter.needsYou;
@@ -505,7 +512,6 @@ export function Home() {
     setStatus({ text: full ? `${done} ${t.skippedFull(full)}` : done, failed: false });
   }
   const [projectsRequest, setProjectsRequest] = useState<{ pageId: string; count: number }>();
-  const section = useRef<HTMLElement>(null);
   usePageListKeys({
     section,
     managed: !!port,
@@ -599,6 +605,7 @@ export function Home() {
         ))}
       </div>
       <div className="page-list-search">
+        <Search className="page-list-search-mark" size={14} aria-hidden="true" />
         <PageListSearch
           edit={edit}
           onChange={setEdit}
@@ -621,17 +628,19 @@ export function Home() {
           }}
         />
       </div>
-      <BrowserMenu
-        label={t.sort}
-        valueLabel={sortLabel}
-        items={(['updated', 'title'] as const).map((key) => ({
-          key,
-          label: t.sortOptions[key],
-          role: 'menuitemradio' as const,
-          checked: sort === key,
-        }))}
-        onSelect={(key) => setSearch({ sort: key === 'title' ? 'title' : undefined })}
-      />
+      <span className="page-list-sort">
+        <BrowserMenu
+          label={`${t.sort}: ${sortLabel}`}
+          triggerText={sortLabel}
+          items={(['updated', 'title'] as const).map((key) => ({
+            key,
+            label: t.sortOptions[key],
+            role: 'menuitemradio' as const,
+            checked: sort === key,
+          }))}
+          onSelect={(key) => setSearch({ sort: key === 'title' ? 'title' : undefined })}
+        />
+      </span>
     </div>
   );
   const newPageAction = (
@@ -639,7 +648,7 @@ export function Home() {
       type="button"
       variant="primary"
       label={t.newPage}
-      visibleLabel={t.newPageVisible}
+      leadingIcon={<Plus size={14} />}
       onActivate={() => setNewPage(true)}
     />
   );
@@ -688,7 +697,7 @@ export function Home() {
         {status?.text}
       </p>
       {pages.length ? (
-        <div className="page-list-scroll" ref={listScroll}>
+        <div className="page-list-scroll">
           <div className="page-list-table">
             <div className="page-list-columns">
               <span>
@@ -740,6 +749,7 @@ export function Home() {
                               <button
                                 type="button"
                                 className="page-project"
+                                data-project-tone={projectTone(name)}
                                 aria-pressed={filter.projects.includes(name)}
                                 onClick={(event) => {
                                   if (event.isTrusted) replaceDraft(toggleProject(edit, name));
@@ -794,8 +804,9 @@ export function Home() {
               })}
             </BrowserList>
           </div>
-          <p className="page-list-count" data-page-list-count>
-            {t.showing(Math.min(drawn, pages.length), pages.length)}
+          <p className="page-list-count" data-page-list-count ref={listEnd}>
+            <span>{t.showing(Math.min(drawn, pages.length), pages.length)}</span>
+            <span>{port ? t.ownerAccess : t.viewerAccess}</span>
           </p>
         </div>
       ) : (
@@ -837,7 +848,7 @@ export function Home() {
     </>
   );
   return (
-    <section className="home" data-page-list ref={section}>
+    <section className="home tmt-ui-page" data-page-list ref={section}>
       <header className="page-list-hero">
         <div>
           <h1>{scope ?? t.heroTitle}</h1>

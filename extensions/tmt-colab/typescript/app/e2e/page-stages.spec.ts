@@ -90,11 +90,8 @@ test('a copied link lands on its stage, and one it cannot read lands on the defa
 test('a row shows its progress in words and who works on it', async ({ page }) => {
   await mount(page, 'stages', '/?stage=all');
   const alpha = rows(page).filter({ hasText: 'Alpha plan' });
-  await expect(alpha.getByRole('progressbar', { name: '7 of 10 tasks done' })).toHaveAttribute(
-    'value',
-    '7',
-  );
-  await expect(alpha).toContainText('7/10');
+  await expect(alpha).toContainText('7 of 10 tasks done');
+  await expect(alpha.getByRole('progressbar')).toHaveCount(0);
   const working = alpha.getByRole('list', { name: 'Working' });
   await expect(working.getByRole('listitem')).toHaveText(['feat-1', 'Ada']);
   // Only three are named; the rest are counted.
@@ -105,14 +102,12 @@ test('a row shows its progress in words and who works on it', async ({ page }) =
     'remote-1',
     '+2',
   ]);
-  // A page with no task has no bar, and a finished one says so in the same words.
+  // A page with no task has no progress count, and a finished one uses the same words.
   await expect(rows(page).filter({ hasText: 'Gamma notes' }).getByRole('progressbar')).toHaveCount(
     0,
   );
   await expect(
-    rows(page)
-      .filter({ hasText: 'Delta ops' })
-      .getByRole('progressbar', { name: '4 of 4 tasks done' }),
+    rows(page).filter({ hasText: 'Delta ops' }).getByText('4 of 4 tasks done', { exact: true }),
   ).toBeVisible();
 });
 

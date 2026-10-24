@@ -1,4 +1,4 @@
-/* Tasks in a list row: flat, hairline, neutral. The count carries the meaning; the bar only repeats it. */
+/* Tasks in a list row: a compact count, with the real working names when available. */
 .page-work {
   display: flex;
   flex-wrap: wrap;
@@ -8,25 +8,6 @@
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
   line-height: var(--tmt-ui-caption-line-height);
-}
-.page-progress {
-  appearance: none;
-  width: 64px;
-  height: 6px;
-  margin: 0;
-  border: 1px solid var(--tmt-ui-surface-rule);
-  border-radius: 0;
-  background: transparent;
-  color: var(--tmt-ui-color-text);
-}
-.page-progress::-webkit-progress-bar {
-  background: transparent;
-}
-.page-progress::-webkit-progress-value {
-  background: var(--tmt-ui-color-text);
-}
-.page-progress::-moz-progress-bar {
-  background: var(--tmt-ui-color-text);
 }
 .page-progress-count {
   font-variant-numeric: tabular-nums;

@@ -262,12 +262,12 @@ The space list follows the concept website `/#/colab/pages`: hero with New page,
 pinned-page cards, state strip, project scope, search/sort and the page list. Numbered
 concept 17 is the fallback only for states absent from that website. Actual pins keep owner order, wrap after three
 on wide screens and stack on compact screens; absent pins leave no empty section.
-Projects use neutral token colours and keep every membership. Stage, creator, time and
+Projects keep every membership and use a stable project-name mapping onto the existing blue, violet, amber and green role tints. Row stages use soft-filled role chips with dots; Needs you keeps its real count. Stage, creator, time and
 progress show only available metadata; no missing summary becomes a false zero or stage.
 
 Wide rows separate title, projects, stage, updated, author and access; compact rows stack
 these without horizontal page overflow. Rows with divider rules remain square inside the
-fully bordered rounded list frame. Selection, keyboard actions, incremental rendering and
+fully bordered rounded list frame. Task progress is compact count text, without a repeated bar or comments line. Home is the sole vertical viewport, with the shared page insets and a truthful count/access footer. Successful action feedback remains an unobtrusive live region, while errors stay visible. Selection, keyboard actions, incremental rendering and
 management refusals retain their product owners. The shared flat state tabs show muted numeric
 counts and wrap on compact screens; the hero owns the heading and the shell bar keeps only tools.
 
