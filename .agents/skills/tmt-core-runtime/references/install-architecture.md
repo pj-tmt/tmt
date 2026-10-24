@@ -94,6 +94,13 @@ or optional `paneRenameHints` JSON array, never upgrade failure, retirement, re-
   [release-index contract](../../../../contracts/release-index-v1.md) owns identities and bounds;
   cargo-dist remains the archive, inventory and application-schema authority. Missing or unreadable
   pointers fail without changing installations; a stale pointer cannot authorize a downgrade.
+- `upgrade_preview` prepares a release without acquiring its native payload or running a
+  candidate. Ordinary channels authenticate the selected manifest; PR channels authenticate the
+  catalog and recheck the current head, eligibility, producer and artifact metadata without fetching
+  the payload ZIP. Pinned selection stays offline. Applying a prepared selection rechecks the
+  captured installation and intent, then matches the acquired release identity before publication;
+  a lagging ordinary pointer remains a no-op. Migration preview compares verified candidate schema
+  with the existing read-only store observation and reports unknown for incomplete evidence.
 - `release_http::environment_token` selects nonempty `GH_TOKEN`, then `GITHUB_TOKEN`, with no
   credential command or prompt. Only authenticated PR-mode API hops receive Authorization;
   normal raw/download hops and redirects never receive tokens or follow an API redirect. The

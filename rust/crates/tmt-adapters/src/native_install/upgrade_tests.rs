@@ -27,6 +27,102 @@ fn assert_no_downloads(root: &Path) {
 }
 
 #[test]
+fn preparing_upgrade_reads_metadata_without_downloading_or_changing_the_installation() {
+    let (_directory, layout, receipt) = published_layout();
+    let release = layout.root.join("releases").join(receipt.id.to_string());
+    let executable = release.join("tmt");
+    let before_receipt = fs::read(release.join("receipt.json")).unwrap();
+    let before_executable = fs::read(&executable).unwrap();
+    let before_current = fs::read_link(layout.root.join("current")).unwrap();
+    let before_command = fs::read_link(layout.prefix.join("bin/tmt")).unwrap();
+    let mut downloaded = release_download();
+    let mut requested = Vec::new();
+    let prepared = prepare_product_with(
+        crate::native_install::Product::Cli,
+        UpgradeRequest {
+            executable: &executable,
+            channel: None,
+            exact: None,
+            unpin: false,
+        },
+        false,
+        |url, accept, limit, deadline| {
+            assert!(
+                !url.ends_with(".tar.gz"),
+                "preview must not acquire a payload before approval: {url}"
+            );
+            requested.push(url.to_owned());
+            downloaded(url, accept, limit, deadline)
+        },
+    )
+    .unwrap();
+    assert_eq!(prepared.current.state.version.to_string(), "1.2.3");
+    assert_eq!(
+        prepared
+            .selected
+            .as_ref()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("1.2.4")
+    );
+    assert!(
+        !requested.is_empty(),
+        "the available target must be observed"
+    );
+    assert_eq!(
+        fs::read(release.join("receipt.json")).unwrap(),
+        before_receipt
+    );
+    assert_eq!(fs::read(&executable).unwrap(), before_executable);
+    assert_eq!(
+        fs::read_link(layout.root.join("current")).unwrap(),
+        before_current
+    );
+    assert_eq!(
+        fs::read_link(layout.prefix.join("bin/tmt")).unwrap(),
+        before_command
+    );
+    assert_eq!(
+        fs::read_dir(layout.root.join("releases")).unwrap().count(),
+        1
+    );
+    assert_no_downloads(&layout.root);
+}
+
+#[test]
+fn preparing_a_pinned_upgrade_keeps_the_no_network_path() {
+    let directory = crate::test_support::TestDirectory::new();
+    let layout =
+        crate::native_install::publication::Layout::open(&directory.path.join("prefix")).unwrap();
+    let artifact = artifact("1.2.3", b"pinned executable");
+    let receipt = Receipt::new(&artifact, state("1.2.3", Some("1.2.3")));
+    publish(&layout, &artifact, &receipt);
+    let executable = layout
+        .root
+        .join("releases")
+        .join(receipt.id.to_string())
+        .join("tmt");
+    let prepared = prepare_product_with(
+        crate::native_install::Product::Cli,
+        UpgradeRequest {
+            executable: &executable,
+            channel: None,
+            exact: None,
+            unpin: false,
+        },
+        false,
+        |_, _, _, _| panic!("a pinned CLI preview must not access the network"),
+    )
+    .unwrap();
+    assert!(prepared.selected.is_none());
+    assert_eq!(
+        prepared.current.state.pinned_version.unwrap().to_string(),
+        "1.2.3"
+    );
+    assert_no_downloads(&layout.root);
+}
+
+#[test]
 fn an_incompatible_extension_upgrade_keeps_the_active_release_and_receipt() {
     use crate::native_install::{InstallRequest, Product, cli_required, install_product};
     let directory = crate::test_support::TestDirectory::new();
@@ -761,4 +857,205 @@ fn explicit_lower_version_still_refuses_before_acquisition() {
         );
         assert_eq!(layout.current().unwrap().unwrap().id, receipt.id);
     }
+}
+
+#[test]
+fn prepared_upgrade_refuses_changed_release_bytes_before_executing_the_candidate() {
+    let (_directory, layout, receipt) = published_layout();
+    let executable = layout
+        .root
+        .join("releases")
+        .join(receipt.id.to_string())
+        .join("tmt");
+    let request = || UpgradeRequest {
+        executable: &executable,
+        channel: None,
+        exact: None,
+        unpin: false,
+    };
+    let prepared = prepare_product_with(
+        crate::native_install::Product::Cli,
+        request(),
+        false,
+        release_download(),
+    )
+    .unwrap();
+    let (release, manifest, archive, _) =
+        release::valid_fixture("1.2.4", "aarch64-apple-darwin", 43);
+    let error = upgrade_product_with_options(
+        crate::native_install::Product::Cli,
+        request(),
+        None,
+        Acquisition {
+            progress: &|_| {},
+            selected: prepared.selected.as_ref(),
+            prepared: Some(&prepared),
+            allow_schema_ahead: false,
+            deadline: Instant::now() + Duration::from_secs(60),
+        },
+        || Ok(()),
+        release::indexed_download(release, manifest, archive),
+        |_, _, _, _, _| panic!("changed consented metadata must not execute a candidate"),
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("changed after the upgrade preview"),
+        "{error}"
+    );
+    assert_eq!(
+        fs::read_link(layout.root.join("current")).unwrap(),
+        Path::new("releases").join(receipt.id.to_string())
+    );
+    assert_no_downloads(&layout.root);
+}
+
+#[test]
+fn a_prepared_lagging_pointer_is_a_no_op_without_payload_acquisition() {
+    let (_directory, layout, receipt) = published_layout();
+    let executable = layout
+        .root
+        .join("releases")
+        .join(receipt.id.to_string())
+        .join("tmt");
+    let request = || UpgradeRequest {
+        executable: &executable,
+        channel: None,
+        exact: None,
+        unpin: false,
+    };
+    let (release, manifest, archive, _) =
+        release::valid_fixture("1.2.2", "aarch64-apple-darwin", 42);
+    let prepared = prepare_product_with(
+        crate::native_install::Product::Cli,
+        request(),
+        false,
+        release::indexed_download(release, manifest, archive),
+    )
+    .unwrap();
+    assert_eq!(prepared.selected.as_ref().unwrap().to_string(), "1.2.3");
+    let report = upgrade_product_with_options(
+        crate::native_install::Product::Cli,
+        request(),
+        None,
+        Acquisition {
+            progress: &|_| {},
+            selected: prepared.selected.as_ref(),
+            prepared: Some(&prepared),
+            allow_schema_ahead: false,
+            deadline: Instant::now() + Duration::from_secs(60),
+        },
+        || Ok(()),
+        |_, _, _, _| panic!("a lagging pointer must not download"),
+        |_, _, _, _, _| panic!("a lagging pointer must not execute a candidate"),
+    )
+    .unwrap();
+    assert!(!report.installation.changed);
+    assert!(!report.skipped_pinned);
+    assert_eq!(report.state.version.to_string(), "1.2.3");
+    assert_no_downloads(&layout.root);
+}
+
+#[test]
+fn prepared_upgrade_keeps_the_selected_version_and_pin_policy() {
+    let (_directory, layout, receipt) = published_layout();
+    let executable = layout
+        .root
+        .join("releases")
+        .join(receipt.id.to_string())
+        .join("tmt");
+    let request = || UpgradeRequest {
+        executable: &executable,
+        channel: None,
+        exact: None,
+        unpin: false,
+    };
+    let prepared = prepare_product_with(
+        crate::native_install::Product::Cli,
+        request(),
+        false,
+        release_download(),
+    )
+    .unwrap();
+    let report = upgrade_product_with_options(
+        crate::native_install::Product::Cli,
+        request(),
+        None,
+        Acquisition {
+            progress: &|_| {},
+            selected: prepared.selected.as_ref(),
+            prepared: Some(&prepared),
+            allow_schema_ahead: false,
+            deadline: Instant::now() + Duration::from_secs(60),
+        },
+        || Ok(()),
+        release_download(),
+        crate::native_install::test_support::install_downloaded,
+    )
+    .unwrap();
+    assert!(report.installation.changed);
+    assert_eq!(report.state.version.to_string(), "1.2.4");
+    assert!(report.state.pinned_version.is_none());
+    assert_eq!(
+        inspect(&report.installation.active_executable)
+            .unwrap()
+            .state,
+        report.state
+    );
+    assert_no_downloads(&layout.root);
+}
+
+#[test]
+fn changed_preview_intent_refuses_before_download_or_candidate_execution() {
+    let (_directory, layout, receipt) = published_layout();
+    let executable = layout
+        .root
+        .join("releases")
+        .join(receipt.id.to_string())
+        .join("tmt");
+    let prepared = prepare_product_with(
+        crate::native_install::Product::Cli,
+        UpgradeRequest {
+            executable: &executable,
+            channel: None,
+            exact: None,
+            unpin: false,
+        },
+        false,
+        release_download(),
+    )
+    .unwrap();
+    // Explicitly choosing the same channel is still different consented intent.
+    let error = upgrade_product_with_options(
+        crate::native_install::Product::Cli,
+        UpgradeRequest {
+            executable: &executable,
+            channel: Some(Channel::Stable),
+            exact: None,
+            unpin: false,
+        },
+        None,
+        Acquisition {
+            selected: prepared.selected.as_ref(),
+            prepared: Some(&prepared),
+            progress: &|_| {},
+            allow_schema_ahead: false,
+            deadline: Instant::now() + Duration::from_secs(60),
+        },
+        || Ok(()),
+        |_, _, _, _| panic!("changed intent must not download"),
+        |_, _, _, _, _| panic!("changed intent must not execute a candidate"),
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("installation changed after the upgrade preview"),
+        "{error}"
+    );
+    assert_eq!(
+        inspect(&executable).unwrap().state.version.to_string(),
+        "1.2.3"
+    );
 }
