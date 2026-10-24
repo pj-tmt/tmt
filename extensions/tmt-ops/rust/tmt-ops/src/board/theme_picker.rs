@@ -452,15 +452,15 @@ mod tests {
                 .unwrap()
                 .rows
                 .keys()
-                .find_map(crate::board::conversation_notes::Key::of)
+                .find_map(crate::board::conversation_checklist::Key::of)
                 .unwrap();
-            app.notes = crate::board::conversation_notes::State::reading();
+            app.notes = crate::board::conversation_checklist::State::reading();
             let now = std::time::Instant::now();
             let task = app.notes.offer(Some(&notes_key), now).unwrap();
             app.notes.finished(
-                crate::board::conversation_notes::tests::reading(
+                crate::board::conversation_checklist::tests::reading(
                     &task,
-                    Ok(crate::board::conversation_notes::Counts {
+                    Ok(crate::board::conversation_checklist::Counts {
                         todo: 2,
                         ..Default::default()
                     }),

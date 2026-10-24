@@ -86,7 +86,7 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
         }
     }
     if scene == "todo-done" {
-        let selected = app.conversation_notes_key().unwrap();
+        let selected = app.conversation_checklist_key().unwrap();
         let task = app.notes.offer(Some(&selected), now).unwrap();
         app.notes.finished(
             reading(

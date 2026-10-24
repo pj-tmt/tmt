@@ -299,7 +299,7 @@ projects its typed results/errors. The board consumes the same typed service dir
   and store see only the UUID. Every admission re-resolves the member: unknown is
   `CHECKLIST_MEMBER_UNAVAILABLE`, retired is readable and refuses writes. Admission to the
   room and the actor's authority are those of the room list. No Core schema or contract changes.
-- The board's Notes (`board/conversation_notes.rs`) project a conversation list, one per
+- The board's Notes (`board/conversation_checklist.rs`) project a conversation list, one per
   `(room, member)`: a lane job runs `Service::for_conversation(..).preview()` for the member on
   screen (never per frame; the first read, then one per five seconds, a failed one waits
   thirty) and keeps the list for the chip and the overlay. An item with a `reference` is a

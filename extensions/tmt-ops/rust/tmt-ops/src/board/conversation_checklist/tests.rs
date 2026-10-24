@@ -451,7 +451,7 @@ pub(in crate::board) fn capture_case(
         })
         .expect("the fixture has a member");
     app.select(index);
-    let key = app.conversation_notes_key().expect("a squad member");
+    let key = app.conversation_checklist_key().expect("a squad member");
     if scene == "notes-unavailable" {
         app.notes = State::reading();
         let keys = app
@@ -543,7 +543,7 @@ mod header {
             .position(|row| matches!(row.target, OpsTarget::Member { .. }))
             .expect("the fixture has a member");
         app.select(index);
-        app.conversation_notes_key()
+        app.conversation_checklist_key()
             .expect("a squad member has a conversation")
     }
     fn screen(app: &App) -> String {
@@ -759,7 +759,7 @@ mod header {
         let last = app.workspace_rows().len() - 1;
         app.select(0);
         assert_eq!(
-            app.conversation_notes_key(),
+            app.conversation_checklist_key(),
             None,
             "a squad row shows no member conversation: {:?}",
             app.workspace_rows()[last].target

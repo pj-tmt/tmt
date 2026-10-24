@@ -106,13 +106,13 @@ impl App {
             return Effect::None;
         };
         let note = self.note_source_at(hit.area.as_position()).map(|source| {
-            self.conversation_notes_key().map_or_else(
+            self.conversation_checklist_key().map_or_else(
                 || Choice::Unavailable("Select a squad member to add to Notes.".into()),
                 |key| {
-                    Choice::AddToNotes(crate::board::conversation_notes::Seed {
+                    Choice::AddToNotes(crate::board::conversation_checklist::Seed {
                         key,
                         actor: self.view.as_ref().and_then(|view| view.me_id.clone()),
-                        kind: crate::board::conversation_notes::NoteKind::Link,
+                        kind: crate::board::conversation_checklist::NoteKind::Link,
                         title: link_title(url),
                         reference: url.into(),
                         source,
@@ -430,12 +430,12 @@ mod tests {
         let (area, url) = url_hits(&app).remove(0);
         click(&mut app, area);
         app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
-        let key = app.conversation_notes_key().unwrap();
+        let key = app.conversation_checklist_key().unwrap();
         let draft = app.notes.draft(&key).expect("n opens Add to Notes");
         assert_eq!(draft.text(0), "a_b");
         assert_eq!(draft.text(1), url);
         let seed = draft.seed.as_ref().unwrap();
-        assert_eq!(seed.kind, crate::board::conversation_notes::NoteKind::Link);
+        assert_eq!(seed.kind, crate::board::conversation_checklist::NoteKind::Link);
         assert!(
             seed.source.body().contains("request link"),
             "{:?}",
@@ -519,7 +519,7 @@ mod tests {
             "back restores the held source, not the row now at the anchor"
         );
         app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
-        let key = app.conversation_notes_key().unwrap();
+        let key = app.conversation_checklist_key().unwrap();
         let source = &app.notes.draft(&key).unwrap().seed.as_ref().unwrap().source;
         assert!(source.body().contains("request link"));
         assert!(!source.body().contains("replacement-request"));

@@ -127,7 +127,7 @@ pub(super) fn paint(
         bounds.width - 2,
         bounds.height - 2,
     );
-    let can_note = app.conversation_notes_key().is_some() && !app.loading();
+    let can_note = app.conversation_checklist_key().is_some() && !app.loading();
     let mut lines = Vec::new();
     for (index, (entry, key, word)) in ENTRIES.iter().enumerate() {
         let line = Rect::new(inner.x, inner.y + index as u16, inner.width, 1);

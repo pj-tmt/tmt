@@ -45,7 +45,7 @@ pub(super) enum Job {
     ViewState(super::view_state::Writer),
     ReadMarkers(super::unread::publish::Writer),
     /// Read the Notes summary of the conversation on screen.
-    Notes(super::conversation_notes::Task),
+    Notes(super::conversation_checklist::Task),
     /// Read the running versions once, at start.
     Versions,
 }
@@ -92,7 +92,7 @@ impl Job {
 pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent {
     match job {
         Job::ReadMarkers(writer) => BoardEvent::ReadMarkersPublished(writer.publish(core)),
-        Job::Notes(task) => BoardEvent::NotesRead(super::conversation_notes::complete(core, task)),
+        Job::Notes(task) => BoardEvent::NotesRead(super::conversation_checklist::complete(core, task)),
         Job::Versions => BoardEvent::VersionsRead(super::versions::Versions::read(core)),
         Job::Jump {
             member,

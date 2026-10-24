@@ -35,7 +35,7 @@ fn read_with(items: Vec<ItemView>) -> (App, Key) {
         .position(|row| matches!(row.target, OpsTarget::Member { .. }))
         .expect("the fixture has a member");
     app.select(index);
-    let key = app.conversation_notes_key().expect("a squad member");
+    let key = app.conversation_checklist_key().expect("a squad member");
     app.notes = State::reading();
     let now = Instant::now();
     let task = app.notes.offer(Some(&key), now).unwrap();
@@ -581,7 +581,7 @@ fn the_counter_counts_items_not_headings_and_an_empty_list_has_none() {
 
 fn note_seed(app: &App, kind: NoteKind) -> Seed {
     Seed {
-        key: app.conversation_notes_key().unwrap(),
+        key: app.conversation_checklist_key().unwrap(),
         actor: app.view.as_ref().and_then(|view| view.me_id.clone()),
         kind,
         title: "review_the_build".into(),

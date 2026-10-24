@@ -527,7 +527,7 @@ cells/styles/hits/oracle diff is approved by the UX primary reviewer. Regenerati
 
 ## Checklist todo projection
 
-`conversation_notes::State` owns held room and conversation counts and the global
+`conversation_checklist::State` owns held room and conversation counts and the global
 admission set: each squad room once, alongside its exact room/member conversations.
 Its explicit subject keeps conversation drafts/writes separate from room-list writes.
 The existing quiet lane admits one read at a

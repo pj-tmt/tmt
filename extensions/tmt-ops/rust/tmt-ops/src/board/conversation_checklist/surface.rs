@@ -84,7 +84,7 @@ impl Controller {
                     .unwrap_or_else(|| member.id.as_str().chars().take(8).collect())
             })
             .or_else(|| {
-                if !form_only || app.conversation_notes_key().as_ref() != Some(&self.key) {
+                if !form_only || app.conversation_checklist_key().as_ref() != Some(&self.key) {
                     return None;
                 }
                 app.conversation_target()

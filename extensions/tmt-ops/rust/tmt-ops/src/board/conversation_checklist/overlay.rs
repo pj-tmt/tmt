@@ -453,7 +453,7 @@ impl Controller {
 
 impl App {
     pub(in crate::board) fn note_seed_current(&self, seed: &Seed) -> bool {
-        self.conversation_notes_key().as_ref() == Some(&seed.key)
+        self.conversation_checklist_key().as_ref() == Some(&seed.key)
             && self.view.as_ref().and_then(|view| view.me_id.as_ref()) == seed.actor.as_ref()
             && !self.loading()
     }
@@ -489,7 +489,7 @@ impl App {
         if self.input.is_some() || self.searching || self.modal_open() && self.menu.is_none() {
             return self.say("Close the current input or overlay before opening Notes.");
         }
-        let Some(key) = self.conversation_notes_key() else {
+        let Some(key) = self.conversation_checklist_key() else {
             return self.say("Select a squad member before opening Notes.");
         };
         self.menu = None;
