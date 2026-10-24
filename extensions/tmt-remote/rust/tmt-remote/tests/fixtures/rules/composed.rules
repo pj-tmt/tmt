@@ -28,16 +28,33 @@ service cloud.firestore {
       return request.auth != null && row.revoked == false && row.expiresAt > request.time &&
         (resource == null || resource.data.peer == row.peer);
     }
-    function machineFields() {
-      return request.resource.data.keys().hasOnly(['uid','authenticationKey','descriptor']) &&
+    function machineFields(machine) {
+      return request.resource.data.keys().hasOnly(['uid','authenticationKey','descriptor','invitingOwner']) &&
         request.resource.data.keys().hasAll(['uid','authenticationKey','descriptor']) &&
         request.resource.data.uid is string && request.resource.data.uid.size() > 0 && request.resource.data.uid.size() <= 128 &&
         request.resource.data.authenticationKey is bytes && request.resource.data.authenticationKey.size() == 32 &&
-        request.resource.data.descriptor is bytes && request.resource.data.descriptor.size() > 0 && request.resource.data.descriptor.size() <= 4096;
+        request.resource.data.descriptor is bytes && request.resource.data.descriptor.size() > 0 && request.resource.data.descriptor.size() <= 4096 &&
+        (!('invitingOwner' in request.resource.data) || (request.resource.data.invitingOwner is string && request.resource.data.invitingOwner != machine && request.resource.data.invitingOwner.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')));
+    }
+    function invitedMachine(machine) {
+      let owner = request.resource.data.get('invitingOwner', '');
+      let route = get(/databases/$(database)/documents/m/$(owner)/peers/$(request.auth.uid)).data;
+      return owner != machine && route.revoked == false && route.peer == machine && route.expiresAt > request.time;
+    }
+    function inviterMovesUid(machine) {
+      let owner = resource.data.get('invitingOwner', '');
+      let route = getAfter(/databases/$(database)/documents/m/$(owner)/peers/$(request.resource.data.uid)).data;
+      return machineOwner(owner) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid']) &&
+        route.revoked == false && route.peer == machine && route.expiresAt > request.time;
+    }
+    match /owners/{uid} {
+      allow read, write: if false;
     }
     match /m/{machine} {
-      allow create: if request.auth != null && machine.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}') && machineFields() && request.resource.data.uid == request.auth.uid;
-      allow update: if request.auth != null && resource.data.uid == request.auth.uid && machineFields() && request.resource.data.uid == resource.data.uid && request.resource.data.authenticationKey == resource.data.authenticationKey;
+      allow create: if request.auth != null && machine.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}') && machineFields(machine) && request.resource.data.uid == request.auth.uid &&
+        (exists(/databases/$(database)/documents/owners/$(request.auth.uid)) || invitedMachine(machine));
+      allow update: if request.auth != null && machineFields(machine) &&
+        ((resource.data.uid == request.auth.uid && request.resource.data.uid == resource.data.uid && request.resource.data.authenticationKey == resource.data.authenticationKey && request.resource.data.get('invitingOwner', null) == resource.data.get('invitingOwner', null)) || inviterMovesUid(machine));
       allow get: if request.auth != null;
     }
     match /m/{machine}/peers/{uid} {
@@ -45,10 +62,32 @@ service cloud.firestore {
         request.resource.data.peer is string && request.resource.data.peer.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}') && request.resource.data.revoked is bool && request.resource.data.expiresAt is timestamp;
       allow delete: if machineOwner(machine);
     }
+    match /m/{machine}/invites/{offer} {
+      allow create: if machineOwner(machine) && offer.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}') &&
+        request.resource.data.keys().hasOnly(['tokenHash','expiresAt']) && request.resource.data.keys().hasAll(['tokenHash','expiresAt']) &&
+        request.resource.data.tokenHash is bytes && request.resource.data.tokenHash.size() == 32 && request.resource.data.expiresAt is timestamp && request.resource.data.expiresAt > request.time;
+      allow get, delete: if machineOwner(machine);
+    }
+    match /m/{machine}/reroutes/{peer} {
+      allow create, update: if machineOwner(machine) && peer.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}') &&
+        request.resource.data.keys().hasOnly(['tokenHash']) && request.resource.data.keys().hasAll(['tokenHash']) && request.resource.data.tokenHash is bytes && request.resource.data.tokenHash.size() == 32;
+      allow get, delete: if machineOwner(machine);
+    }
     match /m/{machine}/enroll/{id} {
-      function candidate() { return request.resource.data.kind in ['join','reroute'] && request.resource.data.uid == request.auth.uid && id.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'); }
-      function response() { return machineOwner(machine) && request.resource.data.kind in ['receipt','route-response','refused'] && id.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-response'); }
-      allow create: if request.auth != null && request.resource.data.keys().hasOnly(['uid','kind','body','createdAt']) && request.resource.data.keys().hasAll(['uid','kind','body','createdAt']) &&
+      function join() {
+        let offer = get(/databases/$(database)/documents/m/$(machine)/invites/$(id)).data;
+        return request.resource.data.kind == 'join' && request.resource.data.keys().hasOnly(['uid','kind','body','createdAt','token']) &&
+          request.resource.data.token is bytes && request.resource.data.token.size() == 32 && offer.expiresAt > request.time && hashing.sha256(request.resource.data.token) == offer.tokenHash;
+      }
+      function reroute() {
+        let token = get(/databases/$(database)/documents/m/$(machine)/reroutes/$(request.resource.data.peer)).data;
+        return request.resource.data.kind == 'reroute' && request.resource.data.keys().hasOnly(['uid','kind','body','createdAt','token','peer']) &&
+          request.resource.data.peer is string && request.resource.data.peer.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}') &&
+          request.resource.data.token is bytes && request.resource.data.token.size() == 32 && hashing.sha256(request.resource.data.token) == token.tokenHash;
+      }
+      function candidate() { return request.resource.data.uid == request.auth.uid && id.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}') && ((request.resource.data.kind == 'join' && join()) || (request.resource.data.kind == 'reroute' && reroute())); }
+      function response() { return machineOwner(machine) && request.resource.data.kind in ['receipt','route-response','refused'] && request.resource.data.keys().hasOnly(['uid','kind','body','createdAt']) && id.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-response'); }
+      allow create: if request.auth != null && request.resource.data.keys().hasAll(['uid','kind','body','createdAt']) &&
         request.resource.data.uid is string && request.resource.data.uid.size() > 0 && request.resource.data.uid.size() <= 128 && request.resource.data.kind is string &&
         request.resource.data.body is bytes && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 16384 && request.resource.data.createdAt == request.time && (candidate() || response());
       allow get: if request.auth != null && (machineOwner(machine) || resource == null || resource.data.uid == request.auth.uid);

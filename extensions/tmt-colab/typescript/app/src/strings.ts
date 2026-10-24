@@ -635,6 +635,8 @@ export const text = {
   },
   shellPage: {
     summary: 'Summary',
+    glance: 'Your pages, at a glance.',
+    selectedPage: 'Selected page',
     loading: 'Loading pages…',
     pagesUnavailable: 'The page list is unavailable, so titles are not shown.',
     empty: 'Nothing is here yet.',
@@ -654,7 +656,6 @@ export const text = {
     progressCount: 'In progress',
     todayCount: 'Updated today',
     chapters: 'Pages',
-    stage: { waiting: 'Waiting', 'in-progress': 'In progress' },
     audience: (audience: string) => `For ${audience}`,
     needKind: {
       review: 'To confirm',

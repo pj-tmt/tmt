@@ -34,7 +34,7 @@ async function openShell(page: Page, kind = 'named') {
 }
 const panel = (page: Page) => page.getByRole('dialog', { name: 'Release plan' });
 const trigger = (page: Page) =>
-  page.locator(`.shell-chapter[data-page-id="${PLAN}"] button[data-opens-panel]`);
+  page.locator(`#shell-aside[data-page-id="${PLAN}"] button[data-opens-panel]`);
 const bindings = (page: Page) =>
   page.evaluate(() => ({
     opened: window.bindings.opened.length,
@@ -56,10 +56,10 @@ test('Decide here hosts the page in the panel without touching the tab title', a
   await openShell(page);
   const title = await page.title();
   await capture(page, 'dashboard');
-  // A text action lines up with the text above it, not 12 px in (the shared action pads its sides).
-  const chapter = page.locator('.shell-chapter').first();
-  const titleLeft = (await chapter.locator('.shell-chapter-title').boundingBox())!.x;
-  const openLeft = (await chapter.locator('.shell-open').first().boundingBox())!.x;
+  // The selected page's first action lines up with its title, not indented from it.
+  const side = page.locator('#shell-aside');
+  const titleLeft = (await side.locator('.shell-aside-title').boundingBox())!.x;
+  const openLeft = (await side.locator('.shell-open').first().boundingBox())!.x;
   expect(Math.abs(openLeft - titleLeft)).toBeLessThanOrEqual(1);
   await trigger(page).click();
   const decide = (await panel(page).getByRole('button', { name: t.decideHere }).boundingBox())!;

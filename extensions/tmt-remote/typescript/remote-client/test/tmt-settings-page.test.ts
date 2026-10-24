@@ -26,8 +26,21 @@ class Node {
     this.own = value;
     this.children = [];
   }
-  append(...nodes: Node[]) {
-    this.children.push(...nodes);
+  get firstElementChild(): Node | undefined {
+    return this.children[0];
+  }
+  append(...nodes: (Node | string)[]) {
+    this.children.push(
+      ...nodes.map((node) => {
+        if (typeof node !== 'string') return node;
+        const text = new Node('#text');
+        text.textContent = node;
+        return text;
+      }),
+    );
+  }
+  prepend(...nodes: Node[]) {
+    this.children.unshift(...nodes);
   }
   replaceChildren(...nodes: Node[]) {
     this.own = '';
@@ -85,7 +98,8 @@ beforeEach(() => {
   hashchange = undefined;
   title = new Node('h1');
   root = new Node('html');
-  for (const id of ['tmt-settings-section', 'tmt-settings-note']) ids.set(id, new Node('div'));
+  for (const id of ['tmt-settings-section', 'tmt-settings-note', 'tmt-settings-page'])
+    ids.set(id, new Node('div'));
   vi.stubGlobal('document', {
     createElement: (tag: string) => new Node(tag),
     createElementNS: (_space: string, tag: string) => new Node(tag),
@@ -307,3 +321,56 @@ it('leaves a page without its markup alone', () => {
   tmtSettingsPage(shell(), { read: async () => sample });
   expect(menus).toEqual([]);
 });
+
+it('General follows the approved appearance and terminal-card hierarchy without reference values', async () => {
+  tmtSettingsPage(shell());
+  await settle();
+  expect(section().textContent).toContain('Appearance');
+  expect(section().textContent).toContain('Core configuration');
+  expect(section().textContent).toContain('This browser cannot read Core settings yet.');
+  expect(section().textContent).toContain('View machine configuration in your terminal.');
+  expect(section().textContent).toContain('Browser appearance');
+  expect(section().textContent).not.toContain('Reference defaults');
+  expect(section().textContent).not.toContain('5000');
+  expect(section().textContent).not.toContain('2000');
+});
+
+it('General keeps non-default source values and specific refusal details', async () => {
+  const injected: TmtSettings = {
+    ...sample,
+    general: {
+      rows: [{ name: 'Injected setting', value: '19 s', description: 'Observed test value' }],
+    },
+    sample: true,
+  };
+  tmtSettingsPage(shell(), { read: async () => injected });
+  await settle();
+  expect(section().textContent).toContain('19 s');
+  expect(note().textContent).toContain('Sample data');
+  route.abort();
+  route = new AbortController();
+  tmtSettingsPage(shell(), {
+    read: async () => ({ ...sample, general: { rows: [], unavailable: 'Permission refused.' } }),
+  });
+  await settle();
+  expect(section().textContent).toContain('Permission refused.');
+});
+
+for (const denied of [false, true])
+  it(`General command Copy reports ${denied ? 'denial' : 'success'} without executing it`, async () => {
+    const writeText = vi.fn(() =>
+      denied ? Promise.reject(new Error('denied')) : Promise.resolve(),
+    );
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    tmtSettingsPage(shell());
+    await settle();
+    const copy = section().all(
+      (node) => node.attributes.get('aria-label') === 'Copy tmt config show',
+    )[0]!;
+    copy.fire('click');
+    await settle();
+    expect(writeText).toHaveBeenCalledExactlyOnceWith('tmt config show');
+    expect(section().textContent).toContain(
+      denied ? 'Copy failed. Select the command and copy it manually.' : 'Copied.',
+    );
+  });

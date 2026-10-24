@@ -884,9 +884,11 @@ Code identifiers, files and stored values keep the older name `shell` (`ShellPag
 `meta.shell`); the UI, the CLI and the contract say dashboard.
 
 A dashboard opens in the owner app as `ShellPage` (`shell-page.tsx`), mounted by the page route in place
-of the HTML frame; the app owns every pixel and the document supplies only data. The look is the v4
-design (#4082): a greeting, three counts, numbered chapters joined by hairlines, and a list of older
-pages. `shell-grid.ts` is the plain per-item view: `shellCells` matches each item, in `order`, to its
+of the HTML frame; the app owns every pixel and the document supplies only data. The look follows the
+concept website's Team dashboard (#4784): the page's own head (its title as the h1, the greeting as
+the subtitle), then one card ("Your pages, at a glance.") holding the maintainer agent's lines, three
+count tiles and, below them, the Pages list beside the selected page. `shell-grid.ts` is the plain
+per-item view: `shellCells` matches each item, in `order`, to its
 source page in the space list (title, archived, last edit, Needs you count, author, first project); a
 page the list does not show is `unavailable`, never linked, and a reference grants no access.
 `shellByline` names the summary writer only by the Core-resolved display agent, never by identity,
@@ -901,16 +903,21 @@ the dashboard's `order` as the tie-break; older pages fold into `earlier`. A cha
 pending item an item names (a reading ID or an anchor equal to a pending ID), else the first pending
 item by rank (review, question, reading, proposal), else the latest comment, else the item note;
 `pending` only while a waiting page's details are unanswered. `shell-sections.tsx` draws the parts
-(`ShellGreeting`, `ShellCounts`, `ShellChapter`, `ShellEarlier`); the counts jump to the first row
-they count.
+(`ShellHead`, `ShellSummary`, `ShellCounts`, `ShellPages`, `ShellAside`). The Pages list numbers the
+chapters, then the older pages under their own heading; each row is a button that selects its page
+(`aria-current`; Enter or Space selects, the arrows only move focus), and the selected page beside the
+list (the first one until a row is chosen, or the one a return from its page names) shows who and when,
+its passage and the ways to open it: deciding first when something waits, else the page. The counts
+select and focus the first row they count; where the two columns stack, choosing a row brings the
+selected page into view.
 
 A chapter's panel (`shell-panel.tsx`, `ChapterPanel` in the app's `BrowserDrawer`) opens from the
-passage's "Open to decide" button when the window is at least 900 px wide (`useWide` in
+selected page's "Open to decide" button when the window is at least 900 px wide (`useWide` in
 `shell-page.tsx`); narrower, that action is the same link to the page as before. It is the page
 route's `open` search parameter (`openSearch` in `reading-link.ts`, a page ID, dropped otherwise), and
 only a chapter of the dashboard opens one. Opening pushes a history entry; closing from a panel this
 window opened steps back, and one that arrived by link only drops the parameter. The drawer returns
-focus to the trigger (or the chapter title after a reload). `withViewTransition` wraps open and close
+focus to the trigger (or the chapter's row after a reload). `withViewTransition` wraps open and close
 in the browser's view transition when it exists and motion is not reduced. The panel shows the chapter
 details' `needs` and `latest` as text and links to the page, the passage and the anchor, and holds no
 page session of its own. Its first action, "Decide here", swaps that body for the page itself
@@ -924,16 +931,16 @@ modal, viewport-level dialogs (top layer; Esc closes the topmost only); its `Pag
 no tab title or thread fragment and its `PageRouting` has no home link or crumb.
 
 The page reads the space list once (`spaceHome()` through `useHomeSpace`, so a missing title is
-filled by the same bounded hint read as the list); a failed read keeps every page as a link in the
-older list with a notice. Links are real `Link`s (`pageLinkKey` keeps the modified-open behaviour); a
+filled by the same bounded hint read as the list); a failed read keeps every page as a row in the
+older list with a notice. The selected page's actions are real `Link`s (`pageLinkKey` keeps the modified-open behaviour); a
 passage that names a reading adds the page route's `read` hint, and an anchor item's element adds the
 `anchor` search parameter (`pageSearch` in `reading-link.ts`). The page route then asks the renderer
 to `reveal` it: the frame counts the elements with that exact id and, only when exactly one exists,
 reports its top so the host scrolls there, finishing the scroll if the frame grows within two
 seconds and the reader has not moved; anything else leaves the page open at the top with a short
 notice. Before it leaves for a chapter the page records the page in its own history entry
-(`shellFocus`), and the dashboard restores focus to it when the browser comes back. The layout is
-borderless and full bleed (no card or shadow) and holds no per-user state; a dashboard whose value
+(`shellFocus`), and the dashboard selects that page and restores focus to its row when the browser
+comes back. The layout holds no per-user state; a dashboard whose value
 was not admitted shows one state line instead of an empty page.
 
 Passages come from the owner chapter details (`reading-details.ts`, the optional owner-only

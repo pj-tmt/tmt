@@ -6,6 +6,8 @@ const crypto = require('node:crypto');
 const SUPPORTED = ['15.29.0'];
 const BYTES = 4 * 1024 * 1024;
 const PAGES = 10;
+// Private helper mirror, pinned to limits::CLOUD_DESCRIPTOR_BYTES by the adapter test.
+const CLOUD_DESCRIPTOR_BYTES = 4096;
 const FILE_SAMPLE_COUNT = 4;
 const FILE_SAMPLE_PATH_BYTES = 128;
 const FILE_SAMPLE_BYTES = 1024;
@@ -24,6 +26,7 @@ const FAULTS = new Set([
   'quota-exceeded',
   'database-mismatch',
   'rules-foreign',
+  'owner-conflict',
   'provider-rejected',
   'unknown',
 ]);
@@ -141,6 +144,9 @@ function validate(request) {
         ],
       ])
     ),
+    'owner-access-config': ['project', 'appId'],
+    'observe-owner-access': ['project', 'machine', 'uid', 'authenticationKey', 'descriptor'],
+    'apply-owner-access': ['project', 'machine', 'uid', 'authenticationKey', 'descriptor'],
     'live-rules': ['project'],
     'index-budget': ['project', 'fields', 'composites'],
     'observe-composite': ['project', 'index'],
@@ -159,6 +165,14 @@ function validate(request) {
   const i = request.input;
   if (i.project !== undefined && !/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(i.project))
     fail('provider-rejected');
+  if (request.operation === 'owner-access-config' &&
+      (typeof i.appId !== 'string' || !i.appId || i.appId.length > 256 || /[\x00-\x1f\x7f/]/.test(i.appId))) fail('provider-rejected');
+  if (request.operation.endsWith('-owner-access')) {
+    const uid = (v) => typeof v === 'string' && v.length > 0 && v.length <= 128 && !['.','..'].includes(v) && !/[\x00-\x1f\x7f/]/.test(v);
+    const encoded = (v, max) => typeof v === 'string' && v.length <= Math.ceil(max / 3) * 4 && Buffer.from(v, 'base64').length > 0 && Buffer.from(v, 'base64').length <= max && Buffer.from(v, 'base64').toString('base64') === v;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(i.machine) || !uid(i.uid) ||
+        !encoded(i.authenticationKey, 32) || Buffer.from(i.authenticationKey, 'base64').length !== 32 || !encoded(i.descriptor, CLOUD_DESCRIPTOR_BYTES)) fail('provider-rejected');
+  }
   if (i.location !== undefined && !/^[a-z0-9-]{1,32}$/.test(i.location)) fail('provider-rejected');
   if (i.provider !== undefined && !['anonymous', 'google.com'].includes(i.provider))
     fail('provider-rejected');
@@ -312,6 +326,7 @@ function providerOperation(service, route) {
     return 'project';
   }
   if (service === 'firestore') {
+    if (parts[4] === 'documents:commit' || (parts[4] === 'documents' && ['m','owners'].includes(parts[5]))) return 'owner-registration';
     if (parts[4] === 'collectionGroups' && parts[6] === 'fields') return 'fields';
     if (parts[4] === 'collectionGroups' && parts[6] === 'indexes') return 'indexes';
     return 'database';
@@ -1077,6 +1092,42 @@ async function execute(request, deps) {
       return true;
     return sha(source) === i.replacedDigest;
   }
+  async function ownerAccess(apply) {
+    const root = `${database}/documents`, machine = `${root}/m/${i.machine}`, owner = `${root}/owners/${i.uid}`;
+    const current = await api('firestore', machine, 'GET', undefined, true);
+    const admitted = await api('firestore', owner, 'GET', undefined, true);
+    const uid = (v) => typeof v === 'string' && v.length > 0 && v.length <= 128 && !['.','..'].includes(v) && !/[\x00-\x1f\x7f/]/.test(v);
+    function owns(row) {
+      return row && row.fields && Object.keys(row.fields).join('|') === 'machine' &&
+        row.fields.machine?.stringValue === i.machine;
+    }
+    if (admitted !== null && !owns(admitted)) fail('owner-conflict');
+    let oldUid;
+    if (current !== null) {
+      if (!current.fields || current.name !== machine || typeof current.updateTime !== 'string' ||
+          Object.keys(current.fields).sort().join('|') !== 'authenticationKey|descriptor|uid' ||
+          current.fields.authenticationKey?.bytesValue !== i.authenticationKey ||
+          typeof current.fields.descriptor?.bytesValue !== 'string' || !uid(current.fields.uid?.stringValue)) fail('owner-conflict');
+      oldUid = current.fields.uid.stringValue;
+    }
+    if (current !== null && oldUid === i.uid && admitted !== null) return apply ? 'done' : 'satisfied';
+    if (!apply) return 'absent';
+    const writes = [];
+    if (admitted === null) writes.push({update:{name:owner,fields:{machine:{stringValue:i.machine}}},currentDocument:{exists:false}});
+    if (current === null) writes.push({update:{name:machine,fields:{uid:{stringValue:i.uid},authenticationKey:{bytesValue:i.authenticationKey},descriptor:{bytesValue:i.descriptor}}},currentDocument:{exists:false}});
+    else if (oldUid !== i.uid) {
+      writes.push({update:{name:machine,fields:{uid:{stringValue:i.uid}}},updateMask:{fieldPaths:['uid']},currentDocument:{updateTime:current.updateTime}});
+      const oldName = `${root}/owners/${oldUid}`;
+      const oldOwner = await api('firestore', oldName, 'GET', undefined, true);
+      if (oldOwner !== null) {
+        if (!owns(oldOwner) || typeof oldOwner.updateTime !== 'string') fail('owner-conflict');
+        writes.push({delete:oldName,currentDocument:{updateTime:oldOwner.updateTime}});
+      }
+    }
+    await api('firestore', `${root}:commit`, 'POST', {writes});
+    if (await ownerAccess(false) !== 'satisfied') fail('unknown');
+    return 'done';
+  }
   async function compositeInventory() {
     const listed = await pages('firestore', `${database}/collectionGroups/-/indexes`, 'indexes');
     const names = new Set();
@@ -1125,6 +1176,8 @@ async function execute(request, deps) {
     // Validate an existing Firebase project; this adapter never creates or enables one.
     const p = await api('firebase', `projects/${project}`);
     if (p.projectId !== project || p.state !== 'ACTIVE') fail('provider-rejected');
+    if (r.operation === 'owner-access-config') return await publicConfig(i.appId);
+    if (r.operation.endsWith('-owner-access')) return await ownerAccess(r.operation.startsWith('apply'));
     if (r.operation === 'live-rules' || r.operation === 'observe-rules') return await liveRules();
     if (r.operation === 'index-budget') {
       // Plan-only inventory includes unrelated live configs, before any effect.

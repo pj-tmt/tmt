@@ -54,18 +54,20 @@ test('a dashboard reading waits until the page itself marks it read; opening it 
     // The narrow dashboard links straight to the source reading, rather than opening its panel.
     await page.setViewportSize({ width: 390, height: 900 });
     await page.goto(new URL(shell.path, `${door.address}/`).href);
-    const cell = page.locator(`.shell-chapter[data-page-id="${source.pageId}"]`);
+    const cell = page.locator(`.shell-row-item[data-page-id="${source.pageId}"]`);
     await expect(cell).toHaveCount(1);
     // A suggestion creates a waiting passage, not a read or an agent notification.
     await expect(cell).toHaveAttribute('data-stage', 'waiting');
-    await expect(cell.locator('.shell-passage[data-need=reading] .shell-passage-title')).toHaveText(
-      'First decision',
-    );
+    await cell.getByRole('button').click();
+    const aside = page.locator('#shell-aside');
+    await expect(
+      aside.locator('.shell-passage[data-need=reading] .shell-passage-title'),
+    ).toHaveText('First decision');
     expect(agent.received()).toHaveLength(0);
     expect(threads()).toHaveLength(0);
 
     // Opening the item scrolls to the reading; it stays unread until the page's own Mark read.
-    await cell.getByRole('link', { name: text.shellPage.openToDecide, exact: true }).click();
+    await aside.getByRole('link', { name: text.shellPage.openToDecide, exact: true }).click();
     const band = page.locator(`[data-inline-reading="${reading}"]`);
     await expect(band).toHaveAttribute('data-reading-state', 'unread');
     expect(agent.received()).toHaveLength(0);
@@ -80,12 +82,13 @@ test('a dashboard reading waits until the page itself marks it read; opening it 
     // Coming back, and a reload, show what the page recorded.
     await page.goBack();
     await expect(cell).toHaveAttribute('data-stage', 'in-progress');
-    await expect(cell.locator('.shell-passage[data-need=reading]')).toHaveCount(0);
+    await expect(aside.locator('.shell-passage[data-need=reading]')).toHaveCount(0);
     await page.reload();
     await expect(cell).toHaveAttribute('data-stage', 'in-progress');
-    await expect(cell.locator('.shell-passage[data-need=reading]')).toHaveCount(0);
+    await cell.getByRole('button').click();
+    await expect(aside.locator('.shell-passage[data-need=reading]')).toHaveCount(0);
     // Read state survives both the dashboard return and a fresh opening of the source page.
-    await cell.getByRole('link', { name: text.shellPage.openFullPage, exact: true }).click();
+    await aside.getByRole('link', { name: text.shellPage.openFullPage, exact: true }).click();
     await expect(band).toHaveAttribute('data-reading-state', 'read');
     expect(agent.received()).toHaveLength(1);
   });

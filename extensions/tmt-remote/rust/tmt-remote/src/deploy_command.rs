@@ -346,6 +346,13 @@ fn render(
             human.push_str(" Nothing has been undone.\n");
         }
     }
+    if plan
+        .steps()
+        .iter()
+        .any(|s| s.kind == deploy_run::StepKind::OwnerAccess)
+    {
+        human.push_str("Register this machine as owner\n");
+    }
     if authorized {
         if !hint {
             human.clear();

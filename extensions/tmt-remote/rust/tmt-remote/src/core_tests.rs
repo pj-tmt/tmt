@@ -448,3 +448,57 @@ fn cloud_name_lookup_uses_core_resolution_and_refuses_bad_evidence() {
         );
     }
 }
+
+#[test]
+fn cloud_identity_show_pins_public_argv_and_maps_core_refusals() {
+    let id = "66666666-6666-4666-8666-666666666666";
+    let stop = AtomicBool::new(false);
+    for presence in ["active", "offline", "unknown"] {
+        let answer = json!({"identity":{"id":id,"name":"--Current","presence":presence}});
+        let fixture = Fixture::new(&format!(
+            "printf '%s\\n' \"$@\" > argv; cat > input; printf '%s' '{answer}'"
+        ));
+        fixture
+            .client()
+            .cloud_identity_show(id, "--current", &stop)
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(fixture.0.join("argv")).unwrap(),
+            format!("identity\nshow\n--json\n--expect-name=--current\n--\n{id}\n")
+        );
+        assert!(fs::read(fixture.0.join("input")).unwrap().is_empty());
+    }
+    for (code, exit, expected) in [
+        ("IDENTITY_CHANGED", 5, "REMOTE_AGENT_STALE"),
+        ("NAME_NOT_FOUND", 3, "REMOTE_AGENT_NOT_FOUND"),
+        ("STORAGE_UNAVAILABLE", 1, "STORAGE_UNAVAILABLE"),
+    ] {
+        let answer = json!({"error":{"code":code,"message":"Core refused"}});
+        let fixture = Fixture::new(&format!("printf '%s' '{answer}'; exit {exit}"));
+        assert_eq!(
+            fixture
+                .client()
+                .cloud_identity_show(id, "target", &stop)
+                .unwrap_err()
+                .code,
+            expected
+        );
+    }
+    for answer in [
+        json!({}),
+        json!({"identity":{"id":"77777777-7777-4777-8777-777777777777","name":"target","presence":"active"}}),
+        json!({"identity":{"id":id,"name":"target","retired":true,"presence":"active"}}),
+        json!({"identity":{"id":id,"name":"target"}}),
+        json!({"identity":{"id":id,"name":"target","presence":"invented"}}),
+    ] {
+        let fixture = Fixture::new(&format!("printf '%s' '{answer}'"));
+        assert_eq!(
+            fixture
+                .client()
+                .cloud_identity_show(id, "target", &stop)
+                .unwrap_err()
+                .code,
+            "REMOTE_CORE_UNAVAILABLE"
+        );
+    }
+}

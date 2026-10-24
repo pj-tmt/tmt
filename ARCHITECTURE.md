@@ -542,7 +542,7 @@ Home/Remote/SDK; read-only auto-pair; no companions/skills; [release gates](.age
 settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
 Remote owns authority; UI grants none. Native invite/join and uid routing.
 Firestore: Auth/Rules only; Core never uses Remote trust.
-`message`: envelopes/grants/scope/allowlist/hold/uncertainty/audit; names→UUID.
+`message`: wire/grants/scope/allowlist/hold/uncertainty/audit; UUID/name checks.
 `talk --remote` → [message v1](contracts/remote-message-v1.md) → Remote
 Local: `transport`/`routes` → `message` → `session`/`operations`; same-ID public Core API dispatch/recovery.
 Door: `remote-v1.js` ([SDK](extensions/tmt-remote/typescript/remote-client/README.md));
@@ -552,7 +552,7 @@ owner-installed [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`; publ
 Serve: Auth/runtime/factory/tick/joins/flush; v3 opt-in.
 `native_sync`: COUNT/read limits; Colab cursors; no Core/carrier. Emulation never ships.
 [object-backends](.agents/skills/tmt-remote/references/object-backends.md): channels/backends/quotas.
-Deploy: `hosting` hash; frozen consent/history/`--details`; Rules/Hosting fences; EXPECTED+ACTIVE/live ID/readiness.
+Deploy: `hosting` hash; owner setup/consent/history; Rules/Hosting fences; EXPECTED+ACTIVE/live ID/readiness.
 [Modules](.agents/skills/tmt-remote/references/architecture-internals.md);
 [door/discovery](.agents/skills/tmt-remote/references/door-and-discovery.md): lifecycle/status/management.
 [Background](contracts/extension-serve-v1.md).

@@ -3,8 +3,10 @@
  * then read-only values), Identities, Modules and Drivers & hooks. Everything but the theme is
  * read-only; rows are the shared list rows and every state is a mark and a word.
  */
+import { commandCopy } from './command-copy.js';
 import { pageLoading } from './page-loading.js';
-import { notAvailable } from './not-available.js';
+import { notAvailable, notInBrowser } from './not-available.js';
+import { createIcon } from '@tmt/browser-ui/glyph';
 import { browserUiClasses } from '@tmt/browser-ui/static';
 import type { ShellAnswer } from '@tmt/browser-ui/shell';
 import { THEMES, setStoredTheme, storedTheme, type ThemeChoice } from '@tmt/browser-ui/theme';
@@ -161,30 +163,24 @@ function row(item: SettingsRow): HTMLLIElement {
   return node;
 }
 
-function heading(text: string): HTMLHeadingElement {
-  const node = document.createElement('h2');
-  node.className = browserUiClasses.sectionHeading;
-  node.textContent = text;
-  return node;
-}
-
 /** The theme choice: one tab per theme; picking one stores it for this browser and applies it. */
 function themeChoice(): HTMLElement {
   const group = document.createElement('div');
-  group.className = 'tmt-ui-tab-list';
+  group.className = 'tmt-settings-themes';
   group.setAttribute('role', 'tablist');
   group.setAttribute('aria-label', 'Theme');
   let current = storedTheme();
   const buttons = THEMES.map((theme) => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'tmt-ui-tab';
+    button.className = 'tmt-settings-theme';
     button.setAttribute('role', 'tab');
     button.dataset.choice = theme;
-    const label = document.createElement('span');
-    label.className = 'tmt-ui-tab-label';
-    label.textContent = THEME_LABELS[theme];
-    button.append(label);
+    const label = element('span', 'tmt-settings-theme-label');
+    const radio = element('span', 'tmt-settings-theme-radio');
+    radio.setAttribute('aria-hidden', 'true');
+    label.append(radio, element('span', undefined, THEME_LABELS[theme]));
+    button.append(themePreview(theme), label);
     return button;
   });
   const show = (theme: ThemeChoice) => {
@@ -215,12 +211,151 @@ function themeChoice(): HTMLElement {
   return group;
 }
 
+/** General owns its presentation; the source and theme owner supply the only values. */
+function element<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  className?: string,
+  text?: string,
+): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function themePreview(theme: ThemeChoice): HTMLElement {
+  const preview = element('span', 'tmt-settings-theme-preview');
+  preview.setAttribute('aria-hidden', 'true');
+  for (const choice of theme === 'system' ? ['dark', 'light'] : [theme]) {
+    const half = element('span', 'tmt-settings-theme-preview-half');
+    half.setAttribute('data-theme', choice);
+    const side = element('span', 'tmt-settings-theme-preview-side');
+    const main = element('span', 'tmt-settings-theme-preview-main');
+    for (let index = 0; index < 4; index += 1) {
+      side.append(element('i'));
+      main.append(element('i'));
+    }
+    half.append(side, main);
+    preview.append(half);
+  }
+  return preview;
+}
+
+function settingsCard(title: string, id: string): HTMLElement {
+  const card = element('section', `${browserUiClasses.card} tmt-settings-card`);
+  card.setAttribute('aria-labelledby', id);
+  const heading = element('h2', browserUiClasses.cardTitle, title);
+  heading.id = id;
+  card.append(heading);
+  return card;
+}
+
+function generalView(settings: TmtSettings): HTMLElement[] {
+  const head = element('div', browserUiClasses.pageHead);
+  head.append(
+    element('h2', browserUiClasses.pageTitle, 'Make TMT feel like yours.'),
+    element(
+      'p',
+      browserUiClasses.pageSubtitle,
+      'A familiar space, with just the right amount of you.',
+    ),
+  );
+  const appearance = settingsCard('Appearance', 'tmt-settings-appearance-title');
+  appearance.append(
+    element('p', 'tmt-settings-intro', 'Choose how TMT looks in this browser.'),
+    themeChoice(),
+    element('p', 'tmt-settings-help', 'Saved in this browser only. System follows this device.'),
+  );
+  const core = settingsCard('Core configuration', 'tmt-settings-core-title');
+  const badge = element('span', `${browserUiClasses.chip} tmt-settings-read-only`);
+  badge.append(createIcon('lock'), element('span', browserUiClasses.chipLabel, 'Read only'));
+  core.append(badge);
+  const rows = settingsRows('general', settings);
+  if (rows.length) {
+    const list = element('ul', 'tmt-ui-list');
+    list.append(...rows.map(row));
+    core.append(list);
+  }
+  if (!rows.length || settings.general.unavailable) {
+    const warning = element('div', 'tmt-settings-warning');
+    warning.setAttribute('role', 'note');
+    const title = element('strong');
+    const mark = createIcon('triangle-alert');
+    title.append(
+      mark,
+      element(
+        'span',
+        undefined,
+        settings.general.unavailable
+          ? 'This browser cannot read Core settings yet.'
+          : 'No settings to show.',
+      ),
+    );
+    warning.append(title, element('p', undefined, 'View machine configuration in your terminal.'));
+    const reason = settings.general.unavailable;
+    if (reason && reason !== notInBrowser('TMT settings', 'tmt config show')) {
+      const detail = element('p');
+      notAvailable(detail, reason);
+      warning.append(detail);
+    }
+    warning.append(commandCopy('tmt config show'));
+    core.append(warning);
+  } else core.append(commandCopy('tmt config show'));
+  const primary = element('div', 'tmt-settings-stack');
+  primary.append(appearance, core);
+  const machine = settingsCard('Your machine.', 'tmt-settings-machine-title');
+  machine.firstElementChild!.append(
+    element('br'),
+    element('span', undefined, 'Your configuration.'),
+  );
+  const tile = element('span', browserUiClasses.glyphTile);
+  tile.append(createIcon('terminal'));
+  machine.prepend(tile);
+  const machineText = element('p', 'tmt-settings-help');
+  machineText.append(
+    element('span', undefined, 'Core settings live on your machine. Use '),
+    element('code', undefined, 'tmt config show'),
+    element('span', undefined, ' to read the current values.'),
+  );
+  const link = element('a', 'tmt-settings-link', 'Browse modules →');
+  link.href = `${location.pathname}#modules`;
+  machine.append(
+    machineText,
+    element('hr', 'tmt-settings-rule'),
+    element('h3', undefined, 'Looking for a module?'),
+    element('p', 'tmt-settings-help', 'Find each module’s own settings, together in one place.'),
+    link,
+  );
+  const browser = settingsCard('Browser appearance', 'tmt-settings-browser-title');
+  browser.append(
+    element(
+      'p',
+      'tmt-settings-help',
+      'Appearance stays local to this browser. Machine configuration is managed with the existing terminal commands.',
+    ),
+  );
+  const side = element('aside', 'tmt-settings-stack');
+  side.append(machine, browser);
+  const grid = element('div', 'tmt-settings-grid');
+  grid.append(primary, side);
+  return [
+    head,
+    grid,
+    element(
+      'p',
+      'tmt-settings-foot',
+      'Browser appearance · Machine configuration stays in the terminal',
+    ),
+  ];
+}
+
 /** The section's content. */
 export function settingsSection(
   section: Section,
   settings: TmtSettings,
   links?: ReadonlyMap<string, ModuleLink>,
 ): HTMLElement[] {
+  if (section === 'general') return generalView(settings);
   const rows = settingsRows(section, settings, links);
   const body: HTMLElement[] = [];
   if (rows.length) {
@@ -235,11 +370,7 @@ export function settingsSection(
     notAvailable(none, emptyText(section, settings));
     body.push(none);
   }
-  if (section !== 'general') return body;
-  const help = document.createElement('p');
-  help.className = 'home-note';
-  help.textContent = 'System follows this device. Your choice is kept in this browser only.';
-  return [heading('Theme'), themeChoice(), help, heading('Settings'), ...body];
+  return body;
 }
 
 /** The page in its route; everything it starts ends on the route's `shell.signal`. */
@@ -257,6 +388,11 @@ export function tmtSettingsPage(shell: RemoteShell, source: SettingsSource = set
   const paint = () => {
     if (!live()) return;
     const section = current();
+    const page = document.getElementById('tmt-settings-page');
+    if (page) {
+      page.dataset.section = section;
+      page.className = `tmt-page tmt-settings${section === 'general' ? ' tmt-ui-page' : ''}`;
+    }
     shell.setMenu({
       title: 'TMT settings',
       groups: [

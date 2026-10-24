@@ -1119,6 +1119,28 @@ fn hosted_plan_with_content(html: &[u8]) -> DeployPlan {
     )
     .unwrap()
 }
+#[test]
+fn machine_owner_registration_is_digest_bound_before_rules_and_after_setup() {
+    let plan = hosted_plan();
+    let ids = &plan.view().steps;
+    let owner = ids
+        .iter()
+        .position(|id| id == "owner:register")
+        .expect("the authorized plan must explicitly register this machine as owner");
+    for before in ["database", "sign-in:anonymous", "hosting-site:configure"] {
+        assert!(ids.iter().position(|id| id == before).unwrap() < owner);
+    }
+    assert!(owner < ids.iter().position(|id| id == "rules").unwrap());
+    let value: serde_json::Value = serde_json::from_slice(plan.bytes()).unwrap();
+    assert_eq!(value["steps"][owner], "owner:register");
+    let mut without_owner = value;
+    without_owner["steps"].as_array_mut().unwrap().remove(owner);
+    assert_ne!(
+        sha256(&serde_json::to_vec(&without_owner).unwrap()),
+        plan.digest()
+    );
+}
+
 struct HostedFake {
     inner: Fake,
     checkpoint: Option<tmt_remote::deploy_run::HostingCheckpoint>,
