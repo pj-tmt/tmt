@@ -171,6 +171,27 @@ pub(super) fn oldest_held(
         .map_err(|e| classify(e,"Read oldest held digest timestamp"))
 }
 
+fn item_row(r: &rusqlite::Row<'_>, identity: &str) -> rusqlite::Result<DigestItem> {
+    Ok(DigestItem {
+        sequence: rows::u64_at(r, 0)?,
+        identity_id: identity.into(),
+        request_id: r.get(1)?,
+        kind: DigestKind::parse(&r.get::<_, String>(2)?).ok_or(rusqlite::Error::InvalidQuery)?,
+        created_at_ms: rows::u64_at(r, 3)?,
+        checklist_id: r.get(4)?,
+        source: DigestSource::parse(&r.get::<_, String>(5)?)
+            .ok_or(rusqlite::Error::InvalidQuery)?,
+        context_tokens_at_arrival: r
+            .get::<_, Option<i64>>(6)?
+            .map(|n| u64::try_from(n).map_err(|_| rusqlite::Error::InvalidQuery))
+            .transpose()?,
+        context_observed_at_ms: r
+            .get::<_, Option<i64>>(7)?
+            .map(|n| u64::try_from(n).map_err(|_| rusqlite::Error::InvalidQuery))
+            .transpose()?,
+    })
+}
+
 pub(super) fn items(
     db: &Connection,
     identity: &str,
@@ -190,27 +211,7 @@ pub(super) fn items(
             checked_i64(after, "Digest cursor")?,
             checked_limit(limit)?
         ],
-        |r| {
-            Ok(DigestItem {
-                sequence: rows::u64_at(r, 0)?,
-                identity_id: identity.into(),
-                request_id: r.get(1)?,
-                kind: DigestKind::parse(&r.get::<_, String>(2)?)
-                    .ok_or(rusqlite::Error::InvalidQuery)?,
-                created_at_ms: rows::u64_at(r, 3)?,
-                checklist_id: r.get(4)?,
-                source: DigestSource::parse(&r.get::<_, String>(5)?)
-                    .ok_or(rusqlite::Error::InvalidQuery)?,
-                context_tokens_at_arrival: r
-                    .get::<_, Option<i64>>(6)?
-                    .map(|n| u64::try_from(n).map_err(|_| rusqlite::Error::InvalidQuery))
-                    .transpose()?,
-                context_observed_at_ms: r
-                    .get::<_, Option<i64>>(7)?
-                    .map(|n| u64::try_from(n).map_err(|_| rusqlite::Error::InvalidQuery))
-                    .transpose()?,
-            })
-        },
+        |r| item_row(r, identity),
     )
     .and_then(|r| r.collect())
     .map_err(|e| classify(e, "Read digest items"))
@@ -272,7 +273,10 @@ pub(super) fn settle(
     now: u64,
 ) -> Result<(), StorageError> {
     // The existing writer transaction serializes allocation with every Core change.
-    let changed=db.execute("UPDATE focus_checklists SET state=?1,settled_at_ms=?5,settlement_sequence=(SELECT value+1 FROM change_cursor WHERE id=1) WHERE id=?2 AND identity_id=?3 AND attempt_token=?4 AND state='claimed'",
+    // A turn-boundary delivery is the provider's own hook output and needs no confirmation; a
+    // checklist typed at an idle opportunity waits for a prompt that carries it (#4858).
+    let changed=db.execute("UPDATE focus_checklists SET state=?1,settled_at_ms=?5,settlement_sequence=(SELECT value+1 FROM change_cursor WHERE id=1),
+        confirmed_at_ms=CASE WHEN ?1='delivered' AND opportunity='turn_boundary' THEN ?5 END WHERE id=?2 AND identity_id=?3 AND attempt_token=?4 AND state='claimed'",
         params![state.as_str(),b.id,b.identity_id,b.attempt_token,checked_now(now,"Digest settlement clock")?]).map_err(|e|classify(e,"Settle digest checklist"))?;
     if changed != 1 {
         return Err(StorageError::new(
@@ -293,6 +297,70 @@ pub(super) fn settle(
         .map_err(|e| classify(e, "Release definitely-unsent digest membership"))?;
     }
     Ok(())
+}
+
+/// The scope of an idle checklist that was typed and no prompt has carried yet.
+const UNCONFIRMED: &str = "c.identity_id=?1 AND c.state='delivered' AND c.opportunity='idle' AND c.confirmed_at_ms IS NULL";
+
+pub(super) fn unconfirmed_items(
+    db: &Connection,
+    identity: &str,
+    limit: u64,
+    now: u64,
+) -> Result<Vec<DigestItem>, StorageError> {
+    let mut q = db
+        .prepare(&format!(
+            "SELECT i.sequence,i.request_id,i.kind,i.created_at_ms,i.checklist_id,i.source,i.context_tokens_at_arrival,i.context_observed_at_ms
+             FROM focus_items i JOIN focus_checklists c ON c.id=i.checklist_id JOIN request_attempts a USING(request_id)
+             WHERE {UNCONFIRMED} AND a.retention_expires_at_ms>?2 ORDER BY i.sequence LIMIT ?3"
+        ))
+        .map_err(|e| classify(e, "Prepare unconfirmed digest read"))?;
+    q.query_map(
+        params![
+            identity,
+            checked_now(now, "Digest read clock")?,
+            checked_limit(limit)?
+        ],
+        |r| item_row(r, identity),
+    )
+    .and_then(|r| r.collect())
+    .map_err(|e| classify(e, "Read unconfirmed digest items"))
+}
+
+/// Returns the unconfirmed items up to `through` to the held pool. The checklist keeps its
+/// settlement; only the membership moves, so a later claim seals each request again.
+pub(super) fn release_unconfirmed(
+    db: &Connection,
+    identity: &str,
+    through: u64,
+) -> Result<u64, StorageError> {
+    db.execute(
+        &format!(
+            "UPDATE focus_items SET checklist_id=NULL WHERE identity_id=?1 AND sequence<=?2 AND checklist_id IN
+             (SELECT c.id FROM focus_checklists c WHERE {UNCONFIRMED})"
+        ),
+        params![identity, checked_i64(through, "Digest release watermark")?],
+    )
+    .map(|changed| changed as u64)
+    .map_err(|e| classify(e, "Release unconfirmed digest members"))
+}
+
+/// A prompt that names a request of an unconfirmed idle checklist confirms that checklist.
+pub(super) fn confirm_by_prompt(
+    db: &Connection,
+    identity: &str,
+    prompt: &str,
+    now: u64,
+) -> Result<u64, StorageError> {
+    db.execute(
+        &format!(
+            "UPDATE focus_checklists AS c SET confirmed_at_ms=?3 WHERE {UNCONFIRMED}
+             AND EXISTS (SELECT 1 FROM focus_items i WHERE i.checklist_id=c.id AND instr(?2, i.request_id)>0)"
+        ),
+        params![identity, prompt, checked_now(now, "Digest confirmation clock")?],
+    )
+    .map(|changed| changed as u64)
+    .map_err(|e| classify(e, "Confirm a typed digest checklist"))
 }
 
 pub(super) fn has_item(

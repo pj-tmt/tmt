@@ -780,14 +780,14 @@ client paints the same words and keeps no copy of the rules. The `delivery` fiel
 raw attempt status: a request held by Digest stays `queued` after its checklist is delivered, so read
 `messageState`, not `delivery`, to tell held from handed over:
 
-| `state`       | When                                                                                                                               | `canSendNow`                                                       |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `sent`        | Accepted and waiting to be typed, or its Digest checklist is in flight                                                             | true unless in flight or the recipient waits on an approval prompt |
-| `batched`     | Held by the recipient's Digest for the next checklist                                                                              | true unless the recipient waits on an approval prompt              |
-| `delivered`   | Typed into the recipient's pane (or its checklist was), and no turn has begun on it                                                | false                                                              |
-| `working`     | Typed, and the bound session reports a turn begun after the message was prepared (after the hand-over for a pane route)            | false                                                              |
-| `unconfirmed` | The hand-over may have reached the pane (`uncertain`); never resendable                                                            | false                                                              |
-| `not_sent`    | Nothing reached the agent: `refused` (a pane route failed for certain) or `unreachable` (an identified recipient had no live pane) | true only for `unreachable`                                        |
+| `state`       | When                                                                                                                                                             | `canSendNow`                                                       |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `sent`        | Accepted and waiting to be typed, or its Digest checklist is in flight                                                                                           | true unless in flight or the recipient waits on an approval prompt |
+| `batched`     | Held by the recipient's Digest for the next checklist                                                                                                            | true unless the recipient waits on an approval prompt              |
+| `delivered`   | Typed into the recipient's pane (or its checklist was), and no turn has begun on it                                                                              | false                                                              |
+| `working`     | Typed, and the bound session reports a turn begun after the message was prepared (after the hand-over for a pane route)                                          | false                                                              |
+| `unconfirmed` | The hand-over may have reached the pane (`uncertain`), or a Digest checklist typed at an idle opportunity has not been carried by a prompt yet; never resendable | false                                                              |
+| `not_sent`    | Nothing reached the agent: `refused` (a pane route failed for certain) or `unreachable` (an identified recipient had no live pane)                               | true only for `unreachable`                                        |
 
 `messageState` is `{state, reason:{code, text}, latestMs, remainingMs, canSendNow}`. `reason.text`
 is the one wording for the state, from the table below; a client may add the recipient's name or a
@@ -1016,5 +1016,14 @@ identity/checklist/attempt token may settle `delivered`, `definitely_unsent` or
 releases the members, uncertainty never does. A lost process after claim leaves
 an active claim discoverable through policy/read output, never an automatic retry
 lease. Ordinary wake and queued-notice paths cannot replay checklist-owned items.
+A checklist typed at an idle opportunity settles `delivered` but stays _unconfirmed_ until the
+recipient's next admitted prompt submission names one of its requests: the hook compares the prompt
+text with the checklist's request ids in the transaction that admits the turn start. The typed text
+can land in a turn the provider never announced (a background-task wake, a scheduled wake, a
+continuation), where it never becomes a prompt. The next turn-boundary claim returns the
+unconfirmed items to the held pool and seals them again, in sequence order, in that Stop-hook
+checklist, keyed by the same request ids so the receipt reply stays idempotent. An idle opportunity
+never offers them again and nothing is typed twice. A turn-boundary delivery is the provider's own
+hook output and is confirmed at settlement. History and settlement outcomes are unchanged.
 Provider adapters own launch/turn admission and actual handoff evidence. Idle
 transport uses the ordinary fresh binding, channel-first and guarded host route.

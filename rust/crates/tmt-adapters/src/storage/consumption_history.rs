@@ -406,6 +406,8 @@ impl Storage {
                         super::requests::passthrough::bind(
                             connection, id, session, turn, prompt, now,
                         )?;
+                        // A prompt that carries a typed Digest checklist confirms it (#4858).
+                        super::requests::confirm_digest_by_prompt(connection, id, prompt, now)?;
                     }
                     TurnBoundary::Ended { turn } => {
                         super::requests::passthrough::settle_turn(

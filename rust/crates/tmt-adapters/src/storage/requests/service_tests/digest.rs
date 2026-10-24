@@ -1795,3 +1795,163 @@ fn every_exchange_view_reads_the_checklist_state_while_the_attempt_stays_queued(
     assert_eq!(shown.delivery, AttemptStatus::Queued);
     f.storage.close().unwrap();
 }
+
+/// Typed at an idle opportunity, then settled `delivered` (#4858): the checklist the tick pastes.
+fn type_idle_checklist(
+    f: &mut Fixture,
+    target: &str,
+) -> tmt_core::request::digest::DigestChecklist {
+    service(f).make_digest_due(target).unwrap();
+    let typed = service(f)
+        .claim_digest_checklist(
+            target,
+            new_operation_id(),
+            new_operation_id(),
+            DigestOpportunity::Idle,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+    assert!(
+        service(f)
+            .settle_digest_checklist(
+                target,
+                &typed.id,
+                &typed.attempt_token,
+                DigestState::Delivered
+            )
+            .unwrap()
+    );
+    typed
+}
+
+fn message_state_of(f: &mut Fixture, request: &str) -> tmt_core::request::delivery::DeliveryState {
+    service(f)
+        .request_detail(request)
+        .unwrap()
+        .item
+        .delivery_view
+        .state
+}
+
+/// The 17:21 timeline of #4858: a checklist typed at an idle opportunity into a turn the
+/// provider never announced is settled `delivered` and was never a prompt. The recipient's
+/// next Stop-hook checklist must offer the same requests again, keyed by request id.
+#[test]
+fn a_checklist_typed_into_a_running_turn_is_offered_again_at_the_next_stop() {
+    use tmt_core::request::delivery::DeliveryState;
+    let (mut f, target, _, sender) = start();
+    held(&mut f, &target, &sender, "req-first");
+    held(&mut f, &target, &sender, "req-second");
+    type_idle_checklist(&mut f, &target);
+    // Delivered to the pane, carried by no prompt yet: the sender reads it as unconfirmed.
+    assert_eq!(
+        message_state_of(&mut f, "req-first"),
+        DeliveryState::Unconfirmed
+    );
+
+    // The turn ends; no prompt carried the typed checklist. The Stop hook offers it again.
+    let offered = service(&mut f)
+        .claim_digest_checklist(
+            &target,
+            new_operation_id(),
+            new_operation_id(),
+            DigestOpportunity::TurnBoundary,
+            None,
+        )
+        .unwrap()
+        .expect("the unconfirmed items are offered at the next Stop");
+    let (items, count) = service(&mut f)
+        .digest_checklist_items(&target, Some(&offered.id), 0, 128)
+        .unwrap();
+    assert_eq!(count, 2);
+    assert_eq!(
+        items
+            .iter()
+            .map(|i| i.request_id.as_str())
+            .collect::<Vec<_>>(),
+        ["req-first", "req-second"]
+    );
+    assert_eq!(message_state_of(&mut f, "req-first"), DeliveryState::Sent);
+    assert!(
+        service(&mut f)
+            .settle_digest_checklist(
+                &target,
+                &offered.id,
+                &offered.attempt_token,
+                DigestState::Delivered
+            )
+            .unwrap()
+    );
+    // The hook's output is the provider's own channel: that delivery needs no confirmation,
+    // and nothing is offered a third time.
+    assert_eq!(
+        message_state_of(&mut f, "req-first"),
+        DeliveryState::Delivered
+    );
+    assert!(
+        service(&mut f)
+            .claim_digest_checklist(
+                &target,
+                new_operation_id(),
+                new_operation_id(),
+                DigestOpportunity::TurnBoundary,
+                None,
+            )
+            .unwrap()
+            .is_none()
+    );
+    f.storage.close().unwrap();
+}
+
+/// A prompt that carries the typed checklist confirms it: the next Stop has nothing to offer.
+#[test]
+fn a_prompt_that_carries_the_typed_checklist_confirms_it() {
+    use tmt_core::request::delivery::DeliveryState;
+    let (mut f, target, _, sender) = start();
+    held(&mut f, &target, &sender, "req-first");
+    held(&mut f, &target, &sender, "req-second");
+    type_idle_checklist(&mut f, &target);
+
+    let confirm = |f: &mut Fixture, prompt: &str| {
+        let connection = f.storage.connection().unwrap();
+        crate::storage::requests::confirm_digest_by_prompt(connection, &target, prompt, NOW_MS + 1)
+            .unwrap()
+    };
+    // A prompt that names no request of the checklist confirms nothing.
+    assert_eq!(confirm(&mut f, "an ordinary prompt"), 0);
+    assert_eq!(
+        message_state_of(&mut f, "req-first"),
+        DeliveryState::Unconfirmed
+    );
+    // One request of the checklist is enough: the checklist is typed or it is not.
+    assert_eq!(
+        confirm(
+            &mut f,
+            "TMT Digest checklist ... tmt reply req-second --receipt v2_x"
+        ),
+        1
+    );
+    assert_eq!(
+        message_state_of(&mut f, "req-first"),
+        DeliveryState::Delivered
+    );
+    assert_eq!(
+        confirm(&mut f, "tmt reply req-second again"),
+        0,
+        "confirmed once"
+    );
+    assert!(
+        service(&mut f)
+            .claim_digest_checklist(
+                &target,
+                new_operation_id(),
+                new_operation_id(),
+                DigestOpportunity::TurnBoundary,
+                None,
+            )
+            .unwrap()
+            .is_none()
+    );
+    f.storage.close().unwrap();
+}

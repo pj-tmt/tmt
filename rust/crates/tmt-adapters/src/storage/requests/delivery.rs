@@ -85,7 +85,7 @@ fn hold(
     request: &str,
 ) -> Result<Option<DigestHold>, StorageError> {
     db.query_row(
-        "SELECT i.created_at_ms, c.state FROM focus_items i
+        "SELECT i.created_at_ms, c.state, c.opportunity, c.confirmed_at_ms FROM focus_items i
          LEFT JOIN focus_checklists c ON c.id = i.checklist_id
          WHERE i.identity_id = ?1 AND i.request_id = ?2 AND i.source = 'incoming'",
         params![identity, request],
@@ -95,6 +95,12 @@ fn hold(
                     since_ms: rows::u64_at(row, 0)?,
                 },
                 Some("claimed") => DigestHold::Claimed,
+                Some("delivered")
+                    if row.get::<_, Option<String>>(2)?.as_deref() == Some("idle")
+                        && row.get::<_, Option<i64>>(3)?.is_none() =>
+                {
+                    DigestHold::Unconfirmed
+                }
                 Some("delivered") => DigestHold::Delivered,
                 Some(_) => DigestHold::Uncertain,
             })

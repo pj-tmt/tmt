@@ -316,6 +316,13 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             digest_identity(records, identity)?;
             let bound = claim_bound(records, identity, opportunity, now)?;
             let mut items = records.digest_items(identity, None, 0, limit, now)?;
+            if opportunity == DigestOpportunity::TurnBoundary {
+                // The provider's own hook output is a different channel from the paste
+                // that may have been lost, so it may offer those items again (#4858).
+                items.extend(records.digest_unconfirmed_items(identity, limit, now)?);
+                items.sort_by_key(|item| item.sequence);
+                items.truncate(limit as usize);
+            }
             items.retain(|item| item.sequence <= bound);
             Ok(items)
         })
@@ -353,6 +360,9 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             }
             let bound = claim_bound(records, identity, opportunity, now)?
                 .min(through_limit.unwrap_or(MAX_JS_SAFE_INTEGER));
+            if opportunity == DigestOpportunity::TurnBoundary {
+                records.release_unconfirmed_digest(identity, bound)?;
+            }
             let (count, through_sequence) = records.digest_due_inventory(identity, bound, now)?;
             if count == 0 {
                 return Ok(None);

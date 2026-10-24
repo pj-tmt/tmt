@@ -60,6 +60,8 @@ mod storage_cutover_tests;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]
+mod typed_checklist_tests;
+#[cfg(test)]
 mod whiteboard_snapshot_tests;
 #[cfg(test)]
 mod whiteboard_tests;
@@ -327,6 +329,10 @@ const MIGRATIONS: &[Migration] = &[
     migration!(
         "retain early provider starts until exact launch admission",
         "schema/067.sql"
+    ),
+    migration!(
+        "confirm a checklist only when a prompt carries it",
+        "schema/068.sql"
     ),
 ];
 

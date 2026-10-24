@@ -83,6 +83,9 @@ pub enum DigestHold {
     },
     Claimed,
     Delivered,
+    /// Typed at an idle opportunity and no prompt has carried it since (#4858): it may
+    /// have landed in a running turn. The next Stop offers it again.
+    Unconfirmed,
     Uncertain,
 }
 
@@ -280,7 +283,7 @@ pub fn delivery_view(facts: &DeliveryFacts, now_ms: u64) -> DeliveryView {
             activity.phase != ActivityPhase::Idle && activity.since_ms >= since
         });
     let mut view = match (handover(facts), facts.hold) {
-        (Handover::Uncertain, _) | (_, Some(DigestHold::Uncertain)) => {
+        (Handover::Uncertain, _) | (_, Some(DigestHold::Uncertain | DigestHold::Unconfirmed)) => {
             DeliveryView::of(State::Unconfirmed, Why::HandedOver)
         }
         (Handover::Refused, _) => DeliveryView::of(State::NotSent, Why::Refused),
