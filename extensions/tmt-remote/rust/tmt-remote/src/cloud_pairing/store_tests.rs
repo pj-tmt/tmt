@@ -65,7 +65,7 @@ fn old_private_connection_round_trips_without_adding_a_reroute_token() {
 }
 
 #[test]
-fn schema_eleven_peer_and_original_receipt_survive_the_token_migration_without_new_authority() {
+fn schema_twelve_peer_and_original_receipt_survive_the_token_migration_without_new_authority() {
     let (root, serving, candidate) = world();
     let mut store = Store::open(&serving).unwrap();
     let key = response_key(&[4; 16], &candidate.challenge, &candidate.candidate).unwrap();
@@ -85,8 +85,8 @@ fn schema_eleven_peer_and_original_receipt_survive_the_token_migration_without_n
         .unwrap();
     let grant = store.grant(&candidate.candidate.peer).unwrap().unwrap();
     let machine = store.machine().unwrap();
-    // Reconstruct the real schema-eleven boundary, including an enrolled peer.
-    store.connection.execute_batch("ALTER TABLE cloud_peers DROP COLUMN reroute_hash; DELETE FROM _migrations WHERE version=12;").unwrap();
+    // Reconstruct the real schema-twelve boundary, including an enrolled peer.
+    store.connection.execute_batch("ALTER TABLE cloud_peers DROP COLUMN reroute_hash; DELETE FROM _migrations WHERE version=13;").unwrap();
     drop(store);
     let mut store = Store::open(&serving).unwrap();
     assert_eq!(store.machine().unwrap(), machine);
