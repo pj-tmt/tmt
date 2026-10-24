@@ -1003,7 +1003,7 @@ var syncFieldName = (value) => /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(value);
 function valid$4(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
-function row$3(value, keys) {
+function row$2(value, keys) {
 	valid$4(typeof value === "object" && value !== null && !Array.isArray(value));
 	const r = value;
 	valid$4(Object.keys(r).sort().join(",") === keys.sort().join(","));
@@ -1011,7 +1011,7 @@ function row$3(value, keys) {
 }
 function parseSyncMapping(value) {
 	valid$4(typeof value === "object" && value !== null);
-	const r = row$3(value, [
+	const r = row$2(value, [
 		"fields",
 		"spaceField",
 		"uidField",
@@ -1031,7 +1031,7 @@ function parseSyncMapping(value) {
 	let query = null;
 	if (r.query !== null) {
 		valid$4(typeof r.query === "object" && r.query !== null);
-		const q = row$3(r.query, [
+		const q = row$2(r.query, [
 			"scopeFields",
 			"streamField",
 			"seqField",
@@ -1044,7 +1044,7 @@ function parseSyncMapping(value) {
 		valid$4(declared(q.streamField) && declared(q.seqField) && q.streamField !== q.seqField && q.streamField !== r.spaceField && q.streamField !== r.uidField && q.seqField !== r.uidField && q.order === "asc" && scope.has(r.spaceField) && scope.has(q.streamField) && !scope.has(q.seqField));
 		let discovery;
 		if (q.discovery !== void 0) {
-			const d = row$3(q.discovery, [
+			const d = row$2(q.discovery, [
 				"name",
 				"scopeFields",
 				"seqEquals"
@@ -1401,7 +1401,7 @@ function hostRemote(slot, signal) {
 	};
 }
 /** A shared list row (`tmt-ui-list*`): mark, linked title, then its detail as metadata. */
-function row$2(href, mark, title, detail) {
+function row$1(href, mark, title, detail) {
 	const item = document.createElement("li");
 	item.className = "tmt-ui-list-row";
 	item.dataset.leading = "";
@@ -1437,8 +1437,8 @@ function homePage(shell, open) {
 	const offer = fetch("/sdk/pair-offer", { cache: "no-store" }).then((response) => response.status === 200).catch(() => false);
 	shell.described(async (answer) => {
 		const rows = [];
-		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row$2(open(module.rail.path), "◆", `${module.needsYou} in ${module.rail.label}`, "Needs you"));
-		if (await offer) rows.push(row$2(new URL("/remote/pair", location.href).href, "◆", "A device is waiting to pair", "Remote · confirm the four words in the terminal"));
+		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row$1(open(module.rail.path), "◆", `${module.needsYou} in ${module.rail.label}`, "Needs you"));
+		if (await offer) rows.push(row$1(new URL("/remote/pair", location.href).href, "◆", "A device is waiting to pair", "Remote · confirm the four words in the terminal"));
 		needs.replaceChildren(...rows);
 		if (answer) note.textContent = rows.length ? "" : "Nothing needs you.";
 		else {
@@ -1449,7 +1449,7 @@ function homePage(shell, open) {
 			note.replaceChildren(pair, " in Remote to see what needs you.");
 		}
 		note.hidden = !note.textContent;
-		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row$2(open(card.path), "▤", card.title, module.rail.label)));
+		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row$1(open(card.path), "▤", card.title, module.rail.label)));
 		recent.replaceChildren(...cards);
 		recentBlock.hidden = cards.length === 0;
 	});
@@ -3520,16 +3520,6 @@ function compactCount(value) {
 	if (abs >= 1e3) return `${Math.round(value / 1e3)}K`;
 	return String(Math.round(value));
 }
-/**
-* Intensity of `value` against the largest `max`: null for a missing observation, 0 for a
-* known zero, otherwise 1..`steps` (LEVELS by default) on a square-root scale so small counts stay visible next to
-* one busy pair.
-*/
-function level(value, max, steps = 5) {
-	if (value == null) return null;
-	if (value <= 0 || max <= 0) return 0;
-	return Math.min(steps, Math.max(1, Math.ceil(Math.sqrt(value / max) * steps)));
-}
 /** SVG path data for a polyline through `points`. */
 function linePath(points) {
 	return points.map(([x, y], at) => `${at ? "L" : "M"}${round(x)} ${round(y)}`).join("");
@@ -3623,112 +3613,6 @@ function dataTable(caption, columns, rows) {
 	const box = htmlEl("div", "tmt-ui-chart-data");
 	box.append(table);
 	return box;
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/chart-matrix-model.ts
-/** The matrix as plain data: every cell's text, intensity and spoken label. */
-function matrixModel(options) {
-	const people = options.participants;
-	let max = 0;
-	for (const from of people) for (const to of people) if (from.id !== to.id) max = Math.max(max, options.value(from.id, to.id) ?? 0);
-	return {
-		columns: [...people.map((person) => person.label), ...options.sum ? ["sum"] : []],
-		rows: people.map((from) => {
-			let sent = null;
-			const cells = people.map((to) => {
-				if (from.id === to.id) return {
-					text: options.numeric ? "—" : "",
-					level: 0,
-					self: true,
-					label: `${from.label} to itself`
-				};
-				const count = options.value(from.id, to.id);
-				if (count != null) sent = (sent ?? 0) + count;
-				return {
-					text: count == null ? "—" : count === 0 ? options.numeric ? "0" : "·" : compactCount(count),
-					level: level(count, max) ?? 0,
-					self: false,
-					label: `${from.label} to ${to.label}: ${count == null ? "unavailable" : count}`
-				};
-			});
-			return {
-				label: from.label,
-				cells,
-				sum: options.sum ? sent == null ? "—" : compactCount(sent) : void 0
-			};
-		})
-	};
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/chart-matrix.ts
-/**
-* Who talks to whom: sender rows, recipient columns. A cell reads a number, `·` (observed none)
-* or `—` (unavailable); the default diagonal is blank. Default intensity is a square-root step of the busiest
-* pair, carried by class names that keep their text readable on both themes.
-*/
-function createMatrix(options) {
-	const figure = htmlEl("figure", "tmt-ui-chart");
-	if (options.numeric) figure.dataset.numeric = "";
-	figure.append(htmlEl("figcaption", "tmt-ui-chart-title", options.title));
-	if (!options.participants.length) {
-		figure.append(htmlEl("p", "tmt-ui-chart-empty", options.empty ?? "No agents observed."));
-		return figure;
-	}
-	const model = matrixModel(options);
-	const table = htmlEl("table", "tmt-ui-chart-matrix");
-	const head = htmlEl("tr");
-	const corner = htmlEl("th", "tmt-ui-chart-matrix-corner", options.numeric ? "From →" : "from\\to");
-	corner.scope = "col";
-	head.append(corner);
-	for (const label of model.columns) {
-		const column = htmlEl("th", "tmt-ui-chart-matrix-column");
-		column.scope = "col";
-		column.title = label;
-		column.append(htmlEl("span", "tmt-ui-chart-matrix-name", label));
-		head.append(column);
-	}
-	const thead = htmlEl("thead");
-	thead.append(head);
-	const body = htmlEl("tbody");
-	for (const row of model.rows) {
-		const line = htmlEl("tr");
-		const name = htmlEl("th", "tmt-ui-chart-matrix-row");
-		name.scope = "row";
-		name.title = row.label;
-		name.append(htmlEl("span", "tmt-ui-chart-matrix-name", row.label));
-		line.append(name);
-		for (const cell of row.cells) {
-			const node = htmlEl("td", "tmt-ui-chart-cell", cell.text);
-			node.setAttribute("aria-label", cell.label);
-			if (cell.self) node.classList.add("tmt-ui-chart-cell-self");
-			if (cell.level) node.classList.add(`tmt-ui-chart-level-${cell.level}`);
-			line.append(node);
-		}
-		if (row.sum !== void 0) line.append(htmlEl("td", "tmt-ui-chart-cell tmt-ui-chart-cell-sum", row.sum));
-		body.append(line);
-	}
-	table.append(thead, body);
-	const scroll = htmlEl("div", "tmt-ui-chart-scroll");
-	scroll.tabIndex = 0;
-	scroll.setAttribute("role", "region");
-	scroll.setAttribute("aria-label", options.title);
-	scroll.append(table);
-	const viewport = htmlEl("div", "tmt-ui-chart-matrix-viewport");
-	const edge = htmlEl("span", "tmt-ui-chart-matrix-edge");
-	edge.setAttribute("aria-hidden", "true");
-	edge.hidden = true;
-	const updateEdge = () => {
-		edge.hidden = scroll.scrollWidth - scroll.clientWidth - scroll.scrollLeft <= 1;
-	};
-	scroll.addEventListener("scroll", updateEdge, { passive: true });
-	if (typeof ResizeObserver !== "undefined") {
-		const observer = new ResizeObserver(updateEdge);
-		observer.observe(scroll);
-		observer.observe(table);
-	}
-	viewport.append(scroll, edge);
-	figure.append(viewport);
-	return figure;
 }
 var OTHER_STYLE = 7;
 var styleOf = (layer, i, first = 0) => layer.key === "other" ? OTHER_STYLE : (first + i) % 7;
@@ -4013,176 +3897,6 @@ function createSeriesChart(options) {
 	frame.append(plot, tip);
 	figure.append(frame, readout, legend, dataTable(options.title, first.table.columns, first.table.rows));
 	paintAtWidth(figure, 640, paint);
-	return figure;
-}
-/**
-* Each row scaled to its own busiest slot, so a quiet seat still shows its pattern. An unknown
-* slot stays hollow and a known quiet one is the empty step: no data never reads as silence.
-*/
-function stripsModel(options) {
-	const format = options.format ?? compactCount;
-	return { rows: options.rows.map((row) => {
-		const max = Math.max(0, ...row.slots.map((v) => v ?? 0));
-		const active = row.slots.filter((v) => (v ?? 0) > 0).length;
-		const known = row.slots.filter((v) => v != null).length;
-		return {
-			label: row.label,
-			summary: `${row.label}: active in ${active} of ${known} observed slots`,
-			slots: Array.from({ length: options.slotCount }, (_, at) => {
-				const value = row.slots[at];
-				const range = options.slotRange(at);
-				const text = value == null ? "not observed" : `${format(value)} tokens`;
-				return {
-					level: level(value, max, 4),
-					tip: {
-						seat: row.label,
-						range,
-						value: text
-					},
-					label: `${row.label}, ${range}: ${text}`
-				};
-			})
-		};
-	}) };
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/chart-strips.ts
-/** `Less ▢▢▢▢▢ More`: the swatches of the intensity steps, for a strip's caption or card header. */
-function stripsLegend() {
-	const legend = htmlEl("div", "tmt-ui-chart-strip-legend");
-	legend.setAttribute("aria-hidden", "true");
-	legend.append(htmlEl("span", void 0, "Less"));
-	for (let step = 0; step <= 4; step += 1) legend.append(htmlEl("span", `tmt-ui-chart-slot tmt-ui-chart-slot-${step}`));
-	legend.append(htmlEl("span", void 0, "More"));
-	return legend;
-}
-/**
-* Rows of fixed square slots, like a contribution graph: when each seat was active, scaled to
-* that row's busiest slot. The row is as long as its slot count; a slot's tip (hover or focus)
-* names the seat, the time range and the tokens.
-*/
-function createStrips(options) {
-	const figure = htmlEl("figure", "tmt-ui-chart");
-	if (options.layout) figure.dataset.layout = options.layout;
-	figure.append(htmlEl("figcaption", "tmt-ui-chart-title", options.title));
-	if (!options.rows.length) {
-		figure.append(htmlEl("p", "tmt-ui-chart-empty", options.empty ?? "No agents observed."));
-		return figure;
-	}
-	const frame = htmlEl("div", "tmt-ui-chart-frame");
-	const list = htmlEl("ul", "tmt-ui-chart-strips");
-	list.style.setProperty("--tmt-chart-strip-count", String(options.slotCount));
-	const tip = htmlEl("div", "tmt-ui-chart-tip");
-	tip.hidden = true;
-	tip.setAttribute("aria-hidden", "true");
-	if (options.labels) {
-		const dates = htmlEl("li", "tmt-ui-chart-strip-row");
-		dates.setAttribute("aria-hidden", "true");
-		const labels = htmlEl("div", "tmt-ui-chart-strip tmt-ui-chart-strip-ends");
-		for (const label of options.labels) labels.append(htmlEl("span", "tmt-ui-chart-strip-date", label));
-		dates.append(htmlEl("span", "tmt-ui-chart-strip-label"), labels);
-		list.append(dates);
-	}
-	const grid = [];
-	for (const row of stripsModel(options).rows) {
-		const item = htmlEl("li", "tmt-ui-chart-strip-row");
-		item.setAttribute("aria-label", row.summary);
-		const name = htmlEl("span", "tmt-ui-chart-strip-label", row.label);
-		name.title = row.label;
-		const strip = htmlEl("div", "tmt-ui-chart-strip");
-		const cells = [];
-		for (const slot of row.slots) {
-			const node = htmlEl("span", "tmt-ui-chart-slot");
-			node.classList.add(slot.level === null ? "tmt-ui-chart-slot-none" : `tmt-ui-chart-slot-${slot.level}`);
-			node.setAttribute("role", "img");
-			node.setAttribute("aria-label", slot.label);
-			node.tabIndex = -1;
-			strip.append(node);
-			cells.push({
-				node,
-				tip: slot.tip
-			});
-		}
-		grid.push(cells);
-		item.append(name, strip);
-		list.append(item);
-	}
-	grid[0][0].node.tabIndex = 0;
-	const ends = htmlEl("li", "tmt-ui-chart-strip-row");
-	ends.setAttribute("aria-hidden", "true");
-	const span = htmlEl("div", "tmt-ui-chart-strip-ends");
-	span.append(htmlEl("span", void 0, options.ends[0]), htmlEl("span", void 0, options.ends[1]));
-	ends.append(htmlEl("span", "tmt-ui-chart-strip-label"), span);
-	if (options.layout !== "heatmap") list.append(ends);
-	const find = (target) => {
-		const node = target?.closest(".tmt-ui-chart-slot");
-		if (!node) return void 0;
-		for (const [r, cells] of grid.entries()) {
-			const c = cells.findIndex((cell) => cell.node === node);
-			if (c >= 0) return {
-				r,
-				c
-			};
-		}
-	};
-	function show(r, c) {
-		const cell = grid[r][c];
-		tip.replaceChildren(htmlEl("div", "tmt-ui-chart-tip-title", cell.tip.seat), htmlEl("div", void 0, cell.tip.range), htmlEl("div", "tmt-ui-chart-legend-value", cell.tip.value));
-		tip.hidden = false;
-		const box = cell.node.getBoundingClientRect();
-		const at = frame.getBoundingClientRect();
-		const left = box.left - at.left + box.width / 2 - tip.offsetWidth / 2;
-		tip.style.left = `${Math.max(0, Math.min(left, at.width - tip.offsetWidth))}px`;
-		tip.style.top = `${box.bottom - at.top + 6}px`;
-	}
-	const hide = () => tip.hidden = true;
-	list.addEventListener("pointerover", (event) => {
-		const at = find(event.target);
-		if (at) show(at.r, at.c);
-	});
-	list.addEventListener("pointerleave", () => {
-		const focused = find(document.activeElement);
-		if (focused) show(focused.r, focused.c);
-		else hide();
-	});
-	list.addEventListener("focusin", (event) => {
-		const at = find(event.target);
-		if (at) show(at.r, at.c);
-	});
-	list.addEventListener("focusout", hide);
-	list.addEventListener("keydown", (event) => {
-		const at = find(event.target);
-		if (!at) return;
-		const row = grid[at.r];
-		const to = event.key === "ArrowRight" ? {
-			r: at.r,
-			c: Math.min(row.length - 1, at.c + 1)
-		} : event.key === "ArrowLeft" ? {
-			r: at.r,
-			c: Math.max(0, at.c - 1)
-		} : event.key === "ArrowDown" ? {
-			r: Math.min(grid.length - 1, at.r + 1),
-			c: at.c
-		} : event.key === "ArrowUp" ? {
-			r: Math.max(0, at.r - 1),
-			c: at.c
-		} : event.key === "Home" ? {
-			r: at.r,
-			c: 0
-		} : event.key === "End" ? {
-			r: at.r,
-			c: row.length - 1
-		} : void 0;
-		if (!to) return;
-		event.preventDefault();
-		grid[at.r][at.c].node.tabIndex = -1;
-		const next = grid[to.r][to.c].node;
-		next.tabIndex = 0;
-		next.focus();
-	});
-	frame.append(list, tip);
-	figure.append(frame);
-	if (options.legend !== false) figure.append(stripsLegend());
 	return figure;
 }
 //#endregion
@@ -4558,63 +4272,6 @@ function exchange(doc) {
 		value: (from, to) => pairs.get(`${from}>${to}`) ?? 0
 	};
 }
-/** Seats by tokens in the window, largest first (ties by name), as `rankRows` orders them. */
-function ranked(seats) {
-	return [...seats].sort((a, b) => tokensOf(b.totals) - tokensOf(a.totals) || seatName(a).localeCompare(seatName(b)));
-}
-var SLOTS = {
-	"24h": {
-		count: 24,
-		stepMs: HOUR,
-		group: 4
-	},
-	"7d": {
-		count: 7,
-		stepMs: DAY,
-		group: 1
-	},
-	"30d": {
-		count: 30,
-		stepMs: DAY,
-		group: 5
-	}
-};
-/**
-* Group real hourly/daily reads into four-hour, daily or five-day activity bars. Bins align to
-* the displayed local four-hour clock (daily groups retain report boundaries). A rolling 24h
-* normally has seven clipped bars, with
-* partial first/last bins. No extra observations are invented. If any constituent is missing,
-* the whole bar is hollow; an observed zero remains zero. Incomplete reads remain lower bounds.
-*/
-function activity(doc) {
-	const shape = SLOTS[doc.since];
-	if (!shape) return null;
-	const latest = Math.max(...doc.usage.seats.flatMap((seat) => seat.series.map((point) => point.fromMs)));
-	if (!Number.isFinite(latest)) return null;
-	const first = latest - (shape.count - 1) * shape.stepMs;
-	const end = latest + shape.stepMs;
-	const stepMs = shape.stepMs * shape.group;
-	const groupAt = (at) => Math.floor((at - (doc.since === "24h" ? new Date(at).getTimezoneOffset() * 6e4 : 0)) / stepMs);
-	const bins = [];
-	for (let at = first; at < end; at += shape.stepMs) {
-		const bucket = groupAt(at);
-		const previous = bins[bins.length - 1];
-		if (previous && groupAt(previous[0]) === bucket) previous.push(at);
-		else bins.push([at]);
-	}
-	return {
-		starts: bins.map((bin) => bin[0]),
-		ends: bins.map((bin) => bin[bin.length - 1] + shape.stepMs),
-		rows: ranked(doc.usage.seats).map((seat) => {
-			const byStart = new Map(seat.series.map((point) => [point.fromMs, point]));
-			return {
-				id: seat.id,
-				label: seatName(seat),
-				slots: bins.map((bin) => bin.every((at) => byStart.has(at)) ? bin.reduce((sum, at) => sum + tokensOf(byStart.get(at)), 0) : null)
-			};
-		})
-	};
-}
 var PROVIDER_LABELS = {
 	claude: "Claude",
 	codex: "OpenAI"
@@ -4729,8 +4386,8 @@ function notAvailable(note, text) {
 //#endregion
 //#region src/digest-page.ts
 /**
-* The Digest usage report follows the concept website: provider allowance rows, the token
-* chart and seat legend, activity beside messages, and a coverage/method footer. It depends
+* The Digest usage report follows the concept website: provider allowance cards, the token
+* chart and seat legend, a full-width Messages heatmap, and a coverage/method footer. It depends
 * only on DigestSource; product data comes from the existing owner reads. Samples are injected
 * by tests, the gallery and local development. Range and view state belong to this mounted page.
 */
@@ -4745,6 +4402,22 @@ function el$1(name, className, text) {
 	if (className) node.className = className;
 	if (text !== void 0) node.textContent = text;
 	return node;
+}
+var SEAT_ORDER_KEY = "tmt-digest-seat-order";
+function readSeatOrder() {
+	try {
+		return localStorage.getItem(SEAT_ORDER_KEY) === "name" ? "name" : "usage";
+	} catch {
+		return "usage";
+	}
+}
+function writeSeatOrder(value) {
+	try {
+		localStorage.setItem(SEAT_ORDER_KEY, value);
+		return value;
+	} catch {
+		return "usage";
+	}
 }
 /** A flat sheet with a sentence-case title and an optional right-hand slot in its head. */
 function card(id, title, body, options = {}) {
@@ -4761,11 +4434,6 @@ function card(id, title, body, options = {}) {
 	} else head.append(heading);
 	if (options.actions) head.append(options.actions);
 	node.append(head, ...body);
-	return node;
-}
-function row$1(className, ...cards) {
-	const node = el$1("div", `digest-row ${className}`);
-	node.append(...cards);
 	return node;
 }
 function table(head, rows) {
@@ -4879,10 +4547,12 @@ function providerRow(view, nowMs) {
 		minute: "2-digit",
 		timeZoneName: "short"
 	});
-	row.append(label, meter, observation, el$1("p", "usage-note", `Resets ${reset}`), el$1("p", "usage-note digest-reporters", `Reported by ${view.reporters.join(", ") || "unknown seats"}`), details);
+	const metadata = el$1("div", "digest-provider-metadata");
+	metadata.append(observation, el$1("p", "usage-note", `Resets ${reset}`), el$1("p", "usage-note digest-reporters", `Reported by ${view.reporters.join(", ") || "unknown seats"}`));
+	row.append(label, meter, metadata, details);
 	return row;
 }
-function allowanceRow(report) {
+function allowanceRow(report, state) {
 	const doc = report.allowance;
 	const intro = el$1("div", "digest-allowance-intro");
 	intro.append(el$1("h2", browserUiClasses.cardTitle, "Allowance"), el$1("p", "digest-subtitle", "Latest known weekly windows. Independent of the usage range."));
@@ -4891,7 +4561,12 @@ function allowanceRow(report) {
 	intro.querySelector("h2").id = "digest-allowance-title";
 	node.setAttribute("aria-labelledby", "digest-allowance-title");
 	const groups = el$1("div", "digest-provider-groups");
-	for (const group of providerGroups(doc)) {
+	groups.id = "digest-provider-groups";
+	groups.setAttribute("role", "region");
+	groups.setAttribute("aria-label", "Provider allowances");
+	const providers = providerGroups(doc);
+	if (providers.length > 2) groups.dataset.many = "";
+	for (const group of providers) {
 		const host = el$1("div", "digest-provider-group");
 		host.id = `digest-provider-${encodeURIComponent(group.source)}`;
 		if (group.primary) host.append(providerRow(group.primary, doc.observedAtMs));
@@ -4908,8 +4583,51 @@ function allowanceRow(report) {
 			other.append(summary, ...group.other.map((view) => providerRow(view, doc.observedAtMs)));
 			host.append(other);
 		}
+		const symbol = el$1("span", "digest-provider-symbol", group.source === "claude" ? "✳" : group.source === "codex" ? "⌘" : "○");
+		symbol.setAttribute("aria-hidden", "true");
+		host.querySelector(".digest-provider-label")?.prepend(symbol);
 		groups.append(host);
 	}
+	const controls = el$1("div", "digest-carousel-controls");
+	const previous = el$1("button", browserUiClasses.action, "←");
+	const next = el$1("button", browserUiClasses.action, "→");
+	for (const [button, name, direction] of [[
+		previous,
+		"Previous provider",
+		-1
+	], [
+		next,
+		"Next provider",
+		1
+	]]) {
+		button.type = "button";
+		button.dataset.variant = "secondary";
+		button.setAttribute("aria-label", name);
+		button.setAttribute("aria-controls", groups.id);
+		button.addEventListener("click", () => {
+			const step = (groups.firstElementChild?.getBoundingClientRect().width ?? groups.clientWidth) + Number.parseFloat(getComputedStyle(groups).columnGap);
+			groups.scrollBy({
+				left: direction * step,
+				behavior: "smooth"
+			});
+		});
+	}
+	const sync = () => {
+		const overflow = groups.scrollWidth > groups.clientWidth + 1;
+		controls.hidden = !overflow;
+		groups.tabIndex = overflow ? 0 : -1;
+		previous.disabled = groups.scrollLeft <= 1;
+		next.disabled = groups.scrollLeft + groups.clientWidth >= groups.scrollWidth - 1;
+	};
+	groups.addEventListener("scroll", sync);
+	const observer = new ResizeObserver(sync);
+	observer.observe(groups);
+	state.dispose.push(() => {
+		observer.disconnect();
+		groups.removeEventListener("scroll", sync);
+	});
+	controls.append(previous, next);
+	intro.append(controls);
 	node.append(intro, groups);
 	if (report.allowanceUnavailable) node.append(el$1("p", "usage-note", report.allowanceUnavailable));
 	else if (doc?.limits.some((limit) => !limit.provider)) node.append(el$1("p", "usage-note", "Some allowance windows have no reported provider. Upgrade TMT on your machine to identify them."));
@@ -4924,13 +4642,26 @@ function tokensCard(doc, state) {
 	chart.append(el$1("p", "digest-total-label", `Total${data.partial || doc.usage.unavailable.length > 0 || rows.some((row) => row.partial) ? " (lower bound)" : ""} · ${doc.since}`), el$1("p", "digest-total", rows.length ? compactCount(total) : "—"));
 	const host = el$1("div");
 	const draw = () => {
+		const layers = state.lines ? topLayers(data.layers, data.layers.length) : topLayers(data.layers, SERIES_KEPT);
+		const series = state.lines && state.share ? layers.map((layer) => ({
+			...layer,
+			values: layer.values.map((value, at) => {
+				if (value === null) return null;
+				const total = layers.reduce((sum, item) => sum + (item.values[at] ?? 0), 0);
+				return total ? value / total * 100 : 0;
+			})
+		})) : layers;
 		host.setAttribute("aria-labelledby", `digest-tokens-chart-${state.share ? "share" : "absolute"}`);
 		host.replaceChildren(createSeriesChart({
-			title: state.share ? "Share of tokens by seat" : "Tokens by seat",
-			kind: state.share ? "share" : "stack",
+			title: `${state.share ? "Share of tokens" : "Tokens"} by seat${state.lines ? " · Lines" : ""}`,
+			kind: state.lines ? "line" : state.share ? "share" : "stack",
 			curve: "monotone",
 			x: data.x,
-			series: topLayers(data.layers, SERIES_KEPT),
+			series,
+			...state.lines && state.share ? {
+				max: 100,
+				format: (value) => `${Math.round(value)}%`
+			} : {},
 			empty: "No token observations in this range."
 		}));
 		const plot = host.querySelector(".tmt-ui-chart-plot");
@@ -4938,7 +4669,8 @@ function tokensCard(doc, state) {
 	};
 	draw();
 	chart.append(host);
-	body.append(chart, legendTable(doc, state));
+	let legend = legendTable(doc, state);
+	body.append(chart, legend);
 	if (data.partial) chart.append(el$1("p", "usage-note", "Some buckets are incomplete: they are lower bounds, not errors."));
 	if (doc.usage.unavailable.length) chart.append(el$1("p", "usage-note", "Unavailable seats are not included in this total."));
 	host.id = "digest-tokens-chart";
@@ -4954,8 +4686,23 @@ function tokensCard(doc, state) {
 		state.share = value === "share";
 		draw();
 	});
+	const style = tabChoice("Chart style", host.id, [{
+		value: "stacked",
+		text: "Stacked"
+	}, {
+		value: "lines",
+		text: "Lines"
+	}], state.lines ? "lines" : "stacked", (value) => {
+		state.lines = value === "lines";
+		draw();
+		const next = legendTable(doc, state);
+		legend.replaceWith(next);
+		legend = next;
+	});
+	const controls = el$1("div", "digest-chart-controls");
+	controls.append(control, style);
 	return card("digest-tokens", "Token usage", [body], {
-		actions: control,
+		actions: controls,
 		subtitle: "A shared view, seat by seat."
 	});
 }
@@ -4967,9 +4714,11 @@ function seatLabel(name, partial) {
 	return node;
 }
 function legendTable(doc, state) {
-	const rows = rankRows(doc);
-	const view = ranking(rows, SERIES_KEPT);
-	const hue = new Map(topLayers(tokenSeries(doc).layers, SERIES_KEPT).filter((layer) => layer.key !== "other").map((layer, at) => [layer.key, at % 7]));
+	const ranked = rankRows(doc);
+	const rows = [...ranked].sort((a, b) => (state.order === "usage" ? b.tokens - a.tokens : 0) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+	const view = ranking(ranked, SERIES_KEPT);
+	const chartLayers = state.lines ? topLayers(tokenSeries(doc).layers, tokenSeries(doc).layers.length) : topLayers(tokenSeries(doc).layers, SERIES_KEPT);
+	const hue = new Map(chartLayers.filter((layer) => layer.key !== "other").map((layer, at) => [layer.key, at % 7]));
 	function legendSeat(id, name, partial) {
 		const label = el$1("span", "digest-legend-seat");
 		const dot = el$1("span", `tmt-ui-status-tile-dot tmt-ui-chart-s${hue.get(id) ?? OTHER_STEP}`);
@@ -4980,12 +4729,12 @@ function legendTable(doc, state) {
 	const host = el$1("div", "digest-ranking-table");
 	host.id = "digest-ranking-rows";
 	const draw = (all) => {
-		const lines = (all ? rows : view.top).map((entry) => [
+		const lines = (all || state.lines ? rows : rows.filter((row) => view.top.some((top) => top.id === row.id))).map((entry) => [
 			legendSeat(entry.id, entry.name, entry.partial),
 			compactCount(entry.tokens),
 			`${entry.share}%`
 		]);
-		if (!all && view.other) lines.push([
+		if (!all && !state.lines && view.other) lines.push([
 			legendSeat("other", `Other (${view.other.seats} seats)`, false),
 			compactCount(view.other.tokens),
 			`${view.other.share}%`
@@ -4999,7 +4748,7 @@ function legendTable(doc, state) {
 	draw(state.allSeats);
 	const body = [host];
 	if (view.partial) body.push(el$1("p", "usage-note", "* Partial: some of this range has no data for the seat."));
-	if (view.other) {
+	if (view.other && !state.lines) {
 		const toggle = el$1("button", browserUiClasses.action);
 		toggle.dataset.variant = "text";
 		toggle.type = "button";
@@ -5023,48 +4772,82 @@ function legendTable(doc, state) {
 	legend.append(...body);
 	return legend;
 }
-function activityCard(doc) {
-	const view = activity(doc);
-	if (!view) return void 0;
-	const clock = (at) => new Date(at).toLocaleTimeString("en-GB", {
-		hour: "2-digit",
-		minute: "2-digit"
-	});
-	const day = (at) => new Date(at).toLocaleDateString("en-GB", {
-		weekday: "short",
-		day: "numeric",
-		month: "short"
-	});
-	const hourly = doc.since === "24h";
-	const range = (at) => {
-		const start = view.starts[at];
-		return hourly ? `${clock(start)}–${clock(view.ends[at])}` : `${day(start)}–${day(view.ends[at] - 1)}`;
-	};
-	return card("digest-activity", "Activity by seat", [createStrips({
-		layout: "heatmap",
-		labels: view.starts.map((at) => hourly ? clock(at) : new Date(at).toLocaleDateString("en-GB", {
-			month: "short",
-			day: "numeric"
-		})),
-		title: `Relative token activity · ${hourly ? "4-hour blocks" : doc.since === "7d" ? "daily" : "5-day blocks"}`,
-		rows: view.rows,
-		slotCount: view.starts.length,
-		slotRange: range,
-		ends: [doc.since + " ago", "now"],
-		legend: false
-	}), el$1("p", "usage-note", "Edge blocks cover only the reported window. A block with any missing bucket stays hollow; incomplete buckets are lower bounds.")]);
-}
-function exchangeCard(doc) {
+/** This one caller owns its count heatmap; report aggregation remains in exchange(). */
+function exchangeCard(doc, state) {
 	const flow = exchange(doc);
-	const matrix = flow ? createMatrix({
-		title: `Messages, last ${doc.since}`,
-		participants: flow.participants,
-		value: flow.value,
-		numeric: true
-	}) : el$1("p", "usage-note", "Message traffic is not available in this read.");
-	const scroll = matrix.querySelector(".tmt-ui-chart-scroll");
-	if (scroll) scroll.id = "digest-exchange-scroll";
-	return card("digest-exchange", "Messages between seats", [el$1("p", "digest-subtitle", `Talk and reply messages · ${doc.since}`), matrix]);
+	if (!flow) return card("digest-exchange", "Messages between seats", [el$1("p", "usage-note", "Message traffic is not available in this read.")]);
+	const totals = new Map(rankRows(doc).map((seat) => [seat.id, seat.tokens]));
+	const seats = [...flow.participants].sort((a, b) => (state.order === "usage" ? (totals.get(b.id) ?? 0) - (totals.get(a.id) ?? 0) : 0) || a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+	const maximum = Math.max(0, ...seats.flatMap((from) => seats.map((to) => from.id === to.id ? 0 : flow.value(from.id, to.id) ?? 0)));
+	const matrix = el$1("table", "digest-messages");
+	matrix.style.setProperty("--digest-message-columns", String(seats.length + 1));
+	if (seats.length > 6) matrix.dataset.large = "";
+	const caption = el$1("caption", "digest-visually-hidden", `Messages, last ${doc.since}`);
+	const header = el$1("tr");
+	const corner = el$1("th", void 0, "From →");
+	corner.scope = "col";
+	header.append(corner);
+	for (const seat of seats) {
+		const cell = el$1("th");
+		cell.scope = "col";
+		cell.dataset.seatId = seat.id;
+		cell.append(messageName(seat.label));
+		header.append(cell);
+	}
+	const head = el$1("thead");
+	head.append(header);
+	const body = el$1("tbody");
+	for (const from of seats) {
+		const row = el$1("tr");
+		const label = el$1("th");
+		label.scope = "row";
+		label.dataset.seatId = from.id;
+		label.append(messageName(from.label));
+		row.append(label);
+		for (const to of seats) {
+			const self = from.id === to.id;
+			const count = self ? null : flow.value(from.id, to.id);
+			const cell = el$1("td", void 0, count === null ? "—" : compactCount(count));
+			cell.dataset.from = from.id;
+			cell.dataset.to = to.id;
+			if (self) cell.dataset.self = "";
+			else if (count === null) cell.dataset.missing = "";
+			else if (count > 0) cell.dataset.level = String(Math.min(4, Math.ceil(count / maximum * 4)));
+			const text = self ? "same seat" : count === null ? "not observed" : `${count} messages`;
+			cell.setAttribute("aria-label", `${from.label} to ${to.label}: ${text}`);
+			cell.title = `${from.label} to ${to.label}: ${text}`;
+			row.append(cell);
+		}
+		body.append(row);
+	}
+	matrix.append(caption, head, body);
+	const viewport = el$1("div", "digest-messages-viewport");
+	const scroll = el$1("div", "digest-messages-scroll");
+	scroll.id = "digest-exchange-scroll";
+	scroll.setAttribute("role", "region");
+	scroll.setAttribute("aria-label", `Messages, last ${doc.since}`);
+	scroll.append(matrix);
+	const edge = el$1("span", "digest-messages-edge");
+	edge.setAttribute("aria-hidden", "true");
+	const sync = () => {
+		const overflow = scroll.scrollWidth > scroll.clientWidth + 1;
+		scroll.tabIndex = overflow ? 0 : -1;
+		edge.hidden = !overflow || scroll.scrollLeft + scroll.clientWidth >= scroll.scrollWidth - 1;
+	};
+	scroll.addEventListener("scroll", sync);
+	const observer = new ResizeObserver(sync);
+	observer.observe(scroll);
+	state.dispose.push(() => {
+		observer.disconnect();
+		scroll.removeEventListener("scroll", sync);
+	});
+	viewport.append(scroll, edge);
+	return card("digest-exchange", "Messages between seats", [el$1("p", "digest-subtitle", `Talk and reply messages · ${doc.since}`), viewport]);
+}
+function messageName(text) {
+	const label = el$1("span", "digest-message-name", text);
+	label.title = text;
+	return label;
 }
 /** The sources the usage read does not carry yet, one line each, with the method below. */
 function coverageCard() {
@@ -5079,12 +4862,15 @@ function coverageCard() {
 		const line = el$1("div", "digest-gap");
 		const status = el$1("dd");
 		status.append(el$1("span", "digest-subtitle", "Not connected"));
-		line.append(el$1("dt", void 0, term === "Machine" ? "Machine load" : term), status);
+		const name = el$1("dt", void 0, term === "Machine" ? "Machine load" : term);
+		const marker = el$1("span", "digest-coverage-marker");
+		marker.setAttribute("aria-hidden", "true");
+		name.prepend(marker);
+		line.append(name, status);
 		line.title = source;
 		list.append(line);
 	}
 	const method = el$1("details", browserUiClasses.disclosure);
-	method.dataset.divided = "";
 	method.id = "digest-method";
 	const summary = el$1("summary", void 0, "Method & caveats");
 	summary.id = "digest-method-summary";
@@ -5127,13 +4913,38 @@ function digestPage(source = createDigestSource(), signal) {
 	let good;
 	const state = {
 		share: false,
-		allSeats: false
+		allSeats: false,
+		lines: false,
+		order: readSeatOrder(),
+		dispose: []
 	};
+	signal?.addEventListener("abort", () => {
+		state.dispose.splice(0).forEach((dispose) => dispose());
+	}, { once: true });
+	const sort = el$1("div", "digest-seat-order");
+	const renderSort = () => {
+		sort.replaceChildren(el$1("span", "digest-sort-label", "Seat order"), tabChoice("Seat order", "usage-panel", [{
+			value: "usage",
+			text: "Usage"
+		}, {
+			value: "name",
+			text: "Name"
+		}], state.order, (value) => {
+			state.order = writeSeatOrder(value);
+			if (good?.range === current) paint(good, false);
+			renderSort();
+			document.getElementById(`usage-panel-${state.order}`)?.focus({ preventScroll: true });
+		}));
+	};
+	renderSort();
+	tabs.closest(".digest-controls")?.append(sort);
 	const disclosures = /* @__PURE__ */ new Map();
 	let matrixLeft = 0;
+	let providerLeft = 0;
 	function rememberView() {
 		for (const detail of panel.querySelectorAll("details[id]")) disclosures.set(detail.id, detail.hasAttribute("open"));
 		matrixLeft = document.getElementById("digest-exchange-scroll")?.scrollLeft ?? matrixLeft;
+		providerLeft = document.getElementById("digest-provider-groups")?.scrollLeft ?? providerLeft;
 	}
 	const buttons = USAGE_RANGES.map((range) => {
 		const button = el$1("button", browserUiClasses.tab, range);
@@ -5153,7 +4964,7 @@ function digestPage(source = createDigestSource(), signal) {
 		return button;
 	});
 	tabs.replaceChildren(...buttons);
-	function paint(report) {
+	function paint(report, updateNotice = true) {
 		rememberView();
 		const focusId = panel.contains(document.activeElement) ? document.activeElement?.id : void 0;
 		shown = fingerprint(report);
@@ -5161,20 +4972,23 @@ function digestPage(source = createDigestSource(), signal) {
 		badge.hidden = true;
 		badgeLabel.textContent = "";
 		if (report.unavailable || !report.document) {
+			state.dispose.splice(0).forEach((dispose) => dispose());
 			panel.replaceChildren();
 			return notAvailable(note, report.unavailable ?? "Usage is not available.");
 		}
 		good = report;
 		const doc = report.document;
-		const activityBlock = activityCard(doc);
-		panel.replaceChildren(allowanceRow(report), tokensCard(doc, state), row$1("digest-row-activity", ...activityBlock ? [activityBlock] : [], exchangeCard(doc)), coverageCard());
+		state.dispose.splice(0).forEach((dispose) => dispose());
+		panel.replaceChildren(allowanceRow(report, state), tokensCard(doc, state), exchangeCard(doc, state), coverageCard());
 		for (const detail of panel.querySelectorAll("details[id]")) detail.open = disclosures.get(detail.id) ?? false;
 		const scroll = document.getElementById("digest-exchange-scroll");
 		if (scroll) scroll.scrollLeft = matrixLeft;
+		const providers = document.getElementById("digest-provider-groups");
+		if (providers) providers.scrollLeft = providerLeft;
 		if (focusId) document.getElementById(focusId)?.focus({ preventScroll: true });
 		if (report.sample) badgeLabel.textContent = "Sample data";
 		badge.hidden = !report.sample;
-		ordinaryNote(report);
+		if (updateNotice) ordinaryNote(report);
 	}
 	/** The note a good report carries: the sample's preview line, else nothing. */
 	function ordinaryNote(report) {
@@ -5210,6 +5024,7 @@ function digestPage(source = createDigestSource(), signal) {
 			button.tabIndex = selected ? 0 : -1;
 		}
 		rememberView();
+		state.dispose.splice(0).forEach((dispose) => dispose());
 		panel.replaceChildren(pageLoading());
 		const report = await source.report(range, signal);
 		if (mine !== generation || signal?.aborted) return;

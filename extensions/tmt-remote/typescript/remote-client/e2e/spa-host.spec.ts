@@ -1326,7 +1326,8 @@ test.describe('the Digest route on the owner reads', () => {
       });
       const cards = page.locator('#digest-sections .tmt-ui-card');
       await expect(cards.first()).toBeVisible();
-      expect(await cards.count()).toBe(5);
+      expect(await cards.count()).toBe(4);
+      await expect(page.locator('#digest-activity')).toHaveCount(0);
       await expect(cards.first()).toHaveCSS('border-radius', '8px');
       const provider = page.locator('.digest-provider').first();
       const details = provider.locator('details');
@@ -1358,11 +1359,11 @@ test.describe('the Digest route on the owner reads', () => {
       await expect(page.locator('#digest-ranking-rows')).toBeVisible();
       expect((await page.locator('#usage-ranges').boundingBox())!.width).toBeGreaterThan(80);
       // The token scale is the same tabs for the chart below it.
-      const scale = page.locator('#digest-tokens .tmt-ui-tab');
+      const scale = page.getByRole('tablist', { name: 'Scale', exact: true }).getByRole('tab');
       await expect(scale).toHaveText(['Absolute', 'Share']);
       await expect(scale.first()).toHaveAttribute('aria-selected', 'true');
       expect(
-        (await page.locator('#digest-tokens .tmt-ui-tab-list').boundingBox())!.width,
+        (await page.getByRole('tablist', { name: 'Scale', exact: true }).boundingBox())!.width,
       ).toBeGreaterThan(80);
       await expect(page.locator('#digest-missing .digest-gap dd')).toHaveText(
         Array(4).fill('Not connected'),
@@ -1371,7 +1372,15 @@ test.describe('the Digest route on the owner reads', () => {
       const heading = page.locator('#digest-ranking-rows .tmt-ui-table[data-numeric] th').nth(1);
       await expect(heading).toHaveText('Tokens');
       expect((await heading.boundingBox())!.height).toBeLessThan(40);
-      // Nothing is a page-local copy any more.
+      const style = page.getByRole('tablist', { name: 'Chart style', exact: true });
+      await expect(style.getByRole('tab')).toHaveText(['Stacked', 'Lines']);
+      await style.getByRole('tab', { name: 'Lines', exact: true }).click();
+      await expect(style.getByRole('tab', { name: 'Lines', exact: true })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      await expect(page.locator('#digest-token-plot .tmt-ui-chart-line')).toHaveCount(6);
+      // Shared controls/charts stay public; Messages is the approved one-caller table.
       await expect(
         page.locator(
           '.digest-badge, .digest-segment, .digest-segments, .digest-stat, .digest-meter, .tmt-ui-segments, .tmt-ui-badge',
