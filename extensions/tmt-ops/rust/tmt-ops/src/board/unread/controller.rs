@@ -11,7 +11,7 @@ impl App {
     }
 
     /// Sorting resolves the bounded results page once; comparisons use UUID
-    /// membership without acquiring read markers again.
+    /// membership in the held Core acknowledgment projection.
     pub(in crate::board) fn unread_identities(&self) -> std::collections::BTreeSet<&str> {
         let Some(page) = self.unread_page() else {
             return Default::default();
@@ -147,25 +147,35 @@ impl App {
         }
         self.unread.displayed = next;
     }
+    pub(in crate::board) fn unread_observed(&self) {
+        if let Some(actor) = self.view.as_ref().and_then(|view| view.me_id.as_deref())
+            && let Some(page) = self.home_leads.unread(actor)
+        {
+            self.unread.writer.observed(page);
+        }
+    }
+
     pub(in crate::board) fn finished_unread(
         &mut self,
         result: Result<super::publish::Completed, String>,
     ) {
-        self.unread.writer.settled();
-        match result {
-            Ok(completed) => {
-                self.home_leads.acknowledged(&completed);
-                self.overview_rows.borrow_mut().clear();
-                self.workspace_reconcile();
-                self.invalidate_frame_geometry();
-            }
-            Err(error) => self.set_notice(
+        if let Ok(completed) = &result {
+            self.home_leads.acknowledged(completed);
+        }
+        self.unread_observed();
+        self.overview_rows.borrow_mut().clear();
+        self.workspace_reconcile();
+        self.invalidate_frame_geometry();
+        if let Some(error) = self.unread.writer.failure() {
+            self.set_notice(
                 Some(format!(
-                    "Answers not acknowledged: {error} Reopen the conversation or use Mark read to retry."
+                    "Unread update failed: {error} {}",
+                    self.unread.writer.recovery()
                 )),
                 true,
-            ),
+            );
         }
+        self.unread.writer.settled();
     }
 }
 

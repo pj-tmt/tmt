@@ -1606,9 +1606,10 @@ pub fn run(
     // Restore first, whatever happened; then report the session's outcome.
     let restored = guard.restore();
     lane.finish();
-    // Also reports a failed queued save whose event the UI never consumed.
+    // Also reports a failed queued acknowledgment whose event the UI never consumed.
     // A last admitted draw drains once; failure alone never starts a retry.
-    let read_markers = app.unread.writer.finish(&core);
+    app.unread_observed();
+    let acknowledgments = app.unread.writer.finish(&core);
     if restored.is_ok()
         && let Some(state) = &mut view_state
     {
@@ -1620,7 +1621,7 @@ pub fn run(
     let signal = result.map_err(failed)?;
     restored.map_err(failed)?;
     stopped?;
-    read_markers?;
+    acknowledgments?;
     if let Some(resume) = app.restart.take() {
         // The terminal is restored and the loop has ended. Stop the refresh worker,
         // then become the new board: this returns only when that failed.

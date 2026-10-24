@@ -87,7 +87,7 @@ struct Pending {
     updates: BTreeMap<(String, String), Answer>,
     ready: bool,
     queued: bool,
-    failures: BTreeMap<(String, String), String>,
+    failures: BTreeMap<(String, String), (u64, String)>,
     failed_walks: Vec<(Walk, String)>,
     walks: VecDeque<Walk>,
 }
@@ -101,8 +101,47 @@ impl Writer {
             .failures
             .values()
             .next()
-            .cloned()
+            .map(|(_, error)| error.clone())
             .or_else(|| pending.failed_walks.first().map(|(_, error)| error.clone()))
+    }
+
+    /// Failure bookkeeping consumes the UI's existing Core projection; it is
+    /// not a second unread cache. This also resolves a late error after another
+    /// surface already acknowledged the same or a newer revision.
+    pub fn observed(&self, page: &super::Page) {
+        let mut pending = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        if pending.failures.is_empty() {
+            return;
+        }
+        for answer in page
+            .replies
+            .values()
+            .flatten()
+            .filter(|answer| answer.acknowledged)
+        {
+            let key = (page.actor.clone(), answer.request.clone());
+            if pending
+                .failures
+                .get(&key)
+                .is_some_and(|(revision, _)| *revision <= answer.revision)
+            {
+                pending.failures.remove(&key);
+            }
+        }
+    }
+
+    pub fn recovery(&self) -> &'static str {
+        let pending = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        if pending.failures.is_empty()
+            && pending
+                .failed_walks
+                .first()
+                .is_some_and(|(walk, _)| matches!(walk.goal, Goal::Legacy(_)))
+        {
+            "Restart the board to retry the read migration."
+        } else {
+            "Reopen the conversation or use Mark read to retry."
+        }
     }
 
     pub fn seen(&self, seen: &Seen) {
@@ -200,6 +239,18 @@ impl Writer {
             return match result {
                 Ok((completed, next)) => {
                     pending.walks.pop_front();
+                    for (answer, outcome) in &completed.items {
+                        if matches!(outcome, Outcome::Acknowledged) {
+                            let key = (completed.actor.clone(), answer.request.clone());
+                            if pending
+                                .failures
+                                .get(&key)
+                                .is_some_and(|(revision, _)| *revision <= answer.revision)
+                            {
+                                pending.failures.remove(&key);
+                            }
+                        }
+                    }
                     pending
                         .failed_walks
                         .retain(|(held, _)| !held.same_goal(&walk));
@@ -274,7 +325,9 @@ impl Writer {
             Err(error) => {
                 for answer in &answers {
                     let key = (actor.clone(), answer.request.clone());
-                    pending.failures.insert(key.clone(), error.clone());
+                    pending
+                        .failures
+                        .insert(key.clone(), (answer.revision, error.clone()));
                     if pending
                         .updates
                         .get(&key)
@@ -300,7 +353,15 @@ impl Writer {
 
     pub fn finish(&self, core: &Core) -> Result<(), crate::core::SquadError> {
         self.settled();
-        while let Some(writer) = self.offer() {
+        // Only already admitted writes drain on exit. A continuation is a new
+        // read, not a write the user saw; its legacy cutoff remains for restart.
+        while {
+            let pending = self.0.lock().unwrap_or_else(|error| error.into_inner());
+            pending.ready && !pending.updates.is_empty()
+        } {
+            let Some(writer) = self.offer() else {
+                break;
+            };
             let result = writer.publish(core);
             self.settled();
             if result.is_err() {
@@ -310,9 +371,9 @@ impl Writer {
         match self.failure() {
             Some(error) => Err(crate::core::SquadError::hinted(
                 "SQUAD_ACK_FAILED",
-                &format!("Answers not acknowledged: {error}"),
+                &format!("Unread update failed: {error}"),
                 " ",
-                "Reopen the conversation or use Mark read to retry.",
+                self.recovery(),
             )),
             None => Ok(()),
         }
@@ -335,7 +396,7 @@ mod tests {
                 request: request.to_string(),
                 member: "member".into(),
                 answered_at_ms: 10,
-                kind: Some(super::super::AnswerKind::Final),
+                kind: Some(super::super::BodyKind::Final),
                 revision,
                 acknowledged: false,
             },

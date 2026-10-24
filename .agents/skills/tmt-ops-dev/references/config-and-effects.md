@@ -59,7 +59,9 @@ Core owns unread attention revisions. The ordered acknowledgment lane sends only
 `requests.ack` pairs admitted by painted answer bodies or explicit Mark read; no
 normal read writes an Ops watermark. Failures retain unread evidence and retry only
 on a new explicit admission, never a paint loop. Shutdown joins the lane and reports
-unresolved acknowledgment failures after restoring the terminal.
+unresolved acknowledgment failures after restoring the terminal. Exit drains admitted
+writes, but starts no new history page; unfinished migration retains its cutoffs for
+restart.
 
 Legacy `[workspace.read_markers.<actor-uuid>]` values are migration input only.
 `config::unread` validates canonical actor/member UUIDs and safe positive cutoffs.

@@ -471,7 +471,7 @@ impl Session {
     pub(super) fn answer_body_at(
         &self,
         line: usize,
-    ) -> Option<(&str, super::super::unread::AnswerKind, u64)> {
+    ) -> Option<(&str, super::super::unread::BodyKind, u64)> {
         if let Some((key, _)) = self.response_key_at(line)
             && key.kind == crate::board::home_leads::Kind::Reply
         {
@@ -488,7 +488,7 @@ impl Session {
                 })?;
             return Some((
                 &key.request,
-                super::super::unread::AnswerKind::Final,
+                super::super::unread::BodyKind::Final,
                 reply.at_ms?,
             ));
         }
@@ -499,7 +499,7 @@ impl Session {
             .iter()
             .find(|(range, _, _)| range.contains(&original))
         {
-            return Some((request, super::super::unread::AnswerKind::Turn, *at));
+            return Some((request, super::super::unread::BodyKind::Turn, *at));
         }
         let line = match rendered.response_sources.as_ref() {
             Some(rows) => rows.get(line).copied().flatten()?,
@@ -508,13 +508,7 @@ impl Session {
         self.capture_body_spans
             .iter()
             .find(|(range, _, _)| range.contains(&line))
-            .map(|(_, request, at)| {
-                (
-                    request.as_str(),
-                    super::super::unread::AnswerKind::Turn,
-                    *at,
-                )
-            })
+            .map(|(_, request, at)| (request.as_str(), super::super::unread::BodyKind::Turn, *at))
     }
 
     pub(super) fn response_key_at(&self, line: usize) -> Option<(&MessageKey, Option<u64>)> {

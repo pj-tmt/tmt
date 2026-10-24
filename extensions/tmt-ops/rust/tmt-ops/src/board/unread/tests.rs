@@ -196,3 +196,34 @@ fn acknowledgments_are_actor_and_revision_fenced_and_late_pages_cannot_regress_t
     assert_eq!(late.answer("a", "asked").unwrap().revision, 2);
     assert_eq!(late.count("a").total, 1);
 }
+
+#[test]
+fn concurrent_ack_old_batch_adopts_highest_revision() {
+    use super::publish::{Completed, Outcome};
+    let document = page(vec![reply("asked", "a", 100)], false);
+    let sent = Page::read("you", &document)
+        .unwrap()
+        .answer("a", "asked")
+        .unwrap()
+        .clone();
+    let mut revision_two = document.clone();
+    revision_two["items"][0]["revision"] = json!(2);
+    let mut held = Page::read("you", &revision_two).unwrap();
+    let conflict = Completed {
+        actor: "you".into(),
+        items: vec![(sent, Outcome::Conflict(3))],
+    };
+    held.acknowledged(&conflict);
+    assert_eq!(held.answer("a", "asked").unwrap().revision, 3);
+    assert_eq!(held.answer("a", "asked").unwrap().kind, None);
+    assert_eq!(held.count("a").total, 1);
+    let mut revision_four = document;
+    revision_four["items"][0]["revision"] = json!(4);
+    let mut fresh = Page::read("you", &revision_four).unwrap();
+    fresh.acknowledged(&conflict);
+    assert_eq!(fresh.answer("a", "asked").unwrap().revision, 4);
+    assert_eq!(
+        fresh.answer("a", "asked").unwrap().kind,
+        Some(BodyKind::Final)
+    );
+}

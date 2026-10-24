@@ -25,7 +25,7 @@ impl Count {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum AnswerKind {
+pub(super) enum BodyKind {
     Final,
     Turn,
 }
@@ -35,7 +35,7 @@ pub(super) struct Answer {
     pub request: String,
     pub member: String,
     pub answered_at_ms: u64,
-    pub kind: Option<AnswerKind>,
+    pub kind: Option<BodyKind>,
     pub revision: u64,
     pub acknowledged: bool,
 }
@@ -77,8 +77,8 @@ impl Page {
                 member: nonempty(&item["recipientId"])?.into(),
                 answered_at_ms: timestamp(&item["answeredAtMs"])?,
                 kind: Some(match item["answer"].as_str()? {
-                    "final" => AnswerKind::Final,
-                    "turn" => AnswerKind::Turn,
+                    "final" => BodyKind::Final,
+                    "turn" => BodyKind::Turn,
                     _ => return None,
                 }),
                 revision: timestamp(&item["revision"])?,
@@ -130,18 +130,21 @@ impl Page {
             }
             let Some(answer) = answers
                 .iter_mut()
-                .find(|answer| answer.request == sent.request && answer.revision == sent.revision)
+                .find(|answer| answer.request == sent.request)
             else {
                 continue;
             };
             match outcome {
-                publish::Outcome::Acknowledged => answer.acknowledged = true,
-                publish::Outcome::Conflict(current) => {
+                publish::Outcome::Acknowledged if answer.revision == sent.revision => {
+                    answer.acknowledged = true
+                }
+                publish::Outcome::Conflict(current) if answer.revision < *current => {
                     answer.revision = *current;
                     answer.acknowledged = false;
                     // No source observation for this newer revision has been acquired yet.
                     answer.kind = None;
                 }
+                publish::Outcome::Acknowledged | publish::Outcome::Conflict(_) => {}
                 publish::Outcome::NotFound => unreachable!(),
             }
         }

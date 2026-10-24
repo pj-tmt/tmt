@@ -1521,6 +1521,7 @@ impl App {
 
     pub(super) fn apply_home_leads(&mut self, read: super::home_leads::Read) {
         self.home_leads.replace(read);
+        self.unread_observed();
         self.overview_rows.borrow_mut().clear();
         self.clamp();
     }

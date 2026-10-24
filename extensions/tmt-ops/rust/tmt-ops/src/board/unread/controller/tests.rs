@@ -78,7 +78,7 @@ fn unread_opening_requires_a_drawn_acquired_reply_and_a_successful_core_ack() {
         app.notice
             .as_deref()
             .unwrap()
-            .contains("Answers not acknowledged")
+            .contains("Unread update failed")
     );
     assert!(app.unread.writer.offer().is_none(), "no automatic retry");
     fs::remove_file(fixture.0.join("fail")).unwrap();
@@ -639,7 +639,7 @@ mod mark_read {
         assert!(
             app.notice
                 .as_deref()
-                .is_some_and(|notice| notice.contains("Answers not acknowledged"))
+                .is_some_and(|notice| notice.contains("Unread update failed"))
         );
     }
 
@@ -835,5 +835,176 @@ fn actor_change_and_invalidated_or_failed_draw_cannot_publish_old_frame_evidence
     assert!(
         app.unread.writer.offer().is_none(),
         "a frame is bound to its actor"
+    );
+}
+
+#[test]
+fn concurrent_ack_fresh_projection_resolves_failure() {
+    let fixture = Fixture::new();
+    let mut app = unread_app();
+    app.mark_read(MEMBER);
+    fs::write(fixture.0.join("fail"), "").unwrap();
+    let failed = app.unread.writer.offer().unwrap().publish(&fixture.core());
+    assert!(failed.is_err());
+    // Another surface's Core read can arrive before the late API failure event.
+    app.home_leads.test_pages(
+        ACTOR,
+        json!({"items":[],"nextBefore":null}),
+        json!({"items":[{
+        "requestId":"answer","kind":"request","sender":{"identityId":ACTOR},"recipientId":MEMBER,
+        "answeredAtMs":100,"answer":"final","revision":1,"acknowledged":true
+    }],"nextBefore":null}),
+    );
+    app.finished_unread(failed);
+    assert_eq!(app.unread_count(MEMBER).total, 0);
+    assert!(
+        app.unread.writer.failure().is_none(),
+        "Core already confirmed this revision"
+    );
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "confirmation never schedules another write"
+    );
+}
+
+#[test]
+fn top_and_bottom_viewports_ack_only_the_final_body_they_painted() {
+    let fixture = Fixture::new();
+    let mut app = unread_app();
+    let items=(1..=2).map(|n|json!({
+        "requestId":format!("final-{n}"),"kind":"request","sender":{"identityId":ACTOR},"recipientId":MEMBER,
+        "final":{"status":"retained","submittedAtMs":100+n}
+    })).collect::<Vec<_>>();
+    app.home_leads
+        .test_results(ACTOR, json!({"items":items,"nextBefore":null}));
+    app.view.as_mut().unwrap().replies=(1..=2).map(|n|json!({
+        "recipientId":MEMBER,"requestId":format!("final-{n}"),"submittedAtMs":100+n,
+        "response":(0..150).map(|line|format!("answer {n} row {line}\n")).collect::<String>()
+    })).collect();
+    press(&mut app, KeyCode::Tab);
+    draw(&app);
+    for (step, expected, remaining) in [
+        (crate::board::scroll::Step::Top, "final-1", 1),
+        (crate::board::scroll::Step::Bottom, "final-2", 0),
+    ] {
+        app.scroll_pane(Pane::Replies, step);
+        let shown = draw(&app);
+        let other = if expected == "final-1" {
+            "answer 2 row"
+        } else {
+            "answer 1 row"
+        };
+        assert!(!shown.contains(other), "the other answer is offscreen");
+        let bodies = app.conversation.borrow().painted_answers.clone();
+        assert_eq!(
+            bodies
+                .iter()
+                .map(|body| body.request.as_str())
+                .collect::<Vec<_>>(),
+            vec![expected]
+        );
+        app.unread_drawn();
+        let result = app
+            .unread
+            .writer
+            .offer()
+            .unwrap()
+            .publish(&fixture.core())
+            .unwrap();
+        assert_eq!(result.items.len(), 1);
+        assert_eq!(result.items[0].0.request, expected);
+        app.finished_unread(Ok(result));
+        assert_eq!(app.unread_count(MEMBER).total, remaining);
+    }
+}
+
+#[test]
+fn an_old_capture_cannot_acknowledge_a_new_final_revision() {
+    let fixture = Fixture::new();
+    let mut app = turn_app(SETTLED);
+    press(&mut app, KeyCode::Tab);
+    draw(&app);
+    show_turn(&mut app, "direct", SETTLED);
+    draw(&app);
+    app.unread_drawn();
+    let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
+    app.finished_unread(result);
+    assert_eq!(app.unread_count(MEMBER).total, 0);
+    app.home_leads.test_pages(
+        ACTOR,
+        json!({"items":[],"nextBefore":null}),
+        json!({"items":[{
+        "requestId":"direct","kind":"request","sender":{"identityId":ACTOR},"recipientId":MEMBER,
+        "answeredAtMs":SETTLED+100,"answer":"final","revision":2,"acknowledged":false
+    }],"nextBefore":null}),
+    );
+    assert!(draw(&app).contains("the turn output"));
+    app.unread_drawn();
+    assert_eq!(app.unread_count(MEMBER).total, 1);
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "the acquired capture is not the new final"
+    );
+    app.view.as_mut().unwrap().replies = vec![json!({
+        "requestId":"direct","recipientId":MEMBER,"submittedAtMs":SETTLED+100,"response":"the new acquired final"
+    })];
+    assert!(draw(&app).contains("the new acquired final"));
+    app.unread_drawn();
+    let result = app
+        .unread
+        .writer
+        .offer()
+        .unwrap()
+        .publish(&fixture.core())
+        .unwrap();
+    assert_eq!(result.items[0].0.revision, 2);
+    app.finished_unread(Ok(result));
+    assert_eq!(app.unread_count(MEMBER).total, 0);
+}
+
+#[test]
+fn the_live_screen_never_grants_answer_acknowledgment() {
+    let mut app = turn_app(SETTLED);
+    press(&mut app, KeyCode::Tab);
+    draw(&app);
+    show_turn(&mut app, "direct", SETTLED);
+    app.conversation.borrow_mut().screen_mode = true;
+    draw(&app);
+    app.unread_drawn();
+    assert!(app.unread.writer.offer().is_none());
+    assert_eq!(app.unread_count(MEMBER).total, 1);
+    app.conversation.borrow_mut().screen_mode = false;
+    assert!(draw(&app).contains("the turn output"));
+    app.unread_drawn();
+    assert!(app.unread.writer.offer().is_some());
+}
+
+#[test]
+fn failed_terminal_draw_never_submits_the_newly_painted_body() {
+    use std::sync::{atomic::AtomicUsize, mpsc::channel};
+    let mut app = unread_app();
+    press(&mut app, KeyCode::Tab);
+    draw(&app);
+    let key = app.detail_read().unwrap();
+    app.apply_message(&key, Ok("Exact answer".into()));
+    assert!(draw(&app).contains("Exact answer"));
+    let (_events, input) = channel();
+    let result = crate::board::tests::session(
+        &mut app,
+        &AtomicUsize::new(0),
+        &input,
+        |_, _, _, _| {},
+        |_, _| {},
+        |_| {},
+        |_| {},
+        |app| {
+            assert!(draw(app).contains("Exact answer"));
+            Err(std::io::Error::other("backend flush failed"))
+        },
+    );
+    assert!(result.is_err());
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "only a successful draw can submit body evidence"
     );
 }

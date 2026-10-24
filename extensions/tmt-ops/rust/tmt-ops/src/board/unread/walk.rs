@@ -1,6 +1,6 @@
 //! One public answers page per ordered-lane step; no history cache or per-item show.
 use super::{
-    AnswerKind, Page,
+    BodyKind, Page,
     publish::{Completed, Outcome},
 };
 use crate::{config::Config, core::Core};
@@ -14,7 +14,7 @@ pub(in crate::board) struct Body {
     pub actor: String,
     pub member: String,
     pub request: String,
-    pub kind: AnswerKind,
+    pub kind: BodyKind,
     pub at_ms: u64,
     pub revision: Option<u64>,
 }
@@ -48,6 +48,26 @@ impl Walk {
     }
 
     pub fn step(&self, core: &Core) -> Result<(Completed, Option<Self>), String> {
+        let mut walk = self.clone();
+        if walk.before.is_none()
+            && let Goal::Legacy(cutoffs) = &mut walk.goal
+        {
+            let markers = Config::load(core)
+                .and_then(|config| config.read_markers())
+                .map_err(|error| error.to_string())?;
+            // A delayed snapshot cannot restart a consumed conversation, or inherit
+            // a concurrently changed cutoff. No persistent migration flag is needed.
+            cutoffs.retain(|member, cutoff| markers.get(&walk.actor, member) == *cutoff);
+            if cutoffs.is_empty() {
+                return Ok((
+                    Completed {
+                        actor: walk.actor,
+                        items: Vec::new(),
+                    },
+                    None,
+                ));
+            }
+        }
         let mut input =
             json!({"originatorId":self.actor,"view":"answers","limit":super::ANSWERS_LIMIT});
         if let Some(before) = &self.before {
@@ -56,7 +76,7 @@ impl Walk {
         let document = core
             .api("requests.list", input)
             .map_err(|error| error.to_string())?;
-        self.read_page(core, document)
+        walk.read_page(core, document)
     }
     fn read_page(&self, core: &Core, document: Value) -> Result<(Completed, Option<Self>), String> {
         let page = Page::read(&self.actor, &document)
@@ -262,7 +282,7 @@ mod tests {
                 actor: ACTOR.into(),
                 member: MEMBER.into(),
                 request: "old".into(),
-                kind: AnswerKind::Turn,
+                kind: BodyKind::Turn,
                 at_ms: 90,
                 revision: None,
             }),
@@ -278,7 +298,7 @@ mod tests {
                 actor: ACTOR.into(),
                 member: MEMBER.into(),
                 request: "new-turn".into(),
-                kind: AnswerKind::Final,
+                kind: BodyKind::Final,
                 at_ms: 101,
                 revision: None,
             }),
@@ -303,6 +323,55 @@ mod tests {
         assert_eq!(
             fs::read_to_string(fixture.0.join("ops.toml")).unwrap(),
             "# authored preferences\n"
+        );
+    }
+    #[test]
+    fn a_stale_snapshot_or_absent_cutoff_cannot_restart_legacy_migration() {
+        let fixture = Fixture::new();
+        let walk = legacy(&fixture);
+        pages(&fixture);
+        let (_, next) = walk.step(&fixture.core()).unwrap();
+        next.unwrap().step(&fixture.core()).unwrap();
+        let before = fs::read_to_string(fixture.0.join("calls")).unwrap();
+        let (completed, next) = walk.step(&fixture.core()).unwrap();
+        assert!(completed.items.is_empty());
+        assert!(next.is_none());
+        assert_eq!(
+            fs::read_to_string(fixture.0.join("calls")).unwrap(),
+            before,
+            "no answer walk or ack after the cutoff is gone"
+        );
+    }
+    #[test]
+    fn shutdown_does_not_start_another_history_page_and_restart_resumes_the_cutoff() {
+        use super::super::publish::Writer;
+        let fixture = Fixture::new();
+        let _ = legacy(&fixture);
+        pages(&fixture);
+        let writer = Writer::default();
+        writer.legacy(ACTOR, &fixture.config().read_markers().unwrap());
+        let completed = writer.offer().unwrap().publish(&fixture.core()).unwrap();
+        assert_eq!(completed.items.len(), 1);
+        let before = fs::read_to_string(fixture.0.join("calls")).unwrap();
+        writer.finish(&fixture.core()).unwrap();
+        assert_eq!(
+            fs::read_to_string(fixture.0.join("calls")).unwrap(),
+            before,
+            "shutdown joins the admitted page but never starts a continuation"
+        );
+        assert_eq!(
+            fixture.config().read_markers().unwrap().get(ACTOR, MEMBER),
+            100
+        );
+        let restarted = Writer::default();
+        restarted.legacy(ACTOR, &fixture.config().read_markers().unwrap());
+        while let Some(job) = restarted.offer() {
+            job.publish(&fixture.core()).unwrap();
+            restarted.settled();
+        }
+        assert_eq!(
+            fixture.config().read_markers().unwrap().get(ACTOR, MEMBER),
+            0
         );
     }
 }
