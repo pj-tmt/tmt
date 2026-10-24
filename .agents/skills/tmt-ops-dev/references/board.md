@@ -80,15 +80,24 @@ square shared modal. Incidental frame cells remain Dim; receiving focus and
 selection stay distinct. Frozen row/HOME provenance and decoded fixture approval
 are owned by the verification reference.
 
-`board/new_member` owns the `n` form on Agents rows and the launch-template
-editor reached from Settings. Held public inventory supplies defaults; the ordered
-lane loads Core's published host templates and Config, saves explicit per-host
-overrides, and executes one frozen argv only after review. UI input/paint never
-reads Core or locks Config. A template exit is not creation evidence: a new bound
-UUID must be publicly observed before the membership service joins the frozen room.
-Join failure still reports/selects the created Pool member with a repair command;
-uncertainty keeps the draft without retry, retirement or window closure. The shared
-`launch` owner validates/fills whole slots, leaving other script braces opaque.
+`board/new_member` owns the Agents `n` form and Settings launch-template editor.
+`board/host_launch` shares worker-side public templates/Config reads, effective
+slot preparation and frozen-argv rechecks with `board/switch_tool`; `crate::launch`
+remains the pure validation/quoting owner. `board/tool_choices` projects suggestions
+from observed tools/models; it is not a provider registry. Input/paint never reads
+Core or locks Config. New member observes a new bound UUID before joining the frozen
+room; a failed join reports/selects that Pool member with a repair command.
+
+Member-row `S` owns one Switch AI tool review (squad-row `S` remains Show squad).
+The selected member's public host/session supplies its destination, with no unrelated
+host default. Changing tool clears model; empty model omits `--model`. A frozen UUID,
+source observation and template fence confirmation; activity is not a fence.
+One literal `resume --driver=… [--model=…] -- UUID` runs through the published host
+argv. Null templates are copy-only; failed reads remain unavailable. Core alone owns
+handoff/stop/driver records. The worker observes the same UUID at the destination
+running the requested tool for up to 90 seconds; host exit/pane ID or remembered
+driver is not completion. Unknown/partial outcomes ask for a public-state check
+before retry; no automatic replay or pane closure. `R` stays the Session handoff.
 
 `board/member_session` owns the selected member's public host/session projection and
 Session dialog. It reuses the global identity inventory and typed activity. The target

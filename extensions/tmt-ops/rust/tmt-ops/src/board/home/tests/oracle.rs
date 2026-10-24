@@ -827,6 +827,20 @@ fn captures() -> Value {
                 }
             }
         }
+        for (look_name, look) in looks() {
+            for scene in crate::board::switch_tool::tests::captures::SCENES {
+                for width in [160, 150, 100, 80, 60] {
+                    for height in [43, 8] {
+                        let app = crate::board::switch_tool::tests::captures::case(scene, look);
+                        let mut captured =
+                            capture_frame(&app, scene, look_name, width, height, &mut styles);
+                        captured["switchTool"] =
+                            crate::board::switch_tool::tests::captures::metadata(&app);
+                        frames.push(captured);
+                    }
+                }
+            }
+        }
         frames.extend(crud_frames(
             crate::board::app::workspace::tests::review_modal::CRUD_SCENES,
             &mut styles,

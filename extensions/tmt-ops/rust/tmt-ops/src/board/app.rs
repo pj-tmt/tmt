@@ -276,6 +276,7 @@ pub enum Effect {
     Discovery(super::discovery::load::Task),
     MemberSession(super::member_session::Task),
     NewMember(super::new_member::Task),
+    SwitchTool(super::switch_tool::Task),
     Foreground(super::member_session::Foreground),
 }
 
@@ -589,6 +590,7 @@ pub(super) enum Overlay {
     Discovery,
     MemberSession,
     NewMember,
+    SwitchTool,
     UsageControls,
     PastePreview,
 }
@@ -611,6 +613,7 @@ impl Overlay {
                 Self::Discovery => "discovery",
                 Self::MemberSession => "member-session",
                 Self::NewMember => "new-member",
+                Self::SwitchTool => "switch-tool",
                 Self::UsageControls => "usage-controls",
                 Self::PastePreview => "paste-preview",
             }
@@ -721,6 +724,8 @@ pub struct App {
     pub(super) member_session_generation: u64,
     pub(super) new_member: Option<super::new_member::Controller>,
     pub(super) new_member_generation: u64,
+    pub(super) switch_tool: Option<super::switch_tool::Controller>,
+    pub(super) switch_tool_generation: u64,
     pub(super) foreground: Option<super::member_session::Foreground>,
     pub(super) discovered_uuid: Option<String>,
     pub(super) checklist_generation: u64,
@@ -1742,6 +1747,7 @@ impl App {
                 self.error = None;
                 self.discovery_refreshed();
                 self.member_session_changed();
+                self.switch_tool_changed();
             }
             Err(error) => {
                 if let Some(snapshot) = self
@@ -3147,6 +3153,7 @@ impl App {
             || self.recovery_shown()
             || self.discovery_shown()
             || self.new_member.is_some()
+            || self.switch_tool.is_some()
             || self.member_session.is_some()
         {
             return self
@@ -3706,6 +3713,8 @@ impl App {
             Some(Overlay::UsageControls)
         } else if self.quota_details.is_some() {
             Some(Overlay::QuotaDetails)
+        } else if self.switch_tool.is_some() {
+            Some(Overlay::SwitchTool)
         } else if self.new_member.is_some() {
             Some(Overlay::NewMember)
         } else if self.member_session.is_some() {
@@ -3769,6 +3778,7 @@ impl App {
             }
             Overlay::MemberSession => self.member_session_event(event),
             Overlay::NewMember => self.new_member_event(event),
+            Overlay::SwitchTool => self.switch_tool_event(event),
             Overlay::Discovery => self.discovery_event(event),
             Overlay::Help => {
                 let input = self.help_state.borrow_mut().input(event);
@@ -4080,6 +4090,9 @@ impl App {
         }
         if let Some(recovery) = &self.recovery {
             recovery.invalidate();
+        }
+        if let Some(switch) = &self.switch_tool {
+            switch.invalidate();
         }
         if let Some(member) = &self.new_member {
             member.invalidate();

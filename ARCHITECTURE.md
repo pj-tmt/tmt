@@ -400,13 +400,15 @@ use `squad` (alias `sq`). Releases use `tmt-ops-v<version>`.
 [Ops](.agents/skills/tmt-ops-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md)
 own module/drawing boundaries and verification.
 
-- **Seam.** Ops uses public JSON/API (minute `workspace.capture`), `tmt digest tick` and
+- **Seam.** Ops reads public JSON/API, `tmt digest tick` and
   [`host templates`](contracts/driver-protocol-v1.md#launch-templates) via
-  `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`. `board/new_member`
-  fills host slots, runs frozen argv and observes a new bound UUID before squad
-  add. No private Core state or handwritten host/provider writes. Digest owns
-  locks/deadlines/delivery. No Core/Ops Cargo/source edges. tmt-lead reviews new APIs. Leaves: `tmt-tui`, `tmt-cli-style`,
-  `tmt-invoke`, `tmt-extension-state`; dev-only `tmt-test-support`.
+  `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`. `board/host_launch`
+  prepares/rechecks frozen argv for New member (new UUID before join)
+  and Switch tool (same UUID, requested running driver). Core owns
+  handoff/stop; Ops never writes private Core/host/provider state. Digest owns
+  locks/deadlines/delivery. No Core/Ops Cargo edges.
+  Leaves: `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state`;
+  dev-only `tmt-test-support`.
 - **Data.** Squads are Core rooms `squad-<name>`; fields are identity metadata
   `squad.<name>.<field>`, with no Ops membership store. Ops owns `<dataRoot>/ops`
   (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches. Retired

@@ -325,6 +325,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("x", "remove-membership"),
             ("m", "move-membership"),
             ("r", "rename-member"),
+            ("S", "switch-tool"),
             ("d", "remove-member"),
             ("D", "digest"),
         ]),

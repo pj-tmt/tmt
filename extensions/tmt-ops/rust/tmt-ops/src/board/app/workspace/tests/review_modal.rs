@@ -594,7 +594,7 @@ fn member_footer_uses_effective_crud_bindings_and_never_advertises_future_action
     ] {
         assert!(text.contains(hint), "{hint}: {text}");
     }
-    assert!(!text.contains("S switch tool"));
+    assert!(text.contains("S switch tool"));
     app.shell.tab = OpsTab::Digest;
     let digest = paint(&app, 150, 43).join("\n");
     assert!(!digest.contains("d remove"));
@@ -668,4 +668,35 @@ fn rename_command_quotes_only_shell_sensitive_values_and_protects_option_operand
         request.name = new.into();
         assert_eq!(draft.review_command().as_deref(), Some(expected));
     }
+}
+
+#[test]
+fn switch_tool_is_member_only_preserves_squad_s_and_opens_before_io() {
+    let mut app = board();
+    assert_eq!(app.bindings()["S"].text, "switch-tool");
+    let _no_commands = crate::runner::forbid_commands();
+    key(&mut app, KeyCode::Char('S'));
+    let text = paint(&app, 150, 43).join("\n");
+    assert!(text.contains("Switch AI tool"));
+    assert!(text.contains("Loading"));
+    key(&mut app, KeyCode::Esc);
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    assert_eq!(app.workspace_effective_bindings()["S"].text, "show-squad");
+    app.workspace.selected = Some(OpsTarget::Pool);
+    assert!(!app.bindings().values().any(|a| a.text == "switch-tool"));
+}
+
+#[test]
+fn switch_tool_respects_authored_keys_and_is_absent_outside_agents() {
+    let mut app = configured_member(
+        "[bind]\nS = \"help\"\nz = \"switch-tool\"\n",
+        json!({"id":MEMBER,"name":"worker"}),
+    );
+    assert_eq!(app.bindings()["S"].text, "help");
+    assert_eq!(app.bindings()["z"].text, "switch-tool");
+    app.shell.tab = OpsTab::Digest;
+    assert!(!app.bindings().values().any(|a| a.text == "switch-tool"));
+    app.shell.tab = OpsTab::Agents;
+    app.focus = 1;
+    assert!(!app.bindings().values().any(|a| a.text == "switch-tool"));
 }

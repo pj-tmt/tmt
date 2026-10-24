@@ -12,6 +12,7 @@ pub enum OpsUiAction {
     Inspect,
     MonitorDetails,
     MemberSession,
+    SwitchTool,
     Previous,
     Next,
     Fold,
@@ -70,6 +71,13 @@ macro_rules! spec {
     };
 }
 const SPECS: &[OpsUiSpec] = &[
+    spec!(
+        SwitchTool,
+        "switch-tool",
+        "switch tool",
+        "switch the selected agent to another AI tool through its host template",
+        13
+    ),
     spec!(
         NewMember,
         "new-member",
@@ -344,6 +352,7 @@ impl OpsUiAction {
                 | Self::RenameMember
                 | Self::MonitorDetails
                 | Self::MemberSession
+                | Self::SwitchTool
         )
     }
 }

@@ -5,6 +5,9 @@ use ratatui::{Frame, layout::Rect};
 
 pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look::Look) {
     app.peek_areas.clear();
+    if let Some(switch) = &app.switch_tool {
+        switch.render(frame, app, look, body);
+    }
     if let Some(member) = &app.new_member {
         member.render(frame, app, look, body);
     }
