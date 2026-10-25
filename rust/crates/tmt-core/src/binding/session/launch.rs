@@ -88,10 +88,133 @@ impl SessionLearningReason {
         })
     }
 }
+/// The decoder family that owns a hook event name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionLearningDecoder {
+    Turn,
+    Prompt,
+    ActivitySession,
+    Lifecycle,
+}
+impl SessionLearningDecoder {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Turn => "turn",
+            Self::Prompt => "prompt",
+            Self::ActivitySession => "activity_session",
+            Self::Lifecycle => "lifecycle",
+        }
+    }
+}
+
+/// A hook event name from the first-party list. A payload with any other name
+/// (or none) is `Unknown`, so no payload text is ever stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionLearningEvent {
+    SessionStart,
+    SessionEnd,
+    UserPromptSubmit,
+    Stop,
+    Interrupt,
+    Notification,
+    PostToolUse,
+    PostToolUseFailure,
+    Unknown,
+}
+impl SessionLearningEvent {
+    pub fn from_hook_name(name: Option<&str>) -> Self {
+        match name {
+            Some("SessionStart") => Self::SessionStart,
+            Some("SessionEnd") => Self::SessionEnd,
+            Some("UserPromptSubmit") => Self::UserPromptSubmit,
+            Some("Stop") => Self::Stop,
+            Some("Interrupt") => Self::Interrupt,
+            Some("Notification") => Self::Notification,
+            Some("PostToolUse") => Self::PostToolUse,
+            Some("PostToolUseFailure") => Self::PostToolUseFailure,
+            _ => Self::Unknown,
+        }
+    }
+    /// The decoder that should have accepted this event; none for an unknown name.
+    pub fn decoder(self) -> Option<SessionLearningDecoder> {
+        match self {
+            Self::SessionStart | Self::SessionEnd => Some(SessionLearningDecoder::Lifecycle),
+            Self::UserPromptSubmit => Some(SessionLearningDecoder::Prompt),
+            Self::Stop | Self::Interrupt => Some(SessionLearningDecoder::Turn),
+            Self::Notification | Self::PostToolUse | Self::PostToolUseFailure => {
+                Some(SessionLearningDecoder::ActivitySession)
+            }
+            Self::Unknown => None,
+        }
+    }
+}
+
+/// What a stage stopped on, beyond its step and reason. Fixed tokens only:
+/// never a payload body, path or identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionLearningDetail {
+    /// No decoder accepted the payload of this event.
+    Refused(SessionLearningEvent),
+    /// The driver found no provider process among the hook's ancestors.
+    HostUnsupported,
+}
+impl SessionLearningDetail {
+    /// Every detail, in the order `schema/075.sql` lists them.
+    pub const ALL: [Self; 10] = [
+        Self::Refused(SessionLearningEvent::SessionStart),
+        Self::Refused(SessionLearningEvent::SessionEnd),
+        Self::Refused(SessionLearningEvent::UserPromptSubmit),
+        Self::Refused(SessionLearningEvent::Stop),
+        Self::Refused(SessionLearningEvent::Interrupt),
+        Self::Refused(SessionLearningEvent::Notification),
+        Self::Refused(SessionLearningEvent::PostToolUse),
+        Self::Refused(SessionLearningEvent::PostToolUseFailure),
+        Self::Refused(SessionLearningEvent::Unknown),
+        Self::HostUnsupported,
+    ];
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Refused(SessionLearningEvent::SessionStart) => "refused:lifecycle:SessionStart",
+            Self::Refused(SessionLearningEvent::SessionEnd) => "refused:lifecycle:SessionEnd",
+            Self::Refused(SessionLearningEvent::UserPromptSubmit) => {
+                "refused:prompt:UserPromptSubmit"
+            }
+            Self::Refused(SessionLearningEvent::Stop) => "refused:turn:Stop",
+            Self::Refused(SessionLearningEvent::Interrupt) => "refused:turn:Interrupt",
+            Self::Refused(SessionLearningEvent::Notification) => {
+                "refused:activity_session:Notification"
+            }
+            Self::Refused(SessionLearningEvent::PostToolUse) => {
+                "refused:activity_session:PostToolUse"
+            }
+            Self::Refused(SessionLearningEvent::PostToolUseFailure) => {
+                "refused:activity_session:PostToolUseFailure"
+            }
+            Self::Refused(SessionLearningEvent::Unknown) => "refused:unknown",
+            Self::HostUnsupported => "host_unsupported",
+        }
+    }
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|detail| detail.as_str() == value)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionLearningDiagnostic {
     pub step: SessionLearningStep,
     pub reason: SessionLearningReason,
+    pub detail: Option<SessionLearningDetail>,
+}
+impl SessionLearningDiagnostic {
+    pub fn new(step: SessionLearningStep, reason: SessionLearningReason) -> Self {
+        Self {
+            step,
+            reason,
+            detail: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,6 +296,53 @@ pub fn session_learning_recovery(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn every_detail_token_is_distinct_parses_back_and_names_its_decoder() {
+        let mut seen = std::collections::HashSet::new();
+        for detail in SessionLearningDetail::ALL {
+            assert!(seen.insert(detail.as_str()), "{detail:?} repeats a token");
+            assert_eq!(SessionLearningDetail::parse(detail.as_str()), Some(detail));
+            assert!(
+                detail
+                    .as_str()
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b':')
+            );
+            let SessionLearningDetail::Refused(event) = detail else {
+                continue;
+            };
+            let expected = match event.decoder() {
+                Some(decoder) => format!("refused:{}:{event:?}", decoder.as_str()),
+                None => "refused:unknown".to_owned(),
+            };
+            assert_eq!(detail.as_str(), expected);
+            if event != SessionLearningEvent::Unknown {
+                assert_eq!(
+                    SessionLearningEvent::from_hook_name(Some(&format!("{event:?}"))),
+                    event
+                );
+            }
+        }
+        assert_eq!(SessionLearningDetail::parse("refused:turn:Anything"), None);
+    }
+
+    #[test]
+    fn an_event_name_outside_the_list_or_missing_is_unknown() {
+        for name in [
+            None,
+            Some(""),
+            Some("Stop "),
+            Some("stop"),
+            Some("PreInvocation"),
+        ] {
+            assert_eq!(
+                SessionLearningEvent::from_hook_name(name),
+                SessionLearningEvent::Unknown
+            );
+        }
+        assert_eq!(SessionLearningEvent::Unknown.decoder(), None);
+    }
+
     #[test]
     fn recovery_never_suggests_resume_without_coordinates_or_truncates_a_command() {
         let mut identity = crate::identity::Identity {

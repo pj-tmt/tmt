@@ -29,6 +29,7 @@ fn named_listing_exposes_stored_session_learning_without_changing_its_address() 
         learning: Some(Box::new(crate::session_learning::LearningView {
             step: "provider_verification",
             reason: "budget_timeout",
+            detail: None,
             next_step: "Exit the agent in its pane, then run: tmt resume -- worker".into(),
         })),
     });

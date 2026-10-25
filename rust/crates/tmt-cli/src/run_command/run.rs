@@ -709,9 +709,7 @@ pub(super) fn run_bound(
             .map_err(|error| {
                 if let Some(owner)=&owner
                     && let Err(error)=crate::session_learning::finish_launch(storage,&binding.id,owner,
-                        Some(tmt_core::binding::session::launch::SessionLearningDiagnostic {
-                            step:tmt_core::binding::session::launch::SessionLearningStep::Input,
-                            reason:tmt_core::binding::session::launch::SessionLearningReason::SpawnFailed})) {
+                        Some(tmt_core::binding::session::launch::SessionLearningDiagnostic::new(tmt_core::binding::session::launch::SessionLearningStep::Input, tmt_core::binding::session::launch::SessionLearningReason::SpawnFailed))) {
                         diagnostic(&format!("could not settle this failed launch's session diagnostic: {error}"));
                 }
                 // No child exists, so nothing ran and the enrollment ends.

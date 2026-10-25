@@ -362,6 +362,10 @@ const MIGRATIONS: &[Migration] = &[
         "count usage writes on their own cursor, so the sampler does not wake the board",
         "schema/074.sql"
     ),
+    migration!(
+        "let a session-learning diagnostic name what its step stopped on",
+        "schema/075.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

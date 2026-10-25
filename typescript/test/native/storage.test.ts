@@ -150,6 +150,7 @@ function expectNativeSchema(
       version: 74,
       name: 'count usage writes on their own cursor, so the sampler does not wake the board',
     },
+    { version: 75, name: 'let a session-learning diagnostic name what its step stopped on' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -290,6 +291,7 @@ function expectNativeSchema(
         'observed_at_ms',
         'step',
         'reason',
+        'detail',
       ],
     ],
     ['digest_counters', ['identity_id', 'due_through_sequence', 'delivered_digests']],

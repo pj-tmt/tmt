@@ -205,12 +205,20 @@ launches per binding; expired rows are removed on the next launch). It never
 stores a transcript, context body or a second copy of preferences.
 
 `tmt ls --json` rows expose additive `session.learning`: `null` without an
-unresolved launch observation, otherwise `{step,reason,nextStep}`.
+unresolved launch observation, otherwise `{step,reason,nextStep}` plus `detail`
+when the step recorded what it stopped on.
 `tmt identity show --json` and named `tmt ls <name> --json` add `session` only
 when that observation exists. Steps are `input`, `decode`, `driver_admission`,
 `host_discovery`, `pane_snapshot`, `provider_verification`, `storage`, `context`.
 Reasons are `in_progress`, `not_admitted`, `worker_error`, `budget_timeout`,
-`spawn_failed`, `launch_ended`, `conflict`. An admitted session suppresses an
+`spawn_failed`, `launch_ended`, `conflict`. `detail` is one fixed token, never a
+payload body, path or identifier: `refused:<decoder>:<event>` when no decoder
+accepted a hook payload (decoder `turn`, `prompt`, `activity_session` or
+`lifecycle`, the family that owns the first-party event `SessionStart`,
+`SessionEnd`, `UserPromptSubmit`, `Stop`, `Interrupt`, `Notification`,
+`PostToolUse` or `PostToolUseFailure`; `refused:unknown` for any other or missing
+event name), or `host_unsupported` when the driver found no provider process among
+the hook's ancestors. A later step drops it. An admitted session suppresses an
 older failure. These reads are stored-only; human listing/show gives the same
 recovery step. An unresolved observation projects `session.unbound=true` and
 the existing message-state `session_not_bound` reason without authorizing or
