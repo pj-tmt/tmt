@@ -24,7 +24,7 @@ const SEARCH_DEBOUNCE_MS = 200;
 function reconcile(parent: Node, wanted: readonly Node[]): void {
   // Leaving nodes go first, so they never stand in front of a kept one and force it to move.
   const keep = new Set(wanted);
-  for (let child = parent.firstChild; child; ) {
+  for (let child = parent.firstChild; child;) {
     const next = child.nextSibling;
     if (!keep.has(child)) child.remove();
     child = next;
