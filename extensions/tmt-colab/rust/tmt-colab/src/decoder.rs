@@ -279,6 +279,8 @@ pub struct PreparedContent {
     pub projection: Value,
     pub memory_limit: MemoryLimit,
     pub child_pid: u32,
+    /// How much of the existing source the edit replaces; empty for a structured action.
+    pub scale: crate::edit_scale::EditScale,
 }
 #[derive(Clone, Copy)]
 enum ChildCommand {
@@ -629,7 +631,15 @@ impl Decoder {
         }
         let reply: WirePreparedContent =
             serde_json::from_slice(&output.stdout).map_err(|_| DecodeFault::InvalidOutput)?;
-        admit_prepared_content(reply, &hash, &expected, expected == *expected_base)
+        let mut prepared =
+            admit_prepared_content(reply, &hash, &expected, expected == *expected_base)?;
+        if structured.is_none() {
+            prepared.scale = crate::edit_scale::EditScale::of(
+                expected_base["html"].as_str().unwrap_or_default(),
+                edit.source,
+            );
+        }
+        Ok(prepared)
     }
     /// Produces once from a fresh document and checks materialization in the child.
     pub fn produce_baseline(
@@ -1223,6 +1233,7 @@ fn admit_prepared_content(
         projection: reply.projection,
         memory_limit: reply.memory_limit,
         child_pid: reply.pid,
+        scale: crate::edit_scale::EditScale::NONE,
     })
 }
 // A full baseline is not a 256 KiB stream update. Allow source, title and

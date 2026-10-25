@@ -666,6 +666,12 @@ is added.
   re-evaluates on the page as it is, at most 3 more times, unless `--expected-revision` fences.
   The browser Save's merge uses the same evaluator (`apply_hunks`, `conflicting_hunks`), so a
   hunk places by the same rules in both front doors.
+- `edit_scale.rs` measures how much of the existing source a write replaces, on the span the
+  isolated decoder child publishes (`content_diff`): `EditScale::of` and `is_large_rewrite` (more
+  than half of a source of at least 2 KiB). `Decoder::prepare_mutation` sets it on
+  `PreparedContent`, `FrozenPublication::scale` carries it to the receipt (not serialized), and
+  `cli_edit_hint.rs` turns a warning, a non-minimal update or a large rewrite into the one `read`
+  command a write or patch receipt names; a normal edit names nothing.
 - `PageUsage` (`page.rs`) is the page's usage: the tail count and bytes the write path refuses
   at, the checkpoints, and the whole state with its gzipped size from 256 KiB. `fold.rs` counts
   them once (`UsageCounts::add`, `MaterializationInput::usage`) for the refusal and for the

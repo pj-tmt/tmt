@@ -2771,6 +2771,118 @@ fn create_initializes_fresh_space_then_read_write_and_list_work_offline_and_serv
         }
     }
 }
+/// The one command a write or patch receipt names when the edit went off-guidance (#5029).
+const EDITING_READ: &str = "tmt colab skill editing";
+#[test]
+fn an_edit_names_the_editing_reference_only_when_it_went_off_guidance() {
+    let pilot = Pilot::new(None);
+    let rows: String = (0..120)
+        .map(|n| format!("<p>Row {n} of the plan</p>\n"))
+        .collect();
+    assert!(rows.len() > 2048, "{}", rows.len());
+    let file = pilot.root.join("page.html");
+    let path = file.to_str().unwrap();
+    fs::write(&file, &rows).unwrap();
+    let created = pilot.call(&[
+        "page", "create", "--title", "Plan", "--layout", "column", "--file", path, "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap().to_owned();
+    let quiet = |receipt: &Value| {
+        assert!(receipt.get("read").is_none(), "{receipt}");
+        assert_eq!(receipt["warnings"], json!([]), "{receipt}");
+    };
+
+    // A small patch is the normal edit: the receipt names nothing.
+    quiet(&pilot.call(&[
+        "page",
+        "patch",
+        &id,
+        "--find",
+        "Row 7 of",
+        "--replace",
+        "Row seven of",
+        "--json",
+    ]));
+    let normal = pilot
+        .command()
+        .args([
+            "page",
+            "patch",
+            &id,
+            "--find",
+            "Row 10 of",
+            "--replace",
+            "Row ten of",
+        ])
+        .output()
+        .unwrap();
+    assert!(normal.status.success(), "{normal:?}");
+    assert!(normal.stderr.is_empty(), "{normal:?}");
+    // So is a whole-source write that moves one line.
+    let source = pilot.call(&["page", "read", &id, "--json"])["source"]
+        .as_str()
+        .unwrap()
+        .replace("Row 8 of", "Row eight of");
+    fs::write(&file, &source).unwrap();
+    quiet(&pilot.call(&["page", "write", &id, "--file", path, "--json"]));
+
+    // A lint warning in the result names the reference, on a patch...
+    let warned = pilot.call(&[
+        "page",
+        "patch",
+        &id,
+        "--find",
+        "Row 9 of",
+        "--replace",
+        "<span class=\"tmt-ui-nonexistent\">Row nine</span> of",
+        "--json",
+    ]);
+    assert!(
+        !warned["warnings"].as_array().unwrap().is_empty(),
+        "{warned}"
+    );
+    assert_eq!(warned["read"], json!([EDITING_READ]), "{warned}");
+    // Appending more than the page holds touches none of what was there.
+    let current = pilot.call(&["page", "read", &id, "--json"])["source"]
+        .as_str()
+        .unwrap()
+        .replace(
+            "<span class=\"tmt-ui-nonexistent\">Row nine</span> of",
+            "Row nine of",
+        );
+    fs::write(&file, format!("{current}{}", rows.repeat(2))).unwrap();
+    quiet(&pilot.call(&["page", "write", &id, "--file", path, "--json"]));
+    // ...and a rewrite of most of a page of 2 KiB or more does too, with nothing to lint.
+    fs::write(&file, varied_source(7, 4096)).unwrap();
+    let rewritten = pilot.call(&["page", "write", &id, "--file", path, "--json"]);
+    assert_eq!(rewritten["warnings"], json!([]), "{rewritten}");
+    assert_eq!(rewritten["read"], json!([EDITING_READ]), "{rewritten}");
+    // A page under 2 KiB is rewritten whole without comment.
+    let small = pilot.call(&[
+        "page", "create", "--title", "Small", "--layout", "column", "--json",
+    ]);
+    let small = small["pageId"].as_str().unwrap().to_owned();
+    fs::write(&file, varied_source(1, 1000)).unwrap();
+    quiet(&pilot.call(&["page", "write", &small, "--file", path, "--json"]));
+    fs::write(&file, varied_source(2, 1000)).unwrap();
+    quiet(&pilot.call(&["page", "write", &small, "--file", path, "--json"]));
+
+    // The human result says so on stderr, once; a normal edit prints nothing there.
+    fs::write(&file, varied_source(9, 4096)).unwrap();
+    let human = pilot
+        .command()
+        .args(["page", "write", &id, "--file", path])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8(human.stderr).unwrap();
+    assert!(human.status.success(), "{stderr}");
+    assert_eq!(stderr.matches(EDITING_READ).count(), 1, "{stderr}");
+    assert!(
+        !String::from_utf8(human.stdout)
+            .unwrap()
+            .contains(EDITING_READ)
+    );
+}
 /// Printable text that shares no run longer than a few bytes with any other seed's output, so a
 /// replacement is a full rewrite of the page rather than a small diff.
 fn varied_source(seed: u64, bytes: usize) -> String {
