@@ -1,4 +1,67 @@
 import { ClientError, RefusalError, ReopenSessionError, budget, management, reopenSession } from "/sdk/remote-v1.js";
+//#region src/remote-routes.ts
+var REMOTE_ITEMS = [
+	{
+		id: "remotes",
+		path: "/remote/",
+		label: "My Remotes",
+		title: "My Remotes",
+		page: "settings"
+	},
+	{
+		id: "overview",
+		path: "/remote/overview",
+		label: "Overview",
+		title: "Overview",
+		page: "landing"
+	},
+	{
+		id: "members",
+		path: "/remote/members",
+		label: "Members",
+		title: "Members",
+		page: "settings"
+	},
+	{
+		id: "invites",
+		path: "/remote/invites",
+		label: "Invites",
+		title: "Invites",
+		page: "landing",
+		adminOnly: true
+	},
+	{
+		id: "my-devices",
+		path: "/remote/my-devices",
+		label: "My devices",
+		title: "My devices",
+		page: "settings"
+	},
+	{
+		id: "settings",
+		path: "/remote/settings",
+		label: "Settings",
+		title: "Settings",
+		page: "settings"
+	},
+	{
+		id: "service",
+		path: "/remote/service",
+		label: "Service & upgrade",
+		title: "Service & upgrade",
+		page: "settings",
+		adminOnly: true
+	}
+];
+[...REMOTE_ITEMS.filter((item) => item.id !== "remotes").map((item) => item.path), remotePath("remotes")];
+function remotePath(id) {
+	return REMOTE_ITEMS.find((item) => item.id === id).path;
+}
+/** Removed pre-launch paths have no alias or redirect. */
+function remoteItem(pathname) {
+	return REMOTE_ITEMS.find((item) => item.path === pathname || pathname === "/remote" && item.id === "remotes");
+}
+//#endregion
 //#region src/remote-state.ts
 /** A display observation only; pairing and sending permissions never imply a role. */
 function remoteRole(role) {
@@ -216,51 +279,6 @@ function settingsChoice(trigger, surface) {
 	};
 }
 //#endregion
-//#region src/remote-routes.ts
-var REMOTE_ITEMS = [
-	{
-		id: "status",
-		path: "/remote/",
-		label: "Status",
-		title: "Remote connection",
-		page: "landing"
-	},
-	{
-		id: "devices",
-		path: "/remote/devices",
-		label: "Devices",
-		title: "Devices",
-		page: "settings"
-	},
-	{
-		id: "connect",
-		path: "/remote/connect",
-		label: "Connect a device",
-		title: "Connect a device",
-		page: "landing"
-	},
-	{
-		id: "machine",
-		path: "/remote/machine",
-		label: "This machine’s settings",
-		title: "This machine’s settings",
-		page: "settings"
-	},
-	{
-		id: "settings",
-		path: "/remote/settings",
-		label: "My Remotes",
-		title: "My Remotes",
-		page: "settings"
-	}
-];
-[...REMOTE_ITEMS.filter((item) => item.id !== "settings").map((item) => item.path)];
-/** The row a path names; `/remote` and `/remote/` are Status, anything else under it is none. */
-function remoteItem(pathname) {
-	const path = pathname === "/remote" ? "/remote/" : pathname.replace(/(?<=.)\/$/, "");
-	return REMOTE_ITEMS.find((item) => item.path === path || item.path === `${path}/`);
-}
-//#endregion
 //#region src/remote-menu.ts
 function remoteMenu(actions, shell = void 0) {
 	if (!shell) return () => {};
@@ -280,8 +298,9 @@ function remoteMenu(actions, shell = void 0) {
 			};
 		};
 		const remotes = [{
-			...item("status"),
-			label: `Status · ${view?.text ?? "Checking"}`
+			...item("overview"),
+			label: `This Remote · ${view?.text ?? "Checking"}`,
+			current: showing !== "remotes"
 		}];
 		if (view?.action) {
 			run.set("recover", () => actions.recover(view.action));
@@ -295,14 +314,9 @@ function remoteMenu(actions, shell = void 0) {
 		}
 		shell.setMenu({
 			title: "Remote",
-			groups: [{ items: [item("settings")] }, {
+			groups: [{ items: [item("remotes")] }, {
 				label: "This machine",
-				items: [
-					...remotes,
-					item("devices"),
-					item("connect"),
-					item("machine")
-				]
+				items: remotes
 			}]
 		}, (id) => {
 			const action = run.get(id);
@@ -1633,7 +1647,7 @@ async function buildHandoff(destination, value, page) {
 	const params = new URLSearchParams({ "tmt-remotes": base64url(encoder.encode(json(catalog))) });
 	if (page !== void 0) params.set("tmt-page", base64url(encoder.encode(JSON.stringify(hint(page)))));
 	valid(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to send along when opening this remote. Remove an entry, then try again.");
-	return `${new URL("/remote/", checked.url).href}#${params}`;
+	return `${new URL("/remote/overview", checked.url).href}#${params}`;
 }
 async function planImport(incoming, current) {
 	const next = await parseCatalog(incoming), before = await parseCatalog(current);
@@ -1800,7 +1814,12 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	let heldBy = initialBlocked;
 	const blocked = () => heldBy();
 	const root = document.getElementById("remotes");
-	if (!root) return Object.assign(() => {}, { blockedBy: () => {} });
+	if (!root) return Object.assign(() => {}, {
+		blockedBy: () => {},
+		renameCurrent: () => {},
+		watch: () => () => {}
+	});
+	const listeners = /* @__PURE__ */ new Set();
 	const fragment = location.hash;
 	if (fragment) history.replaceState(null, "", location.pathname + location.search);
 	const list = document.getElementById("remote-list");
@@ -1819,7 +1838,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		}],
 		onSelect: (key) => {
 			if (key === "address") openAdd();
-			else (shell ?? void 0)?.navigate(new URL("connect", new URL("./", location.href)).href);
+			else (shell ?? void 0)?.navigate(new URL(remotePath("overview"), location.href).href);
 		}
 	});
 	const join = joinHost.querySelector("button");
@@ -1832,27 +1851,28 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	let observedRole;
 	let address = document.documentElement.dataset.tmtPage === "settings" ? new URL("./", location.href).href : void 0;
 	let currentDialog;
+	(shell ?? void 0)?.signal.addEventListener("abort", () => {
+		const leaving = currentDialog;
+		currentDialog = void 0;
+		leaving?.close();
+		leaving?.remove();
+	}, { once: true });
 	let catalog = {
 		version: 1,
 		entries: []
 	};
-	const settings = new URL("settings", new URL("./", location.href));
 	const menu = remoteMenu({
 		refresh: () => render(),
 		recover: (action) => {
-			const home = new URL("./", location.href).href;
+			const home = new URL(remotePath("overview"), location.href).href;
 			if (action === "Retry") {
 				const retry = ["check", "refresh"].map((id) => document.getElementById(id)).find((button) => button && button.getClientRects().length > 0);
 				if (retry && !retry.disabled) retry.click();
 				else (shell ?? void 0)?.navigate(home);
-			} else if (document.documentElement.dataset.tmtPage === "settings") (shell ?? void 0)?.navigate(home);
-			else {
-				const pair = [
-					"copy-refused-pair",
-					"copy-missing-pair",
-					"copy-unreadable-pair",
-					"copy-different-pair"
-				].map((id) => document.getElementById(id)).find((button) => button && button.getClientRects().length > 0);
+			} else {
+				if (location.pathname !== remotePath("overview")) (shell ?? void 0)?.navigate(home);
+				if (location.pathname !== remotePath("overview")) return;
+				const pair = document.getElementById("copy-guide-pair");
 				pair?.scrollIntoView();
 				pair?.focus();
 			}
@@ -1863,7 +1883,6 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	};
 	const dialog = (title, opener) => {
 		currentDialog?.close();
-		if (document.documentElement.dataset.tmtPage !== "settings") (shell ?? void 0)?.navigate(settings.href);
 		const box = node$1("dialog");
 		box.className = browserUiClasses.dialog;
 		const header = node$1("header");
@@ -1881,7 +1900,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		const buttons = node$1("footer");
 		buttons.className = browserUiClasses.dialogActions;
 		box.append(header, content, buttons);
-		root.append(box);
+		document.body.append(box);
 		const end = () => box.close();
 		box.addEventListener("close", () => {
 			box.remove();
@@ -2003,6 +2022,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			address,
 			role: observedRole
 		});
+		listeners.forEach((listener) => listener(projection));
 		const existing = [...list.children];
 		if (existing.length === projection.rows.length && existing.every((row, index) => {
 			const entry = projection.rows[index];
@@ -2019,7 +2039,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 				const open = row.querySelector("[data-action=\"open\"]");
 				open.setAttribute("aria-disabled", String(!entry.thisMachine && !!blocked()));
 				if (!entry.thisMachine && blocked()) open.removeAttribute("href");
-				else open.href = entry.thisMachine ? new URL("./", location.href).href : entry.url;
+				else open.href = entry.thisMachine ? new URL(remotePath("overview"), location.href).href : entry.url;
 				open.title = !entry.thisMachine ? blocked() : "";
 			}
 			menu(projection);
@@ -2043,7 +2063,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			const label = node$1("span");
 			label.className = `${browserUiClasses.listLabel} remote-label`;
 			const open = node$1("a", entry.name);
-			open.href = entry.thisMachine ? new URL("./", location.href).href : entry.url;
+			open.href = entry.thisMachine ? new URL(remotePath("overview"), location.href).href : entry.url;
 			open.dataset.action = "open";
 			open.setAttribute("role", "link");
 			open.setAttribute("aria-label", `Open ${entry.name}`);
@@ -2053,7 +2073,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			open.addEventListener("click", (event) => {
 				event.preventDefault();
 				if (entry.thisMachine) {
-					(shell ?? void 0)?.navigate(new URL("./", location.href).href);
+					(shell ?? void 0)?.navigate(new URL(remotePath("overview"), location.href).href);
 					return;
 				}
 				(async () => {
@@ -2126,16 +2146,16 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 			showError(error, status);
 		}
 	};
-	function openAdd() {
-		const view = dialog("Add remote", join);
+	function openAdd(address = "", opener = join) {
+		const view = dialog("Add remote", opener);
 		const alias = field("Remote name", "");
-		const url = field("Remote address or link", "");
+		const url = field("Remote address or link", address);
 		view.body.append(alias.label, url.label);
 		view.buttons.append(action("Continue", () => {
 			reference(alias.input.value, url.input.value).then((entry) => {
 				if (currentDialog !== view.box || !view.box.open || !view.box.isConnected) return;
 				view.end();
-				confirmAdd(entry, join);
+				confirmAdd(entry, opener);
 			}).catch((error) => showError(error, view.message));
 		}), action("Cancel", view.end));
 		view.box.showModal();
@@ -2167,9 +2187,31 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		if (checkedAddress) address = checkedAddress;
 		paint();
 	};
-	return Object.assign(observe, { blockedBy: (reason) => {
-		heldBy = reason;
-	} });
+	return Object.assign(observe, {
+		renameCurrent: (opener) => {
+			const current = registryView(catalog, {
+				pageUrl: location.href,
+				state: observed,
+				address,
+				role: observedRole
+			}).current;
+			if (current.reference) rename(current.reference, opener);
+			else openAdd(current.url, opener);
+		},
+		watch: (listener) => {
+			listeners.add(listener);
+			listener(registryView(catalog, {
+				pageUrl: location.href,
+				state: observed,
+				address,
+				role: observedRole
+			}));
+			return () => listeners.delete(listener);
+		},
+		blockedBy: (reason) => {
+			heldBy = reason;
+		}
+	});
 }
 //#endregion
 //#region src/firestore.ts
@@ -2593,10 +2635,10 @@ function createBusyMarkGate(onChange) {
 }
 //#endregion
 //#region src/settings-page.ts
-/** The Remote settings views (`/remote/devices`, `/machine`, `/settings`): run once per mount of
+/** The Remote management tabs (Members, My devices, Settings and Service & upgrade): run once per mount of
 * their markup. This bundle is loaded apart from the SDK, so the app hands it its part of the
 * shell and the route's one remotes controller. */
-async function settingsPage(shell, registry) {
+async function settingsPage(shell, registry, initial) {
 	function element(id) {
 		const found = document.getElementById(id);
 		if (!found) throw new Error(`Settings page lacks #${id}.`);
@@ -2710,7 +2752,7 @@ async function settingsPage(shell, registry) {
 		if (markOwner) markSlot(markOwner).dataset.busy = String(shown);
 	});
 	function syncBusyMark() {
-		for (const button of document.querySelectorAll("button.tmt-ui-action")) if (!button.closest("#remotes, #remote-head, #remote-switcher")) markSlot(button);
+		for (const button of document.querySelectorAll("button.tmt-ui-action")) if (!button.closest("#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked")) markSlot(button);
 		busyMark.set(page.busy);
 	}
 	function saveState(form, hint, changed, valid) {
@@ -2811,7 +2853,7 @@ async function settingsPage(shell, registry) {
 		element("controls-reason").textContent = reason;
 		element("controls-reason").hidden = !reason;
 		for (const button of document.querySelectorAll("button")) {
-			if (button.closest("#remotes, #remote-head, #remote-switcher")) continue;
+			if (button.closest("#remotes, #remote-head, #remote-switcher, #remote-context, #remote-local-name, #remote-locked")) continue;
 			if (reason) button.setAttribute("aria-describedby", "controls-reason");
 			else button.removeAttribute("aria-describedby");
 			button.setAttribute("aria-busy", String(page.busy));
@@ -3019,6 +3061,18 @@ async function settingsPage(shell, registry) {
 				}
 			}
 		}
+		const currentView = shell ? remoteItem(location.pathname)?.id : void 0;
+		const ownName = document.getElementById("current-browser-name");
+		for (const device of page.devices?.devices ?? []) {
+			const row = rows.get(device.clientId);
+			if (!row) continue;
+			const destination = currentView === "settings" && device.thisBrowser && ownName ? ownName : devices;
+			if (row.parentElement !== destination) destination.append(row);
+			row.hidden = (currentView === "my-devices" || currentView === "settings") && !device.thisBrowser;
+			for (const action of row.querySelectorAll("[data-action]")) action.hidden = currentView === "settings";
+		}
+		const ownMissing = document.getElementById("current-browser-name-missing");
+		if (ownMissing) ownMissing.hidden = !!page.devices?.devices.some((device) => device.thisBrowser);
 		renderOutcome();
 		syncBusyMark();
 	}
@@ -3170,14 +3224,18 @@ async function settingsPage(shell, registry) {
 	more.addEventListener("click", () => navigate(page.devices?.nextCursor ?? null, more));
 	first.addEventListener("click", () => navigate(null, first));
 	for (const button of document.querySelectorAll("[data-recover]")) button.addEventListener("click", recoverOriginal);
-	try {
-		let session = await reopenSession();
+	if (shell) window.addEventListener("popstate", () => {
+		if (page) render();
+	}, { signal: shell?.signal });
+	async function initialize(session) {
+		if (page) return;
 		page = new ManagementPage(management(session), async () => {
 			session = await reopenSession(session, { retry: "bounded" });
 			return management(session);
 		});
 		await run(() => refreshView());
-	} catch (error) {
+	}
+	function unavailable(error, report = true) {
 		const capacity = capacityCopy(error instanceof RefusalError ? error : void 0);
 		const ended = error instanceof RefusalError && [
 			"REMOTE_DEVICE_REVOKED",
@@ -3187,11 +3245,26 @@ async function settingsPage(shell, registry) {
 		].includes(error.code);
 		commandNotice(element("access"), capacity ?? (ended ? "Current browser access refused. Use the local CLI." : "Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged."));
 		element("access-announcement").textContent = capacity ?? (ended ? "Access ended" : "Access unconfirmed");
-		registryState(error instanceof RefusalError && ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(error.code) ? "Access ended" : "Unconfirmed");
+		const verifiedEnded = error instanceof RefusalError && ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(error.code);
+		if (report) registryState(verifiedEnded ? "Access ended" : "Unconfirmed");
 		refresh.disabled = true;
 		element("access-notice").dataset.tone = "blocked";
 		element("controls-reason").textContent = capacity ?? "Current access is unavailable. Use the local CLI.";
 	}
+	try {
+		if (shell && !initial) unavailable(void 0, false);
+		else await initialize(initial ?? await reopenSession());
+	} catch (error) {
+		unavailable(error);
+	}
+	return (session) => {
+		if (shell?.signal.aborted) return;
+		if (page && management(session).clientId !== page.clientId) {
+			registryState("Unconfirmed", void 0, null);
+			return;
+		}
+		if (!page) initialize(session).catch(unavailable);
+	};
 }
 //#endregion
 export { settingsPage };

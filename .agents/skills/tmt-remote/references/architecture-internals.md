@@ -138,7 +138,12 @@ The list and rail consume that one projection: this machine first, foreign refer
 role and connection only from explicit observations. `remote-registry-page` owns public-reference
 CAS/import/rename/forget/undo and guarded navigation; `remote-menu` links to the list and current
 machine views without a second catalog. These display observations never enter grant authority
-or persistence. My Remotes reuses `/remote/settings`; no public route or backend call is added.
+or persistence. My Remotes lives at `/remote/`; one current-door tab frame uses the canonical `remote-routes`
+declaration, mirrored by explicit native admission. Old views have no aliases. `remote-app` retains
+one set of form models and subscribes to the same registry projection for role/locked presentation;
+shared static tab semantics add no authority. Browser-local naming reuses registry CAS, device naming
+the existing signed owner. The document-level modal closes on route abort and fences late validation.
+The public contract owns exact paths and locked-tab behavior.
 
 ## Member storage
 
