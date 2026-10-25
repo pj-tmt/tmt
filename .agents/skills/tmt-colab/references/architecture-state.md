@@ -742,7 +742,7 @@ then view tabs, project-scope pills, search and Sort, then the list. `page-list-
 owns display-only pinned cards and rows; Home retains filtering, selection and all write lifetimes.
 Pins wrap after three on a wide screen and stack on compact screens; no pins means no card block.
 Project membership remains plural; `projectTone` maps exact names deterministically to existing role tints for header, pin and row tags; missing summaries never become a fabricated stage.
-Wide rows have Title, Project, Stage, Updated, Author and Access columns, with compact task-count words under the title; compact rows stack metadata without sideways overflow. Unknown authors stay absent. The shared
+Wide rows have Title, Project, Stage, Updated, Author and Access columns, with compact task-count words under the title; compact rows stack metadata without sideways overflow. Unknown authors stay absent; a long creator is one ellipsized line with the full label as its tooltip, and a project name used as the heading wraps in at most two lines with the full name as its tooltip, so neither moves `New page` or the row height. The shared
 flat tabs show separate numeric counts and wrap on compact screens, without a horizontal scroller. The `New page` action (`new-page-dialog.tsx`) still gives the
 `tmt colab page create` command with `CopyCommand`; the browser creates no page.
 The list fills the shell content pane using the shared `tmt-ui-page` insets. Home is its one vertical viewport: hero, pins, controls, rows and footer scroll together; `.page-list-scroll` adds no nested scroller. Successful action feedback stays in a visually hidden live region; refusals remain visible.

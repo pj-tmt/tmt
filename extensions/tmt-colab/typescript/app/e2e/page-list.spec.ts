@@ -1717,3 +1717,93 @@ test('viewer project tags keep filtering without a picker or empty labelled list
   await expect(design).toHaveAttribute('aria-pressed', 'true');
   expect(await requests(page)).toEqual([]);
 });
+
+for (const width of [1440, 390, 320])
+  for (const theme of ['light', 'dark'] as const)
+    test(`a long creator is one ellipsized line and no taller row at ${width}px ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page, 'long');
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      const long = rows(page).filter({ hasText: 'Long names' });
+      const author = long.locator('.page-author');
+      // The full label is the tooltip; the text on the row is one line, cut with an ellipsis.
+      await expect(author).toHaveAttribute('title', 'W'.repeat(120));
+      const shown = await author.evaluate((node) => {
+        const range = document.createRange();
+        range.selectNodeContents(node.firstChild!);
+        const style = getComputedStyle(node);
+        return {
+          // The text's own box is as tall as one line.
+          lines: Math.round(range.getBoundingClientRect().height / parseFloat(style.lineHeight)),
+          cut: node.scrollWidth > node.clientWidth,
+          ellipsis: style.textOverflow,
+          inside: node.getBoundingClientRect().right <= document.documentElement.clientWidth,
+        };
+      });
+      expect(shown).toEqual({ lines: 1, cut: true, ellipsis: 'ellipsis', inside: true });
+      await insideViewport(page);
+      // The label's length moves nothing: a label ten times shorter that still passes the cut is the
+      // same height, and so is an ordinary creator that fits whole.
+      const height = () => long.evaluate((node) => node.getBoundingClientRect().height);
+      const withLong = await height();
+      await author.evaluate((node) => (node.textContent = 'W'.repeat(40)));
+      expect(await height()).toBe(withLong);
+      await author.evaluate((node) => (node.textContent = 'Studio agent'));
+      expect(await height()).toBe(withLong);
+      await page.screenshot({ path: await capturePath(`5144-author-${width}-${theme}.png`) });
+    });
+
+for (const width of [1440, 390, 320])
+  for (const theme of ['light', 'dark'] as const)
+    for (const [kind, name] of [
+      ['Latin', 'W'.repeat(32)],
+      ['CJK', '漢'.repeat(32)],
+    ] as const)
+      test(`a ${kind} project name wraps inside the heading and New page stays in view at ${width}px ${theme}`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: theme });
+        await mount(page, 'long');
+        await page.evaluate((theme) => {
+          document.documentElement.dataset.theme = theme;
+        }, theme);
+        // On a phone the module menu is a scrolling tab strip.
+        const entry = moduleMenu(page)
+          .locator('a')
+          .filter({ has: page.locator('.tmt-ui-module-menu-label', { hasText: name }) });
+        await entry.scrollIntoViewIfNeeded();
+        await entry.click();
+        const heading = app(page).locator('.page-list-hero h1');
+        await expect(heading).toHaveText(name);
+        await expect(heading).toHaveAttribute('title', name);
+        const create = app(page)
+          .locator('.page-list-hero-create')
+          .getByRole('button', { name: 'New page' });
+        await expect(create).toBeVisible();
+        const hero = await page.evaluate(() => {
+          const h1 = document.querySelector('#list-fixture .page-list-hero h1') as HTMLElement;
+          const button = document.querySelector(
+            '#list-fixture .page-list-hero-create button',
+          ) as HTMLElement;
+          const box = h1.getBoundingClientRect();
+          const action = button.getBoundingClientRect();
+          return {
+            lines: Math.round(box.height / parseFloat(getComputedStyle(h1).lineHeight)),
+            // The button is whole inside the window and the heading ends before it starts.
+            actionInside: action.left >= 0 && action.right <= document.documentElement.clientWidth,
+            beside: box.right <= action.left,
+          };
+        });
+        expect(hero.lines).toBeLessThanOrEqual(2);
+        expect(hero).toMatchObject({ actionInside: true, beside: true });
+        await insideViewport(page);
+        await page.screenshot({
+          path: await capturePath(`5144-heading-${kind}-${width}-${theme}.png`),
+        });
+      });

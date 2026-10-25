@@ -965,8 +965,8 @@ export function Home() {
       ref={section}
     >
       <header className="page-list-hero">
-        <div>
-          <h1>{scope ?? t.heroTitle}</h1>
+        <div className="page-list-hero-text">
+          <h1 title={scope ?? undefined}>{scope ?? t.heroTitle}</h1>
           <p>{t.heroBody}</p>
         </div>
         <span className="page-list-hero-create" inert={compact}>
