@@ -335,6 +335,33 @@ impl<'a> DeployFirestore<'a> {
             .map(str::to_owned)
             .ok_or(DeploySetupError::Unavailable)
     }
+    /// One fixed read-only IAM POST; never claims a deployment mutation.
+    pub fn check_permissions(
+        &mut self,
+        project: &str,
+        permissions: &[&str],
+    ) -> Result<Vec<String>, DeployPreflightError> {
+        if !deploy_run::project_ok(project) || !crate::deploy_permissions::valid_names(permissions)
+        {
+            return Err(unknown().into());
+        }
+        let value = self
+            .exchange(
+                "permission-probe",
+                json!({"project":project,"permissions":permissions}),
+                None,
+                Instant::now() + limits::DEPLOY_PROVIDER_CALL,
+            )
+            .map_err(preflight_error)?;
+        let granted: Vec<String> =
+            serde_json::from_value(value).map_err(|_| DeployPreflightError::from(unknown()))?;
+        if granted.iter().enumerate().any(|(index, name)| {
+            !permissions.contains(&name.as_str()) || granted[..index].contains(name)
+        }) {
+            return Err(unknown().into());
+        }
+        Ok(granted)
+    }
     fn exchange(
         &mut self,
         operation: &str,

@@ -30,6 +30,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `calendar`                                       | Pure Gregorian day conversion shared by Pacific quota resets and UTC sign-in status dates                                                                                                                                                           |
 | `firestore_limits`                               | Dated free-plan Firestore limits table and its `status --budget` projection, validator and human lines; golden in `tests/fixtures/firestore_budget/limits-member.json`                                                                              |
 | `readiness`                                      | Layered Firestore readiness: one table of items, reasons, sentences and human next steps; record projection, validator and human lines over the evidence source shared by status and opt-in signed settings                                         |
+| `deploy_permissions`                             | Manifest-derived grant subset admission and permission/step display; no inventory, cache or provider I/O                                                                                                                                            |
 | `deploy_cli`, `deploy_discovery`, `deploy_tools` | CLI argv/composition; fixed public installed declaration replies; installed Firebase launcher/Node discovery (no receipt parser or mutable helper file)                                                                                             |
 | `deploy_firestore`                               | Real provider port; binary-embedded Node helper, version-gated firebase-tools login, bounded no-retry mutations, timed/cancellable composite checks and exact Rules read-back                                                                       |
 | `deploy_run`                                     | Authorized Firestore sharing deploy over an injected `DeployPort`: envelope digest, authorization, step order, record and binding rule (CLI composition in `deploy_cli`)                                                                            |
@@ -182,6 +183,11 @@ boundary. The [input contract](../../../../contracts/remote-channel-v1.md#deploy
 owns semantics; `deploy_cli::inputs` owns the Firestore manifest, pre-provider validation,
 recorded selection and permission-to-step metadata. The existing `deploy_record` owner
 persists optional resource intent; the captured run retains actual app/site identities.
+`deploy_permissions` admits the manifest-derived grant subset and formats missing permission/step
+associations; it owns no second inventory or cache. After login and before inventory or consent,
+`deploy_cli` requires the adapter's bounded read-only IAM probe. Its fixed POST bypasses the helper's
+mutation path; unreadable checks cannot become checked. The CLI alone projects checked evidence,
+outside the plan digest and deployment record. Every invocation, including resume, rechecks.
 `deploy_cli` owns argv, short/full preview and terminal-only `progress`; `deploy_command`
 retains captured inputs across consent; pure `deploy_run` owns transitions and persistence.
 Progress notifications do not change effects or records; the joined heartbeat clears before

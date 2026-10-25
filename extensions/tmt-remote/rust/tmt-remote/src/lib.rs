@@ -22,6 +22,7 @@ pub mod deploy_command;
 pub mod deploy_discovery;
 pub mod deploy_firestore;
 pub mod deploy_input;
+pub mod deploy_permissions;
 pub mod deploy_plan;
 pub mod deploy_record;
 pub mod deploy_run;
