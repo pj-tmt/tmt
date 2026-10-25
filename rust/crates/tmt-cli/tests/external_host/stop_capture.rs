@@ -30,19 +30,13 @@ fn a_stop_without_a_new_activity_transition_still_records_consented_usage() {
         (
             "claude",
             ".claude/projects/-workspace",
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../tmt-adapters/src/runtime/fixtures/claude-usage-sequence.jsonl"
-            )),
+            include_str!("../../../tmt-adapters/src/runtime/fixtures/claude-usage-sequence.jsonl"),
             355113,
         ),
         (
             "codex",
             ".codex/sessions/2026/09/29",
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../tmt-adapters/src/runtime/fixtures/codex-token-count.jsonl"
-            )),
+            include_str!("../../../tmt-adapters/src/runtime/fixtures/codex-token-count.jsonl"),
             146577,
         ),
     ] {
