@@ -297,7 +297,8 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
         const load = (homeLoad ??= startHomeLoad());
         load.readers++;
         // Each reader keeps its own signal. Leaving ends only its own wait; the load is cancelled
-        // when the last reader has left before it finished.
+        // when the last reader has left before it finished. Each also gets its own copy of the
+        // result, so one reader changing it cannot reach another.
         return new Promise<SpaceHome>((resolve, reject) => {
           const leave = () => {
             signal?.removeEventListener('abort', leaveAborted);
@@ -314,7 +315,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
             (home) => {
               load.readers--;
               signal?.removeEventListener('abort', leaveAborted);
-              resolve(home);
+              resolve(structuredClone(home));
             },
             (error: unknown) => {
               load.readers--;

@@ -671,8 +671,14 @@ it('concurrent Home reads share one load, and a reader that leaves cancels it on
     expect(setup.snapshotSignals[0]!.aborted).toBe(false);
     release();
     const [homeB, homeC] = await Promise.all([b, c]);
-    expect(homeB).toBe(homeC);
-    expect(homeB.pages.map((page) => page.id)).toEqual(['a', 'b']);
+    // Each reader gets its own copy of the shared result: equal, but not the same objects.
+    expect(homeB).toEqual(homeC);
+    expect(homeB).not.toBe(homeC);
+    expect(homeB.pages).not.toBe(homeC.pages);
+    expect(homeB.pages[0]).not.toBe(homeC.pages[0]);
+    (homeB.pages as unknown[]).length = 0;
+    expect(homeC.pages.map((page) => page.id)).toEqual(['a', 'b']);
+    expect(homeB.pages.map((page) => page.id)).toEqual([]);
     expect(setup.snapshotSignals).toHaveLength(1);
     // The owner chain was folded once for the load, for every page in it.
     expect(setup.policyFolds).toEqual([['a', 'b']]);
