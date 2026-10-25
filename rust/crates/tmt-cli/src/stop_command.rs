@@ -203,6 +203,7 @@ fn stop(
                 )
             })? {
             PaneClose::Closed => Some(Pane::Closed),
+            PaneClose::AlreadyGone => Some(Pane::Gone),
             PaneClose::Kept(why) => return Err(kept(&identity.name, why)),
         }
     };

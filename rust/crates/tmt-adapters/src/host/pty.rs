@@ -31,6 +31,9 @@ use tmt_core::{
 pub(crate) const PANE_ENV: &str = "TMT_PTY_PANE";
 pub(crate) const SOCKET_ENV: &str = "TMT_PTY_SOCKET";
 const BUDGET: Duration = Duration::from_secs(3);
+/// How long closing a member waits for its supervisor to end after the program did.
+const CLOSE_WAIT: Duration = Duration::from_secs(3);
+const CLOSE_POLL: Duration = Duration::from_millis(50);
 
 fn error(reason: &'static str) -> HostError {
     HostError::Evidence {
@@ -459,6 +462,38 @@ pub(super) fn capture(socket: &str, pane: &str, lines: u32) -> Result<String, Ho
     Ok(all[all.len().saturating_sub(lines as usize)..].join("\n"))
 }
 
+/// Waits up to `wait` for the supervisor incarnation `pid`/`start` to be gone (or replaced by
+/// another process of that pid), which is what closing a built-in member means. It signals
+/// nothing; a program that still runs when the time is up is refused, not ended.
+fn wait_for_supervisor_end<R: CommandRunner>(
+    runner: &R,
+    pid: u64,
+    start: &str,
+    wait: Duration,
+) -> Result<(), ActionError> {
+    let deadline = Instant::now() + wait;
+    loop {
+        match runtime::observe_runtime_process(runner, pid, deadline)
+            .map_err(|e| ActionError::Evidence(HostError::Process(e)))?
+        {
+            runtime::ProcessObservation::Gone => return Ok(()),
+            runtime::ProcessObservation::Live(process)
+            | runtime::ProcessObservation::Stopped(process)
+                if process.start_identity() != start =>
+            {
+                return Ok(());
+            }
+            _ => {}
+        }
+        if Instant::now() + CLOSE_POLL >= deadline {
+            return Err(ActionError::Evidence(error(
+                "the member's program is still running; nothing was closed",
+            )));
+        }
+        std::thread::sleep(CLOSE_POLL);
+    }
+}
+
 impl<R: CommandRunner> HostDriver for PtyDriver<'_, R> {
     fn begin_coordination(&mut self) {
         self.deadline = Instant::now() + BUDGET;
@@ -573,7 +608,91 @@ impl<R: CommandRunner> HostDriver for PtyDriver<'_, R> {
     fn focus(&mut self, _: &Binding) -> Result<Focused, ActionError> {
         Err(ActionError::HostUnsupported)
     }
+    fn close_preflight(&self) -> Result<(), ActionError> {
+        Ok(())
+    }
+    /// A supervisor only starts through tmt's launcher, so every built-in member was opened by
+    /// tmt; the binding must still name a built-in supervisor and pane.
+    fn opened_by_tmt(&mut self, binding: &Binding) -> Result<Option<bool>, HostError> {
+        Ok(Some(
+            binding.server.host == HostKind::pty() && HostKind::pty().is_pane_id(&binding.pane_id),
+        ))
+    }
+    /// Closing a built-in member means its program has exited and its supervisor has ended and
+    /// removed its socket and lock. Nothing is signalled and no control is sent: the verified
+    /// stop already ended the agent, and a supervisor ends by itself with its program. This waits
+    /// a bounded time for that exact supervisor incarnation to be gone, and refuses while its
+    /// program still runs.
+    fn close_pane(&mut self, binding: &Binding) -> Result<(), ActionError> {
+        wait_for_supervisor_end(
+            self.runner,
+            binding.server.server_pid,
+            &binding.server.server_start_time,
+            CLOSE_WAIT,
+        )
+    }
     fn name_agent(&mut self, _: &Binding, _: &str) -> Result<AgentNaming, HostError> {
         Ok(AgentNaming::NotLinked)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::process::UnixCommandRunner;
+    use std::process::{Child, Command, Stdio};
+
+    fn spawn(script: &str) -> (Child, u64, String) {
+        let child = Command::new("/bin/sh")
+            .args(["-c", script])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = u64::from(child.id());
+        let start = runtime::observe_start(
+            &UnixCommandRunner,
+            pid,
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap()
+        .expect("a live child has a start identity");
+        (child, pid, start)
+    }
+
+    #[test]
+    fn a_supervisor_that_ends_within_the_bound_closes_the_member() {
+        let (mut child, pid, start) = spawn("sleep 0.3");
+        let reaper = std::thread::spawn(move || child.wait());
+        wait_for_supervisor_end(&UnixCommandRunner, pid, &start, Duration::from_secs(10))
+            .expect("the supervisor ended");
+        reaper.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn a_running_program_is_refused_after_the_bound_and_left_alone() {
+        let (mut child, pid, start) = spawn("sleep 30");
+        let started = Instant::now();
+        let refused =
+            wait_for_supervisor_end(&UnixCommandRunner, pid, &start, Duration::from_millis(400));
+        assert!(
+            matches!(refused, Err(ActionError::Evidence(_))),
+            "{refused:?}"
+        );
+        assert!(started.elapsed() >= Duration::from_millis(300));
+        // Nothing was signalled: it is still the same live process.
+        assert!(child.try_wait().unwrap().is_none());
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+
+    #[test]
+    fn another_incarnation_of_the_pid_counts_as_the_supervisor_having_ended() {
+        let (mut child, pid, _) = spawn("sleep 30");
+        wait_for_supervisor_end(&UnixCommandRunner, pid, "some other start", BUDGET)
+            .expect("a different start identity is a different process");
+        child.kill().unwrap();
+        child.wait().unwrap();
     }
 }
