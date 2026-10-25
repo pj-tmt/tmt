@@ -65,6 +65,7 @@ impl Plan {
             pane: self.pane.as_ref().map(|_| {
                 pane.map_or(recent_responses::Observation::Unavailable, |text| {
                     recent_responses::Observation::observed(vec![recent_responses::Item {
+                        response_id: None,
                         provider: "codex".into(),
                         text: text.into(),
                         ended_ms: crate::status::now_ms().saturating_sub(60_000),

@@ -12,6 +12,7 @@ const MAX_TEXT_BYTES: usize = 16_384;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct Item {
+    pub response_id: Option<String>,
     pub text: String,
     pub provider: String,
     pub ended_ms: u64,
@@ -137,6 +138,10 @@ fn parse(identity: &str, value: &Value) -> Option<Page> {
             return None;
         }
         items.push(Item {
+            response_id: match value.get("responseId") {
+                None => None,
+                Some(value) => Some(value.as_str()?.to_owned()),
+            },
             text: text.into(),
             provider: provider.into(),
             ended_ms: value["endedMs"].as_u64()?,

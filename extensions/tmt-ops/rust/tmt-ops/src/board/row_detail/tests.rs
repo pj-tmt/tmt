@@ -1097,7 +1097,7 @@ fn captured_history_app(state: &str) -> App {
     );
     sent["mode"] = json!("passthrough");
     sent["passthrough"] = json!({"state":state,"boundAtMs":now - 86_400_000,
-        "answer":{"text":"The scheduler is **ready**.","truncated":true,"provider":"codex","endedMs":now}});
+        "answer":{"responseId":"rsp_scheduler","text":"The scheduler is **ready**.","truncated":true,"provider":"codex","endedMs":now}});
     app.apply_sent(key, Ok(vec![sent]));
     app
 }
@@ -1154,7 +1154,7 @@ fn a_failed_capture_refresh_keeps_the_acquired_answer_without_retrying_in_a_loop
 }
 
 #[test]
-fn only_the_exact_captured_observation_is_suppressed_from_recent_output() {
+fn only_the_linked_captured_observation_is_suppressed_from_recent_output() {
     use crate::board::recent_responses::{Item, Observation};
     let now = 1_791_600_000_160;
     crate::status::with_now_ms(now, || {
@@ -1165,6 +1165,7 @@ fn only_the_exact_captured_observation_is_suppressed_from_recent_output() {
             key,
             Observation::observed(vec![
                 Item {
+                    response_id: Some("rsp_scheduler".into()),
                     text: "The scheduler is **ready**.".into(),
                     provider: "codex".into(),
                     ended_ms: now,
@@ -1173,6 +1174,7 @@ fn only_the_exact_captured_observation_is_suppressed_from_recent_output() {
                     session: None,
                 },
                 Item {
+                    response_id: None,
                     text: "Unrelated final remains visible".into(),
                     provider: "codex".into(),
                     ended_ms: now + 1,
@@ -1208,4 +1210,22 @@ fn malformed_or_oversized_capture_never_invents_an_answer() {
             .is_none()
         );
     }
+}
+
+#[test]
+fn capture_preserves_only_the_public_response_link() {
+    let mut send = json!({"mode":"passthrough", "passthrough":{
+        "state":"answered", "answer":{"responseId":"opaque-response", "text":"body",
+        "truncated":false,"provider":"claude","endedMs":100}}});
+    assert_eq!(
+        Capture::read(&send).unwrap().response_id(),
+        Some("opaque-response")
+    );
+    send["passthrough"]["answer"]
+        .as_object_mut()
+        .unwrap()
+        .remove("responseId");
+    assert_eq!(Capture::read(&send).unwrap().response_id(), None);
+    send["passthrough"]["answer"]["responseId"] = Value::Null;
+    assert!(Capture::read(&send).is_none());
 }

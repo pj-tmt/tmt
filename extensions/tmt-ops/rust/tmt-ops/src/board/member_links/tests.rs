@@ -1118,6 +1118,7 @@ mod named_surface_tests {
                 key,
                 crate::board::recent_responses::Observation::observed(vec![
                     crate::board::recent_responses::Item {
+                        response_id: None,
                         provider: "codex".into(),
                         text: "Pane output mentions night-2 without request authority".into(),
                         ended_ms: crate::status::now_ms(),
