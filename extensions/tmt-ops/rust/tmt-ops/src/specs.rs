@@ -57,6 +57,19 @@ pub const CHECKLIST_EVENTS: &CommandSpec = spec!(
      "Continue after the last event seen" => "tmt ops squad checklist events --room 44444444-4444-4444-8444-444444444444 --after 12"]
 );
 
+pub const CHECKLIST_ADD: &CommandSpec = spec!(
+    "add", "Add an item to your own conversation checklist",
+    details = "Acts as the calling agent on its own list; the room comes from your squad (--room when you are on several). Prints the item as #Title (short id).",
+    ["Add an item" => "tmt ops squad checklist add 'Rerun P02 on the final head'",
+     "Add with a link" => "tmt ops squad checklist add 'Read the design' --reference https://example.org/design"]
+);
+
+pub const CHECKLIST_DONE: &CommandSpec = spec!(
+    "done", "Mark an item of your own conversation checklist done",
+    details = "ITEM is the short id from #Title (3f2a), another unique UUID prefix of at least 4 hex characters, or the full UUID. Complete only items you own or were asked to; never another person's.",
+    ["Complete an item" => "tmt ops squad checklist done 3f2a"]
+);
+
 pub const CHECKLIST_SHOW: &CommandSpec = spec!(
     "show", "Show one exact checklist item",
     ["Inspect one item" => "tmt ops squad checklist show --room 44444444-4444-4444-8444-444444444444 --checklist 55555555-5555-4555-8555-555555555555 --item 66666666-6666-4666-8666-666666666666"]
