@@ -645,6 +645,38 @@ test('every frame carries the design system in its own layer, below the starter 
   expect(dark).not.toBe(light.card.fill);
 });
 
+/** WCAG's contrast ratio of the ink of each element of a frame on the paper its body paints, with the
+ * root's attributes the design system reads. */
+const inkOnPaper = (page: Page, id: string) =>
+  page
+    .frameLocator(`#${id}`)
+    .locator('html')
+    .evaluate((html) => {
+      const doc = html.ownerDocument;
+      const rgb = (value: string) => (value.match(/[\d.]+/g) ?? []).map(Number);
+      const luminance = ([r, g, b]: number[]) => {
+        const channel = (v: number) =>
+          (v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+        return 0.2126 * channel(r!) + 0.7152 * channel(g!) + 0.0722 * channel(b!);
+      };
+      const paper = getComputedStyle(doc.body).backgroundColor;
+      const contrast = (ink: string) => {
+        const [a, b] = [luminance(rgb(ink)), luminance(rgb(paper))].sort((x, y) => y - x);
+        return (a! + 0.05) / (b! + 0.05);
+      };
+      return {
+        paper,
+        design: html.hasAttribute('data-colab-design'),
+        scheme: html.getAttribute('data-colab-scheme'),
+        canvas: getComputedStyle(html).backgroundColor,
+        ink: getComputedStyle(doc.body).color,
+        ratios: ['plain', 'link', 'table', 'field', 'disclosure']
+          .map((name) => doc.getElementById(name))
+          .filter((element) => element !== null)
+          .map((element) => contrast(getComputedStyle(element).color)),
+      };
+    });
+
 test('a page that uses the design system gets the paper and ink of the viewer theme; any other page keeps the white canvas', async ({
   page,
 }) => {
@@ -654,41 +686,12 @@ test('a page that uses the design system gets the paper and ink of the viewer th
     <label class="tmt-ui-field" id="field"><span class="tmt-ui-field-label">Label</span></label>
     <details class="tmt-ui-disclosure" id="disclosure"><summary>More</summary>Body</details>`;
   const bare = `<p id="plain">Plain text <a id="link" href="#">link</a></p>`;
-  // WCAG's contrast ratio of the ink of each element on the paper the body paints.
-  const measure = (id: string) =>
-    page
-      .frameLocator(`#${id}`)
-      .locator('html')
-      .evaluate((html) => {
-        const doc = html.ownerDocument;
-        const rgb = (value: string) => (value.match(/[\d.]+/g) ?? []).map(Number);
-        const luminance = ([r, g, b]: number[]) => {
-          const channel = (v: number) =>
-            (v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-          return 0.2126 * channel(r!) + 0.7152 * channel(g!) + 0.0722 * channel(b!);
-        };
-        const paper = getComputedStyle(doc.body).backgroundColor;
-        const contrast = (ink: string) => {
-          const [a, b] = [luminance(rgb(ink)), luminance(rgb(paper))].sort((x, y) => y - x);
-          return (a! + 0.05) / (b! + 0.05);
-        };
-        return {
-          paper,
-          design: html.hasAttribute('data-colab-design'),
-          canvas: getComputedStyle(html).backgroundColor,
-          ink: getComputedStyle(doc.body).color,
-          ratios: ['plain', 'link', 'table', 'field', 'disclosure']
-            .map((name) => doc.getElementById(name))
-            .filter((element) => element !== null)
-            .map((element) => contrast(getComputedStyle(element).color)),
-        };
-      });
   // A page with none of the markers is untouched: no paint on the body or the root, in both themes.
   for (const theme of ['light', 'dark'] as const) {
     const id = `target-bare-${theme}`;
     await bindFrame(page, id, { theme, source: bare });
     await expect(page.frameLocator(`#${id}`).locator('#plain')).toBeVisible();
-    expect(await measure(id)).toMatchObject({
+    expect(await inkOnPaper(page, id)).toMatchObject({
       design: false,
       paper: 'rgba(0, 0, 0, 0)',
       canvas: 'rgba(0, 0, 0, 0)',
@@ -707,7 +710,7 @@ test('a page that uses the design system gets the paper and ink of the viewer th
       const id = `target-pair-${kind}-${theme}`;
       await bindFrame(page, id, { theme, source });
       await expect(page.frameLocator(`#${id}`).locator('#plain, tmt-icon').first()).toBeAttached();
-      const found = await measure(id);
+      const found = await inkOnPaper(page, id);
       expect(found.design).toBe(true);
       // Ink on paper in either theme, for the text, the link and the components with no fill of their own.
       expect(found.ratios.length).toBeGreaterThan(0);
@@ -740,6 +743,43 @@ test('a page that uses the design system gets the paper and ink of the viewer th
     await expect(body).toHaveCSS('background-color', paper);
     await expect(body).toHaveCSS('color', ink);
   }
+});
+
+test("a design-system page the author paints takes the scheme it paints, not the viewer's; an unpainted one follows the viewer", async ({
+  page,
+}) => {
+  await page.goto('/');
+  const content = `<p id="plain">Plain text <a id="link" href="#">link</a></p>
+    <table class="tmt-ui-table" id="table"><tbody><tr><td>Build</td></tr></tbody></table>
+    <label class="tmt-ui-field" id="field"><span class="tmt-ui-field-label">Label</span></label>
+    <details class="tmt-ui-disclosure" id="disclosure"><summary>More</summary>Body</details>`;
+  const light = '<style>body{background:#fffdf7;color:#2b2b2b}a{color:#0a5c3a}</style>';
+  const dark = '<style>body{background:#111418;color:#eef2f4}a{color:#7be0b8}</style>';
+  const cases = [
+    ['own-light-body-in-dark', 'dark', `${light}${content}`, 'light'],
+    ['own-dark-body-in-light', 'light', `${dark}${content}`, 'dark'],
+    ['unpainted-in-dark', 'dark', content, 'dark'],
+    ['unpainted-in-light', 'light', content, 'light'],
+  ] as const;
+  for (const [name, theme, source, scheme] of cases) {
+    const id = `target-scheme-${name}`;
+    await bindFrame(page, id, { theme, source });
+    // The frame measures the page's canvas once it has painted, then the components follow what it paints.
+    await expect(page.frameLocator(`#${id}`).locator('html')).toHaveAttribute(
+      'data-colab-scheme',
+      scheme,
+    );
+    const found = await inkOnPaper(page, id);
+    expect(found.ratios.length).toBe(5);
+    for (const ratio of found.ratios) expect(ratio, name).toBeGreaterThanOrEqual(4.5);
+  }
+  // A page without the markers is not the design system's to scheme.
+  await bindFrame(page, 'target-scheme-bare', { theme: 'dark', source: '<p id="plain">Bare</p>' });
+  await expect(page.frameLocator('#target-scheme-bare').locator('#plain')).toBeVisible();
+  expect(await inkOnPaper(page, 'target-scheme-bare')).toMatchObject({
+    design: false,
+    scheme: null,
+  });
 });
 
 test('<tmt-icon> draws a bounded Lucide icon with the Colab defaults, and an unknown name draws nothing', async ({

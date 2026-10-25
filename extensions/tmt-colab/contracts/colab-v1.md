@@ -2576,8 +2576,12 @@ takes `--tmt-ui-surface-paper` and `--tmt-ui-color-text` and a link takes `--tmt
 the tokens of the frame's `data-theme`, so components with no fill of their own (a table, a field) keep
 their ink on their paper in either theme. The rule is on `body`, not `html`, so an author's `body`
 background still fills the canvas, and the starter's layer and an author's CSS both win; an author who
-paints only one of paper and ink paints the other. Any other page keeps the white canvas in both
-themes (#2267, #4081).
+paints only one of paper and ink paints the other. The same pages take the scheme they paint, not the
+viewer's: the frame's paint measurement (the one behind the parent's card scheme, #4081) also writes
+`data-colab-scheme` (`light` or `dark`) on the root, and the design tokens and the frame's annotation
+roles follow it, so a page that paints its own light body under a dark viewer gets light components on it;
+a page that paints nothing is painted by the frame and measures as the viewer's scheme. Any other page
+keeps the white canvas in both themes (#2267, #4081).
 The same bootstrap defines the `tmt-icon` element: `name` names one of the Lucide icons the page
 runtime lists (lowercase kebab-case), drawn as inline SVG at 16 px with stroke 1.75 and square caps,
 decorative unless `label` is set; a name it does not have draws nothing. No network, script authority or

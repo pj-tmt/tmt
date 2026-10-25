@@ -33,7 +33,9 @@ const numberStyle = await readFile(
   new URL('../typescript/app/src/annotation-number.css', import.meta.url),
   'utf8',
 );
-const css = `:root{${variables('light')}}:root[data-theme="dark"]{${variables('dark')}}${numberStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim()}`;
+// A page the design system paints takes the scheme it paints for these roles too (see data-colab-scheme
+// below); these rules are unlayered, so they must name it as well as the viewer's theme.
+const css = `:root{${variables('light')}}:root[data-theme="dark"]{${variables('dark')}}:root[data-colab-scheme="light"]{${variables('light')}}:root[data-colab-scheme="dark"]{${variables('dark')}}${numberStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim()}`;
 const frameStyle = (
   await readFile(new URL('../typescript/app/src/page-frame.css', import.meta.url), 'utf8')
 )
@@ -64,11 +66,21 @@ const baseCss = await readFile(
   new URL('../typescript/app/src/page-base.css', import.meta.url),
   'utf8',
 );
+// The tokens follow the viewer's `data-theme`; they also follow `data-colab-scheme`, the scheme the page
+// itself paints, which the frame measures from the page's canvas colour. A page that paints its own light
+// body under a dark viewer then gets light-theme components on it. Each theme block names both selectors,
+// and the second has the higher specificity, so the painted scheme wins over the viewer's.
+const schemed = ['light', 'dark'].reduce((css, name) => {
+  const block = `[data-theme='${name}'] {`;
+  if (css.split(block).length !== 2)
+    throw new Error(`static.css must hold exactly one ${block} token block`);
+  return css.replace(block, `[data-theme='${name}'],\n:root[data-colab-scheme='${name}'] {`);
+}, staticCss);
 // Quoted strings must survive the compaction untouched.
 const quoted = (css) => css.match(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g) ?? [];
-if (quoted(compactCss(staticCss)).join('\n') !== quoted(staticCss).join('\n'))
+if (quoted(compactCss(schemed)).join('\n') !== quoted(schemed).join('\n'))
   throw new Error('Compacting static.css would change a quoted string');
-const pageUiStyle = `@layer colab-frame,tmt-starter,tmt-ui;${compactCss(baseCss)}@layer tmt-ui{${compactCss(staticCss)}${compactCss(hostCss)}}`
+const pageUiStyle = `@layer colab-frame,tmt-starter,tmt-ui;${compactCss(baseCss)}@layer tmt-ui{${compactCss(schemed)}${compactCss(hostCss)}}`
   // Double quotes keep the formatter from rewriting the single-quoted literal that holds it.
   .replaceAll("'", '"');
 if (pageUiStyle.length > PAGE_UI_LIMIT)

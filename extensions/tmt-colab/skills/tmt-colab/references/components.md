@@ -10,9 +10,9 @@ Every page frame carries the product's own component classes (`tmt-ui-*`), the d
 `tmt-icon` element: nothing to import, no network. The markup below is the whole promise; the frame
 holds other `tmt-ui-*` classes that are not documented and may change. Your own CSS wins over these
 classes, and a page that uses them and sets no `body` background or text colour is painted with the
-viewer theme's paper and ink (a link takes the accent); set both or neither. The classes' colours follow
-the viewer's theme too, so give a page that uses them the starter's theme-following paper and ink, not a
-fixed light or dark one. `tmt colab page check` reports a `tmt-ui-*` class or an icon name the frame
+viewer theme's paper and ink (a link takes the accent); set both or neither. The classes' colours
+follow the scheme the page paints: a page you paint light stays light under a dark viewer, and an
+unpainted one follows the viewer. `tmt colab page check` reports a `tmt-ui-*` class or an icon name the frame
 does not have (`unknown-ui-class`, `unknown-icon`). Tabs, menus and other parts that need a script are
 not in the subset.
 

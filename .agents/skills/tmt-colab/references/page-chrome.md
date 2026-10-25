@@ -238,8 +238,9 @@ using only the documented subset in `components.md` looks like the product's com
 (`colab-frame`) also paints a page that uses the design system (its source contains `tmt-ui-`,
 `<tmt-icon` or `tmt-starter`; the bootstrap writes `data-colab-design` on the root) with the paper, ink and
 link accent tokens of the viewer theme (`src/page-base.css`), on `body`, so components with no fill of
-their own stay readable in dark; the starter and any author CSS win over it. Any other page keeps the white
-canvas in both themes.
+their own stay readable in dark; the starter and any author CSS win over it. The frame's paint measurement
+also writes `data-colab-scheme` on that root, and the design tokens follow it, so components take the scheme
+the page paints, not the viewer's. Any other page keeps the white canvas in both themes.
 
 **Page frame (#3913).** `mountRenderer({ layout })` adds an optional `layout` to the bind; only
 `column` and `full` make the bootstrap set `data-colab-layout` and the generated `src/page-frame.css`
