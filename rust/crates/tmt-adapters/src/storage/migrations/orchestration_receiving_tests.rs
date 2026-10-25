@@ -7,7 +7,7 @@ fn orchestration_receiving_migration_preserves_checklists_and_missing_input() {
     let d = TestDirectory::new();
     let path = d.path.join("predecessor.db");
     let mut old = Connection::open(&path).unwrap();
-    apply_through(&mut old, 76).unwrap();
+    apply_through(&mut old, 77).unwrap();
     old.execute_batch("INSERT INTO identities(id,name,canonical_name,created_at,updated_at,lifetime) VALUES('member','Member','member','t','t','saved');
         INSERT INTO focus_checklists(id,identity_id,attempt_token,through_sequence,state,created_at_ms)
         VALUES('legacy-claim','member','legacy-token',3,'delivered',1000);").unwrap();
