@@ -170,30 +170,95 @@ it('lists live agents first, then by name, with provider and word', () => {
   ]);
 });
 
-it('links an installed module to the settings page the composed shell describes', () => {
-  const answer: ShellAnswer = {
-    version: 1,
-    modules: [
-      {
-        extension: 'colab',
-        rail: { label: 'Colab', icon: 'colab', path: '/colab/', order: 1 },
-        menu: [],
-        settings: [{ id: 'settings', label: 'Colab settings', path: '/colab/settings' }],
-      },
-    ],
-  };
-  expect(settingsRows('modules', sample, moduleLinks(answer))).toEqual([
+const colabAnswer: ShellAnswer = {
+  version: 1,
+  modules: [
     {
-      mark: '●',
-      title: 'Colab',
-      href: '/colab/settings',
-      detail: '0.1.0 · alpha',
-      state: 'installed',
+      extension: 'colab',
+      rail: { label: 'Colab', icon: 'colab', path: '/colab/', order: 1 },
+      menu: [],
+      settings: [{ id: 'settings', label: 'Colab settings', path: '/colab/settings' }],
     },
-    { mark: '○', title: 'Office', detail: 'Not installed', state: '' },
+  ],
+};
+const records = () => section().all((node) => node.className === 'tmt-settings-record');
+const recordText = (record: Node) => record.all((node) => node.tag === 'strong')[0]!.textContent;
+
+it('maps each described module to its rail label and first settings page', () => {
+  expect(moduleLinks(colabAnswer).get('colab')).toEqual({
+    label: 'Colab',
+    href: '/colab/settings',
+  });
+  expect(moduleLinks(undefined).size).toBe(0);
+});
+
+it('lists modules as records and links an installed one to the page the shell describes', async () => {
+  hash = '#modules';
+  tmtSettingsPage(shell(), { read: async () => sample });
+  await settle();
+  expect(title.textContent).toBe('Modules');
+  expect(records().map(recordText)).toEqual(['Colab', 'Office']);
+  const [colab, office] = records();
+  // Product copy for a module the product ships; another name has none.
+  expect(colab!.textContent).toContain('Shared pages and agent collaboration.');
+  expect(colab!.textContent).toContain('Installed');
+  expect(colab!.textContent).toContain('alpha · 0.1.0');
+  expect(office!.textContent).toContain('Not installed');
+  expect(office!.textContent).not.toContain('Installed');
+  // Until the shell describes the module there is no action, and never a guessed link.
+  expect(section().all((node) => node.tag === 'a')).toEqual([]);
+  described!(colabAnswer);
+  const links = section().all((node) => node.tag === 'a');
+  expect(links.map((link) => [link.textContent, link.href])).toEqual([
+    ['Settings', '/colab/settings'],
   ]);
-  // Without a description the rows still list, unlinked.
-  expect(settingsRows('modules', sample)[0]).not.toHaveProperty('href');
+  // An uninstalled module has no action even when the shell describes it.
+  expect(records()[1]!.all((node) => node.tag === 'a')).toEqual([]);
+});
+
+it('shows a version that names its channel once', async () => {
+  hash = '#modules';
+  const read: TmtSettings = {
+    ...sample,
+    modules: {
+      rows: [{ name: 'ops', installed: true, version: '0.1.0-alpha.158', channel: 'alpha' }],
+    },
+  };
+  tmtSettingsPage(shell(), { read: async () => read });
+  await settle();
+  expect(records()[0]!.textContent).toContain('0.1.0-alpha.158');
+  expect(records()[0]!.textContent).not.toContain('alpha · ');
+});
+
+it('shows only the notice and the command when the browser has no module read', async () => {
+  hash = '#modules';
+  const none: TmtSettings = {
+    ...sample,
+    modules: { rows: [], unavailable: 'TMT settings is not in the browser yet.' },
+  };
+  tmtSettingsPage(shell(), { read: async () => none });
+  await settle();
+  expect(records()).toEqual([]);
+  expect(section().textContent).toContain('Module inventory is not available to this browser yet.');
+  const copy = section().all(
+    (node) => node.attributes.get('aria-label') === 'Copy tmt extension ls',
+  );
+  expect(copy).toHaveLength(1);
+  // No value is shown that the source did not read.
+  expect(section().textContent).not.toContain('0.1.0');
+});
+
+it('labels sample module records as sample data, and a real read as read only', async () => {
+  hash = '#modules';
+  tmtSettingsPage(shell(), { read: async () => ({ ...sample, sample: true }) });
+  await settle();
+  expect(section().textContent).toContain('Sample installed modules');
+  expect(section().textContent).toContain('These sample records are not this machine.');
+  expect(note().hidden).toBe(true);
+  tmtSettingsPage(shell(), { read: async () => sample });
+  await settle();
+  expect(section().textContent).toContain('Installed modules');
+  expect(section().textContent).toContain('Read-only module records');
 });
 
 it('marks a driver that no longer runs as approved, and shows hooks beside drivers', () => {
@@ -281,7 +346,7 @@ it('offers the four sections as the module menu and follows the hash', async () 
     ],
   });
   const link = section().all((node) => node.tag === 'a')[0]!;
-  expect([link.textContent, link.href]).toEqual(['Colab', '/colab/settings']);
+  expect([link.textContent, link.href]).toEqual(['Settings', '/colab/settings']);
 });
 
 it('says why a section is empty, and marks sample data', async () => {

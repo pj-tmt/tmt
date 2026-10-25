@@ -2,6 +2,7 @@
  * guidance; Identities has a read-only table and local detail. Other sections retain their list
  * rows. SettingsSource owns the records; only the shared browser theme choice is persisted. */
 import { identitiesView, orderedIdentities } from './tmt-settings-identities.js';
+import { modulesView } from './tmt-settings-modules.js';
 import {
   element,
   settingsCard,
@@ -62,13 +63,10 @@ export function moduleLinks(answer: ShellAnswer | undefined): Map<string, Module
   return links;
 }
 
-const capitalize = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
-
 /** The section's rows; identities show live agents first, then by name. */
 export function settingsRows(
-  section: Section,
+  section: Exclude<Section, 'modules'>,
   settings: TmtSettings,
-  links: ReadonlyMap<string, ModuleLink> = new Map(),
 ): SettingsRow[] {
   if (section === 'general')
     return settings.general.rows.map((row) => ({
@@ -84,19 +82,6 @@ export function settingsRows(
       detail: row.provider ? `${row.lifetime} · ${row.provider}` : row.lifetime,
       state: row.online ? 'active' : 'offline',
     }));
-  if (section === 'modules')
-    return settings.modules.rows.map((row) => {
-      const link = links.get(row.name);
-      return {
-        mark: row.installed ? '●' : '○',
-        title: link?.label ?? capitalize(row.name),
-        ...(row.installed && link?.href ? { href: link.href } : {}),
-        detail: row.installed
-          ? [row.version, row.channel].filter(Boolean).join(' · ')
-          : 'Not installed',
-        state: row.installed ? 'installed' : '',
-      };
-    });
   return [
     ...settings.drivers.rows.map((row) => ({
       mark: row.state === 'ok' ? '●' : '◆',
@@ -115,17 +100,14 @@ export function settingsRows(
 }
 
 /** Why a section has nothing to list: the source could not read it, or there is none. */
-function emptyText(section: Section, settings: TmtSettings): string {
+function emptyText(section: Exclude<Section, 'modules'>, settings: TmtSettings): string {
   const parts: Part<unknown>[] =
-    section === 'drivers'
-      ? [settings.drivers, settings.hooks]
-      : [settings[section as Exclude<Section, 'drivers'>]];
+    section === 'drivers' ? [settings.drivers, settings.hooks] : [settings[section]];
   const unavailable = parts.map((part) => part.unavailable).find(Boolean);
   if (unavailable) return unavailable;
   return {
     general: 'No settings to show.',
     identities: 'No identities yet.',
-    modules: 'No modules.',
     drivers: 'No drivers or agent hooks are set up.',
   }[section];
 }
@@ -324,7 +306,8 @@ export function settingsSection(
 ): HTMLElement[] {
   if (section === 'general') return generalView(settings);
   if (section === 'identities') return identitiesView(settings);
-  const rows = settingsRows(section, settings, links);
+  if (section === 'modules') return modulesView(settings, links ?? new Map());
+  const rows = settingsRows(section, settings);
   const body: HTMLElement[] = [];
   if (rows.length) {
     const list = document.createElement('ul');
@@ -358,7 +341,7 @@ export function tmtSettingsPage(shell: RemoteShell, source: SettingsSource = set
     const section = current();
     if (settings) {
       note.replaceChildren();
-      note.hidden = !settings.sample || section === 'identities';
+      note.hidden = !settings.sample || section === 'identities' || section === 'modules';
       if (!note.hidden)
         notAvailable(
           note,
@@ -368,7 +351,7 @@ export function tmtSettingsPage(shell: RemoteShell, source: SettingsSource = set
     const page = document.getElementById('tmt-settings-page');
     if (page) {
       page.dataset.section = section;
-      page.className = `tmt-page tmt-settings${section === 'general' || section === 'identities' ? ' tmt-ui-page' : ''}`;
+      page.className = `tmt-page tmt-settings${section === 'general' || section === 'identities' || section === 'modules' ? ' tmt-ui-page' : ''}`;
     }
     shell.setMenu({
       title: 'TMT settings',
