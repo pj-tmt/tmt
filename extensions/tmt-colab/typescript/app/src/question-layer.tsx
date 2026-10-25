@@ -30,6 +30,7 @@ export function useQuestionLayer({
   view,
   renderer,
   state,
+  contentRevision,
   slots,
   blocked,
   connectionPresentation,
@@ -50,6 +51,8 @@ export function useQuestionLayer({
   view: PageView;
   renderer: RefObject<Awaited<ReturnType<typeof mountRenderer>> | null>;
   state: RenderState | 'loading';
+  /** Counts sources the open frame applied in place (#5022); each one sends the blocks again. */
+  contentRevision: number;
   slots: readonly AnchorPosition[];
   blocked: boolean;
   connectionPresentation?: ComposerConnectionPresentation;
@@ -122,7 +125,16 @@ export function useQuestionLayer({
       JSON.parse(renderedReviews),
       JSON.parse(renderedReadings),
     );
-  }, [state, questions, renderedGroups, renderedReviews, renderedReadings, identity, renderer]);
+  }, [
+    state,
+    contentRevision,
+    questions,
+    renderedGroups,
+    renderedReviews,
+    renderedReadings,
+    identity,
+    renderer,
+  ]);
   const notificationThreads = useMemo(
     () =>
       !questions.length

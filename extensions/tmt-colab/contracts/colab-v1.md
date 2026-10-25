@@ -2431,12 +2431,41 @@ binding changes clear display copies and suppress late replies. The Local object
 this path; Firebase MVP has no blob resource and displays the not-here placeholder. `data:` is
 reserved in author guidance for tiny icons, not a workaround for the 2 MiB HTML cap.
 
-On a content change, debounce about 300 ms and replace the frame with a fresh
-renderId/port, tearing down the old ones. A viewer may pause live updates. Bind
+On a content change, debounce about 300 ms. A viewer may pause live updates. Bind
 each renderId to SHA256 of the exact captured source UTF-8 bytes; a Yjs state
 vector is only sync metadata and MUST NOT identify the rendered bytes alone.
-Interactive JavaScript state is lost on each replacement. Paused preview and
-Send retain the captured source/quote/final bytes.
+Paused preview and Send retain the captured source/quote/final bytes.
+
+**In-place source updates (#5022).** The frame is replaced with a fresh
+renderId/port, tearing down the old ones, whenever its frame key changes: the
+page, its `layout`, its page type, or the source's own part of the key. A source
+whose text could hold a `<script>` element, an inline `on*` handler attribute or
+the runtime marker is keyed by its whole text, so every change to it replaces the
+frame and its interactive JavaScript state is lost, as before; any other source is
+keyed only by the design-system match that bind fixes. Every other change is sent
+over the render's MessagePort (never `window.postMessage`) as exactly
+`{type:"colab.render.source", requestId, sourceDigest, source}`: a UUID request,
+the SHA256 of the source bytes and the source, at most 2 MiB UTF-8 as at bind. A
+newer request supersedes an older one; the parent waits for the newest only. The
+renderer parses the source inertly in the bind shape (`<body>` holds it, so author
+`<style>` and `<link>` change with it; the renderer's own head never does), and
+recomputes its own key from that parse: any `script` element, `on*` attribute or
+runtime marker, a different root attribute or a different design-system match
+answers exactly `{type:"colab.render.source-applied", requestId, ok:false,
+reason:"remount"}`. Otherwise it changes its body in place to the new source,
+matching elements by `id` and then by kind and position. It keeps what it added
+itself (its nodes, `data-colab-*` attributes, the `hidden` it puts on question
+choices, drawn `tmt-icon` children) and what the reader changed (`open`, `value`,
+`checked`, `selected` and the matching live state stay until the source changes
+that attribute; kept elements keep their scroll). It then draws the page images
+again from the current image request, resolves anchors, questions and slots and
+reports height and scheme, and answers exactly
+`{type:"colab.render.source-applied", requestId, ok:true}`. The renderId stays
+the binding identity; the parent tracks the shown `sourceDigest` separately. A
+refusal, no answer within 2 seconds, or a port error replaces the frame, so an
+update is never worse than a replacement. The answer is an untrusted frame claim:
+a forged success can leave at most stale content until the next update. No
+capability, CSP allowance or source path is added.
 
 After the bootstrap document loads, the parent sends exactly one source-init
 message containing `type:"colab.render.bind"`, `renderId`, `sourceDigest`,

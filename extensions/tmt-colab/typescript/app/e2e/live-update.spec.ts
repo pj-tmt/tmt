@@ -7,8 +7,10 @@ import { annotationInput } from '../acceptance/harness/ask.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 const captureDir = process.env.COLAB_UPDATE_CAPTURE_DIR ?? '/tmp/colab-live-update-captures';
+// The script keeps every revision of this page a fresh frame (#5022): these cases are about what
+// the parent keeps while a replacement frame loads.
 const source = `<style>body{margin:0;padding:24px;font:18px/1.5 sans-serif}.before{height:1400px}.after{height:1800px}</style>
-<div class="before"></div><p id="selected">Exact selected text</p><div class="after"></div>`;
+<div class="before"></div><p id="selected">Exact selected text</p><div class="after"></div><script></script>`;
 const revised = source.replace('Exact selected text', 'New source without the captured quote');
 
 async function run(page: Page, method: string, argument?: string) {

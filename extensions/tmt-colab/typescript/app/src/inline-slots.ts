@@ -11,12 +11,15 @@ export function useInlineSlots({
   renderer,
   host,
   state,
+  contentRevision,
   source,
   identity,
 }: {
   renderer: RefObject<Awaited<ReturnType<typeof mountRenderer>> | null>;
   host: RefObject<HTMLDivElement | null>;
   state: RenderState | 'loading';
+  /** Counts sources the open frame applied in place (#5022): each one measures again. */
+  contentRevision: number;
   source: string;
   identity: string;
 }) {
@@ -105,6 +108,6 @@ export function useInlineSlots({
       observer.disconnect();
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
-  }, [state, source, identity]);
+  }, [state, contentRevision, source, identity]);
   return { positions, onSlots, readingIds };
 }

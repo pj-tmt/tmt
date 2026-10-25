@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import { mountRenderer } from './renderer.js';
+import { mountRenderer, sourceFrameKey } from './renderer.js';
 import type { PageScheme, RenderState, SelectionRect } from './renderer.js';
 import type { QuoteSelector } from './thread-records.js';
 import { toolbarInset } from './toolbar-inset.js';
@@ -30,11 +30,13 @@ export interface RendererLayers {
 }
 
 /**
- * The page's frame: mounts the renderer for the page source and layout, tears it down and mounts
- * it again when they change or the connection ends, and owns what the frame reports back (the page
+ * The page's frame: mounts the renderer for the page and layout, tears it down and mounts it again
+ * when its frame key changes or the connection ends, and owns what the frame reports back (the page
  * scheme, which anchors resolved, whether they were checked) and the one-time reveal of the anchor
- * a shell item opened the page at. The page owns `host`, `renderer` and `state`, because its layers
- * read them too.
+ * a shell item opened the page at. Any other source change is applied to the open frame (#5022):
+ * on success `onContentApplied` runs, so the layers place their overlays again without a loading
+ * state; when the frame refuses, does not answer or fails, the page mounts afresh as before. The
+ * page owns `host`, `renderer` and `state`, because its layers read them too.
  */
 export function usePageRenderer({
   snapshot,
@@ -49,6 +51,7 @@ export function usePageRenderer({
   handlers,
   resetPageLinks,
   requestPageLink,
+  onContentApplied,
 }: {
   snapshot: PageSnapshot;
   view: PageView;
@@ -63,6 +66,8 @@ export function usePageRenderer({
   handlers: RendererHandlers;
   resetPageLinks(): void;
   requestPageLink: RendererOptions['onLink'];
+  /** The open frame now shows a new source, applied in place. */
+  onContentApplied(): void;
 }) {
   const [resolved, setResolved] = useState<string[]>([]);
   const [anchorsChecked, setAnchorsChecked] = useState(false);
@@ -74,6 +79,17 @@ export function usePageRenderer({
   const [rendererMounts, setRendererMounts] = useState(0);
   const current = useRef(handlers);
   current.current = handlers;
+  // The frame is mounted again only when its key changes (#5022): the page, its layout and type,
+  // and the part the source decides (whether it may hold scripts, whether it uses the design
+  // system). `remounts` counts the in-place updates that fell back to a fresh frame.
+  const frameKey = sourceFrameKey(view.source);
+  const [remounts, setRemounts] = useState(0);
+  const latestSource = useRef(view.source);
+  latestSource.current = view.source;
+  // The source the open frame shows, or is being mounted or updated with.
+  const frameSource = useRef<string | undefined>(undefined);
+  const contentApplied = useRef(onContentApplied);
+  contentApplied.current = onContentApplied;
 
   const imageBinding = snapshot.binding?.files?.attachments;
   const imageScope = imageBinding?.scope?.();
@@ -123,7 +139,8 @@ export function usePageRenderer({
     setResolved([]);
     setAnchorsChecked(false);
     setPageScheme(undefined);
-    void mountRenderer(host.current!, view.source, {
+    frameSource.current = latestSource.current;
+    void mountRenderer(host.current!, latestSource.current, {
       signal: controller.signal,
       layout: view.layout,
       onState: (next) => {
@@ -168,10 +185,12 @@ export function usePageRenderer({
       resetPageLinks();
       controller.abort();
       renderer.current = null;
+      frameSource.current = undefined;
     };
   }, [
     snapshot.id,
-    view.source,
+    frameKey,
+    remounts,
     view.layout,
     view.pageType,
     endedError,
@@ -185,6 +204,25 @@ export function usePageRenderer({
     resetPageLinks,
     requestPageLink,
   ]);
+
+  // Declared after the mount effect, so in a commit that also remounts, the frame being mounted
+  // already holds this source and nothing is sent.
+  useEffect(() => {
+    const source = view.source;
+    if (frameSource.current === undefined || frameSource.current === source) return;
+    const handle = renderer.current;
+    frameSource.current = source;
+    // A frame still being created was given an older source: mount it again with this one.
+    if (!handle) {
+      setRemounts((count) => count + 1);
+      return;
+    }
+    void handle.update(source).then((result) => {
+      if (renderer.current !== handle || result === 'superseded') return;
+      if (result === 'applied') contentApplied.current();
+      else setRemounts((count) => count + 1);
+    });
+  }, [view.source, renderer]);
 
   return { resolved, anchorsChecked, pageScheme, missingAnchor };
 }

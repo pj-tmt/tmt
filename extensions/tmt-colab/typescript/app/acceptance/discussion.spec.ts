@@ -284,7 +284,8 @@ test('paired writers retain anchored annotation conversations, direct exact send
       const read = JSON.parse(
         run(world, world.binaries.colab, ['page', 'read', created.pageId, '--json']),
       ) as { revision: string };
-      const renderId = await first.locator('iframe').getAttribute('data-render-id');
+      // The shown source's digest changes whether the frame is replaced or updated in place (#5022).
+      const digest = await first.locator('iframe').getAttribute('data-source-digest');
       run(
         world,
         world.binaries.colab,
@@ -301,7 +302,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
         source,
         agent.pane,
       );
-      await expect(first.locator('iframe')).not.toHaveAttribute('data-render-id', renderId!);
+      await expect(first.locator('iframe')).not.toHaveAttribute('data-source-digest', digest!);
       await expect(first.locator('.tmt-ui-header .status')).toContainText('Live');
     };
     await replaceSource(
