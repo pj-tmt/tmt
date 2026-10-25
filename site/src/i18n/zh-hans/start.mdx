@@ -37,7 +37,7 @@ import { BandHead, Showcase } from "../../home/Showcase";
 
 <Mdx.h3 id="install">安装</Mdx.h3>
 
-<Cmd>{`$ curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh`}</Cmd>
+<Cmd>{`$ curl -fsSL https://github.com/tmt-ninja/tmt/releases/latest/download/install.sh | sh`}</Cmd>
 
 安装程序将 `tmt` 放到 `~/.local/bin`。在终端中运行时，它还会继续执行 `tmt setup`：查找你的 agent，列出将修改的所有文件（各 agent 的技能，以及已安装 agent 的会话钩子），然后询问一次。之后随时可以运行 `tmt setup`，它只会补充缺少的配置。如果找不到 `tmt`，将 `~/.local/bin` 加入 PATH 一次即可。
 

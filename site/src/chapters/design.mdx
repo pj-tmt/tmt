@@ -3,11 +3,11 @@ import { Cmd } from "../components/Cmd";
 import { Tag } from "../components/marks";
 import { MarkList, TokenPreview, TokenTable, TypePreview } from "../components/samples";
 
-tmt looks like one product wherever you meet it: the command line, the Ops board and this site. This page is the guideline they share. The values come from one file, [`design/tokens/tokens.json`](https://github.com/pj-tmt/tmt/blob/main/design/tokens/tokens.json); the site's stylesheet and every table on this page read it, so nothing here is copied by hand.
+tmt looks like one product wherever you meet it: the command line, the Ops board and this site. This page is the guideline they share. The values come from one file, [`design/tokens/tokens.json`](https://github.com/tmt-ninja/tmt/blob/main/design/tokens/tokens.json); the site's stylesheet and every table on this page read it, so nothing here is copied by hand.
 
 ### Interactive design guidebook (MDX)
 
-The [browser interface guide](https://github.com/pj-tmt/tmt/blob/main/design/gui-style.md) owns the header, cards, controls, overlays, focus and recovery wording. The [CLI guide](https://github.com/pj-tmt/tmt/blob/main/design/cli-style.md) owns terminal output. Start here to see the rules in use, then follow those guides for the full contracts.
+The [browser interface guide](https://github.com/tmt-ninja/tmt/blob/main/design/gui-style.md) owns the header, cards, controls, overlays, focus and recovery wording. The [CLI guide](https://github.com/tmt-ninja/tmt/blob/main/design/cli-style.md) owns terminal output. Start here to see the rules in use, then follow those guides for the full contracts.
 
 ### Try the components
 
@@ -15,7 +15,7 @@ Switch the example between light and dark, then Ready, Waiting and Stopped. Type
 
 <DesignPlayground />
 
-This is a **design example**, not a live Colab or Remote connection. Its labels stay in English to match the product vocabulary. Colab and Remote have their own shipped components; the reusable package tracked in [#1797](https://github.com/pj-tmt/tmt/issues/1797) is **planned**. This example does not demonstrate pairing, permissions, Ask delivery or reconnect behavior. The accepted [component specification PR](https://github.com/pj-tmt/tmt/pull/1798) records the inventory and extraction boundaries.
+This is a **design example**, not a live Colab or Remote connection. Its labels stay in English to match the product vocabulary. Colab and Remote have their own shipped components; the reusable package tracked in [#1797](https://github.com/tmt-ninja/tmt/issues/1797) is **planned**. This example does not demonstrate pairing, permissions, Ask delivery or reconnect behavior. The accepted [component specification PR](https://github.com/tmt-ninja/tmt/pull/1798) records the inventory and extraction boundaries.
 
 ### Principles
 
@@ -30,7 +30,7 @@ This is a **design example**, not a live Colab or Remote connection. Its labels 
 
 <TokenTable />
 
-The command line's own token names (`accent`, `ok`, `warn`, `error`, `dim`, and the driver colors) each show as one of these: `ok` is `working`, `warn` is `waiting`, `error` is `blocked`, and the Claude and Codex driver colors are `review` and `link`, as [design/cli-style.md](https://github.com/pj-tmt/tmt/blob/main/design/cli-style.md) lists. The terminal's themes read their values from the same file, and a test fails if the two ever differ.
+The command line's own token names (`accent`, `ok`, `warn`, `error`, `dim`, and the driver colors) each show as one of these: `ok` is `working`, `warn` is `waiting`, `error` is `blocked`, and the Claude and Codex driver colors are `review` and `link`, as [design/cli-style.md](https://github.com/tmt-ninja/tmt/blob/main/design/cli-style.md) lists. The terminal's themes read their values from the same file, and a test fails if the two ever differ.
 
 ### Surfaces
 

@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/dev-extension.mdx
-sourceRevision: 402559a20a1a14ad69427e0e929ca8267b56cbaf
+sourceRevision: 9fdca28ea65858f365cd3a6839a81bb14aee9446
 title: 构建扩展
 ---
 
@@ -49,7 +49,7 @@ $ tmt help hello          # 运行：tmt-hello --help
 绝不要自行打开 tmt 数据库。请使用与其他程序相同的接口：
 
 - **带 `--json` 的普通命令**，用于人也会运行的操作：`whoami`、`identity show`、`list`、`room show`、`x`、`reply`、`result`。
-- **`tmt api`**，用于面向程序的操作：stdin 接收一个带版本的 JSON 请求，stdout 返回一个 JSON 答案。完整约定见 [contracts/extension-api.md](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md)。
+- **`tmt api`**，用于面向程序的操作：stdin 接收一个带版本的 JSON 请求，stdout 返回一个 JSON 答案。完整约定见 [contracts/extension-api.md](https://github.com/tmt-ninja/tmt/blob/main/contracts/extension-api.md)。
 
 <Cmd>{`
 $ printf '%s' '{"version":1,"operation":"capabilities","input":{}}' | "$TMT_EXECUTABLE" api
@@ -114,4 +114,4 @@ $ tmt extension hooks disable hello
 
 启用时，可执行文件必须属于用户本人，文件及其所在目录都不能被其他人写入。tmt 会记录这个确切的文件。升级或发生任何变更后，用户需要重新启用。命令提交变更后，tmt 运行 `tmt-<name> __tmt-hooks 1 observe`，通过 stdin 以 JSON 传入事件（identity 或房间的创建、重命名、停用）。钩子只接收 ID 和状态，不接收名称或消息，也不能阻塞或修改命令。事件可能丢失或重复，应将其视为再次检查的提示。
 
-启用钩子的扩展还可以添加一行最多 240 字符的信息，出现在 `tmt whoami --context`、会话启动时 agent 收到的上下文中，以及 `tmt setup` 安装提示词钩子后的每次提示词上下文中。tmt 会标出扩展名称，并加上 `(informational)`，因此绝不要把这一行写成指令。事件和字段约定见 [contracts/extension-api.md](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md)。
+启用钩子的扩展还可以添加一行最多 240 字符的信息，出现在 `tmt whoami --context`、会话启动时 agent 收到的上下文中，以及 `tmt setup` 安装提示词钩子后的每次提示词上下文中。tmt 会标出扩展名称，并加上 `(informational)`，因此绝不要把这一行写成指令。事件和字段约定见 [contracts/extension-api.md](https://github.com/tmt-ninja/tmt/blob/main/contracts/extension-api.md)。

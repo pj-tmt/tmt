@@ -39,7 +39,7 @@ import { BandHead, Showcase } from "../../home/Showcase";
 
 <Mdx.h3 id="install">安裝</Mdx.h3>
 
-<Cmd>{`$ curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh`}</Cmd>
+<Cmd>{`$ curl -fsSL https://github.com/tmt-ninja/tmt/releases/latest/download/install.sh | sh`}</Cmd>
 
 安裝程式會把 `tmt` 放進 `~/.local/bin`；在終端機裡，它接著會執行 `tmt setup`：找出你的 agent，列出它將變更的每個檔案（每個 agent 的 skill，以及這台機器上已安裝者的 session hook），並只詢問一次。之後隨時可以再執行 `tmt setup`，它只會提供尚缺的項目。如果找不到 `tmt`，請把 `~/.local/bin` 加進 PATH（只需做一次）。
 
