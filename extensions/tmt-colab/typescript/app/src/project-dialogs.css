@@ -98,14 +98,6 @@
   color: var(--tmt-ui-color-secondary);
   font-size: 10px;
 }
-/* A pinned project's toggle is pressed, not a call to action: the accent-soft pressed state of the
-   page dock's selection mode. */
-.project-manage-actions .tmt-ui-action[aria-pressed='true'],
-.project-manage-actions .tmt-ui-action[aria-pressed='true']:not(:disabled):hover {
-  border-color: var(--c-accent);
-  background: var(--c-accent-soft);
-  color: var(--c-accent);
-}
 .project-manage-actions {
   display: flex;
   align-items: center;

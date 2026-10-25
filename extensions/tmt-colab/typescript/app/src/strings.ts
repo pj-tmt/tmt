@@ -853,13 +853,10 @@ export const text = {
     recentProjects: 'Recent projects',
     /** The side menu's entry that opens Manage projects, where every project is. */
     allProjectsItem: 'All projects…',
-    pin: 'Pin',
-    pinnedToggle: 'Pinned',
     scopeNotPinned: 'Not pinned: shown while you are in it.',
     pinToSidebar: 'Pin to sidebar',
     unpinFromSidebar: 'Unpin from sidebar',
     pinProject: (name: string) => `Pin ${name} to sidebar`,
-    unpinProject: (name: string) => `Unpin ${name} from sidebar`,
     moveProjectUp: (name: string) => `Move ${name} up in the sidebar`,
     moveProjectDown: (name: string) => `Move ${name} down in the sidebar`,
     pinnedPlace: (place: number, count: number) => `Sidebar place ${place} of ${count}`,

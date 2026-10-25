@@ -4,9 +4,10 @@ import {
   BrowserDialog,
   BrowserDrawer,
   BrowserField,
+  BrowserIconAction,
 } from '@tmt/browser-ui/react';
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, FileText, Plus } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { ArrowDown, ArrowUp, FileText, Pin, Plus } from 'lucide-react';
 import { PROJECT_PINS, type ProjectPins } from './bootstrap.js';
 import { menuProjects, movedPin, withPin } from './project-pins.js';
 import {
@@ -255,36 +256,31 @@ type Step =
   | { kind: 'delete'; name: string };
 
 /**
- * The pin control of a project row: one secondary action that holds its state with `aria-pressed`
- * and reads "Pinned" while pressed. The leaf action has no pressed prop, so the attribute is set on
- * its button here, after every render (a busy toggle may replace the button).
+ * The pin control of a project row: an icon action whose pressed state says whether the project is
+ * pinned. Its name stays "Pin <name> to sidebar" in both states, so the state is carried by
+ * `aria-pressed` alone.
  */
 function PinToggle({
   pressed,
   action,
   label,
-  visibleLabel,
   disabled,
   onActivate,
 }: {
   pressed: boolean;
   action: string;
   label: string;
-  visibleLabel: string;
   disabled: boolean;
   onActivate: () => void;
 }) {
-  const holder = useRef<HTMLSpanElement>(null);
-  useLayoutEffect(() => {
-    holder.current?.querySelector('button')?.setAttribute('aria-pressed', String(pressed));
-  });
   return (
-    <span ref={holder} data-project-action={action}>
-      <BrowserAction
+    <span data-project-action={action}>
+      <BrowserIconAction
         type="button"
-        variant="secondary"
+        variant="text"
         label={label}
-        visibleLabel={visibleLabel}
+        icon={<Pin />}
+        pressed={pressed}
         disabled={disabled}
         onActivate={onActivate}
       />
@@ -421,8 +417,7 @@ export function ManageProjectsDialog({
                             <PinToggle
                               pressed={pinned}
                               action={`pin:${name}`}
-                              label={pinned ? t.unpinProject(name) : t.pinProject(name)}
-                              visibleLabel={pinned ? t.pinnedToggle : t.pin}
+                              label={t.pinProject(name)}
                               disabled={busy}
                               onActivate={() =>
                                 void writePins(

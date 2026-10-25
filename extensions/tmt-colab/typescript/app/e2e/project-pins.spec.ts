@@ -91,7 +91,7 @@ for (const width of [1440, 390])
         await menuEntry(page, 'All projects…').click();
         await expect(manager(page)).toBeVisible();
         await expect(manager(page).getByText(/because you used it recently/)).toBeVisible();
-        await manager(page).getByRole('button', { name: 'Unpin Project 02 from sidebar' }).click();
+        await manager(page).getByRole('button', { name: 'Pin Project 02 to sidebar' }).click();
         await expect
           .poll(() => writes(page))
           .toEqual([
@@ -143,33 +143,18 @@ for (const width of [1440, 390])
         await expect(
           manager(page).getByRole('button', { name: 'Move Project 02 down in the sidebar' }),
         ).toBeFocused();
-        // A pinned row's control is a pressed toggle that reads "Pinned", not a primary action; an
-        // unpinned row's reads "Pin" and is not pressed.
+        // A pinned row's control is a pressed toggle and an unpinned row's is not; both keep one
+        // name, so the state is carried by aria-pressed alone and no label changes.
         const toggle = (name: string) => manager(page).getByRole('button', { name });
-        await expect(toggle('Unpin Project 02 from sidebar')).toHaveAttribute(
-          'aria-pressed',
-          'true',
-        );
-        await expect(toggle('Unpin Project 02 from sidebar')).toHaveText('Pinned');
-        await expect(toggle('Unpin Project 02 from sidebar')).toHaveAttribute(
-          'data-variant',
-          'secondary',
-        );
+        await expect(toggle('Pin Project 02 to sidebar')).toHaveAttribute('aria-pressed', 'true');
         await expect(toggle('Pin Project 09 to sidebar')).toHaveAttribute('aria-pressed', 'false');
-        await expect(toggle('Pin Project 09 to sidebar')).toHaveText('Pin');
-        // The pressed look is the accent-soft state, which differs from an unpressed row's.
+        await expect(toggle('Pin Project 02 to sidebar')).toHaveText('');
+        // The pressed look is the leaf's pressed state, which differs from an unpressed row's.
         const fill = (name: string) =>
           toggle(name).evaluate((node) => getComputedStyle(node).backgroundColor);
-        const soft = await page.evaluate(() => {
-          const probe = document.createElement('span');
-          probe.style.background = 'var(--c-accent-soft)';
-          document.body.append(probe);
-          const color = getComputedStyle(probe).backgroundColor;
-          probe.remove();
-          return color;
-        });
-        expect(await fill('Unpin Project 02 from sidebar')).toBe(soft);
-        expect(await fill('Pin Project 09 to sidebar')).not.toBe(soft);
+        expect(await fill('Pin Project 02 to sidebar')).not.toBe(
+          await fill('Pin Project 09 to sidebar'),
+        );
         // Pin another: it goes last.
         await manager(page).getByRole('button', { name: 'Pin Project 09 to sidebar' }).click();
         await expect.poll(async () => (await writes(page)).length).toBe(2);
@@ -178,10 +163,10 @@ for (const width of [1440, 390])
           names: ['Project 02', 'Project 04', 'Project 09'],
         });
         await expect(
-          manager(page).getByRole('button', { name: 'Unpin Project 09 from sidebar' }),
+          manager(page).getByRole('button', { name: 'Pin Project 09 to sidebar' }),
         ).toBeFocused();
         // Unpin the first: the others keep their order.
-        await manager(page).getByRole('button', { name: 'Unpin Project 02 from sidebar' }).click();
+        await manager(page).getByRole('button', { name: 'Pin Project 02 to sidebar' }).click();
         await expect.poll(async () => (await writes(page)).length).toBe(3);
         expect((await writes(page))[2]).toEqual({
           action: 'pins',
@@ -201,12 +186,12 @@ for (const width of [1440, 390])
         await expect(manager(page).getByRole('alert')).toContainText('at most 20 projects');
         expect(await writes(page)).toEqual([]);
         // A write the machine refuses keeps the list and says so.
-        await manager(page).getByRole('button', { name: 'Unpin Project 20 from sidebar' }).click();
+        await manager(page).getByRole('button', { name: 'Pin Project 20 to sidebar' }).click();
         await expect.poll(async () => (await writes(page)).length).toBe(1);
         await mount(page, 'projects', names(3));
         await page.evaluate(() => (window.__failManage = true));
         await menuEntry(page, 'All projects…').click();
-        await manager(page).getByRole('button', { name: 'Unpin Project 02 from sidebar' }).click();
+        await manager(page).getByRole('button', { name: 'Pin Project 02 to sidebar' }).click();
         await expect(manager(page).getByRole('alert')).toContainText('not saved');
         await manager(page).getByRole('button', { name: 'Close Manage projects' }).click();
         await expect.poll(() => listed(page)).toEqual(names(3));
