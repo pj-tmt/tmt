@@ -25,7 +25,7 @@ use tmt_adapters::{
     process::{CommandFailure, CommandRequest, CommandRunner, UnixCommandRunner},
     skill_installation::ProviderEnvironment,
 };
-use tmt_core::native_install::Channel;
+use tmt_core::native_install::{Channel, OFFICIAL_REPOSITORY};
 
 pub fn execute_with_schema_consent(
     channel: Option<Channel>,
@@ -322,6 +322,7 @@ fn finish(
         })
         .flatten();
     let named_hints = picker_hint
+        .as_deref()
         .map(|hint| ("pickerHint", hint))
         .into_iter()
         .chain(
@@ -647,10 +648,12 @@ fn product_rows(
             .filter(|_| product == native_install::Product::Cli)
             .map(|r| r.state.channel)
         {
-            Some(Channel::Pr(pr)) => format!("https://github.com/pj-tmt/tmt/pull/{pr}"),
-            _ if version.contains('+') => "https://github.com/pj-tmt/tmt/releases".into(),
+            Some(Channel::Pr(pr)) => format!("https://github.com/{OFFICIAL_REPOSITORY}/pull/{pr}"),
+            _ if version.contains('+') => {
+                format!("https://github.com/{OFFICIAL_REPOSITORY}/releases")
+            }
             _ => format!(
-                "https://github.com/pj-tmt/tmt/releases/tag/{}{version}",
+                "https://github.com/{OFFICIAL_REPOSITORY}/releases/tag/{}{version}",
                 product.tag_prefix()
             ),
         };

@@ -127,6 +127,40 @@ fn managed_receipt_persists_pr_identity_epoch_and_admission_after_remote_expiry(
 }
 
 #[test]
+fn a_pr_receipt_names_the_current_or_the_previous_repository_and_no_other() {
+    let directory = TestDirectory::new();
+    let prefix = directory.path.join("prefix");
+    let (artifact, source) = fixture();
+    let report = publish(&prefix, &artifact, source, None, true, 48).unwrap();
+    let receipt_path = report
+        .active_executable
+        .parent()
+        .unwrap()
+        .join("receipt.json");
+    let json: serde_json::Value =
+        serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
+    assert_eq!(json["source"]["repository"], "tmt-ninja/tmt");
+    assert_eq!(json["source"]["evidence"]["repository"], "tmt-ninja/tmt");
+    for (repository, accepted) in [
+        ("tmt-ninja/tmt", true),
+        ("pj-tmt/tmt", true),
+        ("wkh237/tmt", false),
+        ("other/tmt", false),
+    ] {
+        for pointer in ["/source/repository", "/source/evidence/repository"] {
+            let mut changed = json.clone();
+            *changed.pointer_mut(pointer).unwrap() = repository.into();
+            fs::write(&receipt_path, serde_json::to_vec(&changed).unwrap()).unwrap();
+            assert_eq!(
+                inspect(&report.active_executable).is_ok(),
+                accepted,
+                "{pointer} {repository}"
+            );
+        }
+    }
+}
+
+#[test]
 fn equal_archived_version_new_run_refuses_and_changed_receipt_fences_publication() {
     let directory = TestDirectory::new();
     let prefix = directory.path.join("prefix");

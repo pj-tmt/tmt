@@ -9,17 +9,22 @@ use crate::{
 };
 use serde_json::Value;
 use std::time::{Duration, Instant};
+use tmt_core::native_install::OFFICIAL_REPOSITORY;
 
 const BUDGET: Duration = Duration::from_secs(5);
 const OUTPUT_LIMIT: usize = 256 * 1024;
 const PLUGIN_ID_PREFIX: &str = "tmt-picker@";
 
 /// The one line shown when Claude Code lacks the picker.
-pub const MISSING_HINT: &str = "Claude Code is installed without the tmt-picker plugin. Add it: claude plugin marketplace add pj-tmt/tmt && claude plugin install tmt-picker@tmt";
+pub fn missing_hint_line() -> String {
+    format!(
+        "Claude Code is installed without the tmt-picker plugin. Add it: claude plugin marketplace add {OFFICIAL_REPOSITORY} && claude plugin install tmt-picker@tmt"
+    )
+}
 
-/// [`MISSING_HINT`] when Claude Code is installed and its plugin list is
+/// [`missing_hint_line`] when Claude Code is installed and its plugin list is
 /// readable but holds no `tmt-picker`; otherwise nothing.
-pub fn missing_hint(environment: &ProviderEnvironment) -> Option<&'static str> {
+pub fn missing_hint(environment: &ProviderEnvironment) -> Option<String> {
     missing_hint_with(environment, &UnixCommandRunner)
 }
 
@@ -28,7 +33,7 @@ pub fn missing_hint(environment: &ProviderEnvironment) -> Option<&'static str> {
 pub fn missing_hint_after_install(
     environment: &ProviderEnvironment,
     report: &InstallReport,
-) -> Option<&'static str> {
+) -> Option<String> {
     reached_claude(report)
         .then(|| missing_hint(environment))
         .flatten()
@@ -44,7 +49,7 @@ fn reached_claude(report: &InstallReport) -> bool {
 fn missing_hint_with(
     environment: &ProviderEnvironment,
     runner: &impl CommandRunner,
-) -> Option<&'static str> {
+) -> Option<String> {
     let claude = super::DRIVER
         .descriptor
         .executables
@@ -71,7 +76,7 @@ fn missing_hint_with(
             .as_str()
             .is_some_and(|id| id.starts_with(PLUGIN_ID_PREFIX))
     });
-    (!installed).then_some(MISSING_HINT)
+    (!installed).then(missing_hint_line)
 }
 
 #[cfg(test)]

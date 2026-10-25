@@ -245,17 +245,17 @@ fn release_links_name_actual_products_and_pr_candidates_without_inventing_releas
     );
     assert_eq!(
         rows[0]["releaseUrl"],
-        "https://github.com/pj-tmt/tmt/releases/tag/v5.0.0"
+        "https://github.com/tmt-ninja/tmt/releases/tag/v5.0.0"
     );
     assert_eq!(
         rows[1]["releaseUrl"],
-        "https://github.com/pj-tmt/tmt/releases/tag/tmt-ops-v1.2.3"
+        "https://github.com/tmt-ninja/tmt/releases/tag/tmt-ops-v1.2.3"
     );
     report.state.channel = Channel::parse("pr4770").unwrap();
     let rows = product_rows(Some(&report), None, vec![]);
     assert_eq!(
         rows[0]["releaseUrl"],
-        "https://github.com/pj-tmt/tmt/pull/4770"
+        "https://github.com/tmt-ninja/tmt/pull/4770"
     );
     assert!(product_rows(None, None, vec![])[0]["releaseUrl"].is_null());
 }

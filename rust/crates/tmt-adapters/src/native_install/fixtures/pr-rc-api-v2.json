@@ -1,7 +1,7 @@
 {
   "repository": {
     "id": 7001,
-    "full_name": "pj-tmt/tmt"
+    "full_name": "tmt-ninja/tmt"
   },
   "pull": {
     "number": 234,
@@ -10,7 +10,7 @@
       "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "repo": {
         "id": 7001,
-        "full_name": "pj-tmt/tmt"
+        "full_name": "tmt-ninja/tmt"
       }
     },
     "base": {
@@ -57,7 +57,7 @@
     }
   },
   "eligibility_timeline": {
-    "route": "/repos/pj-tmt/tmt/issues/234/timeline?per_page=100&page=1",
+    "route": "/repos/tmt-ninja/tmt/issues/234/timeline?per_page=100&page=1",
     "next_page": false,
     "events": [
       {

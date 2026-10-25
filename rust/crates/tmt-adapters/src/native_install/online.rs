@@ -311,7 +311,7 @@ mod tests {
                     release::product_fixture(product, version, "aarch64-apple-darwin", 42);
                 let mut routes = release::indexed_routes(&release, &manifest, &archive);
                 let pointer_url = format!(
-                    "https://raw.githubusercontent.com/pj-tmt/tmt/release-index/channels/{}/alpha.json",
+                    "https://raw.githubusercontent.com/tmt-ninja/tmt/release-index/channels/{}/alpha.json",
                     product.as_str()
                 );
                 match pointer {
@@ -339,7 +339,9 @@ mod tests {
                         || Ok(()),
                         |url, _, _, _| {
                             assert!(
-                                url.starts_with("https://github.com/pj-tmt/tmt/releases/download/"),
+                                url.starts_with(
+                                    "https://github.com/tmt-ninja/tmt/releases/download/"
+                                ),
                                 "{url}"
                             );
                             calls.push(url.to_owned());
@@ -420,7 +422,7 @@ mod tests {
                 || Ok(()),
                 |url, _, _, _| {
                     assert!(
-                        url.starts_with("https://github.com/pj-tmt/tmt/releases/download/"),
+                        url.starts_with("https://github.com/tmt-ninja/tmt/releases/download/"),
                         "{url}"
                     );
                     calls.push(url.to_owned());
@@ -542,7 +544,10 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.to_string(), "PR metadata unavailable");
-        assert_eq!(calls, ["https://api.github.com/repos/pj-tmt/tmt/pulls/234"]);
+        assert_eq!(
+            calls,
+            ["https://api.github.com/repos/tmt-ninja/tmt/pulls/234"]
+        );
         assert!(!prefix.exists());
         assert!(
             latest_release_version(Product::Cli, channel)
@@ -567,7 +572,7 @@ mod tests {
                 calls += 1;
                 assert_eq!(
                     url,
-                    "https://raw.githubusercontent.com/pj-tmt/tmt/release-index/channels/digest/alpha.json"
+                    "https://raw.githubusercontent.com/tmt-ninja/tmt/release-index/channels/digest/alpha.json"
                 );
                 Err(io::Error::new(io::ErrorKind::NotFound, "pointer missing"))
             },
@@ -585,7 +590,7 @@ mod tests {
             let prefix = directory.path.join("prefix");
             let mut calls = Vec::new();
             let error = install_release_with(product,ReleaseInstallRequest { prefix: &prefix, target: "aarch64-apple-darwin", channel: Channel::Alpha, exact: None },None,||Ok(()),
-                |url,_,_,_| {calls.push(url.to_owned()); assert_eq!(url,format!("https://raw.githubusercontent.com/pj-tmt/tmt/release-index/channels/{}/alpha.json",product.as_str()));
+                |url,_,_,_| {calls.push(url.to_owned()); assert_eq!(url,format!("https://raw.githubusercontent.com/tmt-ninja/tmt/release-index/channels/{}/alpha.json",product.as_str()));
                     Err(io::Error::new(io::ErrorKind::NotFound,"pointer missing"))}).unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::NotFound);
             assert_eq!(calls.len(), 1);

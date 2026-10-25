@@ -21,7 +21,7 @@ fn run(
     provider: Option<&str>,
     directory: Option<&str>,
     force: bool,
-) -> Result<(InstallReport, Option<&'static str>), Failure> {
+) -> Result<(InstallReport, Option<String>), Failure> {
     let environment = ProviderEnvironment::capture().map_err(failure)?;
     let paths = ConfigPaths::discover()?;
     let report = skill_installation::install(
@@ -50,8 +50,8 @@ pub fn execute(
     let terminal = output.terminal();
     if mode.json {
         let mut value = report_document(&report);
-        if let Some(hint) = picker_hint {
-            value["pickerHint"] = hint.into();
+        if let Some(hint) = &picker_hint {
+            value["pickerHint"] = hint.as_str().into();
         }
         writeln!(output, "{value}")?;
     } else {
@@ -61,7 +61,7 @@ pub fn execute(
             terminal,
             "reload or restart your agent to use the current skill; existing conversations can read tmt learn --skill",
         )?;
-        if let Some(hint) = picker_hint {
+        if let Some(hint) = &picker_hint {
             tmt_cli_style::message::hint(&mut output, terminal, hint)?;
         }
     }

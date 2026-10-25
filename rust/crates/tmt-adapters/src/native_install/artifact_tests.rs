@@ -997,8 +997,10 @@ fn every_product_reads_former_organization_receipts_and_refuses_the_retired_name
     ];
     for (product, report) in &installed {
         // The organization transfer remains independent of the retired product name.
-        record_release_source(&report.executable, "wkh237/tmt");
-        super::inspect_product(*product, &report.executable).unwrap();
+        for retained in ["wkh237/tmt", "pj-tmt/tmt"] {
+            record_release_source(&report.executable, retained);
+            super::inspect_product(*product, &report.executable).unwrap();
+        }
         for foreign in [
             "wkh237/tmux-team",
             "attacker/tmt",

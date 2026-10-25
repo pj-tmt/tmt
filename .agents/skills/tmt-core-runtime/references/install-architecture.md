@@ -125,8 +125,10 @@ or optional `paneRenameHints` JSON array, never upgrade failure, retirement, re-
   invocation-owned prefix; receipt, current and links written atomically under the installer
   lock; old owned releases kept until ownership and integrity permit cleanup), `receipt`,
   `release`, `managed`, `upgrade`, `repair`, `skills_tree`, `active_companion`. A receipt's
-  repository must be `pj-tmt/tmt` or the read-only historical `wkh237/tmt`;
-  new receipts use `pj-tmt/tmt`. `Product::accepts_prerelease_flag` mirrors
+  repository must be `tmt-ninja/tmt`, the previous `pj-tmt/tmt` or, for release
+  receipts, the read-only historical `wkh237/tmt`; new receipts use `tmt-ninja/tmt`.
+  `tmt_core::native_install::OFFICIAL_REPOSITORY` is the one source for every fetch URL and
+  message. `Product::accepts_prerelease_flag` mirrors
   `native-release-policy.mjs`.
 - Receipts anchor to the installation prefix and current executable, not `ConfigPaths.global_dir`.
   Failed validation or cancellation keeps the previous release and receipt; a post-activation
