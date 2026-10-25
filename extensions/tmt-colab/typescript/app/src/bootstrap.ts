@@ -20,6 +20,8 @@ import type { ExpiryInfo } from './expiry.js';
 /** Project limits; `limits.rs` and the contract's Projects section hold the same numbers. */
 export const PROJECT_POINTS = 32;
 export const PROJECTS_PER_PAGE = 8;
+/** Most projects the owner pins to the side menu (`SPACE_PROJECT_PINS` in `limits.rs`). */
+export const PROJECT_PINS = 20;
 /** Most names one space lists: creation stops at 256, and a space migrated from labels may hold up to its 1,000 assignments. */
 const PROJECTS_PER_SPACE = 1000;
 
@@ -109,12 +111,19 @@ export interface PageId {
   pageId: string;
   deleted: boolean;
 }
+/** The side menu's projects in order: the owner's list, or until it writes one the owner's automatic default. */
+export interface ProjectPins {
+  readonly names: readonly string[];
+  readonly automatic: boolean;
+}
 export interface Bootstrap {
   space: string;
   owner: Uint8Array;
   revision: string;
   /** Every project of the space, including those with no page; sorted by the owner store. */
   projects: readonly string[];
+  /** The owner's pinned projects, in order (display-only, untrusted text). */
+  projectPins: ProjectPins;
   pages: PageInfo[];
   pageIds: PageId[];
 }
@@ -223,7 +232,15 @@ export async function discover(
     }),
     DISCOVERY_BYTES,
   );
-  exactKeys(value, ['spaceId', 'ownerKey', 'revision', 'projects', 'pages', 'pageIds']);
+  exactKeys(value, [
+    'spaceId',
+    'ownerKey',
+    'revision',
+    'projects',
+    'projectPins',
+    'pages',
+    'pageIds',
+  ]);
   requireValue(typeof value.spaceId === 'string' && typeof value.revision === 'string');
   spaceId(value.spaceId);
   decimal(value.revision);
@@ -236,6 +253,14 @@ export async function discover(
       projectNames(value.projects),
   );
   const known = new Set<unknown>(value.projects);
+  exactKeys(value.projectPins, ['names', 'automatic']);
+  requireValue(
+    typeof value.projectPins.automatic === 'boolean' &&
+      Array.isArray(value.projectPins.names) &&
+      value.projectPins.names.length <= PROJECT_PINS &&
+      projectNames(value.projectPins.names) &&
+      value.projectPins.names.every((name: unknown) => known.has(name)),
+  );
   const visibleIds = new Set<string>();
   for (const page of value.pages) {
     exactKeys(page, [
@@ -376,6 +401,7 @@ export async function discover(
     owner,
     revision: value.revision,
     projects: value.projects as unknown as readonly string[],
+    projectPins: value.projectPins as unknown as ProjectPins,
     pages: value.pages as unknown as PageInfo[],
     pageIds: value.pageIds as unknown as PageId[],
   };

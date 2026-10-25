@@ -53,6 +53,12 @@
   white-space: nowrap;
 }
 
+/* Pin the project the list is in to the side menu, under the subtitle. */
+.page-list-hero-pin {
+  display: block;
+  margin-top: 8px;
+}
+
 .page-pins {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

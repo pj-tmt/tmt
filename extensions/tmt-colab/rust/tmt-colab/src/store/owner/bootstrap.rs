@@ -508,6 +508,15 @@ impl OwnerTransaction<'_> {
             .iter()
             .map(|id| serde_json::json!({"pageId":id,"deleted":!pages.contains_key(id)}))
             .collect();
+        // The owner's pinned projects (contract: Projects): the written list, or until then the
+        // automatic default, marked so.
+        let (chosen, written) = self.project_pins()?;
+        let project_pins = if chosen {
+            serde_json::json!({"names":written,"automatic":false})
+        } else {
+            let names = crate::projects::automatic_pins(pages.values());
+            serde_json::json!({"names":names,"automatic":true})
+        };
         // Pins are display-only too (contract: Pins): `pinned: true` on a pinned page that is not
         // archived, and those pages lead the list in pin order.
         let pins: Vec<String> = self
@@ -523,7 +532,7 @@ impl OwnerTransaction<'_> {
             }
         }
         Ok(
-            serde_json::json!({"pageIds":page_ids,"spaceId":self.space,"ownerKey":values::encode_binary(self.root),"revision":self.head().map_or(0,|h| h.revision).to_string(),"projects":self.projects()?,"pages":lead.into_iter().chain(pages.into_values()).collect::<Vec<_>>()}),
+            serde_json::json!({"pageIds":page_ids,"spaceId":self.space,"ownerKey":values::encode_binary(self.root),"revision":self.head().map_or(0,|h| h.revision).to_string(),"projects":self.projects()?,"projectPins":project_pins,"pages":lead.into_iter().chain(pages.into_values()).collect::<Vec<_>>()}),
         )
     }
 }

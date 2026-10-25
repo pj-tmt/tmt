@@ -820,7 +820,7 @@ async function loadSpaceHome({ context }: { context: AppContext }) {
     home.pageIds ?? home.pages.map((page) => ({ pageId: page.id, deleted: false })),
   );
   // A quick switcher opened later shows this list at once and refreshes it.
-  rememberPages(context.transport, context.space, home.pages, home.projects);
+  rememberPages(context.transport, context.space, home.pages, home.projects, home.projectPins);
   return home;
 }
 const home = createRoute({

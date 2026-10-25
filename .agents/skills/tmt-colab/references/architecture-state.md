@@ -603,7 +603,7 @@ is added.
 - Projects (`projects.rs`, `projects` and `page_projects` in schema 13) are display-only owner-store
   state; a project exists on its own, so one may hold no page. Schema 13 turned every earlier page
   label into a project of the same name. The two writes, `page.projects` (whole-set replacements for
-  up to 64 pages) and `project.manage` (create, rename, delete; the signed frame names the space scope
+  up to 64 pages) and `project.manage` (create, rename, delete, and `pins`, the whole ordered sidebar list; the signed frame names the space scope
   page `SPACE_SCOPE_PAGE`), are management requests that bypass the engine's statement path
   (`Engine::set_projects` / `manage_project` -> `Store::project_transaction`, no head change, no
   receipt, last writer wins, all-or-none per request), and `page_list()` serves them as `projects`
@@ -718,7 +718,7 @@ store's), counts (`projectCounts` also lists the space's projects that no page i
 sorting, and the whole-set `withProject` change. `applyProjectChanges` sends `PROJECT_REQUEST_PAGES`
 (64) pages per request in ascending order, sequentially: each request is atomic on the owner,
 the batch is not, and a failed batch reports "Updated N of M" so a retry converges. Creating,
-renaming and deleting a project are one `project.manage` request each, whatever the number of
+renaming, deleting and pinning projects are one `project.manage` request each, whatever the number of
 pages: the dialogs call `ManagementPort.manageProject`, so there is no batch to resume. `ManagementClient`
 signs `page.projects` and `project.manage` requests with an empty `expectedRevision` (no view, head or
 verification: projects are display-only and the reply is only checked for shape); a `project.manage`
@@ -810,8 +810,10 @@ The TMT web shell's module menu (`colab-shell.tsx`, rendered by the leaf's `Brow
 the whole list. `scope` in the route search is the base
 filter: `inScope` (`project-scope.ts`) decides which pages feed the rows, the tab counts, the
 `project:` suggestions and the free-text and creator filters, and a `project:` token narrows inside it
-(intersection). The menu lists All pages and every project of the space (empty ones too, with the
-pages shown and how many wait on the viewer), then `New project…` and `Manage projects…`, which
+(intersection). The menu lists All pages and the projects the space pins, in the pinned order (`SpaceHome.projectPins`,
+schema 18; `menuProjects` in `project-pins.ts`), or its five most recently updated while nothing was
+chosen (labelled "Recent projects"), each with the pages shown and how many wait on the viewer. A scope
+that is not pinned shows as a temporary row. Then come `All projects…` (the manager) and `New project…`, which
 `Home` offers through `ProjectMenuActionsSlot` (`project-menu-actions.ts`) while it can manage
 projects, so the dialogs keep the list's data. The menu reads the list through `spaceHome` when the
 list opens. The default scope is device-local: `readScope`/`writeScope` keep it per space in

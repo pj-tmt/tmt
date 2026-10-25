@@ -123,7 +123,8 @@ native screens) still starts with the TMT mark and the `Colab` wordmark, then `/
 brand link `Colab · local · <backendName>` (an unlinked brand is a named group with the same title);
 below 480px it shows the mark only, the wordmark visually hidden and kept in that name. The shell's
 module menu holds All pages,
-each project with its counts, New project… and Manage projects…; the space home shows its scope as
+each pinned project with its counts (the five most recent until the space pins its own), All projects… and
+New project…; the space home shows its scope as
 plain text after the title. Author hides below 900px; the title truncates without
 changing its DOM copy. The page header's status slot holds, in order, the needs-you entry
 (only while something waits) and the attention marks, each shown only while its state holds, as

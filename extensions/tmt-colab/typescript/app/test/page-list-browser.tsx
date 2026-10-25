@@ -66,6 +66,19 @@ function work(
 }
 const idle = { comments: 0, waiting: false, needsYou: 0 };
 
+/** The owner's default list, as the owner computes it: the five projects whose newest active page was updated last. */
+function automaticPins(pages: readonly PageSummary[]): string[] {
+  const newest = new Map<string, number>();
+  for (const page of pages)
+    if (!page.archived)
+      for (const name of page.projects ?? [])
+        newest.set(name, Math.max(newest.get(name) ?? 0, page.lastUpdateAtMs ?? 0));
+  return [...newest]
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+    .slice(0, 5)
+    .map(([name]) => name);
+}
+
 export async function mountPageList(
   size:
     | 'groups'
@@ -84,8 +97,15 @@ export async function mountPageList(
     /** No page has reported its tasks yet, as after a cold start. */
     | 'cold'
     /** A dashboard (shell page), which the module menu lists under Dashboards. */
-    | 'shells' = 'few',
+    | 'shells'
+    /** Twenty-two projects of one page each; page n is n hours old, so Project 01 is the newest. */
+    | 'projects' = 'few',
   hash = '/',
+  /**
+   * The owner's pinned projects. Left out, the source reports none (every project is in the menu);
+   * `'automatic'` is the owner's default until it writes a list; names are a list the owner wrote.
+   */
+  pinned?: 'automatic' | readonly string[],
 ) {
   document.getElementById('root')!.style.display = 'none';
   let host = document.getElementById('list-fixture');
@@ -110,7 +130,11 @@ export async function mountPageList(
     window.__opened.push({ url: String(url), target: target ?? '', features: features ?? '' });
     return null;
   };
-  const state: { pages: PageSummary[]; projects: Set<string> } = {
+  const state: {
+    pages: PageSummary[];
+    projects: Set<string>;
+    pins?: { chosen: boolean; names: string[] };
+  } = {
     projects: new Set(),
     pages:
       size === 'stages'
@@ -255,6 +279,15 @@ export async function mountPageList(
           },
     );
   };
+  if (size === 'projects')
+    state.pages = Array.from({ length: 22 }, (_, n) =>
+      page(n + 1, `Page ${n + 1}`, [`Project ${String(n + 1).padStart(2, '0')}`]),
+    );
+  if (pinned !== undefined)
+    state.pins = {
+      chosen: pinned !== 'automatic',
+      names: pinned === 'automatic' ? [] : [...pinned],
+    };
   for (const p of state.pages) for (const name of p.projects ?? []) state.projects.add(name);
   const snapshots: PageSnapshot[] = state.pages.map((p) => ({ ...p, source: '<h1>Fixture</h1>' }));
   const transport = localTransport('Studio pages', snapshots);
@@ -331,6 +364,20 @@ export async function mountPageList(
         window.__failManage = undefined;
         throw new ManagementError('UNKNOWN');
       }
+      if (change.action === 'pins') {
+        state.pins = { chosen: true, names: [...change.names] };
+        return;
+      }
+      // The owner moves a pin with a rename, and a delete takes it out.
+      if (state.pins && change.action !== 'create')
+        state.pins.names =
+          change.action === 'rename'
+            ? [
+                ...new Set(
+                  state.pins.names.map((name) => (name === change.name ? change.to : name)),
+                ),
+              ]
+            : state.pins.names.filter((name) => name !== change.name);
       if (change.action === 'create') state.projects.add(change.name);
       else {
         const target = change.action === 'rename' ? change.to : undefined;
@@ -363,6 +410,13 @@ export async function mountPageList(
       return {
         title: 'Studio pages',
         projects: [...state.projects].sort(),
+        ...(state.pins
+          ? {
+              projectPins: state.pins.chosen
+                ? { names: state.pins.names, automatic: false }
+                : { names: automaticPins(state.pages), automatic: true },
+            }
+          : {}),
         pages: state.pages,
       };
     },

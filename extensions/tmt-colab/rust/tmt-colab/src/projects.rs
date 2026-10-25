@@ -1,7 +1,9 @@
 //! Projects: display-only names that organize the owner's page list; a page can be in several. They
 //! carry no authority, are not signed and never enter the owner log (contract: Projects). This module
 //! owns the grammar and the per-page set rules; the store owns the space limits.
-use crate::limits::{PAGE_PROJECTS, PROJECT_POINTS};
+use crate::limits::{AUTOMATIC_PROJECT_PINS, PAGE_PROJECTS, PROJECT_POINTS};
+use serde_json::Value;
+use std::collections::BTreeMap;
 
 /// Why a project set is refused. `Capacity` is a limit, never a silent truncation.
 #[derive(Debug, PartialEq, Eq)]
@@ -21,6 +23,8 @@ pub enum Change {
     },
     /// Removes the grouping only; no page is deleted.
     Delete(String),
+    /// Replaces the owner's whole pinned-project list: ordered, no repeats, each an existing project.
+    Pins(Vec<String>),
 }
 
 /// One name: 1 to `PROJECT_POINTS` code points, no control character and no whitespace other than
@@ -51,6 +55,32 @@ pub fn canonical(projects: &[String]) -> Result<Vec<String>, Refusal> {
         return Err(Refusal::Capacity);
     }
     Ok(sorted)
+}
+
+/// The sidebar's default while the owner has not written the pin list (contract: Projects): the
+/// `AUTOMATIC_PROJECT_PINS` projects whose newest page was updated most recently, ties by code
+/// point. `pages` are the page list's entries (`archived`, `lastUpdateAtMs`, `projects`); an
+/// archived page, a page with no update time and a project with no such page count for nothing.
+pub fn automatic_pins<'a>(pages: impl IntoIterator<Item = &'a Value>) -> Vec<String> {
+    let mut newest: BTreeMap<&str, u64> = BTreeMap::new();
+    for page in pages.into_iter().filter(|page| page["archived"] != true) {
+        let Some(updated) = page["lastUpdateAtMs"].as_u64() else {
+            continue;
+        };
+        for project in page["projects"].as_array().into_iter().flatten() {
+            if let Some(project) = project.as_str() {
+                let at = newest.entry(project).or_default();
+                *at = (*at).max(updated);
+            }
+        }
+    }
+    let mut ranked: Vec<_> = newest.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    ranked
+        .into_iter()
+        .take(AUTOMATIC_PROJECT_PINS)
+        .map(|(name, _)| name.to_owned())
+        .collect()
 }
 
 #[cfg(test)]
@@ -124,6 +154,41 @@ mod tests {
         assert_eq!(canonical(&full).map(|v| v.len()), Ok(PAGE_PROJECTS));
         let over: Vec<String> = (0..=PAGE_PROJECTS).map(|n| format!("l{n}")).collect();
         assert_eq!(canonical(&over), Err(Refusal::Capacity));
+    }
+
+    fn listed(updated: Option<u64>, archived: bool, projects: &[&str]) -> Value {
+        serde_json::json!({"archived":archived,"lastUpdateAtMs":updated,"projects":projects})
+    }
+
+    #[test]
+    fn the_automatic_pins_are_the_five_newest_projects_with_ties_by_code_point() {
+        let pages = [
+            listed(Some(50), false, &["old", "shared"]),
+            listed(Some(90), false, &["b", "shared"]),
+            listed(Some(90), false, &["a"]),
+            listed(Some(80), false, &["c"]),
+            listed(Some(70), false, &["d"]),
+            listed(Some(60), false, &["e"]),
+            listed(Some(10), false, &["last"]),
+        ];
+        // Newest first; "a", "b" and "shared" tie at 90 and sort by code point; the sixth is cut.
+        assert_eq!(
+            automatic_pins(&pages),
+            ["a", "b", "shared", "c", "d"].map(str::to_owned)
+        );
+    }
+
+    #[test]
+    fn archived_pages_undated_pages_and_empty_projects_never_qualify() {
+        let pages = [
+            // The archived page is the newest, but an archived page counts for nothing.
+            listed(Some(99), true, &["archived-only", "both"]),
+            listed(Some(5), false, &["both"]),
+            listed(None, false, &["undated"]),
+            listed(Some(3), false, &[]),
+        ];
+        assert_eq!(automatic_pins(&pages), ["both"].map(str::to_owned));
+        assert!(automatic_pins(&[] as &[Value]).is_empty());
     }
 
     #[test]

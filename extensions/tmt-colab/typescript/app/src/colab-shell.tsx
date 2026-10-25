@@ -21,7 +21,13 @@ import {
 } from '@tmt/browser-ui/shell';
 import { knownScope, scopeRows, writeScope } from './project-scope.js';
 import { ProjectMenuActionsSlot, type ProjectMenuActions } from './project-menu-actions.js';
-import { onRememberedPages, rememberedPages, rememberedProjects } from './quick-switcher-source.js';
+import { menuProjects } from './project-pins.js';
+import {
+  onRememberedPages,
+  rememberedPages,
+  rememberedProjectPins,
+  rememberedProjects,
+} from './quick-switcher-source.js';
 import { text } from './strings.js';
 import type { PageSummary, PageTransport } from './transport.js';
 
@@ -55,6 +61,9 @@ export function ColabShell({
   // link-opened page's chip read, the quick switcher), so it never adds a list request.
   const listed = useSyncExternalStore(onRememberedPages, () => rememberedPages(transport, space));
   const named = useSyncExternalStore(onRememberedPages, () => rememberedProjects(transport, space));
+  const pins = useSyncExternalStore(onRememberedPages, () =>
+    rememberedProjectPins(transport, space),
+  );
   useEffect(() => {
     if (hostSlot) return;
     void shellAddress().then(async (address) => {
@@ -84,6 +93,18 @@ export function ColabShell({
       current: location.pathname === '/' && shownScope === name,
     });
     const [all, ...projects] = rows;
+    // The menu lists the projects the owner pins, in the owner's order; the scope the list is in
+    // stays as a temporary row when it is not pinned, so the current place is always shown.
+    const byName = new Map(projects.map((row) => [row.name!, row]));
+    const menuNames = menuProjects(
+      projects.map((row) => row.name!),
+      pins,
+    );
+    const pinnedRows = menuNames.names.map((name) => byName.get(name)!);
+    const temporary =
+      shownScope !== undefined && !menuNames.names.includes(shownScope)
+        ? byName.get(shownScope)
+        : undefined;
     const shells = shown.filter((page) => page.pageType === 'shell');
     const pagePath = (id: string) =>
       router.history.createHref(
@@ -93,11 +114,21 @@ export function ColabShell({
       title: text.product,
       groups: [
         { items: [item(undefined, all!.count, all!.waiting)] },
-        ...(projects.length
+        ...(pinnedRows.length || temporary
           ? [
               {
-                label: text.pageList.projects,
-                items: projects.map((row) => item(row.name, row.count, row.waiting)),
+                label: menuNames.automatic ? text.pageList.recentProjects : text.pageList.projects,
+                items: [
+                  ...pinnedRows.map((row) => item(row.name, row.count, row.waiting)),
+                  ...(temporary
+                    ? [
+                        {
+                          ...item(temporary.name, temporary.count, temporary.waiting),
+                          note: text.pageList.scopeNotPinned,
+                        },
+                      ]
+                    : []),
+                ],
               },
             ]
           : []),
@@ -119,14 +150,14 @@ export function ColabShell({
               {
                 items: [
                   {
-                    id: 'new-project',
-                    label: `${text.pageList.newProject}…`,
+                    id: 'manage-projects',
+                    label: text.pageList.allProjectsItem,
                     href: '#',
                     current: false,
                   },
                   {
-                    id: 'manage-projects',
-                    label: `${text.pageList.manageProjects}…`,
+                    id: 'new-project',
+                    label: `${text.pageList.newProject}…`,
                     href: '#',
                     current: false,
                   },
@@ -160,7 +191,7 @@ export function ColabShell({
     };
     // `href` reads the router, which is stable for this shell.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [answer, listed, named, actions, location.pathname, scope]);
+  }, [answer, listed, named, pins, actions, location.pathname, scope]);
   const select = (id: string) => {
     if (id === 'new-project' && actions) return (actions.newProject(), true);
     if (id === 'manage-projects' && actions) return (actions.manage(), true);

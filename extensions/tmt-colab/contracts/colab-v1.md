@@ -5423,7 +5423,8 @@ gate beyond the paired owner device or local CLI that every management write alr
   (archived pages included) to `to`; if `to` already exists the two merge and a page in both
   keeps one entry, and no page is deleted. `delete` removes the project and its assignments
   only, never a page. An unknown project for `rename` or `delete`, an invalid name or
-  `to == name` is `INVALID`.
+  `to == name` is `INVALID`. With `action` `"pins"` it replaces the owner's pinned-project list
+  and its payload is exactly `{action:"pins", names}` (see [Pinned projects](#pinned-projects-5073)).
 
 The CLI keeps the commands below to those two operations. `project create <name>` is
 idempotent and reports `changed:false` for an existing name. `project add <page> <name>…` and
@@ -5433,6 +5434,43 @@ are one request each. A name that is not a project is `COLAB_PROJECT_NOT_FOUND` 
 `delete` and `ls --project`; a name outside the grammar is `COLAB_INPUT_INVALID`; a full page or
 space is `COLAB_CAPACITY`. `project ls` lists each name with its page count, including projects
 with none, and `ls --project <name>` lists only the pages in it.
+
+#### Pinned projects (#5073)
+
+The owner chooses which projects the Colab side menu lists. The choice is an ordered list of
+existing project names, at most 20 (`SPACE_PROJECT_PINS`), kept in the owner store with the other
+project metadata (`project_pins`, one row per name with its place, and `project_pin_choice`, one row
+once the owner has written the list; schema 18). Like projects it is display-only: **not signed**,
+never an owner-log statement, never in a page's content or any stream. It belongs to the owner, not
+to a device: every owner browser and the CLI read the same list from the owner-served reply, and a
+browser without management shows it with no way to change it.
+
+Until the owner writes the list the effective list is automatic: the five
+(`AUTOMATIC_PROJECT_PINS`) projects whose newest non-archived page was updated most recently
+(`lastUpdateAtMs`), newest first, ties by code point; a project with no such page never qualifies.
+The first write makes the list the owner's for good, an empty list included, and nothing returns it
+to the automatic default. The owner-served `GET /api/pages` reply and the CLI catalog carry the
+effective list as `projectPins: {names, automatic}`, `automatic` true only for the default; the
+owner computes it so every reader agrees. A client treats it as untrusted display state.
+
+`project.manage` with `{action:"pins", names}` replaces the whole list: `names` is ordered, holds no
+repeat and names only existing projects (else `INVALID`), may be empty, and parses at most 256
+entries; more than 20 is `CAPACITY`. It applies in one store transaction with no partial effect and
+the last writer wins, like `page.projects`. A client that changes one pin sends the whole list it
+shows, so the first change turns the automatic list it shows into the owner's and then applies the
+change. Deleting a project removes it from the list in the same transaction; renaming moves it,
+and a rename onto a pinned name keeps the earlier of the two places; `create`, `page.projects` and
+page writes never pin.
+
+The CLI adds `project pin <name> [--position N]` and `project unpin <name>`. Each reads the
+effective list, writes the whole list and reports `changed:false` without writing when the list is
+already so; `pin` puts the project at place N (1 to one past the others; default last, and a pinned
+project moves), `unpin` on a project that is not pinned changes nothing. `--json` prints
+`{spaceId, name, pinned, position, changed}` (`position` is 1-based, `null` after `unpin`). `project
+ls --json` adds `pinned` (the 1-based place or `null`) to each project and `pinsAutomatic` at the
+top level; the human output marks pinned projects and says when the list is automatic. A name that
+is not a project is `COLAB_PROJECT_NOT_FOUND`, a place out of range `COLAB_INPUT_INVALID` and a
+21st pin `COLAB_CAPACITY`.
 
 ### Pins (#4356)
 

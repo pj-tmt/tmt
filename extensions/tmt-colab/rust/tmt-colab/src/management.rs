@@ -176,6 +176,19 @@ struct PagePin {
 struct ProjectChanges {
     pages: List<PageProjects, { crate::limits::PROJECT_REQUEST_PAGES }>,
 }
+/// The action of a `project.manage` payload, read before the rest of it.
+#[derive(Deserialize)]
+struct ProjectAction {
+    action: String,
+}
+/// The payload of `project.manage` with `action` `"pins"`: the owner's whole pinned-project list.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectPins {
+    #[allow(dead_code)]
+    action: String,
+    names: List<String, { crate::limits::SPACE_PROJECTS }>,
+}
 /// The payload of `project.manage`: `to` belongs to a rename and to nothing else.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -297,6 +310,15 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
             use crate::projects::{Change, valid};
             if page != auth::SPACE_SCOPE_PAGE {
                 return Err(tmt_colab_model::Invalid);
+            }
+            let tag: ProjectAction = typed(bytes)?;
+            if tag.action == "pins" {
+                let value: ProjectPins = typed(bytes)?;
+                let names = value.names.as_slice();
+                if names.iter().any(|name| !valid(name)) {
+                    return Err(tmt_colab_model::Invalid);
+                }
+                return Ok(Action::Project(Change::Pins(names.to_vec())));
             }
             let value: ProjectManage = typed(bytes)?;
             let named = |name: &String| valid(name).then(|| name.clone());
@@ -1002,6 +1024,40 @@ mod tests {
             json!({"action":"merge","name":"launch"}),
             json!({"action":"create"}),
             json!({"action":"create","name":"launch","extra":true}),
+        ] {
+            assert_eq!(change(bad.clone()).err(), Some(Code::Invalid), "{bad}");
+        }
+        // The pinned-project list is the same operation with its own payload: the whole ordered
+        // list, an empty one included, and nothing else.
+        assert!(matches!(
+            change(json!({"action":"pins","names":["b","a c"]})),
+            Ok(Action::Project(Change::Pins(names))) if names == ["b", "a c"]
+        ));
+        assert!(matches!(
+            change(json!({"action":"pins","names":[]})),
+            Ok(Action::Project(Change::Pins(names))) if names.is_empty()
+        ));
+        let pins = serde_json::to_vec(&json!({"action":"pins","names":["b"]})).unwrap();
+        assert!(matches!(
+            browser(&signed("project.manage", &pins, DEVICE, 100), 100)
+                .unwrap()
+                .action,
+            Action::Project(Change::Pins(_))
+        ));
+        let too_many: Vec<String> = (0..=crate::limits::SPACE_PROJECTS)
+            .map(|n| format!("p{n}"))
+            .collect();
+        for bad in [
+            json!({"action":"pins"}),
+            json!({"action":"pins","names":null}),
+            json!({"action":"pins","names":"launch"}),
+            json!({"action":"pins","names":[1]}),
+            json!({"action":"pins","names":[" lead"]}),
+            json!({"action":"pins","names":[""]}),
+            json!({"action":"pins","name":"launch","names":[]}),
+            json!({"action":"pins","names":[],"extra":true}),
+            json!({"action":"pins","names":too_many}),
+            json!({"action":"create","name":"launch","names":[]}),
         ] {
             assert_eq!(change(bad.clone()).err(), Some(Code::Invalid), "{bad}");
         }

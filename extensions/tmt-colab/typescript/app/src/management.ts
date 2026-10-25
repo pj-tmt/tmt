@@ -16,6 +16,7 @@ import {
 } from '@tmt/colab-client';
 import type { statement } from '@tmt/colab-client';
 import { Admission, pageLifecycle } from './admission.js';
+import { validPins } from './project-pins.js';
 import { Frames } from './frames.js';
 import { discover, type Bootstrap, type PageInfo } from './bootstrap.js';
 import {
@@ -510,7 +511,8 @@ export class ManagementClient implements ManagementPort {
   }
   /** A signed `project.manage` request: the frame names the space scope page, not a page. */
   async manageProject(change: ProjectManage): Promise<void> {
-    requireValue(projectNameError(change.name) === undefined);
+    if (change.action === 'pins') requireValue(validPins(change.names));
+    else requireValue(projectNameError(change.name) === undefined);
     if (change.action === 'rename')
       requireValue(projectNameError(change.to) === undefined && change.to !== change.name);
     await this.displayOnly(SPACE_SCOPE_PAGE, 'project.manage', change);
