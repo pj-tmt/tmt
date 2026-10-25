@@ -20,7 +20,7 @@ use tmt_colab::{
         QUESTION_CHOICE_POINTS, QUESTION_CHOICES, QUESTION_PAGE, QUESTION_TITLE_POINTS,
         READING_PAGE, REVIEW_PAGE,
     },
-    page_check::{self, Finding, Report},
+    page_check::{self, Finding, Hint, Report},
     store::Store,
 };
 
@@ -34,7 +34,7 @@ const CHECK: CommandSpec = CommandSpec {
         note: "Report ignored question blocks and other markup problems with a line and a reason code",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Offline and fast: reads one file (or - for bounded UTF-8 stdin) and needs no running serve and no local state. Reports every block the browser ignores (question blocks, with a reason code and line), data: images that make the page heavy and colab-attachment: references that cannot show. Exits 1 when it finds anything. With --page, references are also resolved against that page's current document attachments in the local store. page create and page write run the same check and print the findings as warnings.",
+    details: "Offline and fast: reads one file (or - for bounded UTF-8 stdin) and needs no running serve and no local state. Reports every block the browser ignores (question blocks, with a reason code and line), data: images that make the page heavy and colab-attachment: references that cannot show. Exits 1 when it finds anything. With --page, references are also resolved against that page's current document attachments in the local store. page create and page write run the same check and print the findings as warnings. Hints are advice that blocks nothing: they come in a separate hints array ({code, message}), never refuse under --strict and never change the exit code; page check and page create show them.",
 };
 
 /// Where `page check` and its siblings look for the attachments a reference names.
@@ -168,6 +168,38 @@ fn message(code: &str) -> String {
     }
 }
 
+/// The sentence for one hint code. The code is the stable part; this wording may improve. It names
+/// the commands, not the templates or styles they list, which are the commands' to say.
+fn hint_message(code: &str) -> &'static str {
+    match code {
+        "own-style-only" => {
+            "This page styles itself and carries neither the starter nor the design system. Start from a template (tmt colab template ls) or the starter (tmt colab skill page-style), and ask the reader to decide with tmt-question, not in prose (tmt colab skill questions)."
+        }
+        _ => "See the hint code in the colab-v1 page markup check.",
+    }
+}
+
+fn hint_json(hint: &Hint) -> Value {
+    json!({ "code": hint.code, "message": hint_message(hint.code) })
+}
+
+/// The `hints` member of a check or create result: always an array, empty when there is no advice.
+/// Hints are separate from findings: they never ignore a block, never make `--strict` refuse and
+/// never change an exit code.
+pub fn hints_json(hints: &[Hint]) -> Value {
+    Value::Array(hints.iter().map(hint_json).collect())
+}
+
+/// Hints on stderr in human mode, after the command's own output.
+pub fn print_hints(hints: &[Hint]) -> Result<()> {
+    for hint in hints {
+        let mut err = tmt_cli_style::stream::stderr();
+        let terminal = err.terminal();
+        tmt_cli_style::message::hint(&mut err, terminal, hint_message(hint.code))?;
+    }
+    Ok(())
+}
+
 fn finding_json(finding: &Finding) -> Value {
     let mut value = json!({
         "code": finding.code,
@@ -207,6 +239,7 @@ fn report_json(report: &Report, bytes: usize) -> Value {
             "ignored": report.review_blocks.saturating_sub(report.reviews.len()),
         },
         "findings": findings_json(&report.findings),
+        "hints": hints_json(&report.hints),
     })
 }
 
@@ -274,11 +307,20 @@ pub fn inspect(source: &str, attachments: Attachments<'_>) -> Result<Report> {
 /// refuses the command before anything is committed; otherwise the findings come back to be
 /// printed as warnings after the page is published.
 pub fn gate(source: &str, args: &ArgMatches, attachments: Attachments<'_>) -> Result<Vec<Finding>> {
+    gate_with_hints(source, args, attachments).map(|(findings, _)| findings)
+}
+
+/// [`gate`], and the hints for a command that shows them (`page create`). Hints never refuse.
+pub fn gate_with_hints(
+    source: &str,
+    args: &ArgMatches,
+    attachments: Attachments<'_>,
+) -> Result<(Vec<Finding>, Vec<Hint>)> {
     let report = inspect(source, attachments)?;
     if args.get_flag("strict") && !report.findings.is_empty() {
         return Err(refusal(&report, source.len(), "The page"));
     }
-    Ok(report.findings)
+    Ok((report.findings, report.hints))
 }
 
 /// Warnings on stderr in human mode, for a command that already published.
@@ -371,6 +413,7 @@ pub fn run(state: Option<(&Store, &Keyring, &str, &mut Decoder)>, args: &ArgMatc
         rows.push((line.as_str(), describe(finding)));
     }
     tmt_cli_style::detail::write(&mut out, terminal, "PAGE CHECK", &rows)?;
+    print_hints(&report.hints)?;
     if report.findings.is_empty() {
         Ok(())
     } else {

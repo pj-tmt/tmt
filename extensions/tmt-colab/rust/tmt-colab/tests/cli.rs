@@ -9921,6 +9921,126 @@ fn page_check_is_offline_and_names_every_ignored_block_with_its_line() {
     assert!(!pilot.root.join("selected").exists());
 }
 #[test]
+fn page_check_hints_at_a_self_styled_page_without_failing_it_and_stays_quiet_otherwise() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("styled.html");
+    let path = file.to_str().unwrap();
+    // Its own CSS and nothing of the starter or the design system: a hint, and the check still passes.
+    fs::write(&file, "<style>p{color:red}</style><p>Hi</p>").unwrap();
+    let output = pilot
+        .command()
+        .args(["page", "check", path, "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["findings"], json!([]));
+    let hints = report["hints"].as_array().unwrap();
+    assert_eq!(hints.len(), 1, "{report}");
+    assert_eq!(hints[0]["code"], "own-style-only");
+    // The message names the commands, not the templates they list, and carries no line or severity.
+    let message = hints[0]["message"].as_str().unwrap();
+    assert!(message.contains("tmt colab template ls"), "{message}");
+    assert!(message.contains("tmt colab skill questions"), "{message}");
+    assert_eq!(hints[0].as_object().unwrap().len(), 2, "{hints:?}");
+    // Human mode says it as a hint line and still exits 0.
+    let human = pilot
+        .command()
+        .args(["page", "check", path])
+        .output()
+        .unwrap();
+    assert_eq!(human.status.code(), Some(0), "{human:?}");
+    assert!(
+        String::from_utf8_lossy(&human.stderr).contains("hint:"),
+        "{human:?}"
+    );
+    // A bare page, a design-system page, the starter's layer and the earlier starter get no hint.
+    for source in [
+        "<p>Plain</p>",
+        "<style>p{color:red}</style><section class=\"tmt-ui-card\">Hi</section>",
+        "<style>@layer tmt-starter{p{margin:0}}</style><p>Hi</p>",
+        "<style>:root{--ink:#000;--paper:#fff}</style><p>Hi</p>",
+    ] {
+        fs::write(&file, source).unwrap();
+        let clean = pilot.call(&["page", "check", path, "--json"]);
+        assert_eq!(clean["hints"], json!([]), "{source}");
+    }
+    // A finding and a hint are separate channels: the finding fails the check, the hint rides along.
+    fs::write(
+        &file,
+        format!("<style>p{{color:red}}</style>{}", dirty_page()),
+    )
+    .unwrap();
+    let output = pilot
+        .command()
+        .args(["page", "check", path, "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["hints"][0]["code"], "own-style-only");
+    assert!(
+        report["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|finding| finding["code"] != "own-style-only")
+    );
+}
+#[test]
+fn page_create_shows_the_hint_beside_the_warnings_and_strict_never_refuses_on_it() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("styled.html");
+    fs::write(&file, "<style>p{color:red}</style><p>Hi</p>").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Styled",
+        "--layout",
+        "column",
+        "--file",
+        file.to_str().unwrap(),
+        "--strict",
+        "--json",
+    ]);
+    assert_eq!(created["warnings"], json!([]));
+    assert_eq!(created["hints"][0]["code"], "own-style-only", "{created}");
+    // A page from a template carries the starter: no hint.
+    let templated = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Report",
+        "--template",
+        "report",
+        "--strict",
+        "--json",
+    ]);
+    assert_eq!(templated["hints"], json!([]));
+    // Human mode prints the hint on stderr after the created block.
+    let human = pilot
+        .command()
+        .args([
+            "page",
+            "create",
+            "--title",
+            "Again",
+            "--layout",
+            "column",
+            "--file",
+            file.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(human.status.success(), "{human:?}");
+    assert!(
+        String::from_utf8_lossy(&human.stderr).contains("hint:"),
+        "{human:?}"
+    );
+}
+#[test]
 fn page_check_names_a_skipped_group_with_the_questions_it_took_and_warns_on_a_bad_label() {
     let pilot = Pilot::new(None);
     let file = pilot.root.join("groups.html");

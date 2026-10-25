@@ -5109,7 +5109,7 @@ remain unavailable. No schema, dependency or separate replay store is added.
 
 `tmt colab skill [<name>]` prints human-only guidance before core discovery or
 state access. Without a name it prints the embedded root `SKILL.md` exactly.
-Names are compile-time keys (`layout`, `components`, `links`, `page-style`, `questions`),
+Names are compile-time keys (`layout`, `components`, `links`, `page-style`, `projects`, `questions`),
 not paths; unknown names return `COLAB_INPUT_INVALID` and list the valid keys.
 Each root pointer names both `references/<name>.md` in the installed skill tree
 and the offline command. Authority, pairing, bearer-seed, user-only sharing,
@@ -6104,7 +6104,7 @@ skipped group adds `questionsSkipped`, the number of `tmt-question` elements ins
 are ordered by line, element, ordinal and code.
 
 Success is `{format:"tmt-colab-page-check",version:1,ok,bytes,questions:{admitted,ignored},
-reviews:{admitted,ignored},readings:{admitted,ignored},findings}`. With no finding it exits 0. With any finding the command exits 1 with
+reviews:{admitted,ignored},readings:{admitted,ignored},findings,hints}`. With no finding it exits 0. With any finding the command exits 1 with
 `COLAB_PAGE_CHECK`, and `--json` prints the same report with `ok:false` and the usual
 `{error:{code,message}}` attached; human output lists each finding with its line first.
 
@@ -6114,6 +6114,20 @@ findings are warnings: on stderr in human mode and a `warnings` array (the findi
 created has no attachments, so every well-formed reference in its first source is
 `attachment-ref-unresolved`. `--strict` turns any finding into a `COLAB_PAGE_CHECK` refusal
 before anything is committed; the JSON error carries the report.
+
+A hint is advice about how the page was started, not a defect in it: `{code, message}` (no line,
+no severity; `message` may change, `code` is stable). `page check` reports them as `hints` (`[]`
+when none) and prints each as a `hint:` line on stderr; `page create` reports the same array as
+`hints` in its JSON result and prints the lines after its warnings. A hint never changes the exit
+code, never counts as a finding and `--strict` ignores it. The only code is `own-style-only`: the
+page styles itself (a `<style>` element or a `style` attribute) and carries neither the page-style
+starter (`tmt-starter`, or both `--ink:` and `--paper:` of its earlier form) nor a design-system
+marker (`tmt-ui-`, `<tmt-icon`). Its message points at `tmt colab template ls`, the starter
+(`tmt colab skill page-style`) and `tmt-question` (`tmt colab skill questions`); it names the
+commands, not the templates they list, which `template ls` may grow. A bare page and a template page
+get none. There is no check that a page asks a decision in prose instead of a `tmt-question`:
+decision wording matched 28 of 67 local pages without a question and 25 of the 30 that already
+had one, so no phrase separates the two.
 
 Reason codes (a block fails every rule listed; title rules wait for exactly one heading and
 the choice-shape rules for a valid kind, so one defect is not reported twice):

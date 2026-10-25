@@ -49,6 +49,10 @@ const SKILL_REFERENCES: &[(&str, &str)] = &[
         include_str!("../../../skills/tmt-colab/references/page-style.md"),
     ),
     (
+        "projects",
+        include_str!("../../../skills/tmt-colab/references/projects.md"),
+    ),
+    (
         "questions",
         include_str!("../../../skills/tmt-colab/references/questions.md"),
     ),
@@ -883,8 +887,9 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
                 .unwrap_or_default(),
         };
         // A new page has no attachments: every reference in its first source is unresolved.
-        let warnings = cli_page_check::gate(&source, args, cli_page_check::Attachments::NewPage)?;
-        return cli_management::create_page(root, args, source, &page_layout, &warnings);
+        let (warnings, hints) =
+            cli_page_check::gate_with_hints(&source, args, cli_page_check::Attachments::NewPage)?;
+        return cli_management::create_page(root, args, source, &page_layout, &warnings, &hints);
     }
     if command == "patch" {
         return cli_patch::run(root, args);

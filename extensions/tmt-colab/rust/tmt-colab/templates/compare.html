@@ -22,8 +22,14 @@
     <p>The proposed behaviour.</p>
   </div>
 </section>
-<!-- component: section. The decision the comparison leads to. See tmt colab skill components, section Section -->
+<!-- component: section and question. The decision the comparison leads to, asked as a question the reader answers, never in prose. See tmt colab skill components, sections Section and Questions. Rules for questions: tmt colab skill questions -->
 <section class="tmt-ui-card">
   <h2 class="tmt-ui-card-title">Recommendation</h2>
   <p><span class="waiting">◆</span> Waiting for the reader's decision</p>
+  <div>
+    <tmt-question data-id="{{uuid:decision}}" data-kind="single" data-agent="Your agent name">
+      <p data-question>Which side do you choose?</p>
+      <span data-choice>Now</span><span data-choice>After</span>
+    </tmt-question>
+  </div>
 </section>

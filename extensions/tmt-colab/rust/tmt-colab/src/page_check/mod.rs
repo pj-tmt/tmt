@@ -9,6 +9,7 @@
 
 mod anchors;
 mod group;
+mod hints;
 mod image;
 pub(crate) use anchors::SummaryAnchors;
 mod question;
@@ -17,6 +18,7 @@ mod review;
 mod tree;
 mod ui;
 
+pub use hints::{Hint, uses_design};
 pub(crate) use image::repair_references;
 
 use crate::decoder::BASELINE_BYTES;
@@ -140,6 +142,8 @@ pub struct Report {
     /// How many `tmt-review` blocks the source holds, shown or not.
     pub review_blocks: usize,
     pub findings: Vec<Finding>,
+    /// Advice that blocks nothing (see `hints`).
+    pub hints: Vec<Hint>,
     /// Each distinct well-formed reference once, in document order.
     pub references: Vec<Reference>,
 }
@@ -206,7 +210,9 @@ pub fn check(source: &str) -> Result<Report, SourceTooLarge> {
             });
         }
     };
-    Ok(inspect(&tree))
+    let mut report = inspect(&tree);
+    report.hints = hints::of(source, &tree);
+    Ok(report)
 }
 
 /// A source nested past the depth where a browser's parse and ours stop agreeing.

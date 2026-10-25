@@ -23,6 +23,21 @@ Do not change provider or TMT configuration to bypass a refusal. Give page
 links only to the requested recipient. Read-only sharing links contain a bearer
 seed; never create or disclose them to bypass pairing.
 
+## Start and ask
+
+Start a page from `tmt colab page create --template NAME` (`tmt colab template ls`) or from the
+starter in [page-style](references/page-style.md) (`tmt colab skill page-style`).
+A page that needs the reader to decide asks with `tmt-question`, never in prose:
+
+```html
+<div><tmt-question data-id="UUID" data-kind="single" data-agent="Your name">
+  <p data-question>Which option?</p>
+  <span data-choice>First</span><span data-choice>Second</span>
+</tmt-question></div>
+```
+
+A fresh UUID per `data-id`; rules under Ask and flag.
+
 ## Set up a page
 
 Check `--help` for both extensions; install only with user consent:
@@ -52,8 +67,8 @@ there themselves. Wait for their confirmation; never answer for them.
 To send, pair with `--talk` or use the Remote settings toggle.
 
 Find pages: `tmt colab ls --json` (cached titles; folds misses). Create from UTF-8 with
-`--layout column` (most pages), `full` or `canvas --reason TEXT`, or `--template NAME`
-(`template ls`); `page layout PAGE KIND` changes it:
+`--layout column` (most pages), `full` or `canvas --reason TEXT`, or a template (above);
+`page layout PAGE KIND` changes it:
 
 ```sh
 tmt colab page create --title "Weekly plan" --layout column --file page.html --json
@@ -81,7 +96,7 @@ tmt colab page check page.html --json
 Offline: lists ignored markup, heavy `data:` images and unusable `colab-attachment:` references,
 with `code` and `line`. Exit 1 means fix the page first.
 `page create` and `page write` run the same check and report `warnings`; `--strict`
-refuses to publish while any remain.
+refuses to publish while any remain. `hints` are advice that blocks nothing.
 
 ## Edit a page
 
@@ -131,10 +146,10 @@ Verify stored bytes and rendering after writing.
 
 ## Ask and flag
 
-A page that asks the reader to decide uses `tmt-question`; a must-read passage uses `tmt-read`.
-Put each beside its passage, in a `div`, `li` or `td`, with a fresh UUID per `data-id`. Copy the
-examples from the comment after the starter's `</style>` ([page-style](references/page-style.md)). A question inside `<tmt-questions>` must not carry `data-group`
-(`question-group-conflict`). Detail: [questions](references/questions.md) (`tmt colab skill questions`),
+A must-read passage uses `tmt-read`. Put a question or passage beside its text, in a `div`, `li`
+or `td`, with a fresh UUID per `data-id`; more examples are in the comment after the starter's
+`</style>` ([page-style](references/page-style.md)). A question inside `<tmt-questions>` must not
+carry `data-group` (`question-group-conflict`). Detail: [questions](references/questions.md) (`tmt colab skill questions`),
 [components](references/components.md#questions), [reading](references/reading.md)
 (`tmt colab skill reading`), [reviews](references/reviews.md) (`tmt colab skill reviews`).
 Tasks: [work](references/work.md) (`tmt colab skill work`).
@@ -211,10 +226,5 @@ keeps it. Reload never sends.
 
 ## Projects
 
-Projects organize the owner's page list (a page can be in several); display-only, unsigned.
-Commands: `tmt colab project add|remove PAGE NAME...`, `project create NAME`, `project ls`,
-`project rename NAME NEW`, `project delete NAME` (rename merges onto an existing project;
-rename and delete reach archived pages and never delete one). A name is 1 to 32 characters (no control characters, no edge or
-doubled spaces); a page is in at most 8. `add` and `remove` replace the page's set (last
-writer wins); `changed:false` means no change. `ls` and `show --json` list each page's
-`projects`; `ls --project NAME` filters. `pin|unpin PAGE`: Home order (20 max).
+Projects organize the owner's page list: [projects](references/projects.md)
+(`tmt colab skill projects`).
