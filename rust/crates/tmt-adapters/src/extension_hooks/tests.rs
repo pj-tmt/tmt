@@ -261,6 +261,7 @@ fn a_slow_first_start_is_retryable_and_never_incompatible() {
             .ends_with("Run again: tmt extension hooks enable cold"),
         "{error}"
     );
+    assert!(error.to_string().contains("If it misses again"), "{error}");
     assert!(started.exists());
     assert!(!consent_path(&paths.global_dir).exists());
     let consent = enable(&paths, "cold", bin.as_os_str(), &executable).unwrap();

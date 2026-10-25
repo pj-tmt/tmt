@@ -324,8 +324,7 @@ fn probe(name: &str, executable: &Path, tmt: &Path) -> Result<Vec<String>, Exten
         .map_err(|error| {
             if error.kind == CommandFailure::Timeout {
                 ExtensionHookError::Unanswered(format!(
-                    "The extension did not answer the hook capability probe within {} second. A newly installed executable can be slow to start the first time. Run again: tmt extension hooks enable {name}",
-                    PROBE_DEADLINE.as_secs()
+                    "The extension did not answer the hook capability probe in time. A newly installed executable can be slow to start the first time. If it misses again, the extension does not answer within the limit. Run again: tmt extension hooks enable {name}"
                 ))
             } else {
                 ExtensionHookError::Incompatible(
