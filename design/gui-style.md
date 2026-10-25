@@ -321,6 +321,12 @@ mark-plus-word Needs-you chip at the right. The current page is excluded. Projec
 write the same search edit as the query chips; plural memberships wrap inside a result.
 The shared dialog owns its header rule, width and scrim.
 
+As the global search (#4841) the same dialog is titled Search TMT, lists labelled groups in one
+scrollable list (Navigation, then Colab, then each module's own, such as Ops and Remote) with a
+quiet heading each, and grows to about six rows before it scrolls, capped by the viewport. The
+project picker is labelled Colab: it and the author filter scope only the Colab group. A group with
+no admitted data shows no heading and no row, and one active option moves across the groups.
+
 - Keep the query and project rows above a scrollable, single-column result list, with no
   loading flash when a cached list is available. The input keeps focus while
   arrows move the active result. Filter suggestions get the keys first; otherwise
