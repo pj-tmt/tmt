@@ -120,9 +120,9 @@ dependencies; the architecture guard enforces that boundary.
 `rust/crates/tmt-tui` is an internal, unpublished, application-neutral presentation
 leaf for TMT terminal UIs (markup admission, one Taffy geometry computation, Ratatui
 paint, reusable components). It has no application vocabulary, acquires no terminal, clock,
-settings or provider data, and takes its tokens from `tmt-cli-style` roles. The guard
-permits only XML parsing, borrowed JSON, shared style, private Taffy and Ratatui, never
-core, adapters, CLI or extension behavior. Ops is its sole reviewed consumer;
+settings or provider data, and takes its tokens from `tmt-cli-style` roles. The
+[dependency guard](rust/crates/tmt-cli/tests/architecture/policy.rs) owns its allowlist;
+core, adapters, CLI and extension behavior are excluded. Ops is its sole reviewed consumer;
 new consumers/dependencies go to tmt-lead. See the [`tmt-tui` skill](.agents/skills/tmt-tui/SKILL.md).
 
 `rust/crates/tmt-invoke` owns executable discovery, bounded byte capture, child-only
@@ -193,16 +193,9 @@ nothing.
 
 ### Core command surface
 
-The grammar owns primary names and accepted aliases; core reserves them before
-external dispatch. The public surface groups into setup and guidance (`init`,
-`config`, `completion`, `help`, `learn`, `install`, `setup`); identities and
-bindings (`identity`, `ls`, `add`, `name`/`this`, `marked`, `whoami`, `unbind`,
-`rm`, `mv`, `notes path`); foreground launch and channels (`run`, `resume`,
-`channel`); profiles and exchange (`role`, `preamble`, `x`, `reply`, `result`,
-`inbox`, `answer`, `talk`/`send`, `check`/`read`); rooms and recovery (`room`,
-`workspace`); `focus`; local extension interfaces (`api`, `mcp`); native
-installation (`upgrade`/`update`, `uninstall`, `extension`, `driver`). Hidden
-internal commands are not a public surface.
+The [grammar](rust/crates/tmt-cli/src/grammar.rs) owns primary names, aliases and
+the public help surface; core reserves its names before external dispatch.
+Hidden internal commands are not a public surface.
 Core owns [workspace geometry/codecs](contracts/workspace-v1.md#restore-authority) and generations; adapters, atomic publication/fenced
 creation; CLI, consent/output. Restore pins bytes; full restore uses ordinary
 resume/external dispatch in created panes. Layout-only grants no launch authority.
@@ -242,9 +235,7 @@ a working directory, active pane or sole identity.
   `tmt setup` and its recorded upgrade refresh change provider settings.
 - `tmt-core::endpoint::ProcessIncarnation` (PID plus core's own start token) is the
   one value for comparing local processes.
-- Concrete implementations: `storage::{identities,identity_metadata,identity_status,bindings}`
-  and `tmux::{metadata,evidence,binding,caller,transport}`; `binding_command`
-  checks caller/target; CLI `target` selects recorded servers. Module rules:
+- Concrete caller/target and storage rules:
   [identity and bindings](.agents/skills/tmt-core-runtime/references/identity-bindings.md)
   and [workspace recovery](.agents/skills/tmt-core-runtime/references/workspace.md).
 
@@ -280,17 +271,23 @@ are classified once and projected through `tmt-command-output::Failure::storage_
 
 `tmt-core::request::RequestService` owns preparation, delivery-state transitions,
 exact final submission, waiter release, attention revisions and retention
-housekeeping; `storage::requests` owns SQL and cleanup; `request::attention` owns attention.
-`request::digest` owns [delivery/history](contracts/extension-api.md#digest-policy-and-checklist) and the mode: a [passthrough](contracts/request-response-v1.md#passthrough) is a person's typed text, not a request; it settles that agent's oldest open request, earns its turn's final (`request_passthrough`); `tmt-adapters::passthrough` owns the rules `talk` and `dispatch.create` share; `request::delivery` derives [message state](contracts/request-response-v1.md#message-state), decides send-now; `request::flow` owns [content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow).
-Adapters admit idle handoff; extensions schedule. `tmt-adapters::request_frame` owns the frame `talk` sends and Digest pastes per item; `digest` renders a sealed checklist from it within 32 KiB; a claim seals only the prefix that fits. Clocks sample at transaction entry;
+housekeeping. [Delivery/history](contracts/extension-api.md#digest-policy-and-checklist),
+[message state](contracts/request-response-v1.md#message-state) and
+[content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow)
+have one Core owner each; the [storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md)
+maps their modules. A [passthrough](contracts/request-response-v1.md#passthrough) is
+a person's typed text, not a request; it settles that agent's oldest open request
+and earns its turn's final. CLI and API share admission.
+Adapters admit idle handoff; extensions schedule. Talk and Digest share one item
+frame; checklist claims seal whole-item prefixes within 32 KiB (live paste may
+carry one oversized first item; hooks leave it held). Clocks sample at transaction entry;
 no transaction spans transport, and uncertainty never authorizes replay. Finals are
 immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient
 acknowledgment are independent. `RequestRoute` separates unbound pane delivery from
 the durable identity inbox, which settles `queued`. Unbound identity delivery uses
-the foreground observer and recipient pull. Reply notice windows are persisted and composed by
-`request::notification` and `delivery::notices`, with finite detached workers owned
-by `process::detached`. See the [request contract](contracts/request-response-v1.md)
-for behavior and limits; module rules: [storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md).
+the foreground observer and recipient pull. Reply notice windows are persisted;
+detached workers are finite. The [request contract](contracts/request-response-v1.md)
+owns behavior and limits.
 
 ### Tmux and process effects
 
@@ -321,9 +318,7 @@ See the
 `DriverDescriptor` and adapters feed `drivers::Registry` for detection, setup,
 launch, caller recognition, foreground argv, allowance reads and typed refusals.
 Each descriptor sets `full` (hooks/runtime) or `basic` (detection/skills), published
-as `driverSupport` by `tmt ls`. Detection never starts agents. Claude owns
-`drivers/claude/plugins/` prompt-picker plugins (root `.claude-plugin` marketplace;
-user-installed) and a read-only missing-plugin hint. Launch adds no plugin
+as `driverSupport` by `tmt ls`. Detection never starts agents. Launch adds no plugin
 arguments or persistent provider settings. Module rules and name ownership:
 [agent drivers](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#agent-drivers).
 
@@ -351,11 +346,12 @@ never prove loss. External runtime launch/setup/hooks remain unwired. Details:
 Managed agent guidance is a filesystem concern separate from application state.
 `tmt_core::skill_catalog` is the one list of bundled skill names; the bundle is
 embedded and materialized by digest under `skill_installation`, and the
-architecture test fails on a skill-name list anywhere else. Core install exposes
+architecture test rejects duplicate multi-name lists in production Rust. Core install exposes
 only `tmt` and `tmt-inbox`.
 [Retired bundle verification and preservation](.agents/skills/tmt-core-runtime/references/install-architecture.md#managed-skills) follow the installer owner;
-explicit generic owner removal retains its existing authority, and explicit `--purge` retains its existing semantics. No retired product
-catalog, embedded source, installation or service cleanup remains. Skill installation never opens configuration,
+explicit generic owner removal retains its existing authority, and explicit `--purge` retains its existing semantics.
+Refresh and default uninstall preserve retired links, owner records and sources.
+Skill installation never opens configuration,
 SQLite or tmux.
 [Catalog publication](.agents/skills/tmt-core-runtime/references/install-architecture.md#managed-skills) follows the installer owner.
 Extension-owned skills arrive as bytes through `skills.install`/`skills.remove`
@@ -521,14 +517,13 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 ## Shared extension state layout
 
 `rust/crates/tmt-extension-state` is Remote's unpublished leaf.
-Store owns managed/adopted SQLite transactions and typed newer refusals.
-Document/Guard own atomic byte updates/fail-fast ownership.
-Existing Store files use lstat to preserve locks.
+It owns SQLite/atomic document updates and fail-fast guards; newer state is refused,
+and admission preserves live locks.
 Remote, Colab, Ops, adapters' config/hook consent and Digest history consume it; no TMT/crypto.
 Core and Colab's model cannot consume it. Guards check reviewed
 manifest/source edges across dependency kinds, aliases and targets.
 
-[Crate docs](rust/crates/tmt-extension-state/src/lib.rs) own admission and publication.
+[Crate docs](rust/crates/tmt-extension-state/src/lib.rs) own admission and publication mechanics.
 Schemas, identity derivation and Remote's serve-lock proof remain extension-owned;
 the leaf discovers no roots and interprets no Core state or provider configuration.
 

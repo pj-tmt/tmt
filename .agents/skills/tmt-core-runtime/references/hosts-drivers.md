@@ -299,6 +299,10 @@ Attach/focus and the Ops stream are not yet shipped.
 
 ## Agent drivers
 
+Claude owns `drivers/claude/plugins/` prompt-picker plugins (root `.claude-plugin`
+marketplace; user-installed) and a read-only missing-plugin hint. Launch adds no
+plugin arguments or persistent provider settings.
+
 - One `DriverDescriptor` (name, executables, hook format and display hue) plus one
   adapter module per driver; `drivers::Registry` joins them in descriptor order for
   setup, detection, skill targets, launch, runtime registration and caller recognition.
