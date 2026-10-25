@@ -129,7 +129,7 @@ Each item is `{responseId, text, endedMs, provider, truncated, originalBytes, se
 - `endedMs` is Core's observed turn-end time in Unix milliseconds, not a provider
   timestamp or a delivery/completion proof. Newest means capture order; an
   internal committed sequence breaks equal timestamps and wall-clock rollback.
-- `provider` is `claude` or `codex`. `sessionId`, when available, is the admitted
+- `provider` is `agy`, `claude` or `codex`. `sessionId`, when available, is the admitted
   provider session identifier; otherwise the field is omitted, not null.
 - `requestId` is present exactly when this final is the captured answer of a
   [passthrough](request-response-v1.md#passthrough) turn: the request whose text started or joined
@@ -138,8 +138,8 @@ Each item is `{responseId, text, endedMs, provider, truncated, originalBytes, se
   and each of those requests carries the same `responseId` on its `answer`. A final that answered
   no request has no `requestId` (omitted, not null), and neither has one whose request has expired.
 
-Capture uses only the turn-end hook TMT installs: Claude `Stop` and Codex
-`Stop`/notify. It requires the existing verified current binding/session admission
+Capture uses only the turn-end hook TMT installs: Antigravity (`agy`) and Claude
+`Stop`, or Codex `Stop`/notify. It requires the existing verified current binding/session admission
 and that hook, which every consented `tmt setup` installs, `--no-usage` included.
 Usage collection is separate: with `--no-usage` the hook keeps the agent's answers,
 taking the final text from the hook payload alone, and reads no transcript, token
@@ -150,13 +150,15 @@ subagent event, malformed payload or missing admissible final text creates no
 entry, not an empty replacement. Hooks keep their existing finite budgets and
 best-effort, non-veto behavior.
 
-Both drivers take `last_assistant_message` from the admitted turn-end payload
+Claude and Codex take `last_assistant_message` from the admitted turn-end payload
 when it is a non-empty string. Claude, whose transcript receives the final record
 slightly after the Stop fires, otherwise extracts the final main-conversation
 assistant text blocks, in their original order joined by a newline, from the Stop
 handler's existing bounded transcript read; it performs no additional transcript
-read for this feature. User text, tools and thinking are excluded. Neither driver
-scrapes pane text or follows an unverified transcript path. This is bounded turn-end observation, not a
+read for this feature. Antigravity takes the non-empty string `finalModelOutput`
+from its main-conversation Stop; `USER_CANCELED` and subagent stops retain nothing.
+The stored provider checks match the shipped full runtime registry. User text, tools
+and thinking are excluded. No driver scrapes pane text or follows an unverified transcript path. This is bounded turn-end observation, not a
 complete transcript backup or a guarantee that an identity has prior text.
 
 Core's SQLite store retains each capture for 7 days after its turn ended, and at
@@ -165,11 +167,14 @@ the capture's transaction, and records the newest answer it pruned for `coverage
 These numbers belong to the conversation and do not follow `exchange.retentionDays`. Capture
 occurs only when the existing Stop admission commits a turn end, in that same
 CAS transaction; a duplicate Stop treated as a no-op captures nothing. A Stop
-reported while the provider continues because a Stop hook blocked an earlier one
+reported by Claude or Codex while the provider continues because a Stop hook blocked an earlier one
 (`stop_hook_active`, for example a Digest checklist) ends that continuation: it is
 admitted after the earlier end, and its text is captured. Text is
 not deduplicated: two distinct committed turns with identical text are retained
-separately. The transaction appends the capture and removes overflow and expired
+separately. Antigravity's main-turn final is retained before Digest continues it;
+the subsequent Digest-continued final is not yet captured without a new admitted
+turn start. [#5166](https://github.com/tmt-ninja/tmt/issues/5166) tracks its provider
+lifecycle evidence and capture support. The transaction appends the capture and removes overflow and expired
 entries. A capture expires at `endedMs + 7 * 86,400,000`.
 At equality it is expired: reads omit it even before opportunistic cleanup.
 Reads and config changes never renew an existing entry's deadline.

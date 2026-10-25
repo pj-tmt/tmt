@@ -4,6 +4,8 @@ use tmt_core::limits::MAX_JS_SAFE_INTEGER;
 use super::errors::{StorageError, StorageErrorCode, classify, incompatible};
 
 #[cfg(test)]
+mod agy_capture_tests;
+#[cfg(test)]
 mod announcement_tests;
 #[cfg(test)]
 mod auto_name_tests;
@@ -381,6 +383,10 @@ const MIGRATIONS: &[Migration] = &[
     migration!(
         "publish typed configured Digest receiving",
         "schema/078.sql"
+    ),
+    migration!(
+        "admit every full runtime in retained finals",
+        "schema/079.sql"
     ),
 ];
 
