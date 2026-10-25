@@ -5,15 +5,20 @@ import { titleKey } from '../src/keyring.js';
 
 const stored = new Map<string, unknown>();
 let unavailable = false;
+/** Keys written to the title store, in order: a write is the cost the cache skips. */
+let writes: string[] = [];
 vi.mock('../src/storage.js', () => ({
   record: async (key: string, ...values: unknown[]) => {
     if (unavailable) throw new Error('Storage unavailable');
-    if (values.length) stored.set(key, structuredClone(values[0]));
-    else return structuredClone(stored.get(key));
+    if (values.length) {
+      writes.push(key);
+      stored.set(key, structuredClone(values[0]));
+    } else return structuredClone(stored.get(key));
   },
 }));
 beforeEach(() => {
   stored.clear();
+  writes = [];
   unavailable = false;
   vi.stubGlobal('navigator', {
     locks: { request: async (_name: string, action: () => unknown) => action() },
@@ -127,4 +132,31 @@ it('fills a missing hint once without replacing an opened title or its existing 
   abort.abort();
   expect(await cache.fillMissing('other', 'Cancelled', abort.signal)).toBeUndefined();
   expect(await cache.read('other')).toBeUndefined();
+});
+
+it('writes a title hint only when the title changed, and repairs one it cannot read', async () => {
+  const cache = new TitleCache('space', 'device');
+  const record = 'title:space:device:page';
+  const titleWrites = () => writes.filter((key) => key === record).length;
+  await cache.remember('page', 'Same title');
+  expect(titleWrites()).toBe(1);
+  const sealed = structuredClone(stored.get(record));
+  // Every accepted fold of an unchanged page reports its title again; none of them rewrites it.
+  await cache.remember('page', 'Same title');
+  await new TitleCache('space', 'device').remember('page', 'Same title');
+  expect(titleWrites()).toBe(1);
+  expect(stored.get(record)).toEqual(sealed);
+  // A rename is written once, and then it is the title that is skipped.
+  await cache.remember('page', 'Renamed');
+  await cache.remember('page', 'Renamed');
+  expect(titleWrites()).toBe(2);
+  expect(await new TitleCache('space', 'device').read('page')).toBe('Renamed');
+  // A record that no longer opens (tampered, or from another scope) is written over.
+  stored.set(record, { ...(stored.get(record) as object), ciphertext: 'AAAA' });
+  await cache.remember('page', 'Renamed');
+  expect(titleWrites()).toBe(3);
+  expect(await new TitleCache('space', 'device').read('page')).toBe('Renamed');
+  // An aborted or unavailable store neither writes nor throws.
+  unavailable = true;
+  await expect(cache.remember('page', 'Lost')).resolves.toBeUndefined();
 });

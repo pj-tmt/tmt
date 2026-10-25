@@ -31,7 +31,12 @@ export class TitleCache {
   /** Called only by the mounted owner after Live accepts a verified fold. */
   async remember(page: string, title: string, signal?: AbortSignal): Promise<void> {
     try {
-      await navigator.locks.request(this.#lock(page), () => this.#write(page, title, signal));
+      await navigator.locks.request(this.#lock(page), async () => {
+        // Every accepted fold of an unchanged page reports its title again. Only a change, or a
+        // record that no longer opens, is worth a seal and a write.
+        if ((await this.read(page)) === title) return;
+        await this.#write(page, title, signal);
+      });
     } catch {
       // Persistence is best-effort presentation, never a page/management mutation.
     }

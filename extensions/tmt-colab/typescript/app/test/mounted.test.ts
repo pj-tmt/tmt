@@ -38,6 +38,11 @@ const setup = vi.hoisted(() => {
     cachedTitles: new Map<string, string>(),
     /** The pages the management snapshot lists for the Home read. */
     snapshotPages: [] as { pageId: string; title?: string }[],
+    /** Home loads that reached the management snapshot, the signal each was given and a gate to hold one. */
+    snapshotSignals: [] as (AbortSignal | undefined)[],
+    snapshotGate: null as Promise<void> | null,
+    /** Times the owner chain was folded into page policies, and the pages each fold covered. */
+    policyFolds: [] as string[][],
     titleRead: vi.fn(async () => ({ title: 'Verified title' })),
     titleJoin: vi.fn(async () => {}),
     titleConnections: [] as {
@@ -113,12 +118,18 @@ vi.mock('../src/management.js', () => ({
     }
   },
   project: (page: unknown) => ({ page }),
+  projectPolicies: (pages: { pageId: string }[]) => {
+    setup.policyFolds.push(pages.map((page) => page.pageId));
+    return new Map(pages.map((page) => [page.pageId, page]));
+  },
   ManagementClient: class {
     read = setup.managementRead;
     prepare = setup.managementPrepare;
     send = setup.managementSend;
     verify = setup.managementVerify;
-    async snapshot() {
+    async snapshot(signal?: AbortSignal) {
+      setup.snapshotSignals.push(signal);
+      await setup.snapshotGate;
       return { boot: { pages: setup.snapshotPages, pageIds: [] }, log: [] };
     }
   },
@@ -628,6 +639,60 @@ it("Home prefers the owner's own title to the browser's hint and reads only for 
     mounted.close();
     setup.snapshotPages = [];
     setup.cachedTitles.clear();
+  }
+});
+
+it('concurrent Home reads share one load, and a reader that leaves cancels it only when none is left', async () => {
+  setup.register.mockReset().mockResolvedValue(setup.first);
+  setup.remote.mockReset().mockResolvedValue({});
+  setup.snapshotPages = [
+    { pageId: 'a', title: 'A' },
+    { pageId: 'b', title: 'B' },
+  ];
+  setup.snapshotSignals.length = 0;
+  setup.policyFolds.length = 0;
+  let release!: () => void;
+  setup.snapshotGate = new Promise<void>((done) => {
+    release = done;
+  });
+  const mounted = await mountedTransport();
+  try {
+    const first = new AbortController(),
+      second = new AbortController(),
+      third = new AbortController();
+    const a = mounted.transport.spaceHome(first.signal);
+    const b = mounted.transport.spaceHome(second.signal);
+    const c = mounted.transport.spaceHome(third.signal);
+    const left = a.catch((error: unknown) => error);
+    await vi.waitFor(() => expect(setup.snapshotSignals).toHaveLength(1));
+    // One reader leaving ends its own wait, not the load the others share.
+    first.abort();
+    expect(await left).toMatchObject({ name: 'AbortError' });
+    expect(setup.snapshotSignals[0]!.aborted).toBe(false);
+    release();
+    const [homeB, homeC] = await Promise.all([b, c]);
+    expect(homeB).toBe(homeC);
+    expect(homeB.pages.map((page) => page.id)).toEqual(['a', 'b']);
+    expect(setup.snapshotSignals).toHaveLength(1);
+    // The owner chain was folded once for the load, for every page in it.
+    expect(setup.policyFolds).toEqual([['a', 'b']]);
+    // A load that has finished is not reused: the next read sees the space as it is now.
+    setup.snapshotGate = null;
+    await mounted.transport.spaceHome(new AbortController().signal);
+    expect(setup.snapshotSignals).toHaveLength(2);
+    expect(setup.policyFolds).toHaveLength(2);
+    // When the last reader leaves, the load it was waiting on is cancelled.
+    setup.snapshotGate = new Promise<void>(() => {});
+    const only = new AbortController();
+    const abandoned = mounted.transport.spaceHome(only.signal).catch((error: unknown) => error);
+    await vi.waitFor(() => expect(setup.snapshotSignals).toHaveLength(3));
+    only.abort();
+    expect(await abandoned).toMatchObject({ name: 'AbortError' });
+    expect(setup.snapshotSignals[2]!.aborted).toBe(true);
+  } finally {
+    setup.snapshotGate = null;
+    setup.snapshotPages = [];
+    mounted.close();
   }
 });
 
