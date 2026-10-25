@@ -498,8 +498,10 @@ is added.
   outcomes unscoped without backfill. Epoch
   secrets are local key material, not an encrypted-at-rest guarantee.
 - `Store::open` creates and migrates, first copying an existing store (`schema::backup`:
-  `space.db.pre-v<N>.bak`, 0600, partial file synced and renamed, the two newest schemas kept; a failed copy
-  refuses to migrate with `COLAB_STORE_BACKUP_FAILED`) and, for a newer store, naming the newest copy this
+  `space.db.pre-v<N>.bak`, 0600, partial file synced and renamed; once the migration commits, the copy just
+  taken and the newest other stay and the rest go, and a failed migration prunes nothing; a failed copy
+  refuses to migrate with `COLAB_STORE_BACKUP_FAILED`; the plain file copy relies on journal mode DELETE,
+  which keeps the store one complete file, so the journal stays DELETE with `synchronous=FULL`) and, for a newer store, naming the newest copy this
   build can open in the `COLAB_STORE_NEWER` message (`schema::copies`; contract: Copy before a migration).
   `Store::read` and `Store::write_existing` open only
   existing 0600 state owned by the user, create nothing and never migrate;
