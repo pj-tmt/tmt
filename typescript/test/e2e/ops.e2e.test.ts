@@ -16,7 +16,8 @@ import { publishDigestStep } from './claude-digest-step.js';
 import { readCompleteJsonLines } from './harness.js';
 import { waitForFileContent } from './wait-for-file.js';
 import { storedDocument } from '../support/ops-state.js';
-import { withE2EFixture, type E2EFixture, type MockEvent } from './harness.js';
+import { withE2EFixture, processState, type E2EFixture, type MockEvent } from './harness.js';
+import { savedMemberLifetime } from './ops-saved-member-lifetime.js';
 
 /** Puts the built squad extension and a `tmt` launcher on the fixture PATH. */
 function installSquad(fixture: E2EFixture): void {
@@ -305,7 +306,10 @@ renameSync(output+'.tmp',output);
   });
 
   it('creates one saved member through the public host template and joins the frozen squad', async () => {
+    const owned: number[] = [];
+    let root = '';
     await withE2EFixture(async (fixture) => {
+      root = fixture.root;
       installSquad(fixture);
       expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
       expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
@@ -321,109 +325,340 @@ renameSync(output+'.tmp',output);
         `#!/bin/sh\nunset TMUX TMUX_PANE\nexec ${shellWord(fixture.tmuxPath)} -S ${shellWord(socket)} "$@"\n`
       );
       const log = path.join(fixture.root, 'new-member-input');
+      const lifetime = savedMemberLifetime(fixture, shim);
+      let failure: { error: unknown } | undefined;
+      try {
+        await fixture.attachSessionClient('e2e');
+        const shell = fixture.createShellPane('new-member-board');
+        lifetime.board(shell.pane);
+        fixture.tmux(['resize-window', '-t', shell.pane, '-x', '150', '-y', '43']);
+        fixture.tmux(['select-window', '-t', shell.pane]);
+        fixture.tmux([
+          'send-keys',
+          '-l',
+          '-t',
+          shell.pane,
+          `PATH=${shellWord(shim)}:$PATH tmt ops ui; echo NEW_MEMBER_BOARD_EXIT=$?`,
+        ]);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+        await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Home', 'Down', 'n']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('New member') && screen.includes('agent name'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'new-worker']);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Tab']);
+        fixture.tmux(['send-keys', '-l', '-t', shell.pane, path.join(shim, 'ops-new-peer')]);
+        // Model remains provider-default, Squad remains product, Host/session
+        // remain tmux/product, and Saved remains selected.
+        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(7).fill('Tab')]);
+        await fixture.waitForCapture(
+          (screen) =>
+            screen.includes('Will run') &&
+            screen.includes('new-worker') &&
+            screen.includes('ops-new-peer'),
+          shell.pane
+        );
+        expect(durableState(fixture)).toEqual(before);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('New member') && screen.includes('Opens with'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-t', shell.pane, 'End']);
+        await fixture.waitForCapture((screen) => {
+          const position = screen.match(/Read · \d+–(\d+) of (\d+)/);
+          return !position || position[1] === position[2];
+        }, shell.pane);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Enter']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('Created new-worker in product.'),
+          shell.pane
+        );
+        const created = durableIdentity(fixture, 'new-worker');
+        expect(created.lifetime).toBe('saved');
+        expect(before.identities.some((row) => row.id === created.id)).toBe(false);
+        expect(
+          durableState(fixture).identities.filter((row) => row.name === 'new-worker')
+        ).toHaveLength(1);
+        const listing = expectJsonResult(await fixture.runJsonCli(['ls'])) as {
+          identities: Array<{
+            id: string;
+            pane?: string;
+            target?: string;
+            location?: { host: string; session?: string };
+          }>;
+        };
+        const row = listing.identities.find((entry) => entry.id === created.id)!;
+        expect(row.location).toMatchObject({ host: 'tmux', session: 'product' });
+        const member = fixture
+          .tmux(['list-panes', '-a', '-F', '#{pane_id}|#{session_name}'])
+          .trim()
+          .split('\n')
+          .find((line) => line.endsWith('|product'))!
+          .split('|')[0]!;
+        expect(fixture.tmux(['show-options', '-p', '-v', '-t', member, '@tmt.opened']).trim()).toBe(
+          '1'
+        );
+        await fixture.waitForCapture((screen) => screen.includes('NEW_MEMBER_READY'), member);
+        fixture.tmux(['send-keys', '-l', '-t', member, 'causal-new-member-4582']);
+        fixture.tmux(['send-keys', '-t', member, 'Enter']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('NEW_MEMBER_REPLY:causal-new-member-4582'),
+          member
+        );
+        expect(fs.readFileSync(log, 'utf8')).toBe('causal-new-member-4582\n');
+        const squad = expectJsonResult<{
+          sections: Array<{ rows: Array<{ id: string }> }>;
+        }>(await squadCli(fixture, ['ls', '--squad', 'product']));
+        expect(
+          squad.sections.flatMap((section) => section.rows).some((entry) => entry.id === created.id)
+        ).toBe(true);
+        // Observe the modal closing before q; an adjacent Escape+q can be Alt-q.
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+        await fixture.waitForCapture(
+          (screen) => !screen.includes('New member') && screen.includes('new-worker'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('NEW_MEMBER_BOARD_EXIT=0'),
+          shell.pane
+        );
+        const launcher = lifetime.launcher()!;
+        const provider = lifetime.provider()!;
+        expect(launcher.pane).toBe(member);
+        expect(provider.launcher).toBe(launcher.pid);
+        let finished = false;
+        const cleanup = lifetime.finish();
+        void cleanup.then(
+          () => {
+            finished = true;
+          },
+          () => {
+            finished = true;
+          }
+        );
+        await waitForFileContent(lifetime.entered, { description: 'owned provider exit barrier' });
+        expect(fixture.mockProcessIsRunning(provider.pid)).toBe(true);
+        expect(fixture.mockProcessIsRunning(launcher.pid)).toBe(true);
+        expect(finished, 'cleanup must join the held provider and its Core launcher').toBe(false);
+        lifetime.release();
+        const pids = await cleanup;
+        owned.push(...pids);
+        expect(pids).toContain(launcher.pid);
+        expect(pids).toContain(provider.pid);
+        for (const pid of pids) expect(fixture.mockProcessIsRunning(pid)).toBe(false);
+      } catch (error) {
+        failure = { error };
+      } finally {
+        lifetime.release();
+        try {
+          await lifetime.finish();
+        } catch (cleanup) {
+          if (failure === undefined) failure = { error: cleanup };
+          else if (cleanup !== failure.error) console.error(cleanup);
+        } finally {
+          lifetime.close();
+        }
+      }
+      if (failure) throw failure.error;
+    });
+    expect(owned.length).toBeGreaterThanOrEqual(2);
+    for (const pid of owned) expect(processState(pid)).toBe('absent');
+    expect(fs.existsSync(root)).toBe(false);
+  });
+
+  it('switches the selected UUID through its host template and preserves its handoff', async () => {
+    await withE2EFixture(async (fixture) => {
+      installSquad(fixture);
+      expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
+      expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
+      const quote = (word: string) => `'${word.replaceAll("'", "'\\''")}'`;
+      const socket = assertPrivateSocket(fixture.socketPath, fixture.socketRoot);
+      const shim = path.join(fixture.root, 'switch-bin');
+      const native = path.join(fixture.root, 'switch-peers');
+      fs.mkdirSync(shim);
+      fs.mkdirSync(native);
       writeExecutable(
-        path.join(shim, 'ops-new-peer'),
-        `#!/bin/sh\nprintf 'NEW_MEMBER_READY\\n'\nwhile IFS= read -r line; do printf '%s\\n' "$line" >> ${shellWord(log)}; printf 'NEW_MEMBER_REPLY:%s\\n' "$line"; done\n`
+        path.join(shim, 'tmux'),
+        `#!/bin/sh\nunset TMUX TMUX_PANE\nexec ${quote(fixture.tmuxPath)} -S ${quote(socket)} "$@"\n`
+      );
+      const sessions = { codex: randomUUID(), claude: randomUUID() };
+      for (const provider of ['codex', 'claude'] as const) {
+        const peer = path.join(native, provider);
+        fs.copyFileSync('/opt/tmt-tests/claude', peer);
+        const scenario = path.join(fixture.root, `switch-${provider}.scenario.json`);
+        const report = path.join(fixture.root, `switch-${provider}.report.json`);
+        const calls = path.join(fixture.root, `switch-${provider}.calls.jsonl`);
+        fs.writeFileSync(
+          scenario,
+          JSON.stringify([
+            {
+              args: ['__hook', provider],
+              input: {
+                hook_event_name: 'SessionStart',
+                session_id: sessions[provider],
+                source: 'startup',
+              },
+            },
+            { args: ['whoami', '--json'] },
+          ])
+        );
+        const record = String.raw`require('node:fs').appendFileSync(${JSON.stringify(calls)},JSON.stringify(process.argv.slice(1))+'\n')`;
+        // The existing native lifecycle peer owns process shape and hooks.
+        // --listen retains it through the public running-driver observation.
+        writeExecutable(
+          path.join(shim, provider),
+          `#!/bin/sh
+${quote(process.execPath)} -e ${quote(record)} -- "$@" || exit "$?"
+exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenario)} ${quote(report)} --listen
+`,
+          0o700
+        );
+      }
+      // New windows inherit the server environment, not the board pane's PATH.
+      // Publish these scenario peers only to this fixture's asserted private server.
+      const serverPath = fixture.tmux(['show-environment', '-g', 'PATH']).trim();
+      expect(serverPath).toMatch(/^PATH=/);
+      fixture.tmux(['set-environment', '-g', 'PATH', `${shim}:${serverPath.slice(5)}`]);
+      expect(fixture.tmux(['show-environment', '-g', 'PATH']).trim()).toBe(
+        `PATH=${shim}:${serverPath.slice(5)}`
       );
       await fixture.attachSessionClient('e2e');
-      const shell = fixture.createShellPane('new-member-board');
-      fixture.tmux(['resize-window', '-t', shell.pane, '-x', '150', '-y', '43']);
-      fixture.tmux(['select-window', '-t', shell.pane]);
+      const source = fixture.createShellPane('switch-source').pane;
       fixture.tmux([
         'send-keys',
         '-l',
         '-t',
-        shell.pane,
-        `PATH=${shellWord(shim)}:$PATH tmt ops ui; echo NEW_MEMBER_BOARD_EXIT=$?`,
+        source,
+        `PATH=${quote(shim)}:$PATH tmt run --save worker codex`,
       ]);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
-      await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Home', 'Down', 'n']);
-      await fixture.waitForCapture(
-        (screen) => screen.includes('New member') && screen.includes('agent name'),
-        shell.pane
+      fixture.tmux(['send-keys', '-t', source, 'Enter']);
+      await waitForFileContent(path.join(fixture.root, 'switch-codex.report.json'), {
+        description: 'source lifecycle',
+      });
+      const identity = durableIdentity(fixture, 'worker');
+      expectJsonResult(
+        await fixture.runCli([
+          'ops',
+          'squad',
+          'add',
+          '--squad',
+          'product',
+          '--json',
+          '--',
+          identity.id,
+        ])
       );
-      fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'new-worker']);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Tab']);
-      fixture.tmux(['send-keys', '-l', '-t', shell.pane, path.join(shim, 'ops-new-peer')]);
-      // Model remains provider-default, Squad remains product, Host/session
-      // remain tmux/product, and Saved remains selected.
-      fixture.tmux(['send-keys', '-t', shell.pane, ...Array(7).fill('Tab')]);
+      const notes = path.join(fixture.globalDir, 'notes', identity.id, 'notes.md');
+      fs.mkdirSync(path.dirname(notes), { recursive: true });
+      fs.writeFileSync(notes, 'Current work: causal Ops switch 4584.');
+      const board = fixture.createShellPane('switch-board').pane;
+      fixture.tmux(['resize-window', '-t', board, '-x', '150', '-y', '43']);
+      fixture.tmux(['select-window', '-t', board]);
+      fixture.tmux([
+        'send-keys',
+        '-l',
+        '-t',
+        board,
+        `PATH=${quote(shim)}:$PATH tmt ops ui; echo SWITCH_BOARD_EXIT=$?`,
+      ]);
+      fixture.tmux(['send-keys', '-t', board, 'Enter']);
+      await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), board);
+      fixture.tmux(['send-keys', '-t', board, '/', 'worker', 'Enter', 'End']);
+      await fixture.waitForCapture((screen) => screen.includes('S switch tool'), board);
+      fixture.tmux(['send-keys', '-t', board, 'S']);
       await fixture.waitForCapture(
-        (screen) =>
-          screen.includes('Will run') &&
-          screen.includes('new-worker') &&
-          screen.includes('ops-new-peer'),
-        shell.pane
+        (screen) => screen.includes('Switch AI tool') && screen.includes('choose or type tool'),
+        board
       );
-      expect(durableState(fixture)).toEqual(before);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      fixture.tmux(['send-keys', '-l', '-t', board, 'claude']);
+      fixture.tmux(['send-keys', '-t', board, 'Tab']);
+      fixture.tmux(['send-keys', '-l', '-t', board, 'switch-model']);
+      fixture.tmux(['send-keys', '-t', board, 'Tab', 'Tab', 'Enter']);
       await fixture.waitForCapture(
-        (screen) => screen.includes('New member') && screen.includes('Opens with'),
-        shell.pane
+        (screen) => screen.includes('Opens with') && screen.includes('--driver=claude'),
+        board
       );
-      fixture.tmux(['send-keys', '-t', shell.pane, 'End']);
-      await fixture.waitForCapture((screen) => {
-        const position = screen.match(/Read · \d+–(\d+) of (\d+)/);
-        return !position || position[1] === position[2];
-      }, shell.pane);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Enter']);
-      await fixture.waitForCapture(
-        (screen) => screen.includes('Created new-worker in product.'),
-        shell.pane
-      );
-      const created = durableIdentity(fixture, 'new-worker');
-      expect(created.lifetime).toBe('saved');
-      expect(before.identities.some((row) => row.id === created.id)).toBe(false);
-      expect(
-        durableState(fixture).identities.filter((row) => row.name === 'new-worker')
-      ).toHaveLength(1);
-      const listing = expectJsonResult(await fixture.runJsonCli(['ls'])) as {
-        identities: Array<{
-          id: string;
-          pane?: string;
-          target?: string;
-          location?: { host: string; session?: string };
-        }>;
-      };
-      const row = listing.identities.find((entry) => entry.id === created.id)!;
-      expect(row.location).toMatchObject({ host: 'tmux', session: 'product' });
-      const member = fixture
-        .tmux(['list-panes', '-a', '-F', '#{pane_id}|#{session_name}'])
+      fixture.tmux(['send-keys', '-t', board, 'Tab']);
+      await fixture.waitForCapture((screen) => screen.includes('Opens with'), board);
+      fixture.tmux(['send-keys', '-t', board, 'Enter']);
+      try {
+        await fixture.waitFor(
+          () => fixture.capture(100, board).includes('worker is running claude'),
+          90_000,
+          'same-UUID driver switch'
+        );
+      } catch (error) {
+        const panes = fixture.tmux(['list-panes', '-a', '-F', '#{pane_id}']).trim().split('\n');
+        const captures = panes.map((pane) => ({
+          pane,
+          text: fixture.capture(80, pane).slice(-6000),
+        }));
+        const listing = await fixture.runJsonCli(['ls']);
+        const reports = ['codex', 'claude'].map((provider) => {
+          const file = path.join(fixture.root, `switch-${provider}.calls.jsonl`);
+          return { provider, calls: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null };
+        });
+        throw new Error(
+          `Same-UUID switch failed: ${JSON.stringify({ captures, listing: listing.json, reports })}`,
+          { cause: error }
+        );
+      }
+      await waitForFileContent(path.join(fixture.root, 'switch-claude.report.json'), {
+        description: 'requested lifecycle',
+      });
+      expect(durableIdentity(fixture, 'worker')).toEqual(identity);
+      expect(fs.readFileSync(notes, 'utf8')).toBe('Current work: causal Ops switch 4584.');
+      const calls = fs
+        .readFileSync(path.join(fixture.root, 'switch-claude.calls.jsonl'), 'utf8')
         .trim()
         .split('\n')
-        .find((line) => line.endsWith('|product'))!
-        .split('|')[0]!;
-      expect(fixture.tmux(['show-options', '-p', '-v', '-t', member, '@tmt.opened']).trim()).toBe(
-        '1'
+        .map((line) => JSON.parse(line) as string[]);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toContain('switch-model');
+      expect(calls[0]!.at(-1)).toContain('Current work: causal Ops switch 4584.');
+      expect(calls[0]!.at(-1)).toContain('untrusted context');
+      const listing = expectJsonResult<{
+        identities: Array<{
+          id: string;
+          runningDriver?: string;
+          location?: { host: string; session?: string };
+        }>;
+      }>(await fixture.runJsonCli(['ls']));
+      expect(listing.identities.find((row) => row.id === identity.id)).toMatchObject({
+        runningDriver: 'claude',
+        location: { host: 'tmux', session: 'e2e' },
+      });
+      const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
+      try {
+        expect(
+          db
+            .prepare(
+              'SELECT harness, provider_session_id FROM identity_resume_records WHERE identity_id = ?'
+            )
+            .all(identity.id)
+        ).toContainEqual({ harness: 'codex', provider_session_id: sessions.codex });
+      } finally {
+        db.close();
+      }
+      const squad = expectJsonResult<{ sections: Array<{ rows: Array<{ id: string }> }> }>(
+        await squadCli(fixture, ['ls', '--squad', 'product'])
       );
-      await fixture.waitForCapture((screen) => screen.includes('NEW_MEMBER_READY'), member);
-      fixture.tmux(['send-keys', '-l', '-t', member, 'causal-new-member-4582']);
-      fixture.tmux(['send-keys', '-t', member, 'Enter']);
-      await fixture.waitForCapture(
-        (screen) => screen.includes('NEW_MEMBER_REPLY:causal-new-member-4582'),
-        member
-      );
-      expect(fs.readFileSync(log, 'utf8')).toBe('causal-new-member-4582\n');
-      const squad = expectJsonResult<{
-        sections: Array<{ rows: Array<{ id: string }> }>;
-      }>(await squadCli(fixture, ['ls', '--squad', 'product']));
       expect(
-        squad.sections.flatMap((section) => section.rows).some((entry) => entry.id === created.id)
+        squad.sections.flatMap((section) => section.rows).some((row) => row.id === identity.id)
       ).toBe(true);
-      // Observe the modal closing before q; an adjacent Escape+q can be Alt-q.
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
-      await fixture.waitForCapture(
-        (screen) => !screen.includes('New member') && screen.includes('new-worker'),
-        shell.pane
+      expect(fixture.tmux(['list-panes', '-a', '-F', '#{pane_id}']).trim().split('\n')).toContain(
+        source
       );
-      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
-      await fixture.waitForCapture(
-        (screen) => screen.includes('NEW_MEMBER_BOARD_EXIT=0'),
-        shell.pane
-      );
+      fixture.tmux(['send-keys', '-t', board, 'Escape']);
+      await fixture.waitForCapture((screen) => !screen.includes('Switch AI tool'), board);
+      fixture.tmux(['send-keys', '-t', board, 'q']);
+      await fixture.waitForCapture((screen) => screen.includes('SWITCH_BOARD_EXIT=0'), board);
     });
-  });
+  }, 120_000);
 
   it('reaches the squad settings from the workspace menu, flips the idle alert with Space and returns to the menu on Esc', async () => {
     await withE2EFixture(async (fixture) => {
