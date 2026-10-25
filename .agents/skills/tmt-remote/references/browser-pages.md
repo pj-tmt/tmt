@@ -242,7 +242,9 @@ row; selecting it adds no read, mutation, route or persistence. Long names wrap 
 stacks below the table on phone. Without inventory the page says unavailable or empty, preserves
 specific refusal text, and names tmt ls with the shared nonexecuting Copy. Injected samples remain
 labelled in the notice and inventory; the duplicated sample line is hidden on this section.
-Source failure and route-disposal fences remain with the existing page/source owner.
+Source failure and route-disposal fences remain with the existing page/source owner. A source-read
+inventory is a neutral read-only note; only a missing read or refusal is the amber warning, and the
+name button's inset focus frame has padding around the name.
 
 ## TMT Settings Modules
 

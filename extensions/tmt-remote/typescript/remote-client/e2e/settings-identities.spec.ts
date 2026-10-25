@@ -25,13 +25,24 @@ for (const width of [1440, 390])
       ).toBeVisible();
       await expect(page.locator('#tmt-settings-note')).toBeHidden();
       await expect(page.locator('.tmt-settings-identity-notice')).toContainText('not this machine');
-
+      // Labelled sample records are a neutral note, not the amber warning.
+      await expect(page.locator('.tmt-settings-identity-notice')).toHaveAttribute(
+        'data-tone',
+        'neutral',
+      );
       const names = page.locator('.tmt-settings-identity-name');
       await expect(names).toHaveText(['core-1', 'tmt-lead', longIdentity, 'ux-1']);
       await expect(page.locator('tbody')).toContainText('Codex');
       await expect(page.locator('tbody')).toContainText('Claude');
       await expect(page.locator('tbody')).toContainText('Not reported');
       await expect(names.first()).toHaveAttribute('aria-current', 'true');
+      // The inset focus frame has room around the name, and the text stays in line with the header.
+      const room = await names.first().evaluate((node) => {
+        const style = getComputedStyle(node);
+        return [parseFloat(style.paddingLeft), parseFloat(style.marginLeft)];
+      });
+      expect(room[0]!).toBeGreaterThan(0);
+      expect(room[0]! + room[1]!).toBe(0);
       const selected = page.locator('tr[data-selected]');
       await expect(selected).toHaveCount(1);
       await expect(selected).toHaveCSS('outline-style', 'solid');
@@ -108,6 +119,10 @@ for (const state of ['unavailable', 'empty', 'refused', 'failed', 'observed'])
         'Read-only identity records',
       );
       await expect(page.locator('.tmt-settings-identity-name')).toHaveCount(4);
+      await expect(page.locator('.tmt-settings-identity-notice')).toHaveAttribute(
+        'data-tone',
+        'neutral',
+      );
       await expect(page.locator('#tmt-settings-note')).toBeHidden();
     } else {
       await expect(page.locator('#tmt-settings-section')).toContainText(
@@ -118,6 +133,12 @@ for (const state of ['unavailable', 'empty', 'refused', 'failed', 'observed'])
             : 'Identity inventory unavailable',
       );
       await expect(page.locator('tbody')).toHaveCount(0);
+      // A missing read stays the amber warning.
+      if (state === 'unavailable')
+        await expect(page.locator('.tmt-settings-identity-notice')).toHaveAttribute(
+          'data-tone',
+          'waiting',
+        );
       await expect(page.getByRole('button', { name: 'Copy tmt ls' })).toBeVisible();
     }
     expect(await page.evaluate(() => window.identitySourceReads)).toBe(1);

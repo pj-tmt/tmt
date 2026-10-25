@@ -7444,7 +7444,7 @@ function presence(identity) {
 function identitiesView(settings) {
 	const rows = orderedIdentities(settings.identities.rows);
 	const unavailable = settings.identities.unavailable;
-	const notice = settingsNotice(unavailable ? "Web data connection pending" : settings.sample ? "Sample data" : "Read-only identity records", unavailable ? "Core identities are not available in this browser yet. Run tmt ls to see this machine’s identities." : settings.sample ? "These sample records are not this machine. Use tmt ls in your terminal to read identities." : "Manage identities in your terminal. Use tmt ls to inspect the current machine records.");
+	const notice = settingsNotice(unavailable ? "Web data connection pending" : settings.sample ? "Sample data" : "Read-only identity records", unavailable ? "Core identities are not available in this browser yet. Run tmt ls to see this machine’s identities." : settings.sample ? "These sample records are not this machine. Use tmt ls in your terminal to read identities." : "Manage identities in your terminal. Use tmt ls to inspect the current machine records.", unavailable ? "waiting" : "neutral");
 	notice.className += " tmt-settings-identity-notice";
 	if (unavailable && unavailable !== notInBrowser("TMT settings", "tmt config show")) {
 		const reason = element$1("p");
