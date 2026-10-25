@@ -413,6 +413,12 @@ impl Storage {
                             connection, id, session, turn, prompt, now,
                         )?;
                         super::requests::turns::open(connection, id, now)?;
+                        if binding.session.key.is_some() {
+                            let batch = super::capture_batches::begin(
+                                connection, binding, remembered, turn, now,
+                            )?;
+                            super::capture_batches::prompt_inputs(connection, id, &batch, now)?;
+                        }
                         // A prompt that carries a typed Digest checklist confirms it (#4858).
                         super::requests::confirm_digest_by_prompt(connection, id, prompt, now)?;
                         // A new prompt means the continuation a Stop hook started is over.

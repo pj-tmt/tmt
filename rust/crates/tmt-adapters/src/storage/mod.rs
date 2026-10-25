@@ -1,4 +1,5 @@
 mod bindings;
+mod capture_batches;
 mod consumption_family;
 mod consumption_history;
 mod context;
@@ -47,7 +48,7 @@ use errors::{classify_io, classify_open, incompatible};
 pub use host_servers::{HostServerIncarnation, RecordedHostServers};
 pub use orchestration::{ORCH_JOURNAL_RETENTION_MS, OrchJournalPage, OrchStoredState};
 pub use requests::PassthroughFacts;
-pub use responses::ResponseCapture;
+pub use responses::{CaptureFailure, ResponseCapture, TurnCapture};
 pub use room::RoomStoreError;
 pub use room_roster::{RoomRoster, RosterError, RosterMember};
 pub use storage_cutover::StorageCutover;

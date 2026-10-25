@@ -151,12 +151,17 @@ function expectNativeSchema(
       name: 'count usage writes on their own cursor, so the sampler does not wake the board',
     },
     { version: 75, name: 'let a session-learning diagnostic name what its step stopped on' },
+    { version: 76, name: 'record ordered conversation input batches and finals' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
     [
       ...reference.tables.map(({ name }) => name),
       'change_cursor',
+      'capture_batches',
+      'capture_entries',
+      'capture_acknowledgements',
+      'capture_floor',
       'usage_cursor',
       'consumption_sources',
       'consumption_buckets',

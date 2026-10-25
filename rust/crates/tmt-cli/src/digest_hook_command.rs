@@ -52,6 +52,11 @@ pub fn execute(
             return Ok(());
         };
         if worker {
+            crate::provider_hook_command::capture_before_digest(
+                provider,
+                input.as_bytes(),
+                deadline,
+            )?;
             let supplied = scope
                 .map(serde_json::from_str::<HookLaunch>)
                 .transpose()

@@ -187,7 +187,14 @@ impl BindingRecords for BindingRows<'_> {
         expected: &tmt_core::binding::session::BindingSessionState,
         state: &tmt_core::binding::session::BindingSessionState,
     ) -> Result<bool, Self::Error> {
-        session::set_state(self.0, binding_id, expected, state)
+        let changed = session::set_state(self.0, binding_id, expected, state)?;
+        if changed
+            && (state.state != tmt_core::binding::session::RuntimeState::Running
+                || state.key != expected.key)
+        {
+            self.0.execute("UPDATE capture_batches SET closed_ms=?2 WHERE binding_id=?1 AND closed_ms IS NULL",params![binding_id,crate::request_runtime::wall_time_ms() as i64]).map_err(|e|classify(e,"Fence input batch on runtime transition"))?;
+        }
+        Ok(changed)
     }
 
     fn entry_by_id(&self, id: &str) -> Result<Option<BindingEntry>, Self::Error> {
@@ -333,6 +340,24 @@ impl BindingRecords for BindingRows<'_> {
             .execute("DELETE FROM bindings WHERE identity_id = ?", [&identity.id])
             .map_err(|error| classify(error, "Detach identity binding"))?;
         session::forget(self.0, &identity.id)?;
+        self.0
+            .execute(
+                "DELETE FROM capture_entries WHERE identity_id=?",
+                [&identity.id],
+            )
+            .map_err(|e| classify(e, "Remove conversation entries"))?;
+        self.0
+            .execute(
+                "DELETE FROM capture_floor WHERE identity_id=?",
+                [&identity.id],
+            )
+            .map_err(|e| classify(e, "Remove conversation coverage"))?;
+        self.0
+            .execute(
+                "DELETE FROM capture_batches WHERE identity_id=?",
+                [&identity.id],
+            )
+            .map_err(|e| classify(e, "Remove input batches"))?;
         self.0
             .execute(
                 "DELETE FROM recent_responses WHERE identity_id=?",

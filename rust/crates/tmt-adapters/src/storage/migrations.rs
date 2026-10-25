@@ -366,6 +366,10 @@ const MIGRATIONS: &[Migration] = &[
         "let a session-learning diagnostic name what its step stopped on",
         "schema/075.sql"
     ),
+    migration!(
+        "record ordered conversation input batches and finals",
+        "schema/076.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

@@ -6,6 +6,9 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 use tmt_core::responses::{FinalText, MAX_KEPT, MAX_PAGE, RETENTION_MS, response_id};
 
+mod capture;
+pub use capture::{CaptureFailure, TurnCapture};
+
 pub struct ResponseCapture {
     pub text: FinalText,
 }
@@ -31,6 +34,7 @@ pub(super) fn append(
     // The row's key is the final's identity (#4993). Read before the floor insert below moves it.
     let sequence = u64::try_from(connection.last_insert_rowid())
         .map_err(|_| StorageError::new(StorageErrorCode::Corrupt, "Invalid response key"))?;
+    super::capture_batches::final_entry(connection, id, sequence, now)?;
     // What goes is whatever expired and everything past the newest `MAX_KEPT`; the newest of it
     // becomes the floor, in the same transaction, before it is deleted.
     let doomed = "identity_id=?1 AND (expires_ms<=?2 OR sequence<=COALESCE((SELECT sequence FROM recent_responses WHERE identity_id=?1 ORDER BY sequence DESC LIMIT 1 OFFSET ?3),0))";
@@ -91,13 +95,15 @@ impl Storage {
             let mut query = transaction.prepare("SELECT r.sequence,r.text,r.ended_ms,r.provider,r.truncated,r.session_id,r.original_bytes,
                     (SELECT p.request_id FROM request_passthrough p INDEXED BY request_passthrough_response
                      JOIN request_attempts a ON a.request_id=p.request_id AND a.retention_expires_at_ms>?2
-                     WHERE p.answer_response=r.sequence ORDER BY p.delivered_at_ms,p.request_id LIMIT 1)
+                     WHERE p.answer_response=r.sequence ORDER BY p.delivered_at_ms,p.request_id LIMIT 1),
+                    (SELECT e.batch_id FROM capture_entries e WHERE e.kind='final' AND e.response_sequence=r.sequence)
              FROM recent_responses r JOIN identities i ON i.id=r.identity_id AND i.retired_at_ms IS NULL WHERE r.identity_id=?1 AND r.expires_ms>?2 AND r.sequence<?3 ORDER BY r.sequence DESC LIMIT ?4").map_err(|e| classify(e,"Prepare recent responses"))?;
             // One more than asked tells whether an older answer is still kept.
             let mut rows = query.query_map(params![id,now as i64,upper,limit as i64 + 1],|row| {
                 let mut item = json!({"responseId":response_id(row.get::<_,i64>(0)? as u64),"text":row.get::<_,String>(1)?,"endedMs":row.get::<_,i64>(2)?,"provider":row.get::<_,String>(3)?,"truncated":row.get::<_,bool>(4)?,"originalBytes":row.get::<_,i64>(6)?});
                 if let Some(session) = row.get::<_,Option<String>>(5)? { item["sessionId"] = json!(session); }
                 if let Some(request) = row.get::<_,Option<String>>(7)? { item["requestId"] = json!(request); }
+                if let Some(batch) = row.get::<_,Option<String>>(8)? { item["inputBatchId"] = json!(batch); }
                 Ok((row.get::<_,i64>(0)?,item))
             }).map_err(|e| classify(e,"Query recent responses"))?.collect::<Result<Vec<_>,_>>().map_err(|e| classify(e,"Decode recent responses"))?;
             let more = rows.len() as u64 > limit;

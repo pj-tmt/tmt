@@ -175,22 +175,50 @@ pub fn execute(
 /// binding's current conversation must be the remembered one it names: a late
 /// turn end from an earlier conversation writes nothing. The write is a
 /// compare-and-set on the preferences read with the binding.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TurnMode {
+    Full,
+    ActivityOnly,
+    BeforeDigest,
+}
+
+/// Only a capture failure after current binding/session authority was proved
+/// may defer Digest. Inapplicable observations grant nothing to either hook.
+enum TurnFailure {
+    NotApplicable,
+    CaptureFailed,
+}
+
 fn observe_turn(
     provider: &str,
     harness: &HarnessId,
     lifecycle: &dyn RuntimeLifecycle,
     turn: &TurnEnd,
-    activity_only: bool,
+    mode: TurnMode,
     activity: Option<&tmt_adapters::runtime::hook_protocol::ActivityObservation>,
     run: Run<'_>,
-) -> Result<Observation, ()> {
+) -> Result<Observation, TurnFailure> {
     let deadline = run.deadline;
+    let activity_only = mode == TurnMode::ActivityOnly;
     // An interrupted turn ends activity only: no usage, consumption source or
     // final answer is read or captured for it.
     let activity_only = activity_only || turn.interrupted;
-    let host = lifecycle.host_evidence().map_err(|_| ())?;
+    // An installed answer observer owns Stop. A launch-only activity observer
+    // must not race it to Idle or append a duplicate continued final. Digest
+    // captures ordinary Stop before blocking; its decoder excludes continuations.
+    if mode == TurnMode::ActivityOnly
+        && tmt_adapters::drivers::Registry::builtin()
+            .find(provider)
+            .is_some_and(tmt_adapters::setup::stop_hook_installed)
+    {
+        return Ok(Observation::default());
+    }
+    let capture_on = !activity_only;
+    let host = lifecycle
+        .host_evidence()
+        .map_err(|_| TurnFailure::NotApplicable)?;
     if matches!(host, HostEvidence::Unsupported) {
-        return unsupported_host(run);
+        return unsupported_host(run).map_err(|_| TurnFailure::NotApplicable);
     }
     let Caller::Bound(bound) = verified_lifecycle_caller(
         provider,
@@ -200,7 +228,8 @@ fn observe_turn(
         None,
         deadline,
         SupervisedProbeRunner,
-    )?
+    )
+    .map_err(|_| TurnFailure::NotApplicable)?
     else {
         return Ok(Observation::default());
     };
@@ -211,7 +240,11 @@ fn observe_turn(
         process,
         ..
     } = *bound;
-    let binding = stored.entry.binding.as_ref().ok_or(())?;
+    let binding = stored
+        .entry
+        .binding
+        .as_ref()
+        .ok_or(TurnFailure::NotApplicable)?;
     let Some(process) =
         lifecycle.activity_process(&binding.session, &process, &turn.session, host, deadline)
     else {
@@ -221,7 +254,7 @@ fn observe_turn(
         evaluate_binding(&stored.entry, &EndpointProbe::Live(snapshot)),
         BindingEvidence::Active(_)
     ) {
-        return Err(());
+        return Err(TurnFailure::NotApplicable);
     }
     let current = binding.session.key.as_ref().is_some_and(|key| {
         key.incarnation == process && key.provider_session.as_ref() == Some(&turn.session)
@@ -231,90 +264,170 @@ fn observe_turn(
     }) else {
         return Ok(Observation::default());
     };
-    let environment = ProviderEnvironment::capture().map_err(|_| ())?;
-    let now_ms = tmt_adapters::request_runtime::wall_time_ms();
-    // Usage data is read only with consent; the agent's answers need only the turn-end hook (#4914).
     let usage_on = !activity_only
         && tmt_adapters::drivers::Registry::builtin()
             .find(provider)
             .is_some_and(tmt_adapters::setup::usage_consented);
-    let observation = usage_on.then(|| {
-        lifecycle.turn_observation(
-            turn,
-            &environment,
-            remembered.state.as_ref(),
-            now_ms,
+    // Only older payloads missing the final need the consented driver reader
+    // before capture; optional usage never precedes capture of supplied text.
+    let mut failure = tmt_adapters::storage::CaptureFailure::Worker;
+    let pending = (|| -> Result<bool, ()> {
+        let Some(activity) = activity else {
+            return Ok(false);
+        };
+        let fallback = if turn.final_text.is_none() && usage_on {
+            let environment = ProviderEnvironment::capture().map_err(|_| ())?;
+            lifecycle
+                .turn_observation(
+                    turn,
+                    &environment,
+                    remembered.state.as_ref(),
+                    tmt_adapters::request_runtime::wall_time_ms(),
+                    deadline,
+                )
+                .final_text
+        } else {
+            None
+        };
+        let response = kept_answer(capture_on, Some(fallback), turn.final_text.as_ref())
+            .map(|text| tmt_adapters::storage::ResponseCapture { text });
+        failure = tmt_adapters::storage::CaptureFailure::Storage;
+        let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
+        let committed = storage.capture_turn_end(tmt_adapters::storage::TurnCapture {
+            expected: &stored,
+            process: &process,
+            activity,
+            response,
+            interrupted: turn.interrupted,
+            now_ms: tmt_adapters::request_runtime::wall_time_ms(),
             deadline,
-        )
-    });
-    let usage = observation.as_ref().and_then(|value| value.state.clone());
-    let consumption = usage
-        .as_ref()
-        .and_then(|state| lifecycle.state_consumption(state));
-    let locator = turn
-        .transcript
-        .as_ref()
-        .filter(|_| usage_on)
-        .and_then(|path| {
-            lifecycle.consumption_locator(
-                serde_json::json!({"transcript_path":path})
-                    .to_string()
-                    .as_bytes(),
-                &environment,
-            )
         });
-    let reading = ConsumptionReading {
-        locator,
-        consumption,
-        now_ms,
+        let closed = storage.close();
+        committed
+            .and_then(|value| closed.map(|()| value))
+            .map_err(|_| ())
+    })();
+    let captured = match pending {
+        Ok(captured) => captured,
+        Err(()) => {
+            if Instant::now() >= deadline {
+                failure = tmt_adapters::storage::CaptureFailure::Budget;
+            }
+            if let Ok(mut storage) = Storage::open_hook(&paths.database, deadline) {
+                let _ = storage.record_capture_failure(
+                    &stored,
+                    failure,
+                    tmt_adapters::request_runtime::wall_time_ms(),
+                    deadline,
+                );
+                let _ = storage.close();
+            }
+            return Err(TurnFailure::CaptureFailed);
+        }
     };
-    let previous = usage.as_ref().or(remembered.state.as_ref());
-    let transition = activity
-        .filter(|_| binding.session.state == tmt_core::binding::session::RuntimeState::Running)
-        .and_then(|event| {
-            lifecycle.activity_state(event, &turn.session, &process, previous, now_ms)
-        });
-    // An admitted turn end prefers the usage observation's final answer, then the Stop
-    // payload's `last_assistant_message`. With usage off no observation is made and
-    // nothing beyond the payload is read.
-    let response = kept_answer(
-        transition.is_some() && !activity_only,
-        observation.map(|value| value.final_text),
-        turn.final_text.as_ref(),
-    )
-    .map(|text| tmt_adapters::storage::ResponseCapture { text });
-    // An admitted turn end settles the passthrough that turn was bound to, with its final
-    // message when one was read and without an answer otherwise (an interrupted turn too).
-    let boundary = transition
-        .is_some()
-        .then(|| tmt_adapters::storage::TurnBoundary::Ended {
-            turn: activity
-                .and_then(|activity| activity.event.turn.as_ref())
-                .map(ProviderSessionId::as_str),
-            continuation: activity.is_some_and(|activity| {
-                activity.event.kind
-                    == tmt_core::binding::session::activity::EventKind::ContinuationEnded
-            }),
-        });
-    let next = transition.or(usage);
-    if Instant::now() >= deadline {
-        return Err(());
+    // A Stop without a new activity transition still refreshes consented usage.
+    // A fresh snapshot preserves any committed Idle state. Sampling is optional:
+    // no failure here can roll back or discard the final already retained.
+    if usage_on && mode == TurnMode::Full {
+        let _ = (|| -> Result<(), ()> {
+            let refreshed = Storage::context_by_identity(
+                &paths.database,
+                &binding.identity_id,
+                tmt_adapters::request_runtime::wall_time_ms(),
+            )
+            .map_err(|_| ())?
+            .ok_or(())?;
+            if refreshed.entry.binding.as_ref() != Some(binding) {
+                return Err(());
+            }
+            let previous = refreshed.preferences.remembered.as_ref().ok_or(())?;
+            if previous.harness != remembered.harness
+                || previous.provider_session != remembered.provider_session
+            {
+                return Err(());
+            }
+            let environment = ProviderEnvironment::capture().map_err(|_| ())?;
+            let now_ms = tmt_adapters::request_runtime::wall_time_ms();
+            let observation = lifecycle.turn_observation(
+                turn,
+                &environment,
+                previous.state.as_ref(),
+                now_ms,
+                deadline,
+            );
+            let consumption = observation
+                .state
+                .as_ref()
+                .and_then(|state| lifecycle.state_consumption(state));
+            let locator = turn.transcript.as_ref().and_then(|path| {
+                lifecycle.consumption_locator(
+                    serde_json::json!({"transcript_path":path})
+                        .to_string()
+                        .as_bytes(),
+                    &environment,
+                )
+            });
+            commit_observation(
+                &paths,
+                &refreshed,
+                observation.state,
+                Some(ConsumptionReading {
+                    locator,
+                    consumption,
+                    now_ms,
+                }),
+                None,
+                None,
+                deadline,
+            )?;
+            Ok(())
+        })();
     }
-    if commit_observation(
-        &paths,
-        &stored,
-        next,
-        usage_on.then_some(reading),
-        response,
-        boundary,
-        deadline,
-    )? {
-        return Ok(Observation {
-            context: String::new(),
-            workspace: Some(binding.server.clone()),
-        });
+    Ok(Observation {
+        context: String::new(),
+        workspace: captured.then(|| binding.server.clone()),
+    })
+}
+
+/// Blocking feedback is downstream of the observer's single capture entry.
+/// Digest never installs an answer hook or grants transcript consent.
+pub(crate) fn capture_before_digest(
+    provider: &str,
+    input: &[u8],
+    deadline: Instant,
+) -> Result<(), ()> {
+    if !tmt_adapters::drivers::Registry::builtin()
+        .find(provider)
+        .is_some_and(tmt_adapters::setup::stop_hook_installed)
+    {
+        return Ok(());
     }
-    Ok(Observation::default())
+    let registry = RuntimeRegistry::first_party();
+    let Ok(harness) = HarnessId::new(provider) else {
+        return Ok(());
+    };
+    let Some(lifecycle) = registry.lifecycle(&harness) else {
+        return Ok(());
+    };
+    let Some(turn) = lifecycle.decode_turn(input) else {
+        return Ok(());
+    };
+    let activity = lifecycle.decode_activity(input);
+    match observe_turn(
+        provider,
+        &harness,
+        lifecycle,
+        &turn,
+        TurnMode::BeforeDigest,
+        activity.as_ref(),
+        Run {
+            deadline,
+            learning: None,
+        },
+    ) {
+        Ok(_) | Err(TurnFailure::NotApplicable) => Ok(()),
+        Err(TurnFailure::CaptureFailed) => Err(()),
+    }
 }
 
 /// Prefer the observed final when usage is on; otherwise keep the Stop payload's own
@@ -718,10 +831,15 @@ fn observe(
             &harness,
             lifecycle,
             &turn,
-            activity_only,
+            if activity_only {
+                TurnMode::ActivityOnly
+            } else {
+                TurnMode::Full
+            },
             activity.as_ref(),
             Run { deadline, learning },
-        );
+        )
+        .map_err(|_| ());
     }
     if let Some(session) = lifecycle.decode_prompt(input.as_bytes()) {
         return observe_main_event(
