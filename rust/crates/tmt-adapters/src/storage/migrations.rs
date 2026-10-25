@@ -34,6 +34,8 @@ mod pane_incarnation_tests;
 #[cfg(test)]
 mod prop_pack_tests;
 #[cfg(test)]
+mod read_only_open_tests;
+#[cfg(test)]
 mod receipt_tests;
 #[cfg(test)]
 mod remote_response_tests;
@@ -395,8 +397,34 @@ pub(super) fn compiled_schema() -> super::CompiledSchema {
     }
 }
 
+/// The number of migrations recorded as applied, read in one snapshot with no
+/// write lock; None when there is no history table yet.
+fn recorded_through(connection: &mut Connection) -> Result<Option<usize>, StorageError> {
+    let snapshot = connection
+        .transaction()
+        .map_err(|error| classify(error, "Read migration history"))?;
+    let recorded: bool = snapshot
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = '_migrations')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| classify(error, "Read migration history"))?;
+    if !recorded {
+        return Ok(None);
+    }
+    validate_table(&snapshot)?;
+    validate_history(&snapshot).map(Some)
+}
+
 /// Applies the pending migrations up to and including version `last`.
 fn apply_through(connection: &mut Connection, last: usize) -> Result<(), StorageError> {
+    // A current database has nothing to apply. Opening it must neither wait for
+    // a writer nor block one (#5019); only a database behind takes the lock,
+    // and `apply_version` re-reads the history under it.
+    if recorded_through(connection)?.is_some_and(|recorded| recorded >= last) {
+        return Ok(());
+    }
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| classify(error, "Initialize migration history"))?;
