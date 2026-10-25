@@ -26,6 +26,15 @@ pub(super) fn current(db: &Connection, identity: &str) -> Result<Option<String>,
         .optional().map_err(|e|classify(e,"Read current input batch"))
 }
 
+pub(super) fn close(db: &Connection, identity: &str, now: u64) -> Result<(), StorageError> {
+    db.execute(
+        "UPDATE capture_batches SET closed_ms=?2 WHERE identity_id=?1 AND closed_ms IS NULL",
+        params![identity, now as i64],
+    )
+    .map_err(|e| classify(e, "Close input batch"))?;
+    Ok(())
+}
+
 pub(super) fn begin(
     db: &Connection,
     binding: &Binding,

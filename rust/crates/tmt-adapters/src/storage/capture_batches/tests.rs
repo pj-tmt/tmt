@@ -114,6 +114,7 @@ impl World {
                     expected: &expected,
                     process: &self.process,
                     activity: &activity,
+                    interrupted: false,
                     response: Some(ResponseCapture {
                         text: turn.final_text.unwrap()
                     }),
@@ -334,6 +335,7 @@ fn stale_binding_and_expired_budget_cannot_capture_or_attach_failure() {
                     expected: &expected,
                     process: &w.process,
                     activity: &activity,
+                    interrupted: false,
                     response: Some(ResponseCapture {
                         text: turn.final_text.unwrap()
                     }),
@@ -353,5 +355,151 @@ fn stale_binding_and_expired_budget_cannot_capture_or_attach_failure() {
         let page = w.timeline(50, None);
         assert_eq!(page["entries"].as_array().unwrap().len(), 1);
         assert_eq!(page["responses"], serde_json::json!([]));
+    }
+}
+
+#[test]
+fn interruption_keeps_earlier_answers_but_closes_the_batch_without_capturing_partial_text() {
+    let mut w = World::new();
+    w.input(0);
+    w.end("kept", false);
+    let old = w.timeline(50, None);
+    let expected = Storage::context_by_identity(&w.path, &w.agent, w.now)
+        .unwrap()
+        .unwrap();
+    // A continued canceled end has valid activity authority, but no final authority.
+    let lifecycle = crate::drivers::claude::ClaudeLifecycle;
+    let payload=serde_json::json!({"hook_event_name":"Stop","session_id":"fixture-session","stop_hook_active":true,"last_assistant_message":"partial"}).to_string();
+    let turn = lifecycle.decode_turn(payload.as_bytes()).unwrap();
+    let activity = lifecycle.decode_activity(payload.as_bytes()).unwrap();
+    assert!(
+        w.storage
+            .capture_turn_end(TurnCapture {
+                expected: &expected,
+                process: &w.process,
+                activity: &activity,
+                interrupted: true,
+                response: Some(ResponseCapture {
+                    text: turn.final_text.unwrap()
+                }),
+                now_ms: w.now + 1,
+                deadline: Instant::now() + Duration::from_secs(2)
+            })
+            .unwrap()
+    );
+    assert!(
+        current(w.storage.connection().unwrap(), &w.agent)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(w.timeline(50, None)["responses"], old["responses"]);
+}
+
+#[test]
+fn a_new_session_key_and_an_ended_session_close_the_old_batch() {
+    for ended in [false, true] {
+        let w = World::new();
+        let binding = BindingRows(w.storage.connection().unwrap())
+            .entry_by_id(&w.agent)
+            .unwrap()
+            .unwrap()
+            .binding
+            .unwrap();
+        let mut next = binding.session.clone();
+        if ended {
+            next.state = tmt_core::binding::session::RuntimeState::Ended;
+        } else {
+            next.key.as_mut().unwrap().provider_session =
+                Some(ProviderSessionId::new("replacement").unwrap());
+        }
+        assert!(
+            BindingRows(w.storage.connection().unwrap())
+                .set_session_state(&binding.id, &binding.session, &next)
+                .unwrap()
+        );
+        let active: i64 = w
+            .storage
+            .connection()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM capture_batches WHERE identity_id=? AND closed_ms IS NULL",
+                [&w.agent],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(active, 0);
+    }
+}
+
+#[test]
+fn agy_uses_its_own_stop_payload_and_never_retains_canceled_or_subagent_text() {
+    const SESSION: &str = "01234567-89ab-4def-8123-456789abcdef";
+    for canceled in [false, true] {
+        let mut w = World::new();
+        let session = ProviderSessionId::new(SESSION).unwrap();
+        w.storage
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE bindings SET observed_provider_session_id=?",
+                [SESSION],
+            )
+            .unwrap();
+        let mut prefs = BindingRows(w.storage.connection().unwrap())
+            .session_preferences(&w.agent)
+            .unwrap();
+        let remembered = prefs.remembered.as_mut().unwrap();
+        remembered.harness = tmt_core::binding::session::HarnessId::new("agy").unwrap();
+        remembered.provider_session = session.clone();
+        remembered.state = crate::runtime::driver_state::after_activity(
+            None,
+            &session,
+            &w.process,
+            &Event {
+                kind: EventKind::TurnStarted,
+                turn: None,
+            },
+            None,
+            w.now,
+        );
+        BindingRows(w.storage.connection().unwrap())
+            .set_session_preferences(&w.agent, &prefs)
+            .unwrap();
+        let lifecycle = crate::drivers::agy::AgyLifecycle;
+        let mut payload = serde_json::json!({"conversationId":SESSION,"terminationReason":if canceled {"USER_CANCELED"} else {"NO_TOOL_CALL"},"executionNum":1,"fullyIdle":true,"finalModelOutput":"agy answer"});
+        let bytes = payload.to_string();
+        let turn = lifecycle.decode_turn(bytes.as_bytes()).unwrap();
+        let activity = lifecycle.decode_activity(bytes.as_bytes()).unwrap();
+        let expected = Storage::context_by_identity(&w.path, &w.agent, w.now)
+            .unwrap()
+            .unwrap();
+        assert!(
+            w.storage
+                .capture_turn_end(TurnCapture {
+                    expected: &expected,
+                    process: &w.process,
+                    activity: &activity,
+                    interrupted: turn.interrupted,
+                    response: turn.final_text.map(|text| ResponseCapture { text }),
+                    now_ms: w.now + 1,
+                    deadline: Instant::now() + Duration::from_secs(2)
+                })
+                .unwrap()
+        );
+        let page = w.timeline(50, None);
+        assert_eq!(
+            page["responses"].as_array().unwrap().len(),
+            usize::from(!canceled)
+        );
+        if !canceled {
+            assert_eq!(page["responses"][0]["text"], "agy answer");
+            assert_eq!(page["responses"][0]["provider"], "agy");
+        }
+        payload["parentConversationId"] = serde_json::json!("11111111-1111-4111-8111-111111111111");
+        assert!(
+            lifecycle
+                .decode_turn(payload.to_string().as_bytes())
+                .is_none()
+        );
     }
 }

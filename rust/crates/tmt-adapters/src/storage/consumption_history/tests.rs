@@ -61,6 +61,7 @@ fn a_claude_stop_final_survives_a_concurrent_usage_observation() {
                 expected: &original,
                 process: &process,
                 activity: &activity,
+                interrupted: false,
                 response: Some(ResponseCapture {
                     text: turn.final_text.unwrap()
                 }),

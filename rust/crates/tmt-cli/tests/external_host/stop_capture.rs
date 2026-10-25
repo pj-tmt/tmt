@@ -9,13 +9,47 @@ fn ok(output: (i32, String, String)) -> String {
 
 #[test]
 fn a_blocking_digest_keeps_both_claude_finals_in_causal_order_for_both_hook_orders() {
+    blocking_digest("claude", true);
+}
+
+#[test]
+fn a_blocking_digest_keeps_both_codex_finals_in_causal_order_for_both_hook_orders() {
+    blocking_digest("codex", true);
+}
+
+#[test]
+fn digest_does_not_enable_provider_capture_when_answer_hooks_are_not_installed() {
+    blocking_digest("claude", false);
+    blocking_digest("codex", false);
+}
+
+fn observer(provider: &mut SteppedProvider, payload: Value, capture: bool) {
+    if !capture {
+        fs::write(
+            provider
+                .steps
+                .join(provider.next.to_string())
+                .with_extension("activity"),
+            "",
+        )
+        .unwrap();
+    }
+    ok(provider.hook(payload));
+}
+
+fn blocking_digest(driver: &'static str, capture: bool) {
     register();
-    for (observer_first, activity_only) in [(false, false), (true, false), (true, true)] {
-        let fixture = Fixture::delivering(if observer_first {
-            "capture-observer-first"
+    let event = |name| {
+        if driver == "claude" {
+            claude_event(name)
         } else {
-            "capture-digest-first"
-        });
+            codex_event(name, (name != "SessionStart").then_some("capture-turn"))
+        }
+    };
+    for (observer_first, activity_only) in [(false, false), (true, false), (true, true)] {
+        let fixture = Fixture::delivering(&format!(
+            "capture-{driver}-{capture}-{observer_first}-{activity_only}"
+        ));
         let record = fixture.approve();
         bind(&fixture, record);
         let agent = worker(&fixture.json(&["ls", "--json"]))["id"]
@@ -37,15 +71,22 @@ fn a_blocking_digest_keeps_both_claude_finals_in_causal_order_for_both_hook_orde
             "--json",
         ]);
         fixture.json(&["identity", "create", "core-1", "--json"]);
-        fs::create_dir_all(fixture.root.join("home/.claude")).unwrap();
-        let observer = tmt_adapters::runtime::hook_protocol::command_entry("claude", "/stable/tmt");
-        fs::write(
-            fixture.root.join("home/.claude/settings.json"),
-            serde_json::json!({"hooks":{"Stop":[observer]}}).to_string(),
-        )
-        .unwrap();
-        let mut provider = SteppedProvider::start(&fixture, "claude", "capture-steps");
-        ok(provider.hook(claude_event("SessionStart")));
+        if capture {
+            fs::create_dir_all(fixture.root.join(format!("home/.{driver}"))).unwrap();
+            let observer =
+                tmt_adapters::runtime::hook_protocol::command_entry(driver, "/stable/tmt");
+            fs::write(
+                fixture.root.join(if driver == "claude" {
+                    "home/.claude/settings.json"
+                } else {
+                    "home/.codex/hooks.json"
+                }),
+                serde_json::json!({"hooks":{"Stop":[observer]}}).to_string(),
+            )
+            .unwrap();
+        }
+        let mut provider = SteppedProvider::start(&fixture, driver, "capture-steps");
+        ok(provider.hook(event("SessionStart")));
         // This stand-in has no run wrapper. The test owns its live parent and
         // records that exact native incarnation as the launch owner, as a run
         // fixture would; Digest still verifies it through the public hook.
@@ -88,7 +129,7 @@ fn a_blocking_digest_keeps_both_claude_finals_in_causal_order_for_both_hook_orde
             "--json",
         ]);
         let request = sent["requestId"].as_str().unwrap();
-        let mut prompt = claude_event("UserPromptSubmit");
+        let mut prompt = event("UserPromptSubmit");
         prompt["prompt"] = "Ben question".into();
         ok(provider.hook(prompt));
         let held = fixture.json(&[
@@ -101,7 +142,7 @@ fn a_blocking_digest_keeps_both_claude_finals_in_causal_order_for_both_hook_orde
             "--json",
         ]);
         assert_eq!(held["digest"], true, "{held:#}");
-        let mut first = claude_event("Stop");
+        let mut first = event("Stop");
         first["stop_hook_active"] = false.into();
         first["last_assistant_message"] = "A: answer to Ben".into();
         if observer_first {
@@ -115,7 +156,7 @@ fn a_blocking_digest_keeps_both_claude_finals_in_causal_order_for_both_hook_orde
                 )
                 .unwrap();
             }
-            ok(provider.hook(first.clone()));
+            observer(&mut provider, first.clone(), capture);
         }
         let feedback = ok(provider.digest_hook(first.clone()));
         let feedback: Value = serde_json::from_str(&feedback).unwrap();
@@ -127,9 +168,9 @@ fn a_blocking_digest_keeps_both_claude_finals_in_causal_order_for_both_hook_orde
                 .contains("Core decision item")
         );
         if !observer_first {
-            ok(provider.hook(first.clone()));
+            observer(&mut provider, first.clone(), capture);
         }
-        let mut second = claude_event("Stop");
+        let mut second = event("Stop");
         second["stop_hook_active"] = true.into();
         second["last_assistant_message"] = "B: answer to core-1".into();
         ok(provider.digest_hook(second.clone()));
@@ -142,15 +183,27 @@ fn a_blocking_digest_keeps_both_claude_finals_in_causal_order_for_both_hook_orde
                 "",
             )
             .unwrap();
-            ok(provider.hook(second.clone()));
+            observer(&mut provider, second.clone(), capture);
         }
-        ok(provider.hook(second));
+        observer(&mut provider, second, capture);
         let timeline = passthrough::api(
             &fixture,
             "ok",
             "responses.timeline",
             serde_json::json!({"identityId":agent}),
         );
+        if !capture {
+            assert_eq!(timeline["responses"], serde_json::json!([]), "{timeline:#}");
+            assert!(
+                timeline["entries"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|e| e["kind"] == "input"),
+                "{timeline:#}"
+            );
+            continue;
+        }
         let entries = timeline["entries"]
             .as_array()
             .unwrap_or_else(|| panic!("{timeline:#}"));
@@ -194,7 +247,7 @@ fn a_blocking_digest_keeps_both_claude_finals_in_causal_order_for_both_hook_orde
             shown["passthrough"]["inputBatchId"],
             entries[0]["inputBatchId"]
         );
-        ok(provider.hook(first));
+        observer(&mut provider, first, capture);
         let after = passthrough::api(
             &fixture,
             "ok",

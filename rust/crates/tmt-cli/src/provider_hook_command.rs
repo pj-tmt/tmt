@@ -284,6 +284,7 @@ fn observe_turn(
             process: &process,
             activity,
             response,
+            interrupted: turn.interrupted,
             now_ms: tmt_adapters::request_runtime::wall_time_ms(),
             deadline,
         });

@@ -35,6 +35,7 @@ pub struct TurnCapture<'a> {
     pub process: &'a ProcessIncarnation,
     pub activity: &'a ActivityObservation,
     pub response: Option<super::ResponseCapture>,
+    pub interrupted: bool,
     pub now_ms: u64,
     pub deadline: Instant,
 }
@@ -127,6 +128,7 @@ impl Storage {
             let retained = capture
                 .response
                 .as_ref()
+                .filter(|_| !capture.interrupted)
                 .map(|response| {
                     super::append(
                         db,
@@ -168,6 +170,9 @@ impl Storage {
                     ),
                 capture.now_ms,
             )?;
+            if capture.interrupted {
+                super::super::capture_batches::close(db, &binding.identity_id, capture.now_ms)?;
+            }
             if Instant::now() >= capture.deadline {
                 return Err(super::super::StorageError::new(
                     super::super::StorageErrorCode::Busy,
