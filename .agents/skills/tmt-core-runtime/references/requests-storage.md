@@ -359,7 +359,7 @@ legacy-counter provenance and the difference between idle and turn-boundary elig
 
 `storage::responses::capture` owns the final's activity transition under the binding/session/process
 fence, recomputing from current activity so a usage-only writer cannot discard the final or be
-reverted. Claude and Codex payload finals commit before optional telemetry and before Digest can block. A missing
+reverted. Antigravity, Claude and Codex payload finals commit before optional telemetry and before Digest can block. A missing
 payload final may use the existing consented driver reader; usage failure cannot roll back a kept
 answer. Both hooks use this capture entry point, so a normal Stop is retained once regardless of
 hook order. Inapplicable capture leaves Digest's independent launch verification unchanged;

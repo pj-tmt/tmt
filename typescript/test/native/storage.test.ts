@@ -157,6 +157,7 @@ function expectNativeSchema(
       name: 'let a session-learning diagnostic name why a decoded hook admitted nothing',
     },
     { version: 78, name: 'publish typed configured Digest receiving' },
+    { version: 79, name: 'admit every full runtime in retained finals' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(

@@ -273,7 +273,7 @@ housekeeping. [Delivery/history](contracts/extension-api.md#digest-policy-and-ch
 have one Core owner each; the [storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md)
 maps their modules. A [passthrough](contracts/request-response-v1.md#passthrough) is
 a person's typed text, not a request; it settles that agent's oldest open request
-and earns its turn's final. CLI and API share admission. Capture precedes Digest;
+and earns its turn's final. CLI and API share admission. Capture admits the full runtime registry before Digest;
 [batches](contracts/extension-api.md#ordered-captured-conversation) order inputs and finals, granting no runtime authority.
 Adapters admit idle handoff; extensions schedule. Talk and Digest share one item
 frame; checklist claims seal whole-item prefixes within 32 KiB (live paste may
