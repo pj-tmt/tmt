@@ -2,6 +2,7 @@ use super::*;
 
 fn answered(bound: u64, settled: u64) -> Capture {
     Capture::Answered {
+        response_id: None,
         text: "answer".into(),
         truncated: false,
         provider: "claude".into(),
@@ -117,6 +118,7 @@ fn a_turn_without_a_window_or_with_no_answer_groups_nothing() {
         (
             100,
             Some(Capture::Answered {
+                response_id: None,
                 text: "a".into(),
                 truncated: false,
                 provider: "claude".into(),

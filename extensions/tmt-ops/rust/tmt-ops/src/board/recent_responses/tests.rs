@@ -12,7 +12,8 @@ fn vector() -> Value {
 fn shared_capture_vector_preserves_duplicate_text_rollback_and_exact_bytes() {
     let items = parse(ID, &vector()["resource"]).unwrap();
     assert_eq!(items.len(), 3);
-    assert_eq!(items[0], items[1]);
+    assert_eq!(items[0].text, items[1].text);
+    assert_ne!(items[0].response_id, items[1].response_id);
     assert_eq!(items[2].text, "last\r\nline\n");
     assert_eq!(
         items.iter().map(|item| item.ended_ms).collect::<Vec<_>>(),
@@ -135,4 +136,18 @@ fn public_page_keeps_fifty_answers_and_every_coverage_capture_and_cursor_field()
         "same cursor cannot spin"
     );
     assert_eq!(calls, [json!({"identityId":ID,"before":17,"limit":50})]);
+}
+
+#[test]
+fn response_links_are_opaque_optional_strings_and_never_inferred() {
+    let mut value = vector()["resource"].clone();
+    let page = parse(ID, &value).unwrap();
+    assert_eq!(page[0].response_id.as_deref(), Some("rsp_1"));
+    value["items"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("responseId");
+    assert_eq!(parse(ID, &value).unwrap()[2].response_id, None);
+    value["items"][0]["responseId"] = Value::Null;
+    assert!(parse(ID, &value).is_none());
 }

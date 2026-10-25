@@ -638,60 +638,35 @@ impl Session {
             self.refresh_outgoing();
         }
     }
-    /// The same admitted provider final may also appear in responses.recent.
-    /// Pair observations once within this sender/recipient session. Core's pane
-    /// observation and answer settlement use different clocks; only the public
-    /// capture window may bridge them. Ambiguous pairs remain visible, and this
-    /// comparison grants no request/source authority to recent output.
+    pub(super) fn outgoing_capture_ids(&self) -> impl Iterator<Item = &str> {
+        self.outgoing
+            .iter()
+            .filter_map(|entry| entry.capture.as_ref())
+            .filter_map(crate::board::row_detail::Capture::response_id)
+    }
+
+    /// Prefer a captured answer under its request. No text, provider or clock
+    /// comparison can link two observations; only Core's responseId does.
     pub(super) fn captured_outputs(
         &self,
         items: &[crate::board::recent_responses::Item],
     ) -> Vec<usize> {
-        if items.is_empty() {
-            return Vec::new();
-        }
-        let captures = self
+        let mut seen = self
             .restored_sends()
             .filter_map(|send| send.capture.as_ref())
-            .chain(
-                self.outgoing
-                    .iter()
-                    .filter_map(|entry| entry.capture.as_ref()),
-            );
-        let mut owners = vec![0; items.len()];
-        let mut paired = Vec::new();
-        for capture in captures {
-            let crate::board::row_detail::Capture::Answered {
-                text,
-                provider,
-                ended_ms,
-                truncated,
-                bound_ms,
-                settled_ms,
-            } = capture
-            else {
-                continue;
-            };
-            let mut matches = Vec::new();
-            for (index, item) in items.iter().enumerate() {
-                let in_window = bound_ms.zip(*settled_ms).is_some_and(|(bound, settled)| {
-                    bound <= settled && (bound..=settled).contains(&item.ended_ms)
-                });
-                if text == &item.text
-                    && provider == &item.provider
-                    && truncated == &item.truncated
-                    && (*ended_ms == item.ended_ms || in_window)
-                {
-                    owners[index] += 1;
-                    matches.push(index);
-                }
-            }
-            if let [index] = matches.as_slice() {
-                paired.push(*index);
-            }
-        }
-        paired.retain(|index| owners[*index] == 1);
-        paired
+            .filter_map(crate::board::row_detail::Capture::response_id)
+            .chain(self.outgoing_capture_ids())
+            .collect::<std::collections::BTreeSet<_>>();
+        items
+            .iter()
+            .enumerate()
+            .filter_map(|(index, item)| {
+                item.response_id
+                    .as_deref()
+                    .filter(|id| !seen.insert(id))
+                    .map(|_| index)
+            })
+            .collect()
     }
 
     pub(super) fn observe_captures(&mut self) {
@@ -750,6 +725,7 @@ impl Session {
             .map(|index| self.status_in(&places, index))
             .collect();
         let lines = |text: &str| text.bytes().filter(|byte| *byte == b'\n').count();
+        let mut captured = std::collections::BTreeSet::new();
         for (index, entry) in self.outgoing.iter().enumerate() {
             let place = &places[index];
             if place.header() {
@@ -828,6 +804,9 @@ impl Session {
                 Some((entry.request(), entry.capture.as_ref()?))
             });
             for (request, capture) in own.into_iter().chain(held) {
+                if !capture.first(&mut captured) {
+                    continue;
+                }
                 text.push_str("\n\n");
                 let note_start = lines(&text);
                 text.push_str(&capture.markdown());
