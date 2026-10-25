@@ -686,7 +686,9 @@ concurrent writes, lock, watch, version, truncate, template, encrypt, upload, or
 limit this file.
 
 After an admitted Claude/Codex compaction, saved identities receive a short
-context reminder to re-read and update their notes. It prints the existing path
+context reminder to refresh open work, decisions and rules, remove finished items,
+and move history to issues. Keep notes near 8,000 bytes; above that soft target,
+archive a copy beside `notes.md`, then tidy and condense it first. It prints the existing path
 as quoted data or gives the explicit `tmt notes path --identity '<UUID>'` command;
 the hook never creates or reads/writes notebook content. Follow it within the
 current task's authority. Temporary and unverifiable identities receive none.

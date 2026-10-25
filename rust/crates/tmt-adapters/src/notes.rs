@@ -143,21 +143,31 @@ pub fn handoff_prefix(paths: &ConfigPaths, identity_id: &NotesIdentityId) -> io:
     Ok(text)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct NotebookMetadata {
+    pub path: PathBuf,
+    pub bytes: u64,
+}
+
 /// Project an existing saved-identity notebook without opening storage, creating
 /// directories or reading its contents. The caller owns active-identity lookup.
-pub fn existing_path(
+pub fn existing_metadata(
     paths: &ConfigPaths,
     identity_id: &NotesIdentityId,
-) -> io::Result<Option<PathBuf>> {
+) -> io::Result<Option<NotebookMetadata>> {
     let file = match open_existing(paths, identity_id) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error),
     };
-    if !file.metadata()?.is_file() {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
         return Err(io::Error::other("Notes path is not a regular file."));
     }
-    Ok(Some(paths.notes_layout(identity_id)?.2))
+    Ok(Some(NotebookMetadata {
+        path: paths.notes_layout(identity_id)?.2,
+        bytes: metadata.len(),
+    }))
 }
 
 fn open_existing(paths: &ConfigPaths, identity_id: &NotesIdentityId) -> io::Result<File> {

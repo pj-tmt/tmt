@@ -83,16 +83,30 @@ pub(crate) fn verified_document(
     paths: &ConfigPaths,
     deadline: Instant,
 ) -> serde_json::Value {
+    verified_document_with_reminder(stored, paths, deadline, false)
+}
+
+fn verified_document_with_reminder(
+    stored: tmt_adapters::storage::IdentityContextSnapshot,
+    paths: &ConfigPaths,
+    deadline: Instant,
+    reminder: bool,
+) -> serde_json::Value {
     let notes = NotesIdentityId::try_from(&stored.entry.identity)
         .ok()
-        .and_then(|id| notes::existing_path(paths, &id).ok().flatten())
-        .and_then(|path| path.into_os_string().into_string().ok());
+        .and_then(|id| notes::existing_metadata(paths, &id).ok().flatten());
+    let bytes = notes.as_ref().map(|notes| notes.bytes);
+    let notes_path = notes.and_then(|notes| notes.path.into_os_string().into_string().ok());
     let extensions = extension_hooks::context_contributions(
         &paths.global_dir,
         &stored.entry.identity.id,
         deadline,
     );
-    presentation::document(stored, notes, &extensions)
+    let mut document = presentation::document(stored, notes_path, &extensions);
+    if reminder {
+        presentation::add_compaction_reminder(&mut document, bytes);
+    }
+    document
 }
 
 pub(crate) fn render_verified(
@@ -109,10 +123,7 @@ pub(crate) fn render_verified(
         }
         .notes_compaction_reminder()
         .unwrap_or(false);
-    let mut document = verified_document(stored, paths, deadline);
-    if enabled {
-        presentation::add_compaction_reminder(&mut document);
-    }
+    let document = verified_document_with_reminder(stored, paths, deadline, enabled);
     presentation::bounded(document, false)
 }
 

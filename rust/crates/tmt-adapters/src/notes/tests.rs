@@ -45,7 +45,7 @@ fn context_path_discovery_never_opens_storage_or_reads_notebook_contents() {
     let directory = TestDirectory::new();
     let paths = paths(&directory);
     let identity = identity_id();
-    assert_eq!(existing_path(&paths, &identity).unwrap(), None);
+    assert_eq!(existing_metadata(&paths, &identity).unwrap(), None);
     assert!(!paths.global_dir.exists());
     // Notebook initialization requires the configuration owner to create its
     // root; the read-only discovery above must not do that work implicitly.
@@ -58,8 +58,11 @@ fn context_path_discovery_never_opens_storage_or_reads_notebook_contents() {
     drop(file);
     let before = fs::metadata(&path).unwrap();
     assert_eq!(
-        existing_path(&paths, &identity).unwrap(),
-        Some(path.clone())
+        existing_metadata(&paths, &identity).unwrap(),
+        Some(NotebookMetadata {
+            path: path.clone(),
+            bytes: before.len()
+        })
     );
     let after = fs::metadata(&path).unwrap();
     assert_eq!(after.len(), before.len());
@@ -68,7 +71,7 @@ fn context_path_discovery_never_opens_storage_or_reads_notebook_contents() {
     assert_eq!(fs::read(&paths.database).unwrap(), b"not a SQLite database");
     assert!(!paths.database.with_extension("db-wal").exists());
     fs::remove_file(&path).unwrap();
-    assert_eq!(existing_path(&paths, &identity).unwrap(), None);
+    assert_eq!(existing_metadata(&paths, &identity).unwrap(), None);
 }
 
 #[test]
@@ -126,15 +129,15 @@ fn notebook_reader_rejects_nonregular_files_and_symlinks_at_each_notes_component
     fs::remove_file(&file).unwrap();
     symlink(&outside, &file).unwrap();
     assert_eq!(read(&paths, &identity.id), Err(NotebookError::Unavailable));
-    assert!(existing_path(&paths, &notes_id).is_err());
+    assert!(existing_metadata(&paths, &notes_id).is_err());
     fs::remove_file(&file).unwrap();
     fs::create_dir(&file).unwrap();
     assert_eq!(read(&paths, &identity.id), Err(NotebookError::Unavailable));
-    assert!(existing_path(&paths, &notes_id).is_err());
+    assert!(existing_metadata(&paths, &notes_id).is_err());
     fs::remove_dir(&file).unwrap();
     nix::unistd::mkfifo(&file, nix::sys::stat::Mode::S_IRUSR).unwrap();
     assert_eq!(read(&paths, &identity.id), Err(NotebookError::Unavailable));
-    assert!(existing_path(&paths, &notes_id).is_err());
+    assert!(existing_metadata(&paths, &notes_id).is_err());
     fs::remove_file(&file).unwrap();
     fs::write(&file, b"retained notebook").unwrap();
     for (index, parent) in [
@@ -148,7 +151,7 @@ fn notebook_reader_rejects_nonregular_files_and_symlinks_at_each_notes_component
         fs::rename(parent, &retained).unwrap();
         symlink(&retained, parent).unwrap();
         assert_eq!(read(&paths, &identity.id), Err(NotebookError::Unavailable));
-        assert!(existing_path(&paths, &notes_id).is_err());
+        assert!(existing_metadata(&paths, &notes_id).is_err());
         fs::remove_file(parent).unwrap();
         fs::rename(retained, parent).unwrap();
     }
