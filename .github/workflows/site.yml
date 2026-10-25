@@ -31,6 +31,10 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+    env:
+      # Where Pages serves this site (canonical links, RSS, sitemap). It follows the repository
+      # owner, so an organization rename needs no edit here; a custom domain is this one line.
+      SITE_ORIGIN: https://${{ github.repository_owner }}.github.io
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,7 +54,7 @@ jobs:
         run: pnpm check
       - name: Build static files for GitHub Pages
         working-directory: site
-        run: SITE_ORIGIN=https://pj-tmt.github.io pnpm build
+        run: pnpm build
       - name: Verify production artifact before upload
         working-directory: site
         run: node src/blog/verify-dist.mjs

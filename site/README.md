@@ -67,14 +67,20 @@ Run from `site/`:
 ```sh
 pnpm install --frozen-lockfile
 pnpm check
-pnpm build                          # production; excludes all illustrative fixtures
-SITE_BASE=/ pnpm build              # custom-domain/root deployment: /blog/
+SITE_ORIGIN=https://example.com pnpm build              # production; excludes all illustrative fixtures
+SITE_ORIGIN=https://example.com SITE_BASE=/ pnpm build  # custom-domain/root deployment: /blog/
 pnpm blog:demo                      # explicit noindex example, empty RSS/sitemap
 pnpm preview --port 4176 --strictPort
 ```
 
-`SITE_BASE` defaults to `/tmt/`. `SITE_ORIGIN` defaults to
-`https://pj-tmt.github.io`; it must be an HTTPS origin without a trailing slash.
+`SITE_BASE` defaults to `/tmt/`. A production build requires `SITE_ORIGIN`, the
+HTTPS origin the site is served from, without a trailing slash or path; it has no
+default, because it is the host in the blog's canonical links, RSS and sitemap.
+`.github/workflows/site.yml` derives it from the repository owner
+(`https://<owner>.github.io`), so a custom domain is the one value there.
+`verify-dist` takes the same `SITE_ORIGIN` and fails a production artifact whose
+canonical links, RSS or sitemap name another origin. The dev server, `pnpm blog:demo`
+and the unit tests need none and use a neutral local origin.
 The blog requires an absolute directory base. The handbook-only relative/hash
 preview (`SITE_BASE=./ VITE_SITE_HISTORY=hash pnpm exec vp build`) still works,
 but excludes the blog. For local article HMR use `TMT_BLOG_DEMO=1 pnpm dev`;

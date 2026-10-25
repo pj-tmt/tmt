@@ -12,12 +12,20 @@ export const escapeHtml = (value) =>
 export const csp =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
-export function locationConfig({ base, origin = "https://pj-tmt.github.io" } = {}) {
+// Where a local run (dev server, demo, unit test) claims to live. A production build names its own
+// origin (SITE_ORIGIN) and never falls back to this.
+export const localOrigin = "https://localhost";
+
+export function assertSiteOrigin(origin) {
+  const url = URL.canParse(origin) ? new URL(origin) : null;
+  if (url?.origin !== origin || url.protocol !== "https:")
+    throw new Error("SITE_ORIGIN must be an HTTPS origin without a trailing slash or path");
+}
+
+export function locationConfig({ base, origin = localOrigin } = {}) {
   if (!/^\/(?:[A-Za-z0-9_-]+\/)*$/.test(base))
     throw new Error("SITE_BASE must be an absolute directory path ending in /");
-  const url = new URL(origin);
-  if (url.origin !== origin || url.protocol !== "https:")
-    throw new Error("SITE_ORIGIN must be an HTTPS origin without a trailing slash or path");
+  assertSiteOrigin(origin);
   return { siteBase: base, base: base + "blog/", origin, url: origin + base + "blog/" };
 }
 

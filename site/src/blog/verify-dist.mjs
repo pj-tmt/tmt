@@ -3,11 +3,13 @@ import { fileURLToPath } from "node:url";
 import { parse } from "parse5";
 import { SaxesParser } from "saxes";
 import { attr, walk } from "./content.mjs";
-import { filesBelow, csp } from "./site.mjs";
+import { assertSiteOrigin, filesBelow, csp } from "./site.mjs";
 
+// A production artifact is checked against the origin it was built for (SITE_ORIGIN): its canonical
+// links, RSS and sitemap must name it. A demo artifact has no canonical links and an empty feed.
 export async function verifyDist(
   root = resolve("dist"),
-  { demo = false, blogDirectory = "blog" } = {},
+  { demo = false, blogDirectory = "blog", origin } = {},
 ) {
   const allFiles = await filesBelow(root);
   const prefix = blogDirectory ? blogDirectory + "/" : "";
@@ -24,6 +26,10 @@ export async function verifyDist(
         ? "Expected an explicit demo artifact"
         : "Expected a production artifact; demo output requires --demo",
     );
+  if (!demo) {
+    if (!origin) throw new Error("SITE_ORIGIN is required to verify a production artifact");
+    assertSiteOrigin(origin);
+  }
   for (const path of Object.keys(allFiles))
     if (
       /(?:^|\/)(?:\.private|conversations(?:\.(?:json|md))?|manifest\.json|approval\.json|meta\.json|source\.html)(?:\/|$)/.test(
@@ -55,8 +61,11 @@ export async function verifyDist(
     const html = files[path].toString("utf8");
     let policy = false;
     let article = null;
+    let canonical = null;
     walk(parse(html), (node) => {
       if (node.tagName === "article" && attr(node, "id") === "blog-article") article = node;
+      if (node.tagName === "link" && attr(node, "rel") === "canonical")
+        canonical = attr(node, "href");
       if (node.attrs?.some(({ name }) => /^on/i.test(name)))
         throw new Error(`Inline event handler in ${path}`);
       if (
@@ -82,6 +91,11 @@ export async function verifyDist(
       throw new Error(`Demo page must be noindex: ${path}`);
     if (!policy || !html.includes("<h1"))
       throw new Error(`Missing CSP or rendered content in ${path}`);
+    if (!demo) {
+      const expected = origin + info.base + path.replace(/index\.html$/, "");
+      if (canonical !== expected)
+        throw new Error(`Canonical link of ${path} must be ${expected}, found ${canonical}`);
+    }
     if (path.startsWith("posts/")) {
       let visibleText = "";
       const text = (node) => {
@@ -106,6 +120,8 @@ export async function verifyDist(
     xml.on("text", (value) => {
       if (["link", "guid", "loc"].includes(element) && value.startsWith("https://")) {
         const parsed = new URL(value);
+        if (!demo && parsed.origin !== origin)
+          throw new Error(`${path} names ${parsed.origin}, not the site origin ${origin}`);
         const local = info.base + parsed.pathname.slice(info.base.length);
         if (!parsed.pathname.startsWith(info.base))
           throw new Error("Feed/sitemap URL escapes base");
@@ -133,5 +149,8 @@ export async function verifyDist(
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   if (args.some((arg) => arg !== "--demo")) throw new Error("Usage: verify-dist.mjs [--demo]");
-  await verifyDist(undefined, { demo: args.includes("--demo") });
+  await verifyDist(undefined, {
+    demo: args.includes("--demo"),
+    origin: process.env.SITE_ORIGIN || undefined,
+  });
 }
