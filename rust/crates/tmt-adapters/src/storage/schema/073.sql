@@ -81,12 +81,6 @@ CREATE TABLE orchestration_decisions (
  time_zone TEXT NOT NULL CHECK (length(time_zone) BETWEEN 1 AND 128),
  sources TEXT NOT NULL CHECK (json_valid(sources) AND length(CAST(sources AS BLOB)) <= 8192)
 );
-CREATE TRIGGER orchestration_decisions_advances_change_cursor_on_insert AFTER INSERT ON orchestration_decisions
-BEGIN UPDATE change_cursor SET value = value + 1 WHERE id = 1; END;
-CREATE TRIGGER orchestration_decisions_advances_change_cursor_on_update AFTER UPDATE ON orchestration_decisions
-WHEN OLD.id IS NOT NEW.id OR OLD.recorded_ms IS NOT NEW.recorded_ms OR OLD.expires_ms IS NOT NEW.expires_ms OR OLD.subject_kind IS NOT NEW.subject_kind OR OLD.subject_id IS NOT NEW.subject_id OR OLD.actor_id IS NOT NEW.actor_id OR OLD.recipient_id IS NOT NEW.recipient_id OR OLD.action IS NOT NEW.action OR OLD.outcome IS NOT NEW.outcome OR OLD.reason IS NOT NEW.reason OR OLD.configuration_revision IS NOT NEW.configuration_revision OR OLD.time_zone IS NOT NEW.time_zone OR OLD.sources IS NOT NEW.sources
-BEGIN UPDATE change_cursor SET value = value + 1 WHERE id = 1; END;
-CREATE TRIGGER orchestration_decisions_advances_change_cursor_on_delete AFTER DELETE ON orchestration_decisions
-BEGIN UPDATE change_cursor SET value = value + 1 WHERE id = 1; END;
+-- Readers page this journal on demand by event ID; appends and pruning do not wake boards.
 CREATE INDEX orchestration_decisions_subject ON orchestration_decisions(subject_kind,subject_id,id DESC);
 CREATE INDEX orchestration_decisions_expiry ON orchestration_decisions(expires_ms,id);

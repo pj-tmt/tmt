@@ -27,12 +27,15 @@ owns shapes, recurrence rules, state defaults and slice boundaries.
   indexes and triggers, refuses a table that differs from what earlier migrations make in a fresh
   database, runs with foreign keys off inside one immediate transaction that rolls back whole, and
   restores foreign keys on every exit. Migrations keep recorded names and historical retention.
-- **Change cursor:** every core-owned table has three AFTER triggers
+- **Change cursor:** board-relevant core-owned tables have three AFTER triggers
   `<table>_advances_change_cursor_on_{insert,update,delete}` that advance `change_cursor` inside
   the writing transaction. An update counts only when a compared column differs
   (`bindings.last_verified_at` is not compared). A migration that adds a table or column, or
   rebuilds a table, must recreate its triggers: `change_cursor_tests` fails until every table is
-  covered or deliberately excluded and every column compared.
+  covered or deliberately excluded and every column compared. The append-only
+  `orchestration_decisions` journal is excluded: reads page by event ID on demand,
+  so appends and retention pruning do not wake boards. Orchestration configuration
+  tables remain covered.
 - Host columns on `bindings`, `request_attempts`, `request_responses` and `host_servers` accept any
   host name (1 to 32 of `[a-z0-9-]`, starting with a letter); NULL is tmux; inbox and remote routes
   carry no host. `host_servers` holds TMT's UUIDv4 per server incarnation of a host without its own

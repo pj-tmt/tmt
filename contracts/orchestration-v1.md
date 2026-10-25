@@ -147,8 +147,10 @@ freeze state defaults, inheritance, explicit unlimited and source provenance.
 
 The journal lives in Core's existing SQLite database. Plans, settings, audience,
 member overrides and personal focus have one storage owner and revision snapshot.
-Raw connections never cross the adapter boundary; migrations and all-column
-change-cursor triggers follow the existing storage contract.
+Raw connections never cross the adapter boundary. Settings, plans, targets,
+member overrides and focus retain all-column change-cursor triggers. The
+append-only decision journal has no change-cursor triggers: `why` pages it on
+demand by event ID, so appends and retention pruning do not wake boards.
 
 Journal entries have committed monotonic order, recording time, frozen 30-day
 expiry, typed subject/actor/recipient IDs, action/outcome/reason, configuration

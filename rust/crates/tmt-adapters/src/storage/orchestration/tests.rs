@@ -141,11 +141,14 @@ fn journal_order_is_commit_order_and_sources_are_frozen_after_plan_edits() {
     assert_eq!(final_page.next_before, None);
 }
 #[test]
-fn expiry_is_filtered_by_reads_and_only_writer_prunes() {
+fn journal_append_and_writer_pruning_do_not_wake_boards_and_reads_only_filter_expiry() {
     let d = TestDirectory::new();
     let mut s = Storage::open(d.path.join("state.db")).unwrap();
     let id = identity(&mut s, "seat");
+    // The on-demand journal pages by event ID, independently of the board cursor.
+    let cursor = s.change_cursor().unwrap();
     s.append_orchestration_decision(&event(&id, NOW)).unwrap();
+    assert_eq!(s.change_cursor().unwrap(), cursor, "journal append");
     let expired = NOW + ORCH_JOURNAL_RETENTION_MS;
     let changes = s.connection().unwrap().total_changes();
     assert!(
@@ -165,6 +168,11 @@ fn expiry_is_filtered_by_reads_and_only_writer_prunes() {
     assert_eq!(count, 1);
     s.append_orchestration_decision(&event(&id, expired))
         .unwrap();
+    assert_eq!(
+        s.change_cursor().unwrap(),
+        cursor,
+        "journal append and prune"
+    );
     let count: i64 = s
         .connection()
         .unwrap()
@@ -173,6 +181,11 @@ fn expiry_is_filtered_by_reads_and_only_writer_prunes() {
         })
         .unwrap();
     assert_eq!(count, 1);
+    let page = s
+        .orchestration_journal(&subject(&id), None, 50, expired)
+        .unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0]["recordedAtMs"], expired);
 }
 #[test]
 fn preview_uses_real_store_and_has_no_policy_journal_or_cursor_effect() {

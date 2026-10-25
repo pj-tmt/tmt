@@ -9,6 +9,9 @@ use rusqlite::{Connection, types::Value};
 /// and the counter itself.
 const BOOKKEEPING: &[&str] = &["_migrations", "change_cursor", "extension_storage_cutovers"];
 
+/// Append-only journals paged on demand, independently of board refreshes.
+const ON_DEMAND_JOURNALS: &[&str] = &["orchestration_decisions"];
+
 /// Columns whose refresh is an observation made by reads, not a change.
 const OBSERVATIONS: &[(&str, &str)] = &[("bindings", "last_verified_at")];
 
@@ -40,7 +43,7 @@ fn extension_owned(connection: &Connection) -> BTreeSet<String> {
     .collect()
 }
 
-/// Every table that is neither bookkeeping nor extension-owned.
+/// Board-relevant tables, excluding bookkeeping, on-demand journals and extension data.
 fn covered(connection: &Connection) -> Vec<String> {
     let owned = extension_owned(connection);
     strings(
@@ -49,7 +52,11 @@ fn covered(connection: &Connection) -> Vec<String> {
          AND name NOT LIKE 'sqlite_%' ORDER BY name",
     )
     .into_iter()
-    .filter(|table| !BOOKKEEPING.contains(&table.as_str()) && !owned.contains(table))
+    .filter(|table| {
+        !BOOKKEEPING.contains(&table.as_str())
+            && !ON_DEMAND_JOURNALS.contains(&table.as_str())
+            && !owned.contains(table)
+    })
     .collect()
 }
 
@@ -64,7 +71,7 @@ fn cursor(connection: &Connection) -> i64 {
 /// A future table, or a rebuilt one that lost its triggers, fails here until
 /// it is covered or deliberately excluded.
 #[test]
-fn every_core_table_has_the_three_cursor_triggers() {
+fn every_board_relevant_core_table_has_the_three_cursor_triggers() {
     let (_directory, connection) = migrated();
     let tables = covered(&connection);
     assert!(tables.len() >= 18, "{tables:?}");
@@ -82,7 +89,7 @@ fn every_core_table_has_the_three_cursor_triggers() {
             .collect();
         assert_eq!(triggers, expected, "{table}");
     }
-    // Extension-owned tables and bookkeeping never advance it.
+    // Excluded tables, including the on-demand journal, never advance it.
     let stray = strings(
         &connection,
         "SELECT tbl_name FROM sqlite_schema WHERE type = 'trigger' \
@@ -121,7 +128,7 @@ fn row_values(connection: &Connection, table: &str) -> (Vec<String>, Vec<Value>)
 }
 
 #[test]
-fn insert_update_and_delete_each_advance_the_cursor_on_every_core_table() {
+fn insert_update_and_delete_each_advance_the_cursor_on_every_board_relevant_core_table() {
     let (_directory, connection) = migrated();
     connection
         .execute_batch("PRAGMA foreign_keys = OFF; PRAGMA ignore_check_constraints = ON;")
