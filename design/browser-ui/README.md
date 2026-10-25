@@ -23,7 +23,8 @@ and Notifications dismissal; IconAction also accepts a caller-supplied icon.
 Static serving requires neither peer.
 
 `@tmt/browser-ui/shell-host` exports the app router and route slots, `@tmt/browser-ui/theme` the
-stored theme choice. Products import the leaf only through these entries, never by a path into
+stored theme choice and `@tmt/browser-ui/search` the [search-provider registry](#search-providers).
+Products import the leaf only through these entries, never by a path into
 `design/browser-ui`; the test-only `@tmt/browser-ui/test-fixtures/*` (files under
 `test/fixtures/`, imported with their extension) and `@tmt/browser-ui/gallery/frames` serve
 product tests and stay out of every production `src`. The TypeScript boundary test
@@ -164,8 +165,8 @@ same renderer. Common controls follow module actions in the order Theme, Search,
 No title or avatar is drawn in this bar; the host's content supplies its real `h1`.
 
 `openSearch(opener)` connects the one existing product switcher and its focus return. The
-root supplies module/section navigation entries; the leaf reads no page or provider data and
-creates no second search surface. The platform shortcut admits a trusted, fresh Command/Ctrl+K
+root supplies module/section navigation entries through the [search registry](#search-providers);
+the leaf reads no page or provider data and creates no second search surface. The platform shortcut admits a trusted, fresh Command/Ctrl+K
 outside an editor; untrusted, composing, repeated or modified requests do nothing. Product
 switcher bridges and module-bar adoption are separate owning changes, not shipped by the leaf.
 
@@ -643,6 +644,30 @@ JSX and original SyntheticEvent callbacks. The shared icon-tooltip binding is
 internal; IconAction's public API, busy fence, activation and presentation are
 unchanged. The gallery's `?frame=menu-host` exercises actual React/native parity,
 updates, replacement and drawer nesting in both themes.
+
+## Search providers
+
+`@tmt/browser-ui/search` is the seam of the global search (#4841): `createSearchRegistry()` and
+the provider, snapshot, item and group types. It has no import, no UI, no query and no keyboard
+handling. A provider has a stable `key`, a `label` (the group heading), a synchronous
+`getSnapshot()` and `subscribe(listener)` returning its unsubscribe. A snapshot is `unavailable`
+(no admitted current view: not read yet, refused, not paired) or `ready` with items, where an empty
+list is a confirmed empty. An item has a `key` unique in its snapshot, a `label`, an optional
+`detail`, `words` and glyph `icon` name, and an `href`: a route of this origin (`/path` with an
+optional query or hash; other schemes, a `//` or `/\` prefix and whitespace are refused). There is
+no fetch, command or activation callback; the host's own navigation opens the `href`.
+
+The registry keeps providers in registration order and re-reads a snapshot only after its provider
+notifies. `register(provider)` admits the current snapshot first and returns the withdrawal; a key
+registered twice or an invalid snapshot throws and changes nothing. `groups()` returns the same
+array until something changes, and a group whose snapshot is invalid or unreadable is
+`unavailable`, never rows the provider did not admit. `find(groupKey, itemKey)` returns the item as
+the latest snapshot has it, so a selection of a withdrawn or replaced item finds nothing.
+`subscribe` notifies after any change; `dispose()` withdraws every provider and listener, and later
+calls are inert. A provider's snapshots must already be filtered by the surface's own access:
+the registry adds neither reads nor authorization. The dialog, its query and its ranking belong to
+the host that renders the groups; `searchSnapshotProblem` names why a snapshot is refused, for a
+provider's own tests.
 
 ## Chips
 
