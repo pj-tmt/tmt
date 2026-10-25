@@ -321,6 +321,7 @@ fn anonymous_creation_including_question_templates_keeps_unassigned_questions_on
             page,
             "--file",
             file.to_str().unwrap(),
+            "--replace",
             "--json",
         ]);
         let after = pilot.call(&["page", "read", page, "--json"]);
