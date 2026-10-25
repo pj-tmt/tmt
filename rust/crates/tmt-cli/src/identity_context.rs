@@ -106,29 +106,31 @@ pub fn resolve(storage: &mut Storage, selector: Selector) -> Result<Identity, Fa
     .ok_or_else(required_failure)
 }
 
-/// An optional identity, chosen before storage opens. Only an implicit
-/// selection discovers the caller's host; a durable name reads storage alone.
+/// An optional identity's source. Only an implicit sender selects the
+/// caller's host, before storage opens; a durable name reads storage alone.
 pub enum Sender {
     Explicit(String),
-    Pane(Box<Host>, String),
-    Anonymous,
+    Caller(Box<Host>, CallerEnvironment),
 }
 
 pub fn sender(explicit: Option<&str>, select: SelectCaller<'_>) -> Result<Sender, Failure> {
     if let Some(name) = explicit {
         return Ok(Sender::Explicit(name.to_owned()));
     }
-    Ok(match caller_pane(select, true)? {
-        Some((host, pane)) => Sender::Pane(Box::new(host), pane),
-        None => Sender::Anonymous,
-    })
+    let environment = CallerEnvironment::current();
+    let host = select(&environment).map_err(crate::caller_context::selection_failed)?;
+    Ok(Sender::Caller(Box::new(host), environment))
 }
 
+/// The sender's identity. An implicit sender's pane is read only here, after
+/// the command has resolved its target, so a lookup miss reads no pane.
 pub fn optional(storage: &mut Storage, sender: Sender) -> Result<Option<Identity>, Failure> {
     match sender {
         Sender::Explicit(name) => explicit(storage, &name).map(Some),
-        Sender::Pane(host, pane) => selected(storage, || Ok(&*host), Selector::Pane(pane)),
-        Sender::Anonymous => Ok(None),
+        Sender::Caller(host, environment) => match pane_of(*host, &environment, true)? {
+            Some((host, pane)) => selected(storage, || Ok(&host), Selector::Pane(pane)),
+            None => Ok(None),
+        },
     }
 }
 
@@ -139,6 +141,15 @@ fn caller_pane(
 ) -> Result<Option<(Host, String)>, Failure> {
     let environment = CallerEnvironment::current();
     let host = select(&environment).map_err(crate::caller_context::selection_failed)?;
+    pane_of(host, &environment, allow_anonymous)
+}
+
+/// The selected host's caller pane, unless the host is a shared runtime host.
+fn pane_of(
+    host: Host,
+    environment: &CallerEnvironment,
+    allow_anonymous: bool,
+) -> Result<Option<(Host, String)>, Failure> {
     if let Err(error) = crate::caller_context::require_independent_host() {
         // Anonymous delivery remains valid, but must not acquire the identity
         // of an unrelated conversation through the shared host's pane.
@@ -158,7 +169,7 @@ fn caller_pane(
             Err(error)
         };
     }
-    let pane = host.caller_pane(&environment).map_err(endpoint_failure)?;
+    let pane = host.caller_pane(environment).map_err(endpoint_failure)?;
     Ok(pane.map(|pane| (host, pane)))
 }
 
