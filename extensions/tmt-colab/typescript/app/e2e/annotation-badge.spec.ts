@@ -142,7 +142,7 @@ test('the Comments list is the website list: views, rows and an empty state per 
   await expect(empty).toContainText('Resolved threads will appear here.');
 });
 
-test('a row opens the Discussion view: status line, title, passage, turns, reply, footer', async ({
+test('a row opens the Discussion view: header, title passage, turns, reply, Resolve in the header', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -158,10 +158,17 @@ test('a row opens the Discussion view: status line, title, passage, turns, reply
   await expect(drawer.getByRole('heading', { level: 2 })).toHaveText('Discussion');
   await expect(drawer.locator('.tmt-ui-drawer-caption')).toHaveText('1 / 1');
   await expect(drawer.getByTestId('annotation-row')).toHaveCount(0);
-  await expect(drawer.getByTestId('discussion-state')).toHaveText('Open discussion');
-  await expect(drawer.getByRole('button', { name: 'All comments', exact: true })).toBeVisible();
+  // An open thread has no state line, and no row of its own to leave by: the position, which is the
+  // way back to the list, and the thread arrows stand in the header.
+  await expect(drawer.getByTestId('discussion-state')).toHaveCount(0);
+  await expect(drawer.getByRole('button', { name: 'All comments', exact: true })).toHaveText(
+    '1 / 1',
+  );
+  await expect(drawer.getByRole('button', { name: 'Previous thread', exact: true })).toBeDisabled();
+  await expect(drawer.getByRole('button', { name: 'Next thread', exact: true })).toBeDisabled();
   const thread = drawer.getByTestId('comment-thread');
-  await expect(thread.locator('.discussion-title')).not.toBeEmpty();
+  // The title is the passage: its number and the quoted text, no heading of the first message.
+  await expect(thread.locator('.discussion-title')).toHaveCount(0);
   const quote = thread.locator('.discussion-quote');
   await expect(quote.locator('.annotation-number')).toHaveText('1');
   await expect(quote.locator('q')).toHaveText('Exact selected text');
@@ -170,7 +177,7 @@ test('a row opens the Discussion view: status line, title, passage, turns, reply
   await expect(reply).toBeVisible();
   // The reply field is one box flush with the content column's edges: the text, then its
   // toolbar with the round Send at the end, and the helper line under the box.
-  const column = (await thread.locator('.discussion-title').boundingBox())!;
+  const column = (await quote.boundingBox())!;
   const box = (await thread.locator('.annotation-compose .rich-input-surface').boundingBox())!;
   const field = (await thread.locator('.annotation-compose .rich-input-field').boundingBox())!;
   // At rest it is 44px high: a line and a half of text under 10px of padding above and 4px below.
@@ -184,16 +191,12 @@ test('a row opens the Discussion view: status line, title, passage, turns, reply
   expect(Math.abs(sendBox.x + sendBox.width - (box.x + box.width))).toBeLessThanOrEqual(8);
   const helper = (await thread.locator('.annotation-helper').boundingBox())!;
   expect(helper.y).toBeGreaterThanOrEqual(box.y + box.height);
-  // The footer is last, under the reply composer; Resolve flips the status line and offers Reopen.
-  const footer = thread.locator('.discussion-footer');
-  const [composerBox, footerBox] = [
-    await thread.locator('.conversation-composer').boundingBox(),
-    await footer.boundingBox(),
-  ];
-  expect(footerBox!.y).toBeGreaterThanOrEqual(composerBox!.y + composerBox!.height - 1);
-  await footer.getByRole('button', { name: 'Resolve', exact: true }).click();
+  // There is no footer: Resolve stands in the header, flips the status line and offers Reopen.
+  await expect(thread.locator('.discussion-footer')).toHaveCount(0);
+  const actions = drawer.locator('.tmt-ui-drawer-header-actions');
+  await actions.getByRole('button', { name: 'Resolve', exact: true }).click();
   await expect(drawer.getByTestId('discussion-state')).toContainText('Resolved');
-  await expect(footer.getByRole('button', { name: 'Reopen', exact: true })).toBeVisible();
+  await expect(actions.getByRole('button', { name: 'Reopen', exact: true })).toBeVisible();
   // All comments returns to the list, and the drawer to Comments.
   await drawer.getByRole('button', { name: 'All comments', exact: true }).click();
   await expect(drawer.getByRole('heading', { level: 2 })).toHaveText('Comments');
@@ -201,7 +204,7 @@ test('a row opens the Discussion view: status line, title, passage, turns, reply
   // Show in the page scrolls to the passage; the non-modal panel stays beside or over it.
   await drawer.getByRole('tab', { name: 'Resolved', exact: true }).click();
   await drawer.getByTestId('annotation-row').click();
-  await drawer.getByRole('button', { name: 'Show in the page', exact: true }).click();
+  await drawer.getByRole('button', { name: /^Show in the page/ }).click();
   await expect(commentsRegion(page)).toBeVisible();
   await expect(drawer.getByRole('heading', { level: 2 })).toHaveText('Discussion');
 });

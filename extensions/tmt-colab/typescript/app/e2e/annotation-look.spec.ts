@@ -195,7 +195,8 @@ for (const width of [1440, 390])
       await comments.click();
       const panel = page.getByTestId('comments-panel');
       // Comments reopens on the thread that was open; All comments is the list.
-      await panel.getByRole('button', { name: 'All comments', exact: true }).click();
+      // The position in the panel's header is the way back to the list.
+      await commentsRegion(page).getByRole('button', { name: 'All comments', exact: true }).click();
       await expectCommentsEdge(commentsRegion(page), theme);
       // The numbers are split between the Open and Resolved views (the open thread shows in both).
       const allNumbers = async () => {
@@ -238,7 +239,8 @@ for (const width of [1440, 390])
         path: `${captures}/annotation-resolved-expanded-${width}-${theme}.png`,
       });
       await run(page, 'annotationLookDelete');
-      await panel.getByRole('button', { name: 'All comments', exact: true }).click();
+      // The position in the panel's header is the way back to the list.
+      await commentsRegion(page).getByRole('button', { name: 'All comments', exact: true }).click();
       expect(await allNumbers()).toEqual(['1', '2', '3', '4']);
       await expect(markers).toHaveText(['1', '+2']);
       expect(
@@ -423,7 +425,7 @@ for (const width of [1440, 1024, 390])
       const metrics = await numberMetrics(marker);
       const panelMetrics = await numberMetrics(circle);
       // One number circle in two sizes (#4489): the page's marker is a 16 px circle in a 24 px
-      // target, the thread's number the 22 px circle. They share typeface, weight and alignment.
+      // target, the Discussion title's number an 18 px circle. They share typeface, weight and alignment.
       for (const key of [
         'font-family',
         'font-weight',
@@ -434,9 +436,9 @@ for (const width of [1440, 1024, 390])
       ])
         expect(panelMetrics[key], key).toBe(metrics[key]);
       expect(panelMetrics).toMatchObject({
-        width: '22px',
-        height: '22px',
-        'font-size': '12px',
+        width: '18px',
+        height: '18px',
+        'font-size': '11px',
         'font-weight': '600',
         'align-items': 'center',
         'justify-items': 'center',
@@ -480,7 +482,10 @@ for (const width of [1440, 1024, 390])
       await expect(chat.getByRole('button', { name: /^Who is asked/ })).toHaveText('Ask Atlas');
       await page.screenshot({ path: `${captures}/unified-chat-recipient-${width}-${theme}.png` });
       await run(page, 'conversation', { surface: 'chat', state: 'replied' });
-      expect(await sharedAgentByline(chat)).toEqual(annotationByline);
+      const chatByline = await sharedAgentByline(chat);
+      // The same name in the same weight; the Discussion view's is the 12px of the design, Chat's its 11px.
+      expect({ ...chatByline, size: undefined }).toEqual({ ...annotationByline, size: undefined });
+      expect([annotationByline.size, chatByline.size]).toEqual(['12px', '11px']);
       await page.screenshot({ path: `${captures}/unified-chat-agent-${width}-${theme}.png` });
       expect(await run(page, 'proof')).toMatchObject({ sends: [], actions: [] });
     });

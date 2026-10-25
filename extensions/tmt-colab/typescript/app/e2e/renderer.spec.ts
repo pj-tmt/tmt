@@ -102,11 +102,13 @@ async function mount(page: Page, source: string, layout?: 'column' | 'full') {
           input: { id: string; selector: unknown; ordinal?: number }[],
           draft?: unknown,
           count?: number,
+          quiet?: unknown,
         ) {
           return renderer.highlight(
             input.map((anchor, index) => ({ ...anchor, ordinal: anchor.ordinal ?? index + 1 })),
             draft,
             count ?? input.length,
+            quiet,
           );
         },
       };
@@ -2069,6 +2071,7 @@ test('the rest highlight underlines the passage in the annotation rule colour', 
         .filter((rule): rule is CSSStyleRule => (rule as CSSStyleRule).selectorText === selector)
         .map((rule) => ({
           line: rule.style.getPropertyValue('text-decoration-line'),
+          style: rule.style.getPropertyValue('text-decoration-style'),
           color: rule.style.getPropertyValue('text-decoration-color'),
           thickness: rule.style.getPropertyValue('text-decoration-thickness'),
           skipInk: rule.style.getPropertyValue('text-decoration-skip-ink'),
@@ -2078,30 +2081,40 @@ test('the rest highlight underlines the passage in the annotation rule colour', 
     return {
       rest: read('::highlight(colab-comments)'),
       hover: read('::highlight(colab-hover)'),
-      rule: root.getPropertyValue('--tmt-ui-color-annotation-rule').trim(),
-      tint: root.getPropertyValue('--tmt-ui-surface-annotation-highlight').trim(),
-      hoverTint: root.getPropertyValue('--tmt-ui-surface-annotation-highlight-hover').trim(),
+      quiet: read('::highlight(colab-quiet)'),
+      accent: root.getPropertyValue('--tmt-ui-color-annotation-rule-selected').trim(),
     };
   });
-  expect(rules.rule).toMatch(/^#[0-9a-f]{6}$/i);
-  expect(rules.tint).toMatch(/^#[0-9a-f]{6}$/i);
-  expect(rules.hoverTint).toMatch(/^#[0-9a-f]{6}$/i);
-  expect(rules.rest).toEqual([
+  expect(rules.accent).toMatch(/^#[0-9a-f]{6}$/i);
+  // One accent at three strengths: a light tint under a 1 px rule at rest, a stronger tint under a
+  // 2 px rule for the pointer.
+  expect(rules.rest).toMatchObject([
     {
       line: 'underline',
-      color: 'var(--tmt-ui-color-annotation-rule)',
+      color: 'color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 45%,transparent)',
       thickness: '1px',
       skipInk: 'none',
-      background: 'var(--tmt-ui-surface-annotation-highlight)',
+      background: 'color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 14%,transparent)',
     },
   ]);
-  expect(rules.hover).toEqual([
+  expect(rules.hover).toMatchObject([
     {
       line: 'underline',
-      color: 'var(--tmt-ui-color-annotation-rule)',
+      color: 'color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 45%,transparent)',
       thickness: '2px',
       skipInk: 'none',
-      background: 'var(--tmt-ui-surface-annotation-highlight-hover)',
+      background: 'color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 20%,transparent)',
+    },
+  ]);
+  // A resolved thread that is open keeps only a quiet dashed rule: no tint.
+  expect(rules.quiet).toEqual([
+    {
+      line: 'underline',
+      style: 'dashed',
+      color: 'color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 45%,transparent)',
+      thickness: '1px',
+      skipInk: 'none',
+      background: '',
     },
   ]);
 });
@@ -2166,6 +2179,7 @@ const requestHighlight = (
           anchors,
           threadCount: Math.max(0, ...anchors.map((anchor) => anchor.ordinal)),
           draft: null,
+          quiet: null,
         });
       }),
     { id, renderId, requestId, anchors },
@@ -2353,7 +2367,7 @@ const contrast = (first: string, second: string) => {
   return (light + 0.05) / (dark + 0.05);
 };
 
-test('the selected highlight is a stronger tint and a solid rule thicker than the hover look', async ({
+test('the selected highlight is the deepest tint under a solid 2 px accent rule, above the hover look', async ({
   page,
 }) => {
   await page.goto('/');
@@ -2377,55 +2391,67 @@ test('the selected highlight is a stronger tint and a solid rule thicker than th
     return {
       hover: read('::highlight(colab-hover)'),
       selected: read('::highlight(colab-selected)'),
-      tint: root.getPropertyValue('--tmt-ui-surface-annotation-highlight-selected').trim(),
       stroke: root.getPropertyValue('--tmt-ui-color-annotation-rule-selected').trim(),
     };
   });
   expect(rules.selected).toEqual({
     line: 'underline',
     color: 'var(--tmt-ui-color-annotation-rule-selected)',
-    thickness: '3px',
+    thickness: '2px',
     skipInk: 'none',
-    background: 'var(--tmt-ui-surface-annotation-highlight-selected)',
+    background: 'color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 28%,transparent)',
   });
-  // The rule steps up from hover's, so the two do not read alike.
-  expect(parseFloat(rules.selected.thickness!)).toBeGreaterThan(parseFloat(rules.hover.thickness!));
-  expect(rules.tint).toBe(
-    tokens.browser.surface['annotation-highlight-selected'].light.toLowerCase(),
-  );
+  // Between the pointer's look and the open thread's: the same thickness, so the two do not read
+  // alike by the rule's colour (the accent whole, not at 45 %) and the tint under it (28 against 20 %).
+  expect(rules.hover.thickness).toBe(rules.selected.thickness);
+  expect(rules.hover.color).not.toBe(rules.selected.color);
   expect(rules.stroke).toBe(tokens.browser.color['annotation-rule-selected'].light.toLowerCase());
 });
 
-test('the selected tint steps clearly from the rest tint and keeps text as readable as hover', () => {
+/** A colour at a share of its strength over a page colour: what the page shows under a tint. */
+const over = (accent: string, share: number, page: string) =>
+  `#${[1, 3, 5]
+    .map((at) => {
+      const top = parseInt(accent.slice(at, at + 2), 16);
+      const below = parseInt(page.slice(at, at + 2), 16);
+      return Math.round(below + (top - below) * share)
+        .toString(16)
+        .padStart(2, '0');
+    })
+    .join('')}`;
+
+test('the tints step from rest through hover to selected and keep page text readable', () => {
   for (const theme of ['light', 'dark'] as const) {
-    const rest = tokens.browser.surface['annotation-highlight'][theme];
-    const hover = tokens.browser.surface['annotation-highlight-hover'][theme];
-    const selected = tokens.browser.surface['annotation-highlight-selected'][theme];
-    expect(contrast(rest, selected), `${theme} rest to selected`).toBeGreaterThanOrEqual(1.3);
-    // Page text at the palette's text colour and at the common near-black / near-white: at 7:1, or
-    // as readable as on the hover tint where that is below 7:1.
+    const accent = tokens.browser.color['annotation-rule-selected'][theme];
+    const page = tokens.browser.surface.sheet[theme];
+    const rest = over(accent, 0.14, page);
+    const hover = over(accent, 0.2, page);
+    const selected = over(accent, 0.28, page);
+    // The rule carries the rest of the difference (a solid 2 px under the open thread's).
+    expect(contrast(rest, selected), `${theme} rest to selected`).toBeGreaterThanOrEqual(1.15);
+    expect(contrast(rest, hover), `${theme} rest to hover`).toBeGreaterThan(1.0);
+    // Page text at the palette's text colour and at the common near-black / near-white stays at 4.5:1
+    // (AA) even on the deepest tint, checked on the composited fill.
     for (const text of [
       tokens.browser.color.text[theme],
       theme === 'light' ? '#343434' : '#dddddd',
     ])
-      expect(contrast(text, selected), `${theme} ${text} on selected`).toBeGreaterThanOrEqual(
-        Math.min(7, contrast(text, hover)),
-      );
+      expect(contrast(text, selected), `${theme} ${text} on selected`).toBeGreaterThanOrEqual(4.5);
   }
 });
 
-/** The pixel row of the clip with the most of the rule's colour: how much of the clip's width the rule
- * covers there and how much shows the tint instead, which is a gap in the rule. A glyph's tail
- * crossing the rule is neither. */
+/** The pixel row of the clip that one colour other than the page's or the tint's covers most: how much
+ * of the clip's width the rule covers there and how much shows the tint instead, which is a gap in the
+ * rule. A glyph's tail crossing the rule is neither. The rule is translucent, so its colour is the one
+ * the row shows, not a token's. */
 async function ruleRow(
   page: Page,
   clip: { x: number; y: number; width: number; height: number },
-  rule: string,
   tint: string,
 ) {
   const png = (await page.screenshot({ clip })).toString('base64');
   return page.evaluate(
-    async ({ png, rule, tint }) => {
+    async ({ png, tint }) => {
       const image = new Image();
       image.src = `data:image/png;base64,${png}`;
       await image.decode();
@@ -2438,20 +2464,25 @@ async function ruleRow(
       const channels = (hex: string) => [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16));
       const near = (at: number, colour: number[], tolerance: number) =>
         colour.every((channel, index) => Math.abs(data[at + index]! - channel) <= tolerance);
+      const page = [255, 255, 255];
       let best = { rule: 0, gaps: 1 };
       for (let y = 0; y < height; y++) {
-        let ruled = 0;
+        const colours = new Map<string, number>();
         let gaps = 0;
         for (let x = 0; x < width; x++) {
           const at = (y * width + x) * 4;
-          if (near(at, channels(rule), 12)) ruled++;
-          else if (near(at, channels(tint), 4)) gaps++;
+          if (near(at, channels(tint), 4)) gaps++;
+          else if (!near(at, page, 4)) {
+            const key = `${data[at]},${data[at + 1]},${data[at + 2]}`;
+            colours.set(key, (colours.get(key) ?? 0) + 1);
+          }
         }
+        const ruled = Math.max(0, ...colours.values());
         if (ruled / width > best.rule) best = { rule: ruled / width, gaps: gaps / width };
       }
       return best;
     },
-    { png, rule, tint },
+    { png, tint },
   );
 }
 
@@ -2495,15 +2526,11 @@ test('the hover and selected rules run unbroken under descenders', async ({ page
   await expect
     .poll(() => frame.locator('html').evaluate(() => CSS.highlights.has('colab-hover')))
     .toBe(true);
-  const hovered = await ruleRow(
-    page,
-    clip,
-    tokens.browser.color['annotation-rule'].light,
-    tokens.browser.surface['annotation-highlight-hover'].light,
-  );
+  const accent = tokens.browser.color['annotation-rule-selected'].light;
+  const hovered = await ruleRow(page, clip, over(accent, 0.2, '#ffffff'));
   expect(hovered.rule).toBeGreaterThan(0.7);
   expect(hovered.gaps).toBeLessThan(0.01);
-  // Selected: the 3 px rule in the selected colour, with the pointer away.
+  // Selected: the 2 px rule in the accent, with the pointer away.
   await page.evaluate(() =>
     (
       window as unknown as { probe: { handle: { select(id: string | null): void } } }
@@ -2513,12 +2540,7 @@ test('the hover and selected rules run unbroken under descenders', async ({ page
   await expect
     .poll(() => frame.locator('html').evaluate(() => CSS.highlights.has('colab-selected')))
     .toBe(true);
-  const selected = await ruleRow(
-    page,
-    clip,
-    tokens.browser.color['annotation-rule-selected'].light,
-    tokens.browser.surface['annotation-highlight-selected'].light,
-  );
+  const selected = await ruleRow(page, clip, over(accent, 0.28, '#ffffff'));
   expect(selected.rule).toBeGreaterThan(0.7);
   expect(selected.gaps).toBeLessThan(0.01);
 });
@@ -2563,12 +2585,13 @@ test('without the Highlight API the selected passage keeps the same look on its 
     }),
   ).toBe('none');
   const rest = {
-    background: 'var(--tmt-ui-surface-annotation-highlight)',
-    border: '1px solid var(--tmt-ui-color-annotation-rule)',
+    background: 'color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 14%,transparent)',
+    border:
+      '1px solid color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 45%,transparent)',
   };
   const selected = {
-    background: 'var(--tmt-ui-surface-annotation-highlight-selected)',
-    border: '3px solid var(--tmt-ui-color-annotation-rule-selected)',
+    background: 'color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 28%,transparent)',
+    border: '2px solid var(--tmt-ui-color-annotation-rule-selected)',
   };
   expect(await marks()).toEqual([
     { thread: 'one', ...rest },
@@ -2592,6 +2615,165 @@ test('without the Highlight API the selected passage keeps the same look on its 
     { thread: 'one', ...rest },
     { thread: 'two', ...rest },
   ]);
+});
+
+type QuietHandle = {
+  highlight(
+    anchors: { id: string; selector: unknown; ordinal: number }[],
+    draft?: unknown,
+    threadCount?: number,
+    quiet?: { id: string; selector: unknown },
+  ): void;
+  select(id: string | null): void;
+  scrollAnchor(id: string): void;
+};
+const quietQuote = (exact: string) => ({ exact, prefix: '', suffix: '' });
+
+test('a quiet thread draws only a dashed rule, reports its passage and scrolls to it, and is no marker, hover target or selection', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(
+    page,
+    '<style>body{margin:20px;position:relative}.space{height:1800px}</style><div class="space"></div><p id="quote">Resolved passage</p><p id="other">Open passage</p><div class="space"></div>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate(
+    ([resolved, open]) =>
+      (window as unknown as { probe: { handle: QuietHandle } }).probe.handle.highlight(
+        [{ id: 'open', selector: open, ordinal: 1 }],
+        undefined,
+        1,
+        {
+          id: 'done',
+          selector: resolved,
+        },
+      ),
+    [quietQuote('Resolved passage'), quietQuote('Open passage')],
+  );
+  const frame = page.frameLocator('#probe iframe');
+  // Both passages resolve; only the open thread is a marker.
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '["open","done"]');
+  await expect(frame.locator('[data-colab-thread]')).toHaveCount(1);
+  expect(
+    await frame
+      .locator('html')
+      .evaluate(() => [CSS.highlights.has('colab-quiet'), CSS.highlights.has('colab-comments')]),
+  ).toEqual([true, true]);
+  // It is not a selection: the page's selected look stays off, and the pointer over it draws nothing.
+  await page.evaluate(() =>
+    (window as unknown as { probe: { handle: QuietHandle } }).probe.handle.select('done'),
+  );
+  const box = (await frame.locator('#quote').boundingBox())!;
+  await page.mouse.move(box.x + 10, box.y + 8);
+  expect(
+    await frame
+      .locator('html')
+      .evaluate(() => [CSS.highlights.has('colab-selected'), CSS.highlights.has('colab-hover')]),
+  ).toEqual([false, false]);
+  // The page scrolls to it like to any anchor.
+  await page.evaluate(() =>
+    (window as unknown as { probe: { handle: QuietHandle } }).probe.handle.scrollAnchor('done'),
+  );
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(1700);
+  // A new request without it takes the rule off again.
+  await page.evaluate(() =>
+    (window as unknown as { probe: { handle: QuietHandle } }).probe.handle.highlight(
+      [],
+      undefined,
+      0,
+    ),
+  );
+  await expect
+    .poll(() => frame.locator('html').evaluate(() => CSS.highlights.has('colab-quiet')))
+    .toBe(false);
+});
+
+test('a quiet thread whose ID is an anchor, or whose quote does not resolve, is refused or drawn nowhere', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(page, '<p id="quote">Only passage</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate(
+    (quote) =>
+      (window as unknown as { probe: { handle: QuietHandle } }).probe.handle.highlight(
+        [{ id: 'one', selector: quote, ordinal: 1 }],
+        undefined,
+        1,
+      ),
+    quietQuote('Only passage'),
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '["one"]');
+  // The same ID twice is refused as a whole: nothing changes.
+  await page.evaluate(
+    (quote) =>
+      (window as unknown as { probe: { handle: QuietHandle } }).probe.handle.highlight(
+        [{ id: 'one', selector: quote, ordinal: 1 }],
+        undefined,
+        1,
+        {
+          id: 'one',
+          selector: quote,
+        },
+      ),
+    quietQuote('Only passage'),
+  );
+  const frame = page.frameLocator('#probe iframe');
+  expect(await frame.locator('html').evaluate(() => CSS.highlights.has('colab-quiet'))).toBe(false);
+  // A quote the page no longer holds draws nothing and is not reported as resolved.
+  await page.evaluate(() =>
+    (window as unknown as { probe: { handle: QuietHandle } }).probe.handle.highlight(
+      [],
+      undefined,
+      0,
+      {
+        id: 'gone',
+        selector: { exact: 'A passage that is not here', prefix: '', suffix: '' },
+      },
+    ),
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '[]');
+  expect(await frame.locator('html').evaluate(() => CSS.highlights.has('colab-quiet'))).toBe(false);
+});
+
+test('without the Highlight API a quiet thread is one dashed overlay rule and no marked thread', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(
+    page,
+    '<style>body{margin:24px;font:20px/1.6 sans-serif}</style><p>Resolved passage here.</p><script>window.Highlight=undefined;</script>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate(
+    (quote) =>
+      (window as unknown as { probe: { handle: QuietHandle } }).probe.handle.highlight(
+        [],
+        undefined,
+        0,
+        { id: 'done', selector: quote },
+      ),
+    quietQuote('Resolved passage'),
+  );
+  const frame = page.frameLocator('#probe iframe');
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '["done"]');
+  const marks = () =>
+    frame.locator('body').evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>('[data-colab-highlight] > div')].map((mark) => ({
+        thread: mark.dataset.thread,
+        background: mark.style.background,
+        border: mark.style.borderBottom,
+      })),
+    );
+  await expect.poll(async () => (await marks()).length).toBeGreaterThan(0);
+  for (const mark of await marks())
+    expect(mark).toEqual({
+      thread: undefined,
+      background: '',
+      border:
+        '1px dashed color-mix(in srgb,var(--tmt-ui-color-annotation-rule-selected) 45%,transparent)',
+    });
 });
 
 for (const layout of [undefined, 'column'] as const)

@@ -2624,8 +2624,13 @@ Alt+Enter still explicitly requests the annotation view with exactly
 the quote. Page-wide comments have null anchors.
 
 The parent highlight request on the bound MessagePort contains exactly
-`type:"colab.render.highlight"`, `renderId`, `requestId` and `anchors`, whose entries
-are exactly `{id,selector}`. Comment bodies, reply text and discussion display labels
+`type:"colab.render.highlight"`, `renderId`, `requestId`, `anchors`, `threadCount`, `draft` and
+`quiet`. `anchors` entries are exactly `{id,selector,ordinal}`; `draft` is the unsaved composer's
+quote or `null`; `quiet` is `null` or exactly `{id,selector}`: the resolved thread whose
+Discussion view is open, whose ID is not in `anchors` (#4931). The frame draws `quiet`'s passage
+(see below) and reports its ID in `resolved` and its offset in `positions` like an anchor's, so the
+parent can scroll to it; it is no marker, hover target or selection, and an ID or quote that is
+not valid refuses the whole request as any other invalid field does. Comment bodies, reply text and discussion display labels
 MUST NOT enter the author-code frame; the parent reconstructs these narrow objects
 instead of forwarding caller records. Results contain `type:"colab.render.anchors"`, `renderId`,
 `requestId`, `resolved` IDs and optional `positions:[{id,top}]`; top is finite,
@@ -2639,8 +2644,8 @@ There is no fuzzy automatic attachment. DOM mutations trigger bounded debounced
 resolution; replacement/navigation/disposal closes ports, observers and highlights.
 
 CSS Highlights, or pointer-inert range overlays when unavailable, leave author text
-nodes intact. Resolved ranges keep a mint tint and a 1 px underline (a 2 px underline and a
-stronger tint under the pointer), each drawn unbroken under descenders (`text-decoration-skip-ink:
+nodes intact. Resolved ranges keep a light accent tint (14 %) and a 1 px underline (45 %),
+and under the pointer a stronger tint (20 %) and a 2 px underline, each drawn unbroken under descenders (`text-decoration-skip-ink:
 none` on the highlight, which the page root's value does not reach), and a number marker, a 16 px circle in a 24 px target, in
 the frame's right marker lane, centred on the line the passage ends on, so it covers no text
 and moves none. On a `column` or `full` page the marker stands 4 px after the end of the
@@ -2654,12 +2659,13 @@ posts exactly `type:"colab.render.open-list"`, `renderId`, `requestId`; the pare
 current render and request only and opens the Comments list (closing an open annotation
 window), with no thread ID and no thread opened. Forging either view-only
 action cannot publish, sign or send. The passage of the thread whose anchored window or Discussion view is open
-takes a selected look: a stronger tint (`surface.annotation-highlight-selected`) and a solid 3 px
-underline (`color.annotation-rule-selected`, against hover's 2 px), above the hover look, and its
+takes a selected look: the deepest tint (28 %) and a solid 2 px underline in the accent
+(`color.annotation-rule-selected`), above the hover look, and its
 lane marker, or the `+n` pill that holds it, wears a 2 px ring in the same colour, 2 px outside the
 circle and inside the 24 px target, so the lane names the open thread even when its passage is off
-screen; both return to rest when the window closes or another thread opens; a window for a new quote, resolved threads (which have no
-page passage) and a page without a selection draw nothing extra. The parent selects it with
+screen; both return to rest when the window closes or another thread opens; a window for a new quote and a page without a
+selection draw nothing extra. A resolved thread has no marker or tint; while its Discussion view is open its
+passage (`quiet`) wears a 1 px dashed underline (45 %) and nothing else. The parent selects it with
 exactly `type:"colab.render.select"`, `renderId`, `requestId` and `id`, where `id` is a thread ID
 of its current highlight request or `null`; the frame accepts only the current render and request
 and an ID its request holds, refuses any other value and key set, keeps the selection across a new

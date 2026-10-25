@@ -398,13 +398,13 @@ for (const [width, theme] of [
     await expect(panel.getByTestId('discussion-state')).toHaveText(/^Resolved/);
     await expect(panel.locator('.proposal-body')).toBeVisible();
     await expect(header).toHaveAccessibleName('Discussion (2)');
-    await panel.getByRole('button', { name: 'All comments', exact: true }).click();
+    await commentsRegion(page).getByRole('button', { name: 'All comments', exact: true }).click();
     await expect(panel.locator('.proposal-body')).toHaveCount(0);
     // Reopening opens the proposal's Discussion view, where it can be decided again.
     await folded.getByRole('button', { name: 'Reopen', exact: true }).click();
     await expect(header).toHaveAccessibleName('Discussion (3)');
     await expect(panel.getByTestId('discussion-state')).toContainText('Needs you');
-    await panel.getByRole('button', { name: 'All comments', exact: true }).click();
+    await commentsRegion(page).getByRole('button', { name: 'All comments', exact: true }).click();
     await expect(panel.getByTestId('annotation-row')).toHaveCount(3);
     const row = panel
       .getByTestId('annotation-row')
