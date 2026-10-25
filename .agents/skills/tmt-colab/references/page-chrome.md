@@ -272,7 +272,9 @@ open frame as `handle.update(source)` (#5022, protocol in colab-v1): the bootstr
 region in `renderer.html` changes the body in place, skipping what the frame owns (`frameNodes`,
 `data-colab-*`, `frameHidden`, drawn `tmt-icon` children) and keeping reader state, and its table of
 node cases is `e2e/page-morph.spec.ts`. On success the router's `contentRevision` counter re-runs
-the highlight, select, question and slot effects without a `loading` state; a refusal, the 2 s
+the highlight, select, question and slot effects without a `loading` state; the question pass sets
+the question, review and reading marks on the blocks the parent admits and clears them (and the
+`hidden` it put on a question's choices) from any element it no longer admits (#5213); a refusal, the 2 s
 deadline or a port error remounts. The reader view (`reader-app.tsx`) still remounts on every
 source. The About drawer's `PageLayoutSection` names the layout and a canvas's reason. The About drawer is four sections (Author and publisher, Layout, Page size, Page scripts), each a heading over a rule, in `about-drawer.css` scoped to that drawer; the reader's Page information keeps its own rows. An inline `style`
 with `!important` is the one author declaration the frame cannot override.

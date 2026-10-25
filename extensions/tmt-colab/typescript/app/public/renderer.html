@@ -183,6 +183,20 @@
           // never compares, moves or removes them.
           const frameNodes = new WeakSet();
           const frameHidden = new WeakSet();
+          // The marks `resolveQuestions` puts on the author's question, review and reading blocks. It
+          // sets them on the blocks the parent admits and clears them from every other element, so a
+          // block that stops being admitted in an in-place update (#5213) does not keep what the
+          // morph preserves.
+          const blockMarks = [
+            'data-colab-question-group',
+            'data-colab-chip',
+            'data-colab-question',
+            'data-colab-question-active',
+            'data-colab-question-number',
+            'data-colab-review',
+            'data-colab-review-closed',
+            'data-colab-reading',
+          ];
           const frameNode = (tag) => {
             const node = document.createElement(tag);
             frameNodes.add(node);
@@ -1229,12 +1243,19 @@
             const questions = [];
             const reviews = [];
             const readings = [];
+            const marked = new Map(),
+              hiding = new Set();
+            const mark = (element, name, value) => {
+              element.setAttribute(name, value);
+              if (!marked.has(element)) marked.set(element, new Set());
+              marked.get(element).add(name);
+            };
             readingRanges.clear();
             try {
               for (const group of questionGroups) {
                 if (group.title !== null) {
                   const groups = document.querySelectorAll(`tmt-questions[data-id="${group.id}"]`);
-                  if (groups.length === 1) groups[0].setAttribute('data-colab-question-group', '');
+                  if (groups.length === 1) mark(groups[0], 'data-colab-question-group', '');
                 }
                 if (group.form === 'chip') {
                   const holder = document.querySelectorAll(
@@ -1242,21 +1263,19 @@
                       ? `tmt-questions[data-id="${group.id}"]`
                       : `tmt-question[data-id="${group.id}"]`,
                   );
-                  if (holder.length === 1) holder[0].setAttribute('data-colab-chip', '');
+                  if (holder.length === 1) mark(holder[0], 'data-colab-chip', '');
                 }
                 for (const id of group.questions) {
                   const members = document.querySelectorAll(`tmt-question[data-id="${id}"]`);
                   if (members.length !== 1) continue;
-                  members[0].setAttribute('data-colab-question', '');
-                  members[0].setAttribute(
-                    'data-colab-question-active',
-                    String(id === group.active),
-                  );
+                  mark(members[0], 'data-colab-question', '');
+                  mark(members[0], 'data-colab-question-active', String(id === group.active));
                   const heading = [...members[0].children].find((child) =>
                     child.hasAttribute('data-question'),
                   );
                   if (heading && group.title !== null)
-                    heading.setAttribute(
+                    mark(
+                      heading,
                       'data-colab-question-number',
                       `Q${group.questions.indexOf(id) + 1}`,
                     );
@@ -1267,23 +1286,39 @@
               for (const block of questionBlocks) {
                 const matches = document.querySelectorAll(`tmt-question[data-id="${block.id}"]`);
                 if (matches.length !== 1) continue;
-                for (const child of matches[0].children)
-                  if (child.hasAttribute('data-choice') && !child.hasAttribute('hidden')) {
+                for (const child of matches[0].children) {
+                  if (!child.hasAttribute('data-choice')) continue;
+                  if (!child.hasAttribute('hidden')) {
                     child.setAttribute('hidden', '');
                     frameHidden.add(child);
                   }
+                  if (frameHidden.has(child)) hiding.add(child);
+                }
               }
               // A section keeps its own content; the parent's closed set only fades it.
               for (const block of reviewBlocks) {
                 const matches = document.querySelectorAll(`tmt-review[data-id="${block.id}"]`);
                 if (matches.length !== 1) continue;
-                matches[0].setAttribute('data-colab-review', '');
-                matches[0].setAttribute('data-colab-review-closed', String(block.closed));
+                mark(matches[0], 'data-colab-review', '');
+                mark(matches[0], 'data-colab-review-closed', String(block.closed));
               }
               for (const block of readingBlocks) {
                 const matches = document.querySelectorAll(`tmt-read[data-id="${block.id}"]`);
-                if (matches.length === 1) matches[0].setAttribute('data-colab-reading', '');
+                if (matches.length === 1) mark(matches[0], 'data-colab-reading', '');
               }
+              // Whatever an earlier pass marked and this one did not is no longer admitted: it shows
+              // its own content again, before the canonical text is read.
+              for (const element of document.querySelectorAll(
+                blockMarks.map((name) => `[${name}]`).join(','),
+              ))
+                for (const name of blockMarks)
+                  if (element.hasAttribute(name) && !marked.get(element)?.has(name))
+                    element.removeAttribute(name);
+              for (const choice of document.querySelectorAll('[data-choice][hidden]'))
+                if (frameHidden.has(choice) && !hiding.has(choice)) {
+                  choice.removeAttribute('hidden');
+                  frameHidden.delete(choice);
+                }
               const map = collect(),
                 deadline = performance.now() + 20;
               const threads = questionThreads.map((thread) => ({
