@@ -369,7 +369,10 @@ mod tests {
             },
             Invocation::NativeRefreshSkills { managed: false },
             Invocation::NativeRenameDatabase,
-            Invocation::NativeUpgradeExtensions { plan: true },
+            Invocation::NativeUpgradeExtensions {
+                plan: true,
+                progress: false,
+            },
             Invocation::NativeInstall {
                 product: tmt_core::native_install::Product::Cli,
                 archive: "archive.tar.gz".into(),

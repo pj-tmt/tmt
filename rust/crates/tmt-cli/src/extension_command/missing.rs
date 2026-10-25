@@ -7,13 +7,9 @@ use std::{
     cell::RefCell,
     ffi::OsString,
     io::{self, Write},
-    time::{Duration, Instant},
 };
 use tmt_adapters::native_install::{self, Product, ProgressEvent, ReleasePreview};
-use tmt_cli_style::{
-    Interaction, Terminal, Token,
-    progress::{Progress, State, Step, StepProgress, Transfer},
-};
+use tmt_cli_style::{Interaction, Terminal, Token};
 
 pub(super) fn official(name: &str) -> Option<Product> {
     extension_install_command::INSTALLABLE_EXTENSIONS
@@ -93,7 +89,11 @@ fn offer(product: Product, original: &[OsString], interaction: Interaction) -> R
         return Ok(());
     }
     drop(output);
-    let presentation = RefCell::new(InstallProgress::new(product, interaction));
+    let presentation = RefCell::new(crate::native_progress::InstallProgress::new(
+        "Installing",
+        product,
+        interaction,
+    ));
     let observed = |event: ProgressEvent<'_>| presentation.borrow_mut().observe(event);
     let (document, notices) = match extension_install_command::install_offered(product, &observed) {
         Ok(document) => document,
@@ -196,150 +196,6 @@ fn io_failure(error: io::Error) -> Failure {
         1,
     )
     .caused_by(error)
-}
-
-struct InstallProgress {
-    progress: Progress,
-    product: Product,
-    started: Instant,
-    last_draw: Option<Instant>,
-    step: Step,
-    output_failed: bool,
-    transfer: Option<Transfer>,
-}
-
-impl InstallProgress {
-    fn new(product: Product, interaction: Interaction) -> Self {
-        Self {
-            progress: Progress::new(
-                &format!("Installing {}", product.as_str()),
-                interaction.stdout && !interaction.dumb,
-            ),
-            product,
-            started: Instant::now(),
-            last_draw: None,
-            step: Step::Download,
-            output_failed: false,
-            transfer: None,
-        }
-    }
-
-    fn observe(&mut self, event: ProgressEvent<'_>) {
-        let (step, state, transfer, detail) = match event {
-            ProgressEvent::Selected {
-                version,
-                archive_bytes,
-            } => {
-                self.progress
-                    .title(&format!("Installing {} {version}", self.product.as_str()));
-                self.started = Instant::now();
-                (
-                    Step::Download,
-                    State::Running,
-                    Some(Transfer {
-                        received_bytes: 0,
-                        total_bytes: Some(archive_bytes),
-                        elapsed: Duration::ZERO,
-                    }),
-                    String::new(),
-                )
-            }
-            ProgressEvent::Download {
-                received_bytes,
-                total_bytes,
-            } => (
-                Step::Download,
-                State::Running,
-                Some(Transfer {
-                    received_bytes,
-                    total_bytes,
-                    elapsed: self.started.elapsed(),
-                }),
-                String::new(),
-            ),
-            ProgressEvent::Downloaded => (
-                Step::Download,
-                State::Done,
-                self.transfer,
-                "archive downloaded".into(),
-            ),
-            ProgressEvent::Verifying => (
-                Step::Verify,
-                State::Running,
-                None,
-                "checking release record and archive".into(),
-            ),
-            ProgressEvent::Verified => (
-                Step::Verify,
-                State::Done,
-                None,
-                "checksum matches the release record; archive checked".into(),
-            ),
-            ProgressEvent::Activating => (
-                Step::Activate,
-                State::Running,
-                None,
-                "publishing verified release".into(),
-            ),
-            ProgressEvent::Activated => (
-                Step::Activate,
-                State::Running,
-                None,
-                "settling bundled agent skills".into(),
-            ),
-        };
-        self.step = step;
-        if step == Step::Download {
-            self.transfer = transfer;
-        }
-        self.progress.update(StepProgress {
-            step,
-            state,
-            transfer,
-            detail: &detail,
-        });
-        let throttled = matches!(event, ProgressEvent::Download { .. })
-            && self
-                .last_draw
-                .is_some_and(|last| last.elapsed() < Duration::from_millis(100));
-        if !throttled {
-            self.draw();
-        }
-    }
-
-    fn settled(&mut self, warning: bool) {
-        self.progress.update(StepProgress {
-            step: Step::Activate,
-            state: if warning { State::Warning } else { State::Done },
-            transfer: None,
-            detail: if warning {
-                "installed; skills need attention"
-            } else {
-                "release and bundled skills ready"
-            },
-        });
-        self.draw();
-    }
-
-    fn failed(&mut self) {
-        self.progress.update(StepProgress {
-            step: self.step,
-            state: State::Failed,
-            transfer: None,
-            detail: "stopped; inspect the reported installation outcome",
-        });
-        self.draw();
-    }
-
-    fn draw(&mut self) {
-        if self.output_failed {
-            return;
-        }
-        let mut output = tmt_cli_style::stream::stdout(false);
-        let terminal = output.terminal();
-        self.output_failed = self.progress.write(&mut output, terminal).is_err();
-        self.last_draw = Some(Instant::now());
-    }
 }
 
 #[cfg(test)]

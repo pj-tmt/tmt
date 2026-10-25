@@ -94,6 +94,13 @@ or optional `paneRenameHints` JSON array, never upgrade failure, retirement, re-
   [release-index contract](../../../../contracts/release-index-v1.md) owns identities and bounds;
   cargo-dist remains the archive, inventory and application-schema authority. Missing or unreadable
   pointers fail without changing installations; a stale pointer cannot authorize a downgrade.
+- `upgrade_preview` prepares a release without acquiring its native payload or running a
+  candidate. Ordinary channels authenticate the selected manifest; PR channels authenticate the
+  catalog and recheck the current head, eligibility, producer and artifact metadata without fetching
+  the payload ZIP. Pinned selection stays offline. Applying a prepared selection rechecks the
+  captured installation and intent, then matches the acquired release identity before publication;
+  a lagging ordinary pointer remains a no-op. Migration preview compares verified candidate schema
+  with the existing read-only store observation and reports unknown for incomplete evidence.
 - `release_http::environment_token` selects nonempty `GH_TOKEN`, then `GITHUB_TOKEN`, with no
   credential command or prompt. Only authenticated PR-mode API hops receive Authorization;
   normal raw/download hops and redirects never receive tokens or follow an API redirect. The
@@ -227,7 +234,8 @@ the move is a bootstrap reinstall.
 - Missing-command offers reuse the explicit install composition after one human consent.
   A three-second read-only metadata preview may fail soft to unknown version/size.
   `native_install::ProgressEvent` observes acquisition, actual HTTP byte counts, verification
-  and publication; CLI maps it into the application-neutral `tmt-cli-style::progress`.
+  and publication; `native_progress` shares the install/upgrade mapping into the
+  application-neutral `tmt-cli-style::progress`.
   Observer output failure cannot affect activation. Successful publication precedes skill
   settlement; skill warnings retain the active release and remain visible in the final result.
 - Install, upgrade and uninstall need consent (`--yes` or a prompt) and refuse non-interactive
@@ -275,14 +283,22 @@ the move is a bootstrap reinstall.
   child, and the parent never reads the candidate's inventory. Pre-activation failures keep the
   previous release; a reported post-activation failure keeps the active result; a missing report
   is uncertain and asks the user to inspect before retrying.
-- Root upgrade updates the CLI first and lets that CLI judge extension inventories; core registers
-  each product's files before that product publishes them, so the supporting CLI release must reach
-  users first. `native_upgrade_command` refreshes managed skills in the new executable, then asks
-  it for hidden `__native-upgrade-extensions --json --plan`, asks one consent question (`[Y/n]`:
-  Enter agrees, end of input declines) and passes that exact plan on stdin with `--yes`. An unsupported older target fails with a rerun hint; there
-  is no old-process fallback or rollback. `upgrade_all` keeps each channel and pin; non-terminal
-  runs without `--yes` report `consentRequired`; product failures stay independent, a CLI failure
-  stops the extension phase and a pinned CLI permits it.
+- Root upgrade prepares a metadata-only, frozen CLI and installed-extension preview before one
+  human approval (`[Y/n]`: Enter agrees, end of input declines). Decline or failure to prepare
+  the CLI target changes no component; unavailable extension rows remain per-product failures.
+  `--yes` uses the same frozen selection; JSON, pipes and agent callers
+  never prompt. Machine runs retain CLI update behavior and report extension `consentRequired`
+  without `--yes`. The CLI then activates and refreshes managed skills through the new executable,
+  which keeps extension inventory authority. Its hidden `__native-upgrade-extensions --json --plan`
+  must match the consented products, installed versions, pin states and exact targets before the
+  parent sends the legacy plan on stdin with `--yes`. Optional live child observations use
+  the [consented progress contract](../../../../contracts/native-install-handoff-v1.md#consented-extension-progress)
+  through the existing bounded process owner, keeping the final JSON separate. Capability
+  fallback is read-only planning, never an apply retry. The apply child refuses a changed old
+  version or a newly pinned installation before acquisition; its immutable executable and the
+  adapter's current-id publication fence retain that observation. Unsupported targets fail with
+  a rerun hint, without an old-process fallback, activation retry or rollback. Product failures
+  remain independent; CLI failure stops extensions, and a pinned CLI permits them.
 - `NATIVE_UPGRADE_FAILED` carries a diagnostic `cause`; HTTPS failures never echo URI or proxy
   credentials. After binary activation, skill failures become `skills.status: "warning"` with
   path/cause and partial publication; they never turn that product into a failed upgrade or stop
@@ -291,3 +307,7 @@ the move is a bootstrap reinstall.
   are pinned, wait for approval or failed (`from → to`, installed versions read before the
   upgrade), one muted `Up to date` line, one summary and one `Next:` list, required lines first and
   optional ones muted and each said once; the JSON document is built apart from it.
+  Changed products link to their release notes (PR candidates to their PR). Pending Ops/Colab
+  rows show a conditional restart-needed notice, retained in the result only if they changed;
+  there is no public liveness claim, private-state read or automatic Ops/Colab restart.
+  Remote retains its existing observed restart owner.

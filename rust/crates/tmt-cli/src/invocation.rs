@@ -271,6 +271,7 @@ pub enum Invocation {
     NativeRenameDatabase,
     NativeUpgradeExtensions {
         plan: bool,
+        progress: bool,
     },
     Uninstall {
         purge: bool,

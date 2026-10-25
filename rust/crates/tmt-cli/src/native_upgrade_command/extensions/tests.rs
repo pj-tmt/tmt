@@ -240,3 +240,180 @@ fn apply_report_must_match_selected_products_versions_and_exit_status() {
         assert!(rows.iter().all(|row| row["status"] == "failed"));
     }
 }
+
+#[test]
+fn a_changed_target_after_whole_run_consent_never_invokes_apply() {
+    let approved = Plan::parse(&serde_json::to_vec(&plan()).unwrap()).unwrap();
+    let mut changed = plan();
+    changed["pending"][0]["selected"] = "1.2.0".into();
+    let runner = Runner::new(vec![(changed, 0)]);
+    let rows = upgrade_with_plan(
+        Path::new("/managed/releases/new/tmt"),
+        &runner,
+        |_| panic!("changed targets cannot ask for a second approval"),
+        |_| {},
+        Some(&approved),
+    );
+    assert_eq!(runner.inputs.borrow().len(), 1);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["status"], "failed");
+    assert!(
+        rows[0]["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("changed after the upgrade preview")
+    );
+}
+
+#[test]
+fn a_newly_installed_component_cannot_join_the_consented_targets() {
+    let approved = Plan::parse(&serde_json::to_vec(&plan()).unwrap()).unwrap();
+    let mut changed = plan();
+    changed["pending"].as_array_mut().unwrap().push(json!({
+        "product": "colab", "version": "1.0.0", "selected": "1.1.0"
+    }));
+    let runner = Runner::new(vec![(changed, 0)]);
+    let rows = upgrade_with_plan(
+        Path::new("/managed/releases/new/tmt"),
+        &runner,
+        |_| panic!("new components cannot join approval"),
+        |_| {},
+        Some(&approved),
+    );
+    assert_eq!(runner.inputs.borrow().len(), 1);
+    assert_eq!(rows[0]["status"], "failed");
+}
+
+#[test]
+fn the_new_executable_can_apply_the_same_frozen_legacy_plan_once() {
+    let approved = Plan::parse(&serde_json::to_vec(&plan()).unwrap()).unwrap();
+    let completed = json!({"products": [
+        {"product": "digest", "status": "changed", "version": "1.1.0"},
+        {"product": "ops", "status": "changed", "version": "1.1.0"},
+    ]});
+    let runner = Runner::new(vec![(plan(), 0), (completed, 0)]);
+    let rows = upgrade_with_plan(
+        Path::new("/managed/releases/new/tmt"),
+        &runner,
+        |_| Ok(true),
+        |_| {},
+        Some(&approved),
+    );
+    assert_eq!(runner.inputs.borrow().len(), 2);
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|row| row["status"] == "changed"));
+}
+
+struct ObservedRunner {
+    calls: RefCell<Vec<Vec<std::ffi::OsString>>>,
+    replies: RefCell<VecDeque<(Value, Vec<u8>, i32)>>,
+}
+impl CommandRunner for ObservedRunner {
+    fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        self.calls.borrow_mut().push(request.args.to_vec());
+        let (document, stderr, code) = self.replies.borrow_mut().pop_front().expect("no replay");
+        if code == 0 {
+            return Ok(CommandOutput {
+                stdout: serde_json::to_vec(&document).unwrap(),
+                stderr,
+            });
+        }
+        UnixCommandRunner.execute(CommandRequest {
+            program: std::ffi::OsStr::new("/bin/sh"),
+            args: &["-c".into(), format!("exit {code}").into()],
+            input: &[],
+            deadline: request.deadline,
+            max_output_bytes: request.max_output_bytes,
+        })
+    }
+}
+
+#[test]
+fn progress_is_negotiated_read_only_and_old_candidates_apply_once() {
+    for modern in [true, false] {
+        let mut replies = VecDeque::new();
+        if modern {
+            replies.push_back((
+                plan(),
+                crate::native_progress::child::CAPABILITY.to_vec(),
+                0,
+            ));
+        } else {
+            replies.push_back((Value::Null, vec![], 2));
+            replies.push_back((plan(), vec![], 0));
+        }
+        let frame =
+            b"{\"version\":1,\"product\":\"ops\",\"event\":{\"kind\":\"activated\"}}\n".to_vec();
+        replies.push_back((
+            json!({"products":[
+                {"product":"digest","status":"changed","version":"1.1.0"},
+                {"product":"ops","status":"changed","version":"1.1.0"},
+            ]}),
+            if modern { frame } else { vec![] },
+            0,
+        ));
+        let runner = ObservedRunner {
+            calls: RefCell::default(),
+            replies: RefCell::new(replies),
+        };
+        let rows = upgrade_with_observations(
+            Path::new("/new/tmt"),
+            &runner,
+            |_| Ok(true),
+            |_| {},
+            None,
+            Some(OutputMode { json: true }),
+        );
+        assert!(rows.iter().all(|row| row["status"] == "changed"));
+        let calls = runner.calls.borrow();
+        assert_eq!(calls.len(), if modern { 2 } else { 3 });
+        assert!(calls[0].iter().any(|s| s == "--plan"));
+        assert!(calls[0].iter().any(|s| s == "--progress"));
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|args| args.iter().any(|s| s == "--yes"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            calls.last().unwrap().iter().any(|s| s == "--progress"),
+            modern
+        );
+    }
+}
+
+#[test]
+fn a_failed_probe_is_not_an_apply_and_a_bad_stream_never_replays_apply() {
+    for planning_failure in [true, false] {
+        let replies = if planning_failure {
+            vec![(Value::Null, vec![], 1)]
+        } else {
+            vec![
+                (
+                    plan(),
+                    crate::native_progress::child::CAPABILITY.to_vec(),
+                    0,
+                ),
+                (json!({"products":[]}), b"unexpected stderr\n".to_vec(), 0),
+            ]
+        };
+        let runner = ObservedRunner {
+            calls: RefCell::default(),
+            replies: RefCell::new(replies.into()),
+        };
+        let rows = upgrade_with_observations(
+            Path::new("/new/tmt"),
+            &runner,
+            |_| Ok(true),
+            |_| {},
+            None,
+            Some(OutputMode { json: true }),
+        );
+        assert!(rows.iter().all(|row| row["status"] == "failed"));
+        assert_eq!(
+            runner.calls.borrow().len(),
+            if planning_failure { 1 } else { 2 }
+        );
+    }
+}
