@@ -319,21 +319,34 @@ mod registry_creation_tests {
     #[test]
     fn only_the_exact_compiled_template_may_register_initial_questions() {
         let creator = "agent & \"quoted\"";
-        for template in &TEMPLATES {
-            let source = tmt_colab::templates::creator_source(&template.source().unwrap(), creator);
-            assert!(
-                tmt_colab::templates::admits(template.name, &source, Some(creator)),
-                "{}",
-                template.name
-            );
-            assert!(!tmt_colab::templates::admits(
-                template.name,
-                &(source.clone() + "<p>extra</p>"),
-                Some(creator)
-            ));
-            let report = tmt_colab::page_check::check(&source).unwrap();
-            for question in report.questions {
-                assert_eq!(question.agent, creator);
+        for creator in [creator, "agent {{uuid:part}}", "agent {{style}}"] {
+            assert!(tmt_colab::decoder::valid_publisher_agent(creator));
+            for template in &TEMPLATES {
+                let source =
+                    tmt_colab::templates::creator_source(&template.source().unwrap(), creator);
+                assert!(
+                    tmt_colab::templates::admits(template.name, &source, Some(creator)),
+                    "{}",
+                    template.name
+                );
+                assert!(!tmt_colab::templates::admits(
+                    template.name,
+                    &(source.clone() + "<p>extra</p>"),
+                    Some(creator)
+                ));
+                if source.contains("{{uuid:part}}") {
+                    let substituted =
+                        source.replace("{{uuid:part}}", "70000000-0000-4000-8000-000000000001");
+                    assert!(!tmt_colab::templates::admits(
+                        template.name,
+                        &substituted,
+                        Some(creator),
+                    ));
+                }
+                let report = tmt_colab::page_check::check(&source).unwrap();
+                for question in report.questions {
+                    assert_eq!(question.agent, creator);
+                }
             }
         }
         let review = find("review").unwrap();

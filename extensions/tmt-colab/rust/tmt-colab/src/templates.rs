@@ -116,17 +116,17 @@ pub fn admits(name: &str, source: &str, creator: Option<&str>) -> bool {
     let Some(template) = find(name) else {
         return false;
     };
-    let pattern = source_for_creator(
-        &template
-            .source
-            .replace("{{style}}", base_style().trim_end()),
-        creator,
-    );
+    let pattern = template
+        .source
+        .replace("{{style}}", base_style().trim_end());
     let mut pattern = pattern.as_str();
     let mut source = source;
     let mut ids = BTreeMap::<&str, &str>::new();
     while let Some(start) = pattern.find("{{uuid:") {
-        let Some(rest) = source.strip_prefix(&pattern[..start]) else {
+        // Only compiled UUID placeholders are slots. A creator label remains literal even
+        // when its text looks like a placeholder, and cannot introduce another slot.
+        let literal = source_for_creator(&pattern[..start], creator);
+        let Some(rest) = source.strip_prefix(literal.as_str()) else {
             return false;
         };
         pattern = &pattern[start + "{{uuid:".len()..];
@@ -146,7 +146,7 @@ pub fn admits(name: &str, source: &str, creator: Option<&str>) -> bool {
         source = &rest[36..];
         pattern = &pattern[end + 2..];
     }
-    source == pattern
+    source == source_for_creator(pattern, creator)
 }
 
 /// The look every template starts from: the generated starter of the page-style reference, which
