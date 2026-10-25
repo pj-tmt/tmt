@@ -5524,29 +5524,46 @@ describe('large board responsiveness', () => {
             timeout: 10_000,
             interval: 25,
           });
+          // Each wait names its step and fails with the screen it saw, so a layout that never
+          // settled is visible in the failure instead of a bare missing-text assertion.
+          const until = (step: string, check: (shown: string) => void) =>
+            vi.waitFor(
+              () => {
+                const shown = screen();
+                try {
+                  check(shown);
+                } catch (error) {
+                  throw new Error(`${step}\n${shown}`, { cause: error });
+                }
+              },
+              { timeout: 10_000, interval: 25 }
+            );
           for (const width of [160, 100, 60]) {
             tmux(['resize-window', '-t', 'mentions', '-x', String(width), '-y', '36']);
-            await vi.waitFor(
-              () => {
-                expect(tmux(['display-message', '-p', '-t', pane, '#{pane_width}'])).toBe(
-                  String(width)
-                );
-                expect(screen()).toContain('Mention worker with #tmt:unknown.');
-              },
-              { timeout: 10_000, interval: 25 }
-            );
-            // Tab enters read focus; Right selects its first visible member link.
-            tmux(['send-keys', '-t', pane, 'Tab', 'Right', 'Enter']);
-            await vi.waitFor(
-              () => {
-                const menu = screen();
-                expect(menu).toContain('Message');
-                expect(menu).toContain('Show in Agents');
-                // This identity has no host binding: unavailable actions are hidden.
-                expect(menu).not.toContain('Jump to host');
-              },
-              { timeout: 10_000, interval: 25 }
-            );
+            // The tree has focus here (the first pass comes from Escape, the later ones from the
+            // Escape ending the last pass), and its draft shows at every width. The transcript
+            // does not: below about 100 columns it needs the conversation focus.
+            await until(`tree focus at ${width} columns`, (shown) => {
+              expect(tmux(['display-message', '-p', '-t', pane, '#{pane_width}'])).toBe(
+                String(width)
+              );
+              expect(shown).toContain('Keep worker raw #tmt:unknown');
+              expect(shown).toContain('↑↓ select');
+            });
+            // Tab enters read focus, where the mention shows at every width.
+            tmux(['send-keys', '-t', pane, 'Tab']);
+            await until(`read focus at ${width} columns`, (shown) => {
+              expect(shown).toContain('Mention worker with #tmt:unknown.');
+              expect(shown).toContain('Enter actions');
+            });
+            // Right selects its first visible member link.
+            tmux(['send-keys', '-t', pane, 'Right', 'Enter']);
+            await until(`mention actions at ${width} columns`, (menu) => {
+              expect(menu).toContain('Message');
+              expect(menu).toContain('Show in Agents');
+              // This identity has no host binding: unavailable actions are hidden.
+              expect(menu).not.toContain('Jump to host');
+            });
             captures.push({
               theme,
               width,
