@@ -242,7 +242,12 @@ the move is a bootstrap reinstall.
   and uninstall; private modules own install, repair, list/upgrade and skills settlement. Names
   come from the fixed product table. Ops, Remote, Colab and Digest are registered for installation;
   an unavailable channel pointer is an acquisition failure, never confirmation that no release exists,
-  and changes nothing. Digest remains unpublished until its release activation.
+  and changes nothing.
+- Guided setup composes this owner through `extension_install_command::setup`: verify
+  installed releases read-only, skip healthy binaries without upgrade, and retry missing
+  bundled skills from that verified release. Missing installations reuse the consented
+  install composition and progress. The setup owner controls the visible fixed selection,
+  Remote-before-Colab order and independent outcomes; it adds no archive or receipt policy.
 - Missing-command offers reuse the explicit install composition after one human consent.
   A three-second read-only metadata preview may fail soft to unknown version/size.
   `native_install::ProgressEvent` observes acquisition, actual HTTP byte counts, verification

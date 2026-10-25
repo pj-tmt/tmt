@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { fileSnapshot, runCli, withSandbox } from '../support/cli-process.js';
 import { tree } from '../support/native-uninstall.js';
+import { installSetupExtensions } from '../support/native-installation.js';
 
 describe('consented provider setup and bounded hook boundary', () => {
   it.each(['claude', 'codex'])(
@@ -395,6 +396,7 @@ describe('consented provider setup and bounded hook boundary', () => {
             `retained ${index}`
           );
         }
+        if (flow === 'guided') await installSetupExtensions(sandbox);
         const args = flow === 'guided' ? ['setup'] : ['setup', 'claude'];
         const applied = await runCli(sandbox, [...args, '--yes', '--json']);
         expect(applied.status, applied.stderr).toBe(0);
@@ -420,7 +422,9 @@ describe('consented provider setup and bounded hook boundary', () => {
           ).toBe(`retained ${index}`);
         }
       });
-    }
+    },
+    // Guided setup stages four verified archive fixtures; CLI deadlines stay unchanged.
+    60_000
   );
 
   it('silently ignores a valid hook with no resolvable caller pane', async () => {

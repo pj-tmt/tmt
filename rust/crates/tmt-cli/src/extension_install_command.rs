@@ -6,6 +6,7 @@ mod install;
 mod list_upgrade;
 mod post_upgrade;
 mod repair;
+pub(crate) mod setup;
 mod skills;
 pub(crate) mod upgrade_all;
 

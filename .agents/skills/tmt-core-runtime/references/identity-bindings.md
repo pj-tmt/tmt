@@ -486,9 +486,13 @@ delivery. They install and launch nothing.
   settings are preserved with a setup next step. A legacy lifecycle-only record gains an
   explicit usage opt-out before adding its answer hook. The setup-record lock fences consent
   through publication; refresh failures are advisory and never undo binary activation.
-- Guided `tmt setup` plans from filesystem-only detection, asks once (`SETUP_CONSENT_REQUIRED`
-  without a terminal or `--yes`) and applies skills before hooks; `publish_core` re-classifies
-  each target under the installer lock and keeps what is not TMT's.
+- Guided `tmt setup` plans agents from filesystem-only detection and offers ops, digest,
+  remote and colab selected by default, with visible Colab→Remote dependency toggles.
+  Selection is read-only; one approval covers the complete plan (`SETUP_CONSENT_REQUIRED`
+  without a terminal or `--yes`). Agent skills precede hooks; `publish_core` re-classifies
+  each target under the installer lock. The [extension owner](install-architecture.md#extensions-through-tmt-extension)
+  verifies healthy binaries without upgrading and retries missing bundled skills. Each
+  extension outcome is additive JSON; partial failure keeps completed work and exits nonzero.
 - `tmt uninstall` plans read-only, asks once (`--yes` never implies `--purge`) and then removes
   hooks (the exact inverse of setup), owners' skills and bundled links, extensions before the
   CLI, the setup record and, with `--purge`, the data directory. An unreadable record stops it
