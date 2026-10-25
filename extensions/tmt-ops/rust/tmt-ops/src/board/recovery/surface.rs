@@ -50,7 +50,7 @@ fn captured(ms: u64) -> String {
         .ok()
         .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
         .map_or_else(
-            || format!("timestamp {ms} ms"),
+            || "time unavailable".into(),
             |time| time.strftime("%Y-%m-%d %H:%M:%S UTC").to_string(),
         )
 }
@@ -62,6 +62,20 @@ fn mode(layout_only: bool) -> &'static str {
     }
 }
 impl Controller {
+    fn capture_label<'a>(&self, entry: &'a RecoverySnapshotSummary) -> &'a str {
+        entry.name.as_deref().unwrap_or_else(|| {
+            if self
+                .entries
+                .iter()
+                .find(|e| e.name.is_none())
+                .is_some_and(|e| e.selector() == entry.selector())
+            {
+                "Latest"
+            } else {
+                "Auto"
+            }
+        })
+    }
     pub(super) fn rows(&self) -> Vec<Row> {
         let busy = self.pending.as_ref().is_some_and(|t| t.job.writes());
         let mut rows = match self.screen {
@@ -72,16 +86,26 @@ impl Controller {
                     .map(|e| {
                         Row::choice(
                             &e.id(),
-                            format!(
-                                "{} · {} · {}",
-                                e.label(),
-                                captured(e.captured_at_ms),
-                                if e.name.is_none() {
-                                    "mutable latest"
-                                } else {
-                                    "immutable saved"
-                                }
-                            ),
+                            if e.name.is_some() {
+                                format!(
+                                    "{} · {} · immutable saved",
+                                    e.label(),
+                                    captured(e.captured_at_ms)
+                                )
+                            } else {
+                                let label = self.capture_label(e);
+                                let clock = i64::try_from(e.captured_at_ms)
+                                    .ok()
+                                    .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
+                                    .map(|at| {
+                                        at.to_zoned(self.zone.clone()).strftime("%H:%M").to_string()
+                                    })
+                                    .unwrap_or_else(|| "time unavailable".into());
+                                format!(
+                                    "{label} · {clock} · {} ago",
+                                    crate::requests::age(crate::status::now_ms(), e.captured_at_ms)
+                                )
+                            },
                             false,
                         )
                     })
@@ -179,7 +203,8 @@ impl Controller {
                 if let Some(p) = &self.preview {
                     notes.push(format!(
                         "Selected {} · captured {}",
-                        p.name.as_deref().unwrap_or("Latest"),
+                        self.selected_entry()
+                            .map_or("Latest", |entry| self.capture_label(entry)),
                         captured(p.snapshot.captured_at_ms)
                     ));
                     notes.push(p.counts());
@@ -213,7 +238,8 @@ impl Controller {
                 if let Some(p) = &self.preview {
                     notes.push(format!(
                         "Snapshot: {} · captured {}",
-                        p.name.as_deref().unwrap_or("Latest (mutable)"),
+                        self.selected_entry()
+                            .map_or("Latest", |entry| self.capture_label(entry)),
                         captured(p.snapshot.captured_at_ms)
                     ));
                     notes.push(format!("Digest: {}", p.digest));

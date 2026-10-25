@@ -76,7 +76,7 @@ fn inventory_value() -> Value {
     json!({"version":1,"socket":SOCKET,"snapshots":[{"name":null,"digest":DIGEST,"capturedAtMs":1000},{"name":"saved","digest":DIGEST,"capturedAtMs":1000}]})
 }
 fn controller() -> Controller {
-    let mut c = Controller::new(7);
+    let mut c = Controller::new(7, jiff::tz::TimeZone::UTC);
     c.socket = Some(SOCKET.into());
     c.entries = model::Inventory::decode(&inventory_value())
         .unwrap()
@@ -424,6 +424,7 @@ fn duplicate_name_and_cap_do_not_hide_errors_or_evict_saves() {
     for i in 0..15 {
         c.entries.push(RecoverySnapshotSummary {
             name: Some(format!("saved-{i}")),
+            generation: None,
             digest: DIGEST.into(),
             captured_at_ms: 1000,
         });
@@ -438,8 +439,8 @@ fn unnamed_generations_are_a_valid_inventory_and_only_real_names_must_be_unique(
         let mut v = inventory_value();
         let entries = v["snapshots"].as_array_mut().unwrap();
         entries.clear();
-        for _ in 0..unnamed {
-            entries.push(json!({"name":null,"digest":OTHER,"capturedAtMs":2000}));
+        for index in 0..unnamed {
+            entries.push(json!({"name":null,"generation":format!("g:{index:064x}"),"digest":OTHER,"capturedAtMs":2000}));
         }
         for i in 0..named {
             entries.push(json!({"name":format!("saved-{i}"),"digest":OTHER,"capturedAtMs":3000}));
@@ -467,6 +468,139 @@ fn unnamed_generations_are_a_valid_inventory_and_only_real_names_must_be_unique(
         .push(json!({"name":"saved-0","digest":OTHER,"capturedAtMs":4000}));
     assert!(!valid(&v));
 }
+
+fn generation_inventory_value() -> Value {
+    let mut value = inventory_value();
+    let entries = value["snapshots"].as_array_mut().unwrap();
+    entries.clear();
+    for index in 1..=5 {
+        let digest = format!("{index:064x}");
+        entries.push(json!({
+            "name":null,"generation":format!("g:{digest}"),"digest":digest,
+            "capturedAtMs":1_791_600_000_000u64-index*14*60_000,"protected":index==2,"shrink":index==1
+        }));
+    }
+    entries.push(json!({"name":"saved","generation":null,"digest":DIGEST,"capturedAtMs":1_791_500_000_000u64}));
+    value
+}
+
+#[test]
+fn a_published_generation_inventory_loads_renders_and_navigates_without_panicking() {
+    let value = generation_inventory_value();
+    let inventory = Inventory::decode(&value).unwrap();
+    inventory.validate(Some(SOCKET)).unwrap();
+    let mut c = Controller::new(7, jiff::tz::TimeZone::UTC);
+    let task = c.open().unwrap();
+    let show = finish(&mut c, task, Ok(Outcome::List(inventory))).unwrap();
+    let rows = c.rows();
+    let ids: std::collections::BTreeSet<_> = rows.iter().map(|row| row.id.as_str()).collect();
+    assert_eq!(
+        ids.len(),
+        rows.len(),
+        "published generations have distinct row identities"
+    );
+    let shown = render(&c, 160, 50);
+    assert_eq!(shown.matches("Latest ·").count(), 1, "{shown}");
+    assert!(shown.contains("saved"));
+    assert!(show.job.argv().contains(&format!("g:{:064x}", 1)));
+    let complete_show = |c: &mut Controller, task: Task, index: u64| {
+        let selector = format!("g:{index:064x}");
+        let mut value = preview_value(Some(&selector));
+        value["digest"] = json!(format!("{index:064x}"));
+        finish(
+            c,
+            task,
+            Ok(Outcome::Show(Box::new(Preview::decode(&value).unwrap()))),
+        );
+        assert_eq!(
+            c.selection().unwrap().name.as_deref(),
+            Some(selector.as_str())
+        );
+        let restore = Job::Restore(c.selection().unwrap()).argv();
+        assert!(restore.contains(&selector));
+        assert!(
+            restore
+                .windows(2)
+                .any(|pair| pair == ["--expect", &format!("{index:064x}")])
+        );
+    };
+    complete_show(&mut c, show, 1);
+    for index in 2..=5 {
+        let selector = format!("g:{index:064x}");
+        let task = c
+            .input(&key(KeyCode::Down))
+            .expect("each generation can be previewed");
+        assert!(task.job.argv().contains(&selector));
+        complete_show(&mut c, task, index);
+        render(&c, 160, 50);
+    }
+}
+#[test]
+fn generation_selectors_are_unique_validated_and_save_latest_does_not_save_the_selection() {
+    let mut value = inventory_value();
+    value["snapshots"][0]["generation"] = json!(format!("g:{OTHER}"));
+    let mut c = Controller::new(7, jiff::tz::TimeZone::UTC);
+    let task = c.open().unwrap();
+    let show = finish(
+        &mut c,
+        task,
+        Ok(Outcome::List(Inventory::decode(&value).unwrap())),
+    )
+    .unwrap();
+    assert!(show.job.argv().contains(&format!("g:{OTHER}")));
+    let mut preview = preview_value(Some(&format!("g:{OTHER}")));
+    preview["digest"] = json!(OTHER);
+    finish(
+        &mut c,
+        show,
+        Ok(Outcome::Show(Box::new(Preview::decode(&preview).unwrap()))),
+    );
+    // Select the older named save; Save latest must still use Core's newest-capture operation.
+    let show = c.select("snapshot:saved").unwrap();
+    finish(
+        &mut c,
+        show,
+        Ok(Outcome::Show(Box::new(
+            Preview::decode(&preview_value(Some("saved"))).unwrap(),
+        ))),
+    );
+    c.choose("save");
+    for ch in "new-save".chars() {
+        c.input(&key(KeyCode::Char(ch)));
+    }
+    let save = c.choose("save-confirm").unwrap();
+    assert_eq!(
+        save.job.argv(),
+        ["workspace", "save", "--socket", SOCKET, "new-save"]
+    );
+    assert!(
+        !save
+            .job
+            .argv()
+            .iter()
+            .any(|arg| arg == "saved" || arg.starts_with("g:"))
+    );
+    // Invalid or duplicate selectors are rejected at the public-input owner, never the list.
+    for generation in ["g:bad", "../foreign"] {
+        value["snapshots"][0]["generation"] = json!(generation);
+        assert!(
+            Inventory::decode(&value)
+                .unwrap()
+                .validate(Some(SOCKET))
+                .is_err()
+        );
+    }
+    value["snapshots"][0]["generation"] = json!(format!("g:{OTHER}"));
+    let duplicate = value["snapshots"][0].clone();
+    value["snapshots"].as_array_mut().unwrap().push(duplicate);
+    assert!(
+        Inventory::decode(&value)
+            .unwrap()
+            .validate(Some(SOCKET))
+            .is_err()
+    );
+}
+
 #[test]
 fn malformed_inventory_topology_and_foreign_socket_never_gain_confirmation() {
     let mut v = inventory_value();
@@ -713,7 +847,7 @@ fn unsupported_and_empty_are_distinct_public_results() {
         serial: 1,
         job: Job::List(None),
     };
-    let mut c = Controller::new(1);
+    let mut c = Controller::new(1, jiff::tz::TimeZone::UTC);
     c.pending = Some(task.clone());
     assert!(c.loaded(load::complete(&core, task)).is_none());
     assert!(c.entries.is_empty());
@@ -1349,4 +1483,83 @@ pub(in crate::board) fn action_needed_case(look: crate::look::Look) -> crate::bo
         .clear();
     app.recovery = Some(c);
     app
+}
+
+/// Frozen clock and zone, real controller projection, no filesystem recovery fixture.
+pub(crate) fn generation_case(scene: &str, look: crate::look::Look) -> crate::board::app::App {
+    let mut c = Controller::new(7, jiff::tz::TimeZone::UTC);
+    let task = c.open().unwrap();
+    let show = finish(
+        &mut c,
+        task,
+        Ok(Outcome::List(
+            Inventory::decode(&generation_inventory_value()).unwrap(),
+        )),
+    )
+    .unwrap();
+    let selector = format!("g:{:064x}", 1);
+    let mut preview = preview_value(Some(&selector));
+    preview["digest"] = json!(format!("{:064x}", 1));
+    preview["snapshot"]["capturedAtMs"] = json!(1_791_600_000_000u64 - 14 * 60_000);
+    finish(
+        &mut c,
+        show,
+        Ok(Outcome::Show(Box::new(Preview::decode(&preview).unwrap()))),
+    );
+    if scene != "snapshots-generations" {
+        let show = c.input(&key(KeyCode::Down)).unwrap();
+        let selector = format!("g:{:064x}", 2);
+        let mut preview = preview_value(Some(&selector));
+        preview["digest"] = json!(format!("{:064x}", 2));
+        preview["snapshot"]["capturedAtMs"] = json!(1_791_600_000_000u64 - 28 * 60_000);
+        finish(
+            &mut c,
+            show,
+            Ok(Outcome::Show(Box::new(Preview::decode(&preview).unwrap()))),
+        );
+        match scene {
+            "snapshots-generation-preview" => {
+                c.choose("details");
+            }
+            "snapshots-save-latest" => {
+                c.choose("save");
+            }
+            _ => panic!("unknown generation capture {scene}"),
+        }
+    }
+    let mut app = crate::board::app::workspace::tests::board();
+    app.view.as_mut().unwrap().look = look;
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .squad_looks
+        .clear();
+    app.recovery = Some(c);
+    app
+}
+
+#[test]
+fn automatic_capture_labels_use_the_local_clock_and_advance_age_without_reads() {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut app = generation_case(
+            "snapshots-generations",
+            picker_surface::evidence::looks()[0],
+        );
+        let c = app.recovery.as_mut().unwrap();
+        c.zone = jiff::tz::TimeZone::get("Asia/Tokyo").unwrap();
+        let row = &c.rows()[1].label;
+        let at = jiff::Timestamp::from_millisecond(1_791_600_000_000 - 28 * 60_000).unwrap();
+        let local = at.to_zoned(c.zone.clone()).strftime("%H:%M").to_string();
+        assert_eq!(row, &format!("Auto · {local} · 28m ago"));
+        assert!(!row.contains("g:"));
+        assert!(c.pending.is_none());
+        crate::status::with_now_ms(1_791_600_060_000, || {
+            assert!(c.rows()[1].label.ends_with("29m ago"));
+            assert!(c.pending.is_none());
+        });
+    });
 }

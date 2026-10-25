@@ -16,7 +16,10 @@ configuration and effects belong to [config-and-effects.md](config-and-effects.m
 `board::terminal` owns raw mode, mouse capture, bracketed paste, negotiated
 keyboard enhancement and the alternate screen through
 `Screen` and `Guard`. Partial entry is undone; restoration runs on return, error,
-panic and TERM/HUP. Keyboard support is queried after the placeholder and before
+panic and TERM/HUP. After panic restoration, a bounded private crash note replaces
+`$XDG_CACHE_HOME/tmt-ops/crashes/latest.txt` (the normal cache fallback applies),
+and its path is printed on the restored terminal. Reporting failure never prevents
+the original panic report. Keyboard support is queried after the placeholder and before
 input starts; only an owned enhancement push is popped. TSTP restores before
 stopping and re-enters on continuation with the same draft and observed capability,
 without querying the active reader. A multiplexer, nested client or emulator reset can drop the mouse request
@@ -124,6 +127,10 @@ alone revalidates and owns launch/move/refusal; no detached Run or new pane is u
 
 `board/recovery` owns the saved-snapshot modal's selection, private public-JSON
 projections, read coalescing, exact digest/mode confirmation and retained reports.
+Automatic rows use the published generation selector as their stable identity and
+pin preview/restore to that selector; only the first automatic entry is Latest.
+Older automatic entries show local capture time and age. Save latest retains
+Core's newest published capture, independently of the selected preview.
 Core's public workspace commands own capture, storage, live checks and effects.
 Typed recovery jobs use the existing ordered action lane and bounded Core client;
 only restore preserves completed nonzero JSON for partial-result presentation.

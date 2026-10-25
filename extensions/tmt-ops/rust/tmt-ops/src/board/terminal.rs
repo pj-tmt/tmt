@@ -360,16 +360,55 @@ impl<S: Screen> Drop for Guard<S> {
 }
 
 /// The panic message would otherwise be printed into the alternate screen and
-/// lost; restore first, then let the previous hook report it.
+/// lost; restore first, retain a short private note, then report on the normal screen.
 pub fn restore_before_panic_reports() {
     static INSTALL: Once = Once::new();
     INSTALL.call_once(|| {
         let previous = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             let _ = Crossterm::default().leave();
+            use std::io::Write;
+            match crash_note(info) {
+                Ok(path) => {
+                    let _ = writeln!(
+                        tmt_cli_style::stream::stderr(),
+                        "Ops crash note: {}",
+                        path.display()
+                    );
+                }
+                Err(error) => {
+                    let _ = writeln!(
+                        tmt_cli_style::stream::stderr(),
+                        "Ops crash note unavailable: {error}"
+                    );
+                }
+            }
             previous(info);
         }));
     });
+}
+
+/// One replaceable note bounds retained crash data; use the same private,
+/// atomic cache publisher as the rest of Ops. Never let reporting panic again.
+fn crash_note(info: &std::panic::PanicHookInfo<'_>) -> io::Result<std::path::PathBuf> {
+    use std::fmt::Write;
+    let path = crate::cache::directory("crashes")
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no cache directory"))?
+        .join("latest.txt");
+    let message = info
+        .payload()
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| info.payload().downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("non-text panic");
+    let mut note = format!("Ops board crash · pid {}\n", std::process::id());
+    if let Some(at) = info.location() {
+        let _ = writeln!(note, "{}:{}:{}", at.file(), at.line(), at.column());
+    }
+    note.extend(message.chars().take(512).flat_map(char::escape_default));
+    note.push('\n');
+    crate::cache::replace(&path, note.as_bytes())?;
+    Ok(path)
 }
 
 /// Record signals for the board loop: TERM/HUP restore and exit; TSTP restores,
@@ -632,6 +671,99 @@ mod tests {
         }));
         assert!(result.is_err());
         assert_eq!(*fake.log.borrow(), ["enter", "leave"], "unwinding restores");
+    }
+
+    #[test]
+    fn panic_restores_before_reporting_a_private_crash_note() {
+        const CHILD: &str = "TMT_OPS_TEST_PANIC_NOTE_CHILD";
+        if let Some(mode) = std::env::var_os(CHILD) {
+            if mode == "unwritable" {
+                let path = crate::cache::directory("crashes").unwrap();
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, "a file, not a directory").unwrap();
+            }
+            restore_before_panic_reports();
+            let _guard = Guard::enter(Crossterm::default()).unwrap();
+            println!("Board raw mode entered");
+            panic!("board panic note regression");
+        }
+        let root = crate::cache::directory("panic-hook-test").unwrap();
+        std::fs::create_dir_all(&root).unwrap();
+        let run = |mode: &str| {
+            let log = root.join(format!("{mode}.log"));
+            // Only the child sees this owned PTY. The parent verifies real
+            // termios restoration before its finally block repairs/closes it.
+            let status = std::process::Command::new("/usr/bin/python3")
+                .args([
+                    "-c",
+                    r#"
+import fcntl, os, pty, signal, subprocess, sys, termios
+master, slave = pty.openpty()
+before = termios.tcgetattr(slave)
+# This wrapper owns the controlling terminal and stays alive while the
+# panicking board child exits, so macOS does not revoke the slave before inspection.
+os.setsid()
+signal.signal(signal.SIGHUP, signal.SIG_IGN)
+fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+try:
+    with open(sys.argv[2], 'wb') as log:
+        child = subprocess.run([sys.argv[1], '--exact',
+            'board::terminal::tests::panic_restores_before_reporting_a_private_crash_note',
+            '--nocapture'], stdin=slave, stdout=log, stderr=log,
+            timeout=10)
+    assert child.returncode != 0, child.returncode
+    after = termios.tcgetattr(slave)
+    # macOS sets PENDIN while reapplying cooked mode: pending input, not a
+    # terminal mode owned by the board. All actual flags and control chars match.
+    pending = getattr(termios, 'PENDIN', 0)
+    before[3] &= ~pending
+    after[3] &= ~pending
+    assert after == before, ('panic left terminal modes changed', before, after)
+finally:
+    termios.tcsetattr(slave, termios.TCSANOW, before)
+    os.close(slave)
+    os.close(master)
+"#,
+                ])
+                .arg(std::env::current_exe().unwrap())
+                .arg(&log)
+                .env(CHILD, mode)
+                .env("TMPDIR", &root)
+                .status()
+                .unwrap();
+            assert!(status.success(), "isolated panic/termios proof");
+            std::fs::read_to_string(log).unwrap()
+        };
+        let text = run("saved");
+        assert!(text.contains("Board raw mode entered"));
+        let restored = text.find("\x1b[?1049l").expect("alternate screen restored");
+        let reported = text.find("Ops crash note: ").expect("crash note reported");
+        assert!(
+            restored < reported,
+            "path prints only after terminal restoration"
+        );
+        let path = text[reported..]
+            .lines()
+            .find_map(|line| line.strip_prefix("Ops crash note: "))
+            .unwrap();
+        let path = std::path::Path::new(path);
+        assert!(path.is_absolute() && path.starts_with(&root));
+        let note = std::fs::read_to_string(path).unwrap();
+        assert!(note.contains("board panic note regression"));
+        assert!(note.contains("terminal.rs:"));
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let failed = run("unwritable");
+        assert!(failed.contains("Ops crash note unavailable:"), "{failed}");
+        assert!(
+            failed.contains("board panic note regression"),
+            "original panic still reports: {failed}"
+        );
+        assert!(!failed.contains("panicked while processing panic"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
