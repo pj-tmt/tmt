@@ -9,6 +9,8 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { beforeAll, expect, it } from 'vite-plus/test';
 import { MOCK_MODEL_TOKEN, startMockModelServer } from '../support/mock-model-server.mjs';
 import { withE2EFixture, type E2EFixture } from './harness.js';
@@ -106,7 +108,19 @@ it.each(['claude', 'codex'] as const)(
         const claudeHome = path.join(home, '.claude');
         const codexHome = path.join(home, '.codex');
         const stableBin = fixture.createWorkspace('stable-bin');
-        symlinkSync(fixture.executables.cli.executable, path.join(stableBin, 'tmt'));
+        const hookCapture = path.join(reportDirectory, 'codex-hook-inputs');
+        if (provider === 'codex') {
+          const recorder = fileURLToPath(
+            new URL('../support/capture-real-harness-hook.mjs', import.meta.url)
+          );
+          writeExecutable(
+            path.join(stableBin, 'tmt'),
+            `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(recorder)} ${quote(fixture.executables.cli.executable)} ${quote(hookCapture)} "$@"\n`,
+            0o700
+          );
+        } else {
+          symlinkSync(fixture.executables.cli.executable, path.join(stableBin, 'tmt'));
+        }
         for (const directory of [home, claudeHome, codexHome])
           mkdirSync(directory, { recursive: true, mode: 0o700 });
         const env = {
@@ -138,9 +152,14 @@ it.each(['claude', 'codex'] as const)(
             `model = ${JSON.stringify(model)}`,
             'model_provider = "fixture"',
             'approval_policy = "never"',
+            'approvals_reviewer = "user"',
+            'model_reasoning_summary = "none"',
+            'model_supports_reasoning_summaries = false',
             'sandbox_mode = "danger-full-access"',
             'check_for_update_on_startup = false',
             'cli_auth_credentials_store = "ephemeral"',
+            '[tui]',
+            'terminal_title = []',
             '[analytics]',
             'enabled = false',
             '[feedback]',
@@ -219,15 +238,24 @@ it.each(['claude', 'codex'] as const)(
           identity = result.json?.identities.find((row) => row.name === name);
           report.publicIdentity = identity;
           report.diagnosticMarkerObserved = true;
-          const observed = mock.snapshot().census.find((row) => row.kind === 'turn')?.sessionId;
-          expect(
-            observed,
-            'HARNESS_SESSION_NOT_PROVEN: pinned wire location not observed'
-          ).toBeTruthy();
           expect(identity?.resume?.driver).toBe(provider);
-          expect(identity?.resume?.session).toBe(observed);
+          expect(identity?.resume?.session).toMatch(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+          );
+          if (provider === 'claude') {
+            const observed = mock.snapshot().census.find((row) => row.kind === 'turn')?.sessionId;
+            expect(
+              observed,
+              'HARNESS_SESSION_NOT_PROVEN: pinned wire location not observed'
+            ).toBeTruthy();
+            expect(identity?.resume?.session).toBe(observed);
+          }
+          // Codex admission is hook-owned, never proved by an HTTP session header.
           expect(identity?.session?.unbound).toBe(false);
-          report.sessionCondition = 'matched public session to mock UUID';
+          report.sessionCondition =
+            provider === 'claude'
+              ? 'matched public session to mock UUID'
+              : 'public hook session admitted';
           expect(mock.snapshot().completedTurns).toBe(1);
           fixture.tmux(['send-keys', '-t', pane, 'C-c', 'C-c']);
           await waitForFileContent(status, { timeoutMs: 10_000 });

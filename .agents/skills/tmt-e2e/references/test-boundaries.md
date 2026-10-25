@@ -218,11 +218,15 @@ external image cache.
 
 The first smoke's `tmt check` output is diagnostic: a per-run marker occurs only
 in the mock response and must appear through bounded public JSON polling.
-SessionStart qualification additionally requires the public ls/whoami session
-UUID to equal the validated UUID parsed from the pinned client's request.
+SessionStart qualification requires an admitted public ls/whoami session UUID.
+Claude additionally matches that UUID to the validated request field; Codex
+admission comes from its lifecycle hook, never an HTTP session header.
 The mock exposes only `sessionId`, never raw headers, metadata or request bodies.
-Wire locations remain provisional until a hosted census proves them for each
-pin; missing/moved fields fail qualification. Declarative side routes are added
+A wire field stays provisional until a hosted census proves it for that pin.
+For Core's Codex decode diagnosis, the private container may capture up to eight
+synthetic hook inputs of 64 KiB each through `capture-real-harness-hook.mjs`,
+forwarding identical bytes and status. This does not authorize reading provider
+hook files, transcripts or host state; malformed shapes go to the Core owner. Declarative side routes are added
 only from that census and never consume a scripted turn. Public durable
 exchange/result assertions belong to scenario 6 (#4549), not this diagnostic.
 The workflow preserves bounded census, versions and measured setup/run seconds;
