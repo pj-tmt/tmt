@@ -22,7 +22,7 @@ pub fn execute(
     mode: OutputMode,
 ) -> io::Result<u8> {
     match run(provider.as_deref(), status, remove, usage, yes, mode) {
-        Ok(()) => Ok(0),
+        Ok(status) => Ok(status),
         Err(error) => error.publish(mode),
     }
 }
@@ -44,10 +44,10 @@ fn run(
     usage: UsageHook,
     yes: bool,
     mode: OutputMode,
-) -> Result<(), Failure> {
+) -> Result<u8, Failure> {
     let drivers = Registry::builtin();
     if status {
-        return show_status(&drivers, provider, mode);
+        return show_status(&drivers, provider, mode).map(|()| 0);
     }
     let environment = SetupEnvironment::capture(&drivers).map_err(failure)?;
     let global = ConfigPaths::discover().map_err(Failure::from)?.global_dir;
@@ -129,7 +129,7 @@ fn run(
         },
         failure,
     )? {
-        return Ok(());
+        return Ok(0);
     }
     let backup = setup::apply(&plan).map_err(failure)?;
     let warning = setup::backup_warning(&plan.change.path);
@@ -189,7 +189,7 @@ fn run(
             writeln!(output, "Recoverable backup: {}", backup.display()).map_err(failure)?;
         }
     }
-    Ok(())
+    Ok(0)
 }
 
 fn collection_off(provider: &str) -> String {
@@ -270,3 +270,6 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
 
 #[cfg(test)]
 pub(crate) use guided::PRINTED_HINTS as GUIDED_HINTS;
+
+#[cfg(test)]
+pub(crate) use guided::EXTENSION_HINTS as GUIDED_EXTENSION_HINTS;

@@ -913,10 +913,23 @@ completion scripts still require separate installation.
 
 ### Provider setup and usage
 
-For Claude/Codex lifecycle integration, `tmt setup` shows every detected agent and
-the files it would change, then asks once; without a terminal it refuses unless
-`--yes` is given, changing nothing. `tmt setup claude` or `tmt setup codex` shows
-one agent's plan and asks for approval;
+`tmt setup` shows detected agents and four official extensions: ops, digest,
+remote and colab, all selected by default with their bundled skills. In an
+interactive terminal, use ↑/↓ and space to select extensions, then Enter to
+review one approval for the complete plan. Colab needs Remote: selecting Colab
+selects Remote visibly; unchecking Remote also unchecks Colab. Without a terminal
+or with `--json`, setup never prompts; user-authorized `--yes` applies the four
+defaults. Declining changes nothing. Healthy extensions are kept without an
+upgrade; missing bundled skills are retried from the verified active release.
+Independent items continue after a failure; completed work stays installed and
+`tmt setup --yes` retries missing work. A failed Remote installation skips Colab.
+JSON adds per-extension outcomes and a nonzero exit for incomplete setup.
+Interrupting installation stops later items, keeps completed work and exits 130.
+For read-only installation facts, use `tmt extension ls --json`: its four official
+rows include installed state, active version, `missing` and `dependencies` (Colab
+needs Remote). An unhealthy installation has recovery diagnostics; it is not
+reported as missing. Listing never installs or starts a service.
+`tmt setup claude` or `tmt setup codex` shows one agent's plan and asks for approval;
 noninteractive changes require explicit user-authorized `--yes`. It adds only
 owned start/end/prompt-submit/turn-end hooks using the stable PATH launcher; `--remove` removes only
 unchanged owned hooks. Do not install into the user's provider settings merely

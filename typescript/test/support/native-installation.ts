@@ -88,6 +88,39 @@ export async function install(
   return parseWholeStdout(result) as unknown as InstallResult;
 }
 
+/** Preinstall the four official products from private archives for guided setup scenarios.
+ * This proves setup skips healthy binaries without depending on live releases.
+ */
+export async function installSetupExtensions(sandbox: Sandbox, withSkills = false): Promise<void> {
+  for (const product of ['ops', 'digest', 'remote', 'colab'] as const) {
+    const artifact = await createArtifact(
+      sandbox,
+      '0.1.0-alpha.1',
+      new Uint8Array(),
+      product,
+      withSkills ? { [`tmt-${product}/SKILL.md`]: `${product} fixture guidance\n` } : {}
+    );
+    const result = await runCli(
+      sandbox,
+      [
+        'extension',
+        'install',
+        product,
+        '--yes',
+        '--archive',
+        artifact.archive,
+        '--manifest',
+        artifact.manifest,
+        '--prefix',
+        path.join(sandbox.home, '.local'),
+        '--json',
+      ],
+      { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+    );
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+  }
+}
+
 export function currentPointer(prefix: string): string {
   return path.join(prefix, 'lib', 'tmt', 'current');
 }

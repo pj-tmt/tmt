@@ -1,6 +1,6 @@
 ---
 source: crates/tmt-cli/src/extension_install_command.rs
-assertion_line: 728
+assertion_line: 813
 expression: document.to_string()
 ---
-{"extensions":[{"name":"ops","installed":false,"version":null,"channel":null,"pinned":null,"commands":["tmt-ops"],"shadowedBy":[]},{"name":"remote","installed":false,"version":null,"channel":null,"pinned":null,"commands":["tmt-remote"],"shadowedBy":[]},{"name":"colab","installed":false,"version":null,"channel":null,"pinned":null,"commands":["tmt-colab"],"shadowedBy":[]},{"name":"digest","installed":false,"version":null,"channel":null,"pinned":null,"commands":["tmt-digest"],"shadowedBy":[]}]}
+{"extensions":[{"name":"ops","official":true,"installed":false,"version":null,"missing":true,"dependencies":[],"channel":null,"pinned":null,"commands":["tmt-ops"],"shadowedBy":[]},{"name":"remote","official":true,"installed":false,"version":null,"missing":true,"dependencies":[],"channel":null,"pinned":null,"commands":["tmt-remote"],"shadowedBy":[]},{"name":"colab","official":true,"installed":false,"version":null,"missing":true,"dependencies":["remote"],"channel":null,"pinned":null,"commands":["tmt-colab"],"shadowedBy":[]},{"name":"digest","official":true,"installed":false,"version":null,"missing":true,"dependencies":[],"channel":null,"pinned":null,"commands":["tmt-digest"],"shadowedBy":[]}]}

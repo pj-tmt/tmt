@@ -228,7 +228,7 @@ a working directory, active pane or sole identity.
 - Lifecycle hooks complete existing bindings, never create or move identities.
   Binding-owned starts and launch learning are diagnostic; [projections](contracts/identity-status-v1.md#session-binding-observation) read stored facts.
   Bounded hooks exit zero; launch hooks keep externalized-name compatibility. Only consented
-  `tmt setup` and its recorded upgrade refresh change provider settings.
+  setup and recorded upgrade refresh change provider settings.
 - `tmt-core::endpoint::ProcessIncarnation` (PID plus core's own start token) is the
   one value for comparing local processes.
 - Concrete caller/target and storage rules:
@@ -371,7 +371,7 @@ current release. CLI self-upgrade delegates to the verified candidate under the
 [handoff contract](contracts/native-install-handoff-v1.md); PR channel trust,
 compiled schema export and admission are owned by the [PR channel contract](contracts/native-pr-channel.md). The candidate then lets that CLI
 run the consented extension phase; there is no rollback or second installer.
-`tmt extension` owns consented install/upgrade/removal and read-only listing; install/upgrade accept `--to`.
+`tmt extension` owns consented install/upgrade (`--to`)/removal. Its setup planner owns the read-only official inventory (installed/version/missing/dependencies), shared by guided setup and `extension ls --json`; PATH discovery remains separate.
 Receipt-frozen [CLI minima](contracts/extension-api.md#optional-cross-extension-uses) gate activation; listing compares locally.
 [Installer architecture](.agents/skills/tmt-core-runtime/references/install-architecture.md) owns retention,
 discovery, receipts, skills, repair and handoff; [release procedures](.agents/skills/tmt-release/SKILL.md) own verification and publication.

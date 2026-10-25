@@ -160,7 +160,7 @@ pub(in crate::grammar) fn install(names: Vec<&'static str>) -> Command {
 pub(in crate::grammar) fn setup(hooked: Vec<&'static str>) -> Command {
     general(spec!(
         "setup",
-        "Set up every detected agent: skills and session hooks, after one approval",
+        "Set up detected agents and selected official extensions after one approval",
         [
             "Review and apply what is missing" => "tmt setup",
             "Claude's session and usage hooks" => "tmt setup claude --yes",

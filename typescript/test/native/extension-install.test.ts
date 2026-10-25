@@ -343,6 +343,9 @@ describe('tmt extension install surface', () => {
         const listed = await cli(['extension', 'ls', '--prefix', prefix]);
         expect(parseWholeStdout(listed).extensions).toContainEqual({
           name,
+          official: true,
+          missing: false,
+          dependencies: name === 'colab' ? ['remote'] : [],
           installed: true,
           version: '0.1.0-alpha.2',
           channel: 'alpha',
@@ -433,6 +436,9 @@ describe('tmt extension install surface', () => {
         extensions: [
           {
             name: 'ops',
+            official: true,
+            missing: false,
+            dependencies: [],
             installed: true,
             version: '0.1.0-alpha.1',
             channel: 'alpha',
@@ -442,6 +448,9 @@ describe('tmt extension install surface', () => {
           },
           {
             name: 'remote',
+            official: true,
+            missing: true,
+            dependencies: [],
             installed: false,
             version: null,
             channel: null,
@@ -451,6 +460,9 @@ describe('tmt extension install surface', () => {
           },
           {
             name: 'colab',
+            official: true,
+            missing: true,
+            dependencies: ['remote'],
             installed: false,
             version: null,
             channel: null,
@@ -460,6 +472,9 @@ describe('tmt extension install surface', () => {
           },
           {
             name: 'digest',
+            official: true,
+            missing: true,
+            dependencies: [],
             installed: false,
             version: null,
             channel: null,

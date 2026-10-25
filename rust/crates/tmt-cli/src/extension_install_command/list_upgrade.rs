@@ -189,6 +189,7 @@ pub(super) fn listing(
     check: bool,
     search: &std::ffi::OsStr,
 ) -> Result<(Value, Human), Failure> {
+    let inventory = super::setup::inventory(prefix);
     let mut rows = Vec::new();
     let mut lines = Vec::new();
     for product in Product::ALL
@@ -200,20 +201,20 @@ pub(super) fn listing(
         let mut state = None;
         let mut partial = false;
         let mut issue = None;
-        match partial_removal(product, prefix) {
-            Ok(true) => partial = true,
-            Ok(false) => match installed(product, prefix) {
-                Ok(true) => match native_install::inspect_product_prefix(product, prefix) {
-                    Ok(installation) => {
-                        cli = installation.cli_compatibility();
-                        state = Some(installation.state);
-                    }
-                    Err(error) => issue = Some(Issue::io(product, prefix, &error)),
-                },
-                Ok(false) => {}
-                Err(failure) => issue = Some(Issue::new(product, prefix, &failure.message)),
-            },
-            Err(error) => issue = Some(Issue::io(product, prefix, &error)),
+        let entry = inventory
+            .iter()
+            .find(|entry| entry.product == product)
+            .expect("every official product belongs to the setup inventory");
+        match &entry.installation {
+            super::setup::Installation::Missing => {}
+            super::setup::Installation::PartiallyRemoved => partial = true,
+            super::setup::Installation::Managed(installation) => {
+                cli = installation.cli_compatibility();
+                state = Some(&installation.state);
+            }
+            super::setup::Installation::Invalid(error) => {
+                issue = Some(Issue::io(product, prefix, error))
+            }
         }
         let frozen = !INSTALLABLE_EXTENSIONS.contains(&product);
         // A frozen product is only reported while its own installation exists.
@@ -242,15 +243,16 @@ pub(super) fn listing(
         } else {
             None
         };
-        let mut row = json!({
-            "name": name,
-            "installed": state.is_some(),
-            "version": state.as_ref().map(|state| state.version.to_string()),
-            "channel": state.as_ref().map(|state| state.channel.as_str()),
-            "pinned": state.as_ref().and_then(|state| state.pinned_version.as_ref()).map(ToString::to_string),
-            "commands": product.links(),
-            "shadowedBy": shadowed,
-        });
+        let mut row = entry.facts();
+        row["channel"] = json!(state.as_ref().map(|state| state.channel.as_str()));
+        row["pinned"] = json!(
+            state
+                .as_ref()
+                .and_then(|state| state.pinned_version.as_ref())
+                .map(ToString::to_string)
+        );
+        row["commands"] = json!(product.links());
+        row["shadowedBy"] = json!(shadowed);
         if frozen {
             row["frozen"] = true.into();
         }
@@ -423,20 +425,6 @@ impl Issue {
             )
         }
     }
-}
-
-/// A retained activation with any missing command link is recoverable partial
-/// removal. Listing reports it without inspecting a missing execution path.
-fn partial_removal(product: Product, prefix: &Path) -> io::Result<bool> {
-    if !exists(&prefix.join(product.namespace()).join("current"))? {
-        return Ok(false);
-    }
-    for name in product.links() {
-        if !exists(&prefix.join("bin").join(name))? {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 /// Every other `tmt-<name>` command on PATH that does not resolve to this
