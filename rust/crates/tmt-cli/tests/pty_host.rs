@@ -979,5 +979,7 @@ fn a_fast_exit_has_one_confirmed_startup_and_a_missing_program_is_not_success() 
 
 #[path = "pty_host/attach.rs"]
 mod attach;
+#[path = "pty_host/e2e.rs"]
+mod e2e;
 #[path = "pty_host/terminal_stream.rs"]
 mod terminal_stream;

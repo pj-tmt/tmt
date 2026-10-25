@@ -4,11 +4,11 @@ use super::*;
 use std::io::{BufRead, BufReader};
 use tmt_adapters::pty::protocol::{ClientMessage, ServerMessage, Size};
 
-fn quote(value: &str) -> String {
+pub(super) fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn wait_for(what: &str, mut ready: impl FnMut() -> bool) {
+pub(super) fn wait_for(what: &str, mut ready: impl FnMut() -> bool) {
     let deadline = Instant::now() + WAIT;
     while !ready() {
         assert!(Instant::now() < deadline, "waiting for {what}");
@@ -16,7 +16,7 @@ fn wait_for(what: &str, mut ready: impl FnMut() -> bool) {
     }
 }
 
-fn output_until(connection: &mut Connection, needle: &[u8]) -> Vec<u8> {
+pub(super) fn output_until(connection: &mut Connection, needle: &[u8]) -> Vec<u8> {
     let deadline = Instant::now() + WAIT;
     let mut output = Vec::new();
     while !output.windows(needle.len()).any(|part| part == needle) {
@@ -46,7 +46,7 @@ fn output_until(connection: &mut Connection, needle: &[u8]) -> Vec<u8> {
 }
 
 impl World {
-    fn own_pid(&mut self, pid: u64) -> ProcessIncarnation {
+    pub(super) fn own_pid(&mut self, pid: u64) -> ProcessIncarnation {
         let process = match observe_runtime_process(&UnixCommandRunner, pid, Instant::now() + WAIT)
             .unwrap()
         {
@@ -79,7 +79,7 @@ impl World {
         self.remember_programs();
     }
 
-    fn outer(&mut self, label: &str, sole: bool) -> Connection {
+    pub(super) fn outer(&mut self, label: &str, sole: bool) -> Connection {
         self.outer_with(label, if sole { "attach -d" } else { "attach" }, 80)
     }
 
@@ -134,7 +134,7 @@ impl World {
         client
     }
 
-    fn restored(&self, label: &str, expected: i32) {
+    pub(super) fn restored(&self, label: &str, expected: i32) {
         wait_for("terminal restoration and exit status", || {
             self.root.join(format!("{label}.status")).exists()
         });
