@@ -2,6 +2,7 @@
 //! adapter owners; this layer resolves optional callers and projects output.
 
 use crate::{
+    caller_context::Composition,
     identity_context,
     invocation::{IdentityFilterRequest, IdentityMetadataRequest, IdentityRequest, OutputMode},
     output::{Failure, after_cleanup, identity_document},
@@ -23,6 +24,8 @@ use tmt_core::{
 };
 
 mod status;
+#[cfg(test)]
+mod tests;
 
 enum Report {
     Status(status::Report),
@@ -112,15 +115,19 @@ fn metadata_failure(error: MetadataError<StorageError>) -> Failure {
     }
 }
 
-fn run(request: IdentityRequest) -> Result<Report, Failure> {
+fn run(request: IdentityRequest, composition: Composition<'_>) -> Result<Report, Failure> {
     // Explicit named identity operations remain storage-only and do not probe tmux.
     let selector = match &request {
         IdentityRequest::Metadata { identity, .. } | IdentityRequest::Status { identity, .. } => {
-            Some(identity_context::required(identity.as_deref())?)
+            Some(identity_context::required_with(
+                identity.as_deref(),
+                composition.select,
+            )?)
         }
-        IdentityRequest::Show { name: None, .. } => {
-            Some(identity_context::required(None).map_err(show_selection_failure)?)
-        }
+        IdentityRequest::Show { name: None, .. } => Some(
+            identity_context::required_with(None, composition.select)
+                .map_err(show_selection_failure)?,
+        ),
         _ => None,
     };
     let changes = if matches!(
@@ -150,7 +157,7 @@ fn run(request: IdentityRequest) -> Result<Report, Failure> {
     } else {
         None
     };
-    let paths = ConfigPaths::discover().map_err(unavailable)?;
+    let paths = composition.paths()?;
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
             error,
@@ -403,7 +410,12 @@ fn write_list(
 }
 
 pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
-    let report = match run(request) {
+    let config = || ConfigPaths::discover().map_err(unavailable);
+    let composition = Composition {
+        select: &Host::for_caller,
+        config: &config,
+    };
+    let report = match run(request, composition) {
         Ok(report) => report,
         Err(error) => return error.publish(mode),
     };

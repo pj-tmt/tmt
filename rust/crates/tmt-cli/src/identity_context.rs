@@ -79,10 +79,18 @@ fn required_failure() -> Failure {
 /// Reject an unavailable implicit caller before opening or migrating storage.
 /// A durable selector never discovers the caller's host.
 pub fn required(explicit: Option<&str>) -> Result<Selector, Failure> {
+    required_with(explicit, &Host::for_caller)
+}
+
+/// [`required`] with the caller selection a command was given.
+pub fn required_with(
+    explicit: Option<&str>,
+    select: SelectCaller<'_>,
+) -> Result<Selector, Failure> {
     if let Some(name) = explicit {
         return Ok(Selector::Explicit(name.to_owned()));
     }
-    caller_pane(&Host::for_caller, false)?
+    caller_pane(select, false)?
         .map(|(_, pane)| Selector::Pane(pane))
         .ok_or_else(required_failure)
 }
