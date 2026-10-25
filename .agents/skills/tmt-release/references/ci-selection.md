@@ -469,11 +469,14 @@ a 120 s cold-start bound and 20 s per read. Conditional/search/attempt reads cou
 Heartbeat progress continues during catch-up; ordinary steady passes retain the
 60 s interval. Reads or budgets that cannot prove a complete cohort fail closed.
 
-Workflow/job signatures retain six-hour recurrence and re-arm after green on the
-same event. Observed attempts are not replayed. Counts/latest run update locally;
-issue lookup searches the signature before creation and reuses it thereafter.
-At most six `tmt talk` submissions per rolling hour are permitted; bursts fold
-by suggested squad, with excess alerts kept pending. A private exclusive lock
+One alert per failed run/attempt lists every failed job. Its signature is the
+workflow plus sorted failed-job set; six-hour dedup re-arms after green on the
+same event. Routing uses the earliest-started failed job (API order breaks ties
+or missing times). Observed attempts are not replayed; version-1 history is kept.
+Each re-arm searches open signature issues again: reuse an open match, or create
+a fresh issue if the old one closed. At most six `tmt talk` submissions per rolling
+hour are permitted; bursts fold by suggested squad within a 24,000-byte notice
+bound, with excess alerts kept pending and no job names dropped. A private exclusive lock
 prevents competing watchers. Persisted issue/delivery intents stop uncertain
 side effects from being blindly repeated; inspect GitHub/TMT and the recorded
 intent before operator repair. A budget-deferred known-unsent alert retries next
