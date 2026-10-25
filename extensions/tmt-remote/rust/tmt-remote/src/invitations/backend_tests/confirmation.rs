@@ -4,6 +4,7 @@ use super::*;
 #[derive(Default)]
 pub(super) struct Ledger {
     pub(super) records: BTreeMap<String, Committed>,
+    pub(super) grant_rows: BTreeMap<String, crate::store::Grant>,
     pub(super) claims: BTreeSet<Key>,
     pub(super) grants: usize,
     pub(super) confirms: usize,
@@ -58,20 +59,28 @@ impl ConfirmationSink for Sink {
             }
             return Ok(original.clone());
         }
+        // Model M1's enforced initial grant, then serialize exactly the values
+        // committed to the fake row rather than the incoming request options.
+        let mut persisted = input.grant.clone();
+        persisted.scopes.retain(|scope| scope != "talk");
+        persisted.mode = "direct".into();
         let receipt = crate::pairing::receipt(
-            input.grant,
+            &persisted,
             &input.snapshot.context.owner,
             &input.snapshot.context.owner_key,
         )?;
         let record = Committed {
             snapshot: input.snapshot.clone(),
             member: crate::store::uuid_v4()?,
-            grant_revision: input.grant.revision,
+            grant_revision: persisted.revision,
             proof: input.receipt_key.prove(&receipt)?,
             receipt,
             routes: self.routes.then(|| b"opaque route capability".to_vec()),
         };
         ledger.grants += 1;
+        ledger
+            .grant_rows
+            .insert(persisted.client_id.clone(), persisted);
         ledger
             .records
             .insert(input.snapshot.context.offer.clone(), record.clone());

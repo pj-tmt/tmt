@@ -7,18 +7,23 @@ struct Faults {
     wrong_candidate_principal: bool,
     revoke_after_routes: Option<Sink>,
     publishes: BTreeMap<u8, usize>,
+    withdrawals: usize,
 }
 #[derive(Clone)]
-struct Controlled<B> {
+pub(super) struct Controlled<B> {
     inner: B,
     faults: Arc<Mutex<Faults>>,
 }
 impl<B> Controlled<B> {
-    fn new(inner: B) -> Self {
+    pub(super) fn new(inner: B) -> Self {
         Self {
             inner,
             faults: Default::default(),
         }
+    }
+    pub(super) fn write_attempts(&self) -> usize {
+        let faults = self.faults.lock().unwrap();
+        faults.publishes.values().sum::<usize>() + faults.withdrawals
     }
     fn publications(&self, part: Part) -> usize {
         self.faults
@@ -77,6 +82,7 @@ impl<B: Backend> Backend for Controlled<B> {
         context: &Context,
         io: &IoBudget<'_>,
     ) -> Result<WriteOutcome, BackendFailure> {
+        self.faults.lock().unwrap().withdrawals += 1;
         self.inner.withdraw(context, io)
     }
 }

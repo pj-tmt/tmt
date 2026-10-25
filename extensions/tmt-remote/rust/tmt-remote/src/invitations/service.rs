@@ -8,7 +8,7 @@ use crate::{
     limits,
     objects::IoBudget,
     pairing::PairingPolicy,
-    store::{DEFAULT_SCOPES, Grant, SUPPORTED_SCOPES},
+    store::{DEFAULT_SCOPES, Grant},
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -361,6 +361,12 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         if !actor.interactive() {
             return Err(invalid());
         }
+        if policy.talk || policy.hold || policy.agents.is_some() {
+            return Err(RemoteError::new(
+                "REMOTE_INPUT_INVALID",
+                "New invitations start with sending off and direct delivery. Change member sending after confirmation.",
+            ));
+        }
         let mut state = self.lock()?;
         let offer = state.as_mut().ok_or_else(invalid)?;
         offer.expire(now_ms);
@@ -380,8 +386,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             let _ = self.backend.withdraw(&context, io);
             return Ok(result);
         }
-        policy.validate()?;
-        let grant = grant(expected, policy, now_ms)?;
+        let grant = grant(expected, now_ms);
         let transcript = proof::enrollment(&expected.context, &expected.candidate)?;
         let receipt_key =
             ReceiptKey(crypto::response_key(&offer.code, &transcript).map_err(|_| invalid())?);
@@ -389,7 +394,6 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         let committed = self.sink.confirm(Confirmation {
             snapshot: expected,
             actor,
-            policy,
             grant: &grant,
             receipt_key: &receipt_key,
             io,
@@ -678,32 +682,26 @@ fn snapshot(verified: &super::VerifiedCandidate) -> Snapshot {
         digest: *verified.digest(),
     }
 }
-fn grant(snapshot: &Snapshot, policy: &PairingPolicy, now: u64) -> Result<Grant, RemoteError> {
-    Ok(Grant {
+fn grant(snapshot: &Snapshot, now: u64) -> Grant {
+    Grant {
         client_id: snapshot.candidate.machine.clone(),
         public_key: snapshot.candidate.public_key,
         kind: "cli".into(),
         origin: "cli".into(),
         name: snapshot.candidate.name.clone(),
-        agents: policy.agents.as_ref().map_or_else(
-            || Ok("all".into()),
-            |ids| serde_json::to_string(ids).map_err(|_| invalid()),
-        )?,
-        scopes: (if policy.talk {
-            SUPPORTED_SCOPES.as_slice()
-        } else {
-            DEFAULT_SCOPES.as_slice()
-        })
-        .iter()
-        .map(|scope| (*scope).to_owned())
-        .collect(),
-        mode: if policy.hold { "hold" } else { "direct" }.into(),
+        agents: "all".into(),
+        scopes: DEFAULT_SCOPES
+            .iter()
+            .map(|scope| (*scope).to_owned())
+            .collect(),
+        mode: "direct".into(),
         issued_at_ms: now,
         expires_at_ms: None,
         revision: 1,
         disabled: false,
-    })
+    }
 }
+
 fn publication(record: &Committed, part: Part) -> Publication {
     Publication {
         exchange: InvitationExchange {

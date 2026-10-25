@@ -2519,8 +2519,7 @@ action over that snapshot and comparison result; terminal and paired-owner-brows
 confirmation share the same transition owner. A normal user, mismatched comparison,
 JSON/agent command, cancellation, disconnect, expiry or revoked owner cannot supply that
 consent. Competing confirmations result in at most one committed receipt and first
-member-machine association. The default new user has sending off and direct delivery;
-provider input never broadens the owner's selected policy.
+member-machine association. New invitation confirmation refuses talk/hold/agents options and persists M1's grant with sending off and direct delivery, whose stored values form the receipt; if I5 later offers an owner-browser default-no sending choice, it must apply member sending-on after that sink in the same transaction and serialize the result.
 
 Durable confirmation opens one existing Store IMMEDIATE transaction, rechecks authority
 and the frozen invitation/candidate, inserts the member and first grant through the M1

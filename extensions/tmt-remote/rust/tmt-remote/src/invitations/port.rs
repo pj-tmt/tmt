@@ -1,7 +1,7 @@
 //! Transport capabilities, not authority. An adapter authenticates its provider
 //! evidence; only the separate confirmation sink can create durable authority.
 use super::{BackendBinding, Candidate, Context};
-use crate::{error::RemoteError, objects::IoBudget, pairing::PairingPolicy, store::Grant};
+use crate::{error::RemoteError, objects::IoBudget, store::Grant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Part {
@@ -151,7 +151,6 @@ pub struct Snapshot {
 pub struct Confirmation<'a> {
     pub snapshot: &'a Snapshot,
     pub actor: &'a OwnerActor,
-    pub policy: &'a PairingPolicy,
     pub grant: &'a Grant,
     pub receipt_key: &'a ReceiptKey,
     pub io: &'a IoBudget<'a>,

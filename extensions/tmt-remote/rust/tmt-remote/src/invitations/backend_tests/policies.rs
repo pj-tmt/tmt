@@ -48,26 +48,31 @@ fn policies<B: ScenarioBackend>(make: impl Fn() -> B) {
     let backend = make();
     let sink = Sink::default();
     let (coordinator, _, snapshot) = pending(backend.clone(), sink.clone(), &io);
-    let mut policy = PairingPolicy {
-        talk: true,
-        hold: true,
-        agents: Some(vec![
-            "44444444-4444-4444-8444-444444444444".into(),
-            "55555555-5555-4555-8555-555555555555".into(),
-        ]),
-    };
     coordinator
-        .confirm(&owner, &snapshot, true, &policy, 3, &io)
+        .confirm(&owner, &snapshot, true, &PairingPolicy::default(), 3, &io)
         .unwrap();
     let original = sink.original(&snapshot).unwrap().unwrap();
-    let receipt: serde_json::Value = serde_json::from_slice(&original.receipt).unwrap();
-    assert_eq!(receipt["grant"]["mode"], "hold");
-    assert_eq!(receipt["grant"]["agents"], serde_json::json!(policy.agents));
-    assert!(
-        receipt["grant"]["scopes"]
-            .as_array()
+    {
+        let ledger = sink.ledger.lock().unwrap();
+        let persisted = ledger.grant_rows.get(&snapshot.candidate.machine).unwrap();
+        assert_eq!(
+            original.receipt,
+            crate::pairing::receipt(
+                persisted,
+                &snapshot.context.owner,
+                &snapshot.context.owner_key
+            )
             .unwrap()
-            .contains(&serde_json::json!("talk"))
+        );
+        assert_eq!(persisted.mode, "direct");
+        assert!(!persisted.permits_scope("talk"));
+    }
+    let receipt: serde_json::Value = serde_json::from_slice(&original.receipt).unwrap();
+    assert_eq!(receipt["grant"]["mode"], "direct");
+    assert_eq!(receipt["grant"]["agents"], "all");
+    assert_eq!(
+        receipt["grant"]["scopes"],
+        serde_json::json!(crate::store::DEFAULT_SCOPES)
     );
     assert_eq!(receipt["grant"]["clientId"], snapshot.candidate.machine);
     assert_eq!(
@@ -75,42 +80,76 @@ fn policies<B: ScenarioBackend>(make: impl Fn() -> B) {
         canonical::base64url(&snapshot.candidate.public_key)
     );
     assert_eq!(receipt["grant"]["machineId"], snapshot.context.owner);
-    policy.talk = false;
-    policy.hold = false;
-    policy.agents = None;
-    assert!(
-        coordinator
-            .confirm(&owner, &snapshot, true, &policy, 4, &io)
-            .is_err()
-    );
+    // A separately authorized later member-policy change cannot replace the
+    // original confirmation receipt. This is fake state, not that public API.
+    {
+        let mut ledger = sink.ledger.lock().unwrap();
+        let current = ledger
+            .grant_rows
+            .get_mut(&snapshot.candidate.machine)
+            .unwrap();
+        current.scopes.push("talk".into());
+        current.revision += 1;
+    }
     coordinator.observe(4, &io).unwrap();
     assert!(sink.original(&snapshot).unwrap().as_ref() == Some(&original));
     assert_eq!(sink.ledger.lock().unwrap().grants, 1);
 
-    // Invalid grant options cannot turn a refused comparison into an open offer.
-    let backend = make();
-    let sink = Sink::default();
-    let (coordinator, _, snapshot) = pending(backend.clone(), sink.clone(), &io);
-    let invalid_policy = PairingPolicy {
-        talk: false,
-        hold: true,
-        agents: None,
-    };
-    assert!(
-        coordinator
-            .confirm(&owner, &snapshot, true, &invalid_policy, 3, &io)
-            .is_err()
-    );
-    assert_eq!(sink.ledger.lock().unwrap().confirms, 0);
-    assert_eq!(
-        coordinator
-            .confirm(&owner, &snapshot, false, &invalid_policy, 3, &io)
-            .unwrap()
-            .state,
-        State::Refused
-    );
-    assert_eq!(sink.ledger.lock().unwrap().grants, 0);
-    assert_eq!(backend.writes(Part::Receipt), 0);
+    // Reject every unsupported option before a writer or provider mutation,
+    // including an empty agents list and a mismatched comparison request.
+    for policy in [
+        PairingPolicy {
+            talk: true,
+            ..PairingPolicy::default()
+        },
+        PairingPolicy {
+            hold: true,
+            ..PairingPolicy::default()
+        },
+        PairingPolicy {
+            agents: Some(vec![]),
+            ..PairingPolicy::default()
+        },
+        PairingPolicy {
+            agents: Some(vec!["44444444-4444-4444-8444-444444444444".into()]),
+            ..PairingPolicy::default()
+        },
+        PairingPolicy {
+            talk: true,
+            hold: true,
+            agents: Some(vec!["44444444-4444-4444-8444-444444444444".into()]),
+        },
+    ] {
+        for matched in [false, true] {
+            let backend = super::faults::Controlled::new(make());
+            let sink = Sink::default();
+            let (coordinator, _, snapshot) = pending(backend.clone(), sink.clone(), &io);
+            let before = backend.write_attempts();
+            let error = match coordinator.confirm(&owner, &snapshot, matched, &policy, 3, &io) {
+                Ok(_) => panic!("new invitation accepted sending options"),
+                Err(error) => error,
+            };
+            assert_eq!(error.code, "REMOTE_INPUT_INVALID");
+            let ledger = sink.ledger.lock().unwrap();
+            assert_eq!(ledger.confirms, 0);
+            assert_eq!(ledger.grants, 0);
+            assert!(ledger.records.is_empty());
+            assert!(ledger.grant_rows.is_empty());
+            drop(ledger);
+            assert_eq!(
+                backend.write_attempts(),
+                before,
+                "refusal attempted a provider mutation"
+            );
+            assert_eq!(
+                coordinator.status(3).unwrap().state,
+                State::CandidateAwaitingOwner
+            );
+            coordinator
+                .cancel(&owner, &snapshot.context.offer, 3, &io)
+                .unwrap();
+        }
+    }
 
     // Admit the owner browser, then revoke its designation before the writer
     // acquires the fake transaction. It must recheck, not reuse admission.
