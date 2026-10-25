@@ -91,11 +91,11 @@ export function layout({
 <title>${e(title)}</title><meta name="description" content="${e(description)}">
 ${demo ? '<meta name="robots" content="noindex,nofollow">' : `<link rel="canonical" href="${e(location.url + path)}">`}
 <link vite-ignore rel="alternate" type="application/rss+xml" title="${e(site.title)}" href="${e(location.base)}feed.xml">
-<link rel="icon" href="${e(location.base)}mark.svg" type="image/svg+xml">
+<link vite-ignore rel="icon" href="${e(location.base)}mark.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/src/blog/blog.css">
 </head><body>
 <a class="skip-link" href="#main">Skip to content</a>
-<header class="site-header"><a class="brand" href="${e(location.base)}"><img src="${e(location.base)}mark.svg" width="24" height="24" alt=""><span>TMT</span><span class="brand-divider"></span><span>Journal</span></a><nav aria-label="Main"><a href="${e(location.base)}">Articles</a><a href="${e(location.base)}feed.xml">RSS ↗</a><a href="${e(location.siteBase)}">Explore TMT ↗</a></nav></header>
+<header class="site-header"><a class="brand" href="${e(location.base)}"><img vite-ignore src="${e(location.base)}mark.svg" width="30" height="30" alt=""><span>tmt</span><span class="brand-divider"></span><span>journal</span></a><nav aria-label="Main"><a href="${e(location.base)}">Articles</a><a href="${e(location.base)}feed.xml">RSS ↗</a><a href="${e(location.siteBase)}">Explore TMT ↗</a></nav></header>
 ${demo ? '<div class="preview-notice">◇ Template preview · Example content, not a published post</div>' : ""}
 <main id="main">${body}</main>
 <footer class="site-footer"><span>TMT Journal</span><span>Tools for people and agents.</span><a href="${e(location.siteBase)}">TMT ↗</a></footer>

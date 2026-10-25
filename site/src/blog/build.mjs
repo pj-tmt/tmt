@@ -91,12 +91,6 @@ export async function blogBuild({ root, base, origin, development, demo }) {
             "SITE_ORIGIN is required for a production build, for example https://example.com",
           );
       },
-      // The mark is the blog's tab icon and header image; keep it a file, never an inline data URL.
-      config: () => ({
-        build: {
-          assetsInlineLimit: (file) => (file.endsWith("/blog/mark.svg") ? false : undefined),
-        },
-      }),
       // Article modules are self-contained. Do not let a reviewed snippet pull
       // unapproved files or packages into its build from elsewhere in the repo.
       resolveId(source, importer) {
@@ -107,6 +101,8 @@ export async function blogBuild({ root, base, origin, development, demo }) {
       generateBundle() {
         for (const [path, source] of Object.entries(generated.publicFiles))
           this.emitFile({ type: "asset", fileName: `blog/${path}`, source });
+        // Layout URLs already include SITE_BASE. vite-ignore leaves them unchanged in dev
+        // and build; this plugin owns the file instead of Vite inlining or rebasing it.
         this.emitFile({ type: "asset", fileName: "blog/mark.svg", source: readFileMark });
       },
     },

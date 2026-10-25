@@ -53,11 +53,12 @@ builds, even when the embed flag is set.
 
 The blog is built as complete HTML under `${SITE_BASE}blog/` alongside Home,
 using the same Vite build and `site/dist` Pages artifact. The working title is
-TMT Journal. Its shared layout follows the Colab landing palette; provenance is
-recorded in [the blog style source note](src/blog/PROVENANCE.md).
+TMT Journal. Its shared layout uses a black-only ninja palette in both color
+preferences, rice-paper text, a red accent and a file-backed hooded mark.
+Provenance is recorded in [the blog style source note](src/blog/PROVENANCE.md).
 
-Code belongs to `src/blog/` (UX review). Approved English articles belong to
-`src/posts/<slug>/`, each with `article.html`, `meta.json`, `approval.json`,
+Marketing owns and reviews the blog end to end: code in `src/blog/` and approved
+English articles in `src/posts/<slug>/`, each with `article.html`, `meta.json`, `approval.json`,
 `scripts/` and raster `images/` as needed. No article language except English is
 enabled; a new language needs a repository `languageExceptions` entry and
 corresponding metadata validation change.
