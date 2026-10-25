@@ -6371,6 +6371,8 @@ describe('workspace snapshots in the real board', () => {
       expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
       const scratch = startPrivateTmux(sandbox, 'snapshots');
       const { tmux } = scratch;
+      let serverPid: number | undefined;
+      let boardPid: number | undefined;
       try {
         tmux([
           'new-session',
@@ -6386,9 +6388,10 @@ describe('workspace snapshots in the real board', () => {
           '/bin/sh',
         ]);
         const pane = tmux(['display-message', '-p', '#{pane_id}']);
-        const server = tmux(['display-message', '-p', '#{pid}']);
+        serverPid = Number(tmux(['display-message', '-p', '#{pid}']));
+        boardPid = Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
         const session = tmux(['display-message', '-p', '#{session_id}']).replace(/^\$/, '');
-        sandbox.env.TMUX = `${scratch.socket},${server},${session}`;
+        sandbox.env.TMUX = `${scratch.socket},${serverPid},${session}`;
         sandbox.env.TMUX_PANE = pane;
         const bound = await runCli(sandbox, ['add', '--save', pane, 'worker', '--json']);
         expect(bound.status, bound.stdout + bound.stderr).toBe(0);
@@ -6453,7 +6456,7 @@ describe('workspace snapshots in the real board', () => {
           '-t',
           pane,
           '-l',
-          `${quote(sandbox.cli.executable)} ops ui --squad product --reset-view`,
+          `exec ${quote(sandbox.cli.executable)} ops ui --squad product --reset-view`,
         ]);
         tmux(['send-keys', '-t', pane, 'Enter']);
         const screen = () => tmux(['capture-pane', '-p', '-t', pane]);
@@ -6489,13 +6492,33 @@ describe('workspace snapshots in the real board', () => {
           interval: 50,
         });
         expect(screen()).not.toMatch(/g:[0-9a-f]{64}/);
-        tmux(['send-keys', '-t', pane, 'Escape', 'Escape', 'q']);
+        tmux(['send-keys', '-t', pane, 'Escape']);
+        await vi.waitFor(() => expect(screen()).toContain('Open selected preview'), {
+          timeout: 10_000,
+          interval: 25,
+        });
+        tmux(['send-keys', '-t', pane, 'Escape']);
         await vi.waitFor(() => expect(screen()).not.toContain('Workspace snapshots'), {
           timeout: 10_000,
-          interval: 50,
+          interval: 25,
+        });
+        tmux(['send-keys', '-t', pane, 'q']);
+        await vi.waitFor(() => expect(() => process.kill(boardPid!, 0)).toThrow(), {
+          timeout: 10_000,
+          interval: 25,
         });
       } finally {
         scratch.stop();
+        // Server shutdown and board worker shutdown are asynchronous. Do not
+        // return a live board to the Linux sandbox's resident-process check.
+        for (const pid of [boardPid, serverPid]) {
+          if (pid !== undefined) {
+            await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow(), {
+              timeout: 10_000,
+              interval: 25,
+            });
+          }
+        }
         expect(scratch.run(['list-sessions']).status).not.toBe(0);
       }
     });
