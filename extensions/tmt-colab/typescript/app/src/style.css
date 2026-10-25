@@ -66,9 +66,7 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   outline: calc(2 * var(--tmt-ui-focus-width)) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-2 * var(--tmt-ui-focus-width));
 }
-.local,
-.eyebrow,
-.boundary {
+.local {
   color: var(--c-muted);
   font: 11px var(--f-mono);
 }
@@ -92,11 +90,6 @@ footer {
 .home {
   max-width: 1080px;
   margin: auto;
-}
-.eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  margin: 0 0 8px;
 }
 .home h1 {
   font-size: 32px;
@@ -295,10 +288,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   position: relative;
   min-width: 0;
   min-height: 0;
-}
-.boundary {
-  border-bottom: 1px solid var(--c-rule);
-  padding: 10px 16px;
 }
 .frame-host {
   min-height: calc(100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px));
@@ -953,6 +942,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .conversation-arrivals:not(:empty) {
   background: var(--c-sheet);
   border: 1px solid var(--c-rule);
+  border-radius: var(--tmt-ui-radius);
 }
 .conversation-messages {
   flex: 1 1 auto;
@@ -1266,12 +1256,9 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   min-height: 22px;
 }
 .comment-thread .conversation-title {
-  min-height: 22px;
-  font: 500 var(--tmt-ui-host-field-label-size) / var(--tmt-ui-host-field-label-line-height)
-    var(--f-mono);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--tmt-ui-color-secondary);
+  min-height: 0;
+  color: var(--tmt-ui-color-text);
+  font: 600 0.9375rem / 1.4 var(--tmt-ui-font-body);
 }
 
 .comment-thread .conversation-turn {
@@ -1622,7 +1609,7 @@ button.discussion-quote:focus-visible {
   gap: 4px;
   min-height: 0;
   padding: 4px 8px;
-  border-radius: 8px;
+  border-radius: var(--tmt-ui-radius);
   font-size: 12px;
   line-height: 1.4;
   white-space: nowrap;
@@ -1766,13 +1753,6 @@ button.discussion-quote:focus-visible {
    accent rule, and the field on the field surface with the radius. */
 .annotation-popover .comment-thread .conversation-window-bar {
   padding: 14px var(--conversation-inset);
-}
-.annotation-popover .comment-thread .conversation-title {
-  min-height: 0;
-  color: var(--tmt-ui-color-text);
-  font: 600 0.9375rem / 1.4 var(--tmt-ui-font-body);
-  letter-spacing: normal;
-  text-transform: none;
 }
 .annotation-popover .annotation-quote {
   display: -webkit-box;
@@ -2145,6 +2125,7 @@ button.discussion-quote:focus-visible {
   margin: 0;
   max-width: min(440px, calc(100vw - 32px));
   padding: 4px 8px;
+  border-radius: var(--tmt-ui-radius);
   color: var(--c-muted);
   background: var(--c-sheet);
   font-size: 12px;
@@ -2163,7 +2144,7 @@ button.discussion-quote:focus-visible {
 .selection-mode kbd {
   font: inherit;
   border: 1px solid currentColor;
-  border-radius: 3px;
+  border-radius: var(--tmt-ui-radius-s);
   padding: 0 3px;
 }
 @media (max-height: 500px) {

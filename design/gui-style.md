@@ -19,7 +19,9 @@ named below; explicitly labelled design targets remain unshipped.
    fills, `radius-l` for cards and overlays, `radius-pill` for pills and counts.
    Surfaces are opaque charcoal (or light) steps with thin rules. Only an overlay
    (menu, dialog, drawer, tooltip) takes the one overlay shadow; cards and rows
-   stay shadow-free.
+   stay shadow-free. A filled or framed box with no radius is a leftover unless it
+   is a row of a ruled list, a bar, a divider or an action inside a clipping
+   capsule; the Colab app's tests pin the radius of the boxes a sweep rounded.
    **No one-sided border on a rounded box.** A rounded element (radius above 0)
    never takes `border-top`, `-right`, `-bottom` or `-left` alone: the lone edge
    curls at the corner into a hook. Use a border on all four sides, a fill or
@@ -697,9 +699,9 @@ focus. Drop alone never uploads or sends.
 Raster images use aspect-preserving thumbnails capped at 200 × 120 px. Two or
 more images use a three-column square grid: up to six show in full; larger groups
 show five thumbnails and a `+N` tile, where N is total minus five. The tile opens
-image six. Non-images use compact filename/type/size chips with Download.
+image six. Thumbnails take `radius-s`. Non-images use compact filename/type/size chips with Download.
 
-A modal viewer shows one image with Previous/Next (no wrapping), Download and
+A modal viewer (`radius-l`) shows one image with Previous/Next (no wrapping), Download and
 Close; arrows navigate, Escape closes, and closing restores the opening tile's
 focus. Thumbnails, grids and cards share the message text's left edge without
 an extra inset, in both Chat and anchored threads. Basis: own.

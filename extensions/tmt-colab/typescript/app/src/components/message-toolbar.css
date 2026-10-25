@@ -21,7 +21,7 @@
   --tmt-ui-header-icon-size: 16px;
 }
 .message-toolbar-tools .tmt-ui-icon-action-control {
-  border-radius: 8px;
+  border-radius: var(--tmt-ui-radius);
   color: var(--tmt-ui-color-secondary);
 }
 /* The agent list's trigger is a pill, not the listbox's full-width block. */
@@ -81,14 +81,14 @@
 .tmt-listbox-input-list {
   padding: 4px;
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  border-radius: 10px;
+  border-radius: var(--tmt-ui-radius);
   background: var(--tmt-ui-surface-sheet);
   box-shadow: var(--tmt-ui-shadow-overlay);
 }
 .tmt-listbox-input-list .tmt-listbox-option {
   padding: 6px 8px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--tmt-ui-radius-s);
   background: transparent;
 }
 .tmt-listbox-input-list .tmt-listbox-option:hover,
