@@ -152,6 +152,8 @@ product bars stay unchanged until their owning adoption.
   counts only when every module reports one.
 - **Wide rail:** always the full 232 px, with the selected nested page visible. Older
   collapse preferences are ignored; there is no collapse toggle or collapse shortcut.
+  The rail scrolls as one column, with only the brand sticky above a rule while scrolled.
+  Settings follows navigation in normal flow, pushed to the bottom when content fits.
 - **Module menu:** the active module's own menu (Colab: All pages, then each project
   with its page count and needs-you count, then New project and Manage projects; Remote:
   each saved remote, Add remote, Remote settings). It replaces header dropdowns. On a

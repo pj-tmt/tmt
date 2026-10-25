@@ -136,10 +136,27 @@ function ShellHeader() {
 }
 
 function ShellFrame({ params }: { params: URLSearchParams }) {
+  const [projects, setProjects] = useState(params.get('projects') === '20' ? 20 : 3);
+  const [mounted, setMounted] = useState(true);
+  const scrollFixture = params.has('projects');
   const view = useMemo<ShellView>(() => {
     const path = params.get('page') === 'project' ? '/colab/p/release' : '/colab/pages';
     const place = { origin, href: `${origin}${path}` };
-    const colab = answer.modules[0]!;
+    const original = answer.modules[0]!;
+    const colab = scrollFixture
+      ? {
+          ...original,
+          menu: [
+            original.menu[0]!,
+            ...Array.from({ length: projects }, (_, index) => ({
+              id: `project-${index}`,
+              label: `Project ${index + 1}`,
+              path: `${origin}/colab/p/${index}`,
+              group: 'Projects',
+            })),
+          ],
+        }
+      : original;
     const menu = params.get('menu') === 'none' ? undefined : describedMenu(colab, place);
     if (menu) menu.groups[0]!.items[0]!.total = 12;
     if (menu) menu.groups[0]!.items[0]!.count = shellCount(2);
@@ -153,16 +170,27 @@ function ShellFrame({ params }: { params: URLSearchParams }) {
         }
       : answer;
     return { rail: shellRail(shown, place, colab), menu };
-  }, [params]);
+  }, [params, projects, scrollFixture]);
   useEffect(() => {
     const shell = document.querySelector<HTMLElement>('.tmt-ui-shell')!;
     if (params.get('drawer') === 'open')
       shell.querySelector<HTMLButtonElement>('.tmt-ui-shell-open')!.click();
   }, [params]);
+  if (!mounted) return <p>Shell disposed</p>;
   return (
     <BrowserShell view={view} select={() => true}>
       <ShellHeader />
-      <div className="tmt-ui-page">
+      <div className="tmt-ui-page" style={scrollFixture ? { minHeight: 1600 } : undefined}>
+        {scrollFixture && (
+          <>
+            <button type="button" onClick={() => setProjects(projects === 20 ? 3 : 20)}>
+              Use {projects === 20 ? 3 : 20} projects
+            </button>
+            <button type="button" onClick={() => setMounted(false)}>
+              Unmount shell
+            </button>
+          </>
+        )}
         <header className="tmt-ui-page-head">
           <h2 className="tmt-ui-page-title">Your pages, in one place.</h2>
           <p className="tmt-ui-page-subtitle">A shared space for your team’s work.</p>
