@@ -434,6 +434,28 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 all: flag(m, "all"),
             },
         },
+        ["orch"] => Invocation::Orch(OrchOperation::Overview {
+            range_days: orch_days(m),
+            at: text(m, "at"),
+            plan: text(m, "plan"),
+            member_query: text(m, "member"),
+        }),
+        ["orch", "plan", "ls"] => Invocation::Orch(OrchOperation::Plans { plan: None }),
+        ["orch", "plan", "show"] => Invocation::Orch(OrchOperation::Plans {
+            plan: Some(required(m, "plan-name")),
+        }),
+        ["orch", "preview"] => Invocation::Orch(OrchOperation::Preview {
+            file: required(m, "file").into(),
+            range_days: orch_days(m),
+            at: text(m, "at"),
+            plan: text(m, "plan"),
+            member_query: text(m, "member"),
+        }),
+        ["orch", "why"] => Invocation::Orch(OrchOperation::Why {
+            subject: required(m, "subject"),
+            before: m.get_one::<u64>("before").copied(),
+            limit: *m.get_one::<u16>("limit").expect("default limit"),
+        }),
         ["room", "create"] => Invocation::Room(RoomOperation::Create(required(m, "name"))),
         ["room", "ls"] => Invocation::Room(RoomOperation::List),
         ["room", "show"] => Invocation::Room(RoomOperation::Show(required(m, "room"))),
@@ -1011,3 +1033,10 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core("tmt help", &[""], &[]),
     crate::cli_style_tests::HintSpec::core("tmt help {}", &[""], &[("{}", "talk")]),
 ];
+fn orch_days(m: &ArgMatches) -> u8 {
+    match m.get_one::<String>("range").map(String::as_str) {
+        Some("7d") => 7,
+        Some("30d") => 30,
+        _ => 1,
+    }
+}

@@ -104,8 +104,7 @@ aggregate's scope-skip proof with check-suite provenance, not recomputed selecti
 
 ## Runtime layers
 
-The Rust crates have deliberately narrow responsibilities. Module-level rules for
-the core crates live in the [tmt-core-runtime skill](.agents/skills/tmt-core-runtime/SKILL.md).
+[Orchestration](contracts/orchestration-v1.md): Core `effective()`; adapter calendar/SQLite; CLI/API reads. [Module rules](.agents/skills/tmt-core-runtime/SKILL.md).
 
 | Layer             | Owner                           | Responsibility                                                                                                                                                                                                  |
 | ----------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -275,7 +274,7 @@ configuration loading. Only `tmt-cli-style` names colors. Details are in the
 schema migrations, WAL/foreign-key/FTS5 setup, busy and transaction boundaries and
 cleanup, and exposes narrow ports to core services. Migrations keep recorded names
 and retention, refuse customized table definitions instead of rebuilding them, and
-every core-owned table advances the durable change cursor through triggers that a
+board-relevant core tables advance the durable change cursor through triggers that a
 test requires new tables and columns to extend. Typed not-writable storage failures
 are classified once and projected through `tmt-command-output::Failure::storage_access`.
 

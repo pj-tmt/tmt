@@ -31,6 +31,7 @@ pub mod extensions;
 mod identity;
 mod installation;
 mod launch;
+mod orchestration;
 mod presence;
 mod requests;
 mod rooms;
@@ -94,6 +95,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
         ["Serve tools for a saved identity" => "tmt mcp --identity reviewer"]
     )).arg(option("identity").global(false).required(true)));
     root = root.subcommand(rooms::room());
+    root = root.subcommand(orchestration::orch());
     root = root.subcommand(workspace::workspace());
     root.subcommand(
         general(spec!(

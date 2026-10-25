@@ -17,6 +17,7 @@ pub mod limits;
 pub mod names;
 pub mod native_install;
 pub mod operation;
+pub mod orchestration;
 pub mod profile;
 pub mod repository_id;
 pub mod request;

@@ -8,6 +8,7 @@ mod extensions;
 mod identities;
 mod identity_hooks;
 mod notes;
+mod orchestration;
 mod pane;
 mod references;
 mod requests;
@@ -32,6 +33,7 @@ use tmt_core::{
 pub const INPUT_LIMIT: usize = crate::dispatch::INPUT_LIMIT + 4096;
 pub const OUTPUT_LIMIT: usize = 12 * 1_048_576 + 65_536;
 const OPS: &[&str] = &[
+    "orchestration.read",
     "digest.policy.set",
     "digest.policy.clear",
     "digest.policy.show",
@@ -175,6 +177,7 @@ pub enum DispatchIdentity {
 }
 
 pub enum Request {
+    Orchestration(Box<crate::orchestration::OrchReadQuery>),
     Digest(Box<digest::Operation>),
     Capabilities,
     RecentResponses {
@@ -318,6 +321,9 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         return Err(invalid());
     }
     Ok(match wire.operation.as_str() {
+        "orchestration.read" => Request::Orchestration(Box::new(
+            crate::orchestration::decode_orch_query(input).map_err(|_| invalid())?,
+        )),
         "capabilities"
             if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
         {
@@ -493,6 +499,7 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
             ),
         ),
         Request::ChangeCursor => changes::cursor(&storage),
+        Request::Orchestration(query) => orchestration::read(&storage, *query),
         Request::Roster { room, prefix } => rooms::roster(&storage, room, prefix),
         Request::References { identities, rooms } => {
             references::resolve(&mut storage, identities, rooms)

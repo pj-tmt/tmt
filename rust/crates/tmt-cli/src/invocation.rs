@@ -183,6 +183,7 @@ pub enum Invocation {
     ExtensionInstall(ExtensionInstallRequest),
     Identity(IdentityRequest),
     Room(RoomOperation),
+    Orch(OrchOperation),
     NotesPath {
         identity: Option<String>,
     },
@@ -530,4 +531,28 @@ pub struct ListScope {
     pub lifetime: Option<tmt_core::identity::Lifetime>,
     pub here: bool,
     pub all: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OrchOperation {
+    Overview {
+        range_days: u8,
+        at: Option<String>,
+        plan: Option<String>,
+        member_query: Option<String>,
+    },
+    Plans {
+        plan: Option<String>,
+    },
+    Preview {
+        file: std::path::PathBuf,
+        range_days: u8,
+        at: Option<String>,
+        plan: Option<String>,
+        member_query: Option<String>,
+    },
+    Why {
+        subject: String,
+        before: Option<u64>,
+        limit: u16,
+    },
 }

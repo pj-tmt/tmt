@@ -145,6 +145,7 @@ function expectNativeSchema(
     { version: 70, name: 'record the turn that began after a request was handed over' },
     { version: 71, name: "keep an agent's answers 7 days, 16 KiB each, and say what was dropped" },
     { version: 72, name: 'name the retained final a captured passthrough answer came from' },
+    { version: 73, name: 'store orchestration plans and their decision journal' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -195,6 +196,12 @@ function expectNativeSchema(
       'request_passthrough',
       'request_turns',
       'recent_response_floor',
+      'orchestration_settings',
+      'orchestration_plans',
+      'orchestration_plan_targets',
+      'orchestration_member_overrides',
+      'orchestration_focus',
+      'orchestration_decisions',
     ].sort()
   );
   expect(table(migrated, 'office_avatar_catalog').rows).toEqual([
@@ -207,6 +214,16 @@ function expectNativeSchema(
       previous_result_revision: null,
     },
   ]);
+  expect(table(migrated, 'orchestration_settings').rows).toEqual([]);
+  for (const name of [
+    'orchestration_plans',
+    'orchestration_plan_targets',
+    'orchestration_member_overrides',
+    'orchestration_focus',
+    'orchestration_decisions',
+  ]) {
+    expect(table(migrated, name).rows).toEqual([]);
+  }
   const avatars = table(migrated, 'office_avatar_packs');
   expect(avatars.rows).toEqual([]);
   expect(avatars.columns.map(({ name }) => name)).toEqual([
@@ -727,6 +744,59 @@ describe('native SQLite lifecycle compatibility', () => {
         }
       }
       expectNativeSchema(storageSnapshot(reference), storageSnapshot(sandbox.database));
+    });
+  });
+
+  it('enforces orchestration integer, ownership and expiry bounds without partial rows', async () => {
+    await withSandbox(async (sandbox) => {
+      expect((await runStorage(sandbox)).status).toBe(0);
+      const database = new Database(sandbox.database);
+      try {
+        database.pragma('foreign_keys = ON');
+        database.exec('INSERT INTO orchestration_settings VALUES(1,1,NULL)');
+        database.exec(
+          "INSERT INTO identities(id,name,canonical_name,lifetime,created_at,updated_at) VALUES('orch-seat','Seat','seat','saved','fixture','fixture')"
+        );
+        const plan = database.prepare(
+          "INSERT INTO orchestration_plans(id,name,revision,priority,enabled,schedule,fields) VALUES(?,'Quiet',1,?,1,'{\"kind\":\"always\"}','{}')"
+        );
+        plan.run('orch-plan', 1);
+        expect(() => plan.run(null, 2)).toThrow(/NOT NULL/);
+        expect(() => plan.run('fractional-priority', 1.5)).toThrow(/CHECK/);
+        expect(() =>
+          database.exec('UPDATE orchestration_settings SET revision=1.5 WHERE id=1')
+        ).toThrow(/CHECK/);
+        const focus = database.prepare(
+          'INSERT INTO orchestration_focus(identity_id,revision,start_ms,end_ms) VALUES(?,1,?,?)'
+        );
+        focus.run('orch-seat', 1700000000000, 1700003600000);
+        expect(() => focus.run(null, 1700000000000, 1700003600000)).toThrow(/NOT NULL/);
+        expect(() => focus.run('missing', 1700000000000, 1700003600000)).toThrow(/FOREIGN KEY/);
+        expect(() =>
+          database.exec(
+            "UPDATE orchestration_focus SET start_ms=1700000000000.5 WHERE identity_id='orch-seat'"
+          )
+        ).toThrow(/CHECK/);
+        const decision = database.prepare(
+          "INSERT INTO orchestration_decisions(recorded_ms,expires_ms,subject_kind,subject_id,action,outcome,reason,configuration_revision,time_zone,sources) VALUES(?,?,'identity','orch-seat','send','uncertain','fixture',1,'UTC','[]')"
+        );
+        decision.run(1700000000000, 1702592000000);
+        expect(() => decision.run(1700000000000.5, 1702592000000)).toThrow(/CHECK/);
+        expect(() => decision.run(1700000000000, 1700000000000)).toThrow(/CHECK/);
+        expect(() => decision.run(1700000000000, Number.MAX_SAFE_INTEGER + 1)).toThrow(/CHECK/);
+        expect(
+          database
+            .prepare('SELECT recorded_ms,expires_ms,outcome FROM orchestration_decisions')
+            .all()
+        ).toEqual([
+          { recorded_ms: 1700000000000, expires_ms: 1702592000000, outcome: 'uncertain' },
+        ]);
+        expect(
+          database.prepare('SELECT revision,time_zone FROM orchestration_settings').all()
+        ).toEqual([{ revision: 1, time_zone: null }]);
+      } finally {
+        database.close();
+      }
     });
   });
 

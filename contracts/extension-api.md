@@ -45,8 +45,9 @@ independent of storage access.
 | Operation                | Input                                                                                               | Result                                                                                                                                                            |
 | ------------------------ | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `capabilities`           | `{}`                                                                                                | Protocol range, operations, byte limits and ordinary commands                                                                                                     |
+| `orchestration.read`     | Tagged `view`: `overview`, `plans`, `preview` or `why`                                              | [Orchestration v1](orchestration-v1.md): effective field sources, timeline, in-memory preview or retained decision page; additive at API version 1                |
 | `storage.root`           | `{}`                                                                                                | `dataRoot`: absolute selected TMT data directory; no directory creation or storage/config reads                                                                   |
-| `changes.cursor`         | `{}`                                                                                                | `cursor`: an opaque non-negative integer that changes whenever core's durable records change (see below)                                                          |
+| `changes.cursor`         | `{}`                                                                                                | `cursor`: an opaque non-negative integer that changes whenever core's board-relevant durable records change (see below)                                           |
 | `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`/`"answers"`; `limit`, `before`  | `items`, `nextBefore`                                                                                                                                             |
 | `requests.show`          | `requestId`                                                                                         | Request detail including retained prompt/final state; a passthrough adds its turn-output capture ([Passthrough](request-response-v1.md#passthrough))              |
 | `requests.sendNow`       | `requestId`; the envelope names the caller (originator or the user)                                 | `status` (`sent`/`already`), `requestId`, `state`; a refusal is a `SEND_NOW_*` or `DELIVERY_*` fault ([Send now](request-response-v1.md#send-now))                |
@@ -836,13 +837,16 @@ expired status is still returned (stale) so a client can show it as such. Unknow
 are `{id, found:false}` entries, not errors. It never reports presence; join it with
 `tmt ls --json`, which verifies tmux endpoints.
 
-`changes.cursor` tells a client cheaply whether anything it may read has
+`changes.cursor` tells a client cheaply whether board-relevant stored data has
 changed, so it can reload only then. The cursor advances with every committed
-insert, update or delete of core's durable records in this data root:
+insert, update or delete of core's board-relevant durable records in this data root:
 identities and their bindings, metadata, status, profiles and session state;
 requests, their
 attempts, responses, attention and notifications; rooms and their members;
-dispatch receipts; hooks; host servers. It is opaque: compare it with the value
+dispatch receipts; hooks; host servers; orchestration configuration. The
+[orchestration decision journal](orchestration-v1.md#decision-journal-and-storage)
+is read on demand by event ID and does not advance this cursor. It is opaque:
+compare it with the value
 you last saw for equality only, never for order or distance, and never persist
 it across data roots. It is not a subscription and carries no description of
 what changed. It does not cover what core does not store as records: a pane's
