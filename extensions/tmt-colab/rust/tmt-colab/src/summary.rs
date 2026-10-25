@@ -32,7 +32,7 @@ pub struct Summary {
     pub waiting: bool,
     /// Pending proposals, readings, answer groups and reviews, deduplicated by target ID.
     pub needs_you: u32,
-    /// The effective creator label, when a stable creator reference is present.
+    /// The creator label, or the original-author display label on a legacy page.
     pub author: Option<String>,
     /// The page's own work, before any page it follows is resolved; `None` without work. It stays
     /// out of `json()`: the list read resolves it across pages (`work_links::Graph`).
@@ -52,7 +52,12 @@ impl Summary {
 /// Comment counting, pure over projected conversations; pending state has one owner in
 /// `summary_pending`. An annotation thread is
 /// one that is not deleted, carries no proposal and is anchored; the Chat thread has no anchor.
-fn count(conversations: &Conversations, author: Option<&str>, needs_you: u32) -> Summary {
+fn count(conversations: &Conversations, meta: &Value, needs_you: u32) -> Summary {
+    let creator = crate::question_registry::creator_agent(meta);
+    let author = creator
+        .as_ref()
+        .and_then(|creator| creator["name"].as_str())
+        .or_else(|| meta["originalAuthor"].as_str());
     let mut comments = 0u32;
     for thread in conversations
         .threads
@@ -147,14 +152,7 @@ fn fold_details(source: &mut Source, page: &str) -> Result<(SummaryProjection, O
     if readings.len() > crate::limits::READING_PAGE {
         return Err(std::io::Error::other("summary reading budget").into());
     }
-    let creator = crate::question_registry::creator_agent(&folded.meta);
-    let mut summary = count(
-        &conversations,
-        creator
-            .as_ref()
-            .and_then(|creator| creator["name"].as_str()),
-        u32::try_from(pending.len())?,
-    );
+    let mut summary = count(&conversations, &folded.meta, u32::try_from(pending.len())?);
     summary.work = crate::work_index::page_work(page, &folded.meta).map(Box::new);
     let title = active.then(|| folded.title.clone());
     Ok((
@@ -439,7 +437,28 @@ mod tests {
         let (report, anchors) = crate::page_check::summary("", &view.threads).unwrap();
         let pending =
             crate::summary_pending::items(&report, &anchors, view, &Default::default(), &[]);
-        super::count(view, author, pending.len() as u32)
+        super::count(
+            view,
+            &json!({"originalAuthor":author}),
+            pending.len() as u32,
+        )
+    }
+
+    #[test]
+    fn review_legacy_author_is_displayed_without_becoming_a_creator() {
+        let view = conversations(Vec::new());
+        let mut meta = json!({"originalAuthor":"Legacy agent"});
+        assert!(crate::question_registry::creator_agent(&meta).is_none());
+        assert_eq!(
+            super::count(&view, &meta, 0).author.as_deref(),
+            Some("Legacy agent")
+        );
+        meta["creator"] = json!({"agent":{"id":"50000000-0000-1000-8000-000000000001","name":"Current creator"},"attribution":{"writerId":"10000000-0000-4000-8000-000000000001","timeMs":1}});
+        assert_eq!(
+            super::count(&view, &meta, 0).author.as_deref(),
+            Some("Current creator")
+        );
+        assert_eq!(meta["originalAuthor"], "Legacy agent");
     }
 
     fn comment(id: &str, deleted: bool, body: &str) -> Comment {

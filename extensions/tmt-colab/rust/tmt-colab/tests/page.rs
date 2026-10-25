@@ -32,6 +32,33 @@ const PAGE: &str = "10000000-0000-4000-8000-000000000001";
 const DEVICE: &str = "30000000-0000-4000-8000-000000000001";
 const BINARY: &str = env!("CARGO_BIN_EXE_tmt-colab");
 const NOW: u64 = 1_791_025_000_000;
+
+#[test]
+fn review_owner_publication_keeps_legacy_questions_and_refuses_new_blocks_atomically() {
+    let mut f = Fixture::new();
+    let mut device = f.owner_device("30000000-0000-4000-8000-000000000099", 99);
+    let question = "<tmt-question data-id=\"00000000-0000-0000-0000-000000000001\" data-agent=\"legacy\" data-kind=\"short\"><p data-question>Choose</p></tmt-question>";
+    // A verified pre-registry editor stream, not a newly admitted source write.
+    device.type_text(&mut f, question);
+    let before = f.read().source;
+    let changed = before.replace("old", "Updated");
+    f.write(&changed);
+    assert_eq!(f.read().source, changed);
+    for source in [
+        format!("{changed}{question}"),
+        changed.replace("data-agent=\"legacy\"", "data-agent=\"another\""),
+    ] {
+        let error = f
+            .prepare(&source, None)
+            .err()
+            .expect("new question requires registration");
+        let refused = error
+            .downcast_ref::<tmt_colab::question_registry::Refused>()
+            .expect("typed refusal");
+        assert_eq!(refused.code(), "COLAB_QUESTION_UNREGISTERED");
+        assert_eq!(f.read().source, changed);
+    }
+}
 /// An owner-member device with a document of its own, whose edits become its stream's updates.
 struct OwnerDevice {
     id: &'static str,

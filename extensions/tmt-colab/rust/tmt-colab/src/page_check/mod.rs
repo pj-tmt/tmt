@@ -31,6 +31,8 @@ use crate::decoder::BASELINE_BYTES;
 /// What a finding means for the block it names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Severity {
+    /// Publication is refused regardless of `--strict`; rendering alone does not admit it.
+    Blocking,
     /// The browser drops the block today.
     Ignored,
     /// The block is admitted, but something is off.
@@ -41,6 +43,7 @@ impl Severity {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
+            Severity::Blocking => "blocking",
             Severity::Ignored => "ignored",
             Severity::Warning => "warning",
         }

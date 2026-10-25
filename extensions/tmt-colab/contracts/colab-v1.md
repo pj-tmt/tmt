@@ -1124,18 +1124,24 @@ with `identityVerified:false`. A new name cannot be guessed: `COLAB_IDENTITY_UNV
 prints the same command with an explicit UUID and a plain retry. An ambiguous stored name
 also requires the UUID. No Core store is read and no new Core API is introduced.
 
-Supported native write/patch/owner-Save preparation compares authored question blocks from
-the existing bounded HTML parse with the verified registry before preparing a content batch.
+Supported native write/patch/owner-Save preparation compares new question occurrences and
+changed ID/agent pairs with the verified registry before preparing a content batch. Unchanged
+ID/agent occurrences already present in the admitted base source remain admitted, including
+legacy pages without a registry; unrelated edits never require their registration. The allowance
+is counted per occurrence, so duplicating an old block still introduces a new block. Creation
+and explicit `page check --page` compare the full source without this edit allowance.
 A missing registration or an explicitly named mismatched or positively missing agent refuses
 with `COLAB_QUESTION_UNREGISTERED`, `COLAB_QUESTION_AGENT_MISMATCH` or
 `COLAB_QUESTION_AGENT_UNKNOWN`. Each finding names its source line and a quoted command repair;
-registry findings use `severity:"warning"` for admitted markup but are mandatory publication
-refusals, independently of `--strict`. An empty
+registry findings use `severity:"blocking"` and refuse publication independently of `--strict`.
+An empty
 `data-agent` is valid without a creator. An explicit value must equal the assigned registered
 ID/name, or the current creator for an unassigned registration. Existing markup findings still describe
 ignored shapes; the parser's depth and page limits do not become an unbounded second parse.
 `page check FILE` remains markup-only/offline; `--page PAGE` adds this registry comparison.
-Nonblocking `hints` remain separate from findings.
+Nonblocking `hints` remain separate from findings. Native Needs-you counts each registered open question;
+until #5146 adopts the registry, browser question counts remain per markup group. This temporary
+count mismatch grants no write or Ask authority.
 
 `page create --file` refuses live question blocks before commit and prints the empty-create,
 per-question register and source-write sequence, using the file's IDs and admitted titles.
@@ -5638,7 +5644,7 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   A review waits unless person-closed or its latest device change request is still waiting for an
   agent reply. Agent prose, device labels and publisher clocks cannot substitute for provenance.
 - `waiting` is exactly `needsYou > 0`, not a separate proposal-only definition.
-- `author` is the effective creator's bounded display label ([question metadata](#question-metadata-5052)), omitted when the page has no stable creator reference. It is never identity proof or the last editor.
+- `author` is the effective creator's bounded display label ([question metadata](#question-metadata-5052)), falling back to `originalAuthor` for legacy display only. That label alone is never a creator, routing reference, identity proof or the last editor.
 - `work` is the page's tasks as the list shows them (see [Work](#work-4050)), omitted for a page
   with no `meta.work`, so a fresh summary without it is in discussion. It is
   `{stage, done, total, signoff, working, more?}`: the derived stage (`discussion` with no task,
@@ -6272,8 +6278,8 @@ A finding is `{code, severity, element, ordinal, id, line, message, fix?}`. Regi
 lowercase tag name and `ordinal` the element's 1-based index among elements with that tag in
 document order, counting ignored and nested ones. `id` is the authored `data-id` or `null`.
 `line` is the 1-based line of the end of the element's start tag. `severity` is `ignored`
-(the browser drops the block today) or `warning` (the block is admitted, or the problem is not
-about a block). `message` is wording that may change; `code` is the stable part. A finding on a
+(the browser drops the block today), `warning` (the block is admitted, or the problem is not
+about a block), or `blocking` (a registry comparison refuses publication even without `--strict`). `message` is wording that may change; `code` is the stable part. A finding on a
 skipped group adds `questionsSkipped`, the number of `tmt-question` elements inside it. Findings
 are ordered by line, element, ordinal and code.
 

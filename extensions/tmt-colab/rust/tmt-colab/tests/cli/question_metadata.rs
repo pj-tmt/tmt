@@ -225,6 +225,7 @@ fn authored_file_mismatches_refuse_before_create_and_before_write_without_partia
             code,
         );
         assert_eq!(refusal["findings"][0]["line"], 2);
+        assert_eq!(refusal["findings"][0]["severity"], "blocking");
         assert!(
             refusal["findings"][0]["fix"]
                 .as_str()
@@ -244,6 +245,7 @@ fn authored_file_mismatches_refuse_before_create_and_before_write_without_partia
             code,
         );
         assert_eq!(checked["findings"][0]["line"], 2);
+        assert_eq!(checked["findings"][0]["severity"], "blocking");
         assert_eq!(
             pilot.call(&["page", "read", &page, "--json"])["source"],
             before["source"]

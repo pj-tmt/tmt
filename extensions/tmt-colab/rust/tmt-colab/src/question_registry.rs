@@ -233,12 +233,60 @@ pub fn findings(
     page: &str,
     identities: Option<&Identities>,
 ) -> Vec<crate::page_check::Finding> {
+    findings_for_blocks(
+        report,
+        report.question_sources.iter(),
+        meta,
+        page,
+        identities,
+    )
+}
+
+/// Existing routing pairs remain admitted during an unrelated source edit. Consume occurrences,
+/// not just IDs: duplicating a legacy block still introduces an unregistered question.
+pub fn edit_findings(
+    report: &crate::page_check::Report,
+    base_source: &str,
+    meta: &Value,
+    page: &str,
+    identities: Option<&Identities>,
+) -> crate::Result<Vec<crate::page_check::Finding>> {
+    if report.question_sources.is_empty() {
+        return Ok(Vec::new());
+    }
+    let base = crate::page_check::check(base_source).map_err(|_| crate::page::Fault::Capacity)?;
+    let mut remaining = BTreeMap::new();
+    for block in &base.question_sources {
+        *remaining
+            .entry((block.id.as_str(), block.agent.trim()))
+            .or_insert(0usize) += 1;
+    }
+    let changed = report.question_sources.iter().filter(|block| {
+        if let Some(count) = remaining.get_mut(&(block.id.as_str(), block.agent.trim()))
+            && *count > 0
+        {
+            *count -= 1;
+            false
+        } else {
+            true
+        }
+    });
+    Ok(findings_for_blocks(report, changed, meta, page, identities))
+}
+
+fn findings_for_blocks<'a>(
+    report: &crate::page_check::Report,
+    blocks: impl Iterator<Item = &'a crate::page_check::QuestionBlock>,
+    meta: &Value,
+    page: &str,
+    identities: Option<&Identities>,
+) -> Vec<crate::page_check::Finding> {
     use crate::page_check::{Finding, Severity};
     use crate::repair::{argument, option};
     let creator = creator_agent(meta);
     let entries = meta["questions"].as_array();
     let mut found = Vec::new();
-    for block in &report.question_sources {
+    for block in blocks {
         if !crate::page_check::valid_question_id(&block.id) {
             continue; // The ordinary markup finding already gives the invalid-ID repair.
         }
@@ -299,8 +347,7 @@ pub fn findings(
             ordinal: block.ordinal,
             id: Some(block.id.clone()),
             line: block.line,
-            // Registration can refuse publication even when the markup itself is admitted.
-            severity: Severity::Warning,
+            severity: Severity::Blocking,
             code,
             questions_skipped: None,
         });
@@ -402,6 +449,15 @@ pub fn admit_source(
     Ok(())
 }
 
+pub fn admit_edit(source: &str, base_source: &str, meta: &Value) -> crate::Result<()> {
+    let report = crate::page_check::check(source).map_err(|_| crate::page::Fault::Capacity)?;
+    let findings = edit_findings(&report, base_source, meta, "PAGE", None)?;
+    if !findings.is_empty() {
+        return Err(Box::new(Refused { findings }));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -494,13 +550,27 @@ mod tests {
     }
 
     #[test]
+    fn review_edit_checks_new_occurrences_before_the_finding_cap() {
+        let base = source("legacy").repeat(crate::limits::QUESTION_PAGE);
+        let changed = format!("{base}{}", source("new agent"));
+        let report = crate::page_check::check(&changed).unwrap();
+        let findings = edit_findings(&report, &base, &json!({}), "page", None).unwrap();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].ordinal, crate::limits::QUESTION_PAGE + 1);
+        assert_eq!(findings[0].code, "COLAB_QUESTION_UNREGISTERED");
+        assert_eq!(findings[0].severity.as_str(), "blocking");
+        // Explicit checks and creation still compare the entire source, not the edit allowance.
+        assert!(admit_source(&source("legacy"), &json!({}), "page", None).is_err());
+    }
+
+    #[test]
     fn source_mismatches_keep_lines_and_quoted_repairs_without_changing_metadata() {
         let registry = apply(&json!([]), "question.add", &registration(), &attribution(1)).unwrap();
         let meta = json!({"questions":registry});
         assert!(admit_source(&source("agent"), &meta, "page", None).is_ok());
         let report = crate::page_check::check(&source("other")).unwrap();
         let mismatch = findings(&report, &meta, "page", None);
-        assert_eq!(mismatch[0].severity, crate::page_check::Severity::Warning);
+        assert_eq!(mismatch[0].severity, crate::page_check::Severity::Blocking);
         assert_eq!(mismatch.len(), 1);
         assert_eq!(mismatch[0].line, 2);
         assert_eq!(mismatch[0].code, "COLAB_QUESTION_AGENT_MISMATCH");

@@ -1176,8 +1176,12 @@ struct WirePreparedContent<B = String> {
     pid: u32,
 }
 fn edited_projection(base: &Value, edit: ContentEdit<'_>) -> Result<Value, DecodeFault> {
-    crate::question_registry::admit_source(edit.source, &base["meta"], "PAGE", None)
-        .map_err(|_| DecodeFault::InvalidInput)?;
+    crate::question_registry::admit_edit(
+        edit.source,
+        base["html"].as_str().ok_or(DecodeFault::InvalidInput)?,
+        &base["meta"],
+    )
+    .map_err(|_| DecodeFault::InvalidInput)?;
     // A source replacement never converts structured content into HTML.
     if base["meta"].get("pageType").is_some() {
         return Err(DecodeFault::InvalidInput);

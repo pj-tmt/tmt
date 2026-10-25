@@ -827,8 +827,13 @@ impl Snapshot {
         if !report.question_sources.is_empty() {
             let identities =
                 crate::core::reference_names(&crate::question_registry::identity_ids(&base.meta));
-            let findings =
-                crate::question_registry::findings(&report, &base.meta, page, identities.as_ref());
+            let findings = crate::question_registry::edit_findings(
+                &report,
+                &base.source,
+                &base.meta,
+                page,
+                identities.as_ref(),
+            )?;
             if !findings.is_empty() {
                 return Err(Box::new(crate::question_registry::Refused { findings }));
             }

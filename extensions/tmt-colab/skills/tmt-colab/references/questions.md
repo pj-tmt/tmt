@@ -112,7 +112,7 @@ recipient receives one Ask for the recorded batch. Untouched and failed drafts
 remain for later. A failed recipient retries its same recorded batch without
 republishing comments. Removing markup keeps its conversations. Grammar, counts,
 limits and publication/retry rules live in the
-[answer-block contract](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-colab/contracts/colab-v1.md#answer-blocks).
+[answer-block contract](../../../contracts/colab-v1.md#answer-blocks).
 
 Inspect state with `tmt colab question ls PAGE --json`. A verified question-bound answer
 projects answered independently of Ask delivery. `question handle PAGE ID [--task T-n]` marks
@@ -121,7 +121,9 @@ registered title; an unchanged registration is a no-op. A handled entry stays ha
 explicitly reopened, and deleting its last verified answer otherwise returns it to open.
 
 Run `tmt colab page check FILE` before publishing; it is markup-only and offline. Add `--page
-PAGE` to compare against that page's registry and creator. Native write/patch/owner Save refuse
+PAGE` to compare against that page's registry and creator. Native write/patch/owner Save compare new occurrences and changed ID/agent pairs; unchanged
+legacy occurrences in the admitted base remain allowed. Creation and explicit page checks
+compare the whole source. New or changed blocks refuse
 `COLAB_QUESTION_UNREGISTERED`, `COLAB_QUESTION_AGENT_MISMATCH`,
 `COLAB_QUESTION_AGENT_UNKNOWN` with a line and a command repair, without a partial source write.
 An explicit `data-agent` must match the registered assignment, or the creator for an unassigned
