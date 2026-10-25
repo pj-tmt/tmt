@@ -400,6 +400,86 @@ fn run_without_tmux_starts_independent_members_and_check_reads_causal_output() {
 }
 
 #[test]
+fn closing_a_built_in_member_waits_for_its_supervisor_and_touches_no_other_member() {
+    use tmt_adapters::host::{Host, PaneClose};
+    let mut world = World::new();
+    let script = format!(
+        r#"printf '%s' "$$" > '{root}/NAME.pid'; printf 'up\n'; while IFS= read -r line; do [ "$line" = quit ] && exit 0; done"#,
+        root = world.root.display()
+    );
+    for name in ["alpha", "beta"] {
+        let result = world.run(&[
+            "run",
+            "--no-channel",
+            "--save",
+            name,
+            "/bin/sh",
+            "-c",
+            &script.replace("NAME", name),
+        ]);
+        assert!(result.status.success(), "{name}: {result:?}");
+    }
+    let listed = world.json(&["ls", "--json"]);
+    let row = |name: &str| {
+        listed["identities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["name"] == name)
+            .unwrap()
+            .clone()
+    };
+    let database = support::state_dir(&world.root).join("tmt.db");
+    let alpha = tmt_adapters::storage::Storage::context_by_identity(
+        &database,
+        row("alpha")["id"].as_str().unwrap(),
+        0,
+    )
+    .unwrap()
+    .unwrap()
+    .entry;
+    let server = alpha.binding.as_ref().unwrap().server.clone();
+    let host = Host::for_server(&server);
+
+    // Its program is still running: refused after the bound, and nothing was ended.
+    let refused = host.session().close_opened_pane(&alpha);
+    assert!(
+        matches!(refused, Err(tmt_adapters::host::ActionError::Evidence(_))),
+        "{refused:?}"
+    );
+    for name in ["alpha", "beta"] {
+        let checked = world.run(&["check", name]);
+        assert!(
+            String::from_utf8_lossy(&checked.stdout).contains("up"),
+            "{name} must still serve: {checked:?}"
+        );
+    }
+
+    // Its program ends on its own; the supervisor follows, and the close finds it gone.
+    let pane = row("alpha")["pane"].as_str().unwrap().to_owned();
+    let mut terminal =
+        Connection::connect(&support::state_dir(&world.root).join("pty"), &pane).unwrap();
+    terminal.input(b"quit\r").unwrap();
+    drop(terminal);
+    world.remember();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Connection::connect(&support::state_dir(&world.root).join("pty"), &pane).is_ok() {
+        assert!(Instant::now() < deadline, "the supervisor did not end");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let closed = host.session().close_opened_pane(&alpha).unwrap();
+    assert_eq!(closed, PaneClose::AlreadyGone);
+
+    // The other member is untouched.
+    let checked = world.run(&["check", "beta"]);
+    assert!(
+        String::from_utf8_lossy(&checked.stdout).contains("up"),
+        "{checked:?}"
+    );
+    assert!(world.clean());
+}
+
+#[test]
 fn an_explicit_unavailable_host_never_falls_back_or_launches_a_member() {
     let mut world = World::new();
     let result = world.run(&["run", "--host", "tmux", "alpha", "/bin/sh", "-c", "exit 0"]);

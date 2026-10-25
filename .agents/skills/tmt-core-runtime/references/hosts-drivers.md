@@ -219,8 +219,12 @@ channels and the driver protocol. The owner map is in
   host to close that one pane (`HostDriver::{close_preflight, opened_by_tmt, close_pane}`,
   policy in `host::driver::close_opened_pane`). The op is optional and capability-gated: tmux
   closes through `Tmux::close_opened_pane` (one `kill-pane`, never a session's only pane),
-  an external driver through its `close` op, and a host without either leaves the pane open.
-  An unmarked, unknown or unlisted pane is never closed, and no close is retried.
+  an external driver through its `close` op, and the built-in pty host by waiting up to
+  `CLOSE_WAIT` for the member's supervisor, which ends by itself once the program exits, to
+  end and remove its socket and lock (`PtyDriver::close_pane`; core never signals it, and a
+  program still running is refused with the evidence). A host without any of these leaves the
+  pane open. An unmarked or unknown pane is never closed, a pane the host proves gone is
+  reported as already gone (`PaneClose::AlreadyGone`), and no close is retried.
 - A runtime driver's hook path is declarative (`RuntimeDeclaration` plus `decode_hook`, no
   process); only `locations`, `resume` and `usage` run the driver. The client validates the
   `locations` answer and calls `within(home)` before admitting write targets; approval alone

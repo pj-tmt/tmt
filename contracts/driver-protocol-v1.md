@@ -356,9 +356,10 @@ policy, and a driver adds no delay of its own.
 - **When core asks:** only for `tmt stop --close`, after the member's agent was
   stopped (or had already ended), and only for the binding's own pane. Core
   first reads that one pane with `snapshot` and asks only while it is still the
-  verified shell and carries `openedByTmt: true`. A pane without the mark, a
-  pane the snapshot does not list, or an unknown answer is never closed. Core
-  sends at most one `close` per command and never retries it, whatever the answer.
+  verified shell and carries `openedByTmt: true`. A pane without the mark or an
+  unknown answer is never closed. A pane the snapshot proves absent needs no close:
+  `--close` reports it already gone. Core sends at most one `close` per command
+  and never retries it, whatever the answer.
 - **What the driver closes:** exactly that pane, and only while it still runs the
   shell `panePid`; otherwise it answers `not_found`. It closes no neighbouring
   pane. A window or tab that holds only that pane goes with it, but a session,
