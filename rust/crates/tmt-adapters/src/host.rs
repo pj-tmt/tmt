@@ -53,8 +53,8 @@ pub use driver::{Kept, PaneClose, PaneSwap};
 pub use tmt_core::discovery::DiscoveryObservation;
 pub use tmt_core::host::SwapDirection;
 
-/// The default launch template of every host: tmux's own, then each approved host driver's
-/// (see [`launch::HostLaunch`]).
+/// The default launch template of every host: tmux's own, the built-in host's, then each
+/// approved host driver's (see [`launch::HostLaunch`]).
 pub fn launch_templates(
     drivers: &[(
         crate::driver_protocol::registry::DriverRecord,
@@ -62,11 +62,18 @@ pub fn launch_templates(
     )],
 ) -> Vec<launch::HostLaunch> {
     launch::compose(
-        launch::HostLaunch {
-            host: HostKind::Tmux.as_str().into(),
-            source: launch::HostSource::BuiltIn,
-            launch: Some(tmux::launch_template()),
-        },
+        vec![
+            launch::HostLaunch {
+                host: HostKind::Tmux.as_str().into(),
+                source: launch::HostSource::BuiltIn,
+                launch: Some(tmux::launch_template()),
+            },
+            launch::HostLaunch {
+                host: HostKind::pty().as_str().into(),
+                source: launch::HostSource::BuiltIn,
+                launch: Some(pty::launch_template()),
+            },
+        ],
         drivers,
     )
 }

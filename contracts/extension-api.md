@@ -56,6 +56,7 @@ independent of storage access.
 | `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–50, default 10), optional `before` (cursor)      | `identityId`, `items`, `coverage`, `capture?`, `nextBefore?`: locally retained provider-final pane output (see below)                                                       |
 | `responses.timeline`     | `identityId`, optional `limit` (1–50, default 50), optional opaque `before`                         | Ordered captured inputs and replies, canonical final bodies, coverage and painted-answer acknowledgement keys (see below)                                                   |
 | `pane.screen`            | `identityId` (canonical UUID)                                                                       | `identityId`, `host`, `format`, `text`: the identity's current visible pane screen, read-only (see below)                                                                   |
+| `terminal.stream`        | `identityId` (canonical UUID)                                                                       | `identityId`, `host`, `socket`, `pane`: where a built-in-host member's terminal stream is (see [below](#terminal-stream))                                                   |
 | `dispatch.show`          | `operationId`                                                                                       | Immutable acceptance receipt                                                                                                                                                |
 | `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`, `mode`                 | Acceptance receipt; optional independent `wake` on first direct request (see [Passthrough](#passthrough-dispatch))                                                          |
 | `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                                               | Room resource                                                                                                                                                               |
@@ -307,6 +308,25 @@ or an older Core answers the unknown operation with `API_INPUT_INVALID`, the vie
 is unavailable, with no `tmt check` or private-storage fallback.
 [Shared vectors](pane-screen-v1.json) pin the request, both resource formats, the
 errors and the byte cap.
+
+## Terminal stream
+
+`terminal.stream` answers where one built-in-host member's
+[terminal stream](terminal-stream-v1.md) is, for a view such as the Ops Terminal tab.
+Input is `{identityId}`: a required canonical identity UUID; names, other fields and
+envelope originator attribution are `API_INPUT_INVALID`. The resource is
+`{identityId, host, socket, pane}`: `host` is `pty`, `socket` the absolute path of the
+member's Unix socket and `pane` its pane ID. The path layout is not part of the contract:
+a client connects to the `socket` it is given.
+
+Core checks the identity's recorded binding against fresh host evidence first, as
+`pane.screen` does, and a read opens no connection, starts or wakes nothing and types
+nothing. Access to the socket is unchanged: it is owner-only and local. Errors use the
+existing envelope with exit 1. `NAME_NOT_FOUND` is an unknown or retired UUID.
+`TERMINAL_STREAM_UNAVAILABLE` is an identity that has no binding, a binding on another
+host, or a member whose supervisor is gone. `API_UNAVAILABLE` is host evidence that
+could not be read. Callers read `capabilities` first; if `terminal.stream` is absent the
+view is unavailable.
 
 ## Conditional identity rename
 
