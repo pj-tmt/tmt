@@ -24,6 +24,7 @@ enum Screen {
 pub(in crate::board) struct Controller {
     pub active: bool,
     owner: u64,
+    zone: jiff::tz::TimeZone,
     serial: u64,
     screen: Screen,
     socket: Option<String>,
@@ -53,10 +54,11 @@ impl Controller {
             && self.form_focus
             && !self.pending.as_ref().is_some_and(|task| task.job.writes())
     }
-    pub fn new(owner: u64) -> Self {
+    pub fn new(owner: u64, zone: jiff::tz::TimeZone) -> Self {
         Self {
             active: true,
             owner,
+            zone,
             serial: 0,
             screen: Screen::List,
             socket: None,
@@ -148,13 +150,13 @@ impl Controller {
         let entry = self.selected_entry()?;
         let job = Job::Show {
             socket: self.socket.clone()?,
-            name: entry.name.clone(),
+            name: entry.selector().map(str::to_owned),
         };
         self.read(job)
     }
     fn selection(&self) -> Option<Selection> {
         let p = self.preview.as_ref()?;
-        if self.selected_entry()?.name != p.name {
+        if self.selected_entry()?.selector() != p.name.as_deref() {
             return None;
         }
         Some(Selection {
@@ -224,7 +226,11 @@ impl Controller {
             }
             Ok(Outcome::Show(preview)) => {
                 // Show acquires current bytes; a changed Latest requires a new review.
-                if let Some(entry) = self.entries.iter_mut().find(|e| e.name == preview.name) {
+                if let Some(entry) = self
+                    .entries
+                    .iter_mut()
+                    .find(|e| e.selector() == preview.name.as_deref())
+                {
                     entry.digest = preview.digest.clone();
                     entry.captured_at_ms = preview.snapshot.captured_at_ms;
                 }
@@ -434,7 +440,14 @@ impl crate::board::app::App {
         self.menu = None;
         // This controller is never replaced while this App lives. Its frozen
         // socket and submitted results survive closing the presentation.
-        let controller = self.recovery.get_or_insert_with(|| Controller::new(1));
+        let controller = self.recovery.get_or_insert_with(|| {
+            Controller::new(
+                1,
+                self.local_zone
+                    .clone()
+                    .unwrap_or_else(jiff::tz::TimeZone::system),
+            )
+        });
         controller.open().map_or(Effect::None, Effect::Recovery)
     }
     pub(in crate::board) fn recovery_event(

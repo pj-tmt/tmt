@@ -1015,6 +1015,25 @@ fn captures() -> Value {
                 }
             }
         }
+        for (look_name, look) in looks() {
+            for scene in [
+                "snapshots-generations",
+                "snapshots-generation-preview",
+                "snapshots-save-latest",
+            ] {
+                for width in [150, 80] {
+                    let app = crate::board::recovery::tests::generation_case(scene, look);
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        width,
+                        43,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
         let styles = styles
             .0
             .into_iter()

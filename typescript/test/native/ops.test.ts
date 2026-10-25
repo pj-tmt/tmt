@@ -6361,3 +6361,143 @@ describe('send now chip', () => {
     });
   }, 120_000);
 });
+
+describe('workspace snapshots in the real board', () => {
+  it('opens w and previews distinct automatic generations beside named saves', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      sandbox.env.TERM = 'xterm-256color';
+      await identity(sandbox, 'Ben');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      const scratch = startPrivateTmux(sandbox, 'snapshots');
+      const { tmux } = scratch;
+      try {
+        tmux([
+          'new-session',
+          '-d',
+          '-s',
+          'snapshots',
+          '-c',
+          sandbox.root,
+          '-x',
+          '160',
+          '-y',
+          '43',
+          '/bin/sh',
+        ]);
+        const pane = tmux(['display-message', '-p', '#{pane_id}']);
+        const server = tmux(['display-message', '-p', '#{pid}']);
+        const session = tmux(['display-message', '-p', '#{session_id}']).replace(/^\$/, '');
+        sandbox.env.TMUX = `${scratch.socket},${server},${session}`;
+        sandbox.env.TMUX_PANE = pane;
+        const bound = await runCli(sandbox, ['add', '--save', pane, 'worker', '--json']);
+        expect(bound.status, bound.stdout + bound.stderr).toBe(0);
+        expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+        for (let index = 0; index < 3; index++) {
+          const capturedPane = tmux([
+            'new-window',
+            '-d',
+            '-P',
+            '-F',
+            '#{pane_id}',
+            '-t',
+            'snapshots',
+            '-n',
+            `capture-${index}`,
+            '/bin/sh',
+          ]);
+          // Each public bind publishes the changed topology; do not bypass Core's
+          // periodic-capture cadence by editing its private coordination files.
+          const captured = await runCli(sandbox, [
+            'add',
+            '--save',
+            capturedPane,
+            `capture-${index}`,
+            '--json',
+          ]);
+          expect(captured.status, captured.stdout + captured.stderr).toBe(0);
+        }
+        const list = async () => {
+          const result = await runCli(sandbox, [
+            'workspace',
+            'ls',
+            '--socket',
+            scratch.socket,
+            '--json',
+          ]);
+          expect(result.status, result.stdout + result.stderr).toBe(0);
+          return JSON.parse(result.stdout).snapshots as {
+            name: string | null;
+            generation: string | null;
+            digest: string;
+          }[];
+        };
+        const generations = (await list()).filter((entry) => entry.name === null);
+        expect(generations.length).toBeGreaterThanOrEqual(3);
+        expect(new Set(generations.map((entry) => entry.generation)).size).toBe(generations.length);
+        const saved = await runCli(sandbox, [
+          'workspace',
+          'save',
+          '--socket',
+          scratch.socket,
+          'before-board',
+          '--json',
+        ]);
+        expect(saved.status, saved.stdout + saved.stderr).toBe(0);
+        expect((await list()).find((entry) => entry.name === 'before-board')?.digest).toBe(
+          generations[0].digest
+        );
+        const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+        tmux([
+          'send-keys',
+          '-t',
+          pane,
+          '-l',
+          `${quote(sandbox.cli.executable)} ops ui --squad product --reset-view`,
+        ]);
+        tmux(['send-keys', '-t', pane, 'Enter']);
+        const screen = () => tmux(['capture-pane', '-p', '-t', pane]);
+        await vi.waitFor(() => expect(screen()).toContain('SQUAD / AGENT'), {
+          timeout: 30_000,
+          interval: 50,
+        });
+        tmux(['send-keys', '-t', pane, 'w']);
+        await vi.waitFor(
+          () => {
+            const text = screen();
+            expect(text).toContain('Workspace snapshots');
+            expect(
+              text
+                .split('\n')
+                .filter((line) => line.includes('Latest ·') && !line.includes('Selected'))
+            ).toHaveLength(1);
+            expect(text).toContain('Auto ·');
+            expect(text).toContain('before-board');
+            expect(text).toContain('Save latest capture');
+            expect(text).not.toContain('panicked');
+          },
+          { timeout: 30_000, interval: 50 }
+        );
+        tmux(['send-keys', '-t', pane, 'Down']);
+        await vi.waitFor(() => expect(screen()).toContain('Selected Auto'), {
+          timeout: 10_000,
+          interval: 50,
+        });
+        tmux(['send-keys', '-t', pane, 'Enter']);
+        await vi.waitFor(() => expect(screen()).toContain('Restore mode:'), {
+          timeout: 10_000,
+          interval: 50,
+        });
+        expect(screen()).not.toMatch(/g:[0-9a-f]{64}/);
+        tmux(['send-keys', '-t', pane, 'Escape', 'Escape', 'q']);
+        await vi.waitFor(() => expect(screen()).not.toContain('Workspace snapshots'), {
+          timeout: 10_000,
+          interval: 50,
+        });
+      } finally {
+        scratch.stop();
+        expect(scratch.run(['list-sessions']).status).not.toBe(0);
+      }
+    });
+  }, 120_000);
+});
