@@ -178,9 +178,10 @@ it.each(['claude', 'codex'] as const)(
         const status = path.join(fixture.root, 'provider.status');
         const args =
           provider === 'claude'
-            ? ['--model', model]
+            ? ['--permission-mode', 'default', '--model', model]
             : ['--dangerously-bypass-approvals-and-sandbox', '--dangerously-bypass-hook-trust'];
-        // A plain text turn needs no Claude permission bypass. Supply initial input
+        // Select explicit default: the pinned client otherwise defaults to auto mode.
+        // A plain text turn needs no permission bypass. Supply initial input
         // at launch instead of requiring SessionStart before a first user prompt.
         // The response marker is never typed, so input echo cannot satisfy proof.
         submit(
