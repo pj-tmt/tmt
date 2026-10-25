@@ -748,10 +748,54 @@ failure only.
 Lost key, changed add-on origin, revocation or expiry requires pairing again. No P-256 downgrade,
 export-based backup, automatic key replacement, passkey renewal or remote grant extension.
 
+### Members and machine associations
+
+Remote stores people in the existing lease-owned `remote.db`, alongside individual
+grants. `members(remote_id, member_id, role, display_name, sending_enabled, revision,
+created_at_ms, revoked_at_ms)` has primary key `(remote_id, member_id)`;
+`member_machines(remote_id, client_id, member_id, associated_at_ms)` has primary key
+`(remote_id, client_id)` and foreign keys to that member and `grants.client_id`.
+New IDs are canonical UUIDs; migration preserves each legacy `client_id` verbatim as its `member_id`.
+`remote_id` is the verified native machine UUID, never an
+alias, project name or provider uid. Role is exactly `owner|user`, sending is a
+boolean, and effective policy changes advance the member revision.
+
+Migration creates exactly one member per existing grant with `member_id=client_id`,
+preserving names, sending state and all grant fields, native pins, receipts and
+session counters. Only the exact existing key-bound local browser designation
+establishes an owner role; browser kind, names, emails and provider uids cannot do
+so. Local machine owner authority remains the bootstrap. A role alone never
+substitutes for current signed designation/grant authority.
+
+The trusted confirmed-invitation sink atomically creates a user member and its
+first grant with sending off and direct delivery. Verified enrollment proof alone
+cannot call that sink. Attaching another verified machine is an explicit local
+owner or currently designated-owner-browser operation naming the target member,
+candidate grant and their expected revisions. The IMMEDIATE writer transaction
+rechecks local Remote identity, liveness and both revisions, and reserves its
+immutable original outcome in the existing bounded management receipt journal.
+Same-ID/different-intent refuses; an exact retry returns its original outcome
+within the existing recovery window, without reapplying an association. Expired
+outcomes retain reserved identity. Empty source members remain tombstones.
+Association never widens scopes/agent allowlists, removes expiry, or clears hold;
+a target with sending off removes talk from the candidate before associating it.
+
+Sending-off removes talk on every associated grant and fences old talk-capable
+sessions/new sends, but preserves read-only peer routes so receiving continues.
+Only member revoke or machine removal revokes routes and queues historical route
+cleanup; talk-on restores scope without route reactivation. Member revoke fences
+all associated grants and sessions in the same Store transaction. New associations
+honor current member policy; individual grants remain narrower execution fences.
+
+The existing devices facade is the first consumer; this change adds no new public
+members command or invitation transport. Member-wide sending changes reuse its
+post-commit session cleanup; machine-specific removal retains its grant semantics.
+
 ### Trust grants and remote lifecycle
 
 Owner-local `devices talk <person|client-id> on|off` and `devices revoke <person|client-id>`
-resolve an exact client ID first, otherwise a unique active device name. Duplicate names refuse
+resolve an exact client ID first, otherwise a unique active member display name. Multiple machines of the same member
+resolve as one person. Duplicate member names refuse
 with the matching client IDs; no first-match selection occurs. Selection stays under the Store
 lock through the existing grant mutation. Names are command selectors, not persisted authority.
 
@@ -769,7 +813,7 @@ widens nothing.
 
 Supported scopes are `agents.read`, `status.read`, `check.read`, `talk` and `results.read`. New
 pairings default to the four read scopes; sending requires explicit owner confirmation or `--talk`.
-Existing grants remain unchanged, with no migration or automatic narrowing. Future core capabilities
+Existing grant fields remain unchanged during member migration, with no automatic narrowing. Future core capabilities
 do not silently become remotely callable; a new scope needs a revision of this contract.
 
 `tmt remote serve` with human output starts a detached owner-device door; the modes, handoff and
