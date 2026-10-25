@@ -49,6 +49,8 @@ export interface TickReport {
   until: string;
   coverage: string;
   complete: boolean;
+  /** Present after a complete tick: what pruning its evidence removed and kept. */
+  retention?: { prunedFiles: number; prunedBytes: number; keptFiles: number; keptBytes: number };
   anomalies: ({ kind: string } & Record<string, unknown>)[];
   health: { created24h: number; createdSinceTick: number };
   baseline: string;
@@ -101,6 +103,17 @@ export interface TickReport {
 }
 export function collectInfraTick(api: TickApi, options: TickOptions): TickReport;
 export function renderInfraTick(report: TickReport): string;
+export const EVIDENCE_RETENTION: { maxAgeMs: number; maxBytes: number };
+export const CALL_LOG_RETENTION: { maxAgeMs: number; maxLines: number };
+export function pruneTickEvidence(
+  output: string,
+  options?: { keep?: string[]; now?: number; maxAgeMs?: number; maxBytes?: number }
+): { prunedFiles: number; prunedBytes: number; keptFiles: number; keptBytes: number };
+export function boundCallLog(
+  file: string,
+  until: string,
+  options?: { maxAgeMs?: number; maxLines?: number }
+): void;
 export function failingTests(log: string): string[];
 export function createTickClient(options: {
   repository: string;

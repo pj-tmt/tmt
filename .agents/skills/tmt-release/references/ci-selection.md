@@ -345,6 +345,14 @@ report. Run the command again for evidence after that boundary:
 node typescript/scripts/infra-tick-summary.mjs --output /tmp/tmt-infra-tick --review-map /tmp/infra-review-map.json
 ```
 
+Retention lives inside `--output`. After a complete tick has written its cursor, it removes
+cached `evidence/<sha256>.json` files that are older than 48 hours, not named in
+`cursor.json` and not read by that tick, then the oldest unprotected ones while the rest
+exceeds 50 MB. It touches only regular files with that name, never links. An
+`INCOMPLETE` or refused tick prunes nothing. Each run first keeps `calls.jsonl` to the
+invocations of the previous 24 hours (at most 20,000 lines). `summary.*` reports only
+the counts of pruned and kept files.
+
 `--bootstrap` can establish a boundary after historical refusal only without an
 existing cursor or `--since`. It omits earlier failure/review history; changed old
 runs remain eligible, observed active runs stay tracked, and recurrence begins at
