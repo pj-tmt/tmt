@@ -29,10 +29,10 @@ use tmt_core::{
 };
 
 const BUDGET: Duration = Duration::from_millis(crate::invocation::MAXIMUM_HOOK_WORK_BUDGET_MS);
-use crate::session_learning::Learning;
+use crate::session_learning::{Learning, Role};
 use tmt_core::binding::session::launch::{
     SessionLearningDetail, SessionLearningEvent, SessionLearningReason as Reason,
-    SessionLearningStep as Step,
+    SessionLearningStep as Step, SessionLearningStop as Stop,
 };
 
 const ERROR_LINE: &str = "tmt: lifecycle context unavailable; continuing without context.";
@@ -86,6 +86,15 @@ pub fn execute(
         )
         .map_err(|_| ())?;
         turn_end = lifecycle.decode_turn(input.as_bytes()).is_some();
+        if let Some(learning) = &learning {
+            // Only a lifecycle event can bind the launch; every other run keeps what an earlier
+            // run stored for it (see `Learning::set_role`).
+            let role = hook_role(lifecycle, input.as_bytes());
+            learning.set_role(role);
+            if role == Role::Binding {
+                let _ = learning.stage(Step::Input, deadline);
+            }
+        }
         if worker {
             return observe(provider, &input, deadline, activity_only, learning.as_ref());
         }
@@ -170,6 +179,32 @@ pub fn execute(
     Ok(u8::from(worker && failed))
 }
 
+/// What a hook payload can do to its launch. Only a lifecycle event can bind it, by its name even
+/// when no decoder accepts the payload (that refusal is the launch's own, #5016); a turn, prompt
+/// or activity event cannot, and neither can a payload of no known event.
+fn hook_role(lifecycle: &dyn RuntimeLifecycle, input: &[u8]) -> Role {
+    let name = serde_json::from_slice::<serde_json::Value>(input)
+        .ok()
+        .and_then(|value| value["hook_event_name"].as_str().map(str::to_owned));
+    let event = SessionLearningEvent::from_hook_name(name.as_deref());
+    let observer = event.decoder().is_some_and(|decoder| {
+        decoder != tmt_core::binding::session::launch::SessionLearningDecoder::Lifecycle
+    }) || name
+        .as_deref()
+        .is_some_and(|event| lifecycle.activity_events().contains(&event))
+        || lifecycle.decode_turn(input).is_some()
+        || lifecycle.decode_prompt(input).is_some()
+        || lifecycle.decode_activity_session(input).is_some();
+    let lifecycle_event = event.decoder()
+        == Some(tmt_core::binding::session::launch::SessionLearningDecoder::Lifecycle)
+        || lifecycle.decode(input).is_some();
+    if !observer && lifecycle_event {
+        Role::Binding
+    } else {
+        Role::Observer
+    }
+}
+
 /// A turn end refreshes only the remembered session's driver state (#519).
 /// It needs the same verified, active binding as a lifecycle event, and the
 /// binding's current conversation must be the remembered one it names: a late
@@ -211,6 +246,7 @@ fn observe_turn(
             .find(provider)
             .is_some_and(tmt_adapters::setup::stop_hook_installed)
     {
+        run.stopped(Stop::ObserverOwnsStop);
         return Ok(Observation::default());
     }
     let capture_on = !activity_only;
@@ -220,17 +256,22 @@ fn observe_turn(
     if matches!(host, HostEvidence::Unsupported) {
         return unsupported_host(run).map_err(|_| TurnFailure::NotApplicable);
     }
-    let Caller::Bound(bound) = verified_lifecycle_caller(
-        provider,
-        lifecycle,
-        host,
-        &turn.session,
-        None,
+    let Caller::Bound(bound) = verified_caller(
+        CallerRequest {
+            provider,
+            lifecycle,
+            host,
+            session: &turn.session,
+            verified_binding: None,
+            start: None,
+            learning: run.learning,
+        },
         deadline,
         SupervisedProbeRunner,
     )
     .map_err(|_| TurnFailure::NotApplicable)?
     else {
+        run.stopped(Stop::UnboundSession);
         return Ok(Observation::default());
     };
     let BoundCaller {
@@ -248,6 +289,7 @@ fn observe_turn(
     let Some(process) =
         lifecycle.activity_process(&binding.session, &process, &turn.session, host, deadline)
     else {
+        run.stopped(Stop::NotCurrent);
         return Ok(Observation::default());
     };
     if !matches!(
@@ -262,6 +304,7 @@ fn observe_turn(
     let Some(remembered) = stored.preferences.remembered.as_ref().filter(|remembered| {
         current && &remembered.harness == harness && remembered.provider_session == turn.session
     }) else {
+        run.stopped(Stop::NotCurrent);
         return Ok(Observation::default());
     };
     let usage_on = !activity_only
@@ -423,6 +466,7 @@ pub(crate) fn capture_before_digest(
         Run {
             deadline,
             learning: None,
+            event: SessionLearningEvent::Stop,
         },
     ) {
         Ok(_) | Err(TurnFailure::NotApplicable) => Ok(()),
@@ -822,7 +866,13 @@ fn observe(
     let activity_only_event = event_name
         .as_deref()
         .is_some_and(|event| lifecycle.activity_events().contains(&event));
+    let run = Run {
+        deadline,
+        learning,
+        event: SessionLearningEvent::from_hook_name(event_name.as_deref()),
+    };
     if activity_only_event && activity.is_none() {
+        run.stopped(Stop::ActivityMissing);
         return Ok(Observation::default());
     }
     if let Some(turn) = lifecycle.decode_turn(input.as_bytes()) {
@@ -837,7 +887,7 @@ fn observe(
                 TurnMode::Full
             },
             activity.as_ref(),
-            Run { deadline, learning },
+            run,
         )
         .map_err(|_| ());
     }
@@ -849,18 +899,17 @@ fn observe(
             &session,
             activity.as_ref(),
             Some(input.as_bytes()),
-            Run { deadline, learning },
+            run,
         );
     }
     if let Some(session) = lifecycle.decode_activity_session(input.as_bytes()) {
-        return observe_activity_event(
-            &harness,
-            lifecycle,
-            &session,
-            activity.as_ref().ok_or(())?,
-            deadline,
-            || ConfigPaths::discover().map_err(|_| ()),
-        );
+        let Some(activity) = activity.as_ref() else {
+            run.stopped(Stop::ActivityMissing);
+            return Err(());
+        };
+        return observe_activity_event(&harness, lifecycle, &session, activity, run, || {
+            ConfigPaths::discover().map_err(|_| ())
+        });
     }
     let Some(event) = lifecycle.decode(input.as_bytes()) else {
         // Nothing accepted the payload: say which event it was, never what it held.
@@ -886,6 +935,19 @@ fn observe(
 struct Run<'a> {
     deadline: Instant,
     learning: Option<&'a Learning>,
+    /// The hook event being run, by name only; `Unknown` where none applies.
+    event: SessionLearningEvent,
+}
+impl Run<'_> {
+    /// Names why this decoded event, which cannot bind, admitted nothing (#5125). Diagnostics
+    /// only: what the hook admits is unchanged.
+    fn stopped(&self, stop: Stop) {
+        if let Some(learning) = self.learning
+            && let Some(detail) = SessionLearningDetail::stopped(self.event, stop)
+        {
+            let _ = learning.note(detail, self.deadline);
+        }
+    }
 }
 
 /// The driver found no provider process among the hook's ancestors, so the hook
@@ -912,7 +974,11 @@ fn observe_lifecycle_event(
 ) -> Result<Observation, ()> {
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
-        return unsupported_host(Run { deadline, learning });
+        return unsupported_host(Run {
+            deadline,
+            learning,
+            event: SessionLearningEvent::Unknown,
+        });
     }
     let BoundCaller {
         host,
@@ -1407,7 +1473,7 @@ fn observe_activity_event(
     lifecycle: &dyn RuntimeLifecycle,
     session: &ProviderSessionId,
     activity: &tmt_adapters::runtime::hook_protocol::ActivityObservation,
-    deadline: Instant,
+    run: Run<'_>,
     paths: impl FnOnce() -> Result<ConfigPaths, ()>,
 ) -> Result<Observation, ()> {
     use tmt_core::binding::session::activity::{ActivityPhase, EventKind};
@@ -1433,6 +1499,7 @@ fn observe_activity_event(
                 activity.session == *session && activity.phase == ActivityPhase::Waiting
             });
         if !waiting {
+            run.stopped(Stop::NotWaiting);
             return Ok(Observation::default());
         }
     }
@@ -1443,10 +1510,7 @@ fn observe_activity_event(
         session,
         Some(activity),
         None,
-        Run {
-            deadline,
-            learning: None,
-        },
+        run,
     )
 }
 
@@ -1466,16 +1530,21 @@ fn observe_main_event(
     if matches!(host, HostEvidence::Unsupported) {
         return unsupported_host(run);
     }
-    let Caller::Bound(bound) = verified_lifecycle_caller(
-        provider,
-        lifecycle,
-        host,
-        session,
-        None,
+    let Caller::Bound(bound) = verified_caller(
+        CallerRequest {
+            provider,
+            lifecycle,
+            host,
+            session,
+            verified_binding: None,
+            start: None,
+            learning: run.learning,
+        },
         deadline,
         SupervisedProbeRunner,
     )?
     else {
+        run.stopped(Stop::UnboundSession);
         return Ok(Observation::default());
     };
     let BoundCaller {
@@ -1489,6 +1558,7 @@ fn observe_main_event(
     let Some(process) =
         lifecycle.activity_process(&binding.session, &process, session, host, deadline)
     else {
+        run.stopped(Stop::NotCurrent);
         return Ok(Observation::default());
     };
     if binding.session.state != tmt_core::binding::session::RuntimeState::Running
@@ -1528,6 +1598,7 @@ fn observe_main_event(
                 None,
             );
         }
+        run.stopped(Stop::NotCurrent);
         return Ok(Observation::default());
     }
     let context = if payload.is_some() {

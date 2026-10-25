@@ -152,6 +152,10 @@ function expectNativeSchema(
     },
     { version: 75, name: 'let a session-learning diagnostic name what its step stopped on' },
     { version: 76, name: 'record ordered conversation input batches and finals' },
+    {
+      version: 77,
+      name: 'let a session-learning diagnostic name why a decoded hook admitted nothing',
+    },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(

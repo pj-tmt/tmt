@@ -58,6 +58,8 @@ mod rollup_account_tests;
 #[cfg(test)]
 mod room_tests;
 #[cfg(test)]
+mod session_detail_tests;
+#[cfg(test)]
 mod session_tests;
 #[cfg(test)]
 mod storage_cutover_tests;
@@ -369,6 +371,10 @@ const MIGRATIONS: &[Migration] = &[
     migration!(
         "record ordered conversation input batches and finals",
         "schema/076.sql"
+    ),
+    migration!(
+        "let a session-learning diagnostic name why a decoded hook admitted nothing",
+        "schema/077.sql"
     ),
 ];
 
