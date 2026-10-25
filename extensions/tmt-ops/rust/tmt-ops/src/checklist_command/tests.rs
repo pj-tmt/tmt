@@ -241,7 +241,7 @@ fn all_requests_preserve_exact_targets_revisions_and_supplied_fields() {
     );
     let show = parsed(&args("show", &[])).unwrap();
     assert!(
-        matches!(&show.operation, Operation::Show { item_id } if *item_id == id(ITEM))
+        matches!(&show.operation, Operation::Show { item: ItemRef::Exact(item_id) } if *item_id == id(ITEM))
             && show.checklist_id == Some(id(CHECKLIST))
     );
 }
@@ -677,4 +677,116 @@ fn a_member_command_runs_against_the_conversation_list_and_names_what_it_refuses
         "{unknown}"
     );
     assert_eq!(f.keys(), [format!("{ROOM}/{WORKER}")]);
+}
+
+#[test]
+fn show_resolves_a_unique_item_prefix_and_names_ambiguous_missing_and_short_ones() {
+    const SIBLING: &str = "66667777-7777-4777-8777-777777777777";
+    let f = Fixture::new();
+    for (item, inventory, title) in [(ITEM, "absent", "First"), (SIBLING, "1", "Second")] {
+        let created = invoke(
+            &f,
+            &[
+                "create",
+                "--room",
+                ROOM,
+                "--member",
+                "Worker",
+                "--item",
+                item,
+                "--expect-inventory",
+                inventory,
+                title,
+            ],
+        )
+        .document;
+        assert_eq!(created["action"], "create", "{created}");
+    }
+    let shown = |item: &str| {
+        invoke(
+            &f,
+            &["show", "--room", ROOM, "--member", "Worker", "--item", item],
+        )
+        .document
+    };
+    for (prefix, expected) in [
+        ("66666", ITEM),
+        ("66667", SIBLING),
+        ("66666666-6", ITEM),
+        ("66667777-7777-4777-8777-77777777777", SIBLING),
+        ("66666", ITEM),
+        ("ITEM_IS_UPPER", ITEM),
+        (ITEM, ITEM),
+    ] {
+        let prefix = if prefix == "ITEM_IS_UPPER" {
+            "66666".to_uppercase()
+        } else {
+            prefix.to_owned()
+        };
+        let document = shown(&prefix);
+        assert_eq!(document["action"], "show", "{prefix}: {document}");
+        assert_eq!(
+            document["current"]["items"][0]["id"], expected,
+            "{prefix}: {document}"
+        );
+        assert_eq!(document["current"]["items"].as_array().unwrap().len(), 1);
+    }
+
+    let ambiguous = shown("6666");
+    assert_eq!(ambiguous["error"]["code"], "CHECKLIST_INPUT_INVALID");
+    let message = ambiguous["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains(ITEM) && message.contains(SIBLING) && message.contains("\"First\""),
+        "{message}"
+    );
+    let missing = shown("7777");
+    assert_eq!(missing["error"]["code"], "CHECKLIST_NOT_FOUND", "{missing}");
+    for bad in [
+        "666",
+        "",
+        "zzzz",
+        "6666-",
+        "66666666-6666-4666-8666-66666666666g",
+    ] {
+        let words = ["show", "--room", ROOM, "--member", "Worker", "--item", bad];
+        assert!(
+            matches!(
+                parsed(&words),
+                Err(Error {
+                    code: Code::InputInvalid,
+                    ..
+                })
+            ),
+            "{bad:?} is not an item reference"
+        );
+    }
+}
+
+#[test]
+fn only_show_accepts_a_prefix() {
+    let words = [
+        "complete",
+        "--room",
+        ROOM,
+        "--checklist",
+        CHECKLIST,
+        "--item",
+        "6666",
+        "--expect-revision",
+        "1",
+    ];
+    assert!(
+        matches!(
+            parsed(&words),
+            Err(Error {
+                code: Code::InputInvalid,
+                ..
+            })
+        ),
+        "a mutation names its item exactly"
+    );
+    assert_eq!(
+        ItemRef::parse("6666").unwrap(),
+        ItemRef::Prefix("6666".into())
+    );
 }
