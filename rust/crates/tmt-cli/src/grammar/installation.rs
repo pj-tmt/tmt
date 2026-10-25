@@ -310,13 +310,13 @@ pub(in crate::grammar) fn uninstall() -> Command {
     )
 }
 
-pub(in crate::grammar) fn allowance_intake() -> Command {
+pub(in crate::grammar) fn allowance_intake(hooked: Vec<&'static str>) -> Command {
     internal(
         "__allowance",
         "Internal bounded intake of provider allowance observations",
     )
     .hide(true)
-    .arg(operand("provider", true).value_parser(["claude"]))
+    .arg(operand("provider", true).value_parser(hooked))
 }
 
 pub(in crate::grammar) fn refresh_skills() -> Command {

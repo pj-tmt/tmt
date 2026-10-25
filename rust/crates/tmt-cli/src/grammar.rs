@@ -148,8 +148,8 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(installation::install(names))
     .subcommand(installation::setup(hooked.clone()))
     .subcommand(installation::digest_hook(hooked.clone()))
+    .subcommand(installation::allowance_intake(hooked.clone()))
     .subcommand(installation::hook(hooked))
-    .subcommand(installation::allowance_intake())
     .subcommand(
         internal(
             "__consumption-sample",

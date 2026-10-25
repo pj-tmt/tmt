@@ -1,4 +1,4 @@
-//! `tmt __allowance claude`: the intake the first-party Claude allowance mod calls (#5187).
+//! `tmt __allowance <provider>`: the intake a provider's first-party allowance mod calls (#5187).
 //! One bounded JSON document on stdin, nothing printed, always exit 0. It stores nothing unless
 //! the user's usage consent for the provider is on, and never opens the SQL store.
 use std::{
@@ -7,8 +7,9 @@ use std::{
 };
 use tmt_adapters::{
     config::ConfigPaths, drivers::Registry, response_input::read_stdin_bounded,
-    setup::usage_consented, skill_installation::ProviderEnvironment,
+    runtime::RuntimeRegistry, setup::usage_consented, skill_installation::ProviderEnvironment,
 };
+use tmt_core::binding::session::HarnessId;
 
 const BUDGET: Duration = Duration::from_secs(2);
 const MAX_INPUT: usize = 4096;
@@ -24,6 +25,8 @@ fn intake(provider: &str, deadline: Instant) -> Option<bool> {
     if !usage_consented(driver) {
         return None;
     }
+    let registry = RuntimeRegistry::first_party();
+    let lifecycle = registry.lifecycle(&HarnessId::new(provider).ok()?)?;
     let input = read_stdin_bounded(
         deadline.saturating_duration_since(Instant::now()),
         MAX_INPUT,
@@ -31,11 +34,12 @@ fn intake(provider: &str, deadline: Instant) -> Option<bool> {
     .ok()?;
     let paths = ConfigPaths::discover().ok()?;
     let environment = ProviderEnvironment::capture().ok()?;
-    tmt_adapters::drivers::claude::push_allowance(
-        &environment,
-        &paths.global_dir,
-        input.as_bytes(),
-        tmt_adapters::request_runtime::wall_time_ms(),
-    )
-    .ok()
+    lifecycle
+        .accept_allowance(
+            &environment,
+            &paths.global_dir,
+            input.as_bytes(),
+            tmt_adapters::request_runtime::wall_time_ms(),
+        )
+        .ok()
 }
