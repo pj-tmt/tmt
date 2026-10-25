@@ -6438,8 +6438,8 @@ describe('send now chip', () => {
 });
 
 describe('workspace snapshots in the real board', () => {
-  // Quarantined in #5107: diagnose the post-quit PID state (zombie or live hang), then restore.
-  it.skip('opens w and previews distinct automatic generations beside named saves', async () => {
+  // #5107 diagnostic candidate: preserve post-quit process evidence before cleanup.
+  it('opens w and previews distinct automatic generations beside named saves', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       sandbox.env.TERM = 'xterm-256color';
@@ -6591,10 +6591,50 @@ describe('workspace snapshots in the real board', () => {
           () => expect(tmux(['display-message', '-p', '-t', pane, '#{alternate_on}'])).toBe('0'),
           { timeout: 10_000, interval: 50 }
         );
-        await vi.waitFor(() => expect(() => process.kill(boardPid!, 0)).toThrow(), {
-          timeout: shutdownTimeout,
-          interval: 50,
-        });
+        try {
+          await vi.waitFor(() => expect(() => process.kill(boardPid!, 0)).toThrow(), {
+            timeout: shutdownTimeout,
+            interval: 50,
+          });
+        } catch (error) {
+          // #5107: retain the post-restoration state before cleanup can reap it.
+          const processes = spawnSync('ps', ['-axo', 'pid=,ppid='], {
+            encoding: 'utf8',
+            timeout: 5000,
+          });
+          const owned = new Set([boardPid!]);
+          const rows = processes.stdout
+            .trim()
+            .split('\n')
+            .map((line) => line.trim().split(/\s+/).map(Number));
+          let added = true;
+          while (added) {
+            added = false;
+            for (const [pid, parent] of rows) {
+              if (owned.has(parent) && !owned.has(pid)) {
+                owned.add(pid);
+                added = true;
+              }
+            }
+          }
+          const observation = spawnSync(
+            'ps',
+            ['-o', 'pid,ppid,stat,wchan,command', '-p', [...owned].join(',')],
+            { encoding: 'utf8', timeout: 5000 }
+          );
+          console.error('#5107 post-quit process state:', observation.stdout, observation.stderr);
+          console.error(
+            '#5107 pane state:',
+            scratch.run([
+              'display-message',
+              '-p',
+              '-t',
+              pane,
+              '#{pane_dead} #{pane_dead_status} #{alternate_on}',
+            ]).stdout
+          );
+          throw error;
+        }
       } finally {
         scratch.stop();
         // Server shutdown and board worker shutdown are asynchronous. Do not
