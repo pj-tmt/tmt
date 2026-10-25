@@ -5366,7 +5366,7 @@ map explicitly to `COLAB_INVALID`, `COLAB_DENIED`, `COLAB_EXPIRED`,
 `COLAB_CONFLICT`, `COLAB_STALE_HEAD`, `COLAB_CAPACITY`, `COLAB_UNAVAILABLE`.
 CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`, `COLAB_CONFIRMATION_CHANGED`,
 `COLAB_PAGE_NOT_FOUND`, `COLAB_PAGE_AMBIGUOUS`, `COLAB_PAGE_DELETED`,
-`COLAB_PROJECT_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`; existing state failures keep
+`COLAB_PROJECT_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`, `COLAB_REWRITE_REQUIRES_REPLACE`; existing state failures keep
 their codes. An older schema with a
 known migration path returns `COLAB_STORE_OUTDATED`: "The running Colab service is
 older than this CLI." Its next action is "Run tmt colab stop, then tmt colab serve --background."
@@ -5769,7 +5769,7 @@ revision and lowercase hex hash. Reads never initialize or migrate state.
 Archived reads retain the fold's current inactive-page restriction; deleted
 operands fail through the shared CLI resolver described above.
 
-`tmt colab page write <page> --file <path|-> [--expected-revision <token>] [--json]`
+`tmt colab page write <page> --file <path|-> [--expected-revision <token>] [--replace] [--json]`
 retains the title and prepares the replacement as an ordered batch of text deltas in the
 isolated child against admitted Yjs structs (`page::prepare_publication`). It does not
 recreate the shared document, execute HTML, advance membership or restore
@@ -5786,6 +5786,18 @@ a page of that size repeatedly, while a fully different 2 MiB replacement of a f
 nothing: it exits 0 with `changed:false` and the captured revision. Stdin has a
 five-second EOF deadline. Invalid UTF-8, capacity, stale-base and inactive-page writes
 reject without mutating page content. The browser Save below is the same preparation and commit with a different front door.
+
+**Rewrite gate (#5025).** After preparation and before anything is published, `page write` refuses a
+write that replaces more than half of the existing source's bytes when that source is at least
+2 KiB, unless the caller passes `--replace`: exit 1 with `COLAB_REWRITE_REQUIRES_REPLACE`, a message
+that gives the percentage and byte counts, points to `page patch` and `tmt colab skill editing`, and
+names the exact rerun command (`tmt colab page write <page> --file <path> [--expected-revision
+<token>] --replace`), and nothing written. The replaced bytes are those of the existing source between the
+first and last difference from the new one, region by region (the same measure as the editing hint
+below), so an append or an edit in a few places replaces little. A page under 2 KiB, a write that
+replaces exactly half or less, and a write with `--replace` are not refused; `--replace` on any other
+write changes nothing. Only `page write` is gated: `page patch`, `page layout`, `page create`
+(including templates), the browser Save and an export restore never go through it.
 
 The opaque `revision` is `v1:` plus lowercase hex SHA-256 of framed domain
 `tmt-colab-page-revision-v1`, space, page, decimal membership revision, head hash,

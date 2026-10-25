@@ -11,6 +11,7 @@ mod cli_pins;
 mod cli_projects;
 mod cli_proposal;
 mod cli_read;
+mod cli_replace;
 mod cli_template;
 mod cli_threads;
 mod cli_work;
@@ -281,7 +282,7 @@ fn grammar() -> Command {
             note: "Replace the page source",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Retains the title and replaces the page source (at most 2 MiB) as one atomic batch of signed content updates, through serve when running, or under its lifecycle lock when stopped. A source equal to the current one publishes nothing and reports changed false. If a serving write's reply is lost, the command checks the original operation once and otherwise reports COLAB_OUTCOME_UNKNOWN with its operation ID; it never resends. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject. The source is checked first, as page check does: findings print as warnings (JSON: warnings), and --strict refuses before anything is written. The result's update:{count,bytes,minimal} reports what the write cost. When the result has warnings, is not minimal or replaces most of a page of 2 KiB or more, read names the editing reference. Write the whole source when most of the page changes; for a small change read only the lines you need (page read --lines or --grep) and use page patch, which moves only that part and merges concurrent edits elsewhere. Never answer a patch conflict (COLAB_PATCH_CONFLICT) with a whole-source write built from an earlier copy: it would discard the concurrent edit.",
+        details: "Retains the title and replaces the page source (at most 2 MiB) as one atomic batch of signed content updates, through serve when running, or under its lifecycle lock when stopped. A source equal to the current one publishes nothing and reports changed false. If a serving write's reply is lost, the command checks the original operation once and otherwise reports COLAB_OUTCOME_UNKNOWN with its operation ID; it never resends. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject. The source is checked first, as page check does: findings print as warnings (JSON: warnings), and --strict refuses before anything is written. The result's update:{count,bytes,minimal} reports what the write cost. When the result has warnings, is not minimal or replaces most of a page of 2 KiB or more, read names the editing reference. A write that replaces more than half of a page of 2 KiB or more is refused with COLAB_REWRITE_REQUIRES_REPLACE, naming the rerun command, unless you pass --replace; page patch, page layout and page create are not gated. Write the whole source when most of the page changes; for a small change read only the lines you need (page read --lines or --grep) and use page patch, which moves only that part and merges concurrent edits elsewhere. Never answer a patch conflict (COLAB_PATCH_CONFLICT) with a whole-source write built from an earlier copy: it would discard the concurrent edit.",
     };
     cli_grammar::extend(
         tmt_cli_style::command(&ROOT)
@@ -410,6 +411,12 @@ fn grammar() -> Command {
                                     .value_name("path|-")
                                     .value_parser(clap::value_parser!(std::path::PathBuf))
                                     .help("The complete new source (UTF-8; - reads stdin)"),
+                            )
+                            .arg(
+                                Arg::new("replace")
+                                    .long("replace")
+                                    .action(ArgAction::SetTrue)
+                                    .help("Replace most of a large page on purpose"),
                             )
                             .arg(
                                 Arg::new("expected-revision")
@@ -703,7 +710,9 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
 /// from `store`'s snapshot, closes `store`, and publishes the frozen batch. `page write` and
 /// `page patch` both end here, so size limits, the retained revision, the no-op and the
 /// lost-reply behaviour are one path. `base_source_sha256` refuses a page whose source is no
-/// longer the one the caller evaluated its edit against.
+/// longer the one the caller evaluated its edit against. `gate` is `page write` without
+/// `--replace`: a write that replaces most of a large page is refused after preparation, before
+/// anything is published.
 #[allow(clippy::too_many_arguments)]
 fn commit_source(
     layout: &Layout,
@@ -714,6 +723,7 @@ fn commit_source(
     expected_revision: Option<&str>,
     base_source_sha256: Option<[u8; 32]>,
     page_layout: Option<&tmt_colab::decoder::PageLayout>,
+    gate: Option<&cli_replace::Gate<'_>>,
     decoder: &mut tmt_colab::decoder::Decoder,
 ) -> Result<tmt_colab::page::Receipt> {
     use tmt_colab::page::{self, PublishOptions};
@@ -802,6 +812,11 @@ fn commit_source(
             memory_limit,
         ),
         page::PublicationPreparation::Write(frozen) => {
+            if let Some(gate) = gate
+                && frozen.scale().is_large_rewrite()
+            {
+                return Err(gate.refusal(frozen.scale()));
+            }
             let published = publish_write_owned(
                 layout,
                 key,
@@ -956,16 +971,26 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     };
     let json_output = args.get_flag("json");
     let source = source.expect("write is the remaining page command");
+    let expected_revision = args
+        .get_one::<String>("expected-revision")
+        .map(String::as_str);
+    let gate = cli_replace::Gate {
+        page: &id,
+        file: args
+            .get_one::<std::path::PathBuf>("file")
+            .expect("required file"),
+        expected_revision,
+    };
     let receipt = commit_source(
         &layout,
         &key,
         store,
         &id,
         &source,
-        args.get_one::<String>("expected-revision")
-            .map(String::as_str),
+        expected_revision,
         None,
         None,
+        (!args.get_flag("replace")).then_some(&gate),
         &mut decoder,
     )?;
     print_receipt(receipt, &warnings, json_output, "PAGE WRITTEN")?;

@@ -115,11 +115,11 @@ write.
 To replace most of the page, edit the `source` of `page read PAGE --json` and write:
 
 ```sh
-tmt colab page write PAGE --file page.html --expected-revision REVISION --json
+tmt colab page write PAGE --file page.html --expected-revision REVISION --replace --json
 ```
 
-`revision` is opaque; use the returned token. `update` reports cost (`count`, `bytes`;
-zero for no-op); title and discussion stay. On `COLAB_STALE_BASE`, reread, merge and use
+`revision` is opaque; use the returned token. `update` reports cost (`count`, `bytes`);
+title and discussion stay. On `COLAB_STALE_BASE`, reread, merge and use
 the new token; never blindly retry. After a timeout or uncertainty, read back and
 compare before writing; for uncertain creates inspect `ls`, never duplicate pages.
 

@@ -2854,7 +2854,7 @@ fn an_edit_names_the_editing_reference_only_when_it_went_off_guidance() {
     quiet(&pilot.call(&["page", "write", &id, "--file", path, "--json"]));
     // ...and a rewrite of most of a page of 2 KiB or more does too, with nothing to lint.
     fs::write(&file, varied_source(7, 4096)).unwrap();
-    let rewritten = pilot.call(&["page", "write", &id, "--file", path, "--json"]);
+    let rewritten = pilot.call(&["page", "write", &id, "--file", path, "--replace", "--json"]);
     assert_eq!(rewritten["warnings"], json!([]), "{rewritten}");
     assert_eq!(rewritten["read"], json!([EDITING_READ]), "{rewritten}");
     // A page under 2 KiB is rewritten whole without comment.
@@ -2871,7 +2871,7 @@ fn an_edit_names_the_editing_reference_only_when_it_went_off_guidance() {
     fs::write(&file, varied_source(9, 4096)).unwrap();
     let human = pilot
         .command()
-        .args(["page", "write", &id, "--file", path])
+        .args(["page", "write", &id, "--file", path, "--replace"])
         .output()
         .unwrap();
     let stderr = String::from_utf8(human.stderr).unwrap();
@@ -2882,6 +2882,135 @@ fn an_edit_names_the_editing_reference_only_when_it_went_off_guidance() {
             .unwrap()
             .contains(EDITING_READ)
     );
+}
+#[test]
+fn a_write_that_replaces_most_of_a_large_page_needs_replace() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("page.html");
+    let path = file.to_str().unwrap();
+    // One line of 4 KiB: the bytes a write replaces are the ones that differ.
+    let old = "a".repeat(4096);
+    fs::write(&file, &old).unwrap();
+    let created = pilot.call(&[
+        "page", "create", "--title", "Plan", "--layout", "column", "--file", path, "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap().to_owned();
+    let write = |source: &str, flags: &[&str]| {
+        fs::write(&file, source).unwrap();
+        let mut command = vec!["page", "write", id.as_str(), "--file", path];
+        command.extend(flags);
+        command.push("--json");
+        command.into_iter().map(str::to_owned).collect::<Vec<_>>()
+    };
+    let call = |command: &[String]| {
+        let refs: Vec<&str> = command.iter().map(String::as_str).collect();
+        pilot.call(&refs)
+    };
+    // Exactly half is not more than half: accepted without the flag.
+    let half = format!("{}{}", "b".repeat(2048), "a".repeat(2048));
+    let written = call(&write(&half, &[]));
+    assert_eq!(written["changed"], true, "{written}");
+    assert!(written.get("read").is_none(), "{written}");
+    // One byte more is refused, names the exact rerun command and the way to change part of a
+    // page, and writes nothing.
+    let rewrite = "c".repeat(4096);
+    let refused = failure(
+        &pilot,
+        &write(&rewrite, &[])
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        "COLAB_REWRITE_REQUIRES_REPLACE",
+    );
+    let message = refused["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains(&format!(
+            "tmt colab page write {id} --file {path} --replace"
+        )),
+        "{message}"
+    );
+    assert!(message.contains("tmt colab page patch"), "{message}");
+    assert!(message.contains("Nothing was written"), "{message}");
+    let current = pilot.call(&["page", "read", &id, "--json"]);
+    assert_eq!(current["source"], half, "{current}");
+    // A fence the caller gave is part of the rerun command.
+    let revision = current["revision"].as_str().unwrap().to_owned();
+    let fenced = failure(
+        &pilot,
+        &[
+            "page",
+            "write",
+            &id,
+            "--file",
+            path,
+            "--expected-revision",
+            &revision,
+            "--json",
+        ],
+        "COLAB_REWRITE_REQUIRES_REPLACE",
+    );
+    assert!(
+        fenced["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains(&format!(
+                "tmt colab page write {id} --file {path} --expected-revision {revision} --replace"
+            )),
+        "{fenced}"
+    );
+    // The human refusal says the same on stderr.
+    let human = pilot
+        .command()
+        .args(["page", "write", &id, "--file", path])
+        .output()
+        .unwrap();
+    assert_eq!(human.status.code(), Some(1));
+    let stderr = String::from_utf8(human.stderr).unwrap();
+    assert!(stderr.contains("--replace"), "{stderr}");
+    // With the flag the rewrite is published.
+    let replaced = call(&write(&rewrite, &["--replace"]));
+    assert_eq!(replaced["changed"], true, "{replaced}");
+    assert_eq!(
+        pilot.call(&["page", "read", &id, "--json"])["source"],
+        rewrite
+    );
+    // The flag on a write that needs none changes nothing about it.
+    let small = format!("{}{}", "d".repeat(10), &rewrite[10..]);
+    assert_eq!(call(&write(&small, &["--replace"]))["changed"], true);
+
+    // A page under 2 KiB is rewritten whole without the flag.
+    let short = pilot.call(&[
+        "page", "create", "--title", "Short", "--layout", "column", "--json",
+    ]);
+    let short = short["pageId"].as_str().unwrap().to_owned();
+    for source in [varied_source(1, 2047), varied_source(2, 2047)] {
+        fs::write(&file, &source).unwrap();
+        let written = pilot.call(&["page", "write", &short, "--file", path, "--json"]);
+        assert_eq!(written["changed"], true, "{written}");
+    }
+    // A patch is already anchored to the text it changes: it keeps working on a large rewrite.
+    let (old_file, new_file) = (pilot.root.join("old.txt"), pilot.root.join("new.txt"));
+    fs::write(&old_file, &small).unwrap();
+    let all_new = "e".repeat(4096);
+    fs::write(&new_file, &all_new).unwrap();
+    let patched = pilot.call(&[
+        "page",
+        "patch",
+        &id,
+        "--find-file",
+        old_file.to_str().unwrap(),
+        "--replace-file",
+        new_file.to_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(patched["changed"], true, "{patched}");
+    // So do the commands that never replace existing source: layout and a new page.
+    let layout = pilot.call(&["page", "layout", &id, "full", "--json"]);
+    assert_eq!(layout["changed"], true, "{layout}");
+    fs::write(&file, &old).unwrap();
+    pilot.call(&[
+        "page", "create", "--title", "Big", "--layout", "column", "--file", path, "--json",
+    ]);
 }
 #[test]
 fn a_write_of_two_far_apart_edits_costs_the_edits_and_not_the_text_between_them() {
@@ -3102,7 +3231,7 @@ fn a_write_reports_the_size_of_the_update_it_committed_offline_and_serving() {
         // A full rewrite reports what it really carried, so the number is a measurement.
         let rewritten = varied_source(2, SIZE / 3);
         fs::write(&file, &rewritten).unwrap();
-        let large = json(&[]);
+        let large = json(&["--replace"]);
         assert!(
             large["update"]["bytes"].as_u64().unwrap() >= (SIZE / 3) as u64,
             "{large}"
@@ -3115,7 +3244,7 @@ fn a_write_reports_the_size_of_the_update_it_committed_offline_and_serving() {
         assert_eq!(none["update"], json!({"count": 0, "bytes": 0}));
         // Human output adds one line, and it is the same measurement.
         fs::write(&file, &edited).unwrap();
-        let human = write(&[]);
+        let human = write(&["--replace"]);
         assert!(human.status.success(), "{human:?}");
         let shown = String::from_utf8(human.stdout).unwrap();
         assert!(shown.contains("PAGE WRITTEN"), "{shown}");
@@ -3468,6 +3597,7 @@ fn an_offline_replace_combines_a_retained_own_tail_before_admitting_the_next_wri
         file.to_str().unwrap(),
         "--expected-revision",
         before["revision"].as_str().unwrap(),
+        "--replace",
         "--json",
     ]);
     assert_eq!(written["changed"], true);
@@ -3486,6 +3616,7 @@ fn an_offline_replace_combines_a_retained_own_tail_before_admitting_the_next_wri
         file.to_str().unwrap(),
         "--expected-revision",
         after["revision"].as_str().unwrap(),
+        "--replace",
         "--json",
     ]);
     assert_eq!(
@@ -3535,6 +3666,7 @@ fn a_page_of_one_and_a_half_mib_is_replaced_whole_three_times_offline_and_servin
                     id,
                     "--file",
                     file.to_str().unwrap(),
+                    "--replace",
                     "--json",
                 ])
                 .output()

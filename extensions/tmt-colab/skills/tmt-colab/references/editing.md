@@ -48,11 +48,14 @@ compare before trying again; never resend blindly.
 
 ## Whole-page write
 
-Only when most of the page changes. Never round-trip the whole source for a small edit.
+Only when most of the page changes. Never round-trip the whole source for a small edit. A write
+that replaces more than half of a page of 2 KiB or more is refused with
+`COLAB_REWRITE_REQUIRES_REPLACE`; its message names the exact rerun command. Pass `--replace` only
+when replacing the page is what you mean; otherwise patch.
 
 ```sh
 tmt colab page read PAGE --json
-tmt colab page write PAGE --file page.html --expected-revision REVISION --json
+tmt colab page write PAGE --file page.html --expected-revision REVISION --replace --json
 ```
 
 On `COLAB_STALE_BASE`, read again, merge the edits and use the new revision.
