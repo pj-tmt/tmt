@@ -209,24 +209,77 @@ export function canTransition(from: LedgerState, to: LedgerState) {
     return ['held', 'accepted', 'refused', 'cancelled', 'abandoned'].includes(to);
   return false;
 }
+/** Intents a reader already verified, keyed by writer and operation. An entry is reused only
+ * for the identical signed record under the identical signing key, so a changed key, record or
+ * signature verifies again; each read keeps only the intents it saw. */
+export class VerifiedAsks {
+  #entries = new Map<string, { key: Uint8Array; signed: SignedAsk; intent: DecodedAsk }>();
+  #next = new Map<string, { key: Uint8Array; signed: SignedAsk; intent: DecodedAsk }>();
+  async verify(writer: string, signed: SignedAsk, key: Uint8Array): Promise<DecodedAsk> {
+    const id = `${writer}:${signed.operationId}`;
+    const known = this.#entries.get(id);
+    if (
+      known &&
+      equal(known.key, key) &&
+      known.signed.operationId === signed.operationId &&
+      known.signed.senderDevice === signed.senderDevice &&
+      known.signed.input === signed.input &&
+      known.signed.signature === signed.signature &&
+      known.signed.finalBytes === signed.finalBytes
+    ) {
+      this.#next.set(id, known);
+      return structuredClone(known.intent);
+    }
+    const intent = await verifyAsk(signed, key);
+    this.#next.set(id, {
+      key: key.slice(),
+      signed: structuredClone(signed),
+      intent: structuredClone(intent),
+    });
+    return intent;
+  }
+  /** Ends one read: intents it did not see are forgotten. */
+  settle() {
+    this.#entries = this.#next;
+    this.#next = new Map();
+  }
+}
 /** Values are taken only from the admitted per-writer projection. A claimed
  * writer, request ID or agent in a JSON body can never select another stream. */
 export async function readAskRecords(
   own: OwnState,
   scope: { space: string; page: string },
   signer: (writer: string) => Uint8Array | undefined,
+  verified?: VerifiedAsks,
 ): Promise<AskLedgerView[]> {
   const views: AskLedgerView[] = [];
   for (const [writer, roots] of Object.entries(own)) {
     const publicKey = signer(writer);
     if (!publicKey) continue;
+    // One pass over this writer's messages, grouped by the operation they name.
+    const messages = new Map<string, [string, unknown][]>();
+    for (const [key, item] of Object.entries(roots.messages)) {
+      if (
+        !item ||
+        typeof item !== 'object' ||
+        Array.isArray(item) ||
+        item.kind !== 'ask-state' ||
+        typeof item.operationId !== 'string'
+      )
+        continue;
+      const group = messages.get(item.operationId);
+      if (group) group.push([key, item]);
+      else messages.set(item.operationId, [[key, item]]);
+    }
     for (const [id, value] of Object.entries(roots.intents)) {
       if (!value || typeof value !== 'object' || Array.isArray(value) || value.kind !== 'ask')
         continue;
       try {
         validateRecord(value);
         requireValue(value.kind === 'ask');
-        const intent = await verifyAsk(value.signed, publicKey);
+        const intent = verified
+          ? await verified.verify(writer, value.signed, publicKey)
+          : await verifyAsk(value.signed, publicKey);
         requireValue(
           intent.operationId === id &&
             intent.senderDevice === writer &&
@@ -246,15 +299,7 @@ export async function readAskRecords(
           reply: null,
         };
         const states: AskStateRecord[] = [];
-        for (const [key, item] of Object.entries(roots.messages)) {
-          if (
-            !item ||
-            typeof item !== 'object' ||
-            Array.isArray(item) ||
-            item.kind !== 'ask-state' ||
-            item.operationId !== id
-          )
-            continue;
+        for (const [key, item] of messages.get(id) ?? []) {
           validateRecord(item);
           requireValue(item.kind === 'ask-state' && recordKey(item).key === key);
           states.push(item);
@@ -294,6 +339,7 @@ export async function readAskRecords(
       }
     }
   }
+  verified?.settle();
   return views;
 }
 

@@ -19,6 +19,25 @@ export function projectThreadPresentation(
   };
 }
 export type ThreadPresentation = ReturnType<typeof projectThreadPresentation>;
+/** Every thread's presentation, with the page's asks grouped by thread once. */
+export function projectThreadPresentations(
+  threads: readonly ThreadView[],
+  asks: readonly PageAsk[],
+  seen?: ThreadStatusSeen,
+  ownerDevice = false,
+): ThreadPresentation[] {
+  const byThread = new Map<string, PageAsk[]>();
+  for (const ask of asks) {
+    // An ask without a thread never matches one, as in projectStatusNotifications.
+    if (ask.thread === undefined) continue;
+    const group = byThread.get(ask.thread);
+    if (group) group.push(ask);
+    else byThread.set(ask.thread, [ask]);
+  }
+  return threads.map((thread) =>
+    projectThreadPresentation(thread, byThread.get(thread.threadId) ?? [], seen, ownerDevice),
+  );
+}
 
 /** What a window needs to report after a status change; warnings name mentions
  * the parent could not turn into a recipient. */
