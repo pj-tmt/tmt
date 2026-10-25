@@ -66,7 +66,7 @@ it('keeps the adapter environment runner on full native verification', () => {
 
 describe('complete trusted-main verification', () => {
   const context = {
-    repository: 'pj-tmt/tmt',
+    repository: 'tmt-ninja/tmt',
     eventName: 'push',
     ref: 'refs/heads/main',
     sha: 'a'.repeat(40),
@@ -271,7 +271,7 @@ describe('complete trusted-main verification', () => {
     const post = calls[2];
     expect(post.method).toBe('POST');
     expect(post.body).toContain(`failed at ${context.sha}, attempt 1`);
-    expect(post.body).toContain('[job 7](https://github.com/pj-tmt/tmt/actions/runs/42/job/7)');
+    expect(post.body).toContain('[job 7](https://github.com/tmt-ninja/tmt/actions/runs/42/job/7)');
     expect(post.body).not.toContain('job 8');
     let writes = 0;
     const uncertain = new Error('POST response lost');
@@ -375,7 +375,7 @@ describe('complete trusted-main verification', () => {
     expect(notify).toContain(
       "needs.changes.result == 'failure' || needs.complete-main.result == 'failure'"
     );
-    expect(notify).toContain("github.repository == 'pj-tmt/tmt'");
+    expect(notify).toContain("github.repository == 'tmt-ninja/tmt'");
     expect(notify).toContain("github.event_name == 'push'");
     expect(notify).toContain("github.ref == 'refs/heads/main'");
     expect(notify).toContain('issues: write');

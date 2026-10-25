@@ -18,7 +18,7 @@ env:
 
 jobs:
   preflight:
-    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.repository == 'tmt-ninja/tmt' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -53,7 +53,7 @@ jobs:
 
   baseline:
     needs: [preflight]
-    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.repository == 'tmt-ninja/tmt' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -96,7 +96,7 @@ jobs:
 
   disable:
     needs: [baseline]
-    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.repository == 'tmt-ninja/tmt' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
@@ -131,7 +131,7 @@ jobs:
 
   disabled:
     needs: [disable]
-    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.repository == 'tmt-ninja/tmt' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -170,7 +170,7 @@ jobs:
 
   enable:
     needs: [disabled]
-    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.repository == 'tmt-ninja/tmt' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
@@ -205,7 +205,7 @@ jobs:
 
   epoch:
     needs: [enable]
-    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.repository == 'tmt-ninja/tmt' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -244,7 +244,7 @@ jobs:
 
   advance:
     needs: [epoch]
-    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.repository == 'tmt-ninja/tmt' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
@@ -278,7 +278,7 @@ jobs:
 
   stale:
     needs: [advance]
-    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.repository == 'tmt-ninja/tmt' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -317,7 +317,7 @@ jobs:
 
   close:
     needs: [stale]
-    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.repository == 'tmt-ninja/tmt' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
@@ -351,7 +351,7 @@ jobs:
 
   closed:
     needs: [close]
-    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.repository == 'tmt-ninja/tmt' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -390,7 +390,7 @@ jobs:
 
   cleanup:
     needs: [preflight, baseline, advance, stale, disable, disabled, enable, epoch, close, closed]
-    if: ${{ always() && needs.preflight.result == 'success' && github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    if: ${{ always() && needs.preflight.result == 'success' && github.repository == 'tmt-ninja/tmt' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:

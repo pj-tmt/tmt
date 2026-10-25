@@ -42,8 +42,8 @@ function observation() {
     pull: {
       number: 1639,
       state: 'open',
-      head: { sha: head, repo: { full_name: 'pj-tmt/tmt' } },
-      base: { repo: { full_name: 'pj-tmt/tmt' } },
+      head: { sha: head, repo: { full_name: 'tmt-ninja/tmt' } },
+      base: { repo: { full_name: 'tmt-ninja/tmt' } },
       labels: [{ id: 44, name: 'rc-build' }],
     },
     timeline: [
@@ -63,7 +63,7 @@ function observation() {
       head_branch: 'main',
       event: 'workflow_dispatch',
       status: 'in_progress',
-      repository: { full_name: 'pj-tmt/tmt' },
+      repository: { full_name: 'tmt-ninja/tmt' },
       display_title: `pr-rc #1639 ${identity.head12}`,
     },
   };
@@ -197,7 +197,7 @@ describe('trusted main PR RC producer', () => {
       expect(catalog).toMatchObject({
         schema_version: 2,
         kind: 'tmt-pr-rc-catalog',
-        repository: 'pj-tmt/tmt',
+        repository: 'tmt-ninja/tmt',
         pr: 1639,
         head_sha: head,
         published_at_ms: now,
@@ -403,7 +403,7 @@ function cleanupFixture() {
     path: '.github/workflows/pr-rc.yml',
     head_branch: 'main',
     event: 'workflow_dispatch',
-    repository: { full_name: 'pj-tmt/tmt' },
+    repository: { full_name: 'tmt-ninja/tmt' },
     display_title: `pr-rc #1639 ${identity.head12}`,
     created_at: '2026-10-10T09:00:00Z',
     status: 'completed',
@@ -438,7 +438,7 @@ function cleanupFixture() {
   const pull = observation().pull;
   const call = (method: string, route: string): { status: number; data: unknown } => {
     calls.push({ method, route });
-    const suffix = route.replace('repos/pj-tmt/tmt/', '');
+    const suffix = route.replace('repos/tmt-ninja/tmt/', '');
     if (suffix === 'actions/workflows/pr-rc.yml')
       return { status: 200, data: { id: 702, path: '.github/workflows/pr-rc.yml' } };
     if (suffix.startsWith('actions/workflows/702/runs?'))
@@ -496,7 +496,7 @@ describe('one no-checkout exact-ID RC cleanup implementation', () => {
     expect(result.bytes).toBe(90);
     expect(f.all.get(11)!.map((item) => item.id)).toEqual([119]);
     expect(f.calls.filter((call) => call.method === 'DELETE').map((call) => call.route)).toEqual(
-      [110, 111, 112, 113, 114].map((id) => `repos/pj-tmt/tmt/actions/artifacts/${id}`)
+      [110, 111, 112, 113, 114].map((id) => `repos/tmt-ninja/tmt/actions/artifacts/${id}`)
     );
     expect(f.all.get(12)).toHaveLength(6);
     expect(f.all.get(13)).toHaveLength(6);
@@ -530,7 +530,7 @@ describe('one no-checkout exact-ID RC cleanup implementation', () => {
     const result = await cleanupPRRC(f.options);
     expect(result.deleted).toEqual([130, 131, 132, 133, 134]);
     expect(f.calls.filter((call) => call.method === 'POST').map((call) => call.route)).toEqual([
-      'repos/pj-tmt/tmt/actions/runs/13/cancel',
+      'repos/tmt-ninja/tmt/actions/runs/13/cancel',
     ]);
     expect(f.runs[2].status).toBe('completed');
     expect(f.all.get(13)!.map((item) => item.id)).toEqual([139]);
@@ -576,7 +576,7 @@ describe('one no-checkout exact-ID RC cleanup implementation', () => {
     f.runs[2].status = 'in_progress';
     await cleanupPRRC(f.options);
     const cancelled = f.calls.findIndex((call) => call.method === 'POST');
-    expect(f.calls[cancelled].route).toBe('repos/pj-tmt/tmt/actions/runs/13/cancel');
+    expect(f.calls[cancelled].route).toBe('repos/tmt-ninja/tmt/actions/runs/13/cancel');
     expect(
       f.calls.findIndex((call) => call.method === 'DELETE' && call.route.endsWith('/130'))
     ).toBeLessThan(cancelled);
@@ -730,7 +730,7 @@ sys.stdout.buffer.write(b.getvalue())`,
         [
           'api',
           '--allow-escape-sequences',
-          'repos/pj-tmt/tmt/actions/artifacts/17/zip',
+          'repos/tmt-ninja/tmt/actions/artifacts/17/zip',
           '-H',
           'Accept: application/vnd.github+json',
         ],
@@ -791,7 +791,7 @@ sys.stdout.buffer.write(b.getvalue())`,
     expect(calls).toEqual([
       [
         'api',
-        'repos/pj-tmt/tmt/actions/runs/8001/artifacts?per_page=100',
+        'repos/tmt-ninja/tmt/actions/runs/8001/artifacts?per_page=100',
         '-H',
         'Accept: application/vnd.github+json',
       ],
@@ -812,7 +812,7 @@ sys.stdout.buffer.write(b.getvalue())`,
       const output = path.join(f.root, 'output');
       fs.writeFileSync(output, '');
       const env = {
-        GITHUB_REPOSITORY: 'pj-tmt/tmt',
+        GITHUB_REPOSITORY: 'tmt-ninja/tmt',
         GITHUB_REF: 'refs/heads/main',
         REQUESTED_PR: '1639',
         REQUESTED_HEAD: head,
