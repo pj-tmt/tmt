@@ -6,9 +6,10 @@ use crate::{
 use tmt_adapters::storage::Storage;
 use tmt_core::identity::{Lifetime, create_or_resolve};
 
-/// `identity show <id> --expect-name` is a named operation: it reads the
-/// name's presence on each stored binding's own host and never selects the
-/// caller's host, so a failed selection cleanup cannot stop it (#4449).
+/// `identity show <id> --expect-name` is a named operation: `run`'s selector
+/// step makes no caller selection, so a failed selection cleanup cannot stop
+/// it (#4449). It does not count `pinned` itself, which reads presence through
+/// `Host::for_stored_bindings` and so selects no caller host by construction.
 #[test]
 fn a_pinned_show_never_selects_the_caller_host() {
     let private = Private::new("identity-pinned");

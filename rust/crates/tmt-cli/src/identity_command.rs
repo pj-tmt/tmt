@@ -410,6 +410,7 @@ fn write_list(
 }
 
 pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
+    // Not `Composition::process()`: a discovery error stays IDENTITY_ERROR here.
     let config = || ConfigPaths::discover().map_err(unavailable);
     let composition = Composition {
         select: &Host::for_caller,
