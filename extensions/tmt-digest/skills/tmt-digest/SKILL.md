@@ -47,9 +47,9 @@ For interval mode, tick holds automatic messages and delivers a digest when the 
 
 For `auto`, tick holds automatic messages while the member is busy. A message that arrives while the member is idle is offered at once; otherwise the provider's turn end delivers everything held as one digest. At the latest, once `maxCount` messages are held (default 5) or the oldest has waited `maxWait` (default 5 minutes), tick offers the digest without waiting for idle (Core still needs the live session and clears approval), so a member that never reports idle is not held for ever. Set them with `--max-wait 30s..1h` and `--max-count 1..100` on `tmt digest global auto` or `tmt digest <member> auto`; a member's own caps win over the global ones, and Ops shows `Latest in m:ss` for the time left.
 
-Ticks renew resolved interval and auto holds; Focus/Sleep use the existing two-minute window without an auto cap. Sleep offers no delivery; Focus offers only eligible urgent traffic. Ordinary full-checklist handling resumes when the restriction ends. If ticks stop, an interval hold lapses after the greater of the configured interval and two minutes, an auto hold after two minutes, and normal delivery resumes at the next admitted opportunity. Switching to `off` clears the hold when a tick applies the setting.
+Ticks renew resolved interval and auto holds; Focus/Sleep use the existing two-minute window without an auto cap. Sleep offers no delivery; Focus offers only eligible urgent traffic. Ordinary full-checklist handling resumes when the restriction ends. If ticks stop, an interval hold lapses after the greater of the configured interval and two minutes, an auto hold after two minutes, and normal delivery resumes at the next admitted opportunity. Resolved direct receiving clears the hold when a tick applies it.
 
-Successful ticks print nothing. Invalid settings, unavailable Core and delivery errors produce a nonzero exit. Do not replay a delivery after an uncertain outcome; Core retains its claim and settlement state.
+Successful ticks are silent unless Core needs an upgrade for orchestration receiving; that diagnostic preserves existing delivery. Invalid settings, unavailable Core and delivery errors produce a nonzero exit. Do not replay a delivery after an uncertain outcome; Core retains its claim and settlement state.
 
 ## Read status
 
