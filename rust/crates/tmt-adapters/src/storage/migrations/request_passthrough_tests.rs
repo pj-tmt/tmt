@@ -17,7 +17,7 @@ fn passthrough_capture_rows_are_consistent_wake_readers_and_leave_with_their_req
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 71);
+    assert_eq!(storage.health().unwrap().schema_version, 72);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -42,6 +42,7 @@ fn passthrough_capture_rows_are_consistent_wake_readers_and_leave_with_their_req
         "UPDATE request_passthrough SET state='no_answer' WHERE request_id='r1'",
         "UPDATE request_passthrough SET state='answered',bound_session='s',bound_at_ms=2100,settled_at_ms=2200 WHERE request_id='r1'",
         "UPDATE request_passthrough SET answer_text='orphan answer' WHERE request_id='r1'",
+        "UPDATE request_passthrough SET answer_response=3 WHERE request_id='r1'",
         "UPDATE request_passthrough SET state='robot' WHERE request_id='r1'",
     ];
     for statement in invalid {
@@ -59,6 +60,29 @@ fn passthrough_capture_rows_are_consistent_wake_readers_and_leave_with_their_req
     )
     .unwrap();
     assert_eq!(cursor(), before + 3);
+    // The retained final it came from is named once answered, as a positive key and nothing else.
+    for key in ["0", "-1", "'rsp_3'", "1.5"] {
+        assert!(
+            db.execute(
+                &format!(
+                    "UPDATE request_passthrough SET answer_response={key} WHERE request_id='r1'"
+                ),
+                []
+            )
+            .is_err(),
+            "{key}"
+        );
+    }
+    db.execute(
+        "UPDATE request_passthrough SET answer_response=3 WHERE request_id='r1'",
+        [],
+    )
+    .unwrap();
+    assert_eq!(
+        cursor(),
+        before + 4,
+        "naming the final is a change readers wake for"
+    );
     // The answer is plain bounded text from a known provider.
     assert!(
         db.execute(
@@ -82,7 +106,7 @@ fn passthrough_capture_rows_are_consistent_wake_readers_and_leave_with_their_req
         [],
     )
     .unwrap();
-    assert_eq!(cursor(), before + 3, "an unchanged row does not advance it");
+    assert_eq!(cursor(), before + 4, "an unchanged row does not advance it");
     // The capture is part of the request: it goes with it.
     db.execute("DELETE FROM request_attempts WHERE request_id='r1'", [])
         .unwrap();
@@ -108,7 +132,7 @@ fn a_fold_marks_only_a_bound_capture_and_moves_the_change_cursor() {
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 71);
+    assert_eq!(storage.health().unwrap().schema_version, 72);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();

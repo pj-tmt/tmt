@@ -348,6 +348,10 @@ const MIGRATIONS: &[Migration] = &[
         "keep an agent's answers 7 days, 16 KiB each, and say what was dropped",
         "schema/071.sql"
     ),
+    migration!(
+        "name the retained final a captured passthrough answer came from",
+        "schema/072.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

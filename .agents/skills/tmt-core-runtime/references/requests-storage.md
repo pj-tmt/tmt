@@ -75,7 +75,11 @@ configuration. The owner map is in
   runtime-observation transaction binds a pending row at an admitted turn start (`TurnBoundary::Started`: the
   prompt matches the typed text, first in first out) and settles it at the admitted turn end
   (`Ended`: the captured final, else `no_answer`; an answer raises the sender's attention revision through
-  `request::raise_attention`, the helper `store_final` shares, #4915); `PassthroughCapture::state_at` reads a row past its
+  `request::raise_attention`, the helper `store_final` shares, #4915). The final is appended to `recent_responses`
+  first in that transaction and the capture records that row's key (`answer_response`, schema 72), so one final
+  has one id (`responseId` = `rsp_<key>`, opaque) in both reads: `responses.recent` derives `requestId` by a join
+  on the column, the oldest capture when a turn settled several, and the key is never reused (#4993);
+  `PassthroughCapture::state_at` reads a row past its
   bind window (unbound) or `BOUND_WINDOW_MS` (bound) as `no_answer`, so no sweeper exists. The same
   transaction writes what a read would show: `release_unseen_ends` settles a bound row whose session was
   replaced, whose window passed, or that a later `Started` of its session overtook (before binding, so a

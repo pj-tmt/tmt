@@ -552,6 +552,13 @@ fn a_text_folded_into_a_running_turn_shares_that_turns_final_with_the_message_th
     }
     assert!(capture(&storage, "folded").folded);
     assert!(!capture(&storage, "first").folded);
+    // One final, one id: both requests name it, and the read names the oldest of them.
+    let item = newest_response(&mut storage, &id);
+    for request in ["first", "folded"] {
+        let answer = capture(&storage, request).answer.unwrap();
+        assert_eq!(answer.response_id.as_deref(), item["responseId"].as_str());
+    }
+    assert_eq!(item["requestId"], "first");
     storage.close().unwrap();
 }
 
@@ -923,4 +930,96 @@ fn a_stop_blocked_continuation_stays_open_until_its_own_stop_or_a_prompt() {
     // A checklist that definitely was not handed over starts no continuation.
     hand_over(&storage, &id, "definitely_unsent");
     assert!(!open(&mut storage, &id));
+}
+
+/// The newest retained final of `id`, as a client of `responses.recent` reads it.
+fn newest_response(storage: &mut Storage, id: &str) -> serde_json::Value {
+    storage.recent_responses(id, 10, None, now()).unwrap()["items"][0].clone()
+}
+
+fn ends(storage: &mut Storage, path: &std::path::Path, id: &str, turn: &str, final_text: &str) {
+    let ended = TurnBoundary::Ended {
+        turn: Some(turn),
+        continuation: false,
+    };
+    assert!(event(
+        storage,
+        path,
+        id,
+        SESSION,
+        Some(ended),
+        Some(final_text),
+        true
+    ));
+}
+
+#[test]
+fn the_final_a_turn_ends_with_is_one_record_that_the_answer_and_the_recent_list_both_name() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    typed(&storage, &id, "p1", "Ship it", 1_000);
+    started(&mut storage, &path, &id, Some("t1"), "Ship it");
+    ends(&mut storage, &path, &id, "t1", "Shipped.");
+
+    let answer = capture(&storage, "p1").answer.unwrap();
+    let shipped = newest_response(&mut storage, &id);
+    let response = answer
+        .response_id
+        .clone()
+        .expect("the answer names its final");
+    assert_eq!(shipped["responseId"], response.as_str());
+    assert_eq!(shipped["requestId"], "p1");
+    assert_eq!(shipped["text"], "Shipped.");
+
+    // A final that answered no request names none, and is a record of its own.
+    ends(&mut storage, &path, &id, "t2", "Unprompted.");
+    let alone = newest_response(&mut storage, &id);
+    assert_eq!(alone["text"], "Unprompted.");
+    assert!(alone.get("requestId").is_none());
+    assert_ne!(alone["responseId"], shipped["responseId"]);
+
+    // Retention takes the final, not the answer: the request keeps its text and its id.
+    storage
+        .connection()
+        .unwrap()
+        .execute("DELETE FROM recent_responses", [])
+        .unwrap();
+    assert_eq!(
+        storage.recent_responses(&id, 10, None, now()).unwrap()["items"],
+        serde_json::json!([])
+    );
+    assert_eq!(capture(&storage, "p1").answer.unwrap(), answer);
+
+    // An id is never given to a second final, even when every row has been pruned.
+    typed(&storage, &id, "p3", "Again", 1_000);
+    started(&mut storage, &path, &id, Some("t3"), "Again");
+    ends(&mut storage, &path, &id, "t3", "Again done.");
+    let again = newest_response(&mut storage, &id);
+    assert_eq!(again["requestId"], "p3");
+    for seen in [&shipped["responseId"], &alone["responseId"]] {
+        assert_ne!(&again["responseId"], seen);
+    }
+    storage.close().unwrap();
+}
+
+#[test]
+fn a_final_whose_request_has_expired_no_longer_names_it() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    typed(&storage, &id, "gone", "Old job", 1_000);
+    started(&mut storage, &path, &id, Some("t1"), "Old job");
+    ends(&mut storage, &path, &id, "t1", "Done long ago.");
+    assert_eq!(newest_response(&mut storage, &id)["requestId"], "gone");
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "UPDATE request_attempts SET retention_expires_at_ms=1 WHERE request_id='gone'",
+            [],
+        )
+        .unwrap();
+    let item = newest_response(&mut storage, &id);
+    assert_eq!(item["text"], "Done long ago.");
+    assert!(item.get("requestId").is_none());
+    storage.close().unwrap();
 }

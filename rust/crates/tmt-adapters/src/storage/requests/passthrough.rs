@@ -42,7 +42,7 @@ pub(in crate::storage) fn capture(
 ) -> Result<Option<PassthroughCapture>, StorageError> {
     db.query_row(
         "SELECT delivered_at_ms,state,bound_session,bound_turn,bound_at_ms,answer_text,
-                answer_truncated,answer_provider,answer_ended_ms,settled_at_ms,folded
+                answer_truncated,answer_provider,answer_ended_ms,settled_at_ms,folded,answer_response
          FROM request_passthrough WHERE request_id=?",
         [request_id],
         |row| {
@@ -54,6 +54,8 @@ pub(in crate::storage) fn capture(
                     truncated: row.get::<_, i64>(6)? == 1,
                     provider: row.get(7)?,
                     ended_ms: rows::u64_at(row, 8)?,
+                    response_id: rows::optional_u64_at(row, 11)?
+                        .map(tmt_core::responses::response_id),
                 }),
                 None => None,
             };
@@ -180,6 +182,14 @@ pub(in crate::storage) fn bind(
     Ok(false)
 }
 
+/// The final message a turn ended with, as the runtime observation retained it: the text, the
+/// driver that read it and the `recent_responses` row it was just kept as (#4993).
+pub(in crate::storage) struct SettledFinal<'a> {
+    pub text: &'a FinalText,
+    pub provider: &'a str,
+    pub response: u64,
+}
+
 /// A main turn ended. Every capture bound to it settles: with the turn's final message when
 /// one was read, otherwise without an answer. A final is never guessed from elsewhere.
 pub(in crate::storage) fn settle_turn(
@@ -187,7 +197,7 @@ pub(in crate::storage) fn settle_turn(
     identity: &str,
     session: &str,
     turn: Option<&str>,
-    final_text: Option<(&FinalText, &str)>,
+    settled: Option<SettledFinal<'_>>,
     now: u64,
 ) -> Result<bool, StorageError> {
     release_unseen_ends(db, identity, session, None, now)?;
@@ -196,8 +206,12 @@ pub(in crate::storage) fn settle_turn(
          AND request_id IN (SELECT request_id FROM request_attempts WHERE recipient_identity_id=?1)";
     // The provider is whichever driver read the final. The capture keeps its own copy, cut to
     // `ANSWER_BYTES`; `recent_responses` keeps the agent's answers at their own, larger cap.
-    let (changed, answered) = match final_text {
-        Some((text, provider)) => {
+    let (changed, answered) = match settled {
+        Some(SettledFinal {
+            text,
+            provider,
+            response,
+        }) => {
             let kept = tmt_core::responses::cut_scalars(text.text(), ANSWER_BYTES);
             let truncated = text.truncated() || kept.len() < text.text().len();
             // Read before the update takes them out of `bound`.
@@ -206,7 +220,7 @@ pub(in crate::storage) fn settle_turn(
                 .execute(
                     &format!(
                         "UPDATE request_passthrough SET state='answered',answer_text=?4,answer_truncated=?5,
-                         answer_provider=?6,answer_ended_ms=?7,settled_at_ms=?7 WHERE {in_turn}"
+                         answer_provider=?6,answer_ended_ms=?7,settled_at_ms=?7,answer_response=?8 WHERE {in_turn}"
                     ),
                     params![
                         identity,
@@ -215,7 +229,8 @@ pub(in crate::storage) fn settle_turn(
                         kept,
                         i64::from(truncated),
                         provider,
-                        now_i64
+                        now_i64,
+                        checked_i64(response, "Retained response key")?
                     ],
                 )
                 .map_err(|error| classify(error, "Settle passthrough capture"))?;

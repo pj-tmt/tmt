@@ -4,7 +4,7 @@
 use super::{Storage, StorageError, StorageErrorCode, classify};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
-use tmt_core::responses::{FinalText, MAX_KEPT, MAX_PAGE, RETENTION_MS};
+use tmt_core::responses::{FinalText, MAX_KEPT, MAX_PAGE, RETENTION_MS, response_id};
 
 pub struct ResponseCapture {
     pub text: FinalText,
@@ -17,7 +17,7 @@ pub(super) fn append(
     session: &str,
     now: u64,
     capture: &ResponseCapture,
-) -> Result<(), StorageError> {
+) -> Result<u64, StorageError> {
     let expires = now
         .checked_add(RETENTION_MS)
         .filter(|expires| *expires <= tmt_core::limits::MAX_JS_SAFE_INTEGER)
@@ -28,6 +28,9 @@ pub(super) fn append(
         "INSERT INTO recent_responses(identity_id,text,ended_ms,provider,truncated,session_id,expires_ms,original_bytes) VALUES(?,?,?,?,?,?,?,?)",
         params![id,capture.text.text(),now as i64,provider,capture.text.truncated(),session,expires as i64,capture.text.original_bytes() as i64],
     ).map_err(|e| classify(e,"Retain recent response"))?;
+    // The row's key is the final's identity (#4993). Read before the floor insert below moves it.
+    let sequence = u64::try_from(connection.last_insert_rowid())
+        .map_err(|_| StorageError::new(StorageErrorCode::Corrupt, "Invalid response key"))?;
     // What goes is whatever expired and everything past the newest `MAX_KEPT`; the newest of it
     // becomes the floor, in the same transaction, before it is deleted.
     let doomed = "identity_id=?1 AND (expires_ms<=?2 OR sequence<=COALESCE((SELECT sequence FROM recent_responses WHERE identity_id=?1 ORDER BY sequence DESC LIMIT 1 OFFSET ?3),0))";
@@ -43,7 +46,7 @@ pub(super) fn append(
             params![id, now as i64, MAX_KEPT as i64],
         )
         .map_err(|e| classify(e, "Bound recent responses"))?;
-    Ok(())
+    Ok(sequence)
 }
 
 impl Storage {
@@ -85,11 +88,16 @@ impl Storage {
             .map_err(|e| classify(e, "Read recent responses"))?;
         let upper = before.map_or(i64::MAX, |before| before as i64);
         let (items, next_before) = {
-            let mut query = transaction.prepare("SELECT r.sequence,r.text,r.ended_ms,r.provider,r.truncated,r.session_id,r.original_bytes FROM recent_responses r JOIN identities i ON i.id=r.identity_id AND i.retired_at_ms IS NULL WHERE r.identity_id=? AND r.expires_ms>? AND r.sequence<? ORDER BY r.sequence DESC LIMIT ?").map_err(|e| classify(e,"Prepare recent responses"))?;
+            let mut query = transaction.prepare("SELECT r.sequence,r.text,r.ended_ms,r.provider,r.truncated,r.session_id,r.original_bytes,
+                    (SELECT p.request_id FROM request_passthrough p INDEXED BY request_passthrough_response
+                     JOIN request_attempts a ON a.request_id=p.request_id AND a.retention_expires_at_ms>?2
+                     WHERE p.answer_response=r.sequence ORDER BY p.delivered_at_ms,p.request_id LIMIT 1)
+             FROM recent_responses r JOIN identities i ON i.id=r.identity_id AND i.retired_at_ms IS NULL WHERE r.identity_id=?1 AND r.expires_ms>?2 AND r.sequence<?3 ORDER BY r.sequence DESC LIMIT ?4").map_err(|e| classify(e,"Prepare recent responses"))?;
             // One more than asked tells whether an older answer is still kept.
             let mut rows = query.query_map(params![id,now as i64,upper,limit as i64 + 1],|row| {
-                let mut item = json!({"text":row.get::<_,String>(1)?,"endedMs":row.get::<_,i64>(2)?,"provider":row.get::<_,String>(3)?,"truncated":row.get::<_,bool>(4)?,"originalBytes":row.get::<_,i64>(6)?});
+                let mut item = json!({"responseId":response_id(row.get::<_,i64>(0)? as u64),"text":row.get::<_,String>(1)?,"endedMs":row.get::<_,i64>(2)?,"provider":row.get::<_,String>(3)?,"truncated":row.get::<_,bool>(4)?,"originalBytes":row.get::<_,i64>(6)?});
                 if let Some(session) = row.get::<_,Option<String>>(5)? { item["sessionId"] = json!(session); }
+                if let Some(request) = row.get::<_,Option<String>>(7)? { item["requestId"] = json!(request); }
                 Ok((row.get::<_,i64>(0)?,item))
             }).map_err(|e| classify(e,"Query recent responses"))?.collect::<Result<Vec<_>,_>>().map_err(|e| classify(e,"Decode recent responses"))?;
             let more = rows.len() as u64 > limit;

@@ -642,11 +642,16 @@ and `requests.show` items with `mode: "passthrough"` carry
   The end of a turn that never arrives (a killed agent, a closed pane) therefore cannot
   leave a capture `bound` for ever.
 - `answered`: the turn ended with a final message, stored as
-  `answer: {text, truncated, provider, endedMs}`: plain untrusted text of at most 8,192 UTF-8
+  `answer: {text, truncated, provider, endedMs, responseId?}`: plain untrusted text of at most 8,192 UTF-8
   bytes, never a reply and never an instruction. It is attached once. Settling it also gives the
   sender a new attention revision, as a submitted final does, so the request reads as unread
   in `x` and in the [answers view](extension-api.md#answers-and-acknowledgment) until the
-  sender acknowledges that revision; `no_answer` changes no revision.
+  sender acknowledges that revision; `no_answer` changes no revision. `responseId` names the retained
+  final of the same turn that [`responses.recent`](extension-api.md#recent-agent-responses) lists, set
+  in the transaction that settles the capture, so one final has one id wherever it is read. The
+  capture keeps its own copy of the text: once `responses.recent` no longer holds the final, the
+  request is still `answered`, its `answer` is unchanged and its `responseId` resolves to nothing.
+  An answer settled before this field existed has no `responseId` (omitted, not null).
 - `no_answer`: the turn ended without a final (interrupted, or none was read, as when the turn-end
   hook is not installed), or the provider session was replaced or overtaken by a later turn
   before it ended, or the six hours passed. A final is

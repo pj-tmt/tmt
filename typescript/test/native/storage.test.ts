@@ -144,6 +144,7 @@ function expectNativeSchema(
     { version: 69, name: 'mark a passthrough folded into a running turn' },
     { version: 70, name: 'record the turn that began after a request was handed over' },
     { version: 71, name: "keep an agent's answers 7 days, 16 KiB each, and say what was dropped" },
+    { version: 72, name: 'name the retained final a captured passthrough answer came from' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
