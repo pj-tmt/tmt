@@ -182,7 +182,7 @@ fn absence_conflict_and_future_evidence_are_distinct_from_an_old_balance() {
         project_week(&[first.clone(), conflict]).latest,
         Evidence::Unavailable
     );
-    let once = project_week(&[first.clone()]);
+    let once = project_week(std::slice::from_ref(&first));
     assert_eq!(once, project_week(&[first.clone(), first.clone()]));
     let short = Report::read(&json!({"observedAtMs":NOW,"windows":[
         {"windowMinutes":300,"usedPercent":5,"resetsAtMs":RESET}
