@@ -4,10 +4,15 @@ use super::*;
 #[derive(Default)]
 struct Faults {
     lose_offer: bool,
+    lose_candidate: bool,
+    wrong_receipt_principal: bool,
+    bad_receipt_proof: bool,
     wrong_candidate_principal: bool,
     revoke_after_routes: Option<Sink>,
     publishes: BTreeMap<u8, usize>,
     withdrawals: usize,
+    fail_withdrawal: bool,
+    pause_withdrawal: Option<(Arc<Barrier>, Arc<Barrier>)>,
     owner_deadlines: Vec<Instant>,
 }
 #[derive(Clone)]
@@ -26,8 +31,22 @@ impl<B> Controlled<B> {
         let faults = self.faults.lock().unwrap();
         faults.publishes.values().sum::<usize>() + faults.withdrawals
     }
+    pub(super) fn fail_next_withdrawal(&self) {
+        self.faults.lock().unwrap().fail_withdrawal = true;
+    }
+    pub(super) fn pause_next_withdrawal(&self, entered: Arc<Barrier>, resume: Arc<Barrier>) {
+        self.faults.lock().unwrap().pause_withdrawal = Some((entered, resume));
+    }
     pub(super) fn owner_deadlines(&self) -> Vec<Instant> {
         self.faults.lock().unwrap().owner_deadlines.clone()
+    }
+    pub(super) fn lose_candidate_answer(&self) {
+        self.faults.lock().unwrap().lose_candidate = true;
+    }
+    pub(super) fn refuse_receipt(&self, principal: bool) {
+        let mut faults = self.faults.lock().unwrap();
+        faults.wrong_receipt_principal = principal;
+        faults.bad_receipt_proof = !principal;
     }
     fn publications(&self, part: Part) -> usize {
         self.faults
@@ -68,6 +87,11 @@ impl<B: Backend> Backend for Controlled<B> {
         if publication.exchange.part == Part::Offer && std::mem::take(&mut faults.lose_offer) {
             return Ok(WriteOutcome::Unconfirmed);
         }
+        if publication.exchange.part == Part::Candidate
+            && std::mem::take(&mut faults.lose_candidate)
+        {
+            return Ok(WriteOutcome::Unconfirmed);
+        }
         if publication.exchange.part == Part::Routes
             && let Some(sink) = faults.revoke_after_routes.take()
         {
@@ -86,6 +110,19 @@ impl<B: Backend> Backend for Controlled<B> {
             .owner_deadlines
             .push(io.deadline);
         let mut row = self.inner.observe(exchange, io)?;
+        if exchange.part == Part::Receipt
+            && let Some(row) = row.as_mut()
+        {
+            let faults = self.faults.lock().unwrap();
+            if faults.wrong_receipt_principal {
+                row.principal = b"not the owner principal".to_vec();
+            }
+            if faults.bad_receipt_proof
+                && let Payload::Receipt { proof, .. } = &mut row.publication.payload
+            {
+                proof[0] ^= 1;
+            }
+        }
         if exchange.part == Part::Candidate
             && self.faults.lock().unwrap().wrong_candidate_principal
             && let Some(row) = row.as_mut()
@@ -100,6 +137,14 @@ impl<B: Backend> Backend for Controlled<B> {
         io: &IoBudget<'_>,
     ) -> Result<WriteOutcome, BackendFailure> {
         self.faults.lock().unwrap().withdrawals += 1;
+        let pause = self.faults.lock().unwrap().pause_withdrawal.take();
+        if let Some((entered, resume)) = pause {
+            entered.wait();
+            resume.wait();
+        }
+        if std::mem::take(&mut self.faults.lock().unwrap().fail_withdrawal) {
+            return Err(BackendFailure::Unavailable);
+        }
         self.inner.withdraw(context, io)
     }
 }

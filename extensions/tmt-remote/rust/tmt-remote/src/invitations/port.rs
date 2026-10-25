@@ -3,7 +3,7 @@
 use super::{BackendBinding, Candidate, Context};
 use crate::{error::RemoteError, objects::IoBudget, store::Grant};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Part {
     Offer,
     Candidate,
@@ -141,7 +141,7 @@ impl OwnerActor {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Snapshot {
     pub context: Context,
     pub candidate: Candidate,
@@ -149,6 +149,7 @@ pub struct Snapshot {
 }
 
 pub struct Confirmation<'a> {
+    pub(super) verified: &'a super::VerifiedCandidate,
     pub snapshot: &'a Snapshot,
     pub actor: &'a OwnerActor,
     pub grant: &'a Grant,
@@ -171,7 +172,7 @@ impl Drop for ReceiptKey {
 
 /// Exact original receipt and publication bytes returned by the writer. Routes
 /// are an opaque publication capability, not a backend-created member/grant.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Committed {
     pub snapshot: Snapshot,
     pub member: String,

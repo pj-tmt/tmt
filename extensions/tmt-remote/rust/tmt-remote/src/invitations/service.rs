@@ -27,11 +27,21 @@ pub enum State {
     ProviderOutcomeUnconfirmed,
 }
 
+/// Observation of this memory offer's physical withdrawal, never authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProviderCleanup {
+    NotRequested,
+    Acknowledged,
+    Unconfirmed,
+}
+
 /// Deliberately no code, principal, provider locator or receipt projection.
 pub struct Status {
     pub offer: Option<String>,
+    pub expires_at_ms: Option<u64>,
     pub state: State,
     pub local_confirmation_known: bool,
+    pub cleanup: ProviderCleanup,
 }
 
 pub struct Delivery {
@@ -73,6 +83,7 @@ struct Offer {
     announced: bool,
     routes_done: bool,
     receipt_done: bool,
+    cleanup: ProviderCleanup,
     phase: Phase,
 }
 impl Offer {
@@ -89,6 +100,7 @@ impl Offer {
         {
             self.clear_code();
             self.phase = Phase::End(State::Expired);
+            self.cleanup = ProviderCleanup::Unconfirmed;
         }
     }
     fn status(&self) -> Status {
@@ -106,8 +118,10 @@ impl Offer {
         };
         Status {
             offer: Some(self.context.offer.clone()),
+            expires_at_ms: Some(self.context.expires_at_ms),
             state,
             local_confirmation_known: known,
+            cleanup: self.cleanup,
         }
     }
 }
@@ -208,6 +222,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             announced: false,
             routes_done: false,
             receipt_done: false,
+            cleanup: ProviderCleanup::NotRequested,
             phase: Phase::Open,
         };
         drop(code);
@@ -225,8 +240,10 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             }
             None => Status {
                 offer: None,
+                expires_at_ms: None,
                 state: State::Cancelled,
                 local_confirmation_known: false,
+                cleanup: ProviderCleanup::NotRequested,
             },
         })
     }
@@ -403,10 +420,10 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             let context = offer.context.clone();
             offer.clear_code();
             offer.phase = Phase::End(State::Refused);
+            offer.cleanup = ProviderCleanup::Unconfirmed;
             let result = offer.status();
             drop(state);
-            let _ = self.backend.withdraw(&context, io);
-            return Ok(result);
+            return self.finish_withdrawal(&context, result, io);
         }
         let grant = grant(expected, now_ms);
         let transcript = proof::enrollment(&expected.context, &expected.candidate)?;
@@ -415,6 +432,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         let confirmation_io = offer_io(io, offer.deadline);
         check(&confirmation_io)?;
         let committed = self.sink.confirm(Confirmation {
+            verified,
             snapshot: expected,
             actor,
             grant: &grant,
@@ -484,6 +502,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             announced: true,
             routes_done: false,
             receipt_done: false,
+            cleanup: ProviderCleanup::NotRequested,
             phase: Phase::Confirmed(committed),
         });
         drop(state);
@@ -543,8 +562,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         let context = offer.context.clone();
         let result = offer.status();
         drop(state);
-        let _ = self.backend.withdraw(&context, io);
-        Ok(result)
+        self.finish_withdrawal(&context, result, io)
     }
 
     fn end(
@@ -576,9 +594,29 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         let context = offer.context.clone();
         offer.clear_code();
         offer.phase = Phase::End(terminal);
+        offer.cleanup = ProviderCleanup::Unconfirmed;
         let result = offer.status();
         drop(state);
-        let _ = self.backend.withdraw(&context, io);
+        self.finish_withdrawal(&context, result, io)
+    }
+
+    fn finish_withdrawal(
+        &self,
+        context: &Context,
+        mut result: Status,
+        io: &IoBudget<'_>,
+    ) -> Result<Status, RemoteError> {
+        result.cleanup = match self.backend.withdraw(context, io) {
+            Ok(WriteOutcome::Acknowledged) => ProviderCleanup::Acknowledged,
+            _ => ProviderCleanup::Unconfirmed,
+        };
+        let mut state = self.lock()?;
+        if let Some(offer) = state
+            .as_mut()
+            .filter(|offer| offer.context == *context && matches!(offer.phase, Phase::End(_)))
+        {
+            offer.cleanup = result.cleanup;
+        }
         Ok(result)
     }
 
@@ -748,8 +786,10 @@ fn publication(record: &Committed, part: Part) -> Publication {
 fn empty_status() -> Status {
     Status {
         offer: None,
+        expires_at_ms: None,
         state: State::Cancelled,
         local_confirmation_known: false,
+        cleanup: ProviderCleanup::NotRequested,
     }
 }
 fn valid_commit(record: &Committed, expected: &Snapshot) -> bool {
@@ -768,13 +808,13 @@ fn unavailable() -> RemoteError {
         "Invitation state is unavailable.",
     )
 }
-fn offer_io<'a>(io: &IoBudget<'a>, deadline: Instant) -> IoBudget<'a> {
+pub(super) fn offer_io<'a>(io: &IoBudget<'a>, deadline: Instant) -> IoBudget<'a> {
     IoBudget {
         deadline: io.deadline.min(deadline),
         cancelled: io.cancelled,
     }
 }
-fn check(io: &IoBudget<'_>) -> Result<(), RemoteError> {
+pub(super) fn check(io: &IoBudget<'_>) -> Result<(), RemoteError> {
     io.check().map_err(|_| {
         RemoteError::new(
             "REMOTE_INVITATION_STOPPED",
@@ -782,7 +822,7 @@ fn check(io: &IoBudget<'_>) -> Result<(), RemoteError> {
         )
     })
 }
-fn provider(failure: BackendFailure) -> RemoteError {
+pub(super) fn provider(failure: BackendFailure) -> RemoteError {
     RemoteError::new(
         match failure {
             BackendFailure::Refused => "REMOTE_INVITATION_REFUSED",

@@ -132,3 +132,40 @@ impl ConfirmationSink for Sink {
         Ok(!ledger.revoked && ledger.records.get(&record.snapshot.context.offer) == Some(record))
     }
 }
+
+#[derive(Clone)]
+pub(super) struct AdmissionRace<S> {
+    pub(super) sink: S,
+    pub(super) entered: Arc<Barrier>,
+    pub(super) resume: Arc<Barrier>,
+}
+impl<S: ConfirmationSink> ConfirmationSink for AdmissionRace<S> {
+    fn authorize(
+        &self,
+        context: &Context,
+        actor: &OwnerActor,
+    ) -> Result<(), crate::error::RemoteError> {
+        self.sink.authorize(context, actor)
+    }
+    fn confirm(&self, input: Confirmation<'_>) -> Result<Committed, crate::error::RemoteError> {
+        self.entered.wait();
+        self.resume.wait();
+        self.sink.confirm(input)
+    }
+    fn original(
+        &self,
+        snapshot: &Snapshot,
+    ) -> Result<Option<Committed>, crate::error::RemoteError> {
+        self.sink.original(snapshot)
+    }
+    fn claim(&self, record: &Committed, part: Part) -> Result<Claim, crate::error::RemoteError> {
+        self.sink.claim(record, part)
+    }
+    fn acknowledge(
+        &self,
+        record: &Committed,
+        part: Part,
+    ) -> Result<bool, crate::error::RemoteError> {
+        self.sink.acknowledge(record, part)
+    }
+}

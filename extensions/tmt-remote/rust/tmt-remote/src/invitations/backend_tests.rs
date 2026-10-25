@@ -2,9 +2,13 @@
 //! append-only log with delayed visibility. Neither manufactures owner consent.
 mod backends;
 mod confirmation;
+mod durable;
+mod durable_fixture;
+mod durable_refusals;
 mod faults;
 mod lifecycle;
 mod policies;
+mod submissions;
 use super::{
     port::*,
     service::{Coordinator, State, gate},
@@ -12,7 +16,7 @@ use super::{
 };
 use crate::{objects::IoBudget, pairing::PairingPolicy};
 use backends::{AppendLog, Mailbox, ScenarioBackend};
-use confirmation::Sink;
+use confirmation::{AdmissionRace, Sink};
 use ed25519_dalek::Signer;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -45,27 +49,21 @@ fn scenarios<B: ScenarioBackend>(backend: B, mut context: Context, sink: Sink) {
         State::Open
     );
     let delivery = coordinator.deliver(&owner, 2).unwrap();
-    let submitted = delivery.with_code(|code| {
-        let transcript = enrollment(&delivery.context, &candidate).unwrap();
-        let mac = crypto::enrollment_mac(code, &transcript);
-        Submission {
-            candidate: candidate.clone(),
-            gate: gate(&delivery.context, code).unwrap(),
-            signature: signing
-                .sign(&canonical::possession(&transcript, &mac).unwrap())
-                .to_bytes(),
-            mac,
-        }
-    });
     let peer = backend.peer(candidate.principal.clone());
-    let candidate_publication = Publication {
-        exchange: InvitationExchange {
-            context: delivery.context.clone(),
-            part: Part::Candidate,
-        },
-        payload: Payload::Candidate(submitted),
-    };
-    peer.publish(&candidate_publication, &io).unwrap();
+    let mut attempt = delivery
+        .with_code(|code| {
+            super::submission::SubmissionAttempt::new(
+                peer,
+                delivery.context.clone(),
+                candidate.clone(),
+                code,
+                &signing,
+                2,
+            )
+        })
+        .unwrap();
+    assert_eq!(attempt.submit(&io).unwrap(), WriteOutcome::Acknowledged);
+    assert!(attempt.observe_receipt(&io).unwrap().is_none());
     assert_eq!(
         coordinator.observe(2, &io).unwrap().state,
         State::CandidateAwaitingOwner
@@ -129,6 +127,7 @@ fn scenarios<B: ScenarioBackend>(backend: B, mut context: Context, sink: Sink) {
             .unwrap();
         crypto::verify_server_proof(&key, &original.receipt, &original.proof).unwrap();
     });
+    assert!(attempt.observe_receipt(&io).unwrap().as_ref() == Some(&original.receipt));
     drop(coordinator);
     let restarted = Coordinator::new(backend, sink.clone());
     assert!(restarted.status(7).unwrap().offer.is_none());

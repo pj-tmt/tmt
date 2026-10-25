@@ -50,6 +50,7 @@ pub struct Change {
     pub clients: Vec<String>,
 }
 
+pub(crate) use store::require_owner as authorize_owner_in;
 pub(crate) use store::{
     confirm_member_grant_in, grants_for_client, insert_mapping, migrate_legacy, renamed, revoked,
     sending_for_client, sync_designation,

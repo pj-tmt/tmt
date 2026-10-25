@@ -5,6 +5,8 @@ use crate::{canonical, crypto, error::RemoteError, limits};
 pub mod port;
 mod proof;
 pub mod service;
+pub mod store;
+pub mod submission;
 pub use proof::{VerifiedCandidate, enrollment, verify_enrollment};
 
 #[cfg(test)]
@@ -16,14 +18,14 @@ mod tests;
 
 /// Public routing context. These exact bytes are signed/MAC-bound; neither a
 /// display alias nor a provider principal establishes native authority.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BackendBinding {
     pub backend: String,
     pub reference: Vec<u8>,
     pub owner_principal: Vec<u8>,
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Context {
     pub binding: BackendBinding,
     pub owner: String,
@@ -34,7 +36,7 @@ pub struct Context {
     pub expires_at_ms: u64,
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Candidate {
     pub machine: String,
     pub public_key: [u8; 32],

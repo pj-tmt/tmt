@@ -1,43 +1,6 @@
 //! The provider candidate cannot supply policy or outlive owner designation.
 use super::*;
 
-#[derive(Clone)]
-struct AdmissionRace {
-    sink: Sink,
-    entered: Arc<Barrier>,
-    resume: Arc<Barrier>,
-}
-impl ConfirmationSink for AdmissionRace {
-    fn authorize(
-        &self,
-        context: &Context,
-        actor: &OwnerActor,
-    ) -> Result<(), crate::error::RemoteError> {
-        self.sink.authorize(context, actor)
-    }
-    fn confirm(&self, input: Confirmation<'_>) -> Result<Committed, crate::error::RemoteError> {
-        self.entered.wait();
-        self.resume.wait();
-        self.sink.confirm(input)
-    }
-    fn original(
-        &self,
-        snapshot: &Snapshot,
-    ) -> Result<Option<Committed>, crate::error::RemoteError> {
-        self.sink.original(snapshot)
-    }
-    fn claim(&self, record: &Committed, part: Part) -> Result<Claim, crate::error::RemoteError> {
-        self.sink.claim(record, part)
-    }
-    fn acknowledge(
-        &self,
-        record: &Committed,
-        part: Part,
-    ) -> Result<bool, crate::error::RemoteError> {
-        self.sink.acknowledge(record, part)
-    }
-}
-
 fn policies<B: ScenarioBackend>(make: impl Fn() -> B) {
     let stopped = AtomicBool::new(false);
     let io = IoBudget {

@@ -2479,12 +2479,24 @@ Replacing or dropping an offer, cancellation, disconnect, refusal, expiry and co
 clear its retained secret. An unconfirmed offer does not resume after process restart;
 confirmed membership, policy and the original receipt use the existing private Store.
 
-The coordinator owns `create`, `deliver`, `submit`, `observe`, `confirm`, `revoke` and
+The shared invitation library owns `create`, `deliver`, `submit`, `observe`, `confirm`, `revoke` and
 `expire`. Its observations distinguish open, candidate awaiting owner, confirmed,
 refused/cancelled, expired and provider-outcome-unconfirmed. An uncertain provider outcome
 also identifies whether local confirmation already committed; it never claims that a
 committed member was rolled back. One finite observation is not a new mutation or an
 unbounded provider poll.
+Candidate submission holds one exact native proof and its response key in memory. Its
+first attempt publishes; an unknown answer permits only original-ID observation. It
+verifies the owner principal, frozen snapshot and receipt proof before returning exact
+receipt bytes, and creates no member or outbound connection. Receipt decoding and
+connection adoption remain separate from this proof exchange.
+
+The bounded current-offer observation includes its opaque ID, original expiry, lifecycle
+state, local-confirmation knowledge and provider cleanup observation (`not requested`,
+`acknowledged` or `unconfirmed`). Reading it performs no provider call or retry. A failed
+physical withdrawal preserves logical cancellation/expiry and reports unconfirmed cleanup;
+a stale cleanup acknowledgment cannot update a replacement offer. Durable provider cleanup
+queues remain with the backend adapter, not this memory observation.
 
 A backend supplies bounded offer/candidate/receipt exchange and route-publication
 capability. It carries opaque backend references and authenticated provider-principal

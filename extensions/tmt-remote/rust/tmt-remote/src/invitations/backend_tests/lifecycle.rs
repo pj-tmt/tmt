@@ -8,6 +8,70 @@ fn lifecycle<B: ScenarioBackend>(make: impl Fn() -> B) {
         cancelled: &stopped,
     };
     let owner = OwnerActor::local_interactive();
+    let backend = super::faults::Controlled::new(make());
+    let sink = Sink::default();
+    let (coordinator, delivery, _) = pending(backend.clone(), sink.clone(), &io);
+    backend.fail_next_withdrawal();
+    let cancelled = coordinator
+        .cancel(&owner, &delivery.context.offer, 3, &io)
+        .unwrap();
+    assert_eq!(cancelled.state, State::Cancelled);
+    assert_eq!(
+        cancelled.expires_at_ms,
+        Some(delivery.context.expires_at_ms)
+    );
+    assert_eq!(
+        cancelled.cleanup,
+        super::super::service::ProviderCleanup::Unconfirmed
+    );
+    let before = backend.write_attempts();
+    for _ in 0..2 {
+        let observation = coordinator.status(3).unwrap();
+        assert_eq!(
+            observation.cleanup,
+            super::super::service::ProviderCleanup::Unconfirmed
+        );
+        assert_eq!(observation.state, State::Cancelled);
+    }
+    assert_eq!(
+        backend.write_attempts(),
+        before,
+        "status retried provider cleanup"
+    );
+    assert!(!coordinator.retains_secret().unwrap());
+    assert_eq!(sink.ledger.lock().unwrap().grants, 0);
+    assert_eq!(backend.writes(Part::Receipt), 0);
+    let backend = super::faults::Controlled::new(make());
+    let (coordinator, delivery, _) = pending(backend.clone(), Sink::default(), &io);
+    let entered = Arc::new(Barrier::new(2));
+    let resume = Arc::new(Barrier::new(2));
+    backend.pause_next_withdrawal(entered.clone(), resume.clone());
+    let mut replacement = delivery.context.clone();
+    replacement.offer = "66666666-6666-4666-8666-666666666666".into();
+    std::thread::scope(|scope| {
+        let cancelled = scope.spawn(|| coordinator.cancel(&owner, &delivery.context.offer, 3, &io));
+        entered.wait();
+        coordinator
+            .create(&owner, replacement.clone(), 3, &io)
+            .unwrap();
+        resume.wait();
+        let cancelled = cancelled.join().unwrap().unwrap();
+        assert_eq!(
+            cancelled.offer.as_deref(),
+            Some(delivery.context.offer.as_str())
+        );
+        assert_eq!(
+            cancelled.cleanup,
+            super::super::service::ProviderCleanup::Acknowledged
+        );
+    });
+    let current = coordinator.status(3).unwrap();
+    assert_eq!(current.offer.as_deref(), Some(replacement.offer.as_str()));
+    assert_eq!(
+        current.cleanup,
+        super::super::service::ProviderCleanup::NotRequested,
+        "stale cleanup acknowledgment changed the replacement"
+    );
     for terminal in [State::Refused, State::Cancelled, State::Expired] {
         let backend = make();
         let sink = Sink::default();

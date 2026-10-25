@@ -407,10 +407,19 @@ registrations. The maintained ordinary-user driver uses `ProductionHttp`, common
 version-2 proofs. `service::Coordinator` freezes one verified candidate and serializes
 comparison/confirmation, cancellation, revocation, disconnect and original-deadline receipt
 recovery. The `port` exchanges bounded metadata; it cannot supply consent or create a grant.
-Its confirmation sink must recheck the admitted owner and frozen snapshot in one existing
-Store transaction and retain the original receipt/policy. Publication happens afterward,
+`store::StoreConfirmation` reuses the serving Store and the members owner check. It calls
+`members::confirm_member_grant_in` and saves the actual persisted grant receipt in the
+existing `management_receipts` journal in one IMMEDIATE transaction. No code or response
+key is saved. Original receipt bytes remain immutable across later member-policy changes.
+Publication happens afterward,
 with durable attempt claims and unchanged-snapshot acknowledgments; uncertain writes are
-observed, not repeated. Codes and response keys remain memory-only and clear on termination.
+observed, not repeated. `Coordinator::status` projects only the current offer ID, expiry,
+lifecycle and typed withdrawal observation without provider calls; durable cleanup queues
+remain with the backend adapter. Compose these observations outside the Store guard:
+confirmation acquires coordinator state before Store. Codes and response keys remain
+memory-only and clear on termination.
+`submission::SubmissionAttempt` signs one candidate proof, observes an uncertain original
+without resending and authenticates the exact receipt; it cannot confirm or create authority.
 Two fake backend consumers prove this library independently of transport. Current Firestore
 entry points below remain on their version-1 profile until the adapter cutover (I3); no
 legacy code is reinterpreted as a different backend or extended beyond its original expiry.
