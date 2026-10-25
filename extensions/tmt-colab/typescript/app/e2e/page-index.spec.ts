@@ -43,7 +43,7 @@ for (const width of [1440, 390])
       const wide = width > 479;
       await page.keyboard.press('Tab');
       // The project-area entry follows the title, before the remaining row actions.
-      await expect(first.getByRole('button', { name: 'Projects for Alpha update' })).toBeFocused();
+      await expect(first.locator('.page-project-group')).toBeFocused();
       await page.keyboard.press('Tab');
       if (wide) {
         await expect(
@@ -177,7 +177,9 @@ test('website rows keep symmetric insets and control size while columns stack at
         const style = getComputedStyle(node);
         const title = node.querySelector('.tmt-ui-list-title')!.getBoundingClientRect();
         const meta = node.querySelector('time')!.getBoundingClientRect();
-        const action = node.querySelector('.tmt-ui-menu button')!.getBoundingClientRect();
+        const action = node
+          .querySelector('.tmt-ui-list-actions .tmt-ui-menu button')!
+          .getBoundingClientRect();
         return {
           height: node.getBoundingClientRect().height,
           padding: [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft],

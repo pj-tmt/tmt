@@ -67,17 +67,21 @@ projects; opens the picker below), Pin to top / Unpin (below 640px, once the own
 non-archived page the viewer can write), Agent status (writers only; the read-only presence
 observations return focus to More on close), Files (count; while the page holds a file or the viewer can add
 one), Source, Export page, a rule, then Manage page, Theme: Light/Dark/System and About this page.
-The page's own projects (`page-projects.tsx`) follow the title: the first three as small chips
-and a count of the rest (hidden under 640px), then the list row's picker (`PageProjectsMenu`: up to
-eight projects, New project… names one and puts this page in it). The always-visible writer-only `+` chip (Add to project), the assigned chips and More → Projects…
-open the same menu. List rows put the real `+` picker immediately after their project tags, revealed
-on hover/focus and always visible on touch; their ⋯ → Projects… and `l` use its existing open request.
+The page's own projects (`page-projects.tsx`) follow the title as one writer-only group button:
+up to three 22px pills, a count of the rest, and Plus; an empty header shows Plus and Project.
+Below 640px only the header group reduces to Plus. List rows show the first pill, a count of the
+rest and Plus at both widths; empty rows show Plus alone. The group opens the existing
+`PageProjectsMenu` (up to eight projects, New project… names one and puts this page in it).
+The row's ⋯ → Projects… and `l`, and the header's More → Projects…, use that same open request.
+Each group is one visible focus target, exposes every membership in its accessible name/title,
+and restores focus on close without taking focus away from a new dialog. Writer row pills open
+the picker; project scope and search retain filtering. Viewer row tags retain read-only filtering.
 Opening observes the catalog; choosing a project or creating one is the write. Long project and
 Access text uses an ellipsis with the full text available on hover. The chips come from the list the space home last loaded, so arriving
 from the list reads nothing extra. A page opened by a link has no list yet: it reads `spaceHome(signal)`
 once on open (#4130), and leaving the page aborts that read through the signal, so no read outlives
-the page. The owner list is also read when the picker opens and after each write. A viewer who cannot
-write projects shows none of it. The desktop pin beside the chips and the phone's More item use
+the page. The owner list is also read when the picker opens and after each write. A header whose viewer
+cannot write projects shows no project control. The desktop pin beside the chips and the phone's More item use
 the same `PageProjects` write, owner-list refresh and refusal words; the menu only projects its
 confirmed pin state and pending write. Archived pages and non-writers have no pin item. Below 480px a pin
 refusal also appears in a closable shared inline Alert in flow under the header, using the same refusal

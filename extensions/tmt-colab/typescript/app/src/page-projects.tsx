@@ -3,7 +3,16 @@ import { BrowserIconAction, BrowserMenu, useShellBar } from '@tmt/browser-ui/rea
 import { Alert, AlertDescription, UiTheme } from '@tmt/browser-ui/ui';
 import '@tmt/browser-ui/ui.css';
 import { Pin, Plus, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type MouseEvent,
+  type Ref,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { rememberPages, rememberedPages } from './quick-switcher-source.js';
 import { NewProjectDialog, projectFailureText, type ProjectWriting } from './project-dialogs.js';
@@ -99,6 +108,126 @@ export function PageProjectsMenu({
   );
 }
 
+/** The same host-owned group paint in the header and rows; each host retains its open request. */
+export function PageProjectGroup({
+  page,
+  location,
+  expanded,
+  buttonRef,
+  onOpen,
+}: {
+  page: PageSummary;
+  location: 'header' | 'row';
+  expanded: boolean;
+  buttonRef: Ref<HTMLButtonElement>;
+  onOpen(event: MouseEvent<HTMLButtonElement>): void;
+}) {
+  const projects = page.projects ?? [];
+  const shown = location === 'header' ? CHIPS : 1;
+  const label = projects.length
+    ? `${t.projectsFor(pageTitle(page))}: ${projects.join(', ')}`
+    : t.addToProject;
+  return (
+    <button
+      ref={buttonRef}
+      type="button"
+      className="page-project-group"
+      data-location={location}
+      aria-label={label}
+      title={label}
+      aria-haspopup="menu"
+      aria-expanded={expanded}
+      onClick={onOpen}
+    >
+      {projects.slice(0, shown).map((name) => (
+        <span key={name} className="page-project-group-chip" data-project-tone={projectTone(name)}>
+          <span>{name}</span>
+        </span>
+      ))}
+      {projects.length > shown && (
+        <span className="page-project-group-chip" data-overflow>
+          +{projects.length - shown}
+        </span>
+      )}
+      <span className="page-project-group-add">
+        <Plus size={14} aria-hidden="true" />
+        {!projects.length && location === 'header' && (
+          <span className="page-project-group-word">{t.projectColumn}</span>
+        )}
+      </span>
+    </button>
+  );
+}
+
+/** The leaf first restores its hidden anchor; retain any focus already moved to another owner. */
+function restoreProjectFocus(
+  anchor: HTMLElement | null,
+  origin: HTMLElement | null,
+  fallback?: HTMLElement | null,
+  previous?: Element | null,
+) {
+  queueMicrotask(() => {
+    const active = document.activeElement;
+    if (active !== document.body && active !== previous && (!active || !anchor?.contains(active)))
+      return;
+    const target = origin?.isConnected ? origin : fallback;
+    target?.focus({ preventScroll: true });
+  });
+}
+
+/** One row group shares Home's existing shortcut/More request and the same picker/write owner. */
+export function PageRowProjects({
+  page,
+  names,
+  openRequest,
+  open,
+  toggle,
+  create,
+}: {
+  page: PageSummary;
+  names: readonly string[];
+  openRequest?: number;
+  open(): void;
+  toggle(page: PageSummary, name: string): void;
+  create(page: PageSummary): void;
+}) {
+  const group = useRef<HTMLButtonElement>(null);
+  const anchor = useRef<HTMLSpanElement>(null);
+  const previous = useRef<Element | null>(null);
+  // Capture the request origin before the leaf's effect opens its modal menu.
+  useLayoutEffect(() => {
+    if (openRequest !== undefined) previous.current = document.activeElement;
+  }, [openRequest]);
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <span className="page-projects page-row-project-picker">
+      <PageProjectGroup
+        page={page}
+        location="row"
+        expanded={expanded}
+        buttonRef={group}
+        onOpen={(event) => {
+          if (event.isTrusted) open();
+        }}
+      />
+      <span ref={anchor} className="page-row-project-anchor page-project-picker-anchor">
+        <PageProjectsMenu
+          page={page}
+          names={names}
+          openRequest={openRequest}
+          onOpenChange={(value) => {
+            setExpanded(value);
+            if (!value)
+              restoreProjectFocus(anchor.current, group.current, undefined, previous.current);
+          }}
+          toggle={toggle}
+          create={create}
+        />
+      </span>
+    </span>
+  );
+}
+
 /**
  * The page's own projects, after its title: the current ones as small chips and the same picker as
  * the list row (#4116). The chips come from the list the space home last loaded, so arriving from the
@@ -144,7 +273,8 @@ export function PageProjects({
   const [opened, setOpened] = useState(0);
   const [pickerOpen, setPickerOpen] = useState(false);
   const origin = useRef<HTMLElement | null>(null);
-  const addButton = useRef<HTMLButtonElement>(null);
+  const groupButton = useRef<HTMLButtonElement>(null);
+  const pickerAnchor = useRef<HTMLSpanElement>(null);
   function openFromControl(event: React.MouseEvent<HTMLButtonElement>) {
     origin.current = event.currentTarget;
     open();
@@ -233,7 +363,6 @@ export function PageProjects({
     sharing: 'private',
   };
   const names = projectCounts(known ?? [], home?.projects).map((project) => project.name);
-  const projects = page.projects ?? [];
   const writing: ProjectWriting = {
     async save(changes) {
       const outcome = await applyProjectChanges(port, changes);
@@ -279,45 +408,19 @@ export function PageProjects({
   return (
     <>
       <span className="page-header-projects">
-        {projects.length > 0 && (
-          <button
-            type="button"
-            className="page-header-chips"
-            aria-haspopup="menu"
-            aria-label={`${t.projectsFor(pageTitle(page))}: ${projects.join(', ')}`}
-            aria-expanded={pickerOpen}
-            onClick={openFromControl}
-          >
-            {projects.slice(0, CHIPS).map((name) => (
-              <span
-                key={name}
-                className="page-header-project-chip"
-                data-project-tone={projectTone(name)}
-              >
-                {name}
-              </span>
-            ))}
-            {projects.length > CHIPS && (
-              <span className="page-header-project-chip">+{projects.length - CHIPS}</span>
-            )}
-          </button>
-        )}
         <span className="page-header-project-add">
-          <button
-            ref={addButton}
-            type="button"
-            className="page-header-add-project"
-            aria-label={t.addToProject}
-            aria-haspopup="menu"
-            aria-expanded={pickerOpen}
-            onClick={openFromControl}
-          >
-            <Plus size={14} aria-hidden="true" />
-          </button>
+          <PageProjectGroup
+            page={page}
+            location="header"
+            expanded={pickerOpen}
+            buttonRef={groupButton}
+            onOpen={openFromControl}
+          />
           {/* The existing request/read pipeline admits opening; this hidden trigger anchors its menu. */}
           <span
-            className="page-header-projects-anchor"
-            data-from={from ? 'more' : 'chips'}
+            ref={pickerAnchor}
+            className="page-header-projects-anchor page-project-picker-anchor"
+            data-from={from ? 'more' : 'group'}
             style={
               from && { top: from.top, left: from.left, width: from.width, height: from.height }
             }
@@ -329,17 +432,7 @@ export function PageProjects({
               onOpenChange={(value) => {
                 setPickerOpen(value);
                 if (!value)
-                  queueMicrotask(() => {
-                    // The leaf restores its hidden anchor first. Do not steal focus from a new dialog.
-                    const active = document.activeElement;
-                    if (
-                      active !== document.body &&
-                      !active?.closest('.page-header-projects-anchor')
-                    )
-                      return;
-                    const target = origin.current?.isConnected ? origin.current : addButton.current;
-                    target?.focus({ preventScroll: true });
-                  });
+                  restoreProjectFocus(pickerAnchor.current, origin.current, groupButton.current);
               }}
               toggle={(target, name) => void toggle(target, name)}
               create={() => setCreating(true)}

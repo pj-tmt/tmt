@@ -272,6 +272,8 @@ on wide screens and stack on compact screens; absent pins leave no empty section
 Projects keep every membership and use a stable project-name mapping onto the existing blue, violet, amber and green role tints. Row stages use soft-filled role chips with dots; Needs you keeps its real count. Stage, creator, time and
 progress show only available metadata; no missing summary becomes a false zero or stage.
 
+Writer project memberships form one pill-shaped group control: header shows up to three pills, rows the first pill, then +N and Plus. Pills are 22px high, 12px/500 with 9px inline padding. Below 640px only the header reduces to Plus; stacked rows retain disclosure. Viewer tags remain read-only filters.
+
 Wide rows separate title, projects, stage, updated, author and access; compact rows stack
 these without horizontal page overflow. Rows with divider rules remain square inside the
 fully bordered rounded list frame. Task progress is compact count text, without a repeated bar or comments line. Home is the sole vertical viewport, with the shared page insets and a truthful count/access footer. Successful action feedback remains an unobtrusive live region, while errors stay visible. Selection, keyboard actions, incremental rendering and

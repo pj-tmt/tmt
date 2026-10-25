@@ -68,6 +68,7 @@ const idle = { comments: 0, waiting: false, needsYou: 0 };
 
 export async function mountPageList(
   size:
+    | 'groups'
     | 'few'
     | 'bulk'
     | 'none'
@@ -218,14 +219,21 @@ export async function mountPageList(
                       ...(size === 'shells'
                         ? [page(9, 'Reading shell', [], { pageType: 'shell' })]
                         : []),
-                      page(1, 'Alpha plan', ['design', 'q4 plan'], {
-                        summary: {
-                          comments: 3,
-                          waiting: true,
-                          needsYou: 1,
-                          author: 'Studio agent',
+                      page(
+                        1,
+                        'Alpha plan',
+                        size === 'groups'
+                          ? ['design', 'q4 plan', 'research', 'ops']
+                          : ['design', 'q4 plan'],
+                        {
+                          summary: {
+                            comments: 3,
+                            waiting: true,
+                            needsYou: 1,
+                            author: 'Studio agent',
+                          },
                         },
-                      }),
+                      ),
                       page(2, 'Beta review', ['design'], {
                         summary: { comments: 1, waiting: false, needsYou: 0, author: 'Ada' },
                       }),

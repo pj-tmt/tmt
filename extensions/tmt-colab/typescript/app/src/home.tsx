@@ -18,7 +18,7 @@ import {
   NewProjectDialog,
   projectFailureText,
 } from './project-dialogs.js';
-import { PageProjectsMenu } from './page-projects.js';
+import { PageRowProjects } from './page-projects.js';
 import { pinFailureText } from './pins.js';
 import {
   applyProjectChanges,
@@ -385,6 +385,15 @@ export function Home() {
     const root = section.current;
     const boundary = controlsBoundary.current;
     if (!root || !boundary) return;
+    const phone = matchMedia('(max-width: 650px)');
+    const scopeControl = (target: EventTarget | null) =>
+      target instanceof HTMLElement &&
+      root.contains(target) &&
+      target.closest('.page-scope-filters')
+        ? target
+        : undefined;
+    // A scope change restarts this observer while its same button can retain focus.
+    let focusedScope = scopeControl(document.activeElement);
     // Observe normal flow, never the sticky row: its changing height must not move the trigger.
     const measure = () => {
       const next = boundary.getBoundingClientRect().bottom <= root.getBoundingClientRect().top;
@@ -397,7 +406,7 @@ export function Home() {
         else if (
           next &&
           (active.closest('.page-list-sort') ||
-            (matchMedia('(max-width: 650px)').matches && active.closest('.page-scope-filters')))
+            (phone.matches && active.closest('.page-scope-filters')))
         )
           compactFocus.current = '.page-list-search [contenteditable]';
       }
@@ -412,34 +421,29 @@ export function Home() {
     for (const node of root.querySelectorAll('.page-list-hero, .page-pins, .tmt-ui-tabs-header'))
       resize.observe(node);
     observer.observe(boundary);
-    const phone = matchMedia('(max-width: 650px)');
     // Some browsers clear focus as the media rule hides a project button, before the
-    // change event. Retain only that in-flight focus; an ordinary blur clears it.
-    let focusedScope: HTMLElement | undefined;
+    // change event. Keep that handoff through layout reflow; focus entering another control clears it.
     const remember = (event: FocusEvent) => {
-      focusedScope =
-        event.target instanceof HTMLElement &&
-        root.contains(event.target) &&
-        event.target.closest('.page-scope-filters')
-          ? event.target
-          : undefined;
+      focusedScope = scopeControl(event.target);
     };
     const leave = (event: FocusEvent) => {
-      if (!phone.matches || !root.hasAttribute('data-compact') || event.relatedTarget !== null)
-        focusedScope = undefined;
+      if (!phone.matches || event.relatedTarget !== null) focusedScope = undefined;
     };
     const fit = () => {
       const active = document.activeElement;
-      if (
-        phone.matches &&
-        root.hasAttribute('data-compact') &&
-        (active?.closest('.page-scope-filters') ||
-          (active === document.body && focusedScope?.isConnected))
-      )
+      const scope =
+        active instanceof HTMLElement && active.closest('.page-scope-filters')
+          ? active
+          : active === document.body
+            ? focusedScope
+            : undefined;
+      // CSS can hide the focused scope before the media-query change runs.
+      if (phone.matches && scope?.isConnected && !scope.getClientRects().length) {
         root
           .querySelector<HTMLElement>('.page-list-search [contenteditable]')
           ?.focus({ preventScroll: true });
-      focusedScope = undefined;
+        focusedScope = undefined;
+      } else if (!phone.matches) focusedScope = undefined;
     };
     root.addEventListener('focusin', remember);
     root.addEventListener('focusout', leave);
@@ -599,14 +603,16 @@ export function Home() {
     setStatus({ text: full ? `${done} ${t.skippedFull(full)}` : done, failed: false });
   }
   const [projectsRequest, setProjectsRequest] = useState<{ pageId: string; count: number }>();
+  function openProjects(pageId: string) {
+    setProjectsRequest((previous) => ({ pageId, count: (previous?.count ?? 0) + 1 }));
+  }
   usePageListKeys({
     section,
     managed: !!port,
     selecting: chosen.length > 0,
     select: toggleSelected,
     clearSelection: () => setSelectedIds(new Set()),
-    projects: (pageId) =>
-      setProjectsRequest((previous) => ({ pageId, count: (previous?.count ?? 0) + 1 })),
+    projects: openProjects,
     archive: (pageId) => {
       if (archived) return;
       const targets = pageId === undefined ? chosen : pages.filter((page) => page.id === pageId);
@@ -842,9 +848,20 @@ export function Home() {
                       ) : undefined
                     }
                     projects={
-                      p.projects?.length || port ? (
+                      port ? (
+                        <PageRowProjects
+                          page={p}
+                          names={projectNames}
+                          openRequest={
+                            projectsRequest?.pageId === p.id ? projectsRequest.count : undefined
+                          }
+                          open={() => openProjects(p.id)}
+                          toggle={(page, name) => void toggleOnPage(page, name)}
+                          create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
+                        />
+                      ) : p.projects?.length ? (
                         <ul className="page-projects" aria-label={t.projects}>
-                          {p.projects?.map((name) => (
+                          {p.projects.map((name) => (
                             <li key={name}>
                               <button
                                 type="button"
@@ -860,23 +877,6 @@ export function Home() {
                               </button>
                             </li>
                           ))}
-                          {port && (
-                            <li className="page-project-entry">
-                              <span className="page-project-entry-anchor">
-                                <PageProjectsMenu
-                                  page={p}
-                                  openRequest={
-                                    projectsRequest?.pageId === p.id
-                                      ? projectsRequest.count
-                                      : undefined
-                                  }
-                                  names={projectNames}
-                                  toggle={(page, name) => void toggleOnPage(page, name)}
-                                  create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
-                                />
-                              </span>
-                            </li>
-                          )}
                         </ul>
                       ) : null
                     }
@@ -903,12 +903,7 @@ export function Home() {
                           <PageListActions
                             page={p}
                             manage={() => setManagedPage({ id: p.id, title: p.title })}
-                            projects={() =>
-                              setProjectsRequest((previous) => ({
-                                pageId: p.id,
-                                count: (previous?.count ?? 0) + 1,
-                              }))
-                            }
+                            projects={() => openProjects(p.id)}
                             operate={(kind, page) => setOperation({ kind, pages: [page] })}
                           />
                         </>

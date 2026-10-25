@@ -79,23 +79,26 @@ const showAll = (page: Page) =>
     .getByRole('tab', { name: /^All, \d+\+?$/ })
     .click();
 
-test("a page's project button filters the list, adds a token and removes it again", async ({
+test("a writer's project group opens the picker while search retains project filtering", async ({
   page,
 }) => {
   await mount(page);
+  const group = rows(page).nth(1).locator('.page-project-group');
+  await group.click();
+  await expect(page.getByRole('menuitemcheckbox', { name: 'design' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await page.keyboard.press('Escape');
+  await expect(group).toBeFocused();
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review', 'Gamma notes', 'Delta ops']);
-  const design = rows(page).nth(1).getByRole('button', { name: 'design', exact: true });
-  await expect(design).toHaveAttribute('aria-pressed', 'false');
-  await design.click();
-  await expect(design).toHaveAttribute('aria-pressed', 'true');
+  await expect(app(page).locator('[data-project-filter]')).toHaveCount(0);
+  expect(await requests(page)).toEqual([]);
+  await filterProject(page, 'design');
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
-  await expect(app(page).locator('[data-project-filter="design"]')).toBeVisible();
-  expect(new URL(page.url()).hash).toContain('project');
   await app(page).getByRole('button', { name: 'Remove project filter design' }).click();
   await expect(titles(page)).toHaveCount(4);
-  await expect(design).toHaveAttribute('aria-pressed', 'false');
-  // Each of a page's projects filters.
-  await rows(page).first().getByRole('button', { name: 'q4 plan' }).click();
+  await filterProject(page, 'q4 plan');
   await expect(titles(page)).toHaveText(['Alpha plan']);
 });
 
@@ -1073,11 +1076,11 @@ test('the page menu adds and removes a project with one whole-set request each',
 }) => {
   await mount(page);
   const gamma = rows(page).filter({ hasText: 'Gamma notes' });
-  await gamma.getByRole('button', { name: 'Projects for Gamma notes' }).click();
+  await gamma.locator('.page-project-group').click();
   const design = page.getByRole('menuitemcheckbox', { name: 'design' });
   await expect(design).toHaveAttribute('aria-checked', 'false');
   await design.click();
-  await expect(gamma.getByRole('button', { name: 'design', exact: true })).toBeVisible();
+  await expect(gamma.locator('.page-project-group-chip')).toBeVisible();
   await expect(app(page).getByRole('status')).toHaveText('Projects saved.');
   expect(await requests(page)).toEqual([
     {
@@ -1085,9 +1088,9 @@ test('the page menu adds and removes a project with one whole-set request each',
       changes: [{ pageId: 'c0000003-1111-4111-8111-000000000001', projects: ['design'] }],
     },
   ]);
-  await gamma.getByRole('button', { name: 'Projects for Gamma notes' }).click();
+  await gamma.locator('.page-project-group').click();
   await page.getByRole('menuitemcheckbox', { name: 'design' }).click();
-  await expect(gamma.locator('.page-project')).toHaveCount(0);
+  await expect(gamma.locator('.page-project-group-chip')).toHaveCount(0);
   expect((await requests(page)).at(-1)!.changes[0].projects).toEqual([]);
 });
 
@@ -1095,7 +1098,7 @@ test('a ninth project is refused before any request', async ({ page }) => {
   await mount(page);
   const alpha = rows(page).filter({ hasText: 'Alpha plan' });
   for (const name of ['a1', 'a2', 'a3', 'a4', 'a5', 'a6']) {
-    await alpha.getByRole('button', { name: 'Projects for Alpha plan' }).click();
+    await alpha.locator('.page-project-group').click();
     await page.getByRole('menuitem', { name: 'New project…' }).click();
     await app(page).getByRole('textbox', { name: 'Project name' }).fill(name);
     await app(page).getByRole('checkbox', { name: 'Alpha plan', exact: true }).check();
@@ -1103,8 +1106,12 @@ test('a ninth project is refused before any request', async ({ page }) => {
     await expect(app(page).getByRole('dialog')).toHaveCount(0);
   }
   expect((await requests(page)).length).toBe(6);
-  await expect(alpha.locator('.page-project')).toHaveCount(8);
-  await alpha.getByRole('button', { name: 'Projects for Alpha plan' }).click();
+  await expect(alpha.locator('.page-project-group')).toHaveAttribute(
+    'title',
+    /a1, a2, a3, a4, a5, a6, design, q4 plan/,
+  );
+  await expect(alpha.locator('.page-project-group-chip')).toHaveText(['a1', '+7']);
+  await alpha.locator('.page-project-group').click();
   await expect(page.getByRole('menuitem', { name: 'New project…' })).toBeDisabled();
   await expect(page.getByRole('menuitemcheckbox', { name: 'ops' })).toBeDisabled();
   expect((await requests(page)).length).toBe(6);
@@ -1177,7 +1184,7 @@ test('a project with no page is one request, is listed everywhere, and takes pag
   // An empty project draws no zero beside its name.
   await expect(menuProject(page, 'backlog')).toHaveText(/^backlog$/);
   const gamma = app(page).locator('[data-page-id="c0000003-1111-4111-8111-000000000001"]');
-  await gamma.getByRole('button', { name: 'Projects for Gamma notes' }).click();
+  await gamma.locator('.page-project-group').click();
   await page.getByRole('menuitemcheckbox', { name: 'backlog' }).click();
   await expect(menuProject(page, 'backlog')).toHaveText(/^backlog\s*1$/);
   expect((await requests(page)).at(-1)!.changes).toEqual([
@@ -1356,7 +1363,7 @@ for (const width of [1440, 390])
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`2588-search-by-${width}-${theme}.png`) });
       await page.keyboard.press('Escape');
-      await app(page).getByRole('button', { name: 'Projects for Alpha plan' }).click();
+      await rows(page).filter({ hasText: 'Alpha plan' }).locator('.page-project-group').click();
       await expect(page.getByRole('menuitemcheckbox', { name: 'design' })).toBeVisible();
       await page.screenshot({
         path: await capturePath(`2588-projects-menu-${width}-${theme}.png`),
@@ -1492,9 +1499,16 @@ for (const width of [1440, 390, 320])
         document.documentElement.dataset.theme = theme;
       }, theme);
       await expect(titles(page)).toHaveCount(5);
-      // The long projects are row buttons before any filter is typed.
-      for (const name of ['W'.repeat(32), '漢'.repeat(32)])
-        await expect(rows(page).getByRole('button', { name, exact: true }).first()).toBeVisible();
+      // The group keeps both full names accessible while its first visible pill truncates.
+      const longGroup = rows(page).filter({ hasText: 'Long names' }).locator('.page-project-group');
+      await expect(longGroup).toHaveAccessibleName(
+        `Projects for Long names: ${'漢'.repeat(32)}, ${'W'.repeat(32)}`,
+      );
+      await expect(longGroup.locator('.page-project-group-chip')).toHaveText([
+        '漢'.repeat(32),
+        '+1',
+      ]);
+      await expect(longGroup.locator('.page-project-group-chip').first()).toBeVisible();
       await insideViewport(page);
       await search(page).click();
       for (const [typed, option] of [
@@ -1680,4 +1694,22 @@ test('every focusable in the shell list shows one inset frame (#3998 tab walk)',
     expect(seen.size, scheme).toBeGreaterThan(15);
   }
   expect(problems).toEqual([]);
+});
+
+test('viewer project tags keep filtering without a picker or empty labelled list', async ({
+  page,
+}) => {
+  await mount(page, 'unmanaged');
+  const design = rows(page)
+    .filter({ hasText: 'Beta review' })
+    .getByRole('button', { name: 'design', exact: true });
+  await expect(design).toHaveAttribute('aria-pressed', 'false');
+  await expect(
+    rows(page).filter({ hasText: 'Gamma notes' }).locator('ul[aria-label="Projects"]'),
+  ).toHaveCount(0);
+  await expect(app(page).locator('.page-project-group')).toHaveCount(0);
+  await design.click();
+  await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
+  await expect(design).toHaveAttribute('aria-pressed', 'true');
+  expect(await requests(page)).toEqual([]);
 });

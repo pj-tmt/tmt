@@ -87,9 +87,10 @@ for (const width of [1440, 390])
       page,
     }) => {
       const header = await open(page, width, theme);
-      if (width < 640) await expect(chips(header)).toBeHidden();
+      if (width < 640)
+        await expect(chips(header).locator('.page-project-group-chip').first()).toBeHidden();
       else {
-        await expect(chips(header).locator('.page-header-project-chip')).toHaveText([
+        await expect(chips(header).locator('.page-project-group-chip')).toHaveText([
           'alpha',
           'beta',
         ]);
@@ -97,9 +98,8 @@ for (const width of [1440, 390])
       }
       // The leaf anchor stays hidden; the admitted + remains visible at either width.
       await expect(header.locator('.page-header-projects-anchor button')).toBeHidden();
-      await expect(
-        header.getByRole('button', { name: 'Add to project', exact: true }),
-      ).toBeVisible();
+      await expect(chips(header)).toBeVisible();
+      await expect(header.locator('.page-project-group')).toHaveCount(1);
       expect(await noOverflow(page)).toBe(true);
       await capture(page, `projects-two-chips-${width}-${theme}.png`);
       await openPicker(page, header);
@@ -122,12 +122,12 @@ for (const width of [1440, 390])
       await expect(
         header.getByRole('button', { name: 'Add to project', exact: true }),
       ).toBeVisible();
-      await expect(header.locator('.page-header-project-chip')).toHaveCount(0);
+      await expect(header.locator('.page-project-group-chip')).toHaveCount(0);
       expect(await noOverflow(page)).toBe(true);
       await capture(page, `projects-none-${width}-${theme}.png`);
       await openPicker(page, header);
       await page.getByRole('menuitemcheckbox', { name: 'gamma' }).click();
-      await expect(header.locator('.page-header-project-chip')).toHaveText(['gamma']);
+      await expect(header.locator('.page-project-group-chip')).toHaveText(['gamma']);
       expect((await requests(page)).map((request) => request.projects)).toEqual([['gamma']]);
     });
 
@@ -153,14 +153,14 @@ test('choosing a project writes the page set and updates the chips; unchecking r
   const header = await open(page);
   await openPicker(page, header);
   await page.getByRole('menuitemcheckbox', { name: 'gamma' }).click();
-  await expect(header.locator('.page-header-project-chip')).toHaveText(['alpha', 'beta', 'gamma']);
+  await expect(header.locator('.page-project-group-chip')).toHaveText(['alpha', 'beta', 'gamma']);
   expect((await requests(page)).map((request) => request.projects)).toEqual([
     ['alpha', 'beta', 'gamma'],
   ]);
   await expect(header.locator('.page-header-projects-status')).toHaveText(text.pageList.saved);
   await openPicker(page, header);
   await page.getByRole('menuitemcheckbox', { name: 'alpha' }).click();
-  await expect(header.locator('.page-header-project-chip')).toHaveText(['beta', 'gamma']);
+  await expect(header.locator('.page-project-group-chip')).toHaveText(['beta', 'gamma']);
   expect((await requests(page)).at(-1)!.projects).toEqual(['beta', 'gamma']);
 });
 
@@ -237,7 +237,7 @@ test('a page in eight projects cannot take a ninth or a new one', async ({ page 
   const eight = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8'];
   const header = await open(page, 1440, 'light', { current: eight, all: [...eight, 'p9'] });
   // Three chips and a count of the rest.
-  await expect(header.locator('.page-header-project-chip')).toHaveText(['p1', 'p2', 'p3', '+5']);
+  await expect(header.locator('.page-project-group-chip')).toHaveText(['p1', 'p2', 'p3', '+5']);
   await openPicker(page, header);
   await expect(page.getByRole('menuitemcheckbox', { name: 'p9' })).toBeDisabled();
   await expect(page.getByRole('menuitem', { name: text.pageList.newProjectItem })).toBeDisabled();
@@ -252,13 +252,13 @@ test('New project… names a project and puts this page in it', async ({ page })
   await expect(dialog.getByRole('checkbox')).toBeChecked();
   await dialog.getByRole('button', { name: text.pageList.create, exact: true }).click();
   await expect(dialog).toBeHidden();
-  await expect(header.locator('.page-header-project-chip')).toHaveText(['alpha', 'beta', 'delta']);
+  await expect(header.locator('.page-project-group-chip')).toHaveText(['alpha', 'beta', 'delta']);
   expect((await requests(page)).at(-1)!.projects).toEqual(['alpha', 'beta', 'delta']);
 });
 
 test('a page opened by a link reads the list once and then shows its chips', async ({ page }) => {
   const header = await open(page, 1440, 'light', { deepLink: true });
-  await expect(chips(header).locator('.page-header-project-chip')).toHaveText(['alpha', 'beta']);
+  await expect(chips(header).locator('.page-project-group-chip')).toHaveText(['alpha', 'beta']);
   expect(await reads(page)).toBe(1);
   await openPicker(page, header);
   // The picker opens at once on what is known, with this page's projects checked.
@@ -270,7 +270,7 @@ test('a page opened by a link in a strict tree still shows its chips, with no re
   page,
 }) => {
   const header = await open(page, 1440, 'light', { deepLink: true, strict: true });
-  await expect(chips(header).locator('.page-header-project-chip')).toHaveText(['alpha', 'beta']);
+  await expect(chips(header).locator('.page-project-group-chip')).toHaveText(['alpha', 'beta']);
   const { spaceHomeReads, spaceHomeRunning } = await proof(page);
   expect(spaceHomeReads).toBeLessThanOrEqual(2);
   expect(spaceHomeRunning).toBe(0);
@@ -289,7 +289,7 @@ test('arriving from the list shows the chips with no read, and the picker refres
   page,
 }) => {
   const header = await open(page);
-  await expect(chips(header).locator('.page-header-project-chip')).toHaveText(['alpha', 'beta']);
+  await expect(chips(header).locator('.page-project-group-chip')).toHaveText(['alpha', 'beta']);
   expect(await reads(page)).toBe(0);
   await openPicker(page, header);
   await expect.poll(() => reads(page)).toBe(1);
@@ -302,7 +302,7 @@ test('a viewer who cannot write projects sees neither chips nor Projects…', as
   const header = page.locator('.tmt-ui-header:visible');
   await expect(chips(header)).toHaveCount(0);
   await expect(header.getByRole('button', { name: 'Add to project', exact: true })).toHaveCount(0);
-  await expect(header.locator('.page-header-project-chip')).toHaveCount(0);
+  await expect(header.locator('.page-project-group-chip')).toHaveCount(0);
   await page.getByRole('button', { name: 'More', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: 'Projects…' })).toHaveCount(0);
 });
@@ -409,3 +409,67 @@ for (const width of [1440, 390])
     expect((await requests(page)).map((request) => request.projects)).toEqual([['gamma']]);
     expect(await noOverflow(page)).toBe(true);
   });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    for (const current of [['alpha'], ['alpha', 'beta', 'gamma', 'delta']])
+      test(`one header project group retains disclosure and keyboard focus: ${current.length} at ${width} ${theme}`, async ({
+        page,
+      }) => {
+        const header = await open(page, width, theme, { current, all: [...current, 'extra'] });
+        const group = header.locator('.page-project-group');
+        await expect(group).toHaveAttribute(
+          'aria-label',
+          `Projects for Live shared page: ${current.join(', ')}`,
+        );
+        await expect(group).toHaveAttribute(
+          'title',
+          `Projects for Live shared page: ${current.join(', ')}`,
+        );
+        await expect(group).toHaveAttribute('aria-expanded', 'false');
+        await expect(group).toHaveCount(1);
+        const pills = group.locator('.page-project-group-chip');
+        await expect(pills).toHaveText(
+          current.length === 1 ? current : [...current.slice(0, 3), '+1'],
+        );
+        if (width === 390) await expect(pills.first()).toBeHidden();
+        else {
+          const metrics = await pills.first().evaluate((node) => {
+            const style = getComputedStyle(node);
+            return {
+              height: node.getBoundingClientRect().height,
+              font: style.fontSize,
+              weight: style.fontWeight,
+              start: style.paddingLeft,
+              end: style.paddingRight,
+            };
+          });
+          expect(metrics).toEqual({
+            height: 22,
+            font: '12px',
+            weight: '500',
+            start: '9px',
+            end: '9px',
+          });
+          const groupBox = (await group.boundingBox())!;
+          const pin = (await header.locator('.page-header-pin').boundingBox())!;
+          expect(pin.x - groupBox.x - groupBox.width).toBeCloseTo(8);
+          expect(pin.height).toBe(28);
+        }
+        for (const key of ['Enter', 'Space']) {
+          await group.focus();
+          await group.press(key);
+          await expect(group).toHaveAttribute('aria-expanded', 'true');
+          await expect(page.getByRole('menuitemcheckbox')).toHaveCount(current.length + 1);
+          await page.keyboard.press('Escape');
+          await expect(group).toBeFocused();
+          await expect(group).toHaveAttribute('aria-expanded', 'false');
+        }
+        await group.click();
+        await page.getByRole('menuitem', { name: text.pageList.newProjectItem }).click();
+        const dialog = page.getByRole('dialog', { name: text.pageList.newProject });
+        await expect(dialog).toBeVisible();
+        await expect(dialog.getByRole('textbox', { name: text.pageList.nameField })).toBeFocused();
+        expect(await requests(page)).toEqual([]);
+        expect(await noOverflow(page)).toBe(true);
+      });
