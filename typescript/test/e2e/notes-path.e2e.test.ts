@@ -123,12 +123,12 @@ it.each(['claude', 'codex'] as const)(
         expect(context(8)).not.toContain('Context was compacted.');
         if (saved) {
           expect(context(2)).toContain(
-            `Context was compacted. Re-read your notes using tmt notes path --identity '${identity.id}' and update them with anything still open.`
+            `Context was compacted. Re-read your notes using tmt notes path --identity '${identity.id}'. Refresh open work, decisions and rules; remove finished items and move history to issues. Keep notes near 8,000 bytes.`
           );
           const notebook = JSON.parse(results[6].stdout);
           expect(notebook).toMatchObject({ identityId: identity.id, created: true });
           expect(context(7)).toContain(
-            `Context was compacted. Re-read your notes at ${JSON.stringify(notebook.path)} and update them with anything still open.`
+            `Context was compacted. Re-read your notes at ${JSON.stringify(notebook.path)}. Refresh open work, decisions and rules; remove finished items and move history to issues. Keep notes near 8,000 bytes.`
           );
           expect(fs.readFileSync(notebook.path, 'utf8')).toBe('');
         } else {
