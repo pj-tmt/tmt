@@ -31,10 +31,13 @@ case "$*" in
  'identity ls --json') cat inventory.json ;;
  'api') input=$(cat); printf '%s\n' "$input" >> calls
    case "$input" in
+    *'"operation":"capabilities"'*) cat capabilities.json ;;
     *'"operation":"orchestration.read"'*)
       if test -f slow-receiving-read; then sleep 2.1; fi
       printf '%s\n' '{"receivingRevision":0}' ;;
-    *'"operation":"digest.receiving.sync"'*) cat receiving.json ;;
+    *'"operation":"digest.receiving.sync"'*)
+      if test -f sync-fails; then printf '%s\n' '{"error":{"code":"ORCH_CONFLICT","message":"changed"}}'; exit 5; fi
+      cat receiving.json ;;
     *'"operation":"digest.checklist.history"'*) cat history.json ;;
     *'"operation":"digest.policy.show"'*) cat policies.json ;;
     *'"operation":"digest.stats.show"'*) cat stats.json ;;
@@ -53,6 +56,10 @@ esac
         fixture.write(
             "inventory.json",
             json!({"identities":[{"id":MEMBER,"name":"worker"}]}),
+        );
+        fixture.write(
+            "capabilities.json",
+            json!({"operations":["digest.receiving.sync"]}),
         );
         fixture.policy(0, false);
         fixture.stats(10, 0);
@@ -147,6 +154,106 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         fs::remove_dir_all(&self.0).unwrap();
     }
+}
+
+#[test]
+fn explicit_capability_absence_keeps_legacy_leases_and_emits_one_upgrade_diagnostic() {
+    for configured in ["20s", "auto", "off"] {
+        let fixture = Fixture::new();
+        fixture.settings(configured, None);
+        fixture.write(
+            "capabilities.json",
+            json!({"operations":["digest.policy.set","digest.policy.show"]}),
+        );
+        fixture.policy(u64::from(configured == "off"), configured == "off");
+        let mut port = fixture.port();
+        let rows = port.observe().unwrap();
+        assert_eq!(rows[0].mode, Receiving::parse(configured).unwrap());
+        let first = fixture.writes();
+        let lease = first
+            .iter()
+            .find(|r| {
+                r["operation"] == "digest.policy.set" || r["operation"] == "digest.policy.clear"
+            })
+            .unwrap();
+        if configured == "off" {
+            assert_eq!(lease["operation"], "digest.policy.clear");
+        } else {
+            assert_eq!(lease["operation"], "digest.policy.set");
+            assert_eq!(
+                lease["input"]["maxHoldMs"],
+                if configured == "auto" {
+                    300_000
+                } else {
+                    20_000
+                }
+            );
+        }
+        fixture.policy(2, configured != "off");
+        port.observe().unwrap();
+        let calls = fixture.calls();
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|s| s.contains("\"operation\":\"capabilities\""))
+                .count(),
+            1
+        );
+        assert!(
+            !calls
+                .iter()
+                .any(|s| s.contains("orchestration.read") || s.contains("digest.receiving.sync"))
+        );
+        let mut diagnostic = Vec::new();
+        port.finish_to(&mut diagnostic).unwrap();
+        assert_eq!(
+            String::from_utf8(diagnostic).unwrap(),
+            format!("{LEGACY_RECEIVING_DIAGNOSTIC}\n")
+        );
+    }
+}
+
+#[test]
+fn advertised_receiving_errors_never_fall_back_to_configured_leases() {
+    let fixture = Fixture::new();
+    fs::write(fixture.0.join("sync-fails"), "").unwrap();
+    let mut port = fixture.port();
+    for _ in 0..2 {
+        assert_eq!(
+            port.observe().err().expect("observation must fail").code,
+            "ORCH_CONFLICT"
+        );
+    }
+    assert!(fixture.writes().is_empty());
+    assert_eq!(
+        fixture
+            .calls()
+            .iter()
+            .filter(|s| s.contains("\"operation\":\"capabilities\""))
+            .count(),
+        1
+    );
+    let mut diagnostic = Vec::new();
+    port.finish_to(&mut diagnostic).unwrap();
+    assert!(diagnostic.is_empty());
+}
+
+#[test]
+fn malformed_capabilities_are_not_explicit_absence() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "capabilities.json",
+        json!({"operations":["digest.receiving.sync",null]}),
+    );
+    let mut port = fixture.port();
+    assert_eq!(
+        port.observe().err().expect("observation must fail").code,
+        "CORE_RESPONSE_INVALID"
+    );
+    assert!(fixture.writes().is_empty());
+    let mut diagnostic = Vec::new();
+    port.finish_to(&mut diagnostic).unwrap();
+    assert!(diagnostic.is_empty());
 }
 
 #[test]

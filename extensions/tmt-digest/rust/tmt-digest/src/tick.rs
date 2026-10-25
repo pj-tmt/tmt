@@ -20,14 +20,19 @@ pub enum Receiving {
     Urgent,
     Hold,
 }
-#[cfg(test)]
-impl Receiving {
-    fn parse(text: &str) -> Result<Self, Error> {
-        Ok(match crate::settings::Mode::parse(text)? {
+impl From<crate::settings::Mode> for Receiving {
+    fn from(mode: crate::settings::Mode) -> Self {
+        match mode {
             crate::settings::Mode::Off => Self::Direct,
             crate::settings::Mode::Auto => Self::Auto,
             crate::settings::Mode::Interval { milliseconds, .. } => Self::Batch { milliseconds },
-        })
+        }
+    }
+}
+#[cfg(test)]
+impl Receiving {
+    fn parse(text: &str) -> Result<Self, Error> {
+        crate::settings::Mode::parse(text).map(Self::from)
     }
 }
 

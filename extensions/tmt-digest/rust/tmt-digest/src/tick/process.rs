@@ -16,6 +16,8 @@ use std::{
 const MAX_MS: u64 = 9_007_199_254_740_991;
 /// An `auto` member's backlog is offered again after this long while it stays held.
 const REOFFER: Duration = Duration::from_secs(15);
+const LEGACY_RECEIVING_DIAGNOSTIC: &str =
+    "Update tmt to enable orchestration receiving. Existing Digest delivery continues.";
 
 pub struct TickProcess {
     core: Core,
@@ -23,6 +25,7 @@ pub struct TickProcess {
     settings_path: PathBuf,
     synchronized: BTreeMap<String, Receiving>,
     receiving_revision: Option<u64>,
+    receiving_supported: Option<bool>,
     failed: BTreeSet<String>,
     /// The newest recorded `(rule, outcome, oldest held arrival)` per member, so
     /// the once-a-second loop records a change of decision and not each repeat.
@@ -42,6 +45,7 @@ impl TickProcess {
             settings_path,
             synchronized: BTreeMap::new(),
             receiving_revision: None,
+            receiving_supported: None,
             failed: BTreeSet::new(),
             decided: BTreeMap::new(),
             offered: BTreeMap::new(),
@@ -56,7 +60,28 @@ impl TickProcess {
     fn publish_receiving(
         &mut self,
         settings: &DigestConfig,
+        identities: &[String],
     ) -> Result<Option<BTreeMap<String, Receiving>>, Error> {
+        if !self.within_minute()? {
+            return Ok(None);
+        }
+        if self.receiving_supported.is_none() {
+            let capabilities = self.core.api("capabilities", json!({}))?;
+            let mut supported = false;
+            for operation in capabilities["operations"].as_array().ok_or_else(invalid)? {
+                supported |= operation.as_str().ok_or_else(invalid)? == "digest.receiving.sync";
+            }
+            self.receiving_supported = Some(supported);
+        }
+        if self.receiving_supported == Some(false) {
+            // Remove at the stable cut: https://github.com/pj-tmt/tmt/issues/5124.
+            // Only explicit capability absence retains the existing tick rule.
+            return identities
+                .iter()
+                .map(|id| Ok((id.clone(), Receiving::from(settings.effective(id)?))))
+                .collect::<Result<BTreeMap<_, _>, Error>>()
+                .map(Some);
+        }
         if !self.within_minute()? {
             return Ok(None);
         }
@@ -366,6 +391,13 @@ impl TickProcess {
         self.flush(row, rule, rule == Rule::AutoCap)
     }
     pub fn finish(self) -> Result<(), Error> {
+        self.finish_to(&mut std::io::stderr().lock())
+    }
+    fn finish_to(self, diagnostic: &mut impl std::io::Write) -> Result<(), Error> {
+        if self.receiving_supported == Some(false) {
+            // A diagnostic failure cannot stop ordinary message delivery.
+            let _ = writeln!(diagnostic, "{LEGACY_RECEIVING_DIAGNOSTIC}");
+        }
         if self.errors.is_empty() {
             Ok(())
         } else {
@@ -410,7 +442,7 @@ impl TickPort for TickProcess {
                 self.collect_history(id);
             }
         }
-        let Some(receiving) = self.publish_receiving(&settings)? else {
+        let Some(receiving) = self.publish_receiving(&settings, &ids)? else {
             return Ok(vec![]);
         };
         let mut observations = vec![];
@@ -471,7 +503,8 @@ impl TickPort for TickProcess {
             return Ok(());
         }
         let settings = DigestConfig::load(&self.settings_path)?;
-        let Some(receiving) = self.publish_receiving(&settings)? else {
+        let ids = [id.to_owned()];
+        let Some(receiving) = self.publish_receiving(&settings, &ids)? else {
             return Ok(());
         };
         let mode = *receiving.get(id).ok_or_else(invalid)?;
@@ -482,7 +515,6 @@ impl TickPort for TickProcess {
         let policies = self
             .core
             .api("digest.policy.show", json!({"identities": [id]}))?;
-        let ids = [id.to_owned()];
         self.synchronize(
             id,
             &settings,

@@ -19,6 +19,8 @@ observations, without a last-sent timestamp or persistent scheduler state. Its s
 
 ## Settings and deadlines
 
+Each tick reads Core capabilities once: only explicit absence of `digest.receiving.sync` retains the existing legacy settings-to-lease behavior with one stderr upgrade diagnostic, while advertised operations always use Core `effective()` without error fallback; [remove the legacy branch at the stable cut](https://github.com/pj-tmt/tmt/issues/5124).
+
 The [settings contract](digest-v1.md#settings) owns configured Base input and attribution.
 The tick publishes the enabled switch, default and at most 256 explicit receiving
 overrides through Core's CAS `digest.receiving.sync`, then consumes its current
