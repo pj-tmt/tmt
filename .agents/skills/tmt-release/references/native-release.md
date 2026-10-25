@@ -587,6 +587,17 @@ that feedback does not replace an earlier failed Code quality result, which need
 an authorized rerun. Merge-group checks also fail on invalid attribution or
 unavailable evidence. No required-check name or workflow permission changes.
 
+## PR commit emails
+
+`Code quality` fails a pull request whose own commits (`base..head` from the event) carry an
+author or committer address ending in `.local`, the hostname git guesses when no identity is
+configured; squashing would otherwise add it to main as a `Co-authored-by` trailer. The
+failure names each commit and the fix, `git rebase --exec 'git commit --amend --reset-author
+--no-edit' <base>` followed by a lease-protected force push. The step runs first after tooling
+setup, only on `pull_request` events (queued and merged commits are not judged), uses no REST
+and fails closed when the event or range is unavailable. The owner is
+`typescript/scripts/pr-commit-email-check.mjs`; existing green results stay until a PR's next push.
+
 ## Conventional PR titles
 
 `typescript/scripts/pr-title-check.mjs` owns the exported `CONVENTIONAL_PR_TYPES` policy and

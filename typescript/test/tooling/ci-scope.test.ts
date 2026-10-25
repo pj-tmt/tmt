@@ -3940,6 +3940,19 @@ it('enforces current PR Agent attribution for PRs and merge groups in Code quali
   expect(ci).not.toContain('pull-requests: write');
 });
 
+it('rejects hostname commit addresses on pull requests first in Code quality', () => {
+  const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const quality = ci.split('\n  code-quality:\n')[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
+  const step = quality.split('      - name: Check PR commit author and committer emails\n')[1];
+  expect(step.split('\n      - name:')[0]).toBe(
+    "        if: github.event_name == 'pull_request'\n        run: node typescript/scripts/pr-commit-email-check.mjs"
+  );
+  expect(quality.indexOf('Check PR commit author and committer emails')).toBeLessThan(
+    quality.indexOf('Install dependencies')
+  );
+  expect(quality).toContain('test/tooling/pr-commit-email-check.test.ts');
+});
+
 describe('native Auth+Firestore emulator selection', () => {
   it.each([
     'extensions/tmt-remote/rust/tmt-remote/src/firebase_auth.rs',
