@@ -668,3 +668,67 @@ it.each([
     expect(result.state).toEqual(retained);
   }
 );
+
+describe.each(['in_progress', 'queued'])('real active-page overflow: %s (#4924)', (status) => {
+  function page(count: number, total: number): WatchApi {
+    const rows = Array.from({ length: count }, (_, i) =>
+      run({ id: i + 1, status, conclusion: null })
+    );
+    const base = apiFor([], rows).api;
+    return {
+      get(endpoint, etag) {
+        if (new URL(`https://fixture/${endpoint}`).searchParams.get('status') === status)
+          return { status: 200, body: { total_count: total, workflow_runs: rows } };
+        return base.get(endpoint, etag);
+      },
+    };
+  }
+  it('accepts a short 5-of-6 listing without a false coverage note', () => {
+    const result = collectWatchCycle({ state: newWatchState(now), api: page(5, 6), routing, now });
+    expect(Object.values(result.state.alerts).filter((a) => a.coverage)).toEqual([]);
+    expect(result.groups).toEqual([]);
+    expect(Object.keys(result.state.tracked)).toHaveLength(5);
+  });
+  it('reports one full 100-of-130 overflow and re-arms only after a clean pass', () => {
+    const first = collectWatchCycle({
+      state: newWatchState(now),
+      api: page(100, 130),
+      routing,
+      now,
+    });
+    const out = effects();
+    deliverWatchAlerts(first.state, out, now);
+    const notes = () => out.calls.filter((call) => call.startsWith('talk:'));
+    expect(notes()).toHaveLength(1);
+    expect(watchHeartbeat(first.state, now, 'ok').coverageGaps).toHaveLength(1);
+    const still = collectWatchCycle({
+      state: first.state,
+      api: page(100, 130),
+      routing,
+      now: now + 60_000,
+    });
+    deliverWatchAlerts(still.state, out, now + 60_000);
+    expect(notes()).toHaveLength(1);
+    const clean = collectWatchCycle({
+      state: still.state,
+      api: page(100, 100),
+      routing,
+      now: now + 120_000,
+    });
+    expect(clean.state.coverage[`active-page:${status}`]).toBeUndefined();
+    const again = collectWatchCycle({
+      state: clean.state,
+      api: page(100, 130),
+      routing,
+      now: now + 180_000,
+    });
+    deliverWatchAlerts(again.state, out, now + 180_000);
+    expect(notes()).toHaveLength(2);
+    expect(Object.values(again.state.alerts).filter((a) => a.coverage)).toMatchObject([
+      { count: 2, firstSeen: now, lastSeen: now + 180_000, pending: false },
+    ]);
+    expect(watchHeartbeat(again.state, now + 180_000, 'ok').coverageGaps).toMatchObject([
+      { updatedAt: iso(now + 180_000) },
+    ]);
+  });
+});

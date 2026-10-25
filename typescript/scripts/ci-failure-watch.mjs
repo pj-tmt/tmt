@@ -267,17 +267,19 @@ function coverageGap(state, key, text, now) {
   if (state.coverage[key]) return;
   state.coverage[key] = now;
   const signature = createHash('sha256').update(`coverage:${key}`).digest('hex');
+  const previous = state.alerts[signature];
   state.alerts[signature] = {
+    ...previous,
     signature,
     workflow: 'CI watcher coverage',
     workflowPath: '',
     event: 'coverage',
     job: text,
     route: { squad: 'tmt-infra', source: '#606 Infra CI tooling' },
-    firstSeen: now,
+    firstSeen: previous?.firstSeen ?? now,
     lastSeen: now,
     lastFailure: now,
-    count: 1,
+    count: (previous?.count ?? 0) + 1,
     runUrl: 'https://github.com/pj-tmt/tmt/issues/4825',
     pending: true,
     coverage: true,
@@ -434,13 +436,16 @@ export function collectWatchCycle({
     for (const status of ['in_progress', 'queued']) {
       const endpoint = `repos/${repo}/actions/runs?status=${status}&per_page=100`;
       const data = readPage(state, api, endpoint, repo);
-      if (data.total > data.rows.length)
+      const key = `active-page:${status}`;
+      // Live status counts can race a short page; only a full page proves overflow.
+      if (data.rows.length === 100 && data.total > data.rows.length)
         coverageGap(
           state,
-          `active-page:${status}`,
+          key,
           `active ${status} page covers ${data.rows.length} of ${data.total}; unobserved older runs unknown`,
           now
         );
+      else delete state.coverage[key];
       for (const r of data.rows) if (watchedRun(r)) active.set(r.id, r);
     }
     for (const [id, old] of Object.entries(state.tracked)) {

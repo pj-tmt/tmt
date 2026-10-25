@@ -460,7 +460,9 @@ merge groups, dispatches and schedules; PR authors retain their CI.
 Every 60 s, conditional completed/in-progress/queued reads retain ETags and cached
 metadata. A start/restart catches up created-within-24-hour cohorts from its cursor;
 tracked active ids/attempts get one direct read after leaving page one. Unobserved
-older history and overflowing active pages are explicit once-only coverage alerts.
+older history is a once-only coverage alert; a full 100-row active page with more
+behind it alerts once per overflow and re-arms after a clean pass. Short-page
+count mismatches do not prove overflow.
 Steady new runs and observed in-flight reruns target about two minutes; this is
 not all-history coverage. A pass has 800 GET attempts, a 2,500 REST-core floor,
 a 120 s cold-start bound and 20 s per read. Conditional/search/attempt reads count.
