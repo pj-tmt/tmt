@@ -304,7 +304,7 @@ evidence and never copied back. Endpoint identity is
 opaque to everything but its host: `HostKind` is pure data, evidence from another
 host is `Unknown`, and only `tmt-core/src/host.rs`, `tmt-adapters/src/host.rs` and
 `tmux/` may spell a built-in host's name. Core's delivery policy rewrites ASCII `!` to
-fullwidth `！` in typed text. The built-in host uses this seam in process;
+fullwidth `！` in typed text and the ESC of a bracketed-paste marker to `␛`. The built-in host uses this seam in process;
 `tmt-adapters::pty` owns members, screens and attach; CLI restores terminal modes.
 See the
 [hosts and drivers reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md).

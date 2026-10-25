@@ -36,7 +36,9 @@ channels and the driver protocol. The owner map is in
   neither server options nor shell selection; command-local option unsets remain
   separate from the client flag.
 - `tmt_core::driver::pane_input_text` turns ASCII `!` into fullwidth `！` for all text typed
-  into a pane on every host; hosts and drivers add nothing. `check` is bounded diagnostics,
+  into a pane on every host, and the ESC of a bracketed-paste marker (`ESC [ 200 ~`,
+  `ESC [ 201 ~`) into the visible `␛`, so no message can close a paste early; hosts and
+  drivers add nothing. `check` is bounded diagnostics,
   never a response channel. `response_input` polls against the deadline before each read and
   never mutates stdin flags.
 

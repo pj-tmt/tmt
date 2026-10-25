@@ -687,7 +687,8 @@ returned before anything is stored, with the command's codes: `PASSTHROUGH_NOT_A
 typed input; the message names why). A replay returns the stored receipt without that
 check and types nothing.
 
-On acceptance the text is typed as written (only the protective `!` to `！`), with no
+On acceptance the text is typed as written (only the protective `!` to `！` and, for a
+bracketed-paste marker in it, that marker's ESC to `␛`), with no
 wake line, and the first response's `wake` reports that typing with the table below.
 Whether the agent answered is read from `requests.show` (`mode: "passthrough"` and its
 capture). The agent gets no request, attention or reply receipt.

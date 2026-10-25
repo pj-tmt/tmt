@@ -613,6 +613,52 @@ fn delivery_wraps_paste_only_in_the_program_mode_and_never_counts_as_typing() {
 }
 
 #[test]
+fn a_paste_end_marker_in_the_message_stays_inside_the_one_bracketed_paste() {
+    use tmt_pty_protocol::{Control, ControlReply};
+    // 6 (start) + 1 + 3 (U+241B) + 5 + 1 + 6 (end) bytes of paste, then the Enter.
+    let script =
+        r"stty raw -echo; printf '\033[?2004hready'; dd bs=1 count=23 2>/dev/null | od -An -tx1";
+    let member = Member::start(&["sh", "-c", script]);
+    let mut client = member.connect();
+    let deadline = Instant::now() + WAIT;
+    loop {
+        if let ControlReply::Screen(text) = client.control(Control::Capture, WAIT).unwrap()
+            && text.contains("ready")
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    // What every host receives: the message after Core's pane input policy.
+    let message = tmt_core::driver::pane_input_text("a\x1b[201~b");
+    assert_eq!(
+        client
+            .control(Control::Paste(message.into_bytes()), WAIT)
+            .unwrap(),
+        ControlReply::Applied(true)
+    );
+    client.control(Control::Enter, WAIT).unwrap();
+    let expected = "1b 5b 32 30 30 7e 61 e2 90 9b 5b 32 30 31 7e 62 1b 5b 32 30 31 7e 0d";
+    loop {
+        let ControlReply::Screen(text) = client.control(Control::Capture, WAIT).unwrap() else {
+            panic!("capture refused")
+        };
+        let seen = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        if seen.contains(expected) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "expected {expected}; screen={seen:?}"
+        );
+        std::thread::yield_now();
+    }
+    drop(client);
+    member.finish().unwrap();
+}
+
+#[test]
 fn launch_preparation_waits_for_a_listener_and_readiness_carries_the_committed_marker() {
     use tmt_pty_protocol::{Control, ControlReply};
     let member = Member::start(&["sh", "-c", "read line"]);
