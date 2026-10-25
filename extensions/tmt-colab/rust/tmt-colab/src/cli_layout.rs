@@ -190,6 +190,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             .map(String::as_str),
         Some(crypto::digest(base.source.as_bytes())),
         Some(&wanted),
+        None,
         &mut decoder,
     )?;
     let json_output = args.get_flag("json");

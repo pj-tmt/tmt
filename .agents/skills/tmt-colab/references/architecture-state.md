@@ -676,7 +676,10 @@ is added.
   of at least 2 KiB) measure the same regions. `Decoder::prepare_mutation` sets the scale on
   `PreparedContent`, `FrozenPublication::scale` carries it to the receipt (not serialized), and
   `cli_edit_hint.rs` turns a warning, a non-minimal update or a large rewrite into the one `read`
-  command a write or patch receipt names; a normal edit names nothing.
+  command a write or patch receipt names; a normal edit names nothing. `cli_replace.rs` is the
+  `page write` gate: after preparation and before publication `commit_source` refuses a large
+  rewrite without `--replace` (`COLAB_REWRITE_REQUIRES_REPLACE`, naming the rerun); patch, layout
+  and create pass no gate.
 - `PageUsage` (`page.rs`) is the page's usage: the tail count and bytes the write path refuses
   at, the checkpoints, and the whole state with its gzipped size from 256 KiB. `fold.rs` counts
   them once (`UsageCounts::add`, `MaterializationInput::usage`) for the refusal and for the

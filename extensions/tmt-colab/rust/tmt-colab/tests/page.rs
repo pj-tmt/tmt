@@ -943,6 +943,7 @@ fn cli_raw_json_stdin_invalid_capacity_and_lifecycle_refusal() {
     );
     let _lock = f.layout.serve_lock().unwrap();
     let before = f.bytes();
+    // `--replace`: the refusal under test is the missing serve, not the rewrite gate.
     let out = f
         .command()
         .args([
@@ -951,6 +952,7 @@ fn cli_raw_json_stdin_invalid_capacity_and_lifecycle_refusal() {
             PAGE,
             "--file",
             input.to_str().unwrap(),
+            "--replace",
             "--json",
         ])
         .output()
