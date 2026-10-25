@@ -371,10 +371,13 @@ delivery. They install and launch nothing.
   of input), not cost or throughput. A baseline starts at EOF with zero counters; cursor loss,
   shrink, replacement, limit exhaustion or invalid records start a new epoch at EOF with
   `gap=true, complete=false`; history is never recounted and a partial last line waits for its
-  newline. Claude counts each contiguous `message.id` group once keeping only hashed IDs, device,
-  inode and offset; Codex baselines at cumulative totals and an invalid newest `token_count` is
-  unavailable. Optional `cacheWriteTokens` stays a subset of unchanged input totals;
-  missing fields are unknown. `modelId`/`deltaByModel` read completed-request/turn model
+  newline. A compaction keeps the counter; any other start begins a new baseline. After a gap, a
+  caught-up read (Claude, agy or Codex: the source unchanged and its last line complete) is a
+  complete zero observation, so an idle agent is observed; an unchanged complete read writes
+  nothing. Claude counts each contiguous `message.id` group once keeping only hashed IDs,
+  device, inode and offset; Codex baselines at cumulative totals and an invalid newest
+  `token_count` is unavailable. Optional `cacheWriteTokens` stays a subset of unchanged input
+  totals; missing fields are unknown. `modelId`/`deltaByModel` read completed-request/turn model
   evidence (Claude `message.model`, Codex `turn_context.model`), separately from the
   starting-hook resume model. Deltas group at most four models per sequence, compacted
   only inside the existing opaque cursor; size/evidence loss omits attribution before

@@ -1660,3 +1660,103 @@ mod family {
         storage.close().unwrap();
     }
 }
+
+/// The real Claude reader's states through a compaction and then idle ticks:
+/// the idle time after it is covered, measured zero, not unknown (#5122).
+#[test]
+fn an_idle_claude_after_a_compaction_has_complete_zero_buckets() {
+    use crate::{
+        drivers::claude,
+        runtime::{
+            driver_state,
+            lifecycle::{LifecycleObservation, RuntimeLifecycle},
+        },
+        skill_installation::ProviderEnvironment,
+    };
+    use std::io::Write;
+    let home = crate::test_support::TestDirectory::new();
+    let projects = home.path.join(".claude/projects/-workspace");
+    std::fs::create_dir_all(&projects).unwrap();
+    let transcript = projects.join("session.jsonl");
+    std::fs::write(
+        &transcript,
+        include_str!("../../runtime/fixtures/claude-usage-sequence.jsonl"),
+    )
+    .unwrap();
+    let environment = ProviderEnvironment::from_parts(&home.path, &home.path, Vec::new(), []);
+    let stop = json!({"session_id":"fixture-session","hook_event_name":"Stop",
+        "transcript_path":transcript,"cwd":"/workspace"});
+    let turn = claude::ClaudeLifecycle
+        .decode_turn(stop.to_string().as_bytes())
+        .unwrap();
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    let mut state = driver_state::after_start(Some("claude-opus-5-5"), None, None, 1).unwrap();
+    let sample = |state: &tmt_core::binding::session::DriverState, now: u64| {
+        let next = claude::ClaudeLifecycle
+            .turn_state(
+                &turn,
+                &environment,
+                Some(state),
+                now,
+                std::time::Instant::now() + std::time::Duration::from_secs(2),
+            )
+            .unwrap();
+        let consumption = driver_state::state_consumption(&next).unwrap().value;
+        let latest = ConsumptionLatest {
+            driver: "claude".into(),
+            session: "fixture-session".into(),
+            consumption,
+        };
+        record_sample(storage.connection().unwrap(), &id, Some(latest), now).unwrap();
+        next
+    };
+    state = sample(&state, 6000);
+    state = sample(&state, 11000);
+    let mut appended = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&transcript)
+        .unwrap();
+    for record in [
+        json!({"type":"system","subtype":"compact_boundary","sessionId":"fixture-session",
+            "compactMetadata":{"trigger":"auto","preTokens":180_000}}),
+        json!({"type":"user","isCompactSummary":true,"sessionId":"fixture-session",
+            "message":{"role":"user","content":"<summary>"}}),
+    ] {
+        writeln!(appended, "{record}").unwrap();
+    }
+    drop(appended);
+    state = claude::decode_hook(
+        json!({"session_id":"fixture-session","hook_event_name":"SessionStart",
+            "source":"compact","cwd":"/workspace"})
+        .to_string()
+        .as_bytes(),
+    )
+    .unwrap()
+    .driver_state(Some(&state), 12000)
+    .unwrap();
+    for now in [16000, 21000, 26000] {
+        state = sample(&state, now);
+    }
+    let history = storage
+        .consumption_history(std::slice::from_ref(&id), &[10000], 120, 26000, false, None)
+        .unwrap();
+    let buckets = history["identities"][0]["windows"][0]["buckets"]
+        .as_array()
+        .unwrap();
+    assert_eq!(buckets.len(), 2);
+    for bucket in buckets {
+        assert_eq!(
+            (
+                &bucket["coveredMs"],
+                &bucket["complete"],
+                &bucket["gap"],
+                &bucket["inputTokens"]
+            ),
+            (&json!(5000), &json!(true), &json!(false), &json!(0)),
+            "{bucket}"
+        );
+    }
+    storage.close().unwrap();
+}
