@@ -105,30 +105,32 @@ describe('native Digest held delivery and checklist seam', () => {
       await save({ kind: 'plan.add', candidate: plan });
       const ordinary = await runCli(sandbox, [
         'talk',
-        target,
+        'Orch Worker',
         'Ordinary stays held',
         '--identity',
-        sender,
+        'Orch Sender',
         '--detach',
         '--json',
       ]);
       const urgent = await runCli(sandbox, [
         'talk',
-        target,
+        'Orch Worker',
         'Urgent survives Sleep',
         '--identity',
-        sender,
+        'Orch Sender',
         '--urgent',
         '--detach',
         '--json',
       ]);
-      expect(ordinary.status).toBe(0);
-      expect(urgent.status).toBe(0);
+      expect(ordinary.status, ordinary.stdout).toBe(0);
+      expect(urgent.status, urgent.stdout).toBe(0);
       const ordinaryId = JSON.parse(ordinary.stdout).requestId;
       const urgentId = JSON.parse(urgent.stdout).requestId;
       expect(JSON.parse(ordinary.stdout)).toMatchObject({ digest: true });
       expect(JSON.parse(urgent.stdout)).toMatchObject({ digest: true });
-      await api(sandbox, 'digest.checklist.dueNow', { identityId: target });
+      expect(
+        (await api(sandbox, 'digest.checklist.dueNow', { identityId: target })).body.heldCount
+      ).toBe(2);
       expect(
         (
           await api(sandbox, 'digest.checklist.claim', {
@@ -151,15 +153,17 @@ describe('native Digest held delivery and checklist seam', () => {
       expect(claimed.body.text).toContain('Urgent survives Sleep');
       expect(claimed.body.text).not.toContain('Ordinary stays held');
       const checklist = claimed.body.checklist;
-      await api(sandbox, 'digest.checklist.settle', {
-        identityId: target,
-        checklistId: checklist.id,
-        attemptToken: checklist.attemptToken,
-        outcome: 'uncertain',
-      });
       plan.revision = 2;
       plan.fields.state = 'awake';
       await save({ kind: 'plan.set', plan: plan.id, candidate: plan });
+      const settled = await api(sandbox, 'digest.checklist.settle', {
+        identityId: target,
+        checklistId: checklist.checklistId,
+        attemptToken: checklist.attemptToken,
+        outcome: 'uncertain',
+      });
+      expect(settled.status, settled.stdout).toBe(0);
+      expect(settled.body.changed).toBe(true);
       const stats = await api(sandbox, 'digest.stats.show', { identities: [target] });
       expect(stats.body.stats[0].dueCount).toBe(1);
       const oracle = new Database(sandbox.database, { readonly: true });
