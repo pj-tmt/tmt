@@ -234,7 +234,8 @@ tmux or Herdr hosts it. `run`/`resume` default to this host outside a verified h
 `--host tmux|herdr|pty` selects explicitly and never silently falls back. `HostKind`
 keeps the existing `External` shape for the reserved `pty` grammar. `Host::for_server`
 reaches its in-process `host::pty` driver; no executable approval is involved.
-Attach/focus and the Ops stream are not yet shipped.
+`tmt attach` and plain `focus` reach a built-in member (#4755, below); the Ops board does not
+stream its terminal yet.
 
 - **One process per member, no daemon.** `tmt __pty-serve DIRECTORY ID COLS ROWS PROGRAM...`
   (hidden; `tmt-adapters::pty::serve_process`) leaves its session, takes the member's lock,
