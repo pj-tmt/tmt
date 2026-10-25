@@ -125,7 +125,8 @@ it.each(['claude', 'codex'] as const)(
           DISABLE_ERROR_REPORTING: '1',
         };
         writeFileSync(
-          path.join(home, '.claude.json'),
+          // The provider relocates this file too when CLAUDE_CONFIG_DIR is set.
+          path.join(claudeHome, '.claude.json'),
           JSON.stringify({
             hasCompletedOnboarding: true,
             projects: { [fixture.workspace]: { hasTrustDialogAccepted: true } },
@@ -244,6 +245,28 @@ it.each(['claude', 'codex'] as const)(
             output: diagnostic.json?.output?.slice(0, 8192),
             stderr: diagnostic.stderr.slice(0, 2048),
           };
+          if (provider === 'codex' && diagnostic.json?.output?.includes('warning')) {
+            // The previous hosted prompt explicitly offered F2 to view this warning.
+            // Read it; do not approve, trust, or change provider settings through UI.
+            fixture.tmux(['send-keys', '-t', pane, 'F2']);
+            let warning = diagnostic;
+            await expect
+              .poll(
+                async () => {
+                  warning = await fixture.runJsonCli<{ output: string }>(['check', name, '0']);
+                  return warning.code === 0 && warning.json?.output !== diagnostic.json?.output;
+                },
+                { timeout: 3000, interval: 100 }
+              )
+              .toBe(true)
+              .catch(() => {});
+            report.publicWarningDiagnostic = {
+              code: warning.code,
+              changed: warning.json?.output !== diagnostic.json?.output,
+              output: warning.json?.output?.slice(0, 8192),
+              stderr: warning.stderr.slice(0, 2048),
+            };
+          }
           throw error;
         }
       });
