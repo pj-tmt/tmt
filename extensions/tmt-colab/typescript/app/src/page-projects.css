@@ -1,83 +1,136 @@
-/* Chips and the always-present + use the same admitted picker; More remains another entry. */
+/* A single host-owned group opens the admitted picker; More remains another entry. */
 .page-header-projects {
   position: relative;
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
+  margin-inline-start: calc(9px - var(--tmt-ui-header-gap));
 }
-.page-header-project-chip,
-.page-header-add-project {
+.page-header-project-add,
+.page-row-project-picker {
+  position: relative;
+  display: inline-flex;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  min-width: 0;
+  max-width: 100%;
+}
+.page-project-group {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
   box-sizing: border-box;
-  max-width: 16ch;
-  min-height: 24px;
-  padding: 0 6px;
-  overflow: hidden;
-  border: 1px solid var(--tmt-ui-color-edge);
-  border-radius: var(--tmt-ui-radius-s);
-  background: var(--tmt-ui-surface-sheet);
-  color: var(--tmt-ui-color-text);
-  font: inherit;
-  font-size: var(--tmt-ui-caption-size);
-  line-height: var(--tmt-ui-caption-line-height);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.page-header-chips {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   min-width: 0;
-  padding: 0;
+  max-width: 100%;
+  padding: 3px;
   border: 0;
+  border-radius: var(--tmt-ui-radius-pill);
   background: transparent;
+  color: var(--tmt-ui-color-secondary);
   font: inherit;
+  line-height: 1;
   cursor: pointer;
 }
-.page-header-chips:focus-visible {
+.page-project-group:hover,
+.page-project-group:focus-visible {
+  background: color-mix(in srgb, var(--tmt-ui-color-secondary) 10%, transparent);
+}
+.page-project-group:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
-.page-header-projects-anchor {
+.page-project-group-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 16ch;
+  height: 22px;
+  padding: 0 9px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--tmt-ui-radius-pill);
+  background: color-mix(in srgb, var(--project-ink) 13%, transparent);
+  color: var(--project-ink);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+.page-project-group-chip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.page-project-group-chip[data-overflow] {
+  flex: none;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  background: transparent;
+  color: var(--tmt-ui-color-secondary);
+}
+.page-project-group-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: none;
+  height: 22px;
+  /* The group is one target; keep Plus compact so the first name fits beside the count. */
+  padding: 0 3px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
+}
+.page-project-group-add > svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.page-project-group:hover .page-project-group-add,
+.page-project-group:focus-visible .page-project-group-add {
+  color: var(--tmt-ui-color-accent);
+}
+/* The existing leaf trigger anchors the popup; the visible group owns admission and focus return. */
+.page-project-picker-anchor {
   position: absolute;
   inset-block-start: 0;
   inset-inline-start: 0;
+  width: 100%;
+  height: 100%;
 }
-/* Opened from More, the anchor is the More button's own box, so the picker opens under it. */
 .page-header-projects-anchor[data-from='more'] {
   position: fixed;
 }
-.page-header-projects-anchor :is(.tmt-ui-menu, .tmt-ui-icon-action) {
+.page-project-picker-anchor :is(.tmt-ui-menu, .tmt-ui-icon-action) {
   display: block;
   width: 100%;
   height: 100%;
 }
-.page-header-projects-anchor .tmt-ui-icon-action-control {
+.page-project-picker-anchor .tmt-ui-icon-action-control {
   width: 100%;
   height: 100%;
-}
-/* Only the trigger is hidden: the menu opens from it and stays visible and clickable. */
-.page-header-projects-anchor .tmt-ui-icon-action-control {
   visibility: hidden;
   pointer-events: none;
 }
-@media (max-width: 639px) {
-  .page-header-chips {
-    display: none;
-  }
-}
-/* Above the picker's hidden anchor, which sits over the first control of the header. */
 .page-header-pin {
+  --tmt-ui-host-icon-action-size: 28px;
   position: relative;
   z-index: 1;
   display: inline-flex;
+  flex: none;
 }
-/* A phone's title needs the room: the same pin action lives in More below 640px. */
+/* Header title space hides only header chips; stacked phone rows retain their project disclosure. */
 @media (max-width: 639px) {
+  .page-project-group[data-location='header']
+    :is(.page-project-group-chip, .page-project-group-word),
   .page-header-pin {
     display: none;
   }
@@ -107,26 +160,4 @@
 }
 [data-project-tone='green'] {
   --project-ink: var(--tmt-ui-color-working);
-}
-
-.page-header-project-chip[data-project-tone] {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--project-ink) 13%, transparent);
-  color: var(--project-ink);
-}
-
-.page-header-project-add {
-  position: relative;
-  display: inline-flex;
-  flex: none;
-}
-.page-header-add-project {
-  position: relative;
-  z-index: 1;
-  justify-content: center;
-  width: 26px;
-  padding: 0;
-}
-.page-header-add-project:focus-visible {
-  border-color: var(--tmt-ui-color-focus);
 }

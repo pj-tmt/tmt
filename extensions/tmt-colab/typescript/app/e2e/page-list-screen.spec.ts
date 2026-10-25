@@ -203,7 +203,7 @@ for (const width of [1440, 390])
           .locator('.page-list-status')
           .evaluate((node) => getComputedStyle(node).position),
       ).toBe('absolute');
-      await expect(rows(page).locator('.page-project').first()).toHaveAttribute(
+      await expect(rows(page).locator('.page-project-group-chip').first()).toHaveAttribute(
         'data-project-tone',
         /blue|violet|amber|green/,
       );
@@ -284,7 +284,7 @@ for (const width of [1440, 390])
       if (width === 1440) {
         const first = rows(page).first();
         const title = (await first.locator('.page-row-title > a').boundingBox())!;
-        const tag = (await first.locator('.page-project').first().boundingBox())!;
+        const tag = (await first.locator('.page-project-group-chip').first().boundingBox())!;
         expect(Math.abs(title.y + title.height / 2 - tag.y - tag.height / 2)).toBeLessThanOrEqual(
           1,
         );
@@ -294,11 +294,11 @@ for (const width of [1440, 390])
     test(`row titles and project tags align at ${width} ${theme}`, async ({ page }) => {
       await mount(page, width, theme);
       const first = rows(page)
-        .filter({ has: page.locator('.page-project') })
+        .filter({ has: page.locator('.page-project-group-chip') })
         .first();
       await page.screenshot({ path: await capturePath(`4883-alignment-${width}-${theme}.png`) });
       const title = (await first.locator('.page-row-title > a').boundingBox())!;
-      const tag = (await first.locator('.page-project').first().boundingBox())!;
+      const tag = (await first.locator('.page-project-group-chip').first().boundingBox())!;
       await test.info().attach('title-tag-geometry', {
         body: JSON.stringify({ title, tag }),
         contentType: 'application/json',
@@ -337,12 +337,12 @@ for (const width of [1440, 390])
   test(`row Projects menu and tag-area plus share the picker at ${width}`, async ({ page }) => {
     await mount(page, width, 'light');
     const row = rows(page)
-      .filter({ has: page.locator('.page-project') })
+      .filter({ has: page.locator('.page-project-group-chip') })
       .first();
-    const entry = row.locator('.page-project-entry');
-    await expect(entry).toHaveCSS('opacity', width === 390 ? '1' : '0');
+    const entry = row.locator('.page-project-group');
+    await expect(entry).toBeVisible();
     await row.hover();
-    await expect(entry).toHaveCSS('opacity', '1');
+    await expect(entry).toBeVisible();
     const access = row.locator('.page-row-access > span');
     await expect(access).toHaveAttribute('title', 'Private');
     await expect(access).toHaveCSS('text-overflow', 'ellipsis');
@@ -369,10 +369,10 @@ for (const width of [1440, 390])
       true,
     );
     const geometry = await row.locator('.page-row-projects').evaluate((node) => {
-      const tag = Array.from(node.querySelectorAll('.page-project'))
+      const tag = Array.from(node.querySelectorAll('.page-project-group-chip'))
         .at(-1)!
         .getBoundingClientRect();
-      const trigger = node.querySelector('button[aria-haspopup="menu"]')!.getBoundingClientRect();
+      const trigger = node.querySelector('.page-project-group-add')!.getBoundingClientRect();
       return {
         gap: trigger.left - tag.right,
         overlap: trigger.top < tag.bottom && trigger.bottom > tag.top,
@@ -456,6 +456,7 @@ test('compact projects preserve the draft and scope, with no duplicate phone pro
   await home.getByRole('button', { name: 'Scope to blog', exact: true }).click();
   await expect(home).not.toHaveAttribute('data-compact');
   await expect(home.getByRole('heading', { name: 'blog', exact: true })).toBeVisible();
+  await expect(home.getByRole('button', { name: 'Scope to blog', exact: true })).toBeFocused();
   await expect(search).toHaveText('a long unfinished query that remains a draft');
   expect(new URL(page.url()).hash).toContain('scope=blog');
   await home.evaluate((node) => (node.scrollTop = 520));
@@ -466,6 +467,13 @@ test('compact projects preserve the draft and scope, with no duplicate phone pro
   await expect(home.locator('.page-scope-filters')).toBeHidden();
   await expect(home.locator('.page-list-controls')).toHaveCSS('animation-name', 'none');
   expect(await home.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(home.locator('.page-scope-filters')).toBeVisible();
+  // A second resize retains the same handoff even when row reflow remeasures compact state.
+  await home.getByRole('button', { name: 'Scope to blog', exact: true }).focus();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(search).toBeFocused();
+  await expect(search).toHaveText('a long unfinished query that remains a draft');
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(home.locator('.page-scope-filters')).toBeVisible();
   await search.fill('');
@@ -520,12 +528,8 @@ test('short and empty lists stay full; viewers omit empty project lists and writ
     await expect(home).not.toHaveAttribute('data-compact');
     if (size !== 'none') {
       const row = rows(page).filter({ hasText: 'Gamma notes' });
-      await expect(row.locator('ul[aria-label="Projects"]')).toHaveCount(
-        size === 'unmanaged' ? 0 : 1,
-      );
-      await expect(row.getByRole('button', { name: /^Projects for/ })).toHaveCount(
-        size === 'few' ? 1 : 0,
-      );
+      await expect(row.locator('ul[aria-label="Projects"]')).toHaveCount(0);
+      await expect(row.locator('.page-project-group')).toHaveCount(size === 'few' ? 1 : 0);
     }
   }
 });
@@ -693,3 +697,75 @@ for (const width of [1440, 390])
     await expect(home).not.toHaveAttribute('data-compact');
     expect(await page.evaluate(() => window.__pageOperations)).toEqual([]);
   });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`row project groups keep zero, one and four memberships at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await mount(page, width, theme);
+      await page.evaluate(async () => {
+        const fixture = '/test/page-list-browser.tsx';
+        await (await import(fixture)).mountPageList('groups');
+      });
+      const alpha = rows(page).filter({ hasText: 'Alpha plan' });
+      const beta = rows(page).filter({ hasText: 'Beta review' });
+      const gamma = rows(page).filter({ hasText: 'Gamma notes' });
+      await expect(alpha.locator('.page-project-group-chip')).toHaveText(['design', '+3']);
+      expect(
+        await alpha
+          .locator('.page-project-group-chip > span')
+          .first()
+          .evaluate((node) => {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            return range.getBoundingClientRect().width <= node.getBoundingClientRect().width;
+          }),
+      ).toBe(true);
+
+      await expect(beta.locator('.page-project-group-chip')).toHaveText(['design']);
+      await expect(gamma.locator('.page-project-group-chip')).toHaveCount(0);
+      await expect(gamma.locator('.page-project-group')).toHaveAccessibleName('Add to project');
+      await expect(alpha.locator('.page-project-group')).toHaveAccessibleName(
+        'Projects for Alpha plan: design, q4 plan, research, ops',
+      );
+      for (const row of [alpha, beta, gamma]) {
+        const group = row.locator('.page-project-group');
+        await expect(group).toBeVisible();
+        await expect(group.locator('.page-project-group-add')).toBeVisible();
+        await group.focus();
+        await group.press('Space');
+        await expect(page.getByRole('menuitemcheckbox').first()).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(group).toBeFocused();
+      }
+      const metrics = await alpha
+        .locator('.page-project-group-chip')
+        .first()
+        .evaluate((node) => {
+          const style = getComputedStyle(node);
+          return {
+            height: node.getBoundingClientRect().height,
+            font: style.fontSize,
+            weight: style.fontWeight,
+            start: style.paddingLeft,
+            end: style.paddingRight,
+          };
+        });
+      expect(metrics).toEqual({
+        height: 22,
+        font: '12px',
+        weight: '500',
+        start: '9px',
+        end: '9px',
+      });
+      if (width === 1440)
+        expect(
+          (await alpha.locator('.page-row-projects').boundingBox())!.width,
+        ).toBeGreaterThanOrEqual(150);
+      await expect(rows(page)).toHaveCount(4);
+      expect(await page.evaluate(() => window.__projectRequests)).toEqual([]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+    });
