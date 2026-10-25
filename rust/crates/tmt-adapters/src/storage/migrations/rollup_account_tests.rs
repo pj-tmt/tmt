@@ -24,7 +24,7 @@ fn cursor(connection: &Connection) -> i64 {
         .unwrap()
 }
 
-/// The rollup is a usage table: its writes advance the usage cursor (schema 73).
+/// The rollup is a usage table: its writes advance the usage cursor (schema 74).
 fn usage(connection: &Connection) -> i64 {
     connection
         .query_row("SELECT value FROM usage_cursor WHERE id=1", [], |row| {
@@ -75,7 +75,7 @@ fn the_rollup_account_columns_are_additive_and_leave_every_existing_row_alone() 
         .unwrap();
 
     let storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 73);
+    assert_eq!(storage.health().unwrap().schema_version, 74);
     let columns = columns(&oracle);
     assert_eq!(&columns[columns.len() - 2..], ["credits", "service_tier"]);
     // No row was rewritten: every original cell is the same, both new cells are absent,

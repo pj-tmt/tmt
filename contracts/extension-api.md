@@ -855,7 +855,7 @@ and a write that leaves every value the same is not a change either),
 notebook files, configuration files, and any extension's own storage. The usage
 sampler's records (consumption sources, buckets, rollup and family rows) advance
 `usage` instead and never `cursor`, because a sampler tick is telemetry no screen
-reloads for; `usage` is compared the same way. A core before schema 73 returns
+reloads for; `usage` is compared the same way. A core before schema 74 returns
 `cursor` alone and counts those writes in it. A client
 that reloads on a changed cursor must still reload on its own interval for
 those, and must treat `API_INPUT_INVALID` for this operation (an older core) as

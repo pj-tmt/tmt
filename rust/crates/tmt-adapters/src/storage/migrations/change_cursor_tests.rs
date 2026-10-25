@@ -1,6 +1,6 @@
 //! Schema 40's change cursor: which tables advance it, and that every covered
 //! table does so on insert, update and delete. The usage tables advance their own
-//! cursor instead (schema 73, #5019).
+//! cursor instead (schema 74, #5019).
 use std::collections::BTreeSet;
 
 use crate::{storage::Storage, test_support::TestDirectory};

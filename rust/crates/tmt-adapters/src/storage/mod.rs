@@ -252,7 +252,7 @@ impl Storage {
     }
 
     /// The usage cursor: advanced by every committed insert, update or delete of the
-    /// sampler's tables (schema 73), which never advance the change cursor. Opaque;
+    /// sampler's tables (schema 74), which never advance the change cursor. Opaque;
     /// compare for equality.
     pub fn usage_cursor(&self) -> Result<u64, StorageError> {
         self.connection()?
