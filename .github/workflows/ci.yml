@@ -473,8 +473,8 @@ jobs:
         run: |
           cargo build --locked -p tmt-ops --bins --examples
           extension_started=$SECONDS
-          cargo build --locked -p tmt-remote -p tmt-colab --bins
-          echo "Built Remote/Colab process fixtures in $((SECONDS - extension_started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
+          cargo build --locked -p tmt-remote -p tmt-colab -p tmt-digest --bins
+          echo "Built Remote/Colab/Digest process fixtures in $((SECONDS - extension_started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
           cargo build --locked --example storage-probe --example runtime-caller-fixture
           cargo build --locked -p tmt-test-support --example recording-cli-fixture
           cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins
