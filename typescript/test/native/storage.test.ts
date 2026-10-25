@@ -158,6 +158,7 @@ function expectNativeSchema(
     },
     { version: 78, name: 'publish typed configured Digest receiving' },
     { version: 79, name: 'admit every full runtime in retained finals' },
+    { version: 80, name: 'let a session-learning diagnostic name why a Digest Stop refused' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(

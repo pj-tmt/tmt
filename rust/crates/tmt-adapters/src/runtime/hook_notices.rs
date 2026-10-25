@@ -9,6 +9,17 @@ use tmt_core::binding::session::{HarnessId, ProviderSessionId};
 
 const RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
+/// Who may publish a session's restart advisory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoticeClaim {
+    /// This run created the marker and is the only one that publishes.
+    Claimed,
+    /// An earlier run already claimed it: the advisory is shown once per session.
+    Taken,
+    /// The private directory or the marker could not be used.
+    Unavailable,
+}
+
 /// Only the successful creator may publish. A failed later write loses this
 /// best-effort advisory for the session; it never changes delivery evidence.
 pub fn claim(
@@ -16,7 +27,7 @@ pub fn claim(
     provider: &HarnessId,
     session: &ProviderSessionId,
     deadline: Instant,
-) -> bool {
+) -> NoticeClaim {
     let result = (|| -> std::io::Result<()> {
         fs::DirBuilder::new()
             .recursive(true)
@@ -43,7 +54,11 @@ pub fn claim(
         remove_old_markers(directory, SystemTime::now(), deadline);
         Ok(())
     })();
-    result.is_ok()
+    match result {
+        Ok(()) => NoticeClaim::Claimed,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => NoticeClaim::Taken,
+        Err(_) => NoticeClaim::Unavailable,
+    }
 }
 
 fn remove_old_markers(directory: &Path, now: SystemTime, deadline: Instant) {
@@ -118,7 +133,7 @@ mod tests {
             let _ = fs::remove_dir_all(&self.0);
         }
     }
-    fn claim_session(path: &Path, provider: &str, session: &str) -> bool {
+    fn claim_session(path: &Path, provider: &str, session: &str) -> NoticeClaim {
         claim(
             path,
             &HarnessId::new(provider).unwrap(),
@@ -143,13 +158,22 @@ mod tests {
         assert_eq!(
             handles
                 .into_iter()
-                .map(|h| usize::from(h.join().unwrap()))
+                .map(|h| usize::from(h.join().unwrap() == NoticeClaim::Claimed))
                 .sum::<usize>(),
             1
         );
-        assert!(!claim_session(&scratch.0, "claude", "session-a"));
-        assert!(claim_session(&scratch.0, "codex", "session-a"));
-        assert!(claim_session(&scratch.0, "claude", "session-b"));
+        assert_eq!(
+            claim_session(&scratch.0, "claude", "session-a"),
+            NoticeClaim::Taken
+        );
+        assert_eq!(
+            claim_session(&scratch.0, "codex", "session-a"),
+            NoticeClaim::Claimed
+        );
+        assert_eq!(
+            claim_session(&scratch.0, "claude", "session-b"),
+            NoticeClaim::Claimed
+        );
         assert_eq!(fs::metadata(&scratch.0).unwrap().mode() & 0o777, 0o700);
         for entry in fs::read_dir(&scratch.0).unwrap() {
             let entry = entry.unwrap();
@@ -168,25 +192,34 @@ mod tests {
             std::os::unix::fs::PermissionsExt::from_mode(0o755),
         )
         .unwrap();
-        assert!(!claim_session(&scratch.0, "claude", "session"));
+        assert_eq!(
+            claim_session(&scratch.0, "claude", "session"),
+            NoticeClaim::Unavailable
+        );
         assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 0);
         fs::set_permissions(
             &scratch.0,
             std::os::unix::fs::PermissionsExt::from_mode(0o700),
         )
         .unwrap();
-        assert!(!claim(
-            &scratch.0,
-            &HarnessId::new("claude").unwrap(),
-            &ProviderSessionId::new("session").unwrap(),
-            Instant::now()
-        ));
+        assert_eq!(
+            claim(
+                &scratch.0,
+                &HarnessId::new("claude").unwrap(),
+                &ProviderSessionId::new("session").unwrap(),
+                Instant::now()
+            ),
+            NoticeClaim::Unavailable
+        );
         assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 0);
     }
     #[test]
     fn cleanup_removes_only_old_empty_owned_markers() {
         let scratch = Scratch::new();
-        assert!(claim_session(&scratch.0, "claude", "old"));
+        assert_eq!(
+            claim_session(&scratch.0, "claude", "old"),
+            NoticeClaim::Claimed
+        );
         let old = fs::read_dir(&scratch.0)
             .unwrap()
             .next()
@@ -202,7 +235,10 @@ mod tests {
         fs::write(scratch.0.join("user-file"), "keep").unwrap();
         let link = scratch.0.join(format!("claude-{}", "a".repeat(32)));
         std::os::unix::fs::symlink(&old, &link).unwrap();
-        assert!(claim_session(&scratch.0, "claude", "new"));
+        assert_eq!(
+            claim_session(&scratch.0, "claude", "new"),
+            NoticeClaim::Claimed
+        );
         assert!(!old.exists());
         assert!(fs::symlink_metadata(link).unwrap().is_symlink());
         assert_eq!(

@@ -601,7 +601,7 @@ fn operation(
                         .binding
                         .as_ref()
                         .and_then(|b| b.session.unbound(&preferences));
-                    let unbound = if learning.is_some() {
+                    let unbound = if learning.as_ref().is_some_and(|l| l.unbound) {
                         Some(true)
                     } else {
                         unbound

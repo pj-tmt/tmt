@@ -388,6 +388,10 @@ const MIGRATIONS: &[Migration] = &[
         "admit every full runtime in retained finals",
         "schema/079.sql"
     ),
+    migration!(
+        "let a session-learning diagnostic name why a Digest Stop refused",
+        "schema/080.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

@@ -626,3 +626,93 @@ fn a_run_that_cannot_bind_leaves_a_launch_nothing_has_bound_at_its_first_step() 
         "input: not_admitted, stopped:activity_session:Notification:activity_missing"
     );
 }
+
+fn admit(launch: &mut Launch) {
+    let (binding, owner) = (launch.binding.id.clone(), launch.owner.clone());
+    assert!(
+        launch
+            .storage
+            .with_binding_transaction(|records| {
+                let observed = records.launch_observation(&binding, &owner)?.unwrap();
+                let mut admitted = observed.clone();
+                admitted.status = LaunchStatus::Admitted;
+                admitted.diagnostic = None;
+                records.set_launch_observation(&observed, &admitted)
+            })
+            .unwrap()
+    );
+}
+
+#[test]
+fn a_digest_stop_names_its_refusal_on_an_admitted_launch_until_one_delivers() {
+    let mut launch = launch(HostKind::pty(), "claude");
+    admit(&mut launch);
+    let Launch {
+        learning, deadline, ..
+    } = &launch;
+    assert!(
+        launch.diagnostic().is_none(),
+        "an admitted launch shows nothing"
+    );
+    // Nothing stored: a delivered Stop changes nothing.
+    learning.digest_delivered(*deadline).unwrap();
+    assert!(launch.diagnostic().is_none());
+
+    learning
+        .digest_stop(SessionLearningDigestStop::LaunchOwner, *deadline)
+        .unwrap();
+    let stopped = launch.diagnostic().unwrap();
+    assert_eq!(
+        (
+            stopped.step,
+            stopped.reason,
+            stopped.detail,
+            stopped.unbound
+        ),
+        (
+            "provider_verification",
+            "worker_error",
+            Some("digest_stop:launch:owner"),
+            false
+        )
+    );
+    assert_eq!(stopped.next_step, DIGEST_STOP_NEXT_STEP);
+    assert_eq!(
+        stopped.warning(Some("Alpha")),
+        "The last Digest Stop for 'Alpha' ended without the Digest (provider_verification: worker_error, digest_stop:launch:owner)."
+    );
+    // Another hook run on the admitted launch neither replaces nor clears it.
+    learning
+        .stage(SessionLearningStep::Input, *deadline)
+        .unwrap();
+    learning.succeeded(*deadline).unwrap();
+    assert_eq!(
+        launch.diagnostic().unwrap().detail,
+        Some("digest_stop:launch:owner")
+    );
+    // A later refusal replaces it; a delivered Digest Stop clears it.
+    learning
+        .digest_stop(SessionLearningDigestStop::WorkerTimeout, *deadline)
+        .unwrap();
+    assert_eq!(
+        launch.diagnostic().unwrap().cause(),
+        "context: budget_timeout, digest_stop:worker_timeout"
+    );
+    learning.digest_delivered(*deadline).unwrap();
+    assert!(launch.diagnostic().is_none());
+}
+
+#[test]
+fn a_digest_stop_never_writes_to_a_launch_that_is_not_admitted() {
+    let launch = launch(HostKind::pty(), "codex");
+    let before = stored(&launch);
+    assert!(
+        launch
+            .learning
+            .digest_stop(SessionLearningDigestStop::WorkerError, launch.deadline)
+            .is_err()
+    );
+    assert!(launch.learning.digest_delivered(launch.deadline).is_err());
+    assert_eq!(stored(&launch), before);
+    assert!(launch.diagnostic().unwrap().unbound);
+}
