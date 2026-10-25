@@ -369,6 +369,47 @@ fn claude_custom_config_root_admits_only_its_own_transcripts() {
 }
 
 #[test]
+fn an_idle_claude_agent_stores_the_same_state_on_every_tick() {
+    let home = TestDirectory::new();
+    let environment = ProviderEnvironment::from_parts(
+        &home.path,
+        &home.path,
+        Vec::new(),
+        Vec::<(&str, _)>::new(),
+    );
+    let transcript = home.path.join(".claude/projects/workspace/session.jsonl");
+    fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    fs::write(&transcript, CLAUDE_LINE).unwrap();
+    let turn = claude::ClaudeLifecycle
+        .decode_turn(&stop(Some(&transcript)))
+        .unwrap();
+    let read = |previous: Option<&DriverState>, now| {
+        claude::ClaudeLifecycle
+            .turn_state(
+                &turn,
+                &environment,
+                previous,
+                now,
+                std::time::Instant::now() + std::time::Duration::from_secs(2),
+            )
+            .unwrap()
+    };
+    let first = read(None, NOW);
+    let second = read(Some(&first), NOW + 5_000);
+    let third = read(Some(&second), NOW + 10_000);
+    // The transcript did not grow: nothing about the stored state is new.
+    assert_eq!(second, first);
+    assert_eq!(third, first);
+    assert_eq!(
+        claude::ClaudeLifecycle
+            .state_usage(&third)
+            .unwrap()
+            .observed_at_ms,
+        NOW
+    );
+}
+
+#[test]
 fn claude_cache_windows_follow_each_seats_root_and_refresh_without_counting_tokens() {
     let home = TestDirectory::new();
     let custom = home.path.join("custom-claude");
