@@ -289,7 +289,8 @@ owns behavior and limits.
 ### Tmux and process effects
 
 `tmt-adapters::process` owns bounded child execution and byte observations (stream caps,
-monotonic deadlines, group cleanup, reaping); `process::interactive` owns direct
+monotonic deadlines, group cleanup, reaping). A leaf probe such as `ps` never forks and stays
+in its caller's process group, so a supervisor's group kill also ends it; `process::interactive` owns direct
 terminal children without taking the shared process group. `tmux` pins caller or recorded
 sockets, with bounded budgets and no ambient fallback; a failed paste
 or Enter is uncertain and never retried as unsent; [pane cosmetics](.agents/skills/tmt-core-runtime/references/hosts-drivers.md) own only pane-local badge overrides.
