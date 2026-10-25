@@ -1007,6 +1007,10 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   z-index: 1;
   background: var(--c-paper);
 }
+/* A card or a sheet is the sheet's surface; a column has none of its own and shows the page's. */
+.tmt-ui-panel:not([data-mode='column']) .comments-panel .conversation-composer {
+  background: var(--tmt-ui-surface-sheet);
+}
 .comments-panel .conversation-composer:has(> .annotation-compose[data-connection='ended']) {
   position: static;
 }
@@ -1654,6 +1658,10 @@ button.discussion-quote:focus-visible {
   padding: var(--conversation-gap) 0;
   border-bottom: 1px solid var(--c-rule);
 }
+/* The last turn ends the thread: the composer's spacing, not a rule, sets it apart. */
+.comment-thread[data-layout='discussion'] .conversation-turn:last-child {
+  border-bottom: 0;
+}
 .comment-thread[data-layout='discussion'] .conversation-time-separator {
   display: none;
 }
@@ -1689,8 +1697,9 @@ button.discussion-quote:focus-visible {
   background: var(--tmt-ui-color-secondary);
   color: var(--tmt-ui-surface-sheet);
 }
+/* The composer sits on its panel's own surface, with no rule above it. */
 .comment-thread[data-layout='discussion'] .conversation-composer {
-  background: var(--tmt-ui-surface-sheet);
+  border-top: 0;
 }
 /* The position (n / N) ends the panel heading, next to Close, as on the website. */
 .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-heading {

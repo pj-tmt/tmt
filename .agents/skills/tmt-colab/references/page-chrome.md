@@ -365,8 +365,11 @@ drawer: no scrim, focus trap or page inertness, so the page stays readable and k
 beside or under it, and it shares the single panel slot with the drawers. `src/panel-mode.ts` picks
 its mode from one width pair (column from 1180 px, card from 761 px, sheet below; `e2e/panel-mode.spec.ts`
 holds the mode on both sides of each). A column is a track of the page grid:
-the page narrows by the panel width (286 px, 310 px from 1600 px), the gap (34 px, 42 px) and a 24 px
-right margin, and the panel sticks 20 px under the header with its own scroll and a 1 px left rule. A
+the page narrows by the panel width (286 px, 310 px from 1600 px), the gap (23 px, 28 px) and a 24 px
+right margin, and the panel sticks 20 px under the header with its own scroll. The page's own edge is
+the one edge between them: the column draws no rule, and its content starts one gap from that edge.
+A thread's composer sits on the column's surface (the page's paper; the sheet's in a card or sheet)
+with no rule above it, and the last turn ends the thread without one. A
 card (330 px, 12 px from the right and bottom, top at the header plus 13 px) and a sheet (7 px insets, up to
 75dvh) float over the page; the floating page controls move left of a card and above a sheet. Escape
 closes the panel only from inside it (a Discussion view steps back to the list first); on the page it

@@ -175,3 +175,47 @@ for (const width of [1440, 390])
     // Its turns' avatars are 24px.
     await expect(panel.locator('.tmt-ui-avatar').first()).toHaveCSS('width', '24px');
   });
+
+for (const width of [1440, 390])
+  test(`the panel has one edge, one separator under its header and a composer on its own surface at ${width}px`, async ({
+    page,
+  }) => {
+    const { panel } = await openFirst(page, width);
+    const mode = width === 1440 ? 'column' : 'sheet';
+    await expect(panel).toHaveAttribute('data-mode', mode);
+    // The edge between the page and a column is the page's own: the column draws no rule, so no
+    // second vertical line stands inside the panel. A sheet draws the leaf's edge once, all round.
+    const edge = width === 1440 ? '0px' : '1px';
+    for (const side of ['top', 'right', 'bottom', 'left'])
+      await expect(panel).toHaveCSS(`border-${side}-width`, edge);
+    // One horizontal separator between the header and the thread: the header's own. The last turn
+    // ends the thread and the composer starts without a rule above it.
+    const composer = panel.locator('.conversation-composer');
+    await expect(panel.locator('.tmt-ui-drawer-header')).toHaveCSS('border-bottom-width', '1px');
+    await expect(panel.locator('.conversation-turn').last()).toHaveCSS(
+      'border-bottom-width',
+      '0px',
+    );
+    await expect(composer).toHaveCSS('border-top-width', '0px');
+    // The composer is on its panel's surface: the page's paper behind a column, the sheet in a
+    // sheet; never a band of another colour.
+    const surface = await page.evaluate(
+      ({ mode }) =>
+        getComputedStyle(
+          mode === 'column'
+            ? document.body
+            : document.querySelector('.tmt-ui-panel[data-panel="comments"]')!,
+        ).backgroundColor,
+      { mode },
+    );
+    await expect(composer).toHaveCSS('background-color', surface);
+    // The field alone keeps its border: some box around the editor inside the composer draws it.
+    const bordered = await composer.locator('.rich-input-field').evaluate((node) => {
+      for (let box = node.parentElement; box; box = box.parentElement) {
+        if (getComputedStyle(box).borderTopWidth === '1px') return true;
+        if (box.classList.contains('conversation-composer')) return false;
+      }
+      return false;
+    });
+    expect(bordered).toBe(true);
+  });

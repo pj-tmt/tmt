@@ -37,8 +37,8 @@ async function expectRuleEdge(panel: Locator, theme: 'light' | 'dark') {
   await expect(children.first()).toHaveCSS('border-top-width', '0px');
   await expect(children.nth(count - 1)).toHaveCSS('border-bottom-width', '0px');
 }
-/** The Comments panel's own edge by mode: a column is ruled on its left only (the page grid owns
- * the rest); a card and a sheet float and draw the leaf's edge on all four sides, once. */
+/** The Comments panel's own edge by mode: a column draws none (the page's edge is the one between
+ * them); a card and a sheet float and draw the leaf's edge on all four sides, once. */
 async function expectCommentsEdge(panel: Locator, theme: 'light' | 'dark') {
   const mode = await panel.getAttribute('data-mode');
   if (mode !== 'column') {
@@ -48,10 +48,7 @@ async function expectCommentsEdge(panel: Locator, theme: 'light' | 'dark') {
     }
     return;
   }
-  await expect(panel).toHaveCSS('border-left-width', '1px');
-  await expect(panel).toHaveCSS('border-left-style', 'solid');
-  await expect(panel).toHaveCSS('border-left-color', rule[theme]);
-  for (const side of ['top', 'right', 'bottom'])
+  for (const side of ['top', 'right', 'bottom', 'left'])
     await expect(panel).toHaveCSS(`border-${side}-width`, '0px');
 }
 for (const width of [1440, 390])
