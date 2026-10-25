@@ -391,7 +391,7 @@ impl TickProcess {
         self.flush(row, rule, rule == Rule::AutoCap)
     }
     pub fn finish(self) -> Result<(), Error> {
-        self.finish_to(&mut std::io::stderr().lock())
+        self.finish_to(&mut tmt_cli_style::stream::stderr())
     }
     fn finish_to(self, diagnostic: &mut impl std::io::Write) -> Result<(), Error> {
         if self.receiving_supported == Some(false) {

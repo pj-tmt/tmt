@@ -110,14 +110,13 @@ all competing plans, and `plans` retains their source definitions.
 
 ## Configuration writes
 
-`plan add` consumes the same bounded full plan document as preview, with revision
-
-1. `plan set` replaces the selected plan, requires its current revision and keeps
-   its UUID; `rm` selects that exact plan. Name/priority collisions refuse, never
-   reorder. Focus takes one canonical active identity (offline allowed), a positive
-   `ms`/`s`/`m`/`h`/`d` duration of at most 30 days in whole milliseconds, or `off`.
-   Bare duration numbers mean seconds. The normalized focus intent has explicit
-   start/end instants; approval does not silently extend the captured end.
+`plan add` consumes the same bounded full plan document as preview, with
+`revision: 1`. `plan set` replaces the selected plan, requires its current revision
+and keeps its UUID; `rm` selects that exact plan. Name/priority collisions refuse,
+never reorder. Focus takes one canonical active identity (offline allowed), a
+positive `ms`/`s`/`m`/`h`/`d` duration of at most 30 days in whole milliseconds, or
+`off`. Bare duration numbers mean seconds. The normalized focus intent has
+explicit start/end instants; approval does not silently extend the captured end.
 
 Each command prints an effect preview before saving. Interactive use requires
 an explicit affirmative answer. Noninteractive/JSON without `--yes` returns a
