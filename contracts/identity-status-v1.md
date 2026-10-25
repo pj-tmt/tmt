@@ -217,9 +217,19 @@ accepted a hook payload (decoder `turn`, `prompt`, `activity_session` or
 `lifecycle`, the family that owns the first-party event `SessionStart`,
 `SessionEnd`, `UserPromptSubmit`, `Stop`, `Interrupt`, `Notification`,
 `PostToolUse` or `PostToolUseFailure`; `refused:unknown` for any other or missing
-event name), or `host_unsupported` when the driver found no provider process among
-the hook's ancestors. A later step drops it. An admitted session suppresses an
-older failure. These reads are stored-only; human listing/show gives the same
+event name), `stopped:<decoder>:<event>:<reason>` (`stopped:unknown:<reason>` for an
+event outside that list) when a decoded turn, prompt or activity event that cannot bind
+admitted nothing, with `<reason>` one of `activity_missing` (an activity-only event with
+no activity), `not_waiting` (a finished tool call with no activity waiting),
+`observer_owns_stop` (an installed answer observer owns the turn end), `unbound_session`
+(no bound launch is waiting for the provider session) or `not_current` (the bound
+session or process is not the one the payload names), or `host_unsupported` when the
+driver found no provider process among the hook's ancestors. A later step of the same
+run drops it. A run that cannot bind (a turn, prompt or activity event, or a payload of
+no known event) never replaces the step, reason or detail an earlier run stored for a
+launch that is not admitted yet; it names its own reason only when no detail is stored.
+A lifecycle event (`SessionStart`, `SessionEnd`) is the launch's own run and replaces
+them. An admitted session suppresses an older failure. These reads are stored-only; human listing/show gives the same
 recovery step. An unresolved observation projects `session.unbound=true` and
 the existing message-state `session_not_bound` reason without authorizing or
 blocking delivery itself. `nextStep` never suggests resume without remembered

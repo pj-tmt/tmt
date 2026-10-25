@@ -149,6 +149,20 @@ impl SessionLearningEvent {
     }
 }
 
+/// Why a hook that decoded and could not bind admitted nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionLearningStop {
+    /// An activity-only event carried no activity to record.
+    ActivityMissing,
+    /// A finished tool call with no waiting activity to finish.
+    NotWaiting,
+    /// An installed answer observer owns this turn end.
+    ObserverOwnsStop,
+    /// No bound launch is waiting for this provider session.
+    UnboundSession,
+    /// The bound session or process is not the one the payload names.
+    NotCurrent,
+}
 /// What a stage stopped on, beyond its step and reason. Fixed tokens only:
 /// never a payload body, path or identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,21 +171,166 @@ pub enum SessionLearningDetail {
     Refused(SessionLearningEvent),
     /// The driver found no provider process among the hook's ancestors.
     HostUnsupported,
+    /// A decoded event that cannot bind admitted nothing, for this reason.
+    Stopped(SessionLearningEvent, SessionLearningStop),
 }
 impl SessionLearningDetail {
-    /// Every detail, in the order `schema/075.sql` lists them.
-    pub const ALL: [Self; 10] = [
-        Self::Refused(SessionLearningEvent::SessionStart),
-        Self::Refused(SessionLearningEvent::SessionEnd),
-        Self::Refused(SessionLearningEvent::UserPromptSubmit),
-        Self::Refused(SessionLearningEvent::Stop),
-        Self::Refused(SessionLearningEvent::Interrupt),
-        Self::Refused(SessionLearningEvent::Notification),
-        Self::Refused(SessionLearningEvent::PostToolUse),
-        Self::Refused(SessionLearningEvent::PostToolUseFailure),
-        Self::Refused(SessionLearningEvent::Unknown),
-        Self::HostUnsupported,
-    ];
+    /// Every `Stopped` pair a hook path can produce, with its stored token. Nothing else is
+    /// writable, so the stored list stays closed. An event no decoder accepts is `Unknown`.
+    const STOPPED: [(SessionLearningEvent, SessionLearningStop, &'static str); 24] = {
+        use SessionLearningEvent as E;
+        use SessionLearningStop as S;
+        [
+            (
+                E::Stop,
+                S::ObserverOwnsStop,
+                "stopped:turn:Stop:observer_owns_stop",
+            ),
+            (
+                E::Stop,
+                S::UnboundSession,
+                "stopped:turn:Stop:unbound_session",
+            ),
+            (E::Stop, S::NotCurrent, "stopped:turn:Stop:not_current"),
+            (
+                E::Interrupt,
+                S::ObserverOwnsStop,
+                "stopped:turn:Interrupt:observer_owns_stop",
+            ),
+            (
+                E::Interrupt,
+                S::UnboundSession,
+                "stopped:turn:Interrupt:unbound_session",
+            ),
+            (
+                E::Interrupt,
+                S::NotCurrent,
+                "stopped:turn:Interrupt:not_current",
+            ),
+            (
+                E::UserPromptSubmit,
+                S::UnboundSession,
+                "stopped:prompt:UserPromptSubmit:unbound_session",
+            ),
+            (
+                E::UserPromptSubmit,
+                S::NotCurrent,
+                "stopped:prompt:UserPromptSubmit:not_current",
+            ),
+            (
+                E::Notification,
+                S::ActivityMissing,
+                "stopped:activity_session:Notification:activity_missing",
+            ),
+            (
+                E::Notification,
+                S::UnboundSession,
+                "stopped:activity_session:Notification:unbound_session",
+            ),
+            (
+                E::Notification,
+                S::NotCurrent,
+                "stopped:activity_session:Notification:not_current",
+            ),
+            (
+                E::PostToolUse,
+                S::ActivityMissing,
+                "stopped:activity_session:PostToolUse:activity_missing",
+            ),
+            (
+                E::PostToolUse,
+                S::NotWaiting,
+                "stopped:activity_session:PostToolUse:not_waiting",
+            ),
+            (
+                E::PostToolUse,
+                S::UnboundSession,
+                "stopped:activity_session:PostToolUse:unbound_session",
+            ),
+            (
+                E::PostToolUse,
+                S::NotCurrent,
+                "stopped:activity_session:PostToolUse:not_current",
+            ),
+            (
+                E::PostToolUseFailure,
+                S::ActivityMissing,
+                "stopped:activity_session:PostToolUseFailure:activity_missing",
+            ),
+            (
+                E::PostToolUseFailure,
+                S::NotWaiting,
+                "stopped:activity_session:PostToolUseFailure:not_waiting",
+            ),
+            (
+                E::PostToolUseFailure,
+                S::UnboundSession,
+                "stopped:activity_session:PostToolUseFailure:unbound_session",
+            ),
+            (
+                E::PostToolUseFailure,
+                S::NotCurrent,
+                "stopped:activity_session:PostToolUseFailure:not_current",
+            ),
+            (
+                E::Unknown,
+                S::ActivityMissing,
+                "stopped:unknown:activity_missing",
+            ),
+            (E::Unknown, S::NotWaiting, "stopped:unknown:not_waiting"),
+            (
+                E::Unknown,
+                S::ObserverOwnsStop,
+                "stopped:unknown:observer_owns_stop",
+            ),
+            (
+                E::Unknown,
+                S::UnboundSession,
+                "stopped:unknown:unbound_session",
+            ),
+            (E::Unknown, S::NotCurrent, "stopped:unknown:not_current"),
+        ]
+    };
+
+    /// Every detail, in the order the latest `detail` migration (`schema/077.sql`) lists them.
+    pub const ALL: [Self; 34] = {
+        use SessionLearningEvent as E;
+        let mut all = [Self::HostUnsupported; 34];
+        let head = [
+            Self::Refused(E::SessionStart),
+            Self::Refused(E::SessionEnd),
+            Self::Refused(E::UserPromptSubmit),
+            Self::Refused(E::Stop),
+            Self::Refused(E::Interrupt),
+            Self::Refused(E::Notification),
+            Self::Refused(E::PostToolUse),
+            Self::Refused(E::PostToolUseFailure),
+            Self::Refused(E::Unknown),
+            Self::HostUnsupported,
+        ];
+        let mut index = 0;
+        while index < head.len() {
+            all[index] = head[index];
+            index += 1;
+        }
+        let mut stopped = 0;
+        while stopped < Self::STOPPED.len() {
+            all[index + stopped] =
+                Self::Stopped(Self::STOPPED[stopped].0, Self::STOPPED[stopped].1);
+            stopped += 1;
+        }
+        all
+    };
+
+    /// The detail for a decoded event that stopped for this reason, or `None` for a pair no
+    /// hook path can produce.
+    pub fn stopped(event: SessionLearningEvent, stop: SessionLearningStop) -> Option<Self> {
+        Self::STOPPED
+            .iter()
+            .any(|(known_event, known_stop, _)| *known_event == event && *known_stop == stop)
+            .then_some(Self::Stopped(event, stop))
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Refused(SessionLearningEvent::SessionStart) => "refused:lifecycle:SessionStart",
@@ -192,6 +351,10 @@ impl SessionLearningDetail {
             }
             Self::Refused(SessionLearningEvent::Unknown) => "refused:unknown",
             Self::HostUnsupported => "host_unsupported",
+            Self::Stopped(event, stop) => Self::STOPPED
+                .iter()
+                .find(|(known_event, known_stop, _)| *known_event == event && *known_stop == stop)
+                .map_or("stopped:invalid", |(_, _, token)| token),
         }
     }
     pub fn parse(value: &str) -> Option<Self> {
@@ -308,6 +471,15 @@ mod tests {
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b':')
             );
+            if let SessionLearningDetail::Stopped(event, stop) = detail {
+                let expected = match event.decoder() {
+                    Some(decoder) => format!("stopped:{}:{event:?}:", decoder.as_str()),
+                    None => "stopped:unknown:".to_owned(),
+                };
+                assert!(detail.as_str().starts_with(&expected), "{detail:?}");
+                assert_eq!(SessionLearningDetail::stopped(event, stop), Some(detail));
+                continue;
+            }
             let SessionLearningDetail::Refused(event) = detail else {
                 continue;
             };
@@ -324,6 +496,31 @@ mod tests {
             }
         }
         assert_eq!(SessionLearningDetail::parse("refused:turn:Anything"), None);
+    }
+
+    #[test]
+    fn only_a_pair_a_hook_path_can_produce_is_a_stopped_detail() {
+        use SessionLearningEvent as E;
+        use SessionLearningStop as S;
+        assert!(SessionLearningDetail::stopped(E::Stop, S::UnboundSession).is_some());
+        assert!(SessionLearningDetail::stopped(E::Unknown, S::NotCurrent).is_some());
+        // A finished tool call is the only event that can find nothing waiting, and a
+        // session event is never decoded by an observer, so neither pairs with these.
+        assert_eq!(SessionLearningDetail::stopped(E::Stop, S::NotWaiting), None);
+        assert_eq!(
+            SessionLearningDetail::stopped(E::UserPromptSubmit, S::ActivityMissing),
+            None
+        );
+        assert_eq!(
+            SessionLearningDetail::stopped(E::SessionStart, S::UnboundSession),
+            None
+        );
+        // An invalid pair never reads like a stored token.
+        assert_eq!(
+            SessionLearningDetail::Stopped(E::SessionEnd, S::NotCurrent).as_str(),
+            "stopped:invalid"
+        );
+        assert_eq!(SessionLearningDetail::parse("stopped:invalid"), None);
     }
 
     #[test]

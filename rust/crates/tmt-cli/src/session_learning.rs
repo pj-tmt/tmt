@@ -1,5 +1,5 @@
 //! Invocation-local coordination of stored startup evidence; no delivery authority.
-use std::time::Instant;
+use std::{cell::Cell, time::Instant};
 use tmt_adapters::{
     config::ConfigPaths,
     process::{
@@ -37,10 +37,23 @@ enum Update {
     /// End the current step with this reason, unless it already has a final one.
     Fail(SessionLearningReason),
 }
+/// What a hook run can do to the launch it reports to. A run learns this from its payload,
+/// so it starts as `Unknown`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    /// The payload has not been read yet.
+    Unknown,
+    /// A lifecycle event: it can bind or end the session, so its progress is the launch's.
+    Binding,
+    /// A turn, prompt or activity event, or one nothing decodes: it cannot bind, and it keeps
+    /// what an earlier run stored for a launch that is not admitted yet.
+    Observer,
+}
 pub struct Learning {
     pub launch: HookLaunch,
     pub driver: HarnessId,
     paths: ConfigPaths,
+    role: Cell<Role>,
 }
 impl Learning {
     pub fn capture(provider: &str) -> Option<Self> {
@@ -54,7 +67,12 @@ impl Learning {
             launch,
             driver: HarnessId::new(provider).ok()?,
             paths: ConfigPaths::discover().ok()?,
+            role: Cell::new(Role::Unknown),
         })
+    }
+    /// Says what this run can do, once its payload is known.
+    pub fn set_role(&self, role: Role) {
+        self.role.set(role);
     }
     fn owner(&self, deadline: Instant) -> Result<ProcessIncarnation, ()> {
         let owner = self.launch.owner().ok_or(())?;
@@ -102,6 +120,18 @@ impl Learning {
                     return Ok(observed.diagnostic.is_some());
                 }
 
+                // A run that cannot bind never overwrites what an earlier run stored for a launch
+                // that is not admitted yet: the SessionStart refusal is the one worth reading.
+                // Such a run names its own reason only when nothing more specific is stored.
+                let keeps = self.role.get() != Role::Binding
+                    && observed.status != LaunchStatus::Admitted
+                    && observed.diagnostic.is_some();
+                if keeps {
+                    let named = observed.diagnostic.is_some_and(|d| d.detail.is_some());
+                    if !matches!(update, Update::Note(_)) || named {
+                        return Ok(true);
+                    }
+                }
                 let mut next = observed.clone();
                 let previous = observed
                     .diagnostic
