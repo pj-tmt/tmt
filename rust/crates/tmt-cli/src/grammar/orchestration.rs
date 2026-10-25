@@ -31,10 +31,13 @@ pub(in crate::grammar) fn orch() -> Command {
         ["List stored plans" => "tmt orch plan ls"]
     ))
     .subcommand_required(true)
-    .subcommand(storage(spec!(
-        "ls", "List stored plans (Base always applies)",
-        ["List plans as JSON" => "tmt orch plan ls --json"]
-    )))
+    .subcommand(
+        storage(spec!(
+            "ls", "List stored plans (Base always applies)",
+            ["List plans as JSON" => "tmt orch plan ls --json"]
+        ))
+        .alias("list"),
+    )
     .subcommand(
         storage(spec!(
             "show", "Read one plan by UUID or unique exact name",
