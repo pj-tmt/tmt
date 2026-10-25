@@ -298,7 +298,8 @@ fn quota_details_open_from_current_cells_and_menu_without_retargeting_or_replayi
     assert!(app.reload_blocked());
     let shown = paint(&mut app, 80, 18);
     assert!(shown.contains("Subscriptions"));
-    assert!(shown.contains("unavailable or stale"));
+    assert!(shown.contains("7d: no limit source"));
+    assert!(shown.contains("5h: no limit source"));
     assert!(
         !app.frame_clocks
             .borrow()
