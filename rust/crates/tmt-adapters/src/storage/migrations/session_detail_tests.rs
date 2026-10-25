@@ -27,7 +27,7 @@ fn the_widened_detail_list_keeps_every_stored_detail_and_accepts_the_new_tokens(
     let kept: Vec<&str> = SessionLearningDetail::ALL
         .iter()
         .map(|detail| detail.as_str())
-        .filter(|token| !token.starts_with("stopped:"))
+        .filter(|token| !token.starts_with("stopped:") && !token.starts_with("digest_stop:"))
         .collect();
     assert_eq!(kept.len(), 10);
     for (index, token) in kept.iter().enumerate() {
@@ -43,7 +43,7 @@ fn the_widened_detail_list_keeps_every_stored_detail_and_accepts_the_new_tokens(
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 79);
+    assert_eq!(storage.health().unwrap().schema_version, 80);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -93,6 +93,99 @@ fn the_widened_detail_list_keeps_every_stored_detail_and_accepts_the_new_tokens(
         .unwrap();
     db.execute(
         "UPDATE launch_observations SET detail = 'host_unsupported' WHERE owner_pid = 200",
+        [],
+    )
+    .unwrap();
+    let after: i64 = db
+        .query_row("SELECT value FROM change_cursor WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(after, before + 1);
+}
+
+#[test]
+fn the_digest_stop_list_keeps_every_stored_detail_and_accepts_its_tokens() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("schema79.db");
+    let mut old = Connection::open(&path).unwrap();
+    old.pragma_update(None, "foreign_keys", true).unwrap();
+    apply_through(&mut old, 79).unwrap();
+    old.execute_batch(BINDING).unwrap();
+    // One row per token 077 lists, and one without a detail.
+    let kept: Vec<&str> = SessionLearningDetail::ALL
+        .iter()
+        .map(|detail| detail.as_str())
+        .filter(|token| !token.starts_with("digest_stop:"))
+        .collect();
+    assert_eq!(kept.len(), 34);
+    for (index, token) in kept.iter().enumerate() {
+        old.execute(&observation(100 + index as u32, &format!("'{token}'")), [])
+            .unwrap();
+    }
+    old.execute(&observation(200, "NULL"), []).unwrap();
+    assert!(
+        old.execute(&observation(201, "'digest_stop:launch:owner'"), [])
+            .is_err(),
+        "schema 79 does not know the new tokens"
+    );
+    old.close().unwrap();
+
+    let mut storage = Storage::open(&path).unwrap();
+    assert_eq!(storage.health().unwrap().schema_version, 80);
+    storage.close().unwrap();
+
+    let db = Connection::open(&path).unwrap();
+    db.pragma_update(None, "foreign_keys", true).unwrap();
+    let stored: Vec<Option<String>> = db
+        .prepare("SELECT detail FROM launch_observations ORDER BY owner_pid")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let expected: Vec<Option<String>> = kept
+        .iter()
+        .map(|token| Some((*token).to_owned()))
+        .chain([None])
+        .collect();
+    assert_eq!(
+        stored, expected,
+        "every stored detail survives the migration"
+    );
+    let digest: Vec<&str> = SessionLearningDetail::ALL
+        .iter()
+        .map(|detail| detail.as_str())
+        .filter(|token| token.starts_with("digest_stop:"))
+        .collect();
+    assert_eq!(digest.len(), 21);
+    for (index, token) in digest.iter().enumerate() {
+        db.execute(
+            &observation(1_000 + index as u32, &format!("'{token}'")),
+            [],
+        )
+        .unwrap_or_else(|error| panic!("{token} was refused: {error}"));
+    }
+    for refused in [
+        "digest_stop:nothing_fitting",
+        "digest_stop:no_claim",
+        "digest_stop:launch",
+        "digest_stop:",
+    ] {
+        assert!(
+            db.execute(&observation(5_000, &format!("'{refused}'")), [])
+                .is_err(),
+            "{refused:?} must not be storable"
+        );
+    }
+    // The change feed still moves when only the detail changes.
+    let before: i64 = db
+        .query_row("SELECT value FROM change_cursor WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    db.execute(
+        "UPDATE launch_observations SET detail = 'digest_stop:worker_error' WHERE owner_pid = 200",
         [],
     )
     .unwrap();

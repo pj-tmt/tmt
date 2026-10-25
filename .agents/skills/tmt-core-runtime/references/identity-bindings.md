@@ -508,6 +508,10 @@ delivery. They install and launch nothing.
 Launch-baked hook names remain callable while their sessions can still run after
 an upgrade. Hidden `__focus-hook` aliases `__digest-hook` with identical arguments
 and exit behavior for pre-rename Claude and Codex launches.
+A Digest Stop never vetoes a stop. When a check refuses, it still prints no
+continuation and names that check as a `digest_stop:` detail on its admitted launch's
+[session-learning row](../../../../contracts/identity-status-v1.md); its worker reports
+its own refusal to the supervisor by name on stderr.
 
 `RuntimeLifecycle::prepare_launch_hooks` is an optional driver-owned launch boundary.
 Claude composes one inline `--settings` object before channel enrollment for fresh

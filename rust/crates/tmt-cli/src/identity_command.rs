@@ -461,10 +461,7 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                     tmt_cli_style::message::warning(
                         &mut stdout,
                         terminal,
-                        &format!(
-                            "The provider session was not recorded ({}). Resume may be unavailable.",
-                            learning.cause()
-                        ),
+                        &learning.warning(None),
                         Some(&learning.next_step),
                     )?;
                 }
@@ -556,8 +553,7 @@ fn document(report: &Report) -> serde_json::Value {
                 document["resume"] = resume.clone();
             }
             if let Some(learning) = learning {
-                document["session"] =
-                    json!({"unbound":true,"learning":crate::session_learning::document(learning)});
+                document["session"] = json!({"unbound":learning.unbound,"learning":crate::session_learning::document(learning)});
             }
             document
         }

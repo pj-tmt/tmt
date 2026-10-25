@@ -139,8 +139,7 @@ pub(super) fn document(report: &Report) -> Value {
             let mut value = json!({"target": target, "identity": identity_document(&row.identity),
             "presence": row.presence.as_str(), "pane": row.pane.as_ref().map(pane_document)});
             if let Some(learning) = learning {
-                value["session"] =
-                    json!({"unbound":true,"learning":crate::session_learning::document(learning)});
+                value["session"] = json!({"unbound":learning.unbound,"learning":crate::session_learning::document(learning)});
             }
             with_address(value, address(row, remembered.as_ref()))
         }
@@ -605,11 +604,7 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
                     message::warning(
                         output,
                         terminal,
-                        &format!(
-                            "The provider session for '{}' was not recorded ({}). Resume may be unavailable.",
-                            row.presence.identity.name,
-                            learning.cause()
-                        ),
+                        &learning.warning(Some(&row.presence.identity.name)),
                         Some(&learning.next_step),
                     )?;
                 }
@@ -635,10 +630,7 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
                 message::warning(
                     output,
                     terminal,
-                    &format!(
-                        "The provider session was not recorded ({}). Resume may be unavailable.",
-                        learning.cause()
-                    ),
+                    &learning.warning(None),
                     Some(&learning.next_step),
                 )?;
             }
