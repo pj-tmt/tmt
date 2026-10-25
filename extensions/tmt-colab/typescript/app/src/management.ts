@@ -15,7 +15,7 @@ import {
   text,
 } from '@tmt/colab-client';
 import type { statement } from '@tmt/colab-client';
-import { Admission, pageLifecycle } from './admission.js';
+import { Admission, applyLifecycle, type Lifecycle } from './admission.js';
 import { validPins } from './project-pins.js';
 import { Frames } from './frames.js';
 import { discover, type Bootstrap, type PageInfo } from './bootstrap.js';
@@ -122,22 +122,21 @@ export function managementFailure(error: unknown, prepared: boolean): Management
   return new ManagementError(prepared ? 'UNKNOWN' : 'INVALID', cause);
 }
 
-/** Only an admitted contiguous owner chain supplies policy and assignments. */
-export function project(
-  page: Omit<PageInfo, 'projects'>,
-  log: readonly statement.Verified[],
-  root: Uint8Array,
-): ManagementView {
+/** What the signed statements of one page set, by last write; absent where none speaks. */
+type PageFacts = Partial<Pick<Policy, 'sharing' | 'epoch' | 'history' | 'retentionDays'>>;
+
+/** One pass over an admitted owner chain: the space's members and links, and the policy facts and
+ * lifecycle of each page asked for. */
+function foldLog(log: readonly statement.Verified[], pages: ReadonlySet<string>) {
   requireValue(log.length > 0);
-  const policy: Policy = {
-    ...page,
-    sharing: 'private',
-    history: 'shared',
-    retentionDays: 30,
-    ...pageLifecycle(log, page.pageId),
-  };
   const members = new Map<string, Recipient>(),
-    links = new Map<string, Recipient>();
+    links = new Map<string, Recipient>(),
+    facts = new Map<string, PageFacts>(),
+    lifecycles = new Map<string, Lifecycle>();
+  for (const id of pages) {
+    facts.set(id, {});
+    lifecycles.set(id, { archived: false, deleted: false });
+  }
   for (const { payload: p } of log) {
     switch (p.operation) {
       case 'member.add':
@@ -166,34 +165,81 @@ export function project(
       case 'link.remove':
         links.delete(p.value.linkId);
         break;
-      case 'page.share':
-        if (p.value.pageId === page.pageId) {
-          policy.sharing = p.value.mode;
-          policy.epoch = p.value.epoch;
+      case 'page.share': {
+        const page = facts.get(p.value.pageId);
+        if (page) {
+          page.sharing = p.value.mode;
+          page.epoch = p.value.epoch;
         }
         break;
-      case 'page.history':
-        if (p.value.pageId === page.pageId) policy.history = p.value.mode;
+      }
+      case 'page.history': {
+        const page = facts.get(p.value.pageId);
+        if (page) page.history = p.value.mode;
         break;
-      case 'epoch.advance':
-        if (p.value.pageId === page.pageId) policy.epoch = p.value.epoch;
+      }
+      case 'epoch.advance': {
+        const page = facts.get(p.value.pageId);
+        if (page) page.epoch = p.value.epoch;
         break;
-      case 'retention.set':
-        if (p.value.pageId === page.pageId) policy.retentionDays = p.value.days;
+      }
+      case 'retention.set': {
+        const page = facts.get(p.value.pageId);
+        if (page) page.retentionDays = p.value.days;
         break;
+      }
+      case 'page.archive':
+      case 'page.unarchive':
+      case 'page.delete': {
+        const lifecycle = lifecycles.get(p.value.pageId);
+        if (lifecycle) applyLifecycle(lifecycle, p.operation);
+        break;
+      }
     }
   }
-  const head = log[log.length - 1].head;
+  return { members, links, facts, lifecycles, head: log[log.length - 1].head };
+}
+
+function policyOf(page: Omit<PageInfo, 'projects'>, fold: ReturnType<typeof foldLog>): Policy {
   return {
-    page: policy,
-    root: encodeBinary(root),
-    revision: String(head.revision),
-    ownerMember: head.ownerMember.id,
-    members: [...members.values()].filter(
-      (m) => m.id === head.ownerMember.id || m.pages.includes(page.pageId),
-    ),
-    links: [...links.values()].filter((m) => m.pages.includes(page.pageId)),
+    ...page,
+    sharing: 'private',
+    history: 'shared',
+    retentionDays: 30,
+    ...(fold.lifecycles.get(page.pageId) ?? { archived: false, deleted: false }),
+    ...fold.facts.get(page.pageId),
   };
+}
+
+/** Only an admitted contiguous owner chain supplies policy and assignments. */
+export function project(
+  page: Omit<PageInfo, 'projects'>,
+  log: readonly statement.Verified[],
+  root: Uint8Array,
+): ManagementView {
+  const fold = foldLog(log, new Set([page.pageId]));
+  return {
+    page: policyOf(page, fold),
+    root: encodeBinary(root),
+    revision: String(fold.head.revision),
+    ownerMember: fold.head.ownerMember.id,
+    members: [...fold.members.values()].filter(
+      (m) => m.id === fold.head.ownerMember.id || m.pages.includes(page.pageId),
+    ),
+    links: [...fold.links.values()].filter((m) => m.pages.includes(page.pageId)),
+  };
+}
+
+/** The policy of each page in `pages`, from one pass over the chain rather than one per page.
+ * Each is what [`project`] reports for that page. With no page the chain is not read: an empty
+ * space, or Home while the last page's deletion is unconfirmed, may have none to give. */
+export function projectPolicies(
+  pages: readonly Omit<PageInfo, 'projects'>[],
+  log: readonly statement.Verified[],
+): Map<string, Policy> {
+  if (!pages.length) return new Map();
+  const fold = foldLog(log, new Set(pages.map((page) => page.pageId)));
+  return new Map(pages.map((page) => [page.pageId, policyOf(page, fold)]));
 }
 
 /** Stop after membership admission. Content, wraps and baselines never enter a decoder. */

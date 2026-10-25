@@ -1068,6 +1068,14 @@ summary and no task offers the owner the add-task field directly.
 - `Live#publishViews` passes accepted folded titles and their exact admission
   registration to `mounted.ts`. Mounted tab ownership/current registration fences
   the best-effort cache write. Rejected folds and replaced sessions cannot supply hints.
+  `TitleCache.remember` reads the stored hint first and seals and writes only a changed title
+  (or a record that no longer opens), so a reconnect or another tab folding an unchanged page
+  writes nothing.
+- `mounted.ts` runs one Home read at a time per transport (`spaceHome`): readers that arrive
+  while it runs share its result, each keeps its own signal, and the load is cancelled only when
+  the last reader leaves before it finishes. A finished load is never reused. The load folds the
+  owner chain once for every listed page (`projectPolicies`, which `project` agrees with page by
+  page); `admission.ts::applyLifecycle` is the one archive/restore/delete transition.
 - `Live#publishViews` reuses an Ask intent's verification (`VerifiedAsks`) only while its
   signed record and the writer's signing key are byte-identical; any change verifies again.
 - Home reads hints only after verified discovery/policy. `home-titles.tsx` admits visible

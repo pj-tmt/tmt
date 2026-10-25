@@ -4,12 +4,12 @@ import { createRemoteClient, type RemoteClient } from './ask-remote.js';
 import {
   ManagementClient,
   ManagementError,
-  project,
+  projectPolicies,
   type ManagementPort,
   type ManagementView,
   type Pending,
 } from './management.js';
-import type { PageTransport } from './transport.js';
+import type { PageTransport, SpaceHome } from './transport.js';
 import { discover, mountUrl } from './bootstrap.js';
 import { AdmissionRefusedError, register, remoteSdk } from './registration.js';
 import { classify } from './connection-state.js';
@@ -110,6 +110,75 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
       if (client !== managementClient) throw new ManagementError('DENIED');
       return result;
     });
+  }
+  /** The Home read in flight, if any: readers that arrive while it runs share it. */
+  let homeLoad: HomeLoad | undefined;
+  interface HomeLoad {
+    readonly promise: Promise<SpaceHome>;
+    readonly cancel: AbortController;
+    readers: number;
+    settled: boolean;
+  }
+  function startHomeLoad(): HomeLoad {
+    const cancel = new AbortController();
+    const load: HomeLoad = {
+      cancel,
+      readers: 0,
+      settled: false,
+      promise: loadHome(scopedSignal(cancel.signal)).finally(() => {
+        load.settled = true;
+        if (homeLoad === load) homeLoad = undefined;
+      }),
+    };
+    // A load every reader has left has nobody to report to.
+    load.promise.catch(() => {});
+    return load;
+  }
+  async function loadHome(readSignal: AbortSignal): Promise<SpaceHome> {
+    const read = (client: ManagementClient) =>
+      managed(client, async () => {
+        const { boot, log } = await client.snapshot(readSignal);
+        // One pass over the owner chain for every page, not one per page.
+        const policies = projectPolicies(boot.pages, log);
+        return {
+          title: text.product,
+          projects: boot.projects,
+          projectPins: boot.projectPins,
+          pageIds: boot.pageIds,
+          pages: await Promise.all(
+            boot.pages.map(async (page) => {
+              const policy = policies.get(page.pageId)!;
+              // The owner's own title is current; the browser's hint only covers a page the owner
+              // has none for (not folded yet, or the reply had no room for it).
+              const known = page.title ?? (await titles.read(page.pageId));
+              return {
+                id: page.pageId,
+                title: known || text.unknownPageTitle,
+                titleMissing: known === undefined,
+                sharing: policy.sharing,
+                archived: policy.archived,
+                retentionDays: policy.retentionDays,
+                lastUpdateAtMs: policy.lastUpdateAtMs,
+                expiresAtMs: policy.expiresAtMs,
+                warnings: policy.warnings,
+                projects: page.projects,
+                ...(page.pinned ? { pinned: true } : {}),
+                summary: page.summary,
+              };
+            }),
+          ),
+        };
+      });
+    const client = managementClient;
+    try {
+      return await read(client);
+    } catch (error) {
+      if (!endedSession(error)) throw error;
+      // The list read refreshes the same device once, like a page read, so Back from a page
+      // after the session ended lands on the list.
+      await owner.reconnect(client.registration, readSignal);
+      return read(managementClient);
+    }
   }
   const management: ManagementPort = {
     read(id, signal) {
@@ -223,50 +292,38 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
       drafts,
       management,
       remotePresence,
-      async spaceHome(signal) {
-        const readSignal = scopedSignal(signal);
-        const read = (client: ManagementClient) =>
-          managed(client, async () => {
-            const { boot, log } = await client.snapshot(readSignal);
-            return {
-              title: text.product,
-              projects: boot.projects,
-              projectPins: boot.projectPins,
-              pageIds: boot.pageIds,
-              pages: await Promise.all(
-                boot.pages.map(async (page) => {
-                  const policy = project(page, log, boot.owner).page;
-                  // The owner's own title is current; the browser's hint only covers a page the owner
-                  // has none for (not folded yet, or the reply had no room for it).
-                  const known = page.title ?? (await titles.read(page.pageId));
-                  return {
-                    id: page.pageId,
-                    title: known || text.unknownPageTitle,
-                    titleMissing: known === undefined,
-                    sharing: policy.sharing,
-                    archived: policy.archived,
-                    retentionDays: policy.retentionDays,
-                    lastUpdateAtMs: policy.lastUpdateAtMs,
-                    expiresAtMs: policy.expiresAtMs,
-                    warnings: policy.warnings,
-                    projects: page.projects,
-                    ...(page.pinned ? { pinned: true } : {}),
-                    summary: page.summary,
-                  };
-                }),
-              ),
-            };
-          });
-        const client = managementClient;
-        try {
-          return await read(client);
-        } catch (error) {
-          if (!endedSession(error)) throw error;
-          // The list read refreshes the same device once, like a page read, so Back from a page
-          // after the session ended lands on the list.
-          await owner.reconnect(client.registration, readSignal);
-          return read(managementClient);
-        }
+      spaceHome(signal) {
+        if (signal?.aborted) return Promise.reject(signal.reason);
+        const load = (homeLoad ??= startHomeLoad());
+        load.readers++;
+        // Each reader keeps its own signal. Leaving ends only its own wait; the load is cancelled
+        // when the last reader has left before it finished. Each also gets its own copy of the
+        // result, so one reader changing it cannot reach another.
+        return new Promise<SpaceHome>((resolve, reject) => {
+          const leave = () => {
+            signal?.removeEventListener('abort', leaveAborted);
+            if (--load.readers > 0 || load.settled) return;
+            if (homeLoad === load) homeLoad = undefined;
+            load.cancel.abort(signal?.reason);
+          };
+          const leaveAborted = () => {
+            leave();
+            reject(signal!.reason);
+          };
+          signal?.addEventListener('abort', leaveAborted, { once: true });
+          load.promise.then(
+            (home) => {
+              load.readers--;
+              signal?.removeEventListener('abort', leaveAborted);
+              resolve(structuredClone(home));
+            },
+            (error: unknown) => {
+              load.readers--;
+              signal?.removeEventListener('abort', leaveAborted);
+              reject(error);
+            },
+          );
+        });
       },
       readingDetails(id, signal) {
         // A new shell opening joins the previous aborted request before starting its read.
