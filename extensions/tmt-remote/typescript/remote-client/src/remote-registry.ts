@@ -224,7 +224,7 @@ export async function buildHandoff(
     encoder.encode(`#${params}`).length <= LIMIT,
     'The remote list is too large to send along when opening this remote. Remove an entry, then try again.',
   );
-  return `${new URL('/remote/', checked.url).href}#${params}`;
+  return `${new URL('/remote/overview', checked.url).href}#${params}`;
 }
 export interface ImportRow {
   readonly entry: RemoteReference;

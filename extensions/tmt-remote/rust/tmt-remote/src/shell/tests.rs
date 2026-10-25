@@ -26,7 +26,7 @@ fn remote_rail_opens_the_existing_my_remotes_list() {
     let shell = Shell::new();
     let answer = shell.snapshot(vec![], "http://127.0.0.1:1", Instant::now());
     let remote = &answer["modules"][0];
-    assert_eq!(remote["rail"]["path"], "http://127.0.0.1:1/remote/settings");
+    assert_eq!(remote["rail"]["path"], "http://127.0.0.1:1/remote/");
     assert_eq!(remote["menu"][0]["path"], remote["rail"]["path"]);
     assert_eq!(remote["settings"][0]["label"], "My Remotes");
 }

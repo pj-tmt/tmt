@@ -330,7 +330,7 @@ adoption before effects; an existing original-ID read still works at capacity. S
 local CLI management path, preserve any earlier unknown outcome, and do not retry, reset
 the database or invent a replacement ID to bypass the limit. Compaction is deferred.
 
-The Remote-owned `/remote/settings` page uses the shared browser presentation with three sections and
+The Remote-owned current-door tab frame uses shared browser presentation and
 server-admitted values/sources/warnings/capabilities. Its separately built `settings-v1.js`
 imports the served SDK; no second channel or public page export is introduced. Checked shared CSS
 owns presentation, while Remote owns layout, native selects and control state. The untouched
@@ -352,7 +352,7 @@ or restored to its admitted value. Only the current bounded page's forms are ret
 
 The human `tmt remote serve` link opens `/`; the JSON `address` remains the signed protocol base.
 The [public route contract](../../../../contracts/remote-channel-v1.md#public-browser-routes) owns Home and TMT settings.
-`landingPage()` bootstraps `/remote/`, using the same saved non-extractable key and machine pins.
+`landingPage()` supplies the current door’s Overview connection check, using the same saved non-extractable key and machine pins. `/remote/` is the global My Remotes list; the public route contract owns exact tab paths. The app composes the existing bounded management observation alongside it for role/designation, with no new authority or foreign probes.
 On load it validates local storage, then checks once through a verified Session and signed
 `capabilities` read; a saved pairing alone never proves current access. Manual Check again reuses
 that Session while current. An expired Session is silently reopened once within the manual check;

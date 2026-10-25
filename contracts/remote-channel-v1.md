@@ -107,7 +107,7 @@ register root entries. Colab owns short-ID resolution and the browser's eventual
 
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. The door serves one TMT web app: GET/HEAD of exactly `/`, `/settings`, `/settings/`,
-`/remote`, `/remote/`, `/remote/devices`, `/remote/connect`, `/remote/machine`, `/remote/settings`,
+`/remote`, `/remote/`, `/remote/overview`, `/remote/members`, `/remote/invites`, `/remote/my-devices`, `/remote/settings`, `/remote/service`,
 `/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`, `/colab/` and `/colab/<segments>` (each segment `[A-Za-z0-9_-]+`, at most 160 bytes after
 `/colab/`) answers the same static `shell.html`, whose only script is `/sdk/shell.js`. The list is
 explicit, never a catch-all; `/sdk/*`, `/x/`, `/read/`, `/pair` and `/r/` keep their own handling,
@@ -129,12 +129,23 @@ described `home` cards; it reads nothing else. `/settings` and `/settings/` are 
 sections listed in the module menu. `/ops` and `/digest` are Ops and Digest; their data have
 their [owner browser reads](#owner-browser-reads). Until a page has a browser read, the page says it is not in the browser yet, names the terminal command
 that shows the same facts and shows no values. Home preferences remain a
-separate consumer. Remote is one app route with five paths, each a menu row of its own and one view of the page:
-`/remote/` (Status, `/remote` is the same row), `/remote/connect` (Connect a device),
-`/remote/devices` (Devices), `/remote/machine` (This machine's settings) and `/remote/settings`
-(Remote settings). The selected row is whichever row the path names, so reload, Back and forward land
-on the same row, and a switch between paths only changes the view shown. The module menu lists each
-saved remote (or Status), the three rows for this machine, Add remote and Remote settings.
+separate consumer. Remote has two levels under one app route. `/remote/` (`/remote` names the same entry)
+is My Remotes, the origin-local public registry. Its rows open the selected door's `/remote/overview`.
+The current door's persistent tabs are `/remote/overview`, `/remote/members`, `/remote/invites`,
+`/remote/my-devices`, `/remote/settings` and `/remote/service`; no Remote ID appears in a path.
+`remote-routes.ts` owns their browser route/menu declaration; native page admission mirrors the explicit
+set. Reload, Back and Forward select the same tab without replacing its retained form/draft models.
+The rail links to My Remotes and the current Remote, rather than duplicating the six tabs.
+The old `/remote/machine`, `/remote/devices` and `/remote/connect` views have no redirect or alias.
+Overview reuses connection and admitted management observations for role, designation and capabilities,
+and the composed shell's reported Needs-you count when available. Missing evidence remains unknown.
+A designated readable browser is Admin; a readable non-designated pairing is Member. Labels add no
+admission. Invites and Service & upgrade remain visible locked tabs for Members, with the reason,
+the person to ask and copyable request text. Unconfirmed access does not assert a known role.
+Copy never runs a command, and a denied copy leaves selectable text. Until the dedicated Members,
+Invites and My devices flows replace them, their tabs reuse existing paired-device and connection
+guidance with their actual scope stated. One state-aware guidance owner serves Overview and Invites;
+unreadable storage or transport uncertainty never authorizes re-pairing.
 Pairing is not an app route: `/remote/pair` stays its own document with its own policy (below),
 so its fragment-erasing bootstrap runs before any other script. It shows the same rail, with no
 router, and its links load the app's routes.
@@ -369,7 +380,7 @@ correlated availability/results, never fabricates an agent signature.
 Pairing is durable across session end, tab closure and serve restart until the owner removes the
 device (or an explicit grant expiry is proved). The manual and automatic pairing pages first
 try bounded session reopen with the stored identity. Success creates no grant or candidate:
-manual entry shows `This browser is already paired.` and continues to `/remote/`, leaving the
+manual entry shows `This browser is already paired.` and continues to `/remote/overview`, leaving the
 manual offer and terminal untouched; automatic entry cancels its own fresh offer as before.
 An absent record or a machine-signed revoked/expired grant permits new enrollment. A stored
 machine-identity mismatch also permits the manual terminal-confirmed ceremony; the old record
@@ -1108,15 +1119,19 @@ framework, agent/held-work recovery exception or general recovery route exists.
 
 #### Remote settings page
 
-`GET /remote/devices`, `/remote/machine` and `/remote/settings` serve the Remote-owned shared-presentation
-page with the existing page CSP, origin checks and no-store policy. `/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not
-embed another signer/channel implementation. The additive public SDK exports are
-`FirestoreSettingsView`, `budget.parsePublishedLimits` and `budget.publishedLimitRows`. The sections are
-Browser opening and Session limit per device (`/remote/machine`), Firestore and the remotes saved in
-this browser (`/remote/settings`), and Paired devices (`/remote/devices`). Effective values, sources,
-warning and write capabilities come from admitted server reads. The shared package supplies checked CSS
-and static presentation contracts; Remote owns host layout and static listbox controls. Shared
-presentation never supplies authority or management outcomes.
+The Remote-owned management tabs use the existing page CSP, origin checks and no-store policy.
+`/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not embed another signer/channel implementation.
+Settings consolidates Browser opening, Session limit per device, the origin-local catalog name
+(labelled Name in this browser) and the admitted current browser/device name (labelled with that scope).
+A Remote-wide name or person display name has no browser setter here. Catalog naming reuses the existing
+browser-local CAS/import controller; device naming retains signed designated-browser admission.
+The same bounded device-page forms move between Members, My devices and Settings without cloning
+controls or resetting drafts/original outcomes. A current browser missing from that admitted page is
+not invented. Service & upgrade reuses the read-only recorded Firestore section and terminal guidance;
+it never executes deploy or upgrade. The additive public SDK exports remain `FirestoreSettingsView`,
+`budget.parsePublishedLimits` and `budget.publishedLimitRows`. Effective values, sources, warnings and
+write capabilities come from admitted server reads. Shared checked CSS/static presentation supplies
+no authority or management outcomes; Remote owns the tab/frame composition and listbox controls.
 
 The read-only Firestore section uses the signed opt-in settings view, showing the same recorded
 layer/prerequisite states and fixed next commands as `status --layers`. Any layer reporting
@@ -2279,11 +2294,11 @@ never enables agent access; the [historical conformance material](#proposal-clou
 under the [superseded-authentication note](#superseded-cloud-authentication-proposal), not a shipped Firestore gate.
 Cloudflare remains proposed. Extension/page authority never substitutes for a local paired operation grant.
 
-| Backend      | Mapping                                                                                                                                                                                                                                      |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `local`      | [Loopback HTTP](#transport-binding-loopback-http), mounted extension routes and WebSocket relay; state under the data root.                                                                                                                  |
+| Backend      | Mapping                                                                                                                                                                                                                              |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `local`      | [Loopback HTTP](#transport-binding-loopback-http), mounted extension routes and WebSocket relay; state under the data root.                                                                                                          |
 | `firestore`  | **Shipped:** extension-scoped sealed-document sync for Colab page sharing. **Native agent binding:** invite/join, encrypted inboxes, owner responses and the one-way public Core sender; composed final acceptance remains separate. |
-| `cloudflare` | **Proposal:** Worker admission before per-machine Durable Object storage; per-namespace relay objects; bounded WebSocket delivery and device-scoped checkpoints.                                                                             |
+| `cloudflare` | **Proposal:** Worker admission before per-machine Durable Object storage; per-namespace relay objects; bounded WebSocket delivery and device-scoped checkpoints.                                                                     |
 
 ### Native Firestore agent binding
 
@@ -3809,7 +3824,7 @@ references. Registry validation, storage and concurrent-edit failures use the ex
 `REMOTE_SELECTOR_INVALID`, `_UNAVAILABLE` and `_CONFLICT` family, not signed access evidence.
 
 Local Open validates the destination and the whole public handoff before navigation to that
-origin's `/remote/` entry; the stored public reference is unchanged.
+origin's `/remote/overview` entry; the stored public reference is unchanged.
 The fragment carries `tmt-remotes` (base64url compact catalog JSON in the field order above)
 and optional `tmt-page` (base64url compact `{spaceId,pageId}` JSON in that order, using Colab's ID
 grammar). All values count within the 8 KiB encoded-fragment bound. Unknown, duplicate or

@@ -43,7 +43,7 @@ states. The card heading is the page's `h2`; the header title is its only `h1`.
 
 The human serve link names `/`; protocol readiness/status/SDK addresses retain `/r/<prefix>`.
 Home and TMT settings follow the [public route contract](../../../../contracts/remote-channel-v1.md#public-browser-routes); they expose only navigation, no state or authority.
-`Pages` serves Remote's entry at `/remote/` and same-origin `/sdk/landing.js` bootstrap under the existing
+`Pages` serves the global list at `/remote/` and the current-door Overview at `/remote/overview` and same-origin `/sdk/landing.js` bootstrap under the existing
 CSP/no-store/Host/Origin boundary. `browser.ts` validates local pairing before network, then checks
 once on page open through descriptor, verified Session and scope-free `capabilities` observation.
 Manual Check again reuses the current Session. An expired Session is silently reopened once
@@ -59,8 +59,8 @@ revoked/expired authority; a session-ended/evicted body offers Check again witho
 loss. Opaque404 remains unconfirmed even after a
 descriptor-only recheck, never another admission. Page-lifetime/signing fences prevent new
 requests after departure; per-check fences prevent late painting. A valid stored pairing short-circuits manual enrollment, leaves its offer open and continues
-to `/remote/`; unreadable/unconfirmed state never enrolls silently. Pair success still links back
-to `/remote/`, with unchanged fragment erasure, terminal confirmation and disabled-until-ready controls.
+to `/remote/overview`; unreadable/unconfirmed state never enrolls silently. Pair success still links back
+to `/remote/overview`, with unchanged fragment erasure, terminal confirmation and disabled-until-ready controls.
 
 The native CLI regression fetches the printed human URL as HTML and verifies protocol-base
 refusal with zero request-triggered core calls. Existing Chromium owners cover exact pairing,
@@ -68,7 +68,7 @@ entry states, keyboard activation, storage/transport/pin errors, refusal, token 
 1440/390 light/dark captures plus a 320-pixel fit check. The SDK fixture covers complete stored-record guards
 and page replacement; actual browser/terminal fixtures remain the user-flow evidence owner.
 
-The Remote rail opens **My Remotes** at the existing `/remote/settings` route. One
+The Remote rail opens **My Remotes** at `/remote/`, with a second link into the current door’s Overview. One
 `registryView` projection feeds the page and the rail's current-machine context; the rail does
 not enumerate a second remote list. This machine is first, explicitly marked, including when
 no public reference has been saved. Each row shows its backend, mark plus connection word,
@@ -95,14 +95,26 @@ signed catalog/default read or client factory is shipped.
 
 ## The one web app and public entries
 
-Every app route (`/`, `/settings`, `/remote/` with `/remote/devices`, `/remote/connect`, `/remote/machine` and `/remote/settings`, `/ops`, `/digest`, `/colab/…`)
+Every app route (`/`, `/settings`, `/remote/` and its current-door tabs, `/ops`, `/digest`, `/colab/…`)
 is the static `assets/shell.html`; `shell-app.ts` routes inside it, adopting each page's markup
 from `assets/*.html` and loading Colab's module from the composed shell's `entry`. The pairing
 page stays its own document and mounts the rail only.
-Remote is one route (`remote-routes.ts` is its table of paths and rows). `remote-app.ts` mounts both
-pages' markup once and shows the view the path names (`data-view` on the markup), so a switch
-between Remote's rows swaps no slot and loads nothing; each page's code starts when its first view
-shows and shares one remotes controller. The module menu holds no position of its own. `/p/<id>` answers 308 to `/colab/p/<id>`.
+Remote’s `remote-routes.ts` is the one browser route/menu declaration. My Remotes is the global
+origin-local list; its Open enters the selected door’s Overview. One current-door frame owns the
+Overview, Members, Invites, My devices, Settings and Service & upgrade tabs, with no Remote ID in
+the path. The native page allowlist mirrors that explicit set, and old machine/devices/connect
+paths have no shims. The [public route contract](../../../../contracts/remote-channel-v1.md#public-browser-routes)
+owns the exact paths. The rail links to the list and current Remote rather than duplicating the tabs.
+`remote-app.ts` keeps both markup models and persistent tab panels mounted, moving the same form
+nodes instead of cloning or remounting their draft/original-outcome owners. Tabs use the shipped
+static roles, roving focus, keyboard selection and disposable resize visibility. A registry
+observation subscription supplies role and clears it on access loss; no second source or authority
+is created. The verified landing Session initializes management once; unavailable management
+initializes read-only without another discovery. Manual connection rechecks do not trigger an
+extra management admission; later management reads retain their bounded identity-checked recovery. Member admin-only tabs stay visible with lock word/mark, reason and a copy-only request.
+Unknown access has its own text. The existing composed-shell observation supplies Needs-you counts.
+A document-level registry modal remains visible from every tab and is removed on route abort;
+late validation cannot write or reopen it. `/p/<id>` still answers 308 to `/colab/p/<id>`.
 Remote forwards only `/read/<id>` in place to Colab's public mount socket, with the
 Remote-computed `tmt-mount` header.
 For that entry it owns no Colab catalog, capability or CSP; no cookie/session lookup occurs.
@@ -140,7 +152,7 @@ agent or schedule controls, owner reads or persistence.
 
 ## Settings page
 
-The settings views (`/remote/devices`, `/remote/machine`, `/remote/settings`) use the same embedded shared CSS, Header/Notice/Field/Action classes and
+The current-door management tabs use the same embedded shared CSS, Header/Notice/Field/Action classes and
 Remote host metrics; its additional stylesheet owns settings layout and static listbox geometry.
 Normal settings use thin section rules, a desktop summary/control grid and a single-column
 narrow layout. Each setting keeps its unchanged hint and original-result feedback beside its
@@ -161,7 +173,7 @@ so only one bounded page of forms is retained. The separately generated
 Both generated modules must pass rebuild byte equality. The owning
 [management protocol](../../../../contracts/remote-channel-v1.md#remote-settings-page)
 defines the unlimited default/source, capacity, durable last use and atomic remove-others behavior.
-Only the locally designated browser may remove devices; read-only pages show its exact designation
+Settings combines opening/session controls, Name in this browser (catalog-only CAS), and the honestly labelled current browser/device name. Remote-wide and person names have no new setter. My devices filters the same admitted page to this browser; a missing row is reported, never inferred. One state-aware pairing guidance owner replaces the repeated status/Connect blocks. Only the locally designated browser may remove devices; read-only pages show its exact designation
 command. Removed rows disappear without deleting revocation tombstones.
 
 The existing Chromium pairing fixture also exercises the actual settings page: designated/

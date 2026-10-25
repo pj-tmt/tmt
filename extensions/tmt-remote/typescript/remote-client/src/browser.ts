@@ -1,3 +1,5 @@
+import { pairingGuidance } from './remote-state.js';
+import { remoteItem } from './remote-routes.js';
 export {
   bindSyncContext,
   syncDocumentPath,
@@ -425,6 +427,7 @@ type EntryState =
 export async function landingPage(
   lifetime?: AbortSignal,
   registry?: RemoteRegistryPage,
+  connected?: (session: Session) => void,
 ): Promise<void> {
   if (document.readyState === 'loading') {
     await new Promise<void>((resolve) =>
@@ -446,14 +449,20 @@ export async function landingPage(
     },
     { once: true },
   );
-  const commandActions = [
-    ['missing', 'pair'],
-    ['different', 'pair'],
-    ['refused', 'devices'],
-    ['refused', 'pair'],
-    ['unconfirmed', 'status'],
-    ['unreadable', 'pair'],
-  ] as const;
+  const commandActions = ['pair', 'devices', 'status'] as const;
+  let guidanceState: EntryState = 'checking';
+  let guidanceEnded = false;
+  function showGuidance(): void {
+    const invite = remoteItem(location.pathname)?.id === 'invites';
+    const guidance = pairingGuidance(guidanceState, guidanceEnded, invite);
+    element('remote-guidance').hidden = !Object.values(guidance).some(Boolean);
+    element('remote-guidance-heading').textContent = guidance.pair
+      ? 'Connect a browser'
+      : 'Check access';
+    for (const command of commandActions)
+      element(`remote-guide-${command}`).hidden = !guidance[command];
+  }
+  window.addEventListener('popstate', showGuidance, { signal: lifetime });
   const render = (state: EntryState, validated = false, refusalCode?: string): void => {
     const authorityEnded = ['REMOTE_DEVICE_REVOKED', 'REMOTE_GRANT_EXPIRED'].includes(
       refusalCode ?? '',
@@ -508,8 +517,8 @@ export async function landingPage(
       authorityEnded ? 'Access ended' : copy[1]!,
       element('protocol-address').textContent ?? undefined,
     );
-    for (const [copyState, command] of commandActions)
-      element(`copy-feedback-${copyState}-${command}`).textContent = '';
+    for (const command of commandActions)
+      element(`copy-feedback-guide-${command}`).textContent = '';
     element('mark').textContent = copy[0]!;
     element('state-label').textContent = copy[1]!;
     element('heading').textContent = copy[2]!;
@@ -526,24 +535,22 @@ export async function landingPage(
         document.createTextNode(after!),
       );
     }
-    for (const name of ['missing', 'different', 'refused', 'unconfirmed', 'unreadable'])
-      element(`steps-${name}`).hidden =
-        name !== state || (name === 'refused' && !authorityEnded) || name === 'unreadable';
+    guidanceState = state;
+    guidanceEnded = authorityEnded;
+    showGuidance();
     element('status').hidden = state === 'missing';
-    element('pairing-note').hidden = state !== 'missing';
-    element('command-location').hidden = ['checking', 'connected'].includes(state);
     button.hidden = ['missing', 'different', 'unreadable'].includes(state);
     button.disabled = state === 'checking';
   };
-  for (const [state, command] of commandActions) {
-    element(`copy-${state}-${command}`).addEventListener('click', async () => {
+  for (const command of commandActions) {
+    element(`copy-guide-${command}`).addEventListener('click', async () => {
       const text = `tmt remote ${command}`;
       try {
         await navigator.clipboard.writeText(text);
-        if (pageAlive()) element(`copy-feedback-${state}-${command}`).textContent = 'Copied.';
+        if (pageAlive()) element(`copy-feedback-guide-${command}`).textContent = 'Copied.';
       } catch {
         if (pageAlive())
-          element(`copy-feedback-${state}-${command}`).textContent =
+          element(`copy-feedback-guide-${command}`).textContent =
             'Copy failed. Select the command and copy it manually.';
       }
     });
@@ -648,6 +655,7 @@ export async function landingPage(
         timeStyle: 'short',
       }).format(new Date());
       render('connected');
+      connected?.(session!);
     } catch (error) {
       if (!currentPage()) return;
       const verifiedRefusal =
@@ -775,7 +783,7 @@ export async function pairingPage(link: string): Promise<void> {
     if (await existingPairing(lifetime.signal)) {
       active(lifetime.signal);
       showState(status, 'paired', 'This browser is already paired.');
-      location.replace('/remote/');
+      location.replace('/remote/overview');
       return;
     }
   } catch (error) {

@@ -64,3 +64,20 @@ export function currentRemote(
     (entry.url === address || new URL(entry.url).href === currentDoor(pageUrl))
   );
 }
+
+/** Guidance never treats transport uncertainty or unreadable storage as permission to re-pair. */
+export function pairingGuidance(
+  state: string,
+  authorityEnded: boolean,
+  invite: boolean,
+): { pair: boolean; devices: boolean; status: boolean } {
+  return {
+    pair:
+      invite ||
+      state === 'missing' ||
+      state === 'different' ||
+      (state === 'refused' && authorityEnded),
+    devices: state === 'refused' && authorityEnded && !invite,
+    status: state === 'unconfirmed' && !invite,
+  };
+}

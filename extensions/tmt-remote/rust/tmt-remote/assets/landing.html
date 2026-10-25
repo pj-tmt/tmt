@@ -22,7 +22,7 @@
         id="notice"
         class="sheet tmt-ui-notice"
         data-tone="waiting"
-        data-view="status"
+        data-view="overview"
         aria-labelledby="heading"
       >
         <div class="sheet-body tmt-ui-notice-body">
@@ -32,131 +32,6 @@
           </div>
           <h2 id="heading" class="tmt-ui-notice-heading">Checking the connection…</h2>
           <p id="status" role="status">Reading this browser's pairing.</p>
-          <p id="command-location" class="entry-note" hidden>
-            Run these commands on the machine that runs Remote.
-          </p>
-          <ol id="steps-missing" class="entry-steps" hidden>
-            <li>
-              On the machine running Remote, run
-              <span class="entry-command tmt-ui-command"
-                ><code class="tmt-ui-command-text">tmt remote pair</code>
-                <button
-                  id="copy-missing-pair"
-                  aria-label="Copy tmt remote pair"
-                  type="button"
-                  class="tmt-ui-command-copy"
-                >
-                  Copy</button
-                ><span
-                  id="copy-feedback-missing-pair"
-                  class="tmt-ui-command-feedback"
-                  role="status"
-                ></span
-              ></span>
-            </li>
-            <li>Open the link it prints <strong>in this browser</strong>.</li>
-            <li>Name this device, then check that the four words match the terminal.</li>
-            <li>Confirm in the terminal. This page updates when you come back.</li>
-          </ol>
-          <ol id="steps-different" class="entry-steps" hidden>
-            <li>
-              To use this machine too, run this on it:
-              <span class="entry-command tmt-ui-command"
-                ><code class="tmt-ui-command-text">tmt remote pair</code>
-                <button
-                  id="copy-different-pair"
-                  aria-label="Copy tmt remote pair"
-                  type="button"
-                  class="tmt-ui-command-copy"
-                >
-                  Copy</button
-                ><span
-                  id="copy-feedback-different-pair"
-                  class="tmt-ui-command-feedback"
-                  role="status"
-                ></span
-              ></span>
-            </li>
-          </ol>
-          <ol id="steps-refused" class="entry-steps" hidden>
-            <li>
-              Check this device with
-              <span class="entry-command tmt-ui-command"
-                ><code class="tmt-ui-command-text">tmt remote devices</code>
-                <button
-                  id="copy-refused-devices"
-                  aria-label="Copy tmt remote devices"
-                  type="button"
-                  class="tmt-ui-command-copy"
-                >
-                  Copy</button
-                ><span
-                  id="copy-feedback-refused-devices"
-                  class="tmt-ui-command-feedback"
-                  role="status"
-                ></span
-              ></span>
-            </li>
-            <li>
-              If it's missing, pair again with
-              <span class="entry-command tmt-ui-command"
-                ><code class="tmt-ui-command-text">tmt remote pair</code>
-                <button
-                  id="copy-refused-pair"
-                  aria-label="Copy tmt remote pair"
-                  type="button"
-                  class="tmt-ui-command-copy"
-                >
-                  Copy</button
-                ><span
-                  id="copy-feedback-refused-pair"
-                  class="tmt-ui-command-feedback"
-                  role="status"
-                ></span
-              ></span>
-            </li>
-          </ol>
-          <ol id="steps-unconfirmed" class="entry-steps" hidden>
-            <li>
-              Check Remote is running:
-              <span class="entry-command tmt-ui-command"
-                ><code class="tmt-ui-command-text">tmt remote status</code>
-                <button
-                  id="copy-unconfirmed-status"
-                  aria-label="Copy tmt remote status"
-                  type="button"
-                  class="tmt-ui-command-copy"
-                >
-                  Copy</button
-                ><span
-                  id="copy-feedback-unconfirmed-status"
-                  class="tmt-ui-command-feedback"
-                  role="status"
-                ></span
-              ></span>
-            </li>
-          </ol>
-          <ol id="steps-unreadable" class="entry-steps" hidden>
-            <li>
-              Pair again with
-              <span class="entry-command tmt-ui-command"
-                ><code class="tmt-ui-command-text">tmt remote pair</code>
-                <button
-                  id="copy-unreadable-pair"
-                  aria-label="Copy tmt remote pair"
-                  type="button"
-                  class="tmt-ui-command-copy"
-                >
-                  Copy</button
-                ><span
-                  id="copy-feedback-unreadable-pair"
-                  class="tmt-ui-command-feedback"
-                  role="status"
-                ></span
-              ></span>
-            </li>
-          </ol>
-          <p id="pairing-note" class="entry-note" hidden>Pair links are private and work once.</p>
           <button id="check" class="tmt-ui-action" type="button" aria-describedby="status" disabled>
             Check again
           </button>
@@ -179,41 +54,26 @@
           </details>
         </div>
       </section>
-      <section
-        id="connect"
-        class="sheet tmt-ui-notice"
-        data-tone="neutral"
-        data-view="connect"
-        aria-labelledby="connect-heading"
-        hidden
-      >
+      <div data-view="overview invites"><section id="remote-guidance" class="sheet tmt-ui-notice" data-tone="neutral" hidden>
         <div class="sheet-body tmt-ui-notice-body">
-          <h2 id="connect-heading" class="tmt-ui-notice-heading">Connect a device</h2>
-          <p>Give another browser or device its own access to this machine.</p>
-          <ol class="entry-steps">
-            <li>
-              On the machine that runs Remote, run
-              <span class="entry-command tmt-ui-command"
-                ><code class="tmt-ui-command-text">tmt remote pair</code>
-                <button
-                  id="copy-connect-pair"
-                  aria-label="Copy tmt remote pair"
-                  type="button"
-                  class="tmt-ui-command-copy"
-                >
-                  Copy</button
-                ><span
-                  id="copy-feedback-connect-pair"
-                  class="tmt-ui-command-feedback"
-                  role="status"
-                ></span
-              ></span>
-            </li>
-            <li>Open the link it prints in the browser you want to connect.</li>
-          </ol>
-          <p class="entry-note">Pair links are private and work once.</p>
+          <h2 id="remote-guidance-heading" class="tmt-ui-notice-heading">Connect a browser</h2>
+          <p>Run commands on the machine that runs this Remote.</p>
+          <p id="remote-guide-devices" hidden>Check the saved device before changing access:
+            <span class="entry-command tmt-ui-command"><code class="tmt-ui-command-text">tmt remote devices</code><button id="copy-guide-devices" class="tmt-ui-command-copy" type="button" aria-label="Copy tmt remote devices">Copy</button><span id="copy-feedback-guide-devices" class="tmt-ui-command-feedback" role="status"></span></span>
+          </p>
+          <p id="remote-guide-status" hidden>Check whether Remote is running:
+            <span class="entry-command tmt-ui-command"><code class="tmt-ui-command-text">tmt remote status</code><button id="copy-guide-status" class="tmt-ui-command-copy" type="button" aria-label="Copy tmt remote status">Copy</button><span id="copy-feedback-guide-status" class="tmt-ui-command-feedback" role="status"></span></span>
+          </p>
+          <div id="remote-guide-pair" hidden>
+            <ol class="entry-steps">
+              <li>Run <span class="entry-command tmt-ui-command"><code class="tmt-ui-command-text">tmt remote pair</code><button id="copy-guide-pair" class="tmt-ui-command-copy" type="button" aria-label="Copy tmt remote pair">Copy</button><span id="copy-feedback-guide-pair" class="tmt-ui-command-feedback" role="status"></span></span></li>
+              <li>Open the link it prints in the browser you want to connect.</li>
+              <li>Name the browser and check the four words.</li><li>Confirm in the terminal.</li>
+            </ol>
+            <p id="pairing-note" class="entry-note">Pair links are private and work once.</p><p class="entry-note">Pairing does not make a browser an admin.</p>
+          </div>
         </div>
-      </section>
+      </section></div>
     </main>
     </div>
     </div>

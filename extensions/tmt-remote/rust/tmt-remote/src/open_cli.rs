@@ -8,8 +8,8 @@ pub fn command(extension: bool) -> Command {
         name: if extension { "launch" } else { "open" },
         summary: "Open a local page and connect this browser",
         examples: &[Example {
-            command: "tmt remote open /remote/settings",
-            note: "Open Remote settings",
+            command: "tmt remote open /remote/overview",
+            note: "Open this Remote overview",
         }],
         outputs: if extension {
             OutputModes::Human
