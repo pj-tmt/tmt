@@ -375,7 +375,9 @@ fn rollback_discontinuity_and_expiry_are_fail_closed_and_bounded() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(count, 1441);
+    // Expired rows go when a sample enters a new rollup bucket, so up to one bucket of
+    // them waits for that sample; nothing read ever includes them.
+    assert!((1441..=1441 + ROLLUP_BUCKET_MS as i64 / BUCKET_MS as i64).contains(&count));
     let now = 15000 + 1443 * BUCKET_MS + HISTORY_MS + BUCKET_MS;
     let cursor = storage.change_cursor().unwrap();
     let expired = storage
@@ -402,7 +404,7 @@ fn rollback_discontinuity_and_expiry_are_fail_closed_and_bounded() {
             .query_row("SELECT COUNT(*) FROM consumption_buckets", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
-        1441
+        count
     );
     storage.close().unwrap();
 }

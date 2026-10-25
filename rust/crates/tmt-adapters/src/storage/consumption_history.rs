@@ -906,6 +906,16 @@ fn record_sample(
             params![now as i64, encoded, id],
         )
         .map_err(|e| classify(e, "Advance consumption observation"))?;
+    // Expired rows are removed when the sample enters a new rollup bucket, not on every tick.
+    if old_time.is_none_or(|start| start / ROLLUP_BUCKET_MS != now / ROLLUP_BUCKET_MS) {
+        prune(connection, id, now)?;
+    }
+    Ok(())
+}
+
+fn prune(connection: &Connection, id: &str, now: u64) -> Result<(), StorageError> {
+    let from = now / BUCKET_MS * BUCKET_MS;
+    let rolled_from = now / ROLLUP_BUCKET_MS * ROLLUP_BUCKET_MS;
     let cutoff = from.saturating_sub(HISTORY_MS);
     connection
         .execute(
@@ -929,6 +939,8 @@ fn record_sample(
 
 #[cfg(test)]
 mod passthrough_tests;
+#[cfg(test)]
+mod prune_tests;
 #[cfg(test)]
 mod rollup_tests;
 #[cfg(test)]
