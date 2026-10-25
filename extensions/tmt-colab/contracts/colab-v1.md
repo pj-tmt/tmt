@@ -1029,10 +1029,10 @@ scoped `(streamId, seq)` key. One browser tab owns the device's write lock with
 `own` have separate documents and decoders; unsigned routing cannot choose a
 document. The following roots are exhaustive:
 
-| Namespace | Roots                                                                                                                                                                      | Fold and authority                                                                   |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `originalAuthor`, `creationRecipient`, `layout`, `layoutReason`, `work` ([Work](#work-4050)) | Shared page document, folded from admitted owner/editor streams in the current epoch |
-| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                                                                                         | Separate document per writer; only that writer's signed stream mutates it            |
+| Namespace | Roots                                                                                                                                                                                                                                             | Fold and authority                                                                   |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `originalAuthor`, `creationRecipient`, `creator`, `questions` ([question metadata](#question-metadata-5052)), `layout`, `layoutReason`, `work` ([Work](#work-4050)) | Shared page document, folded from admitted owner/editor streams in the current epoch |
+| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                                                                                                                                                                | Separate document per writer; only that writer's signed stream mutates it            |
 
 `meta.publisherAgent`, when present, is a nonempty string of at most 128 UTF-8
 bytes without control characters. It is a publisher-asserted display-only label,
@@ -1044,7 +1044,7 @@ label; an unknown CLI writer removes the previous label. Browser Save carries no
 CLI label and so removes it the same way. Content folding and epoch baselines preserve it in the
 committed update bytes; no descriptor field or extra signature is added.
 
-`meta.originalAuthor`, when present, uses the same bounded label grammar. Initial page creation derives it from that request's already captured `publisherAgent`; there is no separate creator lookup or public creation selection. It is a publisher-asserted creation display snapshot, not authenticated proof of a person's identity. Supported native and browser source writes preserve it independently of the latest publisher; an unknown creation remains absent after later known writes. Legacy absence means Unknown author in trusted presentation, never a guessed or backfilled value. Fresh epoch baselines and content checkpoints preserve it. It never supplies authorization, an Ask recipient or an Ask default.
+`meta.originalAuthor`, when present, uses the same bounded label grammar. Initial page creation derives it from that request's already captured `publisherAgent`; the independently editable creator below does not replace this historical snapshot. It is a publisher-asserted creation display snapshot, not authenticated proof of a person's identity. Supported native and browser source writes preserve it independently of the latest publisher; an unknown creation remains absent after later known writes. Legacy absence means Unknown author in trusted presentation, never a guessed or backfilled value. Fresh epoch baselines and content checkpoints preserve it. It never supplies authorization, an Ask recipient or an Ask default.
 
 `meta.layout`, when present, is `column`, `full` or `canvas`: how Colab frames the
 page (`column`: a text column of at most 1280 px; `full`: blocks may run edge to edge;
@@ -1079,6 +1079,99 @@ authenticated current machine and one uniquely admitted agent UUID match this fr
 preference; this native/non-UI change does not integrate that UI default. Live grant
 and send admission remain separate. Old strict readers reject this added metadata
 rather than silently dropping it; mixed-version runtime acceptance is not claimed.
+
+### Question metadata (#5052)
+
+An ordinary page may carry `meta.creator` and `meta.questions`; a shell has neither.
+They are editor-owned content, preserved by source writes, checkpoints, fresh epoch baselines
+and frozen export manifests. They confer no identity, role, send or content authority.
+
+`creator` is exactly `{agent:{id,name},attribution,machineId?}`. `id` is a canonical non-nil
+Core UUID; `name` is the existing bounded publisher display label. The optional `machineId`
+is a canonical Remote UUIDv4 routing hint. `attribution` is the admitted editor's
+`{writerId,timeMs,displayAgent?}` value used by Work, not a selected agent's claim.
+`page create` captures its invoking identity once. An anonymous plain-shell create proceeds
+without a creator; no identity is guessed or backfilled. `--creator NAME|UUID` explicitly selects
+one through bounded public identity lookup and refuses an unresolved named selection.
+Anonymous compiled templates also create successfully and register their questions unassigned.
+Their answers stay on the page with no Ask until a creator or explicit question agent is selected. `page creator PAGE
+NAME|UUID` changes this preference against the current revision (or `--expected-revision`),
+without changing `originalAuthor`, existing questions or sent messages. New drafts use the
+new preference. An assigned registration keeps its agent across creator changes. An unassigned
+registration follows the current creator for new drafts, without backfilling its stored value;
+without a creator its answers stay on the page and send no Ask. A legacy page reads its complete
+`creationRecipient` pair as the creator
+without writing it back; `originalAuthor` alone never supplies a creator. Without either
+reference the creator remains absent.
+
+`questions` is an array of at most 50 entries, unique by the existing authored question UUID.
+Each entry is exactly `{id,state,attribution,agent?,title?,group?,task?}`. Optional `agent` uses
+the same stable ID/display-label pair; absence means unassigned and null is invalid. `title` is nonempty inert text of at most 200 Unicode code
+points; `group` is an authored group UUID. Stored `state` is `open` or `handled`; `task` is
+optional only for `handled` and must name a task on this page when the action sets it.
+`question add PAGE --id UUID [--agent NAME|UUID] [--title TITLE] [--group UUID]` registers or
+explicitly updates that entry. Omitted agent leaves a new entry unassigned and preserves an
+existing assignment. Repeating an unchanged registration publishes nothing;
+changed routing, group or title is attributed and never reopens it. `question handle PAGE
+ID [--task T-n]` and `question reopen PAGE ID` change the editor-owned lifecycle; reopening
+clears the task link. These closed actions use the ordinary conditional content publisher,
+never a new publication kind or commenter content write.
+
+A bounded public lookup may confirm that a referenced identity is missing; unavailable,
+malformed or incomplete lookup is only unverified. When selecting a new reference without
+lookup, a matching stored name/ID may be reused and an explicit canonical UUID may proceed
+with `identityVerified:false`. A new name cannot be guessed: `COLAB_IDENTITY_UNVERIFIED`
+prints the same command with an explicit UUID and a plain retry. An ambiguous stored name
+also requires the UUID. No Core store is read and no new Core API is introduced.
+
+Supported native write/patch/owner-Save preparation compares new question occurrences and
+changed ID/agent pairs with the verified registry before preparing a content batch. Unchanged
+ID/agent occurrences already present in the admitted base source remain admitted, including
+legacy pages without a registry; unrelated edits never require their registration. The allowance
+is counted per occurrence, so duplicating an old block still introduces a new block. Creation
+and explicit `page check --page` compare the full source without this edit allowance.
+A missing registration or an explicitly named mismatched or positively missing agent refuses
+with `COLAB_QUESTION_UNREGISTERED`, `COLAB_QUESTION_AGENT_MISMATCH` or
+`COLAB_QUESTION_AGENT_UNKNOWN`. Each finding names its source line and a quoted command repair;
+registry findings use `severity:"blocking"` and refuse publication independently of `--strict`.
+An empty
+`data-agent` is valid without a creator. An explicit value must equal the assigned registered
+ID/name, or the current creator for an unassigned registration. Existing markup findings still describe
+ignored shapes; the parser's depth and page limits do not become an unbounded second parse.
+`page check FILE` remains markup-only/offline; `--page PAGE` adds this registry comparison.
+Nonblocking `hints` remain separate from findings. Native Needs-you counts each registered open question;
+until #5146 adopts the registry, browser question counts remain per markup group. This temporary
+count mismatch grants no write or Ask authority.
+
+`page create --file` refuses live question blocks before commit and prints the empty-create,
+per-question register and source-write sequence, using the file's IDs and admitted titles.
+There is no authored initial-registry input. Built-in `--template` creation instead fills
+question `data-agent` from the selected creator and registers the template's questions in the
+same create commit. Without a creator, it omits the compiled placeholder agent attributes and
+registers the questions with no agent. The owner checks the source's literal bytes and repeated UUID slots
+against the compiled template; arbitrary source cannot claim that exception. User templates
+remain outside this first-party path.
+
+An ordinary comment may carry optional `questionId`, using the same UUID grammar. It is
+immutable across revisions, like its thread reference and Lamport sequence. This is an inert
+binding, not a new comment kind or authority. Effective question state consumes only current,
+nondeleted question-bound comments from verified owner-member devices in nondeleted,
+non-proposal threads. Stable comment order (sequence, writer, message ID) chooses the latest;
+clocks and Ask results never choose it. An open entry with such an answer projects `answered`,
+a whitespace-normalized summary of at most 200 code points in `answer`, display-only
+`answeredAt` and `answerRef:{writer,id,revision}`. Deleting the last answer returns it to open;
+handled remains terminal until an editor reopens it. Raw content cannot assert answered state,
+summary, time or answer reference. `question ls` returns this effective projection;
+`page read` keeps raw `questions` beside read-only `questionStates` when nonempty.
+Native Needs-you counts each registered open question, including entries whose markup was
+removed, while preserving other pending kinds. Browser controls/routing/count adoption is
+tracked separately by #5146; the strict browser metadata and own-record codecs already
+preserve these values without granting a commenter content authority.
+
+Owner Save refusals keep the existing short message and add optional bounded
+`findings:[{code,line,fix}]` only on a rejected result. Up to 50 first repairs fit inside the
+existing 64 KiB frame; each fix is at most 2048 UTF-8 bytes. The browser preserves the first
+repair in its refused-save error. Full CLI/page-check findings remain line-specific.
 
 Mixed-root updates or other root names/types reject before atomic application.
 Sharing, roles, script policy, retention and local grants MUST NOT be Yjs state.
@@ -1199,7 +1292,7 @@ order for browser and native.
 | Root/key                                       | Additional fields                                                                                                                                                                                                               |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `threads[threadId+":"+revision]`               | `kind:"thread"`, `threadId`, `anchor:null` or `{exact,prefix,suffix}`, `resolved:boolean`                                                                                                                                       |
-| `messages[messageId+":"+revision]`             | `kind:"comment"`, `messageId`, `thread:{writer,id}`, `body:string`, optional `sequence`                                                                                                                                         |
+| `messages[messageId+":"+revision]`             | `kind:"comment"`, `messageId`, `thread:{writer,id}`, `body:string`, optional `sequence` and immutable `questionId` ([question metadata](#question-metadata-5052))                                                               |
 | `messages[actionId+":thread-status"]`          | `kind:"thread-status"`, `actionId`, `thread:{writer,id}`, `previous:null` or `{writer,id}`, `resolved:boolean`, `actor:"person"` or `"agent"`, `agentName:null` or string, `recipients:[{machine,agent,agentName,operationId}]` |
 | `messages[operationId+":thread-notification"]` | `kind:"thread-notification"`, `operationId`, `status:{writer,id}`, `reason:"RECIPIENT_UNAVAILABLE"` or `"PREPARATION_FAILED"`                                                                                                   |
 
@@ -3094,7 +3187,7 @@ characters).
 
 ### Answer blocks
 
-An answer block is authored page HTML, not a new discussion record or CLI command:
+An answer block is authored page HTML. Register its ID first through [question metadata](#question-metadata-5052); answers remain ordinary discussion records:
 
 ```html
 <tmt-question
@@ -3171,7 +3264,7 @@ answer under the title (two lines at most). The glyph, eyebrow, title and chevro
 remain neutral. Two or more adjacent questions share one band with one muted
 `Questions from <agent> · N of M waiting` heading and no per-line eyebrow, their
 lines separated by the same rule; a question placed alone has the band above.
-Needs you counts the logical group once across every placement. Existing
+Native Needs you counts each registered open question; browser counting adoption follows #5146. Existing
 `data-form="chip"` markup remains admitted under its existing attribute checks,
 but uses the same compact lines instead of a tabbed panel.
 
@@ -5117,7 +5210,7 @@ The owner-only `POST /.tmt/colab/management` route takes exactly
 `space, page, expectedRevision, operationId, operation, payload`; revision is canonical
 positive decimal text (the empty string for `page.projects`, `project.manage` and `page.pin`, see [Projects](#projects-3747) and [Pins](#pins-4356))
 and payload is canonical base64url of the same typed JSON.
-The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent`, optional complete `creationRecipient` and, for an HTML page, an optional `layout` `{kind,reason?}` (the `kind`, and for a `canvas` its `reason`, as `meta.layout` and `meta.layoutReason` define; a dashboard has none) as defined
+The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent`, optional complete `creationRecipient`, an optional `creator` selection `{agent,machineId?}` (the owner supplies attribution), optional compiled `template` name and, for an HTML page, an optional `layout` `{kind,reason?}` (the `kind`, and for a `canvas` its `reason`, as `meta.layout` and `meta.layoutReason` define; a dashboard has none) as defined
 in the content-root definition above; it accepts
 revision `"0"` only when initializing owner genesis. Browser-signed management
 cannot create pages. Its source/title bounds are 2 MiB/256 KiB in UTF-8; the
@@ -5562,9 +5655,7 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   A review waits unless person-closed or its latest device change request is still waiting for an
   agent reply. Agent prose, device labels and publisher clocks cannot substitute for provenance.
 - `waiting` is exactly `needsYou > 0`, not a separate proposal-only definition.
-- `author` is the page's creation label, `meta.originalAuthor` (the bounded display label
-  derived from `publisherAgent` at creation; never identity proof), and is omitted when the
-  page has none. Never the last editor.
+- `author` is the effective creator's bounded display label ([question metadata](#question-metadata-5052)), falling back to `originalAuthor` for legacy display only. That label alone is never a creator, routing reference, identity proof or the last editor.
 - `work` is the page's tasks as the list shows them (see [Work](#work-4050)), omitted for a page
   with no `meta.work`, so a fresh summary without it is in discussion. It is
   `{stage, done, total, signoff, working, more?}`: the derived stage (`discussion` with no task,
@@ -6194,12 +6285,12 @@ foreign content and entity decoding land where the browser puts them. A source n
 than 512 elements stops the parse with one `page-too-deep` finding, because a browser stops
 nesting there and nothing past it can be judged.
 
-A finding is `{code, severity, element, ordinal, id, line, message}`. `element` is the
+A finding is `{code, severity, element, ordinal, id, line, message, fix?}`. Registry comparisons add a runnable `fix` command. `element` is the
 lowercase tag name and `ordinal` the element's 1-based index among elements with that tag in
 document order, counting ignored and nested ones. `id` is the authored `data-id` or `null`.
 `line` is the 1-based line of the end of the element's start tag. `severity` is `ignored`
-(the browser drops the block today) or `warning` (the block is admitted, or the problem is not
-about a block). `message` is wording that may change; `code` is the stable part. A finding on a
+(the browser drops the block today), `warning` (the block is admitted, or the problem is not
+about a block), or `blocking` (a registry comparison refuses publication even without `--strict`). `message` is wording that may change; `code` is the stable part. A finding on a
 skipped group adds `questionsSkipped`, the number of `tmt-question` elements inside it. Findings
 are ordered by line, element, ordinal and code.
 
@@ -6209,11 +6300,11 @@ reviews:{admitted,ignored},readings:{admitted,ignored},findings,hints}`. With no
 `{error:{code,message}}` attached; human output lists each finding with its line first.
 
 `page create` and `page write` run the same check on the source before any state changes. The
-findings are warnings: on stderr in human mode and a `warnings` array (the finding objects,
+ordinary markup findings are warnings: on stderr in human mode and a `warnings` array (the finding objects,
 `[]` when clean) in the JSON result, also for a write that changes nothing. A page being
 created has no attachments, so every well-formed reference in its first source is
 `attachment-ref-unresolved`. `--strict` turns any finding into a `COLAB_PAGE_CHECK` refusal
-before anything is committed; the JSON error carries the report.
+before anything is committed; the JSON error carries the report. Question registration refusals are mandatory independently of this flag; see [question metadata](#question-metadata-5052).
 
 A hint is advice about how the page was started, not a defect in it: `{code, message}` (no line,
 no severity; `message` may change, `code` is stable). `page check` reports them as `hints` (`[]`
@@ -6349,6 +6440,8 @@ The manifest is UTF-8 JSON with these fields:
 | `title`             | Exact admitted title                                                                                                                                                                                                                                             |
 | `pageType`          | `"shell"` for a shell export; omitted for ordinary HTML pages                                                                                                                                                                                                    |
 | `originalAuthor`    | Optional bounded creation display label, omitted when unknown; never identity proof                                                                                                                                                                              |
+| `creator`           | Optional editor-owned creator value from the captured view                                                                                                                                                                                                       |
+| `questions`         | Optional editor-owned raw registry from the captured view; answered state remains derived from conversations                                                                                                                                                     |
 | `publisherAgent`    | Optional latest CLI publisher display label, omitted when unknown                                                                                                                                                                                                |
 | `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                                                                                                                                                                 |
 | `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                                                                                                                                                                    |
@@ -6731,6 +6824,9 @@ newline):
         issuedAt, expiresAt, message, state, reason, requestId,
         reply:null|{requestId, agentId, body}}]}
 ```
+
+A question-bound comment carries optional `questionId` before `writer`; absent bindings leave
+the existing bytes unchanged. The binding is immutable across revisions, including a tombstone.
 
 A live comment with files carries `attachments:[{id, name, mediaType, sizeBytes}]` (full attachment
 ID, the descriptor's label and media type, plaintext size as a JSON integer) in its descriptor order, and

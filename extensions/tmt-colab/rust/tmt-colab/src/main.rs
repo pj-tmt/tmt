@@ -5,6 +5,7 @@ mod cli_edit_hint;
 mod cli_grammar;
 mod cli_layout;
 mod cli_management;
+mod cli_metadata;
 mod cli_page_check;
 mod cli_patch;
 mod cli_pins;
@@ -382,6 +383,7 @@ fn grammar() -> Command {
             .subcommand(cli_dashboard::command())
             .subcommand(cli_work::task_command())
             .subcommand(cli_work::summary_command())
+            .subcommand(cli_metadata::question_command())
             .subcommand(cli_template::command())
             .subcommand(
                 tmt_cli_style::command(&PAGE)
@@ -391,6 +393,7 @@ fn grammar() -> Command {
                             cli_template::create_arg(cli_layout::create_args(
                                 tmt_cli_style::command(&CREATE)
                                     .arg(cli_page_check::strict())
+                                    .arg(Arg::new("creator").long("creator").value_name("NAME|UUID").help("Creator for new drafts; uses the invoking identity when known, otherwise leaves no creator"))
                                     .arg(Arg::new("title").long("title").required(true).value_name("TITLE"))
                                     .arg(Arg::new("file").long("file").value_name("path|-")
                                         .value_parser(clap::value_parser!(std::path::PathBuf))),
@@ -427,7 +430,8 @@ fn grammar() -> Command {
                             ),
                     )
                     .subcommand(cli_patch::command())
-                    .subcommand(cli_layout::command()),
+                    .subcommand(cli_layout::command())
+                    .subcommand(cli_metadata::creator_command()),
             )
             .subcommand(
                 tmt_cli_style::command(&EXPORT)
@@ -519,6 +523,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     }
     if command == "task" || command == "summary" {
         return cli_work::run(&root, command, args);
+    }
+    if command == "question" {
+        return cli_metadata::run(&root, command, args);
     }
     let json_output = args.get_flag("json");
     if command == "spaces" {
@@ -897,6 +904,9 @@ fn print_receipt(
 fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     use tmt_colab::{decoder::Decoder, page::Fault};
     let (command, args) = args.subcommand().expect("required page command");
+    if command == "creator" {
+        return cli_metadata::run(root, "creator", args);
+    }
     if command == "create" {
         // The layout is chosen before any state is initialized or any source is read. A template
         // brings its own layout and source (clap keeps it apart from --layout, --reason, --file).
@@ -905,18 +915,30 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             Some(template) => template.layout(),
             None => cli_layout::choice(args)?,
         };
+        let metadata = cli_metadata::creation(args, template.map(|template| template.name))?;
         let source = match template {
-            Some(template) => template.source()?,
+            Some(template) => cli_metadata::template_source(template, &metadata)?,
             None => args
                 .get_one::<std::path::PathBuf>("file")
                 .map(|path| page_source(path))
                 .transpose()?
                 .unwrap_or_default(),
         };
+        if template.is_none() {
+            cli_metadata::admit_create_file(&source, args, &metadata)?;
+        }
         // A new page has no attachments: every reference in its first source is unresolved.
         let (warnings, hints) =
             cli_page_check::gate_with_hints(&source, args, cli_page_check::Attachments::NewPage)?;
-        return cli_management::create_page(root, args, source, &page_layout, &warnings, &hints);
+        return cli_management::create_page(
+            root,
+            args,
+            source,
+            &page_layout,
+            &warnings,
+            &hints,
+            metadata,
+        );
     }
     if command == "patch" {
         return cli_patch::run(root, args);
@@ -1023,6 +1045,45 @@ fn write_owner(layout: &Layout) -> Result<Option<nix::fcntl::Flock<std::fs::File
         Err(error) => Err(error),
     }
 }
+/// Finish a closed structured action through the same publication/no-op owner for every CLI
+/// caller. The caller has closed its read snapshot before entering the write owner.
+fn publish_structured_owned(
+    layout: &Layout,
+    key: &Keyring,
+    page_id: &str,
+    prepared: tmt_colab::page::PublicationPreparation,
+    decoder: &mut tmt_colab::decoder::Decoder,
+    clock: fn() -> Result<u64>,
+    write_lock: Option<&nix::fcntl::Flock<std::fs::File>>,
+) -> Result<tmt_colab::page::Receipt> {
+    use tmt_colab::page;
+    Ok(match prepared {
+        page::PublicationPreparation::Noop {
+            epoch,
+            membership_head,
+            base_revision,
+            memory_limit,
+        } => page::Receipt::unchanged(
+            key,
+            page_id,
+            "",
+            epoch,
+            membership_head,
+            base_revision,
+            memory_limit,
+        ),
+        page::PublicationPreparation::Write(frozen) => {
+            let published =
+                publish_write_owned(layout, key, page_id, &frozen, decoder, clock()?, write_lock)?;
+            let mut receipt = page::publication_receipt(frozen.job(), &published.record)?;
+            if let Some(revision) = published.revision {
+                receipt.revision = revision;
+            }
+            receipt
+        }
+    })
+}
+
 fn publish_write_owned(
     layout: &Layout,
     key: &Keyring,
@@ -1229,6 +1290,9 @@ fn spaces(root: &std::path::Path, json_output: bool) -> Result<()> {
     Ok(())
 }
 fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'static str {
+    if let Some(refused) = error.downcast_ref::<tmt_colab::question_registry::Refused>() {
+        return refused.code();
+    }
     if error.is::<supervisor::CleanupUnconfirmed>() {
         return "COLAB_OUTCOME_UNKNOWN";
     }
@@ -1367,6 +1431,10 @@ fn main() -> ExitCode {
                     value = recovery.correlation.clone();
                 }
                 value["error"] = json!({"code":code,"message":error.to_string()});
+                if let Some(refused) = error.downcast_ref::<tmt_colab::question_registry::Refused>()
+                {
+                    value["findings"] = cli_page_check::findings_json(&refused.findings);
+                }
                 if let Some(usage) = error
                     .downcast_ref::<tmt_colab::page::ipc::WriteError>()
                     .and_then(|error| error.usage())

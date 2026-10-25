@@ -8,122 +8,13 @@ use clap::{Arg, ArgMatches, Command, builder::PossibleValuesParser};
 use serde_json::json;
 use std::io::Write;
 use tmt_cli_style::{CommandSpec, Example, OutputModes};
-use tmt_colab::{
-    Result,
-    decoder::{LayoutKind, PageLayout},
-};
+use tmt_colab::Result;
+pub use tmt_colab::templates::{TEMPLATES, Template, find};
 
-use crate::{SKILL_REFERENCES, cli_management::fresh_id};
-
-/// One starting page: its name, what it is for, the layout it sets and its source.
-pub struct Template {
-    pub name: &'static str,
-    pub summary: &'static str,
-    kind: LayoutKind,
-    source: &'static str,
-}
-
-pub const TEMPLATES: [Template; 5] = [
-    Template {
-        name: "report",
-        summary: "Summary, findings table and next steps",
-        kind: LayoutKind::Column,
-        source: include_str!("../templates/report.html"),
-    },
-    Template {
-        name: "review",
-        summary: "Parts for the reader to confirm, and questions",
-        kind: LayoutKind::Column,
-        source: include_str!("../templates/review.html"),
-    },
-    Template {
-        name: "compare",
-        summary: "Now and after, side by side",
-        kind: LayoutKind::Column,
-        source: include_str!("../templates/compare.html"),
-    },
-    Template {
-        name: "board",
-        summary: "A full-bleed status board",
-        kind: LayoutKind::Full,
-        source: include_str!("../templates/board.html"),
-    },
-    Template {
-        name: "gallery",
-        summary: "The design-system components, to copy from",
-        kind: LayoutKind::Column,
-        source: include_str!("../templates/gallery.html"),
-    },
-];
-
-impl Template {
-    pub fn layout(&self) -> PageLayout {
-        PageLayout {
-            kind: self.kind,
-            reason: None,
-        }
-    }
-
-    /// The page source: `{{style}}` becomes the base look, and each `{{uuid:NAME}}` a fresh
-    /// canonical UUID, the same one for the same name within this page (a block's ID is unique on
-    /// its page, never reused).
-    pub fn source(&self) -> Result<String> {
-        let source = self.source.replace("{{style}}", base_style().trim_end());
-        let mut names: Vec<(&str, String)> = Vec::new();
-        let mut rendered = String::with_capacity(source.len() + 64);
-        let mut rest = source.as_str();
-        while let Some(start) = rest.find("{{uuid:") {
-            rendered.push_str(&rest[..start]);
-            let after = &rest[start + "{{uuid:".len()..];
-            let end = after
-                .find("}}")
-                .expect("a template placeholder is closed (checked by the catalog test)");
-            let name = &after[..end];
-            let id = match names.iter().find(|(known, _)| *known == name) {
-                Some((_, id)) => id.clone(),
-                None => {
-                    let id = fresh_id()?;
-                    names.push((name, id.clone()));
-                    id
-                }
-            };
-            rendered.push_str(&id);
-            rest = &after[end + 2..];
-        }
-        rendered.push_str(rest);
-        Ok(rendered)
-    }
-}
-
-/// The look every template starts from: the generated starter of the page-style reference, which
-/// owns the type scale and rhythm on top of the injected design system, without its `body` rule
-/// (max-width, margin, padding). That rule frames `canvas` and `freeform` pages; on `column` and
-/// `full` Colab sets the width and the gaps, and a padding above the first block would add one.
-fn base_style() -> String {
-    const FRAME: &str = "    max-width: 1280px;\n    margin: 0 auto;\n    padding: 16px;\n";
-    let reference = SKILL_REFERENCES
-        .iter()
-        .find(|(name, _)| *name == "page-style")
-        .expect("the page-style reference is embedded")
-        .1;
-    let starter = reference
-        .split("<!-- BEGIN generated page style -->")
-        .nth(1)
-        .and_then(|region| region.split("```html\n").nth(1))
-        .and_then(|block| block.split("```").next())
-        .expect("the page-style reference holds its generated starter");
-    assert!(starter.contains(FRAME), "the starter's body rule changed");
-    // The starter ends with an inert comment of copyable question and reading examples for a page
-    // started from the bare starter; a template carries blocks of its own.
-    let examples = starter
-        .find("<!-- Examples to copy")
-        .expect("the starter holds its copyable examples");
-    starter[..examples].replacen(FRAME, "", 1)
-}
-
-pub fn find(name: &str) -> Option<&'static Template> {
-    TEMPLATES.iter().find(|template| template.name == name)
-}
+#[cfg(test)]
+use crate::SKILL_REFERENCES;
+#[cfg(test)]
+use tmt_colab::decoder::LayoutKind;
 
 /// The template `page create` was asked to start from, if any.
 pub fn chosen(args: &ArgMatches) -> Option<&'static Template> {
@@ -296,6 +187,18 @@ mod tests {
 
     #[test]
     fn a_page_gets_fresh_ids_each_time_and_one_id_per_placeholder_name() {
+        for template in &TEMPLATES {
+            let source =
+                tmt_colab::templates::source_for_creator(&template.source().unwrap(), None);
+            assert!(tmt_colab::templates::admits(template.name, &source, None));
+            let report = tmt_colab::page_check::check(&source).unwrap();
+            assert!(
+                report
+                    .question_sources
+                    .iter()
+                    .all(|question| question.agent.is_empty())
+            );
+        }
         let review = find("review").unwrap();
         let ids = |source: &str| -> Vec<String> {
             source
@@ -407,5 +310,56 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod registry_creation_tests {
+    use super::*;
+    #[test]
+    fn only_the_exact_compiled_template_may_register_initial_questions() {
+        let creator = "agent & \"quoted\"";
+        for creator in [creator, "agent {{uuid:part}}", "agent {{style}}"] {
+            assert!(tmt_colab::decoder::valid_publisher_agent(creator));
+            for template in &TEMPLATES {
+                let source =
+                    tmt_colab::templates::creator_source(&template.source().unwrap(), creator);
+                assert!(
+                    tmt_colab::templates::admits(template.name, &source, Some(creator)),
+                    "{}",
+                    template.name
+                );
+                assert!(!tmt_colab::templates::admits(
+                    template.name,
+                    &(source.clone() + "<p>extra</p>"),
+                    Some(creator)
+                ));
+                if source.contains("{{uuid:part}}") {
+                    let substituted =
+                        source.replace("{{uuid:part}}", "70000000-0000-4000-8000-000000000001");
+                    assert!(!tmt_colab::templates::admits(
+                        template.name,
+                        &substituted,
+                        Some(creator),
+                    ));
+                }
+                let report = tmt_colab::page_check::check(&source).unwrap();
+                for question in report.questions {
+                    assert_eq!(question.agent, creator);
+                }
+            }
+        }
+        let review = find("review").unwrap();
+        let source = tmt_colab::templates::creator_source(&review.source().unwrap(), creator);
+        assert!(!tmt_colab::templates::admits(
+            "review",
+            &source,
+            Some("another agent")
+        ));
+        assert!(!tmt_colab::templates::admits(
+            "user-authored",
+            &source,
+            Some(creator)
+        ));
     }
 }

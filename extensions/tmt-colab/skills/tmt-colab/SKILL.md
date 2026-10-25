@@ -27,16 +27,16 @@ seed; never create or disclose them to bypass pairing.
 
 Start a page from `tmt colab page create --template NAME` (`tmt colab template ls`) or from the
 starter in [page-style](references/page-style.md) (`tmt colab skill page-style`).
-A page that needs the reader to decide asks with `tmt-question`, never in prose:
+Ask with registered `tmt-question`, never prose; follow [questions](references/questions.md).
 
 ```html
-<div><tmt-question data-id="UUID" data-kind="single" data-agent="Your name">
-  <p data-question>Which option?</p>
-  <span data-choice>First</span><span data-choice>Second</span>
-</tmt-question></div>
+<div>
+  <tmt-question data-id="UUID" data-kind="single" data-agent="Your name">
+    <p data-question>Which option?</p>
+    <span data-choice>First</span><span data-choice>Second</span>
+  </tmt-question>
+</div>
 ```
-
-A fresh UUID per `data-id`; rules under Ask and flag.
 
 ## Set up a page
 

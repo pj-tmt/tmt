@@ -53,16 +53,7 @@ pub struct Space<'a> {
     pub key: &'a Keyring,
 }
 
-fn quoted(name: &str) -> String {
-    if name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
-    {
-        name.to_owned()
-    } else {
-        format!("'{}'", name.replace('\'', "'\\''"))
-    }
-}
+use crate::repair::argument as quoted;
 fn short(page: &str) -> &str {
     page.get(..8).unwrap_or(page)
 }

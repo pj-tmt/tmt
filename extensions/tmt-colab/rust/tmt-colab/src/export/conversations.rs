@@ -40,6 +40,8 @@ pub struct AttachmentRow {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Comment {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub question_id: Option<String>,
     pub writer: String,
     pub id: String,
     pub revision: String,
@@ -194,7 +196,8 @@ fn latest(mut records: Vec<&Value>) -> Option<&Value> {
         if text(record, "kind") == Some("comment")
             && text(previous, "kind") == Some("comment")
             && (pair(&record["thread"]) != pair(&previous["thread"])
-                || sequence(record) != sequence(previous))
+                || sequence(record) != sequence(previous)
+                || record.get("questionId") != previous.get("questionId"))
         {
             return None;
         }
@@ -343,6 +346,7 @@ pub(crate) fn threads(
                 comments.push((
                     format!("{tw}:{ti}"),
                     Comment {
+                        question_id: owned(record, "questionId"),
                         writer: writer.clone(),
                         id,
                         revision: rev,
@@ -831,4 +835,26 @@ fn when(ms: u64) -> String {
         (seconds / 60) % 60,
         seconds % 60
     )
+}
+
+#[cfg(test)]
+mod question_revision_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn an_answer_cannot_be_retargeted_by_a_later_comment_revision() {
+        let first = json!({"kind":"comment","revision":"1","deleted":false,"sequence":"1","thread":{"writer":"w","id":"t"},"questionId":"00000000-0000-0000-0000-000000000001"});
+        let mut changed = first.clone();
+        changed["revision"] = json!("2");
+        assert!(latest(vec![&first, &changed]).is_some());
+        changed["questionId"] = json!("00000000-0000-0000-0000-000000000002");
+        assert!(latest(vec![&first, &changed]).is_none());
+        changed.as_object_mut().unwrap().remove("questionId");
+        assert!(latest(vec![&first, &changed]).is_none());
+        let mut unbound = first.clone();
+        unbound.as_object_mut().unwrap().remove("questionId");
+        let mut bound_later = first.clone();
+        bound_later["revision"] = json!("2");
+        assert!(latest(vec![&unbound, &bound_later]).is_none());
+    }
 }

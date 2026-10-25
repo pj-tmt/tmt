@@ -99,6 +99,13 @@ impl From<&statement::Head> for Head {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Page {
+    /// Read-only projection; content metadata cannot assert an answered state.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub question_states: Vec<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub creator: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub questions: Option<serde_json::Value>,
     pub space_id: String,
     pub page_id: String,
     pub source: String,
@@ -442,7 +449,17 @@ pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> 
     if view.meta.get("pageType").is_some() {
         return Err(Fault::Invalid.into());
     }
+    let question_states = if let Some(registry) = view.meta.get("questions") {
+        let conversations = crate::discussion::project(key, page, &s, &view);
+        crate::question_registry::answers::project(registry, &conversations, &view.status_writers)
+            .map_err(|_| Fault::Invalid)?
+    } else {
+        Vec::new()
+    };
     Ok(Page {
+        question_states,
+        creator: view.meta.get("creator").cloned(),
+        questions: view.meta.get("questions").cloned(),
         space_id: key.space_id.clone(),
         page_id: page.into(),
         source: view.source,

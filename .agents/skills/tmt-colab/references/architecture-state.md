@@ -129,6 +129,15 @@ tables (`group.rs` also decides which groups are skipped and which IDs are held,
 vectors in the same PR. `html5ever` is a `tmt-colab`-only dependency (exact pin, no default
 features, listed in the architecture guard); `tmt-colab-model` stays dependency-free.
 
+`question_registry.rs` owns the closed creator/registration values and editor actions;
+`cli_metadata.rs` resolves stable identity selections and adapts the existing conditional
+publisher. Source admission reuses the checker's bounded question-source projection at the
+final publication owner; offline file checks remain markup-only. `templates.rs` owns the
+first-party catalog and exact-source creation admission. The verified own-record projection
+in `question_registry/answers.rs` derives effective answers, without commenter content writes
+or an Ask-success dependency. The [question metadata contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#question-metadata-5052)
+owns fields, bounds and CLI repairs. Browser controls/routing adoption is separate (#5146).
+
 ## App build entries
 
 The app build emits its main entry plus two public standalone entries (`vp build`, then
@@ -706,11 +715,13 @@ The home route `/` is the page list (`home.tsx`); there is no Today view. `/all`
 route, redirects to `/` with its search (`beforeLoad`), so an old link or history entry still lands
 on it. The list reads the loader's `spaceHome()` pages through `useHomeSpace` (`home-space.ts`),
 which fills a missing title by the bounded hint read; the ⌘K search is the header's control.
-`summary_pending.rs` derives the shared pending target IDs (proposals first, readings, answer
-groups, reviews) from the admitted owner fold and `page_check::summary`'s static-source quote
-associations (200 ms projection bound), without executing authored code or trusting device labels.
-The shared needs-you vectors pin native/browser parity. A missing summary is unknown, never a false
-zero. Returning through the existing Home loader or reloading reads again; while a non-archived
+`summary_pending.rs` derives pending target IDs from the admitted owner fold and
+`page_check::summary`'s static-source quote associations (200 ms projection bound), without
+executing authored code or trusting device labels. Native questions count each registered open
+entry from the verified answer projection, including one whose markup was removed; proposals,
+readings and reviews retain their existing deduplication. Shared vectors pin these states and
+other pending kinds. Browser question-count adoption follows #5146. A missing summary is unknown,
+never a false zero. Returning through the existing Home loader or reloading reads again; while a non-archived
 page lacks a summary the visible list also reads every 2 s, at most 15 times (`home-fill.ts`;
 `rereadInPlace` puts the window back, since the router scrolls to the top when a load renders).
 

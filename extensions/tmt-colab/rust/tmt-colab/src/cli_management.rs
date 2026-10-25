@@ -680,11 +680,22 @@ pub fn create_page(
     page_layout: &tmt_colab::decoder::PageLayout,
     checks: &[page_check::Finding],
     hints: &[page_check::Hint],
+    metadata: crate::cli_metadata::CreateMetadata,
 ) -> Result<()> {
-    create_page_kind(root, args, source, Some(page_layout), checks, hints, false)
+    create_page_kind(
+        root,
+        args,
+        source,
+        CreateKind::Page {
+            layout: page_layout,
+            metadata,
+        },
+        checks,
+        hints,
+    )
 }
 pub fn create_dashboard(root: &Path, args: &ArgMatches) -> Result<()> {
-    create_page_kind(root, args, String::new(), None, &[], &[], true)
+    create_page_kind(root, args, String::new(), CreateKind::Dashboard, &[], &[])
 }
 /// A page committed through ordinary creation, and what was observed of the machine while it was.
 pub(crate) struct Created {
@@ -701,13 +712,34 @@ pub(crate) fn commit_creation(
     page_layout: Option<&tmt_colab::decoder::PageLayout>,
     shell: bool,
 ) -> Result<Created> {
+    commit_creation_with(root, title, source, page_layout, shell, None)
+}
+fn commit_creation_with(
+    root: &Path,
+    title: &str,
+    source: String,
+    page_layout: Option<&tmt_colab::decoder::PageLayout>,
+    shell: bool,
+    metadata: Option<crate::cli_metadata::CreateMetadata>,
+) -> Result<Created> {
     if title.is_empty() {
         return Err(input("Page title cannot be empty."));
     }
     if title.len() > tmt_colab::decoder::BASELINE_TITLE_BYTES {
         return Err(management_error("CAPACITY"));
     }
-    let caller = crate::core::caller_snapshot();
+    let (caller, selected, template) = match metadata {
+        Some(metadata) => (metadata.caller, metadata.selected, metadata.template),
+        None => {
+            let caller = crate::core::caller_snapshot();
+            let selected = if shell {
+                None
+            } else {
+                crate::cli_metadata::default_creator(caller.as_ref())
+            };
+            (caller, selected, None)
+        }
+    };
     let observation = crate::door::creation_observation();
     let machine = observation.machine_id.clone();
     let creation_recipient = caller.as_ref().and_then(|caller| {
@@ -722,6 +754,16 @@ pub(crate) fn commit_creation(
     let layout = Layout::open(root)?;
     let correlation = json!({"operationId":operation_id,"pageId":page_id});
     let mut payload = json!({"pageId":page_id,"title":title,"source":source});
+    if let Some(selected) = &selected {
+        let mut creator = json!({"agent":selected.agent});
+        if let Some(machine) = &observation.machine_id {
+            creator["machineId"] = json!(machine);
+        }
+        payload["creator"] = creator;
+    }
+    if let Some(template) = &template {
+        payload["template"] = json!(template);
+    }
     if shell {
         payload["pageType"] = json!("shell");
     }
@@ -745,7 +787,7 @@ pub(crate) fn commit_creation(
             "payload":values::encode_binary(&serde_json::to_vec(&payload)?)}),
         )?)
     };
-    let result = (|| -> Result<Value> {
+    let mut result = (|| -> Result<Value> {
         let (space, bytes) = match layout.serve_lock() {
             Ok(_lock) => {
                 let key = Keyring::open(&layout)?;
@@ -782,28 +824,41 @@ pub(crate) fn commit_creation(
             code:crate::error_code(error.as_ref()),message:error.to_string(),correlation:correlation.clone(),source:Some(error),
         }) as Box<dyn std::error::Error + Send + Sync>
     })?;
+    if let Some(selected) = selected {
+        result["identityVerified"] = json!(!selected.unverified);
+    }
     Ok(Created {
         page_id,
         result,
         observation,
     })
 }
+enum CreateKind<'a> {
+    Page {
+        layout: &'a tmt_colab::decoder::PageLayout,
+        metadata: crate::cli_metadata::CreateMetadata,
+    },
+    Dashboard,
+}
 fn create_page_kind(
     root: &Path,
     args: &ArgMatches,
     source: String,
-    page_layout: Option<&tmt_colab::decoder::PageLayout>,
+    kind: CreateKind<'_>,
     checks: &[page_check::Finding],
     hints: &[page_check::Hint],
-    shell: bool,
 ) -> Result<()> {
+    let (page_layout, shell, metadata) = match kind {
+        CreateKind::Page { layout, metadata } => (Some(layout), false, Some(metadata)),
+        CreateKind::Dashboard => (None, true, None),
+    };
     let title = text(args, "title");
     let read = crate::cli_layout::read_first(shell, page_layout, &source);
     let Created {
         page_id,
         result,
         observation,
-    } = commit_creation(root, title, source, page_layout, shell)?;
+    } = commit_creation_with(root, title, source, page_layout, shell, metadata)?;
     // The effect is already committed. A catalog-read failure must not turn it into a failed create;
     // the full UUID alias remains safe when uniqueness cannot be observed.
     let ids = (|| -> Result<Vec<String>> {

@@ -181,6 +181,8 @@ pub fn prepare_merging(
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub findings: Option<Vec<crate::question_registry::WriteFinding>>,
     pub operation_id: String,
     pub state: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -209,6 +211,7 @@ pub struct SaveResult {
 impl SaveResult {
     fn state(operation_id: &str, state: &'static str) -> Self {
         Self {
+            findings: None,
             operation_id: operation_id.into(),
             state,
             revision: None,
@@ -280,6 +283,9 @@ impl SaveResult {
         Self {
             code: Some(code),
             message: Some(message),
+            findings: error
+                .downcast_ref::<crate::question_registry::Refused>()
+                .map(|refused| refused.details()),
             conflicts: error
                 .downcast_ref::<HunkConflict>()
                 .map(|conflict| conflict.hunks.clone()),
@@ -303,6 +309,18 @@ impl SaveResult {
 }
 /// A stable code and a message a person can read, for any failure of a save.
 fn refusal(error: &(dyn std::error::Error + 'static)) -> (&'static str, String) {
+    if let Some(refused) = error.downcast_ref::<crate::question_registry::Refused>() {
+        let line = refused.findings.first().map_or(1, |finding| finding.line);
+        return (
+            refused.code(),
+            format!(
+                "{} at line {line}. {}",
+                refused.code(),
+                crate::question_registry::reason(refused.code())
+                    .unwrap_or("Invalid question registration.")
+            ),
+        );
+    }
     if let Some(large) = error.downcast_ref::<SourceTooLarge>() {
         return (large.code(), error.to_string());
     }

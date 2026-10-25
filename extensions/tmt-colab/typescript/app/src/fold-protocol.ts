@@ -3,6 +3,12 @@ import { validateShell, type Shell } from './shell.js';
 import { canonical } from './closed.js';
 import { validateWork, type Work } from './work.js';
 import {
+  validatePageCreator,
+  validateQuestionRegistry,
+  type PageCreator,
+  type RegisteredQuestion,
+} from './question-registry.js';
+import {
   attachment,
   coreId,
   editRequest,
@@ -63,6 +69,8 @@ export function validateCreationRecipient(value: unknown): asserts value is Crea
   coreId(value.agentId);
 }
 export interface Projection {
+  creator?: PageCreator;
+  questions?: RegisteredQuestion[];
   /** Structured content retains an empty wire text container; never render it as HTML. */
   pageType?: 'shell';
   shell?: Shell;
@@ -207,6 +215,10 @@ export interface FoldResult extends Projection {
 }
 export function validateProjection(value: unknown): asserts value is Projection {
   if (!value || typeof value !== 'object') throw new Error('Invalid decoder projection');
+  if (Object.hasOwn(value, 'creator') || Object.hasOwn(value, 'questions'))
+    requireValue(!Object.hasOwn(value, 'pageType') && !Object.hasOwn(value, 'shell'));
+  if (Object.hasOwn(value, 'creator')) validatePageCreator((value as Projection).creator);
+  if (Object.hasOwn(value, 'questions')) validateQuestionRegistry((value as Projection).questions);
   const { source, title, publisherAgent, originalAuthor, creationRecipient, layout, layoutReason } =
     value as Projection;
   if (Object.hasOwn(value, 'pageType') || Object.hasOwn(value, 'shell')) {
@@ -288,6 +300,10 @@ export function sameContent(a: ContentSnapshot, b: ContentSnapshot): boolean {
     a.title === b.title &&
     a.publisherAgent === b.publisherAgent &&
     a.originalAuthor === b.originalAuthor &&
+    Object.hasOwn(a, 'creator') === Object.hasOwn(b, 'creator') &&
+    canonical(a.creator) === canonical(b.creator) &&
+    Object.hasOwn(a, 'questions') === Object.hasOwn(b, 'questions') &&
+    canonical(a.questions) === canonical(b.questions) &&
     a.layout === b.layout &&
     a.layoutReason === b.layoutReason &&
     Object.hasOwn(a, 'creationRecipient') === Object.hasOwn(b, 'creationRecipient') &&

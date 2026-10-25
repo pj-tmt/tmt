@@ -34,7 +34,7 @@ const CHECK: CommandSpec = CommandSpec {
         note: "Report ignored question blocks and other markup problems with a line and a reason code",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Offline and fast: reads one file (or - for bounded UTF-8 stdin) and needs no running serve and no local state. Reports every block the browser ignores (question blocks, with a reason code and line), data: images that make the page heavy and colab-attachment: references that cannot show. Exits 1 when it finds anything. With --page, references are also resolved against that page's current document attachments in the local store. page create and page write run the same check and print the findings as warnings. Hints are advice that blocks nothing: they come in a separate hints array ({code, message}), never refuse under --strict and never change the exit code; page check and page create show them.",
+    details: "Offline and fast: reads one file (or - for bounded UTF-8 stdin) and needs no running serve and no local state. Reports every block the browser ignores (question blocks, with a reason code and line), data: images that make the page heavy and colab-attachment: references that cannot show. Exits 1 when it finds anything. With --page, references are resolved against current document attachments and authored questions are compared with the page registry and creator. Registry mismatches always refuse publication; --strict applies to ordinary markup findings. page create and page write print ordinary markup findings as warnings; registry findings have blocking severity. Hints are advice that blocks nothing: they come in a separate hints array ({code, message}), never refuse under --strict and never change the exit code; page check and page create show them.",
 };
 
 /// Where `page check` and its siblings look for the attachments a reference names.
@@ -62,10 +62,9 @@ pub fn command() -> Command {
                 .value_parser(clap::value_parser!(PathBuf))
                 .help("Page source to check"),
         )
-        .arg(
-            crate::cli_grammar::page_option()
-                .help("Also resolve colab-attachment: references against this page"),
-        )
+        .arg(crate::cli_grammar::page_option().help(
+            "Compare questions with this page registry and resolve its attachment references",
+        ))
 }
 
 /// `--strict` on create and write: refuse, before anything is committed, when the check finds
@@ -83,6 +82,9 @@ fn kib(bytes: usize) -> usize {
 
 /// The sentence for one reason code. The code is the stable part; this wording may improve.
 fn message(code: &str) -> String {
+    if let Some(reason) = tmt_colab::question_registry::reason(code) {
+        return reason.into();
+    }
     match code {
         "page-too-deep" => format!(
             "The page nests deeper than {PAGE_DEPTH} elements, where a browser stops nesting; nothing after this element was checked."
@@ -213,10 +215,13 @@ fn finding_json(finding: &Finding) -> Value {
     if let Some(skipped) = finding.questions_skipped {
         value["questionsSkipped"] = json!(skipped);
     }
+    if let Some(fix) = &finding.fix {
+        value["fix"] = json!(fix);
+    }
     value
 }
 
-fn findings_json(findings: &[Finding]) -> Value {
+pub(crate) fn findings_json(findings: &[Finding]) -> Value {
     Value::Array(findings.iter().map(finding_json).collect())
 }
 
@@ -252,7 +257,7 @@ fn describe(finding: &Finding) -> String {
         let plural = if count == 1 { "" } else { "s" };
         format!(" {count} question{plural} skipped with it.")
     });
-    format!(
+    let description = format!(
         "{} <{}> #{}{}: {}{}",
         finding.code,
         finding.element,
@@ -260,14 +265,21 @@ fn describe(finding: &Finding) -> String {
         id,
         message(finding.code),
         skipped
-    )
+    );
+    finding.fix.as_ref().map_or(description.clone(), |fix| {
+        format!("{description} Fix: {fix}")
+    })
 }
 
 fn refusal(report: &Report, bytes: usize, what: &str) -> Box<dyn std::error::Error + Send + Sync> {
     let count = report.findings.len();
     let plural = if count == 1 { "" } else { "s" };
     Box::new(ManagementFault {
-        code: "COLAB_PAGE_CHECK",
+        code: report
+            .findings
+            .iter()
+            .find(|finding| finding.fix.is_some())
+            .map_or("COLAB_PAGE_CHECK", |finding| finding.code),
         message: format!(
             "{what} has {count} markup problem{plural}; the first is on line {}.",
             report.findings[0].line
@@ -290,7 +302,10 @@ pub fn inspect(source: &str, attachments: Attachments<'_>) -> Result<Report> {
             key,
             page,
             decoder,
-        } if !tokens.is_empty() => {
+        } => {
+            if tokens.is_empty() {
+                return Ok(report);
+            }
             let tokens: Vec<&str> = tokens.iter().map(String::as_str).collect();
             let deadline = Instant::now() + Duration::from_secs(15);
             let matches = tmt_colab::attachments::document_matches(
@@ -298,7 +313,6 @@ pub fn inspect(source: &str, attachments: Attachments<'_>) -> Result<Report> {
             )?;
             report.resolve_references(&matches);
         }
-        Attachments::Page { .. } => {}
     }
     Ok(report)
 }
@@ -347,16 +361,43 @@ pub fn warnings_json(findings: &[Finding]) -> Value {
 pub fn run(state: Option<(&Store, &Keyring, &str, &mut Decoder)>, args: &ArgMatches) -> Result<()> {
     let file = args.get_one::<PathBuf>("file").expect("required file");
     let source = crate::page_source(file)?;
-    let attachments = match state {
-        Some((store, key, page, decoder)) => Attachments::Page {
-            store,
-            key,
-            page,
-            decoder,
-        },
-        None => Attachments::Unchecked,
+    let report = match state {
+        Some((store, key, page, decoder)) => {
+            let mut report = inspect(
+                &source,
+                Attachments::Page {
+                    store,
+                    key,
+                    page,
+                    decoder: &mut *decoder,
+                },
+            )?;
+            // Supported writes perform this comparison at their final publication owner. The
+            // explicit read-only check performs it here without adding another write preflight.
+            if !report.question_sources.is_empty() {
+                let metadata = tmt_colab::page::read(store, key, page, decoder)?;
+                let mut meta = json!({});
+                if let Some(creator) = &metadata.creator {
+                    meta["creator"] = creator.clone();
+                }
+                if let Some(questions) = &metadata.questions {
+                    meta["questions"] = questions.clone();
+                }
+                if let Some(recipient) = &metadata.creation_recipient {
+                    meta["creationRecipient"] = serde_json::to_value(recipient)?;
+                }
+                if let Some(author) = &metadata.original_author {
+                    meta["originalAuthor"] = json!(author);
+                }
+                let identities = tmt_colab::core::reference_names(
+                    &tmt_colab::question_registry::identity_ids(&meta),
+                );
+                report.check_registry(&meta, page, identities.as_ref());
+            }
+            report
+        }
+        None => inspect(&source, Attachments::Unchecked)?,
     };
-    let report = inspect(&source, attachments)?;
     let name = if file.as_os_str() == "-" {
         "stdin".to_owned()
     } else {

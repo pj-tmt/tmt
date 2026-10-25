@@ -14,6 +14,8 @@ use crate::{
 use tmt_colab_model::{crypto, object, values, wrap};
 
 pub(super) struct Selection<'a> {
+    pub creator: Option<&'a serde_json::Value>,
+    pub template: Option<&'a str>,
     pub shell: bool,
     pub page: &'a str,
     pub title: &'a str,
@@ -44,6 +46,8 @@ impl Engine {
         now: u64,
     ) -> Result<(Vec<u8>, bool)> {
         let Selection {
+            creator,
+            template,
             shell,
             page,
             title,
@@ -69,7 +73,74 @@ impl Engine {
         {
             return Err(OwnerFault::Capacity.into());
         }
+        let mut attribution = serde_json::json!({"writerId":key.local_writer()?.0,"timeMs":now});
+        if let Some(name) = publisher_agent {
+            attribution["displayAgent"] = serde_json::json!({"name":name});
+        }
+        let creator_selection = creator;
+        let creator = creator
+            .map(|body| {
+                crate::question_registry::set_creator(body, &attribution)
+                    .map_err(|_| OwnerFault::Invalid)
+            })
+            .transpose()?;
+        let questions = if let Some(template) = template {
+            if !crate::templates::admits(
+                template,
+                source,
+                creator
+                    .as_ref()
+                    .and_then(|creator| creator["agent"]["name"].as_str()),
+            ) {
+                return Err(OwnerFault::Invalid.into());
+            }
+            let report = crate::page_check::check(source).map_err(|_| OwnerFault::Capacity)?;
+            if report.question_sources.len() != report.questions.len() {
+                return Err(OwnerFault::Invalid.into());
+            }
+            let mut questions = serde_json::json!([]);
+            for question in report.questions {
+                let mut body = serde_json::json!({"id":question.id,"title":question.title});
+                if let Some(creator) = &creator {
+                    body["agent"] = creator["agent"].clone();
+                }
+                if let Some(group) = question.group {
+                    body["group"] = serde_json::json!(group);
+                }
+                questions = crate::question_registry::apply(
+                    &questions,
+                    "question.add",
+                    &body,
+                    &attribution,
+                )
+                .map_err(|_| OwnerFault::Invalid)?;
+            }
+            if questions
+                .as_array()
+                .is_some_and(|questions| questions.is_empty())
+            {
+                None
+            } else {
+                Some(questions)
+            }
+        } else {
+            None
+        };
+        let mut meta = serde_json::json!({});
+        if let Some(creator) = &creator {
+            meta["creator"] = creator.clone();
+        }
+        if let Some(questions) = &questions {
+            meta["questions"] = questions.clone();
+        }
+        crate::question_registry::admit_source(source, &meta, page, None)?;
         let mut selection = serde_json::json!({"pageId":page,"title":title,"source":source});
+        if let Some(creator) = creator_selection {
+            selection["creator"] = creator.clone();
+        }
+        if let Some(template) = template {
+            selection["template"] = serde_json::json!(template);
+        }
         if let Some(agent) = publisher_agent {
             selection["publisherAgent"] = serde_json::json!(agent);
         }
@@ -105,6 +176,8 @@ impl Engine {
                     Ok(())
                 })?;
                 let input = BaselineInput {
+                    creator: creator.as_ref(),
+                    questions: questions.as_ref(),
                     work: None,
                     original_author: publisher_agent,
                     layout,

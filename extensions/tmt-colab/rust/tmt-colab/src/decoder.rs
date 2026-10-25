@@ -137,13 +137,14 @@ pub struct ContentEdit<'a> {
     /// A typed change to `meta.attachments`, bound to `source`; `None` keeps the list as it is.
     pub attachments: Option<&'a tmt_colab_model::attachment::DocumentChange>,
 }
-/// The closed structured value an edit acts on: a dashboard's value, or the work an ordinary
-/// page carries beside its HTML.
+/// A closed editor-owned value beside page HTML, or the structured dashboard value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StructuredKind {
     Shell,
     Work,
+    Questions,
+    Creator,
 }
 impl StructuredKind {
     /// The `meta` key that holds the value.
@@ -151,6 +152,8 @@ impl StructuredKind {
         match self {
             Self::Shell => "shell",
             Self::Work => "work",
+            Self::Questions => "questions",
+            Self::Creator => "creator",
         }
     }
 }
@@ -207,6 +210,8 @@ pub fn valid_publisher_agent(value: &str) -> bool {
 /// Exact current view supplied by the owner's authenticated fold. This seam
 /// does not establish log, page or epoch authority.
 pub struct BaselineInput<'a> {
+    pub creator: Option<&'a Value>,
+    pub questions: Option<&'a Value>,
     pub original_author: Option<&'a str>,
     pub layout: Option<&'a PageLayout>,
     pub attachments: Option<&'a tmt_colab_model::attachment::DocumentAttachments>,
@@ -770,6 +775,15 @@ impl Decoder {
         if view.work.is_some_and(|v| crate::work::validate(v).is_err()) {
             return Err(DecodeFault::InvalidInput);
         }
+        if view
+            .creator
+            .is_some_and(|v| crate::question_registry::validate_creator(v).is_err())
+            || view
+                .questions
+                .is_some_and(|v| crate::question_registry::validate(v).is_err())
+        {
+            return Err(DecodeFault::InvalidInput);
+        }
         if view.layout.is_some_and(|v| !v.valid()) {
             return Err(DecodeFault::InvalidInput);
         }
@@ -802,6 +816,8 @@ impl Decoder {
             BaselineAction::Verify { .. } => ChildCommand::BaselineVerify,
         };
         let input = serde_json::to_vec(&WireBaseline {
+            creator: view.creator.cloned(),
+            questions: view.questions.cloned(),
             attachments: view.attachments.cloned(),
             version: 1,
             source: if matches!(action, BaselineAction::Produce { .. }) {
@@ -1125,6 +1141,20 @@ fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<V
                 expected["meta"]["work"] = next;
             }
         }
+        StructuredKind::Questions if !shell => {
+            expected["meta"]["questions"] = crate::question_registry::apply_to_page(
+                &base["meta"],
+                &edit.action,
+                &edit.body,
+                &edit.attribution,
+            )
+            .map_err(|_| DecodeFault::InvalidInput)?;
+        }
+        StructuredKind::Creator if !shell && edit.action == "creator.set" => {
+            expected["meta"]["creator"] =
+                crate::question_registry::set_creator(&edit.body, &edit.attribution)
+                    .map_err(|_| DecodeFault::InvalidInput)?;
+        }
         _ => return Err(DecodeFault::InvalidInput),
     }
     Ok(expected)
@@ -1146,6 +1176,12 @@ struct WirePreparedContent<B = String> {
     pid: u32,
 }
 fn edited_projection(base: &Value, edit: ContentEdit<'_>) -> Result<Value, DecodeFault> {
+    crate::question_registry::admit_edit(
+        edit.source,
+        base["html"].as_str().ok_or(DecodeFault::InvalidInput)?,
+        &base["meta"],
+    )
+    .map_err(|_| DecodeFault::InvalidInput)?;
     // A source replacement never converts structured content into HTML.
     if base["meta"].get("pageType").is_some() {
         return Err(DecodeFault::InvalidInput);
@@ -1244,6 +1280,10 @@ pub const BASELINE_UPDATE_BYTES: usize = STATE_BYTES + BASELINE_TITLE_BYTES + 10
 #[serde(deny_unknown_fields)]
 struct WireBaseline {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    creator: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    questions: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     original_author: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attachments: Option<tmt_colab_model::attachment::DocumentAttachments>,
@@ -1340,6 +1380,8 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 "creationRecipient" => {
                     !serde_json::from_value::<CreationRecipient>(v.clone()).is_ok_and(|v| v.valid())
                 }
+                "creator" => crate::question_registry::validate_creator(v).is_err(),
+                "questions" => crate::question_registry::validate(v).is_err(),
                 "attachments" => !serde_json::from_value::<
                     tmt_colab_model::attachment::DocumentAttachments,
                 >(v.clone())
@@ -1369,7 +1411,10 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
             }
             // Work belongs to an ordinary page; a shell keeps its own summary.
             if meta.contains_key("pageType") != meta.contains_key("shell")
-                || (meta.contains_key("work") && meta.contains_key("pageType"))
+                || (meta.contains_key("pageType")
+                    && ["work", "creator", "questions"]
+                        .iter()
+                        .any(|key| meta.contains_key(*key)))
                 || (meta.contains_key("shell")
                     && (roots["html"].as_str() != Some("") || meta.contains_key("attachments")))
             {

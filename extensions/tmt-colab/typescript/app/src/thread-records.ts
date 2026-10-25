@@ -1,3 +1,4 @@
+import { validQuestionId } from './question-id.js';
 import {
   attachment,
   decimal,
@@ -88,6 +89,8 @@ const proposalKey = (value?: Proposal) =>
     : '';
 export interface CommentRecord extends DiscussionRecordScope {
   kind: 'comment';
+  /** Stable binding to one registered question; immutable across comment revisions. */
+  questionId?: string;
   messageId: string;
   thread: DiscussionRef;
   body: string;
@@ -195,12 +198,15 @@ export function validateDiscussionRecord(
       'thread',
       'body',
       ...(Object.hasOwn(r, 'sequence') ? ['sequence'] : []),
+      ...(Object.hasOwn(r, 'questionId') ? ['questionId'] : []),
       ...(Object.hasOwn(r, 'attachments') ? ['attachments'] : []),
     ]);
     requireValue(root === 'messages' && r.kind === 'comment');
     generatedId(r.messageId as string);
     validateRef(r.thread);
     if (Object.hasOwn(r, 'sequence')) validateSequence(r.sequence);
+    if (Object.hasOwn(r, 'questionId'))
+      requireValue(typeof r.questionId === 'string' && validQuestionId(r.questionId));
     requireValue(typeof r.body === 'string' && text(r.body).length <= COMMENT_BYTES);
     const attachments = Object.hasOwn(r, 'attachments')
       ? attachment.attachmentList(
@@ -278,7 +284,8 @@ function latest<T extends ThreadRecord | CommentRecord>(records: T[]): T | undef
       previous.kind === 'comment' &&
       (record.thread.writer !== previous.thread.writer ||
         record.thread.id !== previous.thread.id ||
-        sequenceOf(record) !== sequenceOf(previous))
+        sequenceOf(record) !== sequenceOf(previous) ||
+        record.questionId !== previous.questionId)
     )
       return;
     previous = record;

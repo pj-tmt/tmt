@@ -822,6 +822,22 @@ impl Snapshot {
         if base_sha256.is_some_and(|d| *d != crypto::digest(base.source.as_bytes())) {
             return Err(crate::page::Fault::StaleBase.into());
         }
+        let report =
+            crate::page_check::check(edit.source).map_err(|_| crate::page::Fault::Capacity)?;
+        if !report.question_sources.is_empty() {
+            let identities =
+                crate::core::reference_names(&crate::question_registry::identity_ids(&base.meta));
+            let findings = crate::question_registry::edit_findings(
+                &report,
+                &base.source,
+                &base.meta,
+                page,
+                identities.as_ref(),
+            )?;
+            if !findings.is_empty() {
+                return Err(Box::new(crate::question_registry::Refused { findings }));
+            }
+        }
         if let Some(change) = edit.attachments {
             // Added references must belong to this page and epoch and be witnessed by their
             // creator's own-stream proof; the decoder checks the change against the source.
@@ -885,6 +901,16 @@ impl Snapshot {
                 &edit.attribution,
             )
             .map(drop),
+            StructuredKind::Questions if !shell => crate::question_registry::apply_to_page(
+                &base.meta,
+                &edit.action,
+                &edit.body,
+                &edit.attribution,
+            )
+            .map(drop),
+            StructuredKind::Creator if !shell && edit.action == "creator.set" => {
+                crate::question_registry::set_creator(&edit.body, &edit.attribution).map(drop)
+            }
             _ => Err(crate::closed::Invalid),
         }
         .map_err(|_| crate::page::Fault::Invalid)?;
@@ -952,6 +978,8 @@ impl Snapshot {
             )?)?;
             baseline = values::binary(&body.update, crate::decoder::BASELINE_UPDATE_BYTES)?;
             let view = BaselineInput {
+                creator: None,
+                questions: None,
                 work: None,
                 original_author: None,
                 layout: None,

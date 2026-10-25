@@ -214,6 +214,7 @@ fn is_data_image(src: &str) -> bool {
 
 pub(super) fn check(tree: &Tree, images: &[(Id, usize)], report: &mut Report) {
     let finding = |(id, ordinal): (Id, usize), code| Finding {
+        fix: None,
         element: "img".to_owned(),
         ordinal,
         id: tree.attr(id, "data-id").map(str::to_owned),

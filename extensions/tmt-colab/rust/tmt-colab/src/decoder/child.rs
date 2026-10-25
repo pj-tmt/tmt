@@ -692,6 +692,14 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
     let wire: WireBaseline =
         serde_json::from_slice(input).map_err(|_| DecodeFault::InvalidInput)?;
     if wire.version != 1
+        || wire
+            .creator
+            .as_ref()
+            .is_some_and(|v| crate::question_registry::validate_creator(v).is_err())
+        || wire
+            .questions
+            .as_ref()
+            .is_some_and(|v| crate::question_registry::validate(v).is_err())
         || wire.creation_recipient.as_ref().is_some_and(|v| !v.valid())
         || wire
             .original_author
@@ -721,6 +729,8 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
             let source_text =
                 std::str::from_utf8(&source).map_err(|_| DecodeFault::InvalidInput)?;
             let creation = BaselineMeta {
+                creator: wire.creator.as_ref(),
+                questions: wire.questions.as_ref(),
                 publisher_agent: wire.publisher_agent.as_deref(),
                 original_author: wire.original_author.as_deref(),
                 creation_recipient: wire.creation_recipient.as_ref(),
@@ -808,6 +818,12 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
         return Err(DecodeFault::Rejected);
     }
     if producing && projection["meta"].get("work") != wire.work.as_ref() {
+        return Err(DecodeFault::Rejected);
+    }
+    if producing
+        && (projection["meta"].get("creator") != wire.creator.as_ref()
+            || projection["meta"].get("questions") != wire.questions.as_ref())
+    {
         return Err(DecodeFault::Rejected);
     }
     let source_text = projection["html"].as_str().ok_or(DecodeFault::Rejected)?;
@@ -913,6 +929,8 @@ fn chunked_baseline(
 }
 /// The optional metadata a creation baseline carries beside its title.
 struct BaselineMeta<'a> {
+    creator: Option<&'a Value>,
+    questions: Option<&'a Value>,
     publisher_agent: Option<&'a str>,
     original_author: Option<&'a str>,
     creation_recipient: Option<&'a CreationRecipient>,
@@ -922,6 +940,15 @@ struct BaselineMeta<'a> {
 }
 impl BaselineMeta<'_> {
     fn insert(&self, meta: &MapRef, txn: &mut TransactionMut) {
+        for (key, value) in [("creator", self.creator), ("questions", self.questions)] {
+            if let Some(value) = value {
+                meta.insert(
+                    txn,
+                    key,
+                    Any::from_json(&value.to_string()).expect("validated metadata"),
+                );
+            }
+        }
         if let Some(agent) = self.publisher_agent {
             meta.insert(txn, "publisherAgent", agent);
         }
@@ -1002,6 +1029,8 @@ mod baseline_tests {
                 source,
                 title,
                 &BaselineMeta {
+                    creator: None,
+                    questions: None,
                     publisher_agent: vector["publisherAgent"].as_str(),
                     original_author: vector["originalAuthor"].as_str(),
                     creation_recipient: recipient.as_ref(),

@@ -1,6 +1,7 @@
 //! Strict local management inputs. Admission precedes the owner engine; DTOs never
 //! carry machine-computed cuts, baselines, wraps or published epoch keys.
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tmt_colab_model::{auth, bounded::List, crypto, framing, payload, values};
 
 pub use crate::transitions::Code;
@@ -122,6 +123,10 @@ fn required_option<'de, D: serde::Deserializer<'de>>(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Create {
+    #[serde(default, deserialize_with = "creator_selection")]
+    creator: Option<Value>,
+    #[serde(default, deserialize_with = "present_text")]
+    template: Option<String>,
     #[serde(default, deserialize_with = "present_text")]
     page_type: Option<String>,
     #[serde(default, deserialize_with = "creation_recipient")]
@@ -133,6 +138,15 @@ struct Create {
     source: String,
     #[serde(default, deserialize_with = "present_text")]
     publisher_agent: Option<String>,
+}
+fn creator_selection<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<Value>, D::Error> {
+    let value = Value::deserialize(d)?;
+    // The actual owner stamps attribution only after admitting the create operation.
+    crate::question_registry::validate_creator_selection(&value)
+        .map_err(|_| serde::de::Error::custom("Invalid creator selection"))?;
+    Ok(Some(value))
 }
 fn creation_recipient<'de, D: serde::Deserializer<'de>>(
     d: D,
@@ -623,18 +637,25 @@ fn apply(
     };
 
     let action = match &command.action {
-        Action::Create(v) if v.page_type.is_some() => OwnerAction::CreateShell {
-            page: &v.page_id,
-            title: &v.title,
-            publisher_agent: v.publisher_agent.as_deref(),
-            creation_recipient: v.creation_recipient.as_ref(),
-        },
+        Action::Create(v) if v.page_type.is_some() => {
+            if v.creator.is_some() || v.template.is_some() {
+                return Err(Code::Invalid);
+            }
+            OwnerAction::CreateShell {
+                page: &v.page_id,
+                title: &v.title,
+                publisher_agent: v.publisher_agent.as_deref(),
+                creation_recipient: v.creation_recipient.as_ref(),
+            }
+        }
         Action::Create(v) => OwnerAction::Create {
             page: &v.page_id,
             title: &v.title,
             source: &v.source,
             publisher_agent: v.publisher_agent.as_deref(),
             creation_recipient: v.creation_recipient.as_ref(),
+            creator: v.creator.as_ref(),
+            template: v.template.as_deref(),
             layout: v.layout.as_ref(),
         },
         Action::Advance => OwnerAction::EpochAdvance {

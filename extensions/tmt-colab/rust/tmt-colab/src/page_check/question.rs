@@ -197,6 +197,7 @@ pub(super) fn make_finding(
     questions_skipped: Option<usize>,
 ) -> Finding {
     Finding {
+        fix: None,
         element: tree.name(id).to_owned(),
         ordinal: ordinals[&id],
         id: tree.attr(id, "data-id").map(str::to_owned),
