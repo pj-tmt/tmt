@@ -18,6 +18,10 @@ use tmt_core::{
 };
 
 pub enum Operation {
+    ReceivingSync {
+        expected_revision: u64,
+        settings: crate::orchestration::DigestReceivingSettings,
+    },
     Write(DigestPolicyWrite),
     Show(Vec<String>),
     Stats(Vec<String>),
@@ -62,6 +66,14 @@ struct Write {
     until_ms: Option<u64>,
     #[serde(default)]
     max_hold_ms: Option<u64>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReceivingSync {
+    expected_revision: u64,
+    enabled: bool,
+    default_receiving: crate::orchestration::DigestReceiving,
+    members: Vec<crate::orchestration::DigestReceivingMember>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -118,6 +130,22 @@ fn uuid(id: &str) -> Result<(), Fault> {
 
 pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
     let op = match operation {
+        "digest.receiving.sync" => {
+            let v: ReceivingSync = serde_json::from_slice(input).map_err(|_| invalid())?;
+            if v.expected_revision > MAX_JS_SAFE_INTEGER {
+                return Err(invalid());
+            }
+            let mut settings = crate::orchestration::DigestReceivingSettings {
+                enabled: v.enabled,
+                default_receiving: v.default_receiving,
+                members: v.members,
+            };
+            settings.normalize().map_err(|_| invalid())?;
+            Operation::ReceivingSync {
+                expected_revision: v.expected_revision,
+                settings,
+            }
+        }
         "digest.policy.set" | "digest.policy.clear" => {
             let v: Write = serde_json::from_slice(input).map_err(|_| invalid())?;
             for id in [&v.identity_id, &v.owner_identity_id, &v.setter_identity_id] {
@@ -239,6 +267,28 @@ pub(super) fn execute(
     delay: Duration,
 ) -> Result<Vec<u8>, Fault> {
     let document = match operation {
+        Operation::ReceivingSync {
+            expected_revision,
+            settings,
+        } => {
+            let revision = storage
+                .sync_digest_receiving(expected_revision, settings)
+                .map_err(super::orchestration::write_error)?;
+            let projection = crate::orchestration::orchestration_read(
+                storage,
+                crate::orchestration::OrchReadQuery::Overview {
+                    range_days: Some(1),
+                    at_ms: None,
+                    plan: None,
+                    member_query: None,
+                },
+                wall_time_ms(),
+            )
+            .map_err(super::orchestration::write_error)?;
+            let projection: Value =
+                serde_json::from_slice(&projection).map_err(|_| Fault::unavailable())?;
+            json!({"revision":revision,"projection":projection})
+        }
         Operation::Write(input) => view(
             &RequestService::new(&mut *storage, wall_time_ms)
                 .write_digest(input)

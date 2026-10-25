@@ -1,5 +1,22 @@
 use crate::grammar::{operand, storage};
-use clap::{Arg, Command};
+use clap::{Arg, ArgAction, Command};
+
+fn consent(c: Command) -> Command {
+    c.arg(
+        Arg::new("yes")
+            .long("yes")
+            .action(ArgAction::SetTrue)
+            .help("Save after the effect preview without asking"),
+    )
+}
+fn file(c: Command) -> Command {
+    c.arg(
+        Arg::new("file")
+            .long("file")
+            .required(true)
+            .help("Read a bounded regular plan JSON document without following a symlink"),
+    )
+}
 
 fn selection(c: Command) -> Command {
     c.arg(
@@ -26,8 +43,13 @@ fn selection(c: Command) -> Command {
     )
 }
 pub(in crate::grammar) fn orch() -> Command {
+    let add = consent(file(storage(
+        spec!("add","Preview a new plan and save only with consent",["Preview a new plan"=>"tmt orch plan add --file plan.json"]),
+    )));
+    let set=consent(file(storage(spec!("set","Preview replacement of a selected plan",["Replace a plan after preview"=>"tmt orch plan set Quiet --file plan.json --yes"]))).arg(operand("plan-name",true)));
+    let remove=consent(storage(spec!("rm","Preview removal of a selected plan",["Preview plan removal"=>"tmt orch plan rm Quiet"])).arg(operand("plan-name",true)));
     let plans = storage(spec!(
-        "plan", "Read stored orchestration plans",
+        "plan", "Read and change orchestration plans with an effect preview",
         ["List stored plans" => "tmt orch plan ls"]
     ))
     .subcommand_required(true)
@@ -44,7 +66,10 @@ pub(in crate::grammar) fn orch() -> Command {
             ["Read a named plan" => "tmt orch plan show Quiet"]
         ))
         .arg(operand("plan-name", true)),
-    );
+    )
+    .subcommand(add)
+    .subcommand(set)
+    .subcommand(remove);
     let preview = selection(storage(spec!(
         "preview", "Preview a candidate plan without saving or delivering",
         ["Preview a plan document" => "tmt orch preview --file plan.json"]
@@ -56,7 +81,7 @@ pub(in crate::grammar) fn orch() -> Command {
             .help("Read a bounded regular plan JSON file without following a symlink"),
     );
     let why = storage(spec!(
-        "why", "Read retained decision facts (slice 1 has no live producers)",
+        "why", "Read retained receiving decision facts",
         ["Read a request's recorded decisions" => "tmt orch why req_11111111-1111-4111-8111-111111111111"]
     ))
     .arg(operand("subject", true))
@@ -80,4 +105,5 @@ pub(in crate::grammar) fn orch() -> Command {
     .subcommand(plans)
     .subcommand(preview)
     .subcommand(why)
+    .subcommand(consent(storage(spec!("focus","Preview personal focus above every plan, or clear it",["Focus for two hours"=>"tmt orch focus worker-1 2h --yes","End focus early"=>"tmt orch focus worker-1 off --yes"])).arg(operand("member-name",true)).arg(operand("focus-duration",true))))
 }

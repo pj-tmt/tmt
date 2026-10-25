@@ -534,6 +534,10 @@ pub struct ListScope {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrchOperation {
+    Write {
+        operation: OrchWriteOperation,
+        yes: bool,
+    },
     Overview {
         range_days: u8,
         at: Option<String>,
@@ -554,5 +558,22 @@ pub enum OrchOperation {
         subject: String,
         before: Option<u64>,
         limit: u16,
+    },
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OrchWriteOperation {
+    AddPlan {
+        file: std::path::PathBuf,
+    },
+    SetPlan {
+        plan: String,
+        file: std::path::PathBuf,
+    },
+    RemovePlan {
+        plan: String,
+    },
+    Focus {
+        member: String,
+        duration_ms: Option<u64>,
     },
 }

@@ -1,10 +1,6 @@
 //! One bounded minute of scheduling; Core alone admits and settles delivery.
 
-use crate::{
-    core::Error,
-    history::Rule,
-    settings::{AutoCaps, Mode},
-};
+use crate::{core::Error, history::Rule, settings::AutoCaps};
 use nix::fcntl::{Flock, FlockArg};
 use std::{
     fs::{self, OpenOptions},
@@ -14,6 +10,26 @@ use std::{
 
 mod last;
 mod process;
+
+/// Core-resolved receiving, distinct from the modes a Digest TOML can store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Receiving {
+    Direct,
+    Auto,
+    Batch { milliseconds: u64 },
+    Urgent,
+    Hold,
+}
+#[cfg(test)]
+impl Receiving {
+    fn parse(text: &str) -> Result<Self, Error> {
+        Ok(match crate::settings::Mode::parse(text)? {
+            crate::settings::Mode::Off => Self::Direct,
+            crate::settings::Mode::Auto => Self::Auto,
+            crate::settings::Mode::Interval { milliseconds, .. } => Self::Batch { milliseconds },
+        })
+    }
+}
 
 /// The start time of the last admitted tick, if one was recorded ([`last`]).
 pub fn last_tick_ms(root: &std::path::Path) -> Option<u64> {
@@ -125,7 +141,7 @@ pub fn execute() -> Result<(), Error> {
 
 pub struct TickObservation {
     pub identity_id: String,
-    pub mode: Mode,
+    pub mode: Receiving,
     pub flush_count: u64,
     /// The member's `auto` caps: this many held, or the oldest this old, and it is due.
     pub auto_caps: AutoCaps,
@@ -155,7 +171,7 @@ impl TickObservation {
             return None;
         }
         match self.mode {
-            Mode::Auto => {
+            Receiving::Auto => {
                 let waited = self
                     .oldest_held_at_ms
                     .map_or(0, |oldest| now.saturating_sub(oldest));
@@ -169,8 +185,10 @@ impl TickObservation {
                     },
                 )
             }
-            Mode::Off => Some(Rule::Off),
-            Mode::Interval { .. } => {
+            Receiving::Direct => Some(Rule::Off),
+            Receiving::Urgent => Some(Rule::Urgent),
+            Receiving::Hold => None,
+            Receiving::Batch { .. } => {
                 let deadline = self.deadline(now)?;
                 Some(if deadline > now {
                     Rule::NotDue
@@ -183,7 +201,7 @@ impl TickObservation {
         }
     }
     fn deadline(&self, now: u64) -> Option<u64> {
-        let Mode::Interval { milliseconds, .. } = self.mode else {
+        let Receiving::Batch { milliseconds } = self.mode else {
             return None;
         };
         if self.held_count == 0 {

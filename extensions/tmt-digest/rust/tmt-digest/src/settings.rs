@@ -351,6 +351,25 @@ impl DigestConfig {
             MemberSetting::Override(mode) => Ok(mode),
         }
     }
+    /// Explicit configured modes, independent of the global switch. Inherited
+    /// members are omitted so future identities inherit the published default.
+    pub fn receiving_overrides(&self) -> Result<Vec<(String, Mode)>, Error> {
+        let mut overrides = Vec::new();
+        if let Some(members) = self.document.get("members").and_then(Item::as_table_like) {
+            for (id, _) in members.iter() {
+                if let MemberSetting::Override(mode) = self.member_setting(id)? {
+                    overrides.push((id.to_owned(), mode));
+                }
+            }
+        }
+        if overrides.len() > 256 {
+            return Err(invalid(
+                "Digest receiving supports at most 256 configured member overrides",
+            ));
+        }
+        overrides.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(overrides)
+    }
     /// What the tick applies: the switch masks every stored setting.
     pub fn effective(&self, id: &str) -> Result<Mode, Error> {
         if !self.enabled {

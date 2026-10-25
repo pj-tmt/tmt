@@ -1,6 +1,6 @@
 ---
 name: tmt
-description: "Coordinate local agents with TMT: send `tmt talk` through a host pane (tmux or Herdr) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`."
+description: 'Coordinate local agents with TMT: send `tmt talk` through a host pane (tmux or Herdr) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`.'
 ---
 
 # TMT
@@ -180,11 +180,15 @@ Digest holds non-owner, non-urgent automatic requests and result notices in a
 single durable checklist. Held talk returns queued immediately with remaining
 time; JSON adds `digest:true`, `digestUntilMs`, `remainingMs`, `notification:"held"`
 and `waitingFor:"digest_checklist"`. Preserve the request ID; do not resend just
-because it was held. `--urgent` bypasses Digest only, and `--kind decision|review|fyi`
-records its checklist purpose (default `fyi`). The pinned recorded owner UUID
-also bypasses. All channel, host and pending-approval guards still apply.
+because it was held. `--urgent` and the pinned recorded owner bypass ordinary
+Digest Base holds. Orchestration Focus admits urgent traffic without an owner/lead
+exemption; Sleep holds urgent automatic agent traffic too. The global-off switch
+and a person marked `user` retain their immunity. `--kind decision|review|fyi`
+records checklist purpose (default `fyi`). All channel, host and pending-approval
+guards still apply.
 `tmt send-now <request-id>` sends one held request now (its originator or a
-person only); it skips just the hold and never types a delivered request twice.
+person only); it promotes urgency, keeps orchestration's mode-aware admission,
+and never types a delivered request twice.
 `tmt focus` switches host panes, or attaches to a built-in-host terminal.
 
 For a lead doing a review or other work that benefits from fewer interruptions,

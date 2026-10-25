@@ -7,6 +7,7 @@
 mod attention;
 mod delivery;
 mod digest;
+mod digest_journal;
 mod flow;
 mod history;
 mod notification;
@@ -56,11 +57,17 @@ impl Storage {
     }
 }
 
-struct RequestRows<'a>(&'a Connection);
+struct RequestRows<'a>(
+    &'a Connection,
+    Option<&'a super::orchestration::ReceivingCalendar>,
+);
 
 /// A caller-owned SQLite transaction can compose canonical request operations
 /// with its own receipt. This adapter never opens or commits a nested transaction.
-pub(super) struct TransactionRequests<'a, 'connection>(pub &'a Transaction<'connection>);
+pub(super) struct TransactionRequests<'a, 'connection>(
+    pub &'a Transaction<'connection>,
+    pub &'a super::orchestration::ReceivingCalendar,
+);
 
 impl RequestRepository for TransactionRequests<'_, '_> {
     type Error = StorageError;
@@ -69,7 +76,7 @@ impl RequestRepository for TransactionRequests<'_, '_> {
         &mut self,
         operation: impl FnOnce(&mut dyn RequestRecords<Error = Self::Error>) -> Result<T, E>,
     ) -> Result<T, E> {
-        operation(&mut RequestRows(self.0))
+        operation(&mut RequestRows(self.0, Some(self.1)))
     }
 }
 
@@ -223,6 +230,20 @@ impl RequestRecords for RequestRows<'_> {
     ) -> Result<Option<tmt_core::request::digest::DigestPolicy>, Self::Error> {
         digest::policy(self.0, id)
     }
+    fn orchestration_receiving_policy(
+        &self,
+        id: &str,
+        now: u64,
+    ) -> Result<Option<tmt_core::orchestration::receiving::OrchReceivingPolicy>, Self::Error> {
+        self.1
+            .ok_or_else(|| {
+                StorageError::new(
+                    StorageErrorCode::Unknown,
+                    "Receiving calendar was not admitted before the request transaction",
+                )
+            })?
+            .policy(self.0, id, now)
+    }
     fn write_digest_policy(
         &mut self,
         p: &tmt_core::request::digest::DigestPolicy,
@@ -270,7 +291,37 @@ impl RequestRecords for RequestRows<'_> {
         source: tmt_core::request::digest::DigestSource,
         now: u64,
     ) -> Result<(), Self::Error> {
-        digest::hold(self.0, id, request, kind, source, now)
+        let inserted = digest::hold(self.0, id, request, kind, source, now)?;
+        if inserted && let Some(policy) = self.orchestration_receiving_policy(id, now)? {
+            use tmt_core::orchestration::*;
+            let actor = self.find_request(request)?.and_then(|a| match source {
+                tmt_core::request::digest::DigestSource::Incoming => {
+                    a.originator.identity_id().map(str::to_owned)
+                }
+                tmt_core::request::digest::DigestSource::Result => a.recipient_identity_id,
+                tmt_core::request::digest::DigestSource::Timeout => None,
+            });
+            super::orchestration::append(
+                self.0,
+                &OrchDecision {
+                    recorded_at_ms: now,
+                    subject_kind: OrchSubjectKind::Request,
+                    subject_id: request.into(),
+                    actor_id: actor,
+                    recipient_id: Some(id.into()),
+                    action: OrchDecisionAction::Delay,
+                    outcome: OrchDecisionOutcome::Held,
+                    reason: "receiving_hold".into(),
+                    configuration_revision: policy.configuration_revision,
+                    time_zone: policy.time_zone,
+                    sources: vec![OrchDecisionSource {
+                        field: OrchPolicyField::Receiving,
+                        source: policy.receiving.source,
+                    }],
+                },
+            )?;
+        }
+        Ok(())
     }
     fn has_digest_item(
         &self,
@@ -306,6 +357,24 @@ impl RequestRecords for RequestRows<'_> {
     ) -> Result<(u64, u64), Self::Error> {
         digest::due_inventory(self.0, id, through, now)
     }
+    fn digest_selected_inventory(
+        &self,
+        id: &str,
+        through: u64,
+        selection: tmt_core::request::digest::DigestSelection,
+        now: u64,
+    ) -> Result<(u64, u64), Self::Error> {
+        digest::selected_inventory(self.0, id, through, selection, now)
+    }
+    fn digest_selected_items(
+        &self,
+        id: &str,
+        limit: u64,
+        selection: tmt_core::request::digest::DigestSelection,
+        now: u64,
+    ) -> Result<Vec<tmt_core::request::digest::DigestItem>, Self::Error> {
+        digest::selected_items(self.0, id, limit, selection, now)
+    }
     fn digest_oldest_held(&self, id: &str, now: u64) -> Result<Option<u64>, Self::Error> {
         digest::oldest_held(self.0, id, now)
     }
@@ -331,7 +400,21 @@ impl RequestRecords for RequestRows<'_> {
         attempt: &RequestAttempt,
         now: u64,
     ) -> Result<tmt_core::request::delivery::DeliveryFacts, Self::Error> {
-        delivery::facts(self.0, attempt, now)
+        let mut facts = delivery::facts(self.0, attempt, now)?;
+        if facts.hold.is_some()
+            && !facts.recipient_is_user
+            && !attempt
+                .originator
+                .identity_id()
+                .map(|id| self.identity_is_user(id))
+                .transpose()?
+                .unwrap_or(false)
+            && let Some(id) = attempt.recipient_identity_id.as_deref()
+            && let Some(policy) = self.orchestration_receiving_policy(id, now)?
+        {
+            facts.max_hold_ms = policy.max_hold_ms();
+        }
+        Ok(facts)
     }
     fn digest_items(
         &self,
@@ -380,7 +463,13 @@ impl RequestRecords for RequestRows<'_> {
         release: &[u64],
         now: u64,
     ) -> Result<(), Self::Error> {
-        digest::reap_claim(self.0, b, release, now)
+        digest::reap_claim(self.0, b, release, now)?;
+        digest_journal::settle(
+            self.0,
+            b,
+            tmt_core::request::digest::DigestState::Uncertain,
+            now,
+        )
     }
     fn digest_checklist(
         &self,
@@ -400,8 +489,13 @@ impl RequestRecords for RequestRows<'_> {
         now: u64,
         opportunity: tmt_core::request::digest::DigestOpportunity,
         sealed_count: u64,
+        selection: tmt_core::request::digest::DigestSelection,
     ) -> Result<(), Self::Error> {
-        digest::create_checklist(self.0, b, now, opportunity, sealed_count)
+        digest::create_checklist(self.0, b, now, opportunity, sealed_count, selection)?;
+        if let Some(policy) = self.orchestration_receiving_policy(&b.identity_id, now)? {
+            digest_journal::claim(self.0, b, &policy, now)?;
+        }
+        Ok(())
     }
     fn settle_digest_checklist(
         &mut self,
@@ -409,7 +503,8 @@ impl RequestRecords for RequestRows<'_> {
         state: tmt_core::request::digest::DigestState,
         now: u64,
     ) -> Result<(), Self::Error> {
-        digest::settle(self.0, b, state, now)
+        digest::settle(self.0, b, state, now)?;
+        digest_journal::settle(self.0, b, state, now)
     }
     fn digest_history(
         &self,
@@ -1382,8 +1477,9 @@ impl RequestRepository for Storage {
         &mut self,
         operation: impl FnOnce(&mut dyn RequestRecords<Error = Self::Error>) -> Result<T, E>,
     ) -> Result<T, E> {
+        let calendar = super::orchestration::ReceivingCalendar::load(self.connection()?)?;
         with_immediate_transaction(self, "request", |transaction| {
-            operation(&mut RequestRows(transaction))
+            operation(&mut RequestRows(transaction, Some(&calendar)))
         })
     }
 
@@ -1391,6 +1487,7 @@ impl RequestRepository for Storage {
         &mut self,
         operation: impl FnOnce(&mut dyn RequestRecords<Error = Self::Error>) -> Result<T, E>,
     ) -> Result<T, E> {
+        let calendar = super::orchestration::ReceivingCalendar::load(self.connection()?)?;
         let connection = self.connection.as_mut().ok_or_else(|| {
             E::from(StorageError::new(
                 StorageErrorCode::Closed,
@@ -1400,7 +1497,7 @@ impl RequestRepository for Storage {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Deferred)
             .map_err(|error| E::from(classify(error, "Begin request observation transaction")))?;
-        let result = operation(&mut RequestRows(&transaction))?;
+        let result = operation(&mut RequestRows(&transaction, Some(&calendar)))?;
         transaction
             .commit()
             .map_err(|error| E::from(classify(error, "Commit request observation transaction")))?;
@@ -1440,3 +1537,11 @@ pub(super) fn end_digest_continuation(
 mod service_tests;
 #[cfg(test)]
 mod tests;
+
+/// Existing finite Digest lease; settings publication never creates a timer.
+pub(super) fn receiving_window(
+    db: &Connection,
+    id: &str,
+) -> Result<Option<tmt_core::request::digest::DigestPolicy>, StorageError> {
+    digest::policy(db, id)
+}

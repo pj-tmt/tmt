@@ -494,7 +494,7 @@ fn routine_name(v: OrchRoutine) -> &'static str {
         OrchRoutine::Hold => "hold",
     }
 }
-fn receiving_value(v: &OrchReceiving) -> Value {
+pub(crate) fn receiving_value(v: &OrchReceiving) -> Value {
     match v {
         OrchReceiving::Direct => json!({"mode":"direct"}),
         OrchReceiving::Auto => json!({"mode":"auto"}),
@@ -536,6 +536,40 @@ struct OrchSourceDocument {
     slot: Option<OrchSlotDocument>,
     defaulted: bool,
 }
+impl OrchSourceDocument {
+    fn to_core(self) -> Result<OrchSource, OrchError> {
+        let kind = match self.kind.as_str() {
+            "base" => OrchSourceKind::Base,
+            "plan" => OrchSourceKind::Plan,
+            "member" => OrchSourceKind::Member,
+            "focus" => OrchSourceKind::Focus,
+            _ => return Err(OrchError::Invalid),
+        };
+        let source = OrchSource {
+            kind,
+            plan_id: self.plan_id,
+            identity_id: self.identity_id,
+            revision: self.revision,
+            slot: self.slot.map(|v| OrchSlot {
+                start_ms: v.start_ms,
+                end_ms: v.end_ms,
+            }),
+            defaulted: self.defaulted,
+        };
+        if !source_valid(&source) {
+            return Err(OrchError::Invalid);
+        }
+        Ok(source)
+    }
+}
+pub(crate) fn decode_source(text: &str) -> Result<OrchSource, OrchError> {
+    if text.len() > 8192 {
+        return Err(OrchError::Limit);
+    }
+    serde_json::from_str::<OrchSourceDocument>(text)
+        .map_err(|_| OrchError::Invalid)?
+        .to_core()
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OrchDecisionSourceDocument {
@@ -566,7 +600,10 @@ pub(crate) fn source_valid(s: &OrchSource) -> bool {
             .is_none_or(|v| valid_ms(v.start_ms) && valid_ms(v.end_ms) && v.start_ms < v.end_ms)
         && match s.kind {
             OrchSourceKind::Base => {
-                s.plan_id.is_none() && s.identity_id.is_none() && s.revision == 0
+                s.plan_id.is_none()
+                    && s.slot.is_none()
+                    && !s.defaulted
+                    && (s.revision > 0 || s.identity_id.is_none())
             }
             OrchSourceKind::Plan => {
                 s.plan_id.is_some() && s.identity_id.is_none() && s.revision > 0
@@ -602,28 +639,7 @@ pub(crate) fn decode_sources(text: &str) -> Result<Vec<Value>, OrchError> {
             if !fields.insert(field) {
                 return Err(OrchError::Invalid);
             }
-            let s = entry.source;
-            let kind = match s.kind.as_str() {
-                "base" => OrchSourceKind::Base,
-                "plan" => OrchSourceKind::Plan,
-                "member" => OrchSourceKind::Member,
-                "focus" => OrchSourceKind::Focus,
-                _ => return Err(OrchError::Invalid),
-            };
-            let source = OrchSource {
-                kind,
-                plan_id: s.plan_id,
-                identity_id: s.identity_id,
-                revision: s.revision,
-                slot: s.slot.map(|v| OrchSlot {
-                    start_ms: v.start_ms,
-                    end_ms: v.end_ms,
-                }),
-                defaulted: s.defaulted,
-            };
-            if !source_valid(&source) {
-                return Err(OrchError::Invalid);
-            }
+            let source = entry.source.to_core()?;
             Ok(decision_source_value(&OrchDecisionSource { field, source }))
         })
         .collect()

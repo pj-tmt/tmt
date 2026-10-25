@@ -1,14 +1,86 @@
-//! One snapshot and one transaction-local journal writer; no live producers.
+//! Configuration snapshots/publication and the transaction-local decision journal.
+mod receiving;
+mod write;
 use super::{Storage, StorageError, StorageErrorCode, errors::classify};
 use crate::orchestration::wire::{self, OrchPlanDocument, OrchSubjectDocument};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde_json::{Value, json};
-use tmt_core::{dispatch::canonical_id, limits::MAX_JS_SAFE_INTEGER, orchestration::*};
+use tmt_core::{
+    dispatch::canonical_id,
+    limits::MAX_JS_SAFE_INTEGER,
+    orchestration::{receiving::OrchReceivingPolicy, *},
+};
 
 pub const ORCH_JOURNAL_RETENTION_MS: u64 = 30 * 86_400_000;
 pub struct OrchStoredState {
     pub snapshot: OrchSnapshot,
     pub time_zone: Option<String>,
+}
+/// Load calendar data before entering a request transaction. The configured
+/// zone is checked again with the policy snapshot before it can grant admission.
+pub(super) struct ReceivingCalendar {
+    configured_zone: Option<String>,
+    zone: Option<crate::orchestration::OrchZone>,
+}
+impl ReceivingCalendar {
+    pub(super) fn load(db: &Connection) -> Result<Self, StorageError> {
+        if receiving::read(db)?.is_none() {
+            return Ok(Self {
+                configured_zone: None,
+                zone: None,
+            });
+        }
+        let configured_zone: Option<String> = db
+            .query_row(
+                "SELECT time_zone FROM orchestration_settings WHERE id=1",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| classify(e, "Read receiving calendar selection"))?
+            .flatten();
+        // Resolve failures only matter if a non-person operation needs this
+        // policy; loading must not remove the person's immunity.
+        let zone = crate::orchestration::OrchZone::load(configured_zone.as_deref()).ok();
+        Ok(Self {
+            configured_zone,
+            zone,
+        })
+    }
+    pub(super) fn policy(
+        &self,
+        db: &Connection,
+        identity: &str,
+        now: u64,
+    ) -> Result<Option<OrchReceivingPolicy>, StorageError> {
+        let Some(window) =
+            super::requests::receiving_window(db, identity)?.filter(|p| p.active(now))
+        else {
+            return Ok(None);
+        };
+        let stored = read_snapshot(db, None, Some(identity))?;
+        if stored.snapshot.digest_revision == 0 {
+            return Ok(None);
+        }
+        let zone = self
+            .zone
+            .as_ref()
+            .filter(|_| self.configured_zone == stored.time_zone)
+            .ok_or_else(|| {
+                StorageError::new(
+                    StorageErrorCode::Busy,
+                    "Receiving calendar selection changed; retry the operation.",
+                )
+            })?;
+        let resolved = effective(&stored.snapshot, identity, now, zone).map_err(|_| corrupt())?;
+        Ok(Some(OrchReceivingPolicy {
+            receiving: resolved.receiving,
+            configuration_revision: stored.snapshot.revision,
+            time_zone: zone.name().into(),
+            next_change_at_ms: resolved.next_change_at_ms,
+            legacy_window: Some(window),
+        }))
+    }
 }
 pub struct OrchJournalPage {
     pub items: Vec<Value>,
@@ -45,6 +117,7 @@ fn text_rows(c: &Connection, sql: &str, key: &str) -> Result<Vec<String>, Storag
 fn read_snapshot(
     tx: &Connection,
     member_query: Option<&str>,
+    identity_id: Option<&str>,
 ) -> Result<OrchStoredState, StorageError> {
     let normalized = member_query.map(tmt_core::names::normalize_name);
     let member_query = normalized.as_deref();
@@ -61,9 +134,9 @@ fn read_snapshot(
         revision: unsigned(revision)?,
         ..Default::default()
     };
-    let mut q=tx.prepare("SELECT id,name FROM identities WHERE retired_at_ms IS NULL AND (?1 IS NULL OR instr(canonical_name,?1)>0) ORDER BY CASE WHEN ?1 IS NOT NULL AND substr(canonical_name,1,length(?1))=?1 THEN 0 ELSE 1 END,canonical_name COLLATE BINARY LIMIT 257").map_err(|e|classify(e,"Select orchestration identities"))?;
+    let mut q=tx.prepare("SELECT id,name FROM identities WHERE retired_at_ms IS NULL AND (?1 IS NULL OR instr(canonical_name,?1)>0) AND (?2 IS NULL OR id=?2) ORDER BY CASE WHEN ?1 IS NOT NULL AND substr(canonical_name,1,length(?1))=?1 THEN 0 ELSE 1 END,canonical_name COLLATE BINARY LIMIT 257").map_err(|e|classify(e,"Select orchestration identities"))?;
     snapshot.identities = q
-        .query_map([member_query], |r| {
+        .query_map(params![member_query, identity_id], |r| {
             Ok(OrchIdentity {
                 id: r.get(0)?,
                 name: r.get(1)?,
@@ -122,9 +195,9 @@ fn read_snapshot(
         };
         snapshot.plans.push(plan.to_core().map_err(|_| corrupt())?);
     }
-    let mut q=tx.prepare("SELECT f.identity_id,f.revision,f.start_ms,f.end_ms FROM orchestration_focus f JOIN identities i ON i.id=f.identity_id WHERE i.retired_at_ms IS NULL AND (?1 IS NULL OR instr(i.canonical_name,?1)>0) ORDER BY f.identity_id LIMIT 257").map_err(|e|classify(e,"Select personal focus"))?;
+    let mut q=tx.prepare("SELECT f.identity_id,f.revision,f.start_ms,f.end_ms FROM orchestration_focus f JOIN identities i ON i.id=f.identity_id WHERE i.retired_at_ms IS NULL AND (?1 IS NULL OR instr(i.canonical_name,?1)>0) AND (?2 IS NULL OR f.identity_id=?2) ORDER BY f.identity_id LIMIT 257").map_err(|e|classify(e,"Select personal focus"))?;
     let rows = q
-        .query_map([member_query], |r| {
+        .query_map(params![member_query, identity_id], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, i64>(1)?,
@@ -152,6 +225,9 @@ fn read_snapshot(
         snapshot.focus.push(f);
     }
     drop(q);
+    if let Some((revision, settings)) = receiving::read(tx)? {
+        settings.apply(&mut snapshot, revision);
+    }
     Ok(OrchStoredState {
         snapshot,
         time_zone,
@@ -166,7 +242,7 @@ impl Storage {
             .connection()?
             .unchecked_transaction()
             .map_err(|e| classify(e, "Read orchestration snapshot"))?;
-        let snapshot = read_snapshot(&tx, member_query)?;
+        let snapshot = read_snapshot(&tx, member_query, None)?;
         tx.commit()
             .map_err(|e| classify(e, "Finish orchestration snapshot"))?;
         Ok(snapshot)

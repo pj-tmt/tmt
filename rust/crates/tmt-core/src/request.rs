@@ -348,6 +348,15 @@ pub struct RequestContext {
 /// remain in RequestService, not in SQL adapters.
 pub trait RequestRecords {
     type Error;
+    /// One resolver result from this request transaction's configuration snapshot.
+    /// Legacy repositories without orchestration retain their existing Digest port.
+    fn orchestration_receiving_policy(
+        &self,
+        _identity_id: &str,
+        _now_ms: u64,
+    ) -> Result<Option<crate::orchestration::receiving::OrchReceivingPolicy>, Self::Error> {
+        Ok(None)
+    }
     fn increment_flow(&mut self, row: &flow::FlowRow) -> Result<(), Self::Error>;
     fn flow_rows(&self, since_ms: u64, now_ms: u64) -> Result<Vec<flow::FlowRow>, Self::Error>;
     fn prune_flow(&mut self, through_bucket_ms: u64, limit: u64) -> Result<(), Self::Error>;
@@ -420,6 +429,21 @@ pub trait RequestRecords {
         through_sequence: u64,
         now_ms: u64,
     ) -> Result<(u64, u64), Self::Error>;
+    /// Unsealed retained items admitted by the current receiving policy.
+    fn digest_selected_inventory(
+        &self,
+        identity_id: &str,
+        through_sequence: u64,
+        selection: digest::DigestSelection,
+        now_ms: u64,
+    ) -> Result<(u64, u64), Self::Error>;
+    fn digest_selected_items(
+        &self,
+        identity_id: &str,
+        limit: u64,
+        selection: digest::DigestSelection,
+        now_ms: u64,
+    ) -> Result<Vec<digest::DigestItem>, Self::Error>;
     /// Oldest retained item still pending or in the active claim.
     fn digest_oldest_held(
         &self,
@@ -500,6 +524,7 @@ pub trait RequestRecords {
         now_ms: u64,
         opportunity: digest::DigestOpportunity,
         sealed_count: u64,
+        selection: digest::DigestSelection,
     ) -> Result<(), Self::Error>;
     fn settle_digest_checklist(
         &mut self,

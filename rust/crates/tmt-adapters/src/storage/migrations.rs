@@ -30,6 +30,8 @@ mod local_block_tests;
 #[cfg(test)]
 mod notification_tests;
 #[cfg(test)]
+mod orchestration_receiving_tests;
+#[cfg(test)]
 mod pane_incarnation_tests;
 #[cfg(test)]
 mod prop_pack_tests;
@@ -375,6 +377,10 @@ const MIGRATIONS: &[Migration] = &[
     migration!(
         "let a session-learning diagnostic name why a decoded hook admitted nothing",
         "schema/077.sql"
+    ),
+    migration!(
+        "publish typed configured Digest receiving",
+        "schema/078.sql"
     ),
 ];
 

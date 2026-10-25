@@ -1,9 +1,10 @@
-# Orchestration reads (v1)
+# Orchestration (v1)
 
-Core owns one resolver for plans and personal focus. This slice exposes reads,
-preview and the decision journal. It does not enforce receiving/sending rules,
-run jobs, migrate Ops cron, install timers or add a resident process. Existing
-readiness, approval and delivery owners retain authority.
+Core owns one resolver for plans and personal focus. Plan/focus writes share an
+effect preview and explicit consent. Receiving uses existing Digest admission,
+claims and transport; sending enforcement and jobs remain separate later slices.
+No timer is installed or resident process added. Existing readiness, approval,
+person and delivery owners retain authority.
 
 ## Commands and API
 
@@ -11,6 +12,10 @@ readiness, approval and delivery owners retain authority.
 tmt orch [--range 1d|7d|30d] [--at TIME] [--plan NAME_OR_UUID] [--member TEXT] [--json]
 tmt orch plan ls [--json]
 tmt orch plan show NAME_OR_UUID [--json]
+tmt orch plan add --file PLAN_JSON [--yes] [--json]
+tmt orch plan set NAME_OR_UUID --file PLAN_JSON [--yes] [--json]
+tmt orch plan rm NAME_OR_UUID [--yes] [--json]
+tmt orch focus MEMBER DURATION|off [--yes] [--json]
 tmt orch preview --file PLAN_JSON [--range 1d|7d|30d] [--at TIME] [--member TEXT] [--json]
 tmt orch why SUBJECT [--before EVENT_ID] [--limit 1..100] [--json]
 ```
@@ -45,7 +50,7 @@ Input is a strict tagged object; unknown and duplicate fields fail admission:
 accepts `req_<uuid>`, a canonical identity UUID, or `job:<id>`. A journal cursor
 is a committed event ID, never a timestamp or a delivery acknowledgment.
 
-Overview returns `schemaVersion:1`, `configurationRevision`, `observedAtMs`,
+Overview returns `schemaVersion:1`, `configurationRevision`, `receivingRevision`, `observedAtMs`,
 `atMs`, `timeZone`, `range:{startMs,endMs}`, current `plans`, `members`, and
 `timeline`. Each member includes its canonical `identityId`, current `name`,
 `effective` fields, `activePlans` and `nextChangeAtMs` (nullable). Each effective
@@ -56,6 +61,26 @@ reconstruct past plan definitions. Historical explanations come from the journal
 Timeline intervals identify the actual active plans and boundaries rather than
 fixed-duration sampling. Job details are `null` in this slice, never invented
 counts of existing Ops jobs.
+
+Receiving also reports `available`. Before the first configured Digest publication,
+it is false, `value` is null, and `proposedValue` explains the resolver's proposed
+receiving value. Receiving-changing plan/focus apply fails with
+`ORCH_RECEIVING_UNAVAILABLE`: “The Digest tick has not published its settings yet;
+run tmt digest tick or install Digest.” Changes confined to sending, talk limits
+or routine still preview and apply. A published member input identifies that
+identity and publication revision in its Base source; the global master switch
+uses the publication revision without a member identity.
+
+API version 1 adds `digest.receiving.sync` with strict fields `expectedRevision`,
+`enabled`, `defaultReceiving` and `members`. Receiving is `{mode:"direct"}`,
+`{mode:"auto"}` or `{mode:"batch",intervalMs:N}` with positive safe integer
+milliseconds. `members` contains at most 256 unique `{identityId,receiving}`
+overrides. Absent identities inherit the published default, including identities
+created later. CAS starts at revision zero; the first publication is revision
+one, and an identical publication at the current revision stores nothing.
+The result contains `revision` and a current overview `projection`, whose
+`receivingRevision` identifies its observed input. Core stores this typed input;
+Digest alone reads its TOML and the tick consumes Core's resolved receiving.
 
 Plans view returns the same plan documents. Preview replaces/adds the candidate
 UUID in an in-memory snapshot and returns `before`, `after` and per-member
@@ -77,11 +102,69 @@ fault exit 1. Storage keeps its established typed
 access/refusal contract.
 
 A fresh store shows **Base only**, configuration revision 0, and no recorded decisions.
-No settings row is created until an explicit configuration write. Plan creation/editing
-and personal focus writes arrive in slice 2; no missing plan is fabricated.
+No settings row is created until an explicit configuration write. No missing plan
+or job is fabricated; job dispatch and catch-up-once belong to slice 3 (#4891).
 `orchestration.read` is additive: the API envelope stays version 1.
 `--plan` filters the displayed timeline; effective member policies still include
 all competing plans, and `plans` retains their source definitions.
+
+## Configuration writes
+
+`plan add` consumes the same bounded full plan document as preview, with revision
+
+1. `plan set` replaces the selected plan, requires its current revision and keeps
+   its UUID; `rm` selects that exact plan. Name/priority collisions refuse, never
+   reorder. Focus takes one canonical active identity (offline allowed), a positive
+   `ms`/`s`/`m`/`h`/`d` duration of at most 30 days in whole milliseconds, or `off`.
+   Bare duration numbers mean seconds. The normalized focus intent has explicit
+   start/end instants; approval does not silently extend the captured end.
+
+Each command prints an effect preview before saving. Interactive use requires
+an explicit affirmative answer. Noninteractive/JSON without `--yes` returns a
+preview with `requiresConsent:true` and saves nothing. With `--yes`, JSON emits
+one result containing the preview and the committed configuration revision.
+Running work is never interrupted and no agent is stopped.
+
+`orchestration.write` is additive in API version 1. Input is strict at every
+nested object; unknown/duplicate fields, unsafe integers, invalid schedules,
+sub-millisecond durations and oversized candidates fail admission.
+
+```json
+{
+  "version": 1,
+  "operation": "orchestration.write",
+  "input": {
+    "phase": "preview",
+    "mutation": {
+      "kind": "focus.set",
+      "identityId": "10000000-0000-4000-8000-000000000001",
+      "startMs": 1793109600000,
+      "endMs": 1793116800000
+    }
+  }
+}
+```
+
+Mutation tags are `plan.add` (`candidate`), `plan.set` (`plan`, `candidate`),
+`plan.rm` (`plan`), `focus.set` (`identityId`, `startMs`, `endMs`) and
+`focus.clear` (`identityId`). Preview normalizes selectors to UUIDs and returns
+`schemaVersion:1`, `configurationRevision`, `previewAtMs`, `timeZone`, `mutation`,
+`before`, `after`, `changes`, nullable `validUntilMs`, `requiresConsent:true` and
+`previewDigest`. Apply input copies the normalized mutation and requires
+`phase:"apply"`, `expectedConfigurationRevision`, `previewAtMs`, `previewDigest`
+and `consent:true`. The digest fences this preview; it authenticates no caller.
+As with metadata writes, the same-user envelope names no originator.
+
+The writer acquires one IMMEDIATE transaction, reads the current snapshot and
+revalidates the preview. Configuration, selected UUID, roster/name, zone or
+relevant time-boundary changes refuse with `ORCH_CONFLICT` (CLI exit 5) and require
+a new preview. Missing identities are `ORCH_MEMBER_NOT_FOUND` (CLI exit 3).
+Successful actual changes increment configuration revision once plus the affected
+row revision; exact no-ops increment neither. Declined/failed previews and rolled
+back writes change no configuration or journal rows. A commit/close error may be
+uncertain: inspect the current revision before retrying, never replay silently.
+Apply returns `schemaVersion:1`, `changed`, `configurationRevision`,
+`requiresConsent:false` and the frozen `preview`. CLI and API use one encoder.
 
 ## Plans and resolution
 
@@ -97,10 +180,15 @@ Policy fields are optional: `state` (`awake`, `low`, `focus`, `sleep`), `receivi
 `{"mode":"batch","intervalMs":N}`), `sending` (`anyone`, `leads`, `paused`),
 `routine` (`run`, `hold`), and `talkLimit` (positive hourly count or explicit
 `null` for unlimited). Omission inherits; null is accepted only for unlimited.
-Batch intervals are positive whole minutes, at most 24 hours.
+Plan/member batch intervals are positive whole minutes, at most 24 hours.
+Base retains existing Digest interval precision; it is not rounded to this plan-field bound.
 
 `effective(snapshot, identityId, atMs, calendar)` is the sole rules owner. Base is
-always present: Awake, direct receiving, anyone sending, routine run, unlimited.
+always present: Awake, configured Digest receiving (direct when absent), anyone
+sending, routine run, unlimited. Digest publishes its typed configuration through
+the public Core boundary; Core never reads the extension's TOML or guesses a
+mode from an expiring hold deadline. Base receiving retains its published revision
+in provenance. Plans, member overrides and focus override Base only here.
 Apply enabled matching active plans in ascending priority. Each plan expands its
 state defaults, then explicit fields, then that plan's member-specific fields;
 a member state likewise expands before its explicit fields. A higher plan affects
@@ -118,6 +206,31 @@ An active personal focus applies Focus/urgent-only/hold above every plan, withou
 changing sending. Focus does not exempt leads. Slots and focus are half-open;
 expiry is evaluated without deleting rows. Sources preserve which explicit field
 or state default won. Policy computation observes no host, provider or screen.
+
+Digest's global-off master switch is above scheduled receiving; its false value
+forces direct receiving while leaving state, sending and routine unchanged.
+The existing `user` sender/recipient immunity remains an admission rule. Focus
+has no lead/setter/owner-name exemption. Sleep holds urgent automatic agent
+traffic too; urgency is preserved on the canonical request, never rewritten to
+fake an ordinary hold.
+
+## Receiving
+
+Receiving admission asks the resolver at the transaction's captured instant; a
+plan change does not wait for a cached tick decision. Ordinary direct, auto and
+interval modes reuse Digest's current opportunities, caps and claims. Focus
+withholds non-urgent automatic traffic at idle and provider turn-boundary
+opportunities; Sleep withholds urgent traffic too. No cap or `whenBusy` flag
+bypasses these restrictions, readiness, approval, membership or launch evidence.
+The existing same-user person/passthrough authority remains separate.
+Holding still requires the existing finite Digest window: if Digest is removed
+and its tick stops, a stale settings publication creates no continuing hold.
+
+When a restriction ends, the existing Digest full-checklist lifecycle resumes.
+The one-line incoming-request summary and persistent UUID wake stagger are
+tracked in [the orchestration wake follow-up](https://github.com/pj-tmt/tmt/issues/5113);
+this slice adds neither a summary projection nor a wake scheduler. Jobs, catch-up
+once and the merged `tmt tick` remain slice 3.
 
 ## Calendar
 
@@ -160,9 +273,11 @@ owner's transaction; rollback cannot leave an explanation for an uncommitted
 decision. External uncertainty remains uncertainty. Later plan edits, identity
 renames and retirement cannot rewrite an entry's explanation.
 
-Slice 1 provides append/read/retention contracts and fixtures, **no live event
-producers**. Later slices record real block/delay/deliver/job-run transitions with
-their existing owners. Reads/preview never fabricate past entries, acknowledge,
-renew retention or prune. Writers prune within a bounded budget; reads filter
+Receiving writes record real newly created holds by request and admitted checklist
+claims/settlements by identity. Claim provenance is retained with the checklist;
+settlement uses that frozen evidence even after a plan edit. Unchanged holds and
+idempotent settlement append nothing. Job and sending producers arrive with their
+own later slices. Reads, preview and configuration saves never fabricate entries,
+acknowledge, renew retention or prune. Writers prune within a bounded budget; reads filter
 expiry and expose journal coverage. Normal storage-open/schema admission remains
 with its existing owner. No Ops files or provider configuration are read.

@@ -177,6 +177,14 @@ impl DigestSource {
     }
 }
 
+/// Membership admitted by the resolved receiving policy. Filtering does not
+/// change the canonical request or its acknowledgment state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DigestSelection {
+    All,
+    UrgentIncoming,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DigestState {
     Claimed,

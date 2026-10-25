@@ -8,10 +8,12 @@ configuration. The owner map is in
 ## SQLite adapter
 
 `storage::orchestration` pins one read snapshot for plans, current identities and
-personal focus. `tmt-core::orchestration::effective` owns policy; its calendar port
-receives adapter/Jiff conversions only. Journal appends share the future calling
-owner's transaction and freeze source evidence. No live producers ship in slice 1;
-reads and preview append nothing. [Orchestration v1](../../../../contracts/orchestration-v1.md)
+personal focus and typed configured Digest receiving. `tmt-core::orchestration::effective`
+owns policy; its calendar port receives adapter/Jiff conversions only. Calendar data
+loads before request transactions and its zone selection is rechecked inside them.
+Real hold, checklist admission and settlement journal appends share their request
+transaction; checklist settlement uses frozen claim evidence. Reads, preview and
+configuration publication append nothing. [Orchestration v1](../../../../contracts/orchestration-v1.md)
 owns shapes, recurrence rules, state defaults and slice boundaries.
 
 - Raw connections stay private; core sees narrow ports. Frozen fixtures keep their provenance in
