@@ -8,7 +8,7 @@ import {
   statSync,
 } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
@@ -47,6 +47,9 @@ function install(sandbox: Sandbox): Fixture {
   chmodSync(bin, 0o755);
   const executable = path.join(bin, 'tmt-fixture');
   writeExecutable(executable, FIXTURE, 0o755);
+  // Start the new file once: on macOS its first start can miss Core's 1 s
+  // capability probe, which is a retryable miss, not an answer (#2352).
+  expect(spawnSync(executable, [], { stdio: 'ignore', timeout: 10_000 }).status).toBe(2);
   const log = path.join(sandbox.root, 'observed.log');
   sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
   sandbox.env.FIXTURE_LOG = log;

@@ -19,7 +19,7 @@ pub use crate::executable_trust::Fingerprint;
 use crate::{
     config::ConfigPaths,
     executable_trust::{self, TrustError},
-    process::{CommandRequest, CommandRunner, UnixCommandRunner},
+    process::{CommandFailure, CommandRequest, CommandRunner, UnixCommandRunner},
 };
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -76,6 +76,9 @@ pub enum ExtensionHookError {
     NotFound(String),
     Unsafe(String),
     Incompatible(String),
+    /// The probe missed its deadline: a retryable state, not an answer. The
+    /// first start of a newly written executable can be slow (#2352).
+    Unanswered(String),
     Invalid(String),
     Io(io::Error),
 }
@@ -87,7 +90,7 @@ impl ExtensionHookError {
             Self::Unsafe(_) => "EXTENSION_UNSAFE",
             Self::Incompatible(_) => "EXTENSION_INCOMPATIBLE",
             Self::Invalid(_) => "EXTENSION_HOOKS_INVALID",
-            Self::Io(_) => "EXTENSION_HOOKS_UNAVAILABLE",
+            Self::Unanswered(_) | Self::Io(_) => "EXTENSION_HOOKS_UNAVAILABLE",
         }
     }
 }
@@ -98,6 +101,7 @@ impl std::fmt::Display for ExtensionHookError {
             Self::NotFound(message)
             | Self::Unsafe(message)
             | Self::Incompatible(message)
+            | Self::Unanswered(message)
             | Self::Invalid(message) => formatter.write_str(message),
             Self::Io(error) => write!(
                 formatter,
@@ -269,7 +273,7 @@ pub fn enable(
     let executable = fs::canonicalize(&resolved)?;
     let metadata = verify_ownership(&executable)?;
     let digest = executable_trust::digest(&executable)?;
-    let capabilities = probe(&executable, tmt)?;
+    let capabilities = probe(name, &executable, tmt)?;
     let consent = Consent {
         name: name.to_owned(),
         path: executable,
@@ -307,7 +311,7 @@ fn invocation(executable: &Path, tmt: &Path, operation: &str) -> Vec<OsString> {
     ]
 }
 
-fn probe(executable: &Path, tmt: &Path) -> Result<Vec<String>, ExtensionHookError> {
+fn probe(name: &str, executable: &Path, tmt: &Path) -> Result<Vec<String>, ExtensionHookError> {
     let args = invocation(executable, tmt, "capabilities");
     let output = UnixCommandRunner
         .execute(CommandRequest {
@@ -317,10 +321,16 @@ fn probe(executable: &Path, tmt: &Path) -> Result<Vec<String>, ExtensionHookErro
             deadline: Instant::now() + PROBE_DEADLINE,
             max_output_bytes: PROBE_OUTPUT_LIMIT,
         })
-        .map_err(|_| {
-            ExtensionHookError::Incompatible(
-                "The extension did not answer the hook capability probe.".into(),
-            )
+        .map_err(|error| {
+            if error.kind == CommandFailure::Timeout {
+                ExtensionHookError::Unanswered(format!(
+                    "The extension did not answer the hook capability probe in time. A newly installed executable can be slow to start the first time. If it misses again, the extension does not answer within the limit. Run again: tmt extension hooks enable {name}"
+                ))
+            } else {
+                ExtensionHookError::Incompatible(
+                    "The extension did not answer the hook capability probe.".into(),
+                )
+            }
         })?;
     let capabilities = decode_capabilities(&output.stdout).ok_or_else(|| {
         ExtensionHookError::Incompatible("The extension does not speak hook protocol 1.".into())

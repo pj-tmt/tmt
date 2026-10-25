@@ -92,6 +92,20 @@ fn fixture_consent(name: &str) -> Consent {
     }
 }
 
+/// Start a new fixture once before it is probed. On macOS the first start of a
+/// newly written executable can take longer than the probe deadline, and such
+/// first starts run one at a time (#2352); a probe test must not depend on it.
+fn warm(executable: &Path) {
+    let child = std::process::Command::new(executable)
+        .arg("warm")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let status = crate::test_support::TestChild::new(child).wait_for_exit(Duration::from_secs(10));
+    assert!(status.success(), "{status}");
+}
+
 fn fixture_paths(directory: &TestDirectory) -> ConfigPaths {
     ConfigPaths::resolve(
         &directory.path,
@@ -146,6 +160,7 @@ fn concurrent_enable_and_disable_keep_both_successful_changes() {
         0o700,
     )
     .unwrap();
+    warm(&executable);
     let first_paths = paths.clone();
     let first = PausedMutation::start(move || {
         enable(&first_paths, "c", bin.as_os_str(), &executable)?;
@@ -203,9 +218,55 @@ fn missing_disable_and_failed_probe_create_no_settings_or_lock() {
     let executable = directory.path.join("tmt-bad");
     tmt_test_support::write_executable(&executable, b"#!/bin/sh\nprintf 'invalid\\n'\n", 0o700)
         .unwrap();
+    warm(&executable);
     let error = enable(&paths, "bad", directory.path.as_os_str(), &executable).unwrap_err();
     assert_eq!(error.code(), "EXTENSION_INCOMPATIBLE");
     assert!(!missing.exists());
+}
+
+/// A new executable can miss the probe deadline on its first start (#2352).
+/// That is a retryable miss, never an incompatible answer, and it records
+/// nothing; the next start answers and is enabled.
+#[test]
+fn a_slow_first_start_is_retryable_and_never_incompatible() {
+    let directory = TestDirectory::new();
+    let paths = fixture_paths(&directory);
+    let bin = directory.path.join("bin");
+    fs::create_dir(&bin).unwrap();
+    let started = directory.path.join("started");
+    let executable = bin.join("tmt-cold");
+    tmt_test_support::write_executable(
+        &executable,
+        format!(
+            "#!/bin/sh\n[ \"$1\" = warm ] && exit 0\nif [ ! -e '{}' ]; then : > '{}'; exec /bin/sleep 5; fi\nprintf 'TMT-HOOKS/1\\nlifecycle_observations_v1\\n'\n",
+            started.display(),
+            started.display()
+        )
+        .as_bytes(),
+        0o700,
+    )
+    .unwrap();
+    warm(&executable);
+    let begun = Instant::now();
+    let error = enable(&paths, "cold", bin.as_os_str(), &executable).unwrap_err();
+    assert!(begun.elapsed() < PROBE_DEADLINE + Duration::from_secs(2));
+    assert_eq!(error.code(), "EXTENSION_HOOKS_UNAVAILABLE");
+    assert!(
+        matches!(error, ExtensionHookError::Unanswered(_)),
+        "{error:?}"
+    );
+    assert!(
+        error
+            .to_string()
+            .ends_with("Run again: tmt extension hooks enable cold"),
+        "{error}"
+    );
+    assert!(error.to_string().contains("If it misses again"), "{error}");
+    assert!(started.exists());
+    assert!(!consent_path(&paths.global_dir).exists());
+    let consent = enable(&paths, "cold", bin.as_os_str(), &executable).unwrap();
+    assert_eq!(consent.capabilities, [LIFECYCLE_CAPABILITY]);
+    assert_eq!(list_consents(&paths).unwrap(), [consent]);
 }
 
 #[test]
