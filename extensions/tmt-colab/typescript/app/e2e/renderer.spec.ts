@@ -838,6 +838,39 @@ test('a design-system page the frame paints follows a live change of theme; one 
   }
 });
 
+test('the native parts of a design-system page take the scheme it paints: a page painted light under a dark viewer is light', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const light = '<style>body{background:#fffdf7;color:#2b2b2b}</style>';
+  const content = '<p>Plain text</p><input class="tmt-ui-field-control" value="Note">';
+  const cases = [
+    ['painted-light-in-dark', 'dark', `${light}${content}`, 'light'],
+    [
+      'painted-dark-in-light',
+      'light',
+      `<style>body{background:#111418;color:#eef2f4}</style>${content}`,
+      'dark',
+    ],
+    ['unpainted-in-dark', 'dark', content, 'dark'],
+    ['unpainted-in-light', 'light', content, 'light'],
+  ] as const;
+  for (const [name, theme, source, scheme] of cases) {
+    const id = `target-native-${name}`;
+    await bindFrame(page, id, { theme, source });
+    const root = page.frameLocator(`#${id}`).locator('html');
+    // The frame measures what the page paints; the native parts follow that, as the tokens do.
+    await expect(root, name).toHaveAttribute('data-colab-scheme', scheme);
+    await expect(root, name).toHaveCSS('color-scheme', scheme);
+  }
+  // A page that does not use the design system keeps the browser's own `color-scheme`.
+  await bindFrame(page, 'target-native-bare', { theme: 'dark', source: '<p>Bare</p>' });
+  await expect(page.frameLocator('#target-native-bare').locator('html')).toHaveCSS(
+    'color-scheme',
+    'normal',
+  );
+});
+
 test('the frame treats a page as using the design system exactly as the shared marker vectors say', async ({
   page,
 }) => {

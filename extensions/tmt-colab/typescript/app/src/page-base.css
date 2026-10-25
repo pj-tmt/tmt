@@ -24,12 +24,19 @@
     color: var(--tmt-ui-color-accent);
   }
 
-  :root[data-colab-design][data-theme='light'],
+  :root[data-colab-design][data-theme='light'] {
+    color-scheme: light;
+  }
+
+  :root[data-colab-design][data-theme='dark'] {
+    color-scheme: dark;
+  }
+
+  /* After the two rules above, at equal specificity: the painted scheme wins, as it does for the tokens. */
   :root[data-colab-design][data-colab-scheme='light'] {
     color-scheme: light;
   }
 
-  :root[data-colab-design][data-theme='dark'],
   :root[data-colab-design][data-colab-scheme='dark'] {
     color-scheme: dark;
   }

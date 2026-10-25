@@ -1,9 +1,9 @@
 <!-- layout: full. Colab frames the page like a column; a block marked data-width="full" runs edge to edge and its text still starts on the column. See tmt colab skill layout, sections The frame and Two declarations -->
 <!-- style: the base look, from tmt colab skill page-style. Keep it, and change colours and type there, never the frame. See tmt colab skill page-style -->
 {{style}}
-<!-- style: colours only. A full block gets its horizontal padding from Colab, so never add any to it. See tmt colab skill layout, section What CSS may change -->
+<!-- style: colours, and the band's padding above and below. A full block gets its horizontal padding from Colab, so never add any to it. See tmt colab skill layout, section What CSS may change -->
 <style>
-  .band { background: color-mix(in srgb, currentColor 8%, transparent); }
+  .band { padding-block: 16px; background: color-mix(in srgb, currentColor 8%, transparent); }
   .lanes { display: flex; flex-wrap: wrap; }
   .lanes > div { flex: 1 1 240px; padding-right: 16px; }
 </style>
@@ -12,8 +12,8 @@
   <h1>Board title</h1>
   <p>One line on where things stand.</p>
 </section>
-<!-- block: lanes. Items by state, each a mark and a word, never colour alone. See tmt colab skill components, section State -->
-<section class="lanes" data-width="full">
+<!-- block: lanes. Items by state, each a mark and a word, never colour alone; a card on the column under the full-width banner. See tmt colab skill components, section State -->
+<section class="tmt-ui-card lanes">
   <div>
     <h2>● Running</h2>
     <p>An item in progress</p>

@@ -8,6 +8,9 @@ const tokens = JSON.parse(
   await readFile(new URL('../../../design/tokens/tokens.json', import.meta.url), 'utf8')
 );
 const metric = tokens.browser.metric;
+// The h2 size sits between the page title (29px) and the card title (19px) tokens and exists only in the
+// starter, so it has no token of its own.
+const h2Size = '22px';
 // The design system (tokens, fonts, components) is injected by the page frame (#5057); the starter is
 // only the glue a page needs on top of it: type scale, rhythm, a block look for `pre` and a fallback
 // table. It lives in the `tmt-starter` layer, between the frame's own layer and the design system's, so
@@ -32,7 +35,7 @@ const starter = `<style>
     font-weight: ${metric['page-title-weight']};
     letter-spacing: ${metric['page-title-compact-tracking']};
   }
-  h2 { font-size: 22px; }
+  h2 { font-size: ${h2Size}; }
   h3 { font-size: ${metric['card-title-size']}; }
   p, ul, ol, pre, table { margin: 0 0 ${metric['notice-heading-gap']}; }
   section { margin: 0 0 ${metric['notice-heading-gap']}; }
