@@ -5,6 +5,7 @@ use std::io;
 use tmt_adapters::{extension_hooks::Contribution, storage::IdentityContextSnapshot};
 
 pub(super) const OUTPUT_LIMIT: usize = 4096;
+const NOTES_TARGET_BYTES: u64 = 8_000;
 const SHORTENED: &str = "Context shortened to the output limit.\n";
 const UNBOUND_HINT: &str = "TMT: this pane has no identity. If the user wants TMT messaging here, they can run: tmt name <name> (-s to save).";
 
@@ -42,7 +43,7 @@ pub(super) fn document(
 
 /// The notebook path is quoted data. A long/absent path uses a complete command;
 /// hooks never initialize or read the notebook and the reminder stays bounded.
-pub(super) fn add_compaction_reminder(document: &mut Value) {
+pub(super) fn add_compaction_reminder(document: &mut Value, bytes: Option<u64>) {
     let destination = document["notesPath"]
         .as_str()
         .map(|path| json!(path).to_string())
@@ -55,9 +56,16 @@ pub(super) fn add_compaction_reminder(document: &mut Value) {
                 .replace('\'', "'\\''");
             format!("using tmt notes path --identity '{identity}'")
         });
-    document["compactionReminder"] = format!(
-        "Context was compacted. Re-read your notes {destination} and update them with anything still open.\n"
-    ).into();
+    let maintenance = "Refresh open work, decisions and rules; remove finished items and move history to issues. Keep notes near 8,000 bytes.";
+    let action = match bytes.filter(|bytes| *bytes > NOTES_TARGET_BYTES) {
+        Some(bytes) => format!(
+            "Notes are {bytes} bytes (above the 8,000-byte target). First archive a copy beside notes.md, then tidy and condense it. "
+        ),
+        None => String::new(),
+    };
+    document["compactionReminder"] =
+        format!("Context was compacted. Re-read your notes {destination}. {action}{maintenance}\n")
+            .into();
 }
 
 fn render(document: &Value, json_mode: bool) -> io::Result<String> {
@@ -316,20 +324,50 @@ mod tests {
             "notesPath": "/notes/line\n\u{1b}quoted", "truncated": false,
             "extensions": (0..20).map(|i| json!({"extension": format!("ext{i}"), "summary": "y".repeat(400)})).collect::<Vec<_>>(),
             "originated": requests(1, "identity", false), "incoming": requests(2, "identity", true)});
-        add_compaction_reminder(&mut value);
+        add_compaction_reminder(&mut value, None);
         let text = bounded(value.clone(), false).unwrap();
         assert!(text.len() <= OUTPUT_LIMIT);
-        assert!(text.contains("Context was compacted. Re-read your notes at \"/notes/line\\n\\u001bquoted\" and update them with anything still open."));
+        assert!(text.contains(
+            "Context was compacted. Re-read your notes at \"/notes/line\\n\\u001bquoted\"."
+        ));
         assert!(!text.contains('\u{1b}'));
         assert_eq!(text.matches("Context was compacted.").count(), 1);
         for path in [Value::Null, json!("p".repeat(8000))] {
             value["notesPath"] = path;
-            add_compaction_reminder(&mut value);
+            add_compaction_reminder(&mut value, None);
             let text = bounded(value.clone(), false).unwrap();
             assert!(text.len() <= OUTPUT_LIMIT);
             assert!(text.contains(
                 "using tmt notes path --identity '11111111-1111-4111-8111-111111111111'"
             ));
+        }
+    }
+
+    #[test]
+    fn compaction_reminder_refreshes_current_state_and_condenses_only_above_target() {
+        for bytes in [
+            None,
+            Some(0),
+            Some(NOTES_TARGET_BYTES - 1),
+            Some(NOTES_TARGET_BYTES),
+            Some(NOTES_TARGET_BYTES + 1),
+        ] {
+            let mut value = json!({"id": "identity", "notesPath": "/notes/notes.md"});
+            add_compaction_reminder(&mut value, bytes);
+            let text = value["compactionReminder"].as_str().unwrap();
+            assert!(text.contains("Refresh open work, decisions and rules; remove finished items and move history to issues."));
+            assert!(text.contains("Keep notes near 8,000 bytes."));
+            if bytes.is_some_and(|bytes| bytes > NOTES_TARGET_BYTES) {
+                assert!(text.contains("Notes are 8001 bytes (above the 8,000-byte target)."));
+                assert!(
+                    text.contains(
+                        "First archive a copy beside notes.md, then tidy and condense it."
+                    )
+                );
+            } else {
+                assert!(!text.contains("Notes are"));
+                assert!(!text.contains("archive a copy"));
+            }
         }
     }
 

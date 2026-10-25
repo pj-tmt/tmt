@@ -457,7 +457,9 @@ delivery. They install and launch nothing.
   only receive the default-on global boolean `notes.compactionReminder` context line; invalid
   config suppresses the advisory without vetoing the hook. Existing notes paths are quoted;
   missing/unsafe/long paths fall back to the explicit notes-path command. Hooks never initialize
-  or read/write notebook content. The core line survives optional context trimming within 4 KiB.
+  or read/write notebook content. Metadata supplies the byte count: above the 8,000-byte soft
+  target, the reminder asks the agent to archive and condense first; all reminders ask for
+  current-state maintenance. The core line survives optional context trimming within 4 KiB.
 - An unknown Claude `SessionEnd` reason is rejected without mutation; its known
   logout/prompt-input-exit/other reasons end the session, not the process. Codex
   maps SessionEnd regardless of reason to the same provider-session boundary.
