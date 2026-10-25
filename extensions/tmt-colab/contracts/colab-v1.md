@@ -2569,7 +2569,16 @@ Every page frame, whatever its layout, also carries the product's design system 
 (`src/page-host.css`, the host metrics those classes read) in the layer `tmt-ui`, after the layer order
 `colab-frame, tmt-starter, tmt-ui`; an author's unlayered CSS beats all three. The sheet is inlined
 into `renderer.html` by `scripts/generate-renderer-style.mjs`, which fails when it grows past 120,000
-bytes. The same bootstrap defines the `tmt-icon` element: `name` names one of the Lucide icons the page
+bytes. The layer `colab-frame`, the lowest, also holds the paper and ink of a page that uses the design
+system (`src/page-base.css`): when the page's source contains, ignoring ASCII case, `tmt-ui-`,
+`<tmt-icon` or `tmt-starter`, the bootstrap writes `data-colab-design` on the root, and then `body`
+takes `--tmt-ui-surface-paper` and `--tmt-ui-color-text` and a link takes `--tmt-ui-color-accent`, from
+the tokens of the frame's `data-theme`, so components with no fill of their own (a table, a field) keep
+their ink on their paper in either theme. The rule is on `body`, not `html`, so an author's `body`
+background still fills the canvas, and the starter's layer and an author's CSS both win; an author who
+paints only one of paper and ink paints the other. Any other page keeps the white canvas in both
+themes (#2267, #4081).
+The same bootstrap defines the `tmt-icon` element: `name` names one of the Lucide icons the page
 runtime lists (lowercase kebab-case), drawn as inline SVG at 16 px with stroke 1.75 and square caps,
 decorative unless `label` is set; a name it does not have draws nothing. No network, script authority or
 sandbox rule changes. `page check` reports a `tmt-ui-*` class and a `tmt-icon` name the frame does not

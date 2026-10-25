@@ -60,11 +60,15 @@ const hostCss = await readFile(
   new URL('../typescript/app/src/page-host.css', import.meta.url),
   'utf8',
 );
+const baseCss = await readFile(
+  new URL('../typescript/app/src/page-base.css', import.meta.url),
+  'utf8',
+);
 // Quoted strings must survive the compaction untouched.
 const quoted = (css) => css.match(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g) ?? [];
 if (quoted(compactCss(staticCss)).join('\n') !== quoted(staticCss).join('\n'))
   throw new Error('Compacting static.css would change a quoted string');
-const pageUiStyle = `@layer colab-frame,tmt-starter,tmt-ui;@layer tmt-ui{${compactCss(staticCss)}${compactCss(hostCss)}}`
+const pageUiStyle = `@layer colab-frame,tmt-starter,tmt-ui;${compactCss(baseCss)}@layer tmt-ui{${compactCss(staticCss)}${compactCss(hostCss)}}`
   // Double quotes keep the formatter from rewriting the single-quoted literal that holds it.
   .replaceAll("'", '"');
 if (pageUiStyle.length > PAGE_UI_LIMIT)

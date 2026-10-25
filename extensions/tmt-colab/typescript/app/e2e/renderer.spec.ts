@@ -645,6 +645,103 @@ test('every frame carries the design system in its own layer, below the starter 
   expect(dark).not.toBe(light.card.fill);
 });
 
+test('a page that uses the design system gets the paper and ink of the viewer theme; any other page keeps the white canvas', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const content = `<p id="plain">Plain text <a id="link" href="#">link</a></p>
+    <table class="tmt-ui-table" id="table"><tbody><tr><td>Build</td></tr></tbody></table>
+    <label class="tmt-ui-field" id="field"><span class="tmt-ui-field-label">Label</span></label>
+    <details class="tmt-ui-disclosure" id="disclosure"><summary>More</summary>Body</details>`;
+  const bare = `<p id="plain">Plain text <a id="link" href="#">link</a></p>`;
+  // WCAG's contrast ratio of the ink of each element on the paper the body paints.
+  const measure = (id: string) =>
+    page
+      .frameLocator(`#${id}`)
+      .locator('html')
+      .evaluate((html) => {
+        const doc = html.ownerDocument;
+        const rgb = (value: string) => (value.match(/[\d.]+/g) ?? []).map(Number);
+        const luminance = ([r, g, b]: number[]) => {
+          const channel = (v: number) =>
+            (v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+          return 0.2126 * channel(r!) + 0.7152 * channel(g!) + 0.0722 * channel(b!);
+        };
+        const paper = getComputedStyle(doc.body).backgroundColor;
+        const contrast = (ink: string) => {
+          const [a, b] = [luminance(rgb(ink)), luminance(rgb(paper))].sort((x, y) => y - x);
+          return (a! + 0.05) / (b! + 0.05);
+        };
+        return {
+          paper,
+          design: html.hasAttribute('data-colab-design'),
+          canvas: getComputedStyle(html).backgroundColor,
+          ink: getComputedStyle(doc.body).color,
+          ratios: ['plain', 'link', 'table', 'field', 'disclosure']
+            .map((name) => doc.getElementById(name))
+            .filter((element) => element !== null)
+            .map((element) => contrast(getComputedStyle(element).color)),
+        };
+      });
+  // A page with none of the markers is untouched: no paint on the body or the root, in both themes.
+  for (const theme of ['light', 'dark'] as const) {
+    const id = `target-bare-${theme}`;
+    await bindFrame(page, id, { theme, source: bare });
+    await expect(page.frameLocator(`#${id}`).locator('#plain')).toBeVisible();
+    expect(await measure(id)).toMatchObject({
+      design: false,
+      paper: 'rgba(0, 0, 0, 0)',
+      canvas: 'rgba(0, 0, 0, 0)',
+      ink: 'rgb(0, 0, 0)',
+    });
+  }
+  // A `tmt-ui-*` class, a `<tmt-icon>` or the starter's layer opts the page in.
+  const optIns = {
+    class: content,
+    icon: `<tmt-icon name="check"></tmt-icon>${bare}`,
+    starter: `<style>@layer tmt-starter{.x{margin:0}}</style>${bare}`,
+  };
+  const papers = new Map<string, string>();
+  for (const [kind, source] of Object.entries(optIns))
+    for (const theme of ['light', 'dark'] as const) {
+      const id = `target-pair-${kind}-${theme}`;
+      await bindFrame(page, id, { theme, source });
+      await expect(page.frameLocator(`#${id}`).locator('#plain, tmt-icon').first()).toBeAttached();
+      const found = await measure(id);
+      expect(found.design).toBe(true);
+      // Ink on paper in either theme, for the text, the link and the components with no fill of their own.
+      expect(found.ratios.length).toBeGreaterThan(0);
+      for (const ratio of found.ratios) expect(ratio).toBeGreaterThanOrEqual(4.5);
+      // The body paints the paper, not the root, so an author's own `body` background still fills the canvas.
+      expect(found.canvas).toBe('rgba(0, 0, 0, 0)');
+      papers.set(`${kind}-${theme}`, found.paper);
+    }
+  for (const kind of Object.keys(optIns))
+    expect(papers.get(`${kind}-light`)).not.toBe(papers.get(`${kind}-dark`));
+  // An author's unlayered rule beats the pair, with or without the markers, and so does the starter's layer.
+  const own = '<style>body{background:rgb(1, 2, 3);color:rgb(250, 250, 250)}</style>';
+  const cases = [
+    ['bare-own', 'dark', `${own}${bare}`, 'rgb(1, 2, 3)', 'rgb(250, 250, 250)'],
+    ['bare-own', 'light', `${own}${bare}`, 'rgb(1, 2, 3)', 'rgb(250, 250, 250)'],
+    ['class-own', 'dark', `${own}${content}`, 'rgb(1, 2, 3)', 'rgb(250, 250, 250)'],
+    ['class-own', 'light', `${own}${content}`, 'rgb(1, 2, 3)', 'rgb(250, 250, 250)'],
+    [
+      'starter-own',
+      'dark',
+      `<style>@layer tmt-starter{body{background:rgb(4, 5, 6);color:rgb(240, 240, 240)}}</style>${bare}`,
+      'rgb(4, 5, 6)',
+      'rgb(240, 240, 240)',
+    ],
+  ] as const;
+  for (const [kind, theme, source, paper, ink] of cases) {
+    const id = `target-own-${kind}-${theme}`;
+    await bindFrame(page, id, { theme, source });
+    const body = page.frameLocator(`#${id}`).locator('body');
+    await expect(body).toHaveCSS('background-color', paper);
+    await expect(body).toHaveCSS('color', ink);
+  }
+});
+
 test('<tmt-icon> draws a bounded Lucide icon with the Colab defaults, and an unknown name draws nothing', async ({
   page,
 }) => {
