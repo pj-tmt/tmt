@@ -75,6 +75,71 @@ async function traceInstallationPhase<T>(
 
 describe('native installation process contract', () => {
   it(
+    'the active CLI refreshes recorded integrations without widening provider consent',
+    { timeout: 60_000 },
+    async () => {
+      await withReleaseSandbox(async (sandbox) => {
+        const version = (await runCli(sandbox, ['--version'])).stdout.trim();
+        const artifact = await createArtifact(sandbox, version);
+        const installed = await install(sandbox, artifact, installPrefix(sandbox));
+        const managed = {
+          ...sandbox,
+          cli: { executable: installed.executable, args: [] },
+          env: {
+            ...sandbox.env,
+            PATH: `${path.dirname(installed.executable)}${path.delimiter}${sandbox.env.PATH ?? ''}`,
+          },
+        };
+        for (const provider of ['claude', 'codex']) {
+          const setup = await runCli(managed, ['setup', provider, '--no-usage', '--yes', '--json']);
+          expect(setup.status, setup.stdout + setup.stderr).toBe(0);
+        }
+        const claude = path.join(sandbox.home, '.claude/settings.json');
+        const codex = path.join(sandbox.home, '.codex/hooks.json');
+        const value = JSON.parse(readFileSync(claude, 'utf8'));
+        delete value.hooks.PostToolUseFailure;
+        const user = '"user" : {"opaque":1e999,"text":"keep exactly"}';
+        writeFileSync(claude, `{${user},"hooks":${JSON.stringify(value.hooks)}}`);
+        const target = path.join(sandbox.root, 'private user settings');
+        writeFileSync(target, 'do not follow');
+        unlinkSync(codex);
+        symlinkSync(target, codex);
+        const record = path.join(sandbox.globalDir, 'setup-record.json');
+        const recordBefore = readFileSync(record);
+        const refresh = await runCli(managed, ['__native-refresh-integrations', '--json']);
+        expect(refresh.status, refresh.stdout + refresh.stderr).toBe(0);
+        expect(refresh.stderr).toBe('');
+        expect(parseWholeStdout(refresh)).toMatchObject({
+          integrations: [
+            { provider: 'claude', status: 'updated', nextStep: null },
+            { provider: 'codex', status: 'skipped', nextStep: 'tmt setup codex' },
+          ],
+          error: null,
+        });
+        expect(readFileSync(claude, 'utf8')).toContain(user);
+        expect(readFileSync(claude, 'utf8')).toContain('PostToolUseFailure');
+        expect(readFileSync(target, 'utf8')).toBe('do not follow');
+        expect(readlinkSync(codex)).toBe(target);
+        expect(readFileSync(record)).toEqual(recordBefore);
+        const repeated = await runCli(managed, ['__native-refresh-integrations', '--json']);
+        expect(repeated.status, repeated.stdout + repeated.stderr).toBe(0);
+        expect(parseWholeStdout(repeated)).toMatchObject({
+          integrations: [
+            { provider: 'claude', status: 'unchanged' },
+            { provider: 'codex', status: 'skipped' },
+          ],
+        });
+        unlinkSync(record);
+        writeFileSync(claude, 'unrecorded provider settings');
+        const unrecorded = await runCli(managed, ['__native-refresh-integrations', '--json']);
+        expect(unrecorded.status, unrecorded.stdout + unrecorded.stderr).toBe(0);
+        expect(parseWholeStdout(unrecorded)).toEqual({ integrations: [], error: null });
+        expect(readFileSync(claude, 'utf8')).toBe('unrecorded provider settings');
+      });
+    }
+  );
+
+  it(
     'moves a former default only from the active managed release and reports once',
     { timeout: 60_000 },
     async () => {

@@ -382,6 +382,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             managed: flag(m, "managed"),
         },
         ["__native-rename-database"] => Invocation::NativeRenameDatabase,
+        ["__native-refresh-integrations"] => Invocation::NativeRefreshIntegrations,
         ["__native-upgrade-extensions"] => Invocation::NativeUpgradeExtensions {
             plan: flag(m, "plan"),
             progress: flag(m, "progress"),

@@ -155,6 +155,41 @@ fn update(global: &Path, change: impl FnOnce(&mut Vec<RecordedHooks>)) -> io::Re
     if entries == before {
         return Ok(());
     }
+    publish(global, &entries)
+}
+
+/// Hold the consent record stable across refresh publication. A legacy file
+/// without a Stop hook must not gain usage consent merely because the current
+/// answer hook is added: persist the conservative choice before that write.
+pub(super) fn refresh<T>(
+    global: &Path,
+    expected: &RecordedHooks,
+    usage: bool,
+    action: impl FnOnce() -> io::Result<T>,
+) -> io::Result<T> {
+    let _lock = crate::file_lock::exclusive(&global.join("setup-record.lock"))?;
+    let mut entries = read(global)?;
+    let Some(entry) = entries
+        .iter_mut()
+        .find(|entry| entry.driver == expected.driver && entry.settings == expected.settings)
+    else {
+        return Err(io::Error::other(
+            "Setup consent changed during refresh; review setup again.",
+        ));
+    };
+    if entry != expected {
+        return Err(io::Error::other(
+            "Setup consent changed during refresh; review setup again.",
+        ));
+    }
+    if entry.usage.is_none() && !usage {
+        entry.usage = Some(false);
+        publish(global, &entries)?;
+    }
+    action()
+}
+
+fn publish(global: &Path, entries: &[RecordedHooks]) -> io::Result<()> {
     let file = path(global);
     if entries.len() > MAXIMUM_HOOKS {
         return Err(invalid(&file));

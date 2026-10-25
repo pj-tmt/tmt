@@ -2,6 +2,7 @@
 //! `tmt setup` without a driver is the guided flow in [`guided`].
 
 mod guided;
+pub(crate) mod refresh;
 
 use crate::{invocation::OutputMode, output::Failure};
 use serde_json::json;

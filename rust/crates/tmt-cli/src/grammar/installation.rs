@@ -324,6 +324,14 @@ pub(in crate::grammar) fn rename_database() -> Command {
     internal("__native-rename-database", "Internal Core database rename").hide(true)
 }
 
+pub(in crate::grammar) fn refresh_integrations() -> Command {
+    internal(
+        "__native-refresh-integrations",
+        "Internal recorded integration refresh",
+    )
+    .hide(true)
+}
+
 pub(in crate::grammar) fn upgrade_extensions() -> Command {
     internal(
         "__native-upgrade-extensions",

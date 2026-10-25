@@ -103,6 +103,33 @@ its staging tree. Provider skills are refreshed by the newly active executable
 using `__native-refresh-skills --managed --json` under its own installation lock, and that executable then owns the consented
 extension phase. Neither phase is an application-wide atomic transaction.
 
+## Recorded driver integration refresh
+
+After a completed unpinned upgrade, the updater invokes the activated executable once as
+`__native-refresh-integrations --json`, with empty stdin, a 30-second deadline and a
+4 MiB output bound. This is a private, advisory phase; the existing process owner retains
+termination and reaping. Exit zero and empty stderr are required for a valid report.
+A failed, unsupported, noisy or malformed child is reported as uncertain refresh completion,
+never replayed and never treated as a binary-upgrade failure or rollback.
+
+The child returns exactly `integrations` (at most 64 rows) and `error` (null or a refresh
+failure). Each row has `provider`, `settingsPath`, `status`, `reason`, `message` and
+`nextStep` (a setup command or null). Status is `unchanged`, `updated`, `needsApproval`
+or `skipped`; the typed setup adapter owns fixed reason codes. Messages are bounded to
+2,048 Unicode scalars. A top-level failure has `reason`, `message` and `nextStep`.
+Upgrade JSON exposes the rows as `integrations` and the phase failure, if any, as
+`integrationRefreshWarning`; neither changes the product activation result.
+
+Only the setup record establishes an approved provider, exact settings file, launcher
+and usage scope. Current lifecycle and answer entries within that scope may be refreshed;
+new provider scopes or broader collection require setup approval. Setup recognizes its
+explicit tested historical hook forms, preserves unrelated JSON bytes, refuses edited or
+duplicated entries and unsafe files, and rechecks input under its publication lock.
+The consent record remains fenced through publication. Legacy lifecycle-only records
+persist usage off before their answer hook is added. A missing record never triggers
+provider discovery or installation. A per-provider refusal retains its bytes and does not
+prevent reporting the remaining providers.
+
 ## Consented extension progress
 
 The newly active CLI retains extension inventory and publication authority. The parent
