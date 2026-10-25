@@ -658,7 +658,7 @@ optional query or hash; other schemes, a `//` or `/\` prefix and whitespace are 
 no fetch, command or activation callback; the host's own navigation opens the `href`.
 
 The registry keeps providers in registration order and re-reads a snapshot only after its provider
-notifies. `register(provider)` admits the current snapshot first and returns the withdrawal; a key
+notifies; the other groups keep the objects they had. `register(provider)` admits the current snapshot first and returns the withdrawal; a key
 registered twice or an invalid snapshot throws and changes nothing. `groups()` returns the same
 array until something changes, and a group whose snapshot is invalid or unreadable is
 `unavailable`, never rows the provider did not admit. `find(groupKey, itemKey)` returns the item as

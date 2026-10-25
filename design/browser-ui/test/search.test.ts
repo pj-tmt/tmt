@@ -68,15 +68,36 @@ it('follows a provider, reads each change once and keeps the array between chang
   registry.subscribe(listener);
   const before = registry.groups();
   expect(registry.groups()).toBe(before);
-  expect(colab.reads).toHaveBeenCalledTimes(2);
+  expect(colab.reads).toHaveBeenCalledTimes(1);
   colab.set(ready('a', 'b'));
   expect(listener).toHaveBeenCalledTimes(1);
   const after = registry.groups();
   expect(after).not.toBe(before);
   expect(registry.groups()).toBe(after);
   expect(after[0]!.items.map((entry) => entry.key)).toEqual(['a', 'b']);
-  // One read admitted the registration and one built each array: two arrays, three reads.
-  expect(colab.reads).toHaveBeenCalledTimes(3);
+  // The read that admitted the registration built its group, and the change cost one more.
+  expect(colab.reads).toHaveBeenCalledTimes(2);
+});
+
+it('re-reads only the provider that notified and keeps the other groups as they were', () => {
+  const registry = createSearchRegistry();
+  const colab = fixture('colab', ready('a'));
+  const ops = fixture('ops', ready('x'));
+  registry.register(colab.provider);
+  registry.register(ops.provider);
+  const before = registry.groups();
+  expect(registry.groups()).toBe(before);
+  expect([colab.reads.mock.calls.length, ops.reads.mock.calls.length]).toEqual([1, 1]);
+  colab.set(ready('a', 'b'));
+  const after = registry.groups();
+  expect([colab.reads.mock.calls.length, ops.reads.mock.calls.length]).toEqual([2, 1]);
+  expect(after).not.toBe(before);
+  expect(after[0]).not.toBe(before[0]);
+  expect(after[1]).toBe(before[1]);
+  // The other provider changing re-reads that one alone.
+  ops.set(ready('x', 'y'));
+  expect(registry.groups()[1]!.items.map((entry) => entry.key)).toEqual(['x', 'y']);
+  expect([colab.reads.mock.calls.length, ops.reads.mock.calls.length]).toEqual([2, 2]);
 });
 
 it('withdraws a provider on its disposal and ignores it afterwards', () => {
