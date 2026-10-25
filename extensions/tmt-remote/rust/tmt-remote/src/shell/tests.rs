@@ -22,6 +22,16 @@ fn source(name: &'static str) -> Source {
 }
 
 #[test]
+fn remote_rail_opens_the_existing_my_remotes_list() {
+    let shell = Shell::new();
+    let answer = shell.snapshot(vec![], "http://127.0.0.1:1", Instant::now());
+    let remote = &answer["modules"][0];
+    assert_eq!(remote["rail"]["path"], "http://127.0.0.1:1/remote/settings");
+    assert_eq!(remote["menu"][0]["path"], remote["rail"]["path"]);
+    assert_eq!(remote["settings"][0]["label"], "My Remotes");
+}
+
+#[test]
 fn strict_description_bounds_and_every_path_stays_inside_its_mount() {
     let valid = value();
     let result = parse(&valid)

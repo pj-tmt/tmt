@@ -7,6 +7,7 @@ import {
   planImport,
   mergeImport,
   reference,
+  registryView,
 } from '../src/remote-registry.js';
 
 const a = {
@@ -35,6 +36,7 @@ test('registry reuses closed public references; it rejects private fields and pa
     { ...a, url: `${a.url}?key=secret` },
     { ...a, url: `${a.url}#private` },
     { ...a, handle: 'private' },
+    { ...a, role: 'owner' },
   ])
     await assert.rejects(parseCatalog({ version: 1, entries: [b, entry] }));
   await assert.rejects(parseCatalog({ ...catalog, device: 'secret' }));
@@ -200,4 +202,57 @@ test('entire encoded handoff is bounded and duplicate members cannot collapse in
   assert.deepEqual((await parseHandoff(new URL(url).hash)).catalog, under);
   const tooLarge = '#tmt-remotes=' + base64url(new TextEncoder().encode(JSON.stringify(large)));
   await assert.rejects(parseHandoff(tooLarge));
+});
+
+test('an empty remembered catalog still projects this machine first, with no invented role', () => {
+  const view = registryView(
+    { version: 1, entries: [] },
+    { pageUrl: 'http://localhost:9001/remote/settings', state: 'Checking' },
+  );
+  assert.equal(view.rows.length, 1);
+  assert.equal(view.rows[0], view.current);
+  assert.equal(view.current.name, 'This machine');
+  assert.equal(view.current.thisMachine, true);
+  assert.equal(view.current.reference, null);
+  assert.equal(view.current.url, 'http://localhost:9001/');
+  assert.equal(view.current.backend, 'Local');
+  assert.equal(view.current.roleLabel, 'Role unknown');
+});
+
+test('one source deduplicates this machine and keeps foreign roles and connections unchecked', () => {
+  const hosted = {
+    name: 'cloud',
+    kind: 'firestore',
+    url: 'https://demo.web.app/pair#public',
+    project: 'demo',
+  } as const;
+  const saved = { version: 1, entries: [b, a, hosted] } as const;
+  const view = registryView(saved, {
+    pageUrl: `${a.url}settings`,
+    address: a.url,
+    state: 'Connected',
+    role: 'owner',
+  });
+  assert.deepEqual(
+    view.rows.map((row) => row.name),
+    ['studio', 'desk', 'cloud'],
+  );
+  assert.equal(view.current.reference, a);
+  assert.equal(view.current.thisMachine, true);
+  assert.equal(view.current.roleLabel, 'Admin');
+  assert.equal(view.current.connection.text, 'Connected');
+  for (const row of view.rows.slice(1)) {
+    assert.equal(row.thisMachine, false);
+    assert.equal(row.roleLabel, 'Role unknown');
+    assert.equal(row.connection.text, 'Not checked');
+  }
+  assert.equal(view.rows[2]!.backend, 'Firebase');
+  assert.deepEqual(saved.entries, [b, a, hosted]);
+  const offline = registryView(
+    { version: 1, entries: [a] },
+    { pageUrl: `${a.url}settings`, state: 'Offline', role: 'user' },
+  );
+  assert.equal(offline.rows.length, 1);
+  assert.equal(offline.current.roleLabel, 'Member');
+  assert.equal(offline.current.connection.text, 'Offline');
 });

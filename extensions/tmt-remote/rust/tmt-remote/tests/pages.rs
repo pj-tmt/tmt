@@ -832,7 +832,7 @@ fn remote_headers_carry_the_static_mark_only_outside_the_web_shell() {
         ),
         (
             include_str!("../assets/settings.html"),
-            Some("Remote · Remote settings"),
+            Some("Remote · My Remotes"),
         ),
         (include_str!("../assets/ops.html"), None),
         (include_str!("../assets/home.html"), None),

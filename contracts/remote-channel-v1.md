@@ -3821,8 +3821,9 @@ drafts, original operation IDs or reader seeds are carried.
 
 A duplicate canonical target is already added; a colliding name offers a new name or Skip,
 without overwriting the existing reference. Landing rows use only this origin's existing
-verified observation for current access. Foreign rows say `not checked`, carry no state mark
-and offer Open, with no probes or manufactured last-seen/default status. Firebase references
+verified observation for current access. Unprobed foreign rows show `◌ Not checked` (mark and
+word), meaning unknown, never offline or access, and offer Open without probes or manufactured
+last-seen/default status. Firebase references
 reuse the validated public remote link and remain `not checked`; Open preserves that link
 unchanged, with no catalog handoff, Auth, configuration fetch or Firestore transport. Hosted
 catalog reception and the Colab switcher are later consumers, not shipped registry behavior.

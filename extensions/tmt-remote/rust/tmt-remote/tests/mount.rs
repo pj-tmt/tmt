@@ -1322,7 +1322,7 @@ fn shell_is_owner_only_and_reserves_the_hyphen_mount() {
     assert_eq!(body["modules"][0]["extension"], "remote");
     assert_eq!(
         body["modules"][0]["rail"]["path"],
-        format!("{}/remote/", door.origin)
+        format!("{}/remote/settings", door.origin)
     );
     assert!(!tmt_remote::canonical::extension_name("-"));
     assert!(EXTENSIONS.iter().all(|extension| extension.name != "-"));
