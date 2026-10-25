@@ -15,7 +15,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `transport`                                      | Pure envelope/result driver port (`append`, finite `subscribe`, explicit `ack`); loopback `routes` forwards to the injected common service, never owns admission/effects                                                                            |
 | `journal`, `budgets`, `audit`                    | Metadata streams and recovery ownership, persisted budgets, audit written in the owning transaction                                                                                                                                                 |
 | `operations`, `approval`                         | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                                                                                          |
-| `authority`, `store`, `state`                    | Typed grants, `remote.db` and schema history, layout/machine key/serve lock                                                                                                                                                                         |
+| `authority`, `members`, `store`, `state`         | Scoped members/machines and typed grants in one Store; schema history, layout/machine key/serve lock                                                                                                                                                |
 | `pairing`, `control`, `devices`                  | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename and explicit sending-scope toggles                                                                                                            |
 | `mount`, `shell`, `pages`                        | Allowlisted mounts, bounded display-only describe composition, static pages and embedded assets                                                                                                                                                     |
 | `reads`, `reads::ops`                            | Owner browser reads: fixed public `ops`/`digest` argv, single-flight 5 s reuse, Ops allowlist projection ([contract](../../../../contracts/remote-channel-v1.md#owner-browser-reads)); public CLI only, no state or worker                          |
@@ -125,6 +125,29 @@ Rules that are easy to get wrong:
   [object-backends.md](object-backends.md) before changing it.
 - **Parked add-on.** `typescript/browser-addon` is a demo shell with no crypto,
   pairing or network; it is not a working channel (#1056).
+
+## Member storage
+
+`members` keeps the per-Remote person mapping and owner/user policy in the existing
+Store, without another database or network owner. Migration preserves grant fields
+and creates one member per grant; only the exact existing key-bound browser
+designation establishes an owner role. The existing device facade consumes member
+names and sends through the common member policy writer. Grant-specific revocation
+and cleanup retain their existing device meaning.
+
+`Store::confirm_member_grant` is the small trusted confirmation sink: only a caller
+that has already obtained owner confirmation invokes it. It atomically saves a new
+user member and its first grant, sending off/direct, without persisting an invite
+secret. Its crate-private `members::confirm_member_grant_in(&Transaction, &Grant)`
+half is for a concrete confirmation adapter that also saves its original receipt
+and admitted policy in the same IMMEDIATE Store transaction, without calling the
+convenience method or opening/nesting another transaction. Association is an
+explicit owner operation under the Store writer fence;
+its current-member/current-grant revisions and original management receipt identity
+are checked there. A matching display/provider name never associates machines.
+Member policy reuses grant scope/revocation writers, persists old-session fences,
+and returns all changed clients for the existing post-commit session owner.
+The contract owns the schema, policy and outcome semantics.
 
 ## Shared extension state
 

@@ -690,6 +690,9 @@ fn fresh_open_authority_proof_keeps_invalid_deleted_and_ordinary_requests_opaque
             }
             "deleted" => {
                 oracle
+                    .execute("DELETE FROM member_machines WHERE client_id=?1", [&client])
+                    .unwrap();
+                oracle
                     .execute("DELETE FROM grants WHERE client_id=?1", [&client])
                     .unwrap();
             }

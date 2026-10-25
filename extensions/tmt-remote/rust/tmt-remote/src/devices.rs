@@ -96,13 +96,26 @@ impl Devices {
     pub fn talk(&self, client_id: &str, enabled: bool) -> Result<Grant, RemoteError> {
         let mut store = self.store()?;
         let client_id = resolve_person(&store, client_id)?;
-        let before = store.grant(&client_id)?;
+        let member = store.member_for_client(&client_id)?.ok_or_else(|| {
+            RemoteError::new("REMOTE_DEVICE_NOT_FOUND", "No paired member has that ID.")
+        })?;
+        let clients = store.member_clients(&member.member_id)?;
+        let before: Vec<_> = clients
+            .iter()
+            .map(|id| store.grant(id).map(|g| (id.clone(), g.map(|g| g.revision))))
+            .collect::<Result<_, _>>()?;
         let grant = store.talk(&client_id, enabled)?.ok_or_else(|| {
             RemoteError::new("REMOTE_DEVICE_NOT_FOUND", "No paired device has that ID.")
         })?;
+        let mut changed = Vec::new();
+        for (id, revision) in before {
+            if store.grant(&id)?.map(|g| g.revision) != revision {
+                changed.push(id);
+            }
+        }
         drop(store);
-        if before.is_some_and(|g| g.revision != grant.revision) {
-            self.committed_change(&client_id);
+        for client in changed {
+            self.committed_change(&client);
         }
         Ok(grant)
     }
@@ -196,11 +209,20 @@ fn resolve_person(store: &Store, reference: &str) -> Result<String, RemoteError>
     if let Some(grant) = store.grant(reference)? {
         return Ok(grant.client_id);
     }
-    let matches: Vec<_> = store
-        .active_grants()?
+    let members: Vec<_> = store
+        .members()?
         .into_iter()
-        .filter(|g| g.name == reference)
+        .filter(|m| m.revoked_at_ms.is_none() && m.display_name == reference)
         .collect();
+    let mut matches = Vec::new();
+    for member in members {
+        for id in store.member_clients(&member.member_id)? {
+            if let Some(grant) = store.grant(&id)?.filter(|g| !g.disabled) {
+                matches.push(grant);
+                break;
+            }
+        }
+    }
     match matches.as_slice() {
         [grant] => Ok(grant.client_id.clone()),
         [] => Err(RemoteError::new(
@@ -287,6 +309,85 @@ pub fn device_json(grant: &Grant) -> Value {
 #[cfg(test)]
 mod person_tests {
     use super::*;
+
+    #[test]
+    fn one_member_name_selects_multiple_machines_and_sending_fans_out() {
+        let root = std::env::temp_dir().join(format!(
+            "tmt-member-devices-{}",
+            crate::store::uuid_v4().unwrap()
+        ));
+        let serving = crate::state::Layout::open(&root)
+            .unwrap()
+            .serve_lock()
+            .unwrap();
+        let mut store = Store::open(&serving).unwrap();
+        let mut grants = Vec::new();
+        for n in [1u8, 2] {
+            let grant = Grant {
+                client_id: crate::store::uuid_v4().unwrap(),
+                public_key: ed25519_dalek::SigningKey::from_bytes(&[n; 32])
+                    .verifying_key()
+                    .to_bytes(),
+                kind: "cli".into(),
+                origin: "cli".into(),
+                name: "Person".into(),
+                agents: "all".into(),
+                scopes: crate::store::DEFAULT_SCOPES.map(str::to_owned).into(),
+                mode: "hold".into(),
+                issued_at_ms: 1,
+                expires_at_ms: None,
+                revision: 1,
+                disabled: false,
+            };
+            store.insert_grant(&grant).unwrap();
+            grants.push(grant);
+        }
+        let member = store
+            .member_for_client(&grants[0].client_id)
+            .unwrap()
+            .unwrap();
+        store
+            .associate_member(
+                crate::members::Owner::LocalOwner,
+                &crate::members::Association {
+                    operation_id: crate::store::uuid_v4().unwrap(),
+                    remote_id: member.remote_id,
+                    member_id: member.member_id,
+                    member_revision: member.revision,
+                    client_id: grants[1].client_id.clone(),
+                    grant_revision: 1,
+                },
+                10,
+            )
+            .unwrap();
+        let store = Arc::new(Mutex::new(store));
+        let devices = Devices::new(Arc::clone(&store), None);
+        devices.talk("Person", true).unwrap();
+        for grant in &grants {
+            let current = store
+                .lock()
+                .unwrap()
+                .grant(&grant.client_id)
+                .unwrap()
+                .unwrap();
+            assert!(current.permits_scope("talk"));
+            assert_eq!(current.mode, "hold");
+        }
+        devices.talk("Person", false).unwrap();
+        assert!(
+            store
+                .lock()
+                .unwrap()
+                .grants()
+                .unwrap()
+                .iter()
+                .all(|g| !g.permits_scope("talk"))
+        );
+        drop(devices);
+        drop(store);
+        drop(serving);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn unique_person_names_mutate_only_that_grant_and_duplicates_list_ids() {

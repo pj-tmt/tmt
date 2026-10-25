@@ -805,7 +805,7 @@ fn talk_toggle_commits_only_the_scope_and_revision_with_an_immutable_receipt() {
     assert_eq!(outcome["sessionEnded"], true);
     assert_eq!(
         changed,
-        Some(CommittedChange::Authority(f.grant.client_id.clone()))
+        Some(CommittedChange::Authority(vec![f.grant.client_id.clone()]))
     );
     assert_eq!(
         receipt(
@@ -1079,11 +1079,90 @@ fn last_use_migration_preserves_preexisting_grants_and_unknown_time() {
     f.store
         .connection
         .execute_batch(
-            "DROP TABLE cloud_transport; DROP TABLE cloud_remotes; DROP TABLE cloud_owner_projects; DROP TABLE cloud_reroute_counters; DROP TABLE cloud_peer_routes; DROP TABLE cloud_pair_receipts; DROP TABLE cloud_peers; DROP TABLE device_last_use; DELETE FROM _migrations WHERE version>=9;",
+            "DROP TABLE member_machines; DROP TABLE members; DROP TABLE cloud_transport; DROP TABLE cloud_remotes; DROP TABLE cloud_owner_projects; DROP TABLE cloud_reroute_counters; DROP TABLE cloud_peer_routes; DROP TABLE cloud_pair_receipts; DROP TABLE cloud_peers; DROP TABLE device_last_use; DELETE FROM _migrations WHERE version>=9;",
         )
         .unwrap();
     f.store.connection = Connection::open_in_memory().unwrap();
     f.store = Store::open(f.serving.as_ref().unwrap()).unwrap();
     assert_eq!(f.store.grants().unwrap(), before);
     assert_eq!(f.store.last_used(&f.grant.client_id).unwrap(), None);
+}
+
+#[test]
+fn browser_talk_change_fences_and_returns_every_associated_machine_for_live_cleanup() {
+    let mut f = Fixture::new();
+    f.designate();
+    let mut candidate = f.grant.clone();
+    candidate.client_id = uuid_v4().unwrap();
+    candidate.public_key = [8u8; 32];
+    candidate.kind = "cli".into();
+    candidate.origin = "cli".into();
+    f.store.insert_grant(&candidate).unwrap();
+    let m = f
+        .store
+        .member_for_client(&f.grant.client_id)
+        .unwrap()
+        .unwrap();
+    f.store
+        .associate_member(
+            crate::members::Owner::LocalOwner,
+            &crate::members::Association {
+                operation_id: uuid_v4().unwrap(),
+                remote_id: m.remote_id,
+                member_id: m.member_id,
+                member_revision: m.revision,
+                client_id: candidate.client_id.clone(),
+                grant_revision: 1,
+            },
+            now_ms().unwrap(),
+        )
+        .unwrap();
+    for client in [&f.grant.client_id, &candidate.client_id] {
+        let g = f.store.grant(client).unwrap().unwrap();
+        f.store
+            .start_session(
+                &g,
+                &uuid_v4().unwrap(),
+                &uuid_v4().unwrap(),
+                now_ms().unwrap(),
+            )
+            .unwrap();
+    }
+    let id = uuid_v4().unwrap();
+    f.adopt(&id, "remote.devices.talk", &[9u8; 32]).unwrap();
+    let (outcome, changed) = f
+        .store
+        .management_effect(
+            &f.grant,
+            &id,
+            "remote.devices.talk",
+            &[9u8; 32],
+            Mutation::Talk {
+                client: candidate.client_id.clone(),
+                enabled: false,
+            },
+        )
+        .unwrap();
+    assert_eq!(outcome["state"], "committed");
+    assert_eq!(outcome["sessionEnded"], true);
+    let mut clients = vec![f.grant.client_id.clone(), candidate.client_id.clone()];
+    clients.sort();
+    assert_eq!(changed, Some(CommittedChange::Authority(clients)));
+    assert!(
+        f.store
+            .grants()
+            .unwrap()
+            .iter()
+            .all(|g| !g.permits_scope("talk"))
+    );
+    let live: i64 = f
+        .store
+        .connection
+        .query_row(
+            "SELECT count(*) FROM sessions WHERE ended_reason IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(live, 0);
 }

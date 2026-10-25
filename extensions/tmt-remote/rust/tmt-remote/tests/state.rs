@@ -300,7 +300,8 @@ fn schema_history_uses_core_migrations() {
             (10, "cloud_transport".to_owned()),
             (11, "cloud_pairing".to_owned()),
             (12, "cloud_final_binding".to_owned()),
-            (13, "cloud_pair_tokens".to_owned())
+            (13, "cloud_pair_tokens".to_owned()),
+            (14, "members".to_owned())
         ]
     );
     let journal: String = inspect
@@ -314,11 +315,11 @@ fn schema_history_uses_core_migrations() {
         .unwrap()
         .query_row("SELECT COUNT(*) FROM _migrations", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(count, 13);
+    assert_eq!(count, 14);
     // A newer build's history refuses instead of being reinterpreted.
     Connection::open(&db)
         .unwrap()
-        .execute("INSERT INTO _migrations VALUES (14, 'future', 'now')", [])
+        .execute("INSERT INTO _migrations VALUES (15, 'future', 'now')", [])
         .unwrap();
     assert_eq!(
         Store::open(&layout.serve_lock().unwrap())
@@ -330,7 +331,7 @@ fn schema_history_uses_core_migrations() {
     // A renamed step refuses as damaged history.
     let damage = Connection::open(&db).unwrap();
     damage
-        .execute("DELETE FROM _migrations WHERE version = 14", [])
+        .execute("DELETE FROM _migrations WHERE version = 15", [])
         .unwrap();
     damage
         .execute(
@@ -448,7 +449,7 @@ fn stopped_port_reads_are_noncreating_and_legacy_state_is_not_migrated() {
     drop(stopped);
     // Model the previously shipped schema, preserving its exact migration names.
     let old = Connection::open(&db).unwrap();
-    old.execute_batch("DROP TABLE cloud_transport; DROP TABLE cloud_remotes; DROP TABLE cloud_owner_projects; DROP TABLE cloud_reroute_counters; DROP TABLE cloud_peer_routes; DROP TABLE cloud_pair_receipts; DROP TABLE cloud_peers; DROP TABLE device_last_use; DROP TABLE management_receipts; DROP TABLE settings_designation; DROP TABLE door_port; ALTER TABLE operations DROP COLUMN grant_revision; ALTER TABLE operations DROP COLUMN session_id;
+    old.execute_batch("DROP TABLE member_machines; DROP TABLE members; DROP TABLE cloud_transport; DROP TABLE cloud_remotes; DROP TABLE cloud_owner_projects; DROP TABLE cloud_reroute_counters; DROP TABLE cloud_peer_routes; DROP TABLE cloud_pair_receipts; DROP TABLE cloud_peers; DROP TABLE device_last_use; DROP TABLE management_receipts; DROP TABLE settings_designation; DROP TABLE door_port; ALTER TABLE operations DROP COLUMN grant_revision; ALTER TABLE operations DROP COLUMN session_id;
             DROP TABLE sessions; CREATE TABLE sessions(client_id TEXT PRIMARY KEY REFERENCES grants(client_id),session_id TEXT NOT NULL UNIQUE,window_id TEXT NOT NULL,grant_revision INTEGER NOT NULL,next_client_sequence TEXT NOT NULL,next_server_sequence TEXT NOT NULL);
             DELETE FROM _migrations WHERE version >= 5")
         .unwrap();
@@ -529,13 +530,13 @@ fn schema6_session_row_and_grant_survive_multi_session_migration() {
         [],
     )
     .unwrap();
-    old.execute("INSERT INTO grants VALUES ('client',?1,'cli','cli','Migration device','all','talk','direct',100,NULL,1,0)",[&[7u8;32][..]]).unwrap();
+    old.execute("INSERT INTO grants VALUES ('60000000-0000-4000-8000-000000000006',?1,'cli','cli','Migration device','all','talk','direct',100,NULL,1,0)",[&[7u8;32][..]]).unwrap();
     old.execute(
-        "INSERT INTO sessions VALUES ('client','session','window',1,'7','9')",
+        "INSERT INTO sessions VALUES ('60000000-0000-4000-8000-000000000006','session','window',1,'7','9')",
         [],
     )
     .unwrap();
-    old.execute("INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms) VALUES ('held','client','dispatch.create',X'00',X'01','held','{}',100)",[]).unwrap();
+    old.execute("INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms) VALUES ('held','60000000-0000-4000-8000-000000000006','dispatch.create',X'00',X'01','held','{}',100)",[]).unwrap();
     let before: String = old
         .query_row(
             "SELECT quote(client_id)||quote(public_key)||quote(kind)||quote(origin)||quote(name)||quote(agents)||quote(scopes)||quote(mode)||quote(issued_at_ms)||quote(expires_at_ms)||quote(revision)||quote(disabled) FROM grants",
@@ -565,10 +566,10 @@ fn schema6_session_row_and_grant_survive_multi_session_migration() {
     );
     let counters:(String,String)=db.query_row("SELECT next_client_sequence,next_server_sequence FROM sessions WHERE session_id='session'",[],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
     assert_eq!(counters, ("7".into(), "9".into()));
-    db.execute("INSERT INTO sessions(client_id,session_id,window_id,grant_revision,next_client_sequence,next_server_sequence) VALUES ('client','second','window',1,'1','2')",[]).unwrap();
+    db.execute("INSERT INTO sessions(client_id,session_id,window_id,grant_revision,next_client_sequence,next_server_sequence) VALUES ('60000000-0000-4000-8000-000000000006','second','window',1,'1','2')",[]).unwrap();
     assert_eq!(
         db.query_row(
-            "SELECT COUNT(*) FROM sessions WHERE client_id='client'",
+            "SELECT COUNT(*) FROM sessions WHERE client_id='60000000-0000-4000-8000-000000000006'",
             [],
             |r| r.get::<_, i64>(0)
         )

@@ -64,7 +64,7 @@ struct PageInput {
 #[derive(Debug, PartialEq)]
 enum CommittedChange {
     Name,
-    Authority(String),
+    Authority(Vec<String>),
     Removed(Vec<String>),
 }
 enum Mutation {
@@ -211,6 +211,7 @@ impl Store {
             return Err(invalid());
         }
         tx.execute("INSERT INTO settings_designation SELECT 1,machine_id,?1,?2 FROM machine WHERE singleton=1 ON CONFLICT(singleton) DO UPDATE SET machine_id=excluded.machine_id,client_id=excluded.client_id,public_key=excluded.public_key",params![client,grant.public_key.as_slice()]).map_err(database)?;
+        crate::members::sync_designation(&tx)?;
         tx.commit().map_err(database)?;
         Ok(grant)
     }
@@ -221,6 +222,7 @@ impl Store {
             .map_err(database)?;
         tx.execute("DELETE FROM settings_designation", [])
             .map_err(database)?;
+        crate::members::sync_designation(&tx)?;
         tx.commit().map_err(database)
     }
     /// SQL keyset pagination happens before any grants are materialized. The cursor
@@ -417,13 +419,22 @@ impl Store {
                 }
             }
             Mutation::Talk { client, enabled } => {
-                let before = grant_in(&tx, &client)?;
+                let before = crate::members::grants_for_client(&tx, &client)?;
                 match talk_in(&tx, &client, enabled) {
                     Ok(Some(target)) => {
-                        let changed = before.is_some_and(|g| g.revision != target.revision);
+                        let mut clients = Vec::new();
+                        for before in before {
+                            if grant_in(&tx, &before.client_id)?
+                                .is_some_and(|g| g.revision != before.revision)
+                            {
+                                clients.push(before.client_id);
+                            }
+                        }
+                        let session_ended = clients.contains(&grant.client_id);
+                        let changed = !clients.is_empty();
                         (
-                            json!({"operationId":id,"state":"committed","result":{"device":summary(&target)},"sessionEnded":changed && client==grant.client_id}),
-                            changed.then_some(CommittedChange::Authority(client)),
+                            json!({"operationId":id,"state":"committed","result":{"device":summary(&target)},"sessionEnded":session_ended}),
+                            changed.then_some(CommittedChange::Authority(clients)),
                         )
                     }
                     Ok(None) => (refused(id, "REMOTE_DEVICE_NOT_FOUND"), None),
@@ -453,7 +464,7 @@ impl Store {
             Mutation::Revoke { client } => match revoke_in(&tx, &client) {
                 Ok(Some(target)) => (
                     json!({"operationId":id,"state":"committed","result":{"device":summary(&target)},"sessionEnded":client==grant.client_id}),
-                    Some(CommittedChange::Authority(client)),
+                    Some(CommittedChange::Authority(vec![client])),
                 ),
                 Ok(None) => (refused(id, "REMOTE_DEVICE_NOT_FOUND"), None),
                 Err(error) => return Err(error),
@@ -661,7 +672,11 @@ pub(crate) fn append(
             Ok((outcome, changed)) => {
                 match changed {
                     Some(CommittedChange::Name) => devices.wake(),
-                    Some(CommittedChange::Authority(client)) => devices.committed_change(&client),
+                    Some(CommittedChange::Authority(clients)) => {
+                        for client in clients {
+                            devices.committed_change(&client);
+                        }
+                    }
                     Some(CommittedChange::Removed(clients)) => devices.committed_removals(&clients),
                     None => {}
                 }

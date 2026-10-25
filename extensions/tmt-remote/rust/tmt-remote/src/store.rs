@@ -144,33 +144,7 @@ impl Store {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database)?;
-        let existing = transaction.query_row(
-            "SELECT machine_id, route_prefix FROM machine WHERE singleton = 1",
-            [],
-            |row| {
-                Ok(Machine {
-                    id: row.get(0)?,
-                    route_prefix: row.get(1)?,
-                })
-            },
-        );
-        let machine = match existing {
-            Ok(machine) => machine,
-            Err(rusqlite::Error::QueryReturnedNoRows) => {
-                let machine = Machine {
-                    id: uuid_v4()?,
-                    route_prefix: new_route_prefix()?,
-                };
-                transaction
-                    .execute(
-                        "INSERT INTO machine VALUES (1, ?1, ?2)",
-                        [&machine.id, &machine.route_prefix],
-                    )
-                    .map_err(database)?;
-                machine
-            }
-            Err(e) => return Err(database(e)),
-        };
+        let machine = machine_in(&transaction)?;
         transaction.commit().map_err(database)?;
         // A tampered row fails closed instead of widening the route grammar.
         if !crate::canonical::route_prefix(&machine.route_prefix) || !uuid_shape(&machine.id) {
@@ -179,9 +153,42 @@ impl Store {
         Ok(machine)
     }
 }
+pub(crate) fn machine_in(connection: &Connection) -> Result<Machine, RemoteError> {
+    let existing = connection.query_row(
+        "SELECT machine_id, route_prefix FROM machine WHERE singleton = 1",
+        [],
+        |row| {
+            Ok(Machine {
+                id: row.get(0)?,
+                route_prefix: row.get(1)?,
+            })
+        },
+    );
+    let machine = match existing {
+        Ok(machine) => machine,
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            let machine = Machine {
+                id: uuid_v4()?,
+                route_prefix: new_route_prefix()?,
+            };
+            connection
+                .execute(
+                    "INSERT INTO machine VALUES (1, ?1, ?2)",
+                    [&machine.id, &machine.route_prefix],
+                )
+                .map_err(database)?;
+            machine
+        }
+        Err(e) => return Err(database(e)),
+    };
+    if !crate::canonical::route_prefix(&machine.route_prefix) || !uuid_shape(&machine.id) {
+        return Err(database("invalid machine identity"));
+    }
+    Ok(machine)
+}
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 13] = [
+const MIGRATIONS: [(&str, &str); 14] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -303,6 +310,23 @@ const MIGRATIONS: [(&str, &str); 13] = [
      CREATE TABLE cloud_remotes(name TEXT PRIMARY KEY,owner TEXT NOT NULL UNIQUE,connection TEXT NOT NULL);"),
     ("cloud_final_binding", "ALTER TABLE cloud_transport ADD COLUMN binding TEXT;"),
     ("cloud_pair_tokens", "ALTER TABLE cloud_peers ADD COLUMN reroute_hash BLOB CHECK(reroute_hash IS NULL OR length(reroute_hash)=32);"),
+    ("members", "CREATE TABLE members(
+        remote_id TEXT NOT NULL, member_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('owner','user')),
+        display_name TEXT NOT NULL,
+        sending_enabled INTEGER NOT NULL CHECK(sending_enabled IN (0,1)),
+        revision INTEGER NOT NULL CHECK(revision BETWEEN 1 AND 9007199254740991),
+        created_at_ms INTEGER NOT NULL CHECK(created_at_ms BETWEEN 0 AND 9007199254740991),
+        revoked_at_ms INTEGER CHECK(revoked_at_ms BETWEEN 0 AND 9007199254740991),
+        PRIMARY KEY(remote_id,member_id));
+     CREATE TABLE member_machines(
+        remote_id TEXT NOT NULL, client_id TEXT NOT NULL REFERENCES grants(client_id),
+        member_id TEXT NOT NULL,
+        associated_at_ms INTEGER NOT NULL CHECK(associated_at_ms BETWEEN 0 AND 9007199254740991),
+        PRIMARY KEY(remote_id,client_id),
+        FOREIGN KEY(remote_id,member_id) REFERENCES members(remote_id,member_id));
+     CREATE INDEX member_machines_member ON member_machines(remote_id,member_id);"),
+
 ];
 fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     let port: Option<i64> = connection
@@ -608,14 +632,22 @@ pub(crate) fn revoke_in(
             [client_id],
         )
         .map_err(database)?;
+    crate::members::revoked(connection, client_id)?;
     let grant = grant_in(connection, client_id)?;
     if grant.as_ref().is_some_and(|grant| !grant.disabled) {
         return Err(database("grant revision exhausted"));
     }
     Ok(grant)
 }
-/// Change only the explicit sending scope. Other authority remains frozen.
 pub(crate) fn talk_in(
+    connection: &Connection,
+    client_id: &str,
+    enabled: bool,
+) -> Result<Option<Grant>, RemoteError> {
+    crate::members::sending_for_client(connection, client_id, enabled)
+}
+/// Change only the explicit sending scope. Other authority remains frozen.
+pub(crate) fn talk_grant_in(
     connection: &Connection,
     client_id: &str,
     enabled: bool,
@@ -670,6 +702,7 @@ pub(crate) fn rename_in(
             rusqlite::params![client_id, name],
         )
         .map_err(database)?;
+    crate::members::renamed(connection, client_id, name)?;
     grant_in(connection, client_id)
 }
 /// Durable counters belong to one live session/run. A restart never adopts an
@@ -843,6 +876,7 @@ pub(crate) fn insert_grant_in(connection: &Connection, grant: &Grant) -> Result<
             }
             other => database(other),
         })?;
+    crate::members::insert_mapping(connection, grant)?;
     Ok(())
 }
 pub(crate) const GRANT_COLUMNS: &str =
@@ -882,6 +916,9 @@ fn migrate(connection: &mut Connection) -> Result<(), RemoteError> {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database)?;
         transaction.execute_batch(sql).map_err(database)?;
+        if *name == "members" {
+            crate::members::migrate_legacy(&transaction)?;
+        }
         if *name == "short_route_prefix" {
             let old: Option<(String, String)> = transaction
                 .query_row(
