@@ -56,15 +56,15 @@ fn source_fix(source: &model::SourceObservation) -> Option<String> {
     let host = safe(&source.host);
     match source.reason.as_deref()? {
         "driver_not_approved" => Some(format!(
-            "Approve the {host} driver to scan it: tmt driver install {host}"
+            "◆ Action needed: approve the {host} driver to scan it: tmt driver install {host}"
         )),
         "driver_approval_outdated" => Some(format!(
-            "Approve the {host} driver again: tmt driver install {host}"
+            "◆ Action needed: approve the {host} driver again: tmt driver install {host}"
         )),
         // The approved first-party file is not in this release: install alone
         // may not help.
         "driver_not_shipped" => Some(format!(
-            "This tmt release does not ship the {host} driver. Upgrade tmt with: tmt upgrade, then approve it: tmt driver install {host}"
+            "◆ Action needed: this tmt release does not ship the {host} driver. Upgrade tmt with: tmt upgrade, then approve it: tmt driver install {host}"
         )),
         _ => None,
     }
@@ -271,8 +271,10 @@ impl Controller {
                     .filter_map(|(label, value)| Some(format!("{label} {}", safe(value.as_ref()?))))
                     .collect();
                     if !place.is_empty() {
-                        let place = place.join(" · ");
-                        notes.push(format!("{}{}", place[..1].to_uppercase(), &place[1..]));
+                        let mut place = place.join(" · ");
+                        // Every label is an ASCII literal.
+                        place[..1].make_ascii_uppercase();
+                        notes.push(place);
                     }
                     if let Some(name) = &p.agent_name {
                         notes.push(format!(

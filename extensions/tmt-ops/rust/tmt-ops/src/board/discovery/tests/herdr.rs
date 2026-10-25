@@ -82,8 +82,7 @@ fn a_herdr_row_needs_its_own_ok_source_and_a_bounded_pane_literal() {
     let mut v = document();
     v["candidates"][0]["pane"] = "term_1".into();
     assert!(ScanObservation::decode(&v).is_err());
-    // The longest host pane ID: a 16-byte prefix (its separator included)
-    // and a 64-byte suffix.
+    // Ops bounds another host's pane literal at 80 bytes.
     let long = format!("{}_{}", "a".repeat(15), "b".repeat(65));
     assert_eq!(long.len(), 81);
     for pane in [
@@ -282,15 +281,15 @@ fn a_gap_source_shows_its_reason_and_the_install_text_only() {
     for (reason, fix) in [
         (
             "driver_not_approved",
-            "Approve the herdr driver to scan it: tmt driver install herdr",
+            "◆ Action needed: approve the herdr driver to scan it: tmt driver install herdr",
         ),
         (
             "driver_approval_outdated",
-            "Approve the herdr driver again: tmt driver install herdr",
+            "◆ Action needed: approve the herdr driver again: tmt driver install herdr",
         ),
         (
             "driver_not_shipped",
-            "This tmt release does not ship the herdr driver. Upgrade tmt with: tmt upgrade, then approve it: tmt driver install herdr",
+            "◆ Action needed: this tmt release does not ship the herdr driver. Upgrade tmt with: tmt upgrade, then approve it: tmt driver install herdr",
         ),
     ] {
         let mut v = document();

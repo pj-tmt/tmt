@@ -110,9 +110,8 @@ fn optional_uuid(value: &Value) -> Result<Option<String>, SquadError> {
     }
 }
 /// tmux pane keys are `%N`. Another host's key is in its driver's syntax,
-/// which Core admits; Ops checks only a bounded inert literal (at most a
-/// 16-byte prefix, its separator included, and a 64-byte suffix) that
-/// `tmt add` gets after `--`.
+/// which Core admits; Ops checks only a bounded printable literal of 1 to
+/// 80 bytes that `tmt add` gets after `--`.
 fn pane_key(host: &str, pane: &str) -> bool {
     if host == "tmux" {
         return pane
