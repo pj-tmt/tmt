@@ -229,6 +229,19 @@ unconditional CSS palettes, not a pinned root theme attribute; the bundled skill
 shows that authoring rule. The unstyled white
 canvas, sandbox attributes, source limits and CSP remain unchanged.
 
+**Design system in the frame (#5057).** Every page frame carries the leaf's whole `static.css` and the page
+host profile (`src/page-host.css`) in the `tmt-ui` layer (order `colab-frame, tmt-starter, tmt-ui`) in a
+`<style>` of its own, so the hover-driven rewrite of the highlight sheet never reparses it, and defines
+`<tmt-icon name>` from the runtime's Lucide list (`generate-renderer-style.mjs` writes both the sheet and
+`page_check/page_ui.json`, the names `page check` accepts). The sheet is capped at 120,000 bytes. A page
+using only the documented subset in `components.md` looks like the product's components. The lowest layer
+(`colab-frame`) also paints a page that uses the design system (its source contains `tmt-ui-`,
+`<tmt-icon` or `tmt-starter`; the bootstrap writes `data-colab-design` on the root) with the paper, ink and
+link accent tokens of the viewer theme (`src/page-base.css`), on `body`, so components with no fill of
+their own stay readable in dark; the starter and any author CSS win over it. The frame's paint measurement
+also writes `data-colab-scheme` on that root, and the design tokens follow it, so components take the scheme
+the page paints, not the viewer's. Any other page keeps the white canvas in both themes.
+
 **Page frame (#3913).** `mountRenderer({ layout })` adds an optional `layout` to the bind; only
 `column` and `full` make the bootstrap set `data-colab-layout` and the generated `src/page-frame.css`
 apply, in a layer declared before author styles. The column (`min(1280px, 100% - 32px)`), the

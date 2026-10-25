@@ -4,6 +4,98 @@ The shortest markup for each part a page can use. Each sample is a run of top-le
 `column` page (see [layout](layout.md), `tmt colab skill layout`); drop the ones you do not need.
 Group related text in one block, and run `tmt colab page check FILE` before publishing.
 
+## Design system
+
+Every page frame carries the product's own component classes (`tmt-ui-*`), the design tokens and the
+`tmt-icon` element: nothing to import, no network. The markup below is the whole promise; the frame
+holds other `tmt-ui-*` classes that are not documented and may change. Your own CSS wins over these
+classes, and a page that uses them and sets no `body` background or text colour is painted with the
+viewer theme's paper and ink (a link takes the accent); set both or neither. The classes' colours
+follow the scheme the page paints: a page you paint light stays light under a dark viewer, and an
+unpainted one follows the viewer. `tmt colab page check` reports a `tmt-ui-*` class or an icon name the frame
+does not have (`unknown-ui-class`, `unknown-icon`). Tabs, menus and other parts that need a script are
+not in the subset.
+
+Section label and card; a card runs its table edge to edge inside its padding:
+
+```html
+<section class="tmt-ui-section">
+  <h2 class="tmt-ui-section-heading" data-variant="label">Checks</h2>
+  <div class="tmt-ui-card">
+    <div class="tmt-ui-card-head">
+      <h3 class="tmt-ui-card-title">Release</h3>
+      <span class="tmt-ui-card-meta">2 rows</span>
+    </div>
+    <table class="tmt-ui-table">
+      <thead>
+        <tr>
+          <th>Check</th>
+          <th>State</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Build</td>
+          <td>✓ Done</td>
+        </tr>
+        <tr>
+          <td>Review</td>
+          <td>◆ Waiting</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+```
+
+Actions (`data-variant`: `primary`, `text`, `ghost`, `destructive`; none is the plain bordered button) and
+count chips (`data-tone="attention"` for what needs the reader). A page's own script gives them behaviour:
+
+```html
+<button class="tmt-ui-action" data-variant="primary"><span class="tmt-ui-action-label">Approve</span></button>
+<button class="tmt-ui-action"><span class="tmt-ui-action-label">Cancel</span></button>
+<button class="tmt-ui-action" data-variant="text"><span class="tmt-ui-action-label">Details</span></button>
+<button class="tmt-ui-count-chip"><span>Comments</span><span class="tmt-ui-count">3</span></button>
+<button class="tmt-ui-count-chip" data-tone="attention"><span>Needs you</span><span class="tmt-ui-count">2</span></button>
+```
+
+Callout (`data-tone`: `working`, `waiting`, `review`, `blocked`; add `data-tinted` for the soft fill):
+
+```html
+<div class="tmt-ui-notice" data-tinted data-tone="waiting">
+  <div class="tmt-ui-notice-eyebrow">Needs you</div>
+  <h3 class="tmt-ui-notice-heading">Decide before release</h3>
+  <div class="tmt-ui-notice-body">What the reader has to decide, in a sentence.</div>
+</div>
+```
+
+List rows, a disclosure, a field and code:
+
+```html
+<ul class="tmt-ui-list" aria-label="Tasks">
+  <li class="tmt-ui-list-row">
+    <div class="tmt-ui-list-title"><span class="tmt-ui-list-label">Write the report</span></div>
+    <div class="tmt-ui-list-meta"><div class="tmt-ui-list-state">Done</div></div>
+  </li>
+</ul>
+<details class="tmt-ui-disclosure">
+  <summary>More detail</summary>
+  <p>Hidden until opened.</p>
+</details>
+<div class="tmt-ui-field">
+  <label class="tmt-ui-field-label" for="note">Note</label>
+  <input class="tmt-ui-field-control" id="note" />
+</div>
+<p>Run <code class="tmt-ui-code">tmt colab page check page.html</code> first.</p>
+```
+
+`tmt-ui-code` is for code inside a line. A code block is a plain `<pre><code>` that takes its look from
+the starter ([page-style](page-style.md)), so give it no class.
+
+Icons are a bounded Lucide set, named in lowercase kebab-case: `<tmt-icon name="circle-check"></tmt-icon>`
+draws a 16px icon in the text colour; add `label="Passed"` to name it for assistive technology (otherwise it
+is decorative). An unknown name draws nothing.
+
 ## Text
 
 Headings, paragraphs and lists, grouped in one block:

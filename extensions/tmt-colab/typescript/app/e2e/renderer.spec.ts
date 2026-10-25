@@ -595,6 +595,222 @@ test('a bind may carry a layout; only column and full select the page column, ev
   await expect(page.frameLocator('#target-wide').getByText('Bound text')).toHaveCount(0);
 });
 
+test('every frame carries the design system in its own layer, below the starter and the author, and follows the viewer theme', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await bindFrame(page, 'target-ui', {
+    source: `<style>.tmt-ui-card.mine{padding:3px}</style>
+      <section class="tmt-ui-card" id="plain"><h2 class="tmt-ui-card-title">Card</h2></section>
+      <section class="tmt-ui-card mine" id="mine">Mine</section>
+      <button class="tmt-ui-action" data-variant="primary" id="action"><span class="tmt-ui-action-label">Go</span></button>`,
+  });
+  const target = page.frameLocator('#target-ui');
+  await expect(target.locator('#plain')).toBeVisible();
+  const read = () =>
+    target.locator('html').evaluate((html) => {
+      const doc = html.ownerDocument;
+      const style = (id: string) => getComputedStyle(doc.getElementById(id)!);
+      const layers = [...doc.styleSheets].flatMap((sheet) =>
+        [...sheet.cssRules].filter((rule) => rule instanceof CSSLayerStatementRule),
+      ) as CSSLayerStatementRule[];
+      return {
+        order: layers.flatMap((rule) => [...rule.nameList]),
+        card: {
+          padding: style('plain').paddingTop,
+          radius: style('plain').borderTopLeftRadius,
+          border: style('plain').borderTopWidth,
+          fill: style('plain').backgroundColor,
+        },
+        mine: style('mine').paddingTop,
+        action: style('action').paddingTop,
+        icon: !!doc.querySelector('tmt-icon svg'),
+        hostProfile: getComputedStyle(html).getPropertyValue('--tmt-ui-host-action-padding').trim(),
+      };
+    });
+  const light = await read();
+  // One order: the frame, then the starter, then the classes; an author's unlayered rule beats a class.
+  expect(light.order).toEqual(['colab-frame', 'tmt-starter', 'tmt-ui']);
+  expect(light.card).toMatchObject({ padding: '24px', radius: '8px', border: '1px' });
+  expect(light.mine).toBe('3px');
+  expect(light.action).toBe('7px');
+  expect(light.hostProfile).toBe('7px 12px');
+  // The theme the viewer sends is the theme the classes paint.
+  await bindFrame(page, 'target-ui-dark', {
+    theme: 'dark',
+    source: '<section class="tmt-ui-card" id="plain">Card</section>',
+  });
+  const dark = await page
+    .frameLocator('#target-ui-dark')
+    .locator('#plain')
+    .evaluate((card) => getComputedStyle(card).backgroundColor);
+  expect(dark).not.toBe(light.card.fill);
+});
+
+/** WCAG's contrast ratio of the ink of each element of a frame on the paper its body paints, with the
+ * root's attributes the design system reads. */
+const inkOnPaper = (page: Page, id: string) =>
+  page
+    .frameLocator(`#${id}`)
+    .locator('html')
+    .evaluate((html) => {
+      const doc = html.ownerDocument;
+      const rgb = (value: string) => (value.match(/[\d.]+/g) ?? []).map(Number);
+      const luminance = ([r, g, b]: number[]) => {
+        const channel = (v: number) =>
+          (v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+        return 0.2126 * channel(r!) + 0.7152 * channel(g!) + 0.0722 * channel(b!);
+      };
+      const paper = getComputedStyle(doc.body).backgroundColor;
+      const contrast = (ink: string) => {
+        const [a, b] = [luminance(rgb(ink)), luminance(rgb(paper))].sort((x, y) => y - x);
+        return (a! + 0.05) / (b! + 0.05);
+      };
+      return {
+        paper,
+        design: html.hasAttribute('data-colab-design'),
+        scheme: html.getAttribute('data-colab-scheme'),
+        canvas: getComputedStyle(html).backgroundColor,
+        ink: getComputedStyle(doc.body).color,
+        ratios: ['plain', 'link', 'table', 'field', 'disclosure']
+          .map((name) => doc.getElementById(name))
+          .filter((element) => element !== null)
+          .map((element) => contrast(getComputedStyle(element).color)),
+      };
+    });
+
+test('a page that uses the design system gets the paper and ink of the viewer theme; any other page keeps the white canvas', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const content = `<p id="plain">Plain text <a id="link" href="#">link</a></p>
+    <table class="tmt-ui-table" id="table"><tbody><tr><td>Build</td></tr></tbody></table>
+    <label class="tmt-ui-field" id="field"><span class="tmt-ui-field-label">Label</span></label>
+    <details class="tmt-ui-disclosure" id="disclosure"><summary>More</summary>Body</details>`;
+  const bare = `<p id="plain">Plain text <a id="link" href="#">link</a></p>`;
+  // A page with none of the markers is untouched: no paint on the body or the root, in both themes.
+  for (const theme of ['light', 'dark'] as const) {
+    const id = `target-bare-${theme}`;
+    await bindFrame(page, id, { theme, source: bare });
+    await expect(page.frameLocator(`#${id}`).locator('#plain')).toBeVisible();
+    expect(await inkOnPaper(page, id)).toMatchObject({
+      design: false,
+      paper: 'rgba(0, 0, 0, 0)',
+      canvas: 'rgba(0, 0, 0, 0)',
+      ink: 'rgb(0, 0, 0)',
+    });
+  }
+  // A `tmt-ui-*` class, a `<tmt-icon>` or the starter's layer opts the page in.
+  const optIns = {
+    class: content,
+    icon: `<tmt-icon name="check"></tmt-icon>${bare}`,
+    starter: `<style>@layer tmt-starter{.x{margin:0}}</style>${bare}`,
+  };
+  const papers = new Map<string, string>();
+  for (const [kind, source] of Object.entries(optIns))
+    for (const theme of ['light', 'dark'] as const) {
+      const id = `target-pair-${kind}-${theme}`;
+      await bindFrame(page, id, { theme, source });
+      await expect(page.frameLocator(`#${id}`).locator('#plain, tmt-icon').first()).toBeAttached();
+      const found = await inkOnPaper(page, id);
+      expect(found.design).toBe(true);
+      // Ink on paper in either theme, for the text, the link and the components with no fill of their own.
+      expect(found.ratios.length).toBeGreaterThan(0);
+      for (const ratio of found.ratios) expect(ratio).toBeGreaterThanOrEqual(4.5);
+      // The body paints the paper, not the root, so an author's own `body` background still fills the canvas.
+      expect(found.canvas).toBe('rgba(0, 0, 0, 0)');
+      papers.set(`${kind}-${theme}`, found.paper);
+    }
+  for (const kind of Object.keys(optIns))
+    expect(papers.get(`${kind}-light`)).not.toBe(papers.get(`${kind}-dark`));
+  // An author's unlayered rule beats the pair, with or without the markers, and so does the starter's layer.
+  const own = '<style>body{background:rgb(1, 2, 3);color:rgb(250, 250, 250)}</style>';
+  const cases = [
+    ['bare-own', 'dark', `${own}${bare}`, 'rgb(1, 2, 3)', 'rgb(250, 250, 250)'],
+    ['bare-own', 'light', `${own}${bare}`, 'rgb(1, 2, 3)', 'rgb(250, 250, 250)'],
+    ['class-own', 'dark', `${own}${content}`, 'rgb(1, 2, 3)', 'rgb(250, 250, 250)'],
+    ['class-own', 'light', `${own}${content}`, 'rgb(1, 2, 3)', 'rgb(250, 250, 250)'],
+    [
+      'starter-own',
+      'dark',
+      `<style>@layer tmt-starter{body{background:rgb(4, 5, 6);color:rgb(240, 240, 240)}}</style>${bare}`,
+      'rgb(4, 5, 6)',
+      'rgb(240, 240, 240)',
+    ],
+  ] as const;
+  for (const [kind, theme, source, paper, ink] of cases) {
+    const id = `target-own-${kind}-${theme}`;
+    await bindFrame(page, id, { theme, source });
+    const body = page.frameLocator(`#${id}`).locator('body');
+    await expect(body).toHaveCSS('background-color', paper);
+    await expect(body).toHaveCSS('color', ink);
+  }
+});
+
+test("a design-system page the author paints takes the scheme it paints, not the viewer's; an unpainted one follows the viewer", async ({
+  page,
+}) => {
+  await page.goto('/');
+  const content = `<p id="plain">Plain text <a id="link" href="#">link</a></p>
+    <table class="tmt-ui-table" id="table"><tbody><tr><td>Build</td></tr></tbody></table>
+    <label class="tmt-ui-field" id="field"><span class="tmt-ui-field-label">Label</span></label>
+    <details class="tmt-ui-disclosure" id="disclosure"><summary>More</summary>Body</details>`;
+  const light = '<style>body{background:#fffdf7;color:#2b2b2b}a{color:#0a5c3a}</style>';
+  const dark = '<style>body{background:#111418;color:#eef2f4}a{color:#7be0b8}</style>';
+  const cases = [
+    ['own-light-body-in-dark', 'dark', `${light}${content}`, 'light'],
+    ['own-dark-body-in-light', 'light', `${dark}${content}`, 'dark'],
+    ['unpainted-in-dark', 'dark', content, 'dark'],
+    ['unpainted-in-light', 'light', content, 'light'],
+  ] as const;
+  for (const [name, theme, source, scheme] of cases) {
+    const id = `target-scheme-${name}`;
+    await bindFrame(page, id, { theme, source });
+    // The frame measures the page's canvas once it has painted, then the components follow what it paints.
+    await expect(page.frameLocator(`#${id}`).locator('html')).toHaveAttribute(
+      'data-colab-scheme',
+      scheme,
+    );
+    const found = await inkOnPaper(page, id);
+    expect(found.ratios.length).toBe(5);
+    for (const ratio of found.ratios) expect(ratio, name).toBeGreaterThanOrEqual(4.5);
+  }
+  // A page without the markers is not the design system's to scheme.
+  await bindFrame(page, 'target-scheme-bare', { theme: 'dark', source: '<p id="plain">Bare</p>' });
+  await expect(page.frameLocator('#target-scheme-bare').locator('#plain')).toBeVisible();
+  expect(await inkOnPaper(page, 'target-scheme-bare')).toMatchObject({
+    design: false,
+    scheme: null,
+  });
+});
+
+test('<tmt-icon> draws a bounded Lucide icon with the Colab defaults, and an unknown name draws nothing', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await bindFrame(page, 'target-icons', {
+    source: `<p>Done <tmt-icon id="ok" name="check"></tmt-icon>
+      <tmt-icon id="named" name="circle-check" label="Passed"></tmt-icon>
+      <tmt-icon id="none" name="not-an-icon"></tmt-icon>
+      <tmt-icon id="proto" name="constructor"></tmt-icon></p>`,
+  });
+  const target = page.frameLocator('#target-icons');
+  await expect(target.locator('#ok svg')).toHaveCount(1);
+  expect(
+    await target.locator('#ok svg').evaluate((svg) => ({
+      size: [svg.getAttribute('width'), svg.getAttribute('height')],
+      stroke: svg.getAttribute('stroke-width'),
+      caps: svg.getAttribute('stroke-linecap'),
+      hidden: svg.getAttribute('aria-hidden'),
+    })),
+  ).toEqual({ size: ['16', '16'], stroke: '1.75', caps: 'square', hidden: 'true' });
+  // A named icon is an image with that name; unknown names, and names that are only object keys, draw nothing.
+  await expect(target.locator('#named svg')).toHaveAttribute('role', 'img');
+  await expect(target.locator('#named svg')).toHaveAttribute('aria-label', 'Passed');
+  await expect(target.locator('#none svg')).toHaveCount(0);
+  await expect(target.locator('#proto svg')).toHaveCount(0);
+});
+
 test('a page opts in to the bundled runtime exactly as the shared marker vectors say', async ({
   page,
 }) => {

@@ -1,0 +1,23 @@
+/* The paper and ink of a page that uses the design system (#5057). This file is inlined into
+   renderer.html by scripts/generate-renderer-style.mjs, in the frame's own layer: the lowest, so the
+   starter, the design system's classes and an author's CSS all win over it.
+
+   The frame sets `data-colab-design` on the root when the page's source uses a `tmt-ui-*` class,
+   `<tmt-icon>` or the starter's layer. Only then is the page painted: the classes' ink follows the
+   viewer theme, so a component with no fill of its own (a table, a field, a disclosure) needs the
+   theme's paper under it. Any other page keeps the white canvas, whatever the theme (#2267, #4081).
+
+   Paper and ink come as a pair from the same tokens. The rule sits on `body`, not `html`: an author's
+   `body { background }` then still fills the whole canvas. An author who paints only one of the two
+   paints the other. A browser's default link blue is not on that paper in dark, so a link takes the
+   accent, which is. */
+@layer colab-frame {
+  :root[data-colab-design] body {
+    background: var(--tmt-ui-surface-paper);
+    color: var(--tmt-ui-color-text);
+  }
+
+  :root[data-colab-design] a:any-link {
+    color: var(--tmt-ui-color-accent);
+  }
+}
