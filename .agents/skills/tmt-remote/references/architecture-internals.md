@@ -328,7 +328,10 @@ replacement consent/fingerprint and the single-deployer boundary stay in the [de
 The Firestore settings projection takes its record snapshot outside live/Store locks and
 revalidates the current browser grant before disclosure. Only the explicit opt-in read adds
 layer/budget members; ordinary settings and status shapes remain unchanged. Browser display
-uses strict typed projections, not another provider or readiness engine. Optional failure
+uses strict typed projections, not another provider or readiness engine. Service & upgrade
+keeps absent version/plan/permission facts explicitly unchecked; its terminal references
+are copy-only and omit deployment authorization. Add-on availability and dated budgets
+retain the existing observation owner. Optional failure
 clears old evidence independently of management access and original-effect outcome ownership.
 
 ## Native cloud crypto

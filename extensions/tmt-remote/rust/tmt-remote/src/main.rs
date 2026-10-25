@@ -1644,6 +1644,61 @@ mod tests {
     use super::{cli_style_allowlist, grammar, open::Outcome, open_row};
 
     #[test]
+    fn service_copy_commands_round_trip_without_deployment_authorization() {
+        // Read the actual printed references, not a second independently copied command list.
+        let source = include_str!("../../../typescript/remote-client/src/firestore.ts");
+        let references = source
+            .split_once("export const serviceCommands = {")
+            .unwrap()
+            .1
+            .split_once("} as const;")
+            .unwrap()
+            .0;
+        let status = references
+            .lines()
+            .find_map(|line| {
+                line.trim()
+                    .strip_prefix("status: '")
+                    .and_then(|line| line.strip_suffix("',"))
+            })
+            .unwrap();
+        let preview = references
+            .lines()
+            .find_map(|line| {
+                line.trim()
+                    .strip_prefix('"')
+                    .and_then(|line| line.strip_suffix("\","))
+            })
+            .unwrap();
+        for (printed, action) in [(status, "status"), (preview, "deploy")] {
+            let argv = tmt_cli_style::Example {
+                command: printed,
+                note: "Service copy-only reference",
+            }
+            .argv()
+            .unwrap();
+            assert_eq!(&argv[..2], ["tmt", "remote"]);
+            let parsed = grammar()
+                .try_get_matches_from(argv.into_iter().skip(1))
+                .unwrap();
+            let selected = parsed.subcommand_matches(action).unwrap();
+            if action == "status" {
+                assert!(selected.get_flag("layers"));
+                assert!(!selected.get_flag("machine"));
+                assert!(!selected.get_flag("objects"));
+            } else {
+                let selected = selected.subcommand_matches("firestore").unwrap();
+                let input = tmt_remote::deploy_cli::arguments(selected).unwrap();
+                assert!(input.json);
+                assert!(input.defaults);
+                assert_eq!(input.authorize, None);
+                assert_eq!(input.project, "<project-id>");
+                assert_eq!(input.region, "<region>");
+            }
+        }
+    }
+
+    #[test]
     fn anonymous_connect_help_separates_reference_sign_in_and_browser_page_access() {
         for (words, expected) in [
             (
