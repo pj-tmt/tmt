@@ -317,6 +317,55 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
     });
   });
 
+  it('projects active versions and missing dependencies from the setup inventory without effects', async () => {
+    await withSandbox(async (sandbox) => {
+      launcher(sandbox);
+      await installSetupExtensions(sandbox);
+      const configured = await runCli(sandbox, ['setup', '--yes', '--json']);
+      expect(configured.status, configured.stdout + configured.stderr).toBe(0);
+      const current = parseWholeStdout(await runCli(sandbox, ['setup', '--json']));
+      const publicInventory = parseWholeStdout(
+        await runCli(sandbox, ['extension', 'ls', '--json'])
+      );
+      expect(current.extensions).toHaveLength(4);
+      for (const row of current.extensions as Array<Record<string, unknown>>) {
+        expect(
+          (publicInventory.extensions as Array<Record<string, unknown>>).find(
+            (item) => item.name === row.extension
+          )
+        ).toMatchObject({ installed: row.installed, version: row.version });
+      }
+      const prefix = path.join(sandbox.home, '.local');
+      const colab = await runCli(sandbox, ['extension', 'rm', 'colab', '--yes', '--json']);
+      expect(colab.status, colab.stdout + colab.stderr).toBe(0);
+      const before = tree(sandbox.root);
+      const listed = await runCli(sandbox, ['extension', 'ls', '--json']);
+      expect(listed.status, listed.stdout + listed.stderr).toBe(0);
+      expect(listed.stderr).toBe('');
+      const rows = parseWholeStdout(listed).extensions as Array<Record<string, unknown>>;
+      expect(rows).toHaveLength(4);
+      for (const name of ['ops', 'digest', 'remote', 'colab']) {
+        const row = rows.find((row) => row.name === name)!;
+        expect(row).toMatchObject({
+          official: true,
+          installed: name !== 'colab',
+          missing: name === 'colab',
+          dependencies: name === 'colab' ? ['remote'] : [],
+        });
+        if (name === 'colab') expect(row.version).toBeNull();
+        else {
+          const receipt = JSON.parse(
+            readFileSync(path.join(prefix, 'lib', `tmt-${name}`, 'current', 'receipt.json'), 'utf8')
+          );
+          expect(row.version).toBe(receipt.version);
+        }
+      }
+      expectError(await runCli(sandbox, ['setup', '--json']), 'SETUP_CONSENT_REQUIRED');
+      expect(tree(sandbox.root)).toEqual(before);
+      expect(existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
   it('reports partial failure in one JSON document, skips Colab and preserves completed products', async () => {
     await withSandbox(async (sandbox) => {
       launcher(sandbox);

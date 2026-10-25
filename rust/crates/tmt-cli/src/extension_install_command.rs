@@ -49,13 +49,8 @@ use tmt_cli_style::{
 
 const CONSENT: &str = "EXTENSION_CONSENT_REQUIRED";
 
-// Historical products stay recognizable for receipt recovery and removal.
-pub(crate) const INSTALLABLE_EXTENSIONS: &[Product] = &[
-    Product::Ops,
-    Product::Remote,
-    Product::Colab,
-    Product::Digest,
-];
+// Setup and explicit installation share the official product selection.
+pub(crate) const INSTALLABLE_EXTENSIONS: &[Product] = &setup::PRODUCTS;
 
 pub(crate) fn require_installable(product: Product) -> Result<(), Failure> {
     if INSTALLABLE_EXTENSIONS.contains(&product) {
@@ -651,10 +646,10 @@ mod tests {
             assert!(
                 error
                     .message
-                    .ends_with("Official extensions: ops, remote, colab, digest.")
+                    .ends_with("Official extensions: ops, digest, remote, colab.")
             );
         }
-        assert_eq!(names(), "ops, remote, colab, digest");
+        assert_eq!(names(), "ops, digest, remote, colab");
     }
 
     #[test]
@@ -714,6 +709,7 @@ mod tests {
         assert_eq!(names, ["ops", "remote", "colab", "digest"]);
         let remote = &rows[1];
         assert_eq!(remote["status"], "unmanaged");
+        assert_eq!(remote["missing"], false);
         assert_eq!(remote["installed"], false);
         assert_eq!(remote["path"], binary.to_string_lossy().as_ref());
         let hint = remote["hint"].as_str().unwrap();
@@ -746,6 +742,7 @@ mod tests {
             .expect("an unreadable entry never fails the whole listing");
         let remote = &document["extensions"][1];
         assert_eq!(remote["status"], "invalid");
+        assert_eq!(remote["missing"], false);
         assert_eq!(remote["path"], binary.to_string_lossy().as_ref());
         let hint = remote["hint"].as_str().unwrap();
         assert!(hint.contains("tmt extension rm remote --yes --prefix"));

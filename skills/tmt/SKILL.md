@@ -924,6 +924,10 @@ upgrade; missing bundled skills are retried from the verified active release.
 Independent items continue after a failure; completed work stays installed and
 `tmt setup --yes` retries missing work. A failed Remote installation skips Colab.
 JSON adds per-extension outcomes and a nonzero exit for incomplete setup.
+For read-only installation facts, use `tmt extension ls --json`: its four official
+rows include installed state, active version, `missing` and `dependencies` (Colab
+needs Remote). An unhealthy installation has recovery diagnostics; it is not
+reported as missing. Listing never installs or starts a service.
 `tmt setup claude` or `tmt setup codex` shows one agent's plan and asks for approval;
 noninteractive changes require explicit user-authorized `--yes`. It adds only
 owned start/end/prompt-submit/turn-end hooks using the stable PATH launcher; `--remove` removes only

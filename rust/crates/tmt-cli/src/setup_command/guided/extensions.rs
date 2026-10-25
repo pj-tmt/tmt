@@ -13,12 +13,7 @@ use tmt_cli_style::{Interaction, Terminal, message, stream::Stream};
 
 use tmt_adapters::native_install::Product;
 
-pub(super) const PRODUCTS: [Product; 4] = [
-    Product::Ops,
-    Product::Digest,
-    Product::Remote,
-    Product::Colab,
-];
+use setup::PRODUCTS;
 
 /// Colab's dependency is visible in the selection; it is never an extra install.
 #[derive(Clone, Debug)]
@@ -54,7 +49,7 @@ impl Selection {
 }
 
 pub(super) fn dependency_ready(product: Product, remote_ready: bool) -> bool {
-    product != Product::Colab || remote_ready
+    !setup::dependencies(product).contains(&Product::Remote) || remote_ready
 }
 
 pub(super) struct Plan {
@@ -66,10 +61,25 @@ impl Plan {
     pub(super) fn read() -> Self {
         Self {
             selection: Selection::default(),
-            rows: PRODUCTS
-                .into_iter()
-                .map(|product| (product, setup::plan(product)))
-                .collect(),
+            rows: match tmt_adapters::native_install::default_install_prefix() {
+                Ok(prefix) => setup::inventory(&prefix)
+                    .iter()
+                    .map(|entry| (entry.product, entry.plan()))
+                    .collect(),
+                Err(error) => PRODUCTS
+                    .into_iter()
+                    .map(|product| {
+                        (
+                            product,
+                            Err(Failure::new(
+                                "EXTENSION_INSTALL_FAILED",
+                                error.to_string(),
+                                1,
+                            )),
+                        )
+                    })
+                    .collect(),
+            },
         }
     }
 

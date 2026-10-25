@@ -248,6 +248,13 @@ the move is a bootstrap reinstall.
   bundled skills from that verified release. Missing installations reuse the consented
   install composition and progress. The setup owner controls the visible fixed selection,
   Remote-before-Colab order and independent outcomes; it adds no archive or receipt policy.
+  This planner owns the official inventory consumed by setup and `extension ls --json`: each
+  row retains `name`, `installed` and active `version`, and adds `official: true`, `missing`
+  and `dependencies` (Colab lists `remote`; the others list none). `missing` means no command
+  or activation exists in the selected prefix; damaged, unmanaged and partially removed entries remain non-missing
+  with their existing recovery diagnostics. Inventory reads neither settle skills nor run
+  extensions, probe services, acquire releases or change provider settings. Third-party PATH
+  discovery remains with the existing help/completion owner.
 - Missing-command offers reuse the explicit install composition after one human consent.
   A three-second read-only metadata preview may fail soft to unknown version/size.
   `native_install::ProgressEvent` observes acquisition, actual HTTP byte counts, verification
