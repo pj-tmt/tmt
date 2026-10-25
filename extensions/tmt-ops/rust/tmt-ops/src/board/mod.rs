@@ -249,6 +249,76 @@ pub(in crate::board) enum BoardEvent {
     VersionsRead(Option<versions::Versions>),
 }
 
+impl BoardEvent {
+    fn trace_cause(&self) -> &'static str {
+        match self {
+            Self::Migration(_) => "Migration",
+            Self::CallerFailed(_) => "CallerFailed",
+            Self::Recovery(_) => "Recovery",
+            Self::Checklist(_) => "Checklist",
+            Self::Discovery(_) => "Discovery",
+            Self::MemberSession(_) => "MemberSession",
+            Self::NewMember(_) => "NewMember",
+            Self::SwitchTool(_) => "SwitchTool",
+            Self::IdleAlert(_) => "IdleAlert",
+            Self::InputClosed => "InputClosed",
+            Self::Snapshot { .. } => "Snapshot",
+            Self::Enriched { .. } => "Enriched",
+            Self::History { .. } => "History",
+            Self::Usage { .. } => "Usage",
+            Self::HomeLeads { .. } => "HomeLeads",
+            Self::Labels(_) => "Labels",
+            Self::FileInfo(_) => "FileInfo",
+            Self::UsageReport(_) => "UsageReport",
+            Self::HomeUsage { .. } => "HomeUsage",
+            Self::Conversation { .. } => "Conversation",
+            Self::Message { .. } => "Message",
+            Self::PaneOutput { .. } => "PaneOutput",
+            Self::PaneScreen { .. } => "PaneScreen",
+            Self::Status { .. } => "Status",
+            Self::Attention { .. } => "Attention",
+            Self::Cron { .. } => "Cron",
+            Self::Acted { .. } => "Acted",
+            Self::Opened { .. } => "Opened",
+            Self::TokenWindowSaved(_) => "TokenWindowSaved",
+            Self::ViewStatePublished => "ViewStatePublished",
+            Self::AnswersAcknowledged(_) => "AnswersAcknowledged",
+            Self::NotesRead(_) => "NotesRead",
+            Self::VersionsRead(_) => "VersionsRead",
+            Self::Input(Event::Key(_)) => "Input::Key",
+            Self::Input(Event::Mouse(_)) => "Input::Mouse",
+            Self::Input(Event::Paste(_)) => "Input::Paste",
+            Self::Input(Event::FocusGained) => "Input::FocusGained",
+            Self::Input(Event::FocusLost) => "Input::FocusLost",
+            Self::Input(Event::Resize(_, _)) => "Input::Resize",
+        }
+    }
+}
+
+/// Observe selection at its event owner, including indirect publication writes.
+/// The off path checks only the optional trace; it never projects a target.
+fn observe_navigation<C, T>(
+    app: &mut App,
+    context: C,
+    cause: impl FnOnce(&C) -> Option<&'static str>,
+    apply: impl FnOnce(&mut App, C) -> T,
+) -> T {
+    let Some(trace) = app.navigation_trace.clone() else {
+        return apply(app, context);
+    };
+    let Some(cause) = cause(&context) else {
+        return apply(app, context);
+    };
+    let previous = app.trace_target();
+    let result = apply(app, context);
+    let selected = app.trace_target();
+    if previous != selected {
+        trace.navigation(serde_json::json!({"event":"selection_write", "cause":cause,
+            "previous":previous, "selected":selected}));
+    }
+    result
+}
+
 fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::background::ReplyFilter>) {
     std::thread::spawn(move || {
         loop {
@@ -620,7 +690,12 @@ fn session(
         }
         let now = Instant::now();
         if let Some(state) = &mut state {
-            let (restored, publication) = state.tick(app, now);
+            let (restored, publication) = observe_navigation(
+                app,
+                now,
+                |_| Some("ViewState"),
+                |app, now| state.tick(app, now),
+            );
             dirty |= restored;
             if let Some(writer) = publication {
                 // Quiet, coalesced work goes straight to the existing lane.
@@ -687,7 +762,7 @@ fn session(
             dirty = true;
         }
         if dirty {
-            draw(app)?;
+            observe_navigation(app, (), |_| Some("Paint"), |app, ()| draw(app))?;
             app.unread_drawn();
             // Painting may admit/drop clock surfaces. Set the comparison base
             // from that frame, so initial paint or clipping does not cause a
@@ -740,558 +815,294 @@ fn session(
         if matches!(received, Ok(BoardEvent::Input(_))) {
             last_input = Instant::now();
         }
-        let effect = match received {
-            Ok(BoardEvent::Migration(notice)) => {
-                app.migration_notice = notice;
-                dirty = true;
-                Effect::None
-            }
-            Ok(BoardEvent::CallerFailed(why)) => {
-                app.caller_failure = Some(why);
-                Effect::None
-            }
-            Ok(BoardEvent::Checklist(completed)) => {
-                app.finished_checklist(completed);
-                dirty = true;
-                Effect::None
-            }
-            Ok(BoardEvent::Recovery(completed)) => {
-                app.in_flight = app.in_flight.saturating_sub(1);
-                dirty = true;
-                app.finished_recovery(completed)
-            }
-            Ok(BoardEvent::SwitchTool(completed)) => {
-                app.in_flight = app.in_flight.saturating_sub(1);
-                dirty = true;
-                app.finished_switch_tool(completed)
-            }
-            Ok(BoardEvent::IdleAlert(completed)) => {
-                app.in_flight = app.in_flight.saturating_sub(1);
-                dirty = true;
-                app.finished_idle_alert(completed)
-            }
-            Ok(BoardEvent::NewMember(completed)) => {
-                app.in_flight = app.in_flight.saturating_sub(1);
-                dirty = true;
-                app.finished_new_member(completed)
-            }
-            Ok(BoardEvent::MemberSession(completed)) => {
-                app.in_flight = app.in_flight.saturating_sub(1);
-                dirty = true;
-                app.finished_member_session(completed)
-            }
-            Ok(BoardEvent::Discovery(completed)) => {
-                app.in_flight = app.in_flight.saturating_sub(1);
-                dirty = true;
-                app.finished_discovery(completed)
-            }
-            Ok(BoardEvent::Snapshot {
-                cancellation,
-                snapshot,
-            }) => {
-                if !cancellation.cancelled() {
-                    // Keep the selected batch until the next paint restores
-                    // viewport admission. The existing post-paint full-plan
-                    // comparison preserves it only if the demand is unchanged;
-                    // a source/selection/sender change starts a new revision.
-                    // Explicit refresh already cleared Ready before requesting.
-                    if app.selected_request.conversation().is_none() {
-                        revision += 1;
-                        app.selected_request = refresh::SelectedRequest::Ready(None);
+        let outcome = observe_navigation(
+            app,
+            received,
+            |received| received.as_ref().ok().map(BoardEvent::trace_cause),
+            |app, received| {
+                let effect = match received {
+                    Ok(BoardEvent::Migration(notice)) => {
+                        app.migration_notice = notice;
+                        dirty = true;
+                        Effect::None
                     }
-                    let previous_window = app.digest_window();
-                    app.apply(*snapshot);
-                    if app.digest_window() != previous_window {
-                        labels_window(app.digest_window());
+                    Ok(BoardEvent::CallerFailed(why)) => {
+                        app.caller_failure = Some(why);
+                        Effect::None
                     }
-                    dirty = true;
-                    Effect::None
-                } else {
-                    Effect::None
-                }
-            }
-            Ok(BoardEvent::Enriched {
-                cancellation,
-                squad,
-                enrichment,
-            }) => {
-                if !cancellation.cancelled() && app.apply_enriched(&squad, enrichment) {
-                    dirty = true;
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::Status {
-                cancellation,
-                target,
-                revision: read_revision,
-                result,
-            }) => {
-                if !cancellation.cancelled()
-                    && read_revision == revision
-                    && app.selected_read() == Some(refresh::SelectedRead::Status(target.clone()))
-                    && let Some(draft) = &mut app.status_draft
-                {
-                    draft.loaded(result);
-                    dirty = true;
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::Conversation {
-                cancellation,
-                plan,
-                revision: read_revision,
-                projection,
-            }) => {
-                if !cancellation.cancelled()
-                    && read_revision == revision
-                    && app.selected_read()
-                        == Some(refresh::SelectedRead::Conversation(plan.clone()))
-                {
-                    app.apply_conversation(plan, projection);
-                    dirty = true;
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::Message {
-                cancellation,
-                key,
-                revision: read_revision,
-                body,
-            }) => {
-                if !cancellation.cancelled()
-                    && read_revision == revision
-                    && app.selected_read() == Some(refresh::SelectedRead::Message(key.clone()))
-                {
-                    app.apply_message(&key, body);
-                    dirty = true;
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::PaneOutput {
-                cancellation,
-                read,
-                revision: read_revision,
-                observation,
-            }) => {
-                if !cancellation.cancelled()
-                    && read_revision == revision
-                    && app.selected_read() == Some(refresh::SelectedRead::PaneOutput(read.clone()))
-                {
-                    app.apply_answer_read(&read, observation);
-                    dirty = true;
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::PaneScreen {
-                cancellation,
-                key,
-                round,
-                revision: read_revision,
-                observation,
-            }) => {
-                if !cancellation.cancelled()
-                    && read_revision == revision
-                    && app.selected_read()
-                        == Some(refresh::SelectedRead::PaneScreen(key.clone(), round))
-                {
-                    app.apply_pane_screen(key, round, observation);
-                    dirty = true;
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::HomeLeads { cancellation, read }) => {
-                if !cancellation.cancelled() && !app.loading() {
-                    app.apply_home_leads(read);
-                    dirty = true;
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::History { cancellation, read }) => {
-                if !cancellation.cancelled() {
-                    dirty |= app.apply_history(read, Instant::now());
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::HomeUsage {
-                cancellation,
-                input,
-                limits,
-            }) => {
-                if !cancellation.cancelled() {
-                    let now = Instant::now();
-                    dirty |= app.sample_home(input.as_ref().map_err(|_| ()), now);
-                    if let Some(snapshot) = limits {
-                        dirty |= app.set_limits(snapshot);
+                    Ok(BoardEvent::Checklist(completed)) => {
+                        app.finished_checklist(completed);
+                        dirty = true;
+                        Effect::None
                     }
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::Usage {
-                cancellation,
-                room,
-                input,
-            }) => {
-                if !cancellation.cancelled()
-                    && !app.loading()
-                    && let Some(meter) = app.meter.as_mut().filter(|meter| meter.room == room)
-                {
-                    let now = Instant::now();
-                    meter.sample(input.as_ref().map_err(|_| ()), now);
-                    app.project_usage(now);
-                    dirty = true;
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::Labels(supplied)) => {
-                app.overview_rows.borrow_mut().clear();
-                dirty |= app.labels != supplied;
-                app.labels = supplied;
-                Effect::None
-            }
-            Ok(BoardEvent::FileInfo(delivery)) => {
-                dirty |= app.apply_file_info(delivery);
-                Effect::None
-            }
-            Ok(BoardEvent::UsageReport(delivery)) => {
-                app.usage_report.apply(delivery);
-                app.workspace_reconcile();
-                dirty = true;
-                Effect::None
-            }
-            Ok(BoardEvent::Attention {
-                cancellation,
-                attention,
-            }) => {
-                if !cancellation.cancelled() {
-                    dirty |= app.attention != attention;
-                    app.attention = attention;
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::Cron { cancellation, read }) => {
-                if !cancellation.cancelled() {
-                    app.overview_rows.borrow_mut().clear();
-                    app.cron.replace(read);
-                    app.reconcile_row_details();
-                    dirty = true;
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::Acted {
-                jump,
-                sends,
-                outcome,
-            }) => {
-                app.in_flight = app.in_flight.saturating_sub(1);
-                dirty = true;
-                let jumped = jump && outcome.is_ok();
-                if sends
-                    && !matches!(
-                        &outcome,
-                        Ok(ActionOutcome::Send(_) | ActionOutcome::SendNow(_))
-                    )
-                {
-                    app.finish_draft(outcome.is_ok());
-                }
-                match outcome {
-                    Ok(ActionOutcome::CronPreview(outcome)) => {
-                        let (task, result) = *outcome;
-                        app.cron_review_ready(task, result);
+                    Ok(BoardEvent::Recovery(completed)) => {
+                        app.in_flight = app.in_flight.saturating_sub(1);
+                        dirty = true;
+                        app.finished_recovery(completed)
                     }
-                    Ok(ActionOutcome::Workspace(outcome)) => app.finished_workspace(*outcome),
-                    Ok(ActionOutcome::RenameMember(outcome)) => {
-                        app.finished_member_rename(*outcome)
+                    Ok(BoardEvent::SwitchTool(completed)) => {
+                        app.in_flight = app.in_flight.saturating_sub(1);
+                        dirty = true;
+                        app.finished_switch_tool(completed)
                     }
-                    Ok(ActionOutcome::Status(outcome)) => app.finished_status(*outcome),
-                    Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
-                    Ok(ActionOutcome::WorkspacePreferences(completed)) => {
-                        let (preferences, message) = *completed;
-                        app.finished_workspace_preferences(preferences, message);
+                    Ok(BoardEvent::IdleAlert(completed)) => {
+                        app.in_flight = app.in_flight.saturating_sub(1);
+                        dirty = true;
+                        app.finished_idle_alert(completed)
                     }
-                    Ok(ActionOutcome::Send(completed)) => app.finished_send(*completed),
-                    Ok(ActionOutcome::SendNow(done)) => app.finished_send_now(*done),
-                    Ok(ActionOutcome::Digest(granted)) => app.open_digest(*granted),
-                    Err(error) => app.finished(Err(error)),
-                }
-                if jumped && app.popup && app.unread.writer.failure().is_none() {
-                    return Ok(None);
-                }
-                if sends {
-                    revision += 1;
-                    app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
-                    request(
-                        app.current.clone(),
-                        false,
-                        app.settings.is_some(),
-                        app.history_demand(),
-                    );
-                    refreshed = Instant::now();
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::Opened {
-                opening,
-                config,
-                board_pane,
-            }) => {
-                app.in_flight = app.in_flight.saturating_sub(1);
-                dirty = true;
-                app.set_notice(None, false);
-                let opened = match (opening, config) {
-                    (_, Err(error)) => Err(error),
-                    (lane::Opening::Settings, Ok(config)) => app
-                        .open_settings(config)
-                        .map_err(|error| error.message)
-                        .map(|()| true),
-                    (lane::Opening::SquadSettings(squad), Ok(config)) => app
-                        .open_settings_in(config, Some(&squad))
-                        .map_err(|error| error.message)
-                        .map(|()| true),
-                    (lane::Opening::HostAction(selection), Ok(config)) => app
-                        .open_host_action(config, *selection, board_pane)
-                        .map_err(|error| error.message)
-                        .map(|()| true),
-                    (lane::Opening::ThemePicker(squad), Ok(config)) => {
-                        theme_picker::Picker::open(config, squad)
-                            .map_err(|error| error.message)
-                            .map(|picker| {
-                                app.theme_picker = Some(picker);
-                                app.help = false;
-                                false
-                            })
+                    Ok(BoardEvent::NewMember(completed)) => {
+                        app.in_flight = app.in_flight.saturating_sub(1);
+                        dirty = true;
+                        app.finished_new_member(completed)
                     }
-                };
-                match opened {
-                    // The picker or overlay opens over a preview of the live board.
-                    Ok(reload) => {
-                        if reload {
-                            revision += 1;
-                            app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
-                            request(
-                                app.current.clone(),
-                                true,
-                                app.settings.is_some(),
-                                app.history_demand(),
-                            );
-                            refreshed = Instant::now();
-                        }
+                    Ok(BoardEvent::MemberSession(completed)) => {
+                        app.in_flight = app.in_flight.saturating_sub(1);
+                        dirty = true;
+                        app.finished_member_session(completed)
                     }
-                    Err(error) => app.finished(Err(error)),
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::TokenWindowSaved(result)) => {
-                app.in_flight = app.in_flight.saturating_sub(1);
-                dirty = true;
-                match result {
-                    Ok(config) => {
-                        let notice = app.apply_token_window(&config);
-                        app.set_notice(Some(notice), false);
-                        revision += 1;
-                        app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
-                        request(
-                            app.current.clone(),
-                            true,
-                            app.settings.is_some(),
-                            app.history_demand(),
-                        );
-                        refreshed = Instant::now();
+                    Ok(BoardEvent::Discovery(completed)) => {
+                        app.in_flight = app.in_flight.saturating_sub(1);
+                        dirty = true;
+                        app.finished_discovery(completed)
                     }
-                    Err(error) => app.finished(Err(error)),
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::ViewStatePublished) => Effect::None,
-            Ok(BoardEvent::NotesRead(completed)) => {
-                app.finished_notes(completed, Instant::now());
-                dirty = true;
-                Effect::None
-            }
-            Ok(BoardEvent::VersionsRead(versions)) => {
-                app.versions = versions;
-                dirty = true;
-                Effect::None
-            }
-            Ok(BoardEvent::AnswersAcknowledged(result)) => {
-                app.finished_unread(result);
-                dirty = true;
-                Effect::None
-            }
-            Ok(BoardEvent::Input(Event::Key(key))) if key.kind == KeyEventKind::Press => {
-                dirty = true;
-                view_state::input(state.as_deref_mut(), app, Some(key.code), |app| {
-                    app.key(key)
-                })
-            }
-            Ok(BoardEvent::Input(Event::Mouse(mouse))) => {
-                if mouse.kind == MouseEventKind::Moved {
-                    dirty |= app.move_pointer(mouse);
-                    Effect::None
-                } else {
-                    dirty = true;
-                    let (effect, next) =
-                        view_state::input(state.as_deref_mut(), app, None, |app| {
-                            coalesce_wheel(mouse, input, |event| app.mouse(event, Instant::now()))
-                        });
-                    deferred = next;
-                    effect
-                }
-            }
-            Ok(BoardEvent::Input(Event::Paste(text))) => {
-                dirty = true;
-                view_state::input(state.as_deref_mut(), app, None, |app| app.paste(&text))
-            }
-            Ok(BoardEvent::Input(Event::FocusGained)) => {
-                capture_lost = true;
-                dirty = true;
-                Effect::None
-            }
-            Ok(BoardEvent::Input(Event::Resize(_, _))) => {
-                capture_lost = true;
-                app.composer.paste_preview.get_mut().take();
-                if let Some(discovery) = &mut app.discovery {
-                    discovery.changed();
-                }
-                app.meter_hover = None;
-                app.header_hover = None;
-                app.invalidate_frame_geometry();
-                dirty = true;
-                Effect::None
-            }
-            Ok(BoardEvent::InputClosed) | Err(RecvTimeoutError::Disconnected) => {
-                return Ok(Some(terminal::stop_signal(stop).unwrap_or(HANGUP)));
-            }
-            Ok(_) | Err(RecvTimeoutError::Timeout) => Effect::None,
-        };
-        match effect {
-            Effect::Foreground(command) => {
-                app.foreground = Some(command);
-                return Ok(None);
-            }
-            Effect::Quit => return Ok(None),
-            Effect::Load(squad) => {
-                revision += 1;
-                app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
-                request(Some(squad), true, false, app.history_demand());
-                refreshed = Instant::now();
-            }
-            Effect::Refresh => {
-                revision += 1;
-                app.prepare_snapshot_refresh();
-                let history = app.history_demand();
-                request(
-                    app.current.clone(),
-                    history.is_some(),
-                    app.settings.is_some(),
-                    history,
-                );
-                refreshed = Instant::now();
-            }
-            Effect::Checklist(task) => checklist(task),
-            Effect::Recovery(task) => submit(app, lane::Job::Recovery(task)),
-            Effect::SwitchTool(task) => {
-                app.in_flight += 1;
-                io(lane::Job::SwitchTool(task));
-            }
-            Effect::IdleAlert(task) => {
-                app.in_flight += 1;
-                io(lane::Job::IdleAlert(task));
-            }
-            Effect::NewMember(task) => {
-                app.in_flight += 1;
-                io(lane::Job::NewMember(task));
-            }
-            Effect::MemberSession(task) => {
-                app.in_flight += 1;
-                io(lane::Job::MemberSession(task));
-            }
-            Effect::Notes(task) => io(lane::Job::Notes(task)),
-            Effect::Discovery(task) => {
-                app.in_flight += 1;
-                io(lane::Job::Discovery(task));
-            }
-            Effect::Settings => submit(app, lane::Job::Open(lane::Opening::Settings)),
-            Effect::SquadSettings(squad) => {
-                submit(app, lane::Job::Open(lane::Opening::SquadSettings(squad)))
-            }
-            Effect::HostAction => submit(
-                app,
-                lane::Job::Open(lane::Opening::HostAction(Box::new(
-                    app.host_action_selection(),
-                ))),
-            ),
-            Effect::SaveSetting => {
-                if app.settings.as_mut().is_some_and(|overlay| overlay.save()) {
-                    app.settings_preview();
-                    revision += 1;
-                    app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
-                    request(app.current.clone(), true, true, app.history_demand());
-                    refreshed = Instant::now();
-                }
-            }
-            Effect::ResetSetting => {
-                if app.settings.as_mut().is_some_and(|overlay| overlay.reset()) {
-                    app.settings_preview();
-                    if let Some(config) = app
-                        .settings
-                        .as_ref()
-                        .and_then(|overlay| overlay.config())
-                        .cloned()
-                    {
-                        app.apply_token_window(&config);
-                    }
-                    revision += 1;
-                    app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
-                    request(app.current.clone(), true, true, app.history_demand());
-                    refreshed = Instant::now();
-                }
-            }
-            Effect::CycleTokenWindow => {
-                if let Some(window) = app.next_token_window() {
-                    if let Some(overlay) = &mut app.settings {
-                        // The settings overlay already holds the config; its save is a bounded file write.
-                        if overlay.save_window(window) {
-                            let config = overlay.config().unwrap().clone();
-                            let notice = app.apply_token_window(&config);
-                            app.set_notice(Some(notice), false);
-                            revision += 1;
-                            app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
-                            request(app.current.clone(), true, true, app.history_demand());
-                            refreshed = Instant::now();
-                        }
-                    } else {
-                        submit(app, lane::Job::TokenWindow(window.label()));
-                    }
-                }
-            }
-            Effect::CancelSettings => {
-                revision += 1;
-                app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
-                request(app.current.clone(), true, false, app.history_demand());
-                refreshed = Instant::now();
-            }
-            Effect::PickTheme => {
-                let squad = app
-                    .workspace_squad()
-                    .map(|squad| squad.name.clone())
-                    .or_else(|| app.current.clone().filter(|name| !tabs::aggregate(name)));
-                submit(app, lane::Job::Open(lane::Opening::ThemePicker(squad)));
-            }
-            Effect::SaveTheme => {
-                if let Some(picker) = &mut app.theme_picker {
-                    match picker.save() {
-                        Ok(changed) => {
-                            let message = picker.saved_message(changed);
-                            let depth = app
-                                .view
-                                .as_ref()
-                                .map_or(tmt_cli_style::Depth::None, |view| view.look.depth);
-                            let look = picker.preview(depth);
-                            if let Some(view) = &mut app.view {
-                                view.look = look;
+                    Ok(BoardEvent::Snapshot {
+                        cancellation,
+                        snapshot,
+                    }) => {
+                        if !cancellation.cancelled() {
+                            // Keep the selected batch until the next paint restores
+                            // viewport admission. The existing post-paint full-plan
+                            // comparison preserves it only if the demand is unchanged;
+                            // a source/selection/sender change starts a new revision.
+                            // Explicit refresh already cleared Ready before requesting.
+                            if app.selected_request.conversation().is_none() {
+                                revision += 1;
+                                app.selected_request = refresh::SelectedRequest::Ready(None);
                             }
-                            app.theme_picker = None;
-                            app.finished(Ok(message));
+                            let previous_window = app.digest_window();
+                            app.apply(*snapshot);
+                            if app.digest_window() != previous_window {
+                                labels_window(app.digest_window());
+                            }
+                            dirty = true;
+                            Effect::None
+                        } else {
+                            Effect::None
+                        }
+                    }
+                    Ok(BoardEvent::Enriched {
+                        cancellation,
+                        squad,
+                        enrichment,
+                    }) => {
+                        if !cancellation.cancelled() && app.apply_enriched(&squad, enrichment) {
+                            dirty = true;
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::Status {
+                        cancellation,
+                        target,
+                        revision: read_revision,
+                        result,
+                    }) => {
+                        if !cancellation.cancelled()
+                            && read_revision == revision
+                            && app.selected_read()
+                                == Some(refresh::SelectedRead::Status(target.clone()))
+                            && let Some(draft) = &mut app.status_draft
+                        {
+                            draft.loaded(result);
+                            dirty = true;
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::Conversation {
+                        cancellation,
+                        plan,
+                        revision: read_revision,
+                        projection,
+                    }) => {
+                        if !cancellation.cancelled()
+                            && read_revision == revision
+                            && app.selected_read()
+                                == Some(refresh::SelectedRead::Conversation(plan.clone()))
+                        {
+                            app.apply_conversation(plan, projection);
+                            dirty = true;
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::Message {
+                        cancellation,
+                        key,
+                        revision: read_revision,
+                        body,
+                    }) => {
+                        if !cancellation.cancelled()
+                            && read_revision == revision
+                            && app.selected_read()
+                                == Some(refresh::SelectedRead::Message(key.clone()))
+                        {
+                            app.apply_message(&key, body);
+                            dirty = true;
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::PaneOutput {
+                        cancellation,
+                        read,
+                        revision: read_revision,
+                        observation,
+                    }) => {
+                        if !cancellation.cancelled()
+                            && read_revision == revision
+                            && app.selected_read()
+                                == Some(refresh::SelectedRead::PaneOutput(read.clone()))
+                        {
+                            app.apply_answer_read(&read, observation);
+                            dirty = true;
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::PaneScreen {
+                        cancellation,
+                        key,
+                        round,
+                        revision: read_revision,
+                        observation,
+                    }) => {
+                        if !cancellation.cancelled()
+                            && read_revision == revision
+                            && app.selected_read()
+                                == Some(refresh::SelectedRead::PaneScreen(key.clone(), round))
+                        {
+                            app.apply_pane_screen(key, round, observation);
+                            dirty = true;
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::HomeLeads { cancellation, read }) => {
+                        if !cancellation.cancelled() && !app.loading() {
+                            app.apply_home_leads(read);
+                            dirty = true;
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::History { cancellation, read }) => {
+                        if !cancellation.cancelled() {
+                            dirty |= app.apply_history(read, Instant::now());
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::HomeUsage {
+                        cancellation,
+                        input,
+                        limits,
+                    }) => {
+                        if !cancellation.cancelled() {
+                            let now = Instant::now();
+                            dirty |= app.sample_home(input.as_ref().map_err(|_| ()), now);
+                            if let Some(snapshot) = limits {
+                                dirty |= app.set_limits(snapshot);
+                            }
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::Usage {
+                        cancellation,
+                        room,
+                        input,
+                    }) => {
+                        if !cancellation.cancelled()
+                            && !app.loading()
+                            && let Some(meter) =
+                                app.meter.as_mut().filter(|meter| meter.room == room)
+                        {
+                            let now = Instant::now();
+                            meter.sample(input.as_ref().map_err(|_| ()), now);
+                            app.project_usage(now);
+                            dirty = true;
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::Labels(supplied)) => {
+                        app.overview_rows.borrow_mut().clear();
+                        dirty |= app.labels != supplied;
+                        app.labels = supplied;
+                        Effect::None
+                    }
+                    Ok(BoardEvent::FileInfo(delivery)) => {
+                        dirty |= app.apply_file_info(delivery);
+                        Effect::None
+                    }
+                    Ok(BoardEvent::UsageReport(delivery)) => {
+                        app.usage_report.apply(delivery);
+                        app.workspace_reconcile();
+                        dirty = true;
+                        Effect::None
+                    }
+                    Ok(BoardEvent::Attention {
+                        cancellation,
+                        attention,
+                    }) => {
+                        if !cancellation.cancelled() {
+                            dirty |= app.attention != attention;
+                            app.attention = attention;
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::Cron { cancellation, read }) => {
+                        if !cancellation.cancelled() {
+                            app.overview_rows.borrow_mut().clear();
+                            app.cron.replace(read);
+                            app.reconcile_row_details();
+                            dirty = true;
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::Acted {
+                        jump,
+                        sends,
+                        outcome,
+                    }) => {
+                        app.in_flight = app.in_flight.saturating_sub(1);
+                        dirty = true;
+                        let jumped = jump && outcome.is_ok();
+                        if sends
+                            && !matches!(
+                                &outcome,
+                                Ok(ActionOutcome::Send(_) | ActionOutcome::SendNow(_))
+                            )
+                        {
+                            app.finish_draft(outcome.is_ok());
+                        }
+                        match outcome {
+                            Ok(ActionOutcome::CronPreview(outcome)) => {
+                                let (task, result) = *outcome;
+                                app.cron_review_ready(task, result);
+                            }
+                            Ok(ActionOutcome::Workspace(outcome)) => {
+                                app.finished_workspace(*outcome)
+                            }
+                            Ok(ActionOutcome::RenameMember(outcome)) => {
+                                app.finished_member_rename(*outcome)
+                            }
+                            Ok(ActionOutcome::Status(outcome)) => app.finished_status(*outcome),
+                            Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
+                            Ok(ActionOutcome::WorkspacePreferences(completed)) => {
+                                let (preferences, message) = *completed;
+                                app.finished_workspace_preferences(preferences, message);
+                            }
+                            Ok(ActionOutcome::Send(completed)) => app.finished_send(*completed),
+                            Ok(ActionOutcome::SendNow(done)) => app.finished_send_now(*done),
+                            Ok(ActionOutcome::Digest(granted)) => app.open_digest(*granted),
+                            Err(error) => app.finished(Err(error)),
+                        }
+                        if jumped && app.popup && app.unread.writer.failure().is_none() {
+                            return std::ops::ControlFlow::Break(None);
+                        }
+                        if sends {
                             revision += 1;
                             app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                             request(
@@ -1302,22 +1113,315 @@ fn session(
                             );
                             refreshed = Instant::now();
                         }
-                        Err(error) => picker.notice = Some(error.message),
+                        Effect::None
                     }
-                }
-            }
-            Effect::Act(action) => {
-                let job = if let Some(ticket) = app.outgoing_ticket(&action) {
-                    lane::Job::Send {
-                        request: action,
-                        ticket,
+                    Ok(BoardEvent::Opened {
+                        opening,
+                        config,
+                        board_pane,
+                    }) => {
+                        app.in_flight = app.in_flight.saturating_sub(1);
+                        dirty = true;
+                        app.set_notice(None, false);
+                        let opened = match (opening, config) {
+                            (_, Err(error)) => Err(error),
+                            (lane::Opening::Settings, Ok(config)) => app
+                                .open_settings(config)
+                                .map_err(|error| error.message)
+                                .map(|()| true),
+                            (lane::Opening::SquadSettings(squad), Ok(config)) => app
+                                .open_settings_in(config, Some(&squad))
+                                .map_err(|error| error.message)
+                                .map(|()| true),
+                            (lane::Opening::HostAction(selection), Ok(config)) => app
+                                .open_host_action(config, *selection, board_pane)
+                                .map_err(|error| error.message)
+                                .map(|()| true),
+                            (lane::Opening::ThemePicker(squad), Ok(config)) => {
+                                theme_picker::Picker::open(config, squad)
+                                    .map_err(|error| error.message)
+                                    .map(|picker| {
+                                        app.theme_picker = Some(picker);
+                                        app.help = false;
+                                        false
+                                    })
+                            }
+                        };
+                        match opened {
+                            // The picker or overlay opens over a preview of the live board.
+                            Ok(reload) => {
+                                if reload {
+                                    revision += 1;
+                                    app.selected_request =
+                                        refresh::SelectedRequest::AwaitingSnapshot;
+                                    request(
+                                        app.current.clone(),
+                                        true,
+                                        app.settings.is_some(),
+                                        app.history_demand(),
+                                    );
+                                    refreshed = Instant::now();
+                                }
+                            }
+                            Err(error) => app.finished(Err(error)),
+                        }
+                        Effect::None
                     }
-                } else {
-                    lane::Job::Act(action)
+                    Ok(BoardEvent::TokenWindowSaved(result)) => {
+                        app.in_flight = app.in_flight.saturating_sub(1);
+                        dirty = true;
+                        match result {
+                            Ok(config) => {
+                                let notice = app.apply_token_window(&config);
+                                app.set_notice(Some(notice), false);
+                                revision += 1;
+                                app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
+                                request(
+                                    app.current.clone(),
+                                    true,
+                                    app.settings.is_some(),
+                                    app.history_demand(),
+                                );
+                                refreshed = Instant::now();
+                            }
+                            Err(error) => app.finished(Err(error)),
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::ViewStatePublished) => Effect::None,
+                    Ok(BoardEvent::NotesRead(completed)) => {
+                        app.finished_notes(completed, Instant::now());
+                        dirty = true;
+                        Effect::None
+                    }
+                    Ok(BoardEvent::VersionsRead(versions)) => {
+                        app.versions = versions;
+                        dirty = true;
+                        Effect::None
+                    }
+                    Ok(BoardEvent::AnswersAcknowledged(result)) => {
+                        app.finished_unread(result);
+                        dirty = true;
+                        Effect::None
+                    }
+                    Ok(BoardEvent::Input(Event::Key(key))) => {
+                        if key.kind == KeyEventKind::Press {
+                            dirty = true;
+                            view_state::input(state.as_deref_mut(), app, Some(key.code), |app| {
+                                app.key(key)
+                            })
+                        } else {
+                            app.trace_key("key_ignored", key);
+                            Effect::None
+                        }
+                    }
+                    Ok(BoardEvent::Input(Event::Mouse(mouse))) => {
+                        if mouse.kind == MouseEventKind::Moved {
+                            dirty |= app.move_pointer(mouse);
+                            Effect::None
+                        } else {
+                            dirty = true;
+                            let (effect, next) =
+                                view_state::input(state.as_deref_mut(), app, None, |app| {
+                                    coalesce_wheel(mouse, input, |event| {
+                                        app.mouse(event, Instant::now())
+                                    })
+                                });
+                            deferred = next;
+                            effect
+                        }
+                    }
+                    Ok(BoardEvent::Input(Event::Paste(text))) => {
+                        dirty = true;
+                        view_state::input(state.as_deref_mut(), app, None, |app| app.paste(&text))
+                    }
+                    Ok(BoardEvent::Input(Event::FocusGained)) => {
+                        capture_lost = true;
+                        dirty = true;
+                        Effect::None
+                    }
+                    Ok(BoardEvent::Input(Event::Resize(_, _))) => {
+                        capture_lost = true;
+                        app.composer.paste_preview.get_mut().take();
+                        if let Some(discovery) = &mut app.discovery {
+                            discovery.changed();
+                        }
+                        app.meter_hover = None;
+                        app.header_hover = None;
+                        app.invalidate_frame_geometry();
+                        dirty = true;
+                        Effect::None
+                    }
+                    Ok(BoardEvent::InputClosed) | Err(RecvTimeoutError::Disconnected) => {
+                        return std::ops::ControlFlow::Break(Some(
+                            terminal::stop_signal(stop).unwrap_or(HANGUP),
+                        ));
+                    }
+                    Ok(_) | Err(RecvTimeoutError::Timeout) => Effect::None,
                 };
-                submit(app, job);
-            }
-            Effect::None => {}
+                match effect {
+                    Effect::Foreground(command) => {
+                        app.foreground = Some(command);
+                        return std::ops::ControlFlow::Break(None);
+                    }
+                    Effect::Quit => return std::ops::ControlFlow::Break(None),
+                    Effect::Load(squad) => {
+                        revision += 1;
+                        app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
+                        request(Some(squad), true, false, app.history_demand());
+                        refreshed = Instant::now();
+                    }
+                    Effect::Refresh => {
+                        revision += 1;
+                        app.prepare_snapshot_refresh();
+                        let history = app.history_demand();
+                        request(
+                            app.current.clone(),
+                            history.is_some(),
+                            app.settings.is_some(),
+                            history,
+                        );
+                        refreshed = Instant::now();
+                    }
+                    Effect::Checklist(task) => checklist(task),
+                    Effect::Recovery(task) => submit(app, lane::Job::Recovery(task)),
+                    Effect::SwitchTool(task) => {
+                        app.in_flight += 1;
+                        io(lane::Job::SwitchTool(task));
+                    }
+                    Effect::IdleAlert(task) => {
+                        app.in_flight += 1;
+                        io(lane::Job::IdleAlert(task));
+                    }
+                    Effect::NewMember(task) => {
+                        app.in_flight += 1;
+                        io(lane::Job::NewMember(task));
+                    }
+                    Effect::MemberSession(task) => {
+                        app.in_flight += 1;
+                        io(lane::Job::MemberSession(task));
+                    }
+                    Effect::Notes(task) => io(lane::Job::Notes(task)),
+                    Effect::Discovery(task) => {
+                        app.in_flight += 1;
+                        io(lane::Job::Discovery(task));
+                    }
+                    Effect::Settings => submit(app, lane::Job::Open(lane::Opening::Settings)),
+                    Effect::SquadSettings(squad) => {
+                        submit(app, lane::Job::Open(lane::Opening::SquadSettings(squad)))
+                    }
+                    Effect::HostAction => submit(
+                        app,
+                        lane::Job::Open(lane::Opening::HostAction(Box::new(
+                            app.host_action_selection(),
+                        ))),
+                    ),
+                    Effect::SaveSetting => {
+                        if app.settings.as_mut().is_some_and(|overlay| overlay.save()) {
+                            app.settings_preview();
+                            revision += 1;
+                            app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
+                            request(app.current.clone(), true, true, app.history_demand());
+                            refreshed = Instant::now();
+                        }
+                    }
+                    Effect::ResetSetting => {
+                        if app.settings.as_mut().is_some_and(|overlay| overlay.reset()) {
+                            app.settings_preview();
+                            if let Some(config) = app
+                                .settings
+                                .as_ref()
+                                .and_then(|overlay| overlay.config())
+                                .cloned()
+                            {
+                                app.apply_token_window(&config);
+                            }
+                            revision += 1;
+                            app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
+                            request(app.current.clone(), true, true, app.history_demand());
+                            refreshed = Instant::now();
+                        }
+                    }
+                    Effect::CycleTokenWindow => {
+                        if let Some(window) = app.next_token_window() {
+                            if let Some(overlay) = &mut app.settings {
+                                // The settings overlay already holds the config; its save is a bounded file write.
+                                if overlay.save_window(window) {
+                                    let config = overlay.config().unwrap().clone();
+                                    let notice = app.apply_token_window(&config);
+                                    app.set_notice(Some(notice), false);
+                                    revision += 1;
+                                    app.selected_request =
+                                        refresh::SelectedRequest::AwaitingSnapshot;
+                                    request(app.current.clone(), true, true, app.history_demand());
+                                    refreshed = Instant::now();
+                                }
+                            } else {
+                                submit(app, lane::Job::TokenWindow(window.label()));
+                            }
+                        }
+                    }
+                    Effect::CancelSettings => {
+                        revision += 1;
+                        app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
+                        request(app.current.clone(), true, false, app.history_demand());
+                        refreshed = Instant::now();
+                    }
+                    Effect::PickTheme => {
+                        let squad = app
+                            .workspace_squad()
+                            .map(|squad| squad.name.clone())
+                            .or_else(|| app.current.clone().filter(|name| !tabs::aggregate(name)));
+                        submit(app, lane::Job::Open(lane::Opening::ThemePicker(squad)));
+                    }
+                    Effect::SaveTheme => {
+                        if let Some(picker) = &mut app.theme_picker {
+                            match picker.save() {
+                                Ok(changed) => {
+                                    let message = picker.saved_message(changed);
+                                    let depth = app
+                                        .view
+                                        .as_ref()
+                                        .map_or(tmt_cli_style::Depth::None, |view| view.look.depth);
+                                    let look = picker.preview(depth);
+                                    if let Some(view) = &mut app.view {
+                                        view.look = look;
+                                    }
+                                    app.theme_picker = None;
+                                    app.finished(Ok(message));
+                                    revision += 1;
+                                    app.selected_request =
+                                        refresh::SelectedRequest::AwaitingSnapshot;
+                                    request(
+                                        app.current.clone(),
+                                        false,
+                                        app.settings.is_some(),
+                                        app.history_demand(),
+                                    );
+                                    refreshed = Instant::now();
+                                }
+                                Err(error) => picker.notice = Some(error.message),
+                            }
+                        }
+                    }
+                    Effect::Act(action) => {
+                        let job = if let Some(ticket) = app.outgoing_ticket(&action) {
+                            lane::Job::Send {
+                                request: action,
+                                ticket,
+                            }
+                        } else {
+                            lane::Job::Act(action)
+                        };
+                        submit(app, job);
+                    }
+                    Effect::None => {}
+                }
+                std::ops::ControlFlow::Continue(())
+            },
+        );
+        if let std::ops::ControlFlow::Break(signal) = outcome {
+            return Ok(signal);
         }
         // A snapshot may change the interval, including turning reload off.
         if reload_interval(app).is_some_and(|interval| refreshed.elapsed() >= interval) {
@@ -1548,6 +1652,7 @@ pub fn run(
     };
     app.workspace.visibility.scope = scope.into_iter().map(|squad| squad.room_id).collect();
     app.timing = trace.map(timing::Ui::new);
+    app.navigation_trace = timing::Trace::navigation_from_env();
     app.migration_notice = core.paths.board_notice();
     app.set_notice(
         crate::migration::paths(&core, None)?
@@ -3192,6 +3297,132 @@ print(json.dumps(out))
         )
         .unwrap();
         (app, root)
+    }
+
+    #[test]
+    fn navigation_observes_key_and_snapshot_selection_changes_once_per_event() {
+        use app::workspace::tests::{MEMBER, ROOM, board};
+        use workspace::OpsTarget;
+        let mut app = board();
+        app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+        let (trace, bytes) = timing::Trace::buffer();
+        app.navigation_trace = Some(trace);
+        run_session(&mut app, vec![key(KeyCode::End), BoardEvent::InputClosed]);
+        let mut resume = app.resume().unwrap();
+        resume.selected = Some(app::RowTarget::Workspace(OpsTarget::Squad(ROOM.into())));
+        app.carry(resume);
+        app.view = None;
+        let mut loaded = app::tests::snapshot(ALL, serde_json::json!([]));
+        loaded.view = Ok(board().view.take().unwrap());
+        run_session(
+            &mut app,
+            vec![
+                BoardEvent::Input(Event::FocusGained),
+                snapshot_event(loaded),
+                BoardEvent::InputClosed,
+            ],
+        );
+        let rows: Vec<serde_json::Value> = String::from_utf8(bytes.lock().unwrap().clone())
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let writes: Vec<_> = rows
+            .iter()
+            .filter(|row| row["event"] == "selection_write")
+            .collect();
+        assert_eq!(writes.len(), 2, "{writes:?}");
+        assert_eq!(writes[0]["cause"], "Input::Key");
+        assert_eq!(writes[0]["previous"]["roomId"], ROOM);
+        assert_eq!(writes[0]["selected"]["identityId"], MEMBER);
+        assert_eq!(writes[1]["cause"], "Snapshot");
+        assert_eq!(writes[1]["previous"]["identityId"], MEMBER);
+        assert_ne!(writes[1]["selected"]["identityId"], MEMBER);
+        assert_ne!(
+            app.workspace.selected,
+            Some(OpsTarget::Member {
+                room_id: Some(ROOM.into()),
+                identity_id: MEMBER.into(),
+            })
+        );
+    }
+
+    #[test]
+    fn navigation_observes_selection_reconciled_by_the_draw_callback() {
+        use app::workspace::tests::board;
+        let mut app = board();
+        app.workspace.selected = None;
+        let (trace, bytes) = timing::Trace::buffer();
+        app.navigation_trace = Some(trace);
+        let (sender, input) = channel();
+        for event in [
+            BoardEvent::Input(Event::FocusGained),
+            BoardEvent::InputClosed,
+        ] {
+            sender.send(event).unwrap();
+        }
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _, _| {},
+            |_, _| {},
+            |_| {},
+            |_| {},
+            |app| {
+                // Exercise the real selection writer through the injected draw seam.
+                app.workspace_reconcile();
+                view::prepare(app, ratatui::layout::Rect::new(0, 0, 160, 36));
+                Ok(())
+            },
+        )
+        .unwrap();
+        let rows: Vec<serde_json::Value> = String::from_utf8(bytes.lock().unwrap().clone())
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let writes: Vec<_> = rows
+            .iter()
+            .filter(|row| row["event"] == "selection_write")
+            .collect();
+        assert_eq!(writes.len(), 1, "{writes:?}");
+        assert_eq!(writes[0]["cause"], "Paint");
+        assert!(writes[0]["previous"].is_null());
+        assert_eq!(writes[0]["selected"]["kind"], "pool");
+        assert_eq!(app.workspace.selected, Some(workspace::OpsTarget::Pool));
+    }
+
+    #[test]
+    fn ignored_key_kinds_are_traced_without_applying_navigation() {
+        use app::workspace::tests::{ROOM, board};
+        let mut app = board();
+        app.workspace.selected = Some(workspace::OpsTarget::Squad(ROOM.into()));
+        let (trace, bytes) = timing::Trace::buffer();
+        app.navigation_trace = Some(trace);
+        let mut end = KeyEvent::new(KeyCode::End, KeyModifiers::NONE);
+        end.kind = KeyEventKind::Release;
+        run_session(
+            &mut app,
+            vec![BoardEvent::Input(Event::Key(end)), BoardEvent::InputClosed],
+        );
+        assert_eq!(
+            app.workspace.selected,
+            Some(workspace::OpsTarget::Squad(ROOM.into()))
+        );
+        let rows: Vec<serde_json::Value> = String::from_utf8(bytes.lock().unwrap().clone())
+            .unwrap()
+            .lines()
+            .map(|s| serde_json::from_str(s).unwrap())
+            .collect();
+        let ignored = rows
+            .iter()
+            .find(|r| r["event"] == "key_ignored")
+            .expect("received non-Press keys must remain visible in failure evidence");
+        assert_eq!(ignored["key"], "End");
+        assert_eq!(ignored["kind"], "Release");
+        assert_eq!(ignored["selected"]["roomId"], ROOM);
+        assert!(!rows.iter().any(|r| r["event"] == "action"));
     }
 
     fn run_session(app: &mut App, events: Vec<BoardEvent>) -> Option<i32> {
