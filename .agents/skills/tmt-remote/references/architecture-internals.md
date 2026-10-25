@@ -10,6 +10,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `wire`, `canonical`, `crypto`                    | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                                                                                         |
 | `cloud_hpke`, `cloud_keys`                       | Fixed native HPKE descriptors/carriers and consuming response contexts; private Document keyring renewed at serve startup and existing Site maintenance; no transport, peer authority or replay ledger                                              |
 | `cloud_pairing`                                  | Native invite/join, proofs, mailbox and uid routing; Store confirmation/receipts under the serve lease; shared project Auth/runtime/budget                                                                                                          |
+| `invitations`                                    | Backend-neutral proof/context, memory-only offer coordinator and exact-original recovery; bounded exchange and confirmation ports                                                                                                                   |
 | `session`, `admission`                           | `session.open`, one normal message in flight per session, durable sequence consumption and admitted permits                                                                                                                                         |
 | `message`                                        | Common signed-message receive service: session admission, operation/journal hand-off and signed refusal/audit responses; foreground composition owns the service, not a backend                                                                     |
 | `transport`                                      | Pure envelope/result driver port (`append`, finite `subscribe`, explicit `ack`); loopback `routes` forwards to the injected common service, never owns admission/effects                                                                            |
@@ -401,6 +402,27 @@ fallback; without the explicit feature the test contains no executable case. Fix
 registrations. The maintained ordinary-user driver uses `ProductionHttp`, common admission and the journal.
 
 ## Native pairing
+
+`invitations` is the backend-neutral library owner for cross-person offer state and
+version-2 proofs. `service::Coordinator` freezes one verified candidate and serializes
+comparison/confirmation, cancellation, revocation, disconnect and original-deadline receipt
+recovery. The `port` exchanges bounded metadata; it cannot supply consent or create a grant.
+`store::StoreConfirmation` reuses the serving Store and the members owner check. It calls
+`members::confirm_member_grant_in` and saves the actual persisted grant receipt in the
+existing `management_receipts` journal in one IMMEDIATE transaction. No code or response
+key is saved. Original receipt bytes remain immutable across later member-policy changes.
+Publication happens afterward,
+with durable attempt claims and unchanged-snapshot acknowledgments; uncertain writes are
+observed, not repeated. `Coordinator::status` projects only the current offer ID, expiry,
+lifecycle and typed withdrawal observation without provider calls; durable cleanup queues
+remain with the backend adapter. Compose these observations outside the Store guard:
+confirmation acquires coordinator state before Store. Codes and response keys remain
+memory-only and clear on termination.
+`submission::SubmissionAttempt` signs one candidate proof, observes an uncertain original
+without resending and authenticates the exact receipt; it cannot confirm or create authority.
+Two fake backend consumers prove this library independently of transport. Current Firestore
+entry points below remain on their version-1 profile until the adapter cutover (I3); no
+legacy code is reinterpreted as a different backend or extended beyond its original expiry.
 
 `cloud_pairing` separates byte proofs from local-owner confirmation. Its distinct transcript binds
 project, owner UUID/key, offer/challenge/generation/expiry, peer UUID/key, authenticated uid, name

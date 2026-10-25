@@ -69,7 +69,7 @@ fn bump(c: &Connection, remote: &str, id: &str) -> Result<()> {
     if c.execute("UPDATE members SET revision=revision+1 WHERE remote_id=?1 AND member_id=?2 AND revision<9007199254740991",params![remote,id]).map_err(database)? !=1 {return Err(invalid());}
     Ok(())
 }
-fn require_owner(c: &Connection, owner: &Owner<'_>, now: u64) -> Result<String> {
+pub(crate) fn require_owner(c: &Connection, owner: &Owner<'_>, now: u64) -> Result<String> {
     match owner {
         Owner::LocalOwner => Ok("local-owner".into()),
         Owner::DesignatedBrowser {

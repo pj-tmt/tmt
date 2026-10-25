@@ -34,6 +34,7 @@ pub mod firestore_budget;
 pub mod firestore_limits;
 pub mod hosting;
 pub mod http;
+pub mod invitations;
 pub mod journal;
 pub mod limits;
 pub mod management;
