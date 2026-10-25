@@ -2464,6 +2464,85 @@ effect. A crash after Core acceptance may repeat only that exact receipt/body su
 `tmt result`, X and the answers view consume the ordinary local Core final, including offline
 reads after arrival. The original receiving Core remains authoritative for its agent's final.
 
+### Backend-neutral invitation lifecycle
+
+The shared `invitations` owner handles cross-person offers independently of a terminal,
+browser or provider. Its version-2 proof context is distinct from local-browser pairing
+and the existing version-1 Firestore profile. The Firestore adapter below remains its
+current production path until the adapter cutover; backend selection never rewrites a
+legacy code into another profile. Local native-owned browser automatic pairing is not a
+cross-person invitation or an owner confirmation for one.
+
+One offer is single-use, with a maximum ten-minute lifetime. Raw offer secrets and derived
+response keys remain memory-only and have no Debug, status, audit or error representation.
+Replacing or dropping an offer, cancellation, disconnect, refusal, expiry and completion
+clear its retained secret. An unconfirmed offer does not resume after process restart;
+confirmed membership, policy and the original receipt use the existing private Store.
+
+The coordinator owns `create`, `deliver`, `submit`, `observe`, `confirm`, `revoke` and
+`expire`. Its observations distinguish open, candidate awaiting owner, confirmed,
+refused/cancelled, expired and provider-outcome-unconfirmed. An uncertain provider outcome
+also identifies whether local confirmation already committed; it never claims that a
+committed member was rolled back. One finite observation is not a new mutation or an
+unbounded provider poll.
+
+A backend supplies bounded offer/candidate/receipt exchange and route-publication
+capability. It carries opaque backend references and authenticated provider-principal
+evidence, but neither owner consent nor a grant. Authentication of the provider principal
+and native possession are separate checks. Display names, aliases and provider uids never
+establish member identity, owner authority or an association between machines.
+
+For version 2, the enrollment transcript is u32-big-endian byte-length framing over, in
+this exact order: UTF-8 `tmt-invitation-v2`, `enrollment`, backend identifier, opaque backend
+reference bytes, authenticated owner-principal bytes, canonical owner UUID, 32-byte owner
+public key, canonical offer UUID, 16-byte server nonce, decimal issued-at milliseconds,
+decimal expiry milliseconds, canonical candidate machine UUID, 32-byte candidate public
+key, authenticated candidate-principal bytes, UTF-8 display name and 16-byte candidate
+nonce. The backend identifier uses the canonical lowercase extension-name grammar. The
+complete framed transcript fits the existing enrollment-byte bound. UUIDs and keys use
+the existing strict canonical validation; times are exact integers below 2^53. The
+candidate differs from the owner, and its display name uses the existing device-name
+bounds. Provider references/principals are nonempty opaque bytes, not URLs or names to
+resolve later.
+
+The invitation code contains 128 bits of entropy. HMAC-SHA256 under that secret covers
+the exact transcript. Native Ed25519 possession signs the existing framed
+`tmt-device-pair-possession-v1` input containing that transcript and MAC; Ed25519ph is not
+substituted. The response key and receipt proof retain the existing distinct
+`tmt-device-pair-response-key-v1` and `tmt-device-pair-response-v1` framing. Four comparison
+words retain the existing candidate-key fingerprint algorithm. A verified MAC and native
+signature admit a candidate for comparison; they do not create a member or a grant.
+
+Pin the first verified candidate and its exact transcript. A second candidate or a
+changed snapshot cannot replace the pinned one. Confirmation is an admitted local-owner
+action over that snapshot and comparison result; terminal and paired-owner-browser
+confirmation share the same transition owner. A normal user, mismatched comparison,
+JSON/agent command, cancellation, disconnect, expiry or revoked owner cannot supply that
+consent. Competing confirmations result in at most one committed receipt and first
+member-machine association. The default new user has sending off and direct delivery;
+provider input never broadens the owner's selected policy.
+
+Durable confirmation opens one existing Store IMMEDIATE transaction, rechecks authority
+and the frozen invitation/candidate, inserts the member and first grant through the M1
+transaction sink, and saves the immutable original receipt and policy in that same
+transaction. No second database opener, nested transaction or backend-owned grant writer
+is introduced. Provider publication happens after the transaction and outside its lock.
+Publication observations and acknowledgments apply only to the unchanged captured
+snapshot; sending-off retains receiving routes, while revoke/removal uses the existing
+route cleanup owner.
+
+A lost provider-write answer preserves the original publication identity and becomes
+observation-only; it never authorizes a new effect or another candidate. An exact matched
+candidate can recover only its original receipt through the retained proof and original
+expiry, not a regenerated grant or current mutable policy. Receipt proof authenticates
+its exact stored bytes. Failed or unknown provider cleanup does not turn logical expiry
+or revocation into authority.
+
+Old short-lived Firestore codes retain their original decoder, owner/native binding,
+remaining expiry and original-receipt recovery. They cannot be interpreted by another
+backend, extended to a new lifetime or treated as version-2 proofs. Version/profile
+selection is explicit; unknown versions/backends refuse rather than falling back.
+
 ### Native invite and join
 
 `tmt remote invite [--remote <name>]` selects an owned deployment and prints a private one-use,
