@@ -10,7 +10,10 @@
    Paper and ink come as a pair from the same tokens. The rule sits on `body`, not `html`: an author's
    `body { background }` then still fills the whole canvas. An author who paints only one of the two
    paints the other. A browser's default link blue is not on that paper in dark, so a link takes the
-   accent, which is. */
+   accent, which is.
+
+   The native parts of the page (form controls, scrollbars, the default canvas) take the scheme the
+   page paints, as the design tokens do: `data-theme` first, then the measured `data-colab-scheme`. */
 @layer colab-frame {
   :root[data-colab-design] body {
     background: var(--tmt-ui-surface-paper);
@@ -19,5 +22,15 @@
 
   :root[data-colab-design] a:any-link {
     color: var(--tmt-ui-color-accent);
+  }
+
+  :root[data-colab-design][data-theme='light'],
+  :root[data-colab-design][data-colab-scheme='light'] {
+    color-scheme: light;
+  }
+
+  :root[data-colab-design][data-theme='dark'],
+  :root[data-colab-design][data-colab-scheme='dark'] {
+    color-scheme: dark;
   }
 }

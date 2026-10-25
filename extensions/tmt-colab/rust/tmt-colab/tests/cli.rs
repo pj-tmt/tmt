@@ -4793,7 +4793,8 @@ fn template_ls_lists_every_template_with_its_layout_and_needs_no_state() {
             ("report", "column"),
             ("review", "column"),
             ("compare", "column"),
-            ("board", "full")
+            ("board", "full"),
+            ("gallery", "column")
         ]
     );
     let human = pilot.command().args(["template", "ls"]).output().unwrap();
@@ -4803,7 +4804,7 @@ fn template_ls_lists_every_template_with_its_layout_and_needs_no_state() {
     );
     let text = String::from_utf8(human.stdout).unwrap();
     assert!(text.contains("TEMPLATES"), "{text}");
-    for name in ["report", "review", "compare", "board"] {
+    for name in ["report", "review", "compare", "board", "gallery"] {
         assert!(text.contains(name), "{text}");
     }
     // Reading the catalog creates no local state.
@@ -4817,6 +4818,7 @@ fn create_from_a_template_stores_its_layout_and_a_source_with_fresh_ids() {
         ("report", "column"),
         ("review", "column"),
         ("board", "full"),
+        ("gallery", "column"),
     ] {
         let created = pilot.call(&[
             "page",

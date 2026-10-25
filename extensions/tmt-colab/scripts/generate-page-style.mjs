@@ -7,123 +7,54 @@ if (process.argv.length !== 3 || !['--write', '--check'].includes(mode)) {
 const tokens = JSON.parse(
   await readFile(new URL('../../../design/tokens/tokens.json', import.meta.url), 'utf8')
 );
-const colours = {
-  ink: tokens.browser.color.text,
-  muted: tokens.browser.color.secondary,
-  paper: tokens.browser.surface.paper,
-  sheet: tokens.browser.surface.sheet,
-  edge: tokens.browser.surface.rule,
-  waiting: tokens.browser.color.waiting,
-};
-const themed = (theme, indent) =>
-  Object.entries(colours)
-    .map(([name, value]) => `${indent}--${name}: ${value[theme].toLowerCase()};`)
-    .join('\n');
-// Author pages use local system fallbacks; the browser leaf's packaged fonts are not available.
-const systemFont = (stack) => stack.replace(/^"[^"]+",\s*/, '').replaceAll('"', "'");
+const metric = tokens.browser.metric;
+// The design system (tokens, fonts, components) is injected by the page frame (#5057); the starter is
+// only the glue a page needs on top of it: type scale, rhythm, a block look for `pre` and a fallback
+// table. It lives in the `tmt-starter` layer, between the frame's own layer and the design system's, so
+// the design system's classes and an author's own CSS both win over it.
 const starter = `<style>
-  :root {
-${themed('light', '    ')}
-    --body: ${systemFont(tokens.font.body.stack)};
-    --mono: ${systemFont(tokens.font.mono.stack)};
-    --size: ${tokens.header['wordmark-size']};
-    --heading: 28px;
-    --rule: ${tokens.browser.metric['rule-width']};
-    --gap: ${tokens.browser.metric['notice-heading-gap']};
-    --small-gap: ${tokens.browser.metric['eyebrow-gap']};
-    color-scheme: light dark;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme='light']) {
-${themed('dark', '      ')}
-    }
-  }
-  :root[data-theme='light'] {
-${themed('light', '    ')}
-    color-scheme: light;
-  }
-  :root[data-theme='dark'] {
-${themed('dark', '    ')}
-    color-scheme: dark;
-  }
-  * {
-    box-sizing: border-box;
-  }
+@layer tmt-starter {
+  * { box-sizing: border-box; }
   body {
     max-width: 1280px;
     margin: 0 auto;
-    padding: var(--gap);
-    background: var(--paper);
-    color: var(--ink);
-    font: var(--size)/1.5 var(--body);
+    padding: ${metric['notice-heading-gap']};
+    font: ${metric['page-body-size']}/1.5 var(--tmt-ui-font-body);
     overflow-wrap: anywhere;
   }
-  h1,
-  h2,
-  h3 {
-    margin: 0 0 var(--small-gap);
-    line-height: ${tokens.header['title-line-height']};
+  h1, h2, h3 {
+    margin: 0 0 8px;
+    font-weight: ${metric['card-title-weight']};
+    line-height: ${metric['page-title-line-height']};
   }
   h1 {
-    font-size: var(--heading);
+    font-size: ${metric['page-title-compact-size']};
+    font-weight: ${metric['page-title-weight']};
+    letter-spacing: ${metric['page-title-compact-tracking']};
   }
-  h2 {
-    font-size: 22px;
-  }
-  h3 {
-    font-size: 18px;
-  }
-  p,
-  ul,
-  ol,
-  table,
-  pre {
-    margin: 0 0 var(--gap);
-  }
-  ul,
-  ol {
-    padding-left: calc(var(--gap) * 2);
-  }
-  a {
-    color: inherit;
-    text-decoration: underline;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  th,
-  td {
-    padding: var(--small-gap);
-    border-bottom: var(--rule) solid var(--edge);
+  h2 { font-size: 22px; }
+  h3 { font-size: ${metric['card-title-size']}; }
+  p, ul, ol, pre, table { margin: 0 0 ${metric['notice-heading-gap']}; }
+  section { margin: 0 0 ${metric['notice-heading-gap']}; }
+  section > :last-child { margin-bottom: 0; }
+  ul, ol { padding-left: 24px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td {
+    padding: 8px;
+    border-bottom: ${metric['rule-width']} solid var(--tmt-ui-surface-rule);
     text-align: left;
     vertical-align: top;
   }
-  code,
   pre {
-    font-family: var(--mono);
-  }
-  pre {
-    padding: var(--gap);
-    background: var(--sheet);
-    border: var(--rule) solid var(--edge);
+    padding: 12px ${metric['notice-heading-gap']};
+    background: var(--tmt-ui-surface-code);
+    border-radius: var(--tmt-ui-radius);
+    font: 13px/1.5 var(--tmt-ui-font-mono);
     white-space: pre-wrap;
   }
-  section {
-    margin: 0 0 var(--gap);
-    padding: var(--gap);
-    background: var(--sheet);
-    border: var(--rule) solid var(--edge);
-  }
-  section > :last-child {
-    margin-bottom: 0;
-  }
-  .muted {
-    color: var(--muted);
-  }
-  .waiting {
-    color: var(--waiting);
-  }
+  .muted { color: var(--tmt-ui-color-secondary); }
+  .waiting { color: var(--tmt-ui-color-waiting); }
+}
 </style>
 <!-- Examples to copy with fresh UUIDs (this comment is inert); see tmt colab skill, "Ask and flag"
 <tmt-questions data-id="20000000-0000-4000-8000-000000000001">
@@ -155,7 +86,7 @@ if (
 const generated = `${begin}\n\n\`\`\`html\n${starter}\`\`\`\n\n${end}`;
 const updated = skill.slice(0, start) + generated + skill.slice(finish + end.length);
 if (
-  Buffer.byteLength(starter) > 3_000 ||
+  Buffer.byteLength(starter.slice(0, starter.indexOf('<!-- Examples to copy'))) > 2_000 ||
   Buffer.byteLength(updated) > 12_000 ||
   updated.split('\n').length - 1 > 500
 ) {

@@ -23,7 +23,7 @@ pub struct Template {
     source: &'static str,
 }
 
-pub const TEMPLATES: [Template; 4] = [
+pub const TEMPLATES: [Template; 5] = [
     Template {
         name: "report",
         summary: "Summary, findings table and next steps",
@@ -47,6 +47,12 @@ pub const TEMPLATES: [Template; 4] = [
         summary: "A full-bleed status board",
         kind: LayoutKind::Full,
         source: include_str!("../templates/board.html"),
+    },
+    Template {
+        name: "gallery",
+        summary: "The design-system components, to copy from",
+        kind: LayoutKind::Column,
+        source: include_str!("../templates/gallery.html"),
     },
 ];
 
@@ -90,11 +96,11 @@ impl Template {
 }
 
 /// The look every template starts from: the generated starter of the page-style reference, which
-/// owns the type, colours and rules, without its `body` rule (max-width, margin, padding). That
-/// rule frames `canvas` and `freeform` pages; on `column` and `full` Colab sets the width and the
-/// gaps, and a padding above the first block would add one.
+/// owns the type scale and rhythm on top of the injected design system, without its `body` rule
+/// (max-width, margin, padding). That rule frames `canvas` and `freeform` pages; on `column` and
+/// `full` Colab sets the width and the gaps, and a padding above the first block would add one.
 fn base_style() -> String {
-    const FRAME: &str = "    max-width: 1280px;\n    margin: 0 auto;\n    padding: var(--gap);\n";
+    const FRAME: &str = "    max-width: 1280px;\n    margin: 0 auto;\n    padding: 16px;\n";
     let reference = SKILL_REFERENCES
         .iter()
         .find(|(name, _)| *name == "page-style")
@@ -215,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn the_catalog_is_the_four_documented_templates_with_their_layouts() {
+    fn the_catalog_is_the_five_documented_templates_with_their_layouts() {
         let listed: Vec<(&str, &str)> = TEMPLATES
             .iter()
             .map(|template| (template.name, template.kind.as_str()))
@@ -226,7 +232,8 @@ mod tests {
                 ("report", "column"),
                 ("review", "column"),
                 ("compare", "column"),
-                ("board", "full")
+                ("board", "full"),
+                ("gallery", "column")
             ]
         );
         for template in &TEMPLATES {
@@ -260,12 +267,12 @@ mod tests {
             // The base look is the page-style starter, minus the rule that frames a canvas page:
             // on a column or full page Colab sets the width and the gaps.
             assert!(
-                source.contains("--ink:"),
-                "{} has the base colours",
+                source.contains("@layer tmt-starter"),
+                "{} has the base look in the starter layer",
                 template.name
             );
             assert!(
-                source.contains("system-ui"),
+                source.contains("var(--tmt-ui-font-body)"),
                 "{} has the base type",
                 template.name
             );
