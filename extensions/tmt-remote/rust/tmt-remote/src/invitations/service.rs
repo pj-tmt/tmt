@@ -143,6 +143,11 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             .is_some_and(|offer| offer.has_code || offer.code.iter().any(|byte| *byte != 0)))
     }
 
+    #[cfg(test)]
+    pub(super) fn original_deadline(&self) -> Result<Option<Instant>, RemoteError> {
+        Ok(self.lock()?.as_ref().map(|offer| offer.deadline))
+    }
+
     /// Context is captured by the admitted owner composition. New code entropy
     /// is generated here and is never given to the provider port.
     pub fn create(
@@ -152,6 +157,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         now_ms: u64,
         io: &IoBudget<'_>,
     ) -> Result<Status, RemoteError> {
+        let started = Instant::now();
         check(io)?;
         context.validate()?;
         if !actor.interactive()
@@ -161,8 +167,14 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         {
             return Err(invalid());
         }
+        let deadline = started + Duration::from_millis(context.expires_at_ms - now_ms);
+        let creation_io = offer_io(io, deadline);
         self.sink.authorize(&context, actor)?;
+        check(&creation_io)?;
         let mut state = self.lock()?;
+        if let Some(previous) = state.as_mut() {
+            previous.expire(now_ms);
+        }
         if state
             .as_ref()
             .is_some_and(|offer| !matches!(offer.phase, Phase::End(_) | Phase::Confirmed(_)))
@@ -185,8 +197,9 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
                 gate_hash: Sha256::digest(gate).into(),
             },
         };
+        check(&creation_io)?;
         let offer = Offer {
-            deadline: Instant::now() + Duration::from_millis(context.expires_at_ms - now_ms),
+            deadline,
             context,
             code: code.0,
             has_code: true,
@@ -259,13 +272,18 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             if !offer.announced && matches!(offer.phase, Phase::Open) {
                 let first = !offer.announcement_attempted;
                 offer.announcement_attempted = true;
-                Some((offer.announcement.clone().ok_or_else(invalid)?, first))
+                Some((
+                    offer.announcement.clone().ok_or_else(invalid)?,
+                    first,
+                    offer.deadline,
+                ))
             } else {
                 None
             }
         };
-        if let Some((publication, first)) = next {
-            let ack = self.publish_or_observe(&publication, first, io)?;
+        if let Some((publication, first, deadline)) = next {
+            let exchange_io = offer_io(io, deadline);
+            let ack = self.publish_or_observe(&publication, first, &exchange_io)?;
             let mut state = self.lock()?;
             if let Some(offer) = state.as_mut().filter(|offer| {
                 offer.context == publication.exchange.context && matches!(offer.phase, Phase::Open)
@@ -282,15 +300,19 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             state
                 .as_ref()
                 .filter(|offer| offer.announced && matches!(offer.phase, Phase::Open))
-                .map(|offer| offer.context.clone())
+                .map(|offer| (offer.context.clone(), offer.deadline))
         };
-        if let Some(context) = context {
+        if let Some((context, deadline)) = context {
+            let exchange_io = offer_io(io, deadline);
             let exchange = InvitationExchange {
                 context: context.clone(),
                 part: Part::Candidate,
             };
-            let observed = self.backend.observe(&exchange, io).map_err(provider)?;
-            check(io)?;
+            let observed = self
+                .backend
+                .observe(&exchange, &exchange_io)
+                .map_err(provider)?;
+            check(&exchange_io)?;
             if let Some(observed) = observed {
                 if observed.publication.exchange != exchange {
                     return Err(invalid());
@@ -390,13 +412,14 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         let transcript = proof::enrollment(&expected.context, &expected.candidate)?;
         let receipt_key =
             ReceiptKey(crypto::response_key(&offer.code, &transcript).map_err(|_| invalid())?);
-        check(io)?;
+        let confirmation_io = offer_io(io, offer.deadline);
+        check(&confirmation_io)?;
         let committed = self.sink.confirm(Confirmation {
             snapshot: expected,
             actor,
             grant: &grant,
             receipt_key: &receipt_key,
-            io,
+            io: &confirmation_io,
         });
         // After a writer error, only the original journal can settle the outcome;
         // another confirm cannot manufacture another member or receipt.
@@ -425,6 +448,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         now_ms: u64,
         io: &IoBudget<'_>,
     ) -> Result<Status, RemoteError> {
+        let started = Instant::now();
         check(io)?;
         expected.context.validate()?;
         proof::enrollment(&expected.context, &expected.candidate)?;
@@ -435,6 +459,8 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         {
             return Err(invalid());
         }
+        let deadline = started + Duration::from_millis(expected.context.expires_at_ms - now_ms);
+        let recovery_io = offer_io(io, deadline);
         let mut state = self.lock()?;
         if let Some(offer) = state.as_ref()
             && !matches!(offer.phase, Phase::End(_))
@@ -442,15 +468,15 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             return Err(invalid());
         }
         self.sink.authorize(&expected.context, actor)?;
+        check(&recovery_io)?;
         let committed = self.sink.original(expected)?.ok_or_else(invalid)?;
         if !valid_commit(&committed, expected) {
             return Err(invalid());
         }
-        check(io)?;
+        check(&recovery_io)?;
         *state = Some(Offer {
             context: expected.context.clone(),
-            deadline: Instant::now()
-                + Duration::from_millis(expected.context.expires_at_ms - now_ms),
+            deadline,
             code: [0; 16],
             has_code: false,
             announcement: None,
@@ -593,10 +619,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
                 return Ok(());
             }
             let publication = publication(&record, part);
-            let publication_io = IoBudget {
-                deadline: io.deadline.min(deadline),
-                cancelled: io.cancelled,
-            };
+            let publication_io = offer_io(io, deadline);
             if !self.publish_or_observe(
                 &publication,
                 claim == Claim::FirstAttempt,
@@ -744,6 +767,12 @@ fn unavailable() -> RemoteError {
         "REMOTE_INVITATION_UNAVAILABLE",
         "Invitation state is unavailable.",
     )
+}
+fn offer_io<'a>(io: &IoBudget<'a>, deadline: Instant) -> IoBudget<'a> {
+    IoBudget {
+        deadline: io.deadline.min(deadline),
+        cancelled: io.cancelled,
+    }
 }
 fn check(io: &IoBudget<'_>) -> Result<(), RemoteError> {
     io.check().map_err(|_| {

@@ -8,6 +8,7 @@ struct Faults {
     revoke_after_routes: Option<Sink>,
     publishes: BTreeMap<u8, usize>,
     withdrawals: usize,
+    owner_deadlines: Vec<Instant>,
 }
 #[derive(Clone)]
 pub(super) struct Controlled<B> {
@@ -24,6 +25,9 @@ impl<B> Controlled<B> {
     pub(super) fn write_attempts(&self) -> usize {
         let faults = self.faults.lock().unwrap();
         faults.publishes.values().sum::<usize>() + faults.withdrawals
+    }
+    pub(super) fn owner_deadlines(&self) -> Vec<Instant> {
+        self.faults.lock().unwrap().owner_deadlines.clone()
     }
     fn publications(&self, part: Part) -> usize {
         self.faults
@@ -44,6 +48,14 @@ impl<B: Backend> Backend for Controlled<B> {
         publication: &Publication,
         io: &IoBudget<'_>,
     ) -> Result<WriteOutcome, BackendFailure> {
+        // Candidate publication is the peer, not this owner coordinator.
+        if publication.exchange.part != Part::Candidate {
+            self.faults
+                .lock()
+                .unwrap()
+                .owner_deadlines
+                .push(io.deadline);
+        }
         *self
             .faults
             .lock()
@@ -68,6 +80,11 @@ impl<B: Backend> Backend for Controlled<B> {
         exchange: &InvitationExchange,
         io: &IoBudget<'_>,
     ) -> Result<Option<Observation>, BackendFailure> {
+        self.faults
+            .lock()
+            .unwrap()
+            .owner_deadlines
+            .push(io.deadline);
         let mut row = self.inner.observe(exchange, io)?;
         if exchange.part == Part::Candidate
             && self.faults.lock().unwrap().wrong_candidate_principal

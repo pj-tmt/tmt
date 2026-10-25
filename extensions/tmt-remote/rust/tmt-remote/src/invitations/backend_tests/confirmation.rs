@@ -8,6 +8,9 @@ pub(super) struct Ledger {
     pub(super) claims: BTreeSet<Key>,
     pub(super) grants: usize,
     pub(super) confirms: usize,
+    pub(super) confirmation_deadline: Option<Instant>,
+    pub(super) last_authorized: Option<Instant>,
+    pub(super) last_original_read: Option<Instant>,
     pub(super) revoked: bool,
     pub(super) owner_browser: Option<(String, [u8; 32], u64)>,
     pub(super) fail_commit: bool,
@@ -37,7 +40,9 @@ impl ConfirmationSink for Sink {
         context: &Context,
         actor: &OwnerActor,
     ) -> Result<(), crate::error::RemoteError> {
-        if actor_allowed(context, actor, &self.ledger.lock().unwrap()) {
+        let mut ledger = self.ledger.lock().unwrap();
+        if actor_allowed(context, actor, &ledger) {
+            ledger.last_authorized = Some(Instant::now());
             Ok(())
         } else {
             Err(invalid())
@@ -49,6 +54,7 @@ impl ConfirmationSink for Sink {
             return Err(invalid());
         }
         input.io.check().map_err(|_| invalid())?;
+        ledger.confirmation_deadline = Some(input.io.deadline);
         ledger.confirms += 1;
         if ledger.fail_commit {
             return Err(invalid());
@@ -93,10 +99,9 @@ impl ConfirmationSink for Sink {
         &self,
         snapshot: &Snapshot,
     ) -> Result<Option<Committed>, crate::error::RemoteError> {
-        Ok(self
-            .ledger
-            .lock()
-            .unwrap()
+        let mut ledger = self.ledger.lock().unwrap();
+        ledger.last_original_read = Some(Instant::now());
+        Ok(ledger
             .records
             .get(&snapshot.context.offer)
             .filter(|record| record.snapshot == *snapshot)

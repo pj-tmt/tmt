@@ -72,6 +72,26 @@ fn lifecycle<B: ScenarioBackend>(make: impl Fn() -> B) {
     assert!(coordinator.deliver(&owner, 4).unwrap().context == replacement);
     assert_eq!(sink.ledger.lock().unwrap().grants, 0);
 
+    // A new distinct offer may replace an expired one without a separate poll.
+    let backend = make();
+    let sink = Sink::default();
+    let (coordinator, delivery, _) = pending(backend, sink.clone(), &io);
+    let mut replacement = delivery.context.clone();
+    replacement.offer = "66666666-6666-4666-8666-666666666666".into();
+    replacement.issued_at_ms = delivery.context.expires_at_ms;
+    replacement.expires_at_ms = replacement.issued_at_ms + 60_000;
+    coordinator
+        .create(&owner, replacement.clone(), replacement.issued_at_ms, &io)
+        .unwrap();
+    assert!(
+        coordinator
+            .deliver(&owner, replacement.issued_at_ms)
+            .unwrap()
+            .context
+            == replacement
+    );
+    assert_eq!(sink.ledger.lock().unwrap().grants, 0);
+
     // A pending comparison disappears on restart, and cannot be recovered from
     // a backend candidate as though it were a private confirmed receipt.
     let backend = make();
@@ -114,6 +134,12 @@ fn lifecycle<B: ScenarioBackend>(make: impl Fn() -> B) {
             .unwrap()
             .local_confirmation_known
     );
+    assert!(
+        restarted.original_deadline().unwrap().unwrap()
+            <= sink.ledger.lock().unwrap().last_original_read.unwrap()
+                + Duration::from_millis(snapshot.context.expires_at_ms - now),
+        "receipt lookup renewed the invitation deadline"
+    );
     assert!(!restarted.retains_secret().unwrap());
     restarted.observe(now, &io).unwrap();
     assert_eq!(restarted.status(now).unwrap().state, State::Confirmed);
@@ -153,6 +179,60 @@ fn lifecycle<B: ScenarioBackend>(make: impl Fn() -> B) {
         1,
         "expiry never rolls back durable pairing"
     );
+
+    // A long caller budget cannot renew the original offer deadline while
+    // confirmation waits for its writer. The sink sees that exact deadline.
+    let backend = super::faults::Controlled::new(make());
+    let sink = Sink::default();
+    let long_io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(3600),
+        cancelled: &stopped,
+    };
+    let (mut context, candidate, signing) = super::super::tests::fixture();
+    context.binding = backend.binding();
+    context.expires_at_ms = context.issued_at_ms + 60_000;
+    let coordinator = Coordinator::new(backend.clone(), sink.clone());
+    coordinator.create(&owner, context, 1, &long_io).unwrap();
+    let original_deadline = coordinator.original_deadline().unwrap().unwrap();
+    assert!(
+        original_deadline
+            <= sink.ledger.lock().unwrap().last_authorized.unwrap() + Duration::from_secs(60),
+        "authorization renewed the invitation deadline"
+    );
+    let delivery = coordinator.deliver(&owner, 2).unwrap();
+    backend
+        .peer(candidate.principal.clone())
+        .publish(
+            &signed_publication(&delivery, &candidate, &signing),
+            &long_io,
+        )
+        .unwrap();
+    coordinator.observe(2, &long_io).unwrap();
+    let snapshot = coordinator.candidate(2).unwrap().unwrap();
+    coordinator
+        .confirm(
+            &owner,
+            &snapshot,
+            true,
+            &PairingPolicy::default(),
+            3,
+            &long_io,
+        )
+        .unwrap();
+    assert_eq!(
+        sink.ledger.lock().unwrap().confirmation_deadline,
+        Some(original_deadline),
+        "confirmation renewed the invitation deadline"
+    );
+    let provider_deadlines = backend.owner_deadlines();
+    assert!(!provider_deadlines.is_empty());
+    assert!(
+        provider_deadlines
+            .iter()
+            .all(|deadline| *deadline == original_deadline),
+        "provider exchange renewed the invitation deadline"
+    );
+    assert!(original_deadline < long_io.deadline);
 
     // Compare-confirm races cancellation at the same shared transition owner.
     let backend = make();
