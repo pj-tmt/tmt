@@ -512,3 +512,78 @@ test('checkpoint steps retain pending dependencies until the final bounded tail 
   }, v);
   expect(source).toBe(v.sourceAfterTail);
 });
+
+test('real Worker preserves attributed registry metadata through source edits and rejects claimed answered state', async ({
+  page,
+}) => {
+  const corpus = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/question-metadata-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const creator = corpus.cases.find(
+    (entry: { kind: string; valid: boolean }) => entry.kind === 'creator' && entry.valid,
+  ).value;
+  const questions = corpus.cases.find(
+    (entry: { kind: string; valid: boolean; value: unknown[] }) =>
+      entry.kind === 'questions' && entry.valid && entry.value.length > 0,
+  ).value;
+  await page.goto('/');
+  const result = await page.evaluate(
+    async ({ creator, questions }) => {
+      const foldPath = '/src/fold.ts',
+        fixturePath = '/test/update-fixtures.ts';
+      const { Fold } = await import(foldPath),
+        { metadataUpdate } = await import(fixturePath);
+      const fold = new Fold();
+      try {
+        const before = await fold.run({
+          type: 'apply',
+          updates: [metadataUpdate({ creator, questions })],
+        });
+        const edit = await fold.prepareContent('<p>Changed source</p>', {
+          source: before.source,
+          title: before.title,
+          own: before.own,
+          creator: before.creator,
+          questions: before.questions,
+        });
+        const after = await fold.run({ type: 'apply', updates: edit.updates });
+        const invalid = new Fold();
+        let rejected = false;
+        try {
+          rejected = await invalid
+            .run({
+              type: 'apply',
+              updates: [
+                metadataUpdate({
+                  creator,
+                  questions: questions.map((entry: Record<string, unknown>) => ({
+                    ...entry,
+                    state: 'answered',
+                  })),
+                }),
+              ],
+            })
+            .then(
+              () => false,
+              () => true,
+            );
+        } finally {
+          invalid.close();
+        }
+        return {
+          creator: after.creator,
+          questions: after.questions,
+          source: after.source,
+          rejected,
+        };
+      } finally {
+        fold.close();
+      }
+    },
+    { creator, questions },
+  );
+  expect(result).toEqual({ creator, questions, source: '<p>Changed source</p>', rejected: true });
+});

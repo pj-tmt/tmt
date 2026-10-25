@@ -63,6 +63,37 @@ it('exports a page with work as work.json right after its HTML, byte for byte li
   expect(await bytes((await pending).blob('work.json'))).toEqual(utf8(fixture.workJson));
 });
 
+it('freezes the editable creator and raw question registry with the captured export', async () => {
+  const corpus = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/question-metadata-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const creator = structuredClone(
+    corpus.cases.find(
+      (entry: { kind: string; valid: boolean }) => entry.kind === 'creator' && entry.valid,
+    ).value,
+  );
+  const questions = structuredClone(
+    corpus.cases.find(
+      (entry: { kind: string; valid: boolean; value: unknown[] }) =>
+        entry.kind === 'questions' && entry.valid && entry.value.length > 0,
+    ).value,
+  );
+  const expected = { creator: structuredClone(creator), questions: structuredClone(questions) };
+  const pending = prepareExport({ ...input(), creator, questions });
+  creator.agent.name = 'Changed after capture';
+  questions[0].state = 'handled';
+  const manifest = JSON.parse(
+    new TextDecoder().decode(await bytes((await pending).blob('manifest.json'))),
+  );
+  expect(manifest.creator).toEqual(expected.creator);
+  expect(manifest.questions).toEqual(expected.questions);
+  expect(manifest.originalAuthor).toBe(fixture.input.originalAuthor);
+  expect(manifest.questionStates).toBeUndefined();
+});
+
 it('matches the shared native bundle byte for byte, including exact order and large decimals', async () => {
   const bundle = await prepareExport(input());
   const html = await bytes(bundle.blob('page.html'));

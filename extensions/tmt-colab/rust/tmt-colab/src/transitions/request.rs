@@ -49,6 +49,8 @@ pub enum OwnerAction<'a> {
         creation_recipient: Option<&'a crate::decoder::CreationRecipient>,
     },
     Create {
+        creator: Option<&'a serde_json::Value>,
+        template: Option<&'a str>,
         page: &'a str,
         title: &'a str,
         source: &'a str,
@@ -191,6 +193,8 @@ impl Engine {
         };
         let (outcome, changed) = match request.action {
             OwnerAction::Create {
+                creator,
+                template,
                 page,
                 title,
                 source,
@@ -202,6 +206,8 @@ impl Engine {
                 key,
                 context,
                 super::create::Selection {
+                    creator,
+                    template,
                     page,
                     title,
                     source,
@@ -225,6 +231,8 @@ impl Engine {
                     page,
                     title,
                     source: "",
+                    creator: None,
+                    template: None,
                     publisher_agent,
                     creation_recipient,
                     layout: None,

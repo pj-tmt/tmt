@@ -10,9 +10,10 @@ pub(crate) fn view(case: &Value) -> Conversations {
         let writer = string(row, "writer");
         let id = string(row, "id");
         let comments = row["comments"].as_array().unwrap().iter().map(|comment| Comment {
-            writer: string(comment, "writer"), id: string(comment, "id"), revision: "1".into(),
+            question_id: comment["questionId"].as_str().map(str::to_owned),
+            writer: string(comment, "writer"), id: string(comment, "id"), revision: comment["revision"].as_str().unwrap_or("1").into(),
             sequence: string(comment, "sequence"), deleted: comment["deleted"] == true,
-            body: string(comment, "body"), device_name: "Fixture".into(), at: "1".into(), attachments: Vec::new(),
+            body: string(comment, "body"), device_name: "Fixture".into(), at: comment["at"].as_str().unwrap_or("1").into(), attachments: Vec::new(),
         }).collect();
         let anchor = row.get("anchor").filter(|anchor| !anchor.is_null()).map(|anchor| Anchor {
             exact: string(anchor, "exact"), prefix: string(anchor, "prefix"), suffix: string(anchor, "suffix"),
@@ -59,7 +60,7 @@ pub(crate) fn view(case: &Value) -> Conversations {
             issued_at: 0,
             expires_at: 1,
             message: String::new(),
-            state: "accepted".into(),
+            state: row["state"].as_str().unwrap_or("accepted").into(),
             reason: None,
             request_id: None,
             reply: (row["replied"] == true).then(|| Reply {
@@ -86,7 +87,7 @@ pub(crate) fn view(case: &Value) -> Conversations {
 }
 
 #[test]
-fn native_counts_match_the_shared_browser_pending_vectors() {
+fn legacy_vectors_preserve_other_needs_you_kinds_without_inventing_registrations() {
     let vectors: Value =
         serde_json::from_str(include_str!("../../../contracts/vectors/needs-you-v1.json")).unwrap();
     for case in vectors["cases"].as_array().unwrap() {
@@ -100,8 +101,16 @@ fn native_counts_match_the_shared_browser_pending_vectors() {
         let (report, anchors) =
             crate::page_check::summary(case["source"].as_str().unwrap(), &view.threads).unwrap();
         assert_eq!(
-            serde_json::to_value(items(&report, &anchors, &view, &writers)).unwrap(),
-            case["expected"],
+            serde_json::to_value(items(&report, &anchors, &view, &writers, &[])).unwrap(),
+            Value::Array(
+                case["expected"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|item| item["kind"] != "answer")
+                    .cloned()
+                    .collect()
+            ),
             "{}",
             case["name"]
         );
@@ -145,7 +154,7 @@ fn a_page_without_admitted_blocks_keeps_its_summary_above_the_quote_text_budget(
     let conversations = view(case);
     let source = "plain text ".repeat(30_000);
     let (report, anchors) = crate::page_check::summary(&source, &conversations.threads).unwrap();
-    let pending = items(&report, &anchors, &conversations, &Default::default());
+    let pending = items(&report, &anchors, &conversations, &Default::default(), &[]);
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].kind, "proposal");
     assert_eq!(pending[0].id, case["expected"][0]["id"].as_str().unwrap());
@@ -176,7 +185,7 @@ fn complete_reading_descriptors_match_the_shared_browser_cases() {
         let (report, anchors) =
             crate::page_check::summary(case["source"].as_str().unwrap(), &conversations.threads)
                 .unwrap();
-        let pending = items(&report, &anchors, &conversations, &writers);
+        let pending = items(&report, &anchors, &conversations, &writers, &[]);
         let actual = crate::summary_readings::descriptors(&report, &anchors, &pending);
         assert_eq!(
             serde_json::to_value(actual).unwrap(),

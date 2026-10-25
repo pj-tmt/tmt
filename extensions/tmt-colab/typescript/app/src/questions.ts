@@ -1,3 +1,4 @@
+import { validQuestionId } from './question-id.js';
 import {
   COMMENT_BYTES,
   compareCommentOrder,
@@ -16,7 +17,7 @@ export const QUESTION_CHOICE_POINTS = 200;
 export const QUESTION_CHOICE_DESCRIPTION_POINTS = 200;
 export const QUESTION_SHORT_POINTS = 200;
 export const QUESTION_LONG_BYTES = 8192;
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export { validQuestionId } from './question-id.js';
 export type QuestionKind = 'single' | 'multiple' | 'short' | 'long';
 export interface QuestionChoice {
   label: string;
@@ -174,11 +175,11 @@ const choiceKind = (candidate: Candidate) => ['single', 'multiple'].includes(can
  * vectors (contracts/vectors/page-markup-v1.json).
  */
 const QUESTION_RULES: ReadonlyArray<readonly [QuestionFindingCode, (c: Candidate) => boolean]> = [
-  ['question-id-invalid', (c) => !uuid.test(c.id)],
-  ['question-id-duplicate', (c) => uuid.test(c.id) && c.holders > 1],
+  ['question-id-invalid', (c) => !validQuestionId(c.id)],
+  ['question-id-duplicate', (c) => validQuestionId(c.id) && c.holders > 1],
   ['question-nested', (c) => c.nested],
   ['question-group-child-invalid', (c) => c.groupChildInvalid],
-  ['question-group-id-invalid', (c) => c.splitId !== null && !uuid.test(c.splitId)],
+  ['question-group-id-invalid', (c) => c.splitId !== null && !validQuestionId(c.splitId)],
   ['question-group-conflict', (c) => c.splitId !== null && c.splitConflict],
   ['question-group-limit', (c) => c.splitCount > QUESTION_GROUP_LIMIT],
   ['question-heading-missing', (c) => c.headings === 0],
@@ -210,8 +211,8 @@ interface GroupCandidate {
 }
 /** Structural group rules report only the first failure and silence the subtree. */
 const GROUP_RULES: ReadonlyArray<readonly [QuestionFindingCode, (c: GroupCandidate) => boolean]> = [
-  ['group-id-invalid', (c) => !uuid.test(c.id)],
-  ['group-id-duplicate', (c) => uuid.test(c.id) && c.holders > 1],
+  ['group-id-invalid', (c) => !validQuestionId(c.id)],
+  ['group-id-duplicate', (c) => validQuestionId(c.id) && c.holders > 1],
   ['group-nested', (c) => c.nested],
   ['group-title-missing', (c) => c.headings === 0],
   ['group-title-multiple', (c) => c.headings > 1],
@@ -232,8 +233,8 @@ interface ReviewCandidate {
  * title rules wait for exactly one heading. The Rust checker runs the same table. */
 const REVIEW_RULES: ReadonlyArray<readonly [QuestionFindingCode, (c: ReviewCandidate) => boolean]> =
   [
-    ['review-id-invalid', (c) => !uuid.test(c.id)],
-    ['review-id-duplicate', (c) => uuid.test(c.id) && c.holders > 1],
+    ['review-id-invalid', (c) => !validQuestionId(c.id)],
+    ['review-id-duplicate', (c) => validQuestionId(c.id) && c.holders > 1],
     ['review-nested', (c) => c.nested],
     ['review-heading-missing', (c) => c.headings === 0],
     ['review-heading-multiple', (c) => c.headings > 1],
@@ -248,8 +249,8 @@ interface ReadingCandidate extends ReviewCandidate {
 const READING_RULES: ReadonlyArray<
   readonly [QuestionFindingCode, (c: ReadingCandidate) => boolean]
 > = [
-  ['reading-id-invalid', (c) => !uuid.test(c.id)],
-  ['reading-id-duplicate', (c) => uuid.test(c.id) && c.holders > 1],
+  ['reading-id-invalid', (c) => !validQuestionId(c.id)],
+  ['reading-id-duplicate', (c) => validQuestionId(c.id) && c.holders > 1],
   ['reading-nested', (c) => c.nested],
   ['reading-heading-missing', (c) => c.headings === 0],
   ['reading-heading-multiple', (c) => c.headings > 1],
@@ -373,7 +374,7 @@ export function inspectQuestions(source: string): QuestionInspection {
     !node.parentElement?.closest('tmt-questions, tmt-question, tmt-read');
   for (const node of nodes) {
     const group = node.getAttribute('data-group');
-    if (group !== null && uuid.test(group) && splitEligible(node))
+    if (group !== null && validQuestionId(group) && splitEligible(node))
       splitGroups.set(group, (splitGroups.get(group) ?? 0) + 1);
   }
   const holders = new Map<string, number>([...splitGroups.keys()].map((id) => [id, 1]));
@@ -440,7 +441,7 @@ export function inspectQuestions(source: string): QuestionInspection {
       splitId,
       splitConflict:
         !splitEligible(node) ||
-        (splitId !== null && uuid.test(splitId) && holders.get(splitId) !== 1),
+        (splitId !== null && validQuestionId(splitId) && holders.get(splitId) !== 1),
       splitCount: splitId === null ? 0 : (splitGroups.get(splitId) ?? 0),
       id,
       kind: node.getAttribute('data-kind') ?? '',

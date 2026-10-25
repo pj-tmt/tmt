@@ -47,6 +47,8 @@ export interface ExportView {
   source: string;
   title: string;
   originalAuthor?: string;
+  creator?: Projection['creator'];
+  questions?: Projection['questions'];
   publisherAgent?: string;
   exportedAtMs: number;
   membershipHead: { revision: string; statementHash: string };
@@ -79,6 +81,8 @@ export function hex(bytes: Uint8Array): string {
 export async function prepareExport(input: ExportView): Promise<ExportBundle> {
   const view = {
     ...input,
+    ...(input.creator === undefined ? {} : { creator: structuredClone(input.creator) }),
+    ...(input.questions === undefined ? {} : { questions: structuredClone(input.questions) }),
     ...(input.shell === undefined ? {} : { shell: structuredClone(input.shell) }),
     ...(input.work === undefined ? {} : { work: structuredClone(input.work) }),
     ...(input.creationRecipient === undefined
@@ -156,6 +160,8 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
       title: view.title,
       ...(view.pageType === undefined ? {} : { pageType: view.pageType }),
       ...(view.originalAuthor === undefined ? {} : { originalAuthor: view.originalAuthor }),
+      ...(view.creator === undefined ? {} : { creator: view.creator }),
+      ...(view.questions === undefined ? {} : { questions: view.questions }),
       ...(view.publisherAgent === undefined ? {} : { publisherAgent: view.publisherAgent }),
       ...(view.creationRecipient === undefined
         ? {}

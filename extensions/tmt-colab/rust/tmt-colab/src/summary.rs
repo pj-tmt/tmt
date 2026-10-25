@@ -32,7 +32,7 @@ pub struct Summary {
     pub waiting: bool,
     /// Pending proposals, readings, answer groups and reviews, deduplicated by target ID.
     pub needs_you: u32,
-    /// The page's creation label (`meta.originalAuthor`), when it has one.
+    /// The effective creator label, when a stable creator reference is present.
     pub author: Option<String>,
     /// The page's own work, before any page it follows is resolved; `None` without work. It stays
     /// out of `json()`: the list read resolves it across pages (`work_links::Graph`).
@@ -127,8 +127,19 @@ fn fold_details(source: &mut Source, page: &str) -> Result<(SummaryProjection, O
     let conversations = discussion::project(&source.keyring, page, &snapshot, &folded);
     let (report, anchors) = crate::page_check::summary(&folded.source, &conversations.threads)
         .map_err(std::io::Error::other)?;
-    let pending =
-        crate::summary_pending::items(&report, &anchors, &conversations, &folded.status_writers);
+    let questions = crate::question_registry::answers::project(
+        folded.meta.get("questions").unwrap_or(&json!([])),
+        &conversations,
+        &folded.status_writers,
+    )
+    .map_err(|_| page::Fault::Invalid)?;
+    let pending = crate::summary_pending::items(
+        &report,
+        &anchors,
+        &conversations,
+        &folded.status_writers,
+        &questions,
+    );
     if pending.len() > crate::limits::NEEDS_YOU_ITEMS {
         return Err(std::io::Error::other("summary item budget").into());
     }
@@ -136,9 +147,12 @@ fn fold_details(source: &mut Source, page: &str) -> Result<(SummaryProjection, O
     if readings.len() > crate::limits::READING_PAGE {
         return Err(std::io::Error::other("summary reading budget").into());
     }
+    let creator = crate::question_registry::creator_agent(&folded.meta);
     let mut summary = count(
         &conversations,
-        folded.original_author.as_deref(),
+        creator
+            .as_ref()
+            .and_then(|creator| creator["name"].as_str()),
         u32::try_from(pending.len())?,
     );
     summary.work = crate::work_index::page_work(page, &folded.meta).map(Box::new);
@@ -147,7 +161,7 @@ fn fold_details(source: &mut Source, page: &str) -> Result<(SummaryProjection, O
         SummaryProjection {
             summary,
             readings,
-            needs: crate::summary_passages::needs(&report, &conversations, &pending),
+            needs: crate::summary_passages::needs(&report, &conversations, &pending, &questions),
             latest: crate::summary_passages::latest(&conversations),
         },
         title,
@@ -423,12 +437,14 @@ mod tests {
 
     fn count(view: &Conversations, author: Option<&str>) -> Summary {
         let (report, anchors) = crate::page_check::summary("", &view.threads).unwrap();
-        let pending = crate::summary_pending::items(&report, &anchors, view, &Default::default());
+        let pending =
+            crate::summary_pending::items(&report, &anchors, view, &Default::default(), &[]);
         super::count(view, author, pending.len() as u32)
     }
 
     fn comment(id: &str, deleted: bool, body: &str) -> Comment {
         Comment {
+            question_id: None,
             writer: "w".into(),
             id: id.into(),
             revision: "1".into(),

@@ -221,6 +221,8 @@ pub const SUMMARY_PROJECTION_TIMEOUT: Duration = Duration::from_millis(200);
 /// Maximum admitted proposal, question, review and reading items in one page summary.
 pub const NEEDS_YOU_ITEMS: usize = PAGE_PROPOSALS + QUESTION_PAGE + REVIEW_PAGE + READING_PAGE;
 pub const QUESTION_TITLE_POINTS: usize = 200;
+/// Display-only summary of the latest verified answer; full text stays in its comment.
+pub const QUESTION_ANSWER_POINTS: usize = 200;
 pub const QUESTION_CHOICES: usize = 20;
 pub const QUESTION_CHOICE_POINTS: usize = 200;
 /// Optional choice description, in Unicode code points.

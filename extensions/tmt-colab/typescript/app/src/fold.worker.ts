@@ -156,6 +156,8 @@ function project(doc: Y.Doc, complete = true) {
         key !== 'layout' &&
         key !== 'layoutReason' &&
         key !== 'creationRecipient' &&
+        key !== 'creator' &&
+        key !== 'questions' &&
         key !== 'pageType' &&
         key !== 'shell' &&
         key !== 'work' &&
@@ -172,6 +174,8 @@ function project(doc: Y.Doc, complete = true) {
     ...(meta.has('layoutReason') ? { layoutReason: meta.get('layoutReason') } : {}),
     ...(meta.has('publisherAgent') ? { publisherAgent: meta.get('publisherAgent') as string } : {}),
     ...(meta.has('creationRecipient') ? { creationRecipient: meta.get('creationRecipient') } : {}),
+    ...(meta.has('creator') ? { creator: meta.get('creator') } : {}),
+    ...(meta.has('questions') ? { questions: meta.get('questions') } : {}),
     ...(meta.has('attachments') ? { attachments: meta.get('attachments') } : {}),
     ...(meta.has('pageType') ? { pageType: meta.get('pageType') } : {}),
     ...(meta.has('shell') ? { shell: meta.get('shell') } : {}),

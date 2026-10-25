@@ -791,3 +791,25 @@ it('carries admitted attachments through the parent and rejects a preparation th
   await rejected;
   expect(worker.terminate).toHaveBeenCalledOnce();
 });
+
+it('keeps creator and question metadata on ordinary pages', () => {
+  const vectors = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/question-metadata-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  for (const entry of vectors.cases.filter((entry: { valid: boolean }) => entry.valid)) {
+    const metadata = { [entry.kind === 'creator' ? 'creator' : 'questions']: entry.value };
+    expect(() => validateProjection({ source: '', title: 'Page', ...metadata })).not.toThrow();
+    expect(() =>
+      validateProjection({
+        source: '',
+        title: 'Dashboard',
+        pageType: 'shell',
+        shell: { version: 1, items: {}, order: [] },
+        ...metadata,
+      }),
+    ).toThrow();
+  }
+});

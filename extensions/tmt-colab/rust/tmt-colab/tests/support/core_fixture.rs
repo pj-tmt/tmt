@@ -35,6 +35,12 @@ if [ "$1" = __fixture_ready ]; then exit 0; fi
 cd "$TMT_COLAB_TEST_ROOT" || exit 9
 if [ "$1 $2 $3" = 'identity show --json' ]; then
 printf '%s\n' "$*" >> publisher-calls
+if [ "$#" -gt 3 ]; then
+[ -f selected-identity ] || exit 9
+cat selected-identity
+if [ -f selected-identity-status ]; then exit "$(cat selected-identity-status)"; fi
+exit 0
+fi
 [ -f publisher ] || exit 9
 cat publisher
 exit 0

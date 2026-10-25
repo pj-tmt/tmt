@@ -201,3 +201,45 @@ it('a convert names the page it made in every final outcome, and nowhere else', 
   ])
     expect(() => saveResult(frame(broken), 'o'), JSON.stringify(broken)).toThrow();
 });
+
+it('keeps bounded line-specific question repairs alongside a short Save refusal', () => {
+  const findings = [
+    {
+      code: 'COLAB_QUESTION_UNREGISTERED',
+      line: 7,
+      fix: 'tmt colab question add PAGE --id UUID --agent NAME',
+    },
+  ];
+  const result = saveResult(
+    frame({
+      state: 'rejected',
+      code: findings[0].code,
+      message: 'Register the question.',
+      findings,
+    }),
+    'o',
+  );
+  expect(result.findings).toEqual(findings);
+  try {
+    settledAgainst(result);
+    throw new Error('Save must refuse');
+  } catch (error) {
+    expect(error).toBeInstanceOf(SaveRefused);
+    expect(saveMessage(error)).toContain(findings[0].fix);
+  }
+  for (const invalid of [
+    [],
+    Array(51).fill(findings[0]),
+    [{ ...findings[0], line: 0 }],
+    [{ ...findings[0], code: 'OTHER' }],
+    [{ ...findings[0], fix: 'x'.repeat(2049) }],
+    [{ ...findings[0], fix: 'line\nbreak' }],
+    [{ ...findings[0], extra: true }],
+  ])
+    expect(() =>
+      saveResult(frame({ state: 'rejected', code: findings[0].code, findings: invalid }), 'o'),
+    ).toThrow();
+  expect(() =>
+    saveResult(frame({ state: 'committed', revision: 'v1:abc', findings }), 'o'),
+  ).toThrow();
+});

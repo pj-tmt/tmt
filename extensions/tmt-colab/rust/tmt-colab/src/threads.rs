@@ -100,6 +100,8 @@ struct CommentRecord {
     device_name: String,
     at: String,
     message_id: String,
+    #[serde(default)]
+    question_id: Option<String>,
     thread: ThreadRef,
     body: String,
     #[serde(default)]
@@ -178,6 +180,7 @@ pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()
         Some("comment") => {
             // An explicit null is not an absent field.
             require(value.get("sequence").is_none_or(Value::is_string))?;
+            require(value.get("questionId").is_none_or(Value::is_string))?;
             let v: CommentRecord = serde_json::from_value(value.clone()).map_err(|_| Invalid)?;
             require(
                 root == "messages"
@@ -185,6 +188,9 @@ pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()
                     && key == format!("{}:{}", v.message_id, v.revision),
             )?;
             values::generated_id(&v.message_id)?;
+            if let Some(id) = &v.question_id {
+                require(crate::page_check::valid_question_id(id))?;
+            }
             values::generated_id(&v.thread.writer)?;
             values::generated_id(&v.thread.id)?;
             scope(
@@ -270,5 +276,34 @@ mod tests {
         }
         value["proposal"]["proposer"]["label"] = Value::String("🐈".repeat(65));
         assert!(validate_record("threads", &key, &value).is_err());
+    }
+}
+
+#[cfg(test)]
+mod question_binding_tests {
+    use super::*;
+    #[test]
+    fn ordinary_comment_question_bindings_are_closed_and_use_markup_uuid_grammar() {
+        let vector: Value = serde_json::from_str(include_str!(
+            "../../../contracts/vectors/discussion-v1.json"
+        ))
+        .unwrap();
+        let mut comment = vector["comment"].clone();
+        comment["questionId"] = serde_json::json!("00000000-0000-0000-0000-000000000001");
+        let key = format!(
+            "{}:{}",
+            comment["messageId"].as_str().unwrap(),
+            comment["revision"].as_str().unwrap()
+        );
+        assert!(validate_record("messages", &key, &comment).is_ok());
+        for id in [
+            Value::Null,
+            serde_json::json!(""),
+            serde_json::json!("not-a-question"),
+            serde_json::json!("ABCDEF00-0000-0000-0000-000000000001"),
+        ] {
+            comment["questionId"] = id;
+            assert!(validate_record("messages", &key, &comment).is_err());
+        }
     }
 }

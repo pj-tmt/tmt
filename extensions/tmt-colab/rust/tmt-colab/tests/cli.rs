@@ -2,6 +2,8 @@
 mod core_fixture;
 #[path = "support/process.rs"]
 mod fixture_process;
+#[path = "cli/question_metadata.rs"]
+mod question_metadata;
 mod support;
 use fixture_process::{FixtureCommand, OwnedChild};
 use nix::{
@@ -65,6 +67,9 @@ impl Pilot {
             reader: None,
         };
         core_fixture::link(&pilot.root, "core", core_fixture::Program::Core);
+        // Creation now requires a stable creator. Individual unavailable/unknown controls remove
+        // or replace this fixture observation explicitly; no host identity is consulted.
+        fs::write(pilot.root.join("publisher"), json!({"identity":{"name":"Fixture agent","id":"50000000-0000-1000-8000-000000000001"}}).to_string()).unwrap();
         assert!(!pilot.root.join("calls").exists());
         pilot
     }
@@ -242,7 +247,7 @@ exec {core} "$@"
     }
     fn call(&self, args: &[&str]) -> Value {
         let output = self.command().args(args).output().unwrap();
-        assert!(output.status.success(), "{:?}", output);
+        assert!(output.status.success(), "{args:?}: {output:?}");
         assert!(output.stderr.is_empty());
         assert!(!output.stdout.contains(&0x1b));
         serde_json::from_slice(&output.stdout).unwrap()
@@ -1589,7 +1594,10 @@ fn dashboard_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
                 )
                 .unwrap();
                 assert!(summary["attribution"]["timeMs"].as_u64().unwrap() > 0);
-                assert!(summary["attribution"].get("displayAgent").is_none());
+                assert_eq!(
+                    summary["attribution"]["displayAgent"],
+                    json!({"id":"50000000-0000-1000-8000-000000000001","name":"Fixture agent"})
+                );
             }
             if name == "item-move" {
                 assert_eq!(before["shell"]["order"], json!([second, first]));
@@ -3531,7 +3539,7 @@ fn an_offline_replace_combines_a_retained_own_tail_before_admitting_the_next_wri
             ContentEdit {
                 layout: None,
                 source: &second,
-                publisher_agent: None,
+                publisher_agent: Some("Fixture agent"),
                 attachments: None,
             },
             None,
@@ -5479,16 +5487,19 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
         assert_eq!(value["next"], json!([]));
     }
     let created = json(CREATION_DOOR);
-    assert!(
-        pilot
-            .call(&[
-                "page",
-                "read",
-                created["pageId"].as_str().unwrap(),
-                "--json"
-            ])
-            .get("creationRecipient")
-            .is_none()
+    let read = pilot.call(&[
+        "page",
+        "read",
+        created["pageId"].as_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(
+        read["creationRecipient"]["agentId"],
+        "50000000-0000-1000-8000-000000000001"
+    );
+    assert_eq!(
+        read["creationRecipient"]["machineId"],
+        "40000000-0000-4000-8000-000000000001"
     );
     let path = created["path"].as_str().unwrap();
     assert!(path.starts_with("/colab/p/"));
@@ -7328,7 +7339,8 @@ fn cli_publisher_label_uses_fixed_public_command_and_unknown_writes_clear_it() {
     let publisher = pilot.root.join("publisher");
     fs::write(
         &publisher,
-        json!({"identity":{"name":"publishing-agent"}}).to_string(),
+        json!({"identity":{"name":"publishing-agent","id":"50000000-0000-1000-8000-000000000001"}})
+            .to_string(),
     )
     .unwrap();
     let created = pilot.call(&[
@@ -7500,7 +7512,16 @@ fn page_create_opener_matrix_is_independent_of_terminal_and_json() {
                     ]);
                     let mut command = pilot.command_with_creation_door(CREATION_DOOR);
                     command.env_remove("CI").env("DISPLAY", ":fixture");
-                    command.args(["page", "create", "--title", "Created", "--layout", "column"]);
+                    command.args([
+                        "page",
+                        "create",
+                        "--title",
+                        "Created",
+                        "--layout",
+                        "column",
+                        "--creator",
+                        "50000000-0000-1000-8000-000000000001",
+                    ]);
                     if json_output {
                         command.arg("--json");
                     }
@@ -9351,6 +9372,7 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
         mode
     );
     fs::remove_file(pilot.root.join("core")).unwrap();
+    fs::remove_file(pilot.root.join("publisher")).unwrap();
     let invoke = |args: &[&str]| {
         Command::new(&relocated)
             .env_clear()
@@ -9527,6 +9549,26 @@ fn the_starters_question_and_reading_examples_pass_the_check_and_publish_as_writ
         "--json",
     ]);
     let id = created["pageId"].as_str().unwrap();
+    fs::write(
+        pilot.root.join("selected-identity"),
+        json!({"identity":{"id":"50000000-0000-1000-8000-000000000001","name":"Your agent name"}})
+            .to_string(),
+    )
+    .unwrap();
+    pilot.call(&[
+        "question",
+        "add",
+        id,
+        "--id",
+        "10000000-0000-4000-8000-000000000001",
+        "--agent",
+        "Your agent name",
+        "--title",
+        "Which option?",
+        "--group",
+        "20000000-0000-4000-8000-000000000001",
+        "--json",
+    ]);
     let empty = pilot.call(&["page", "read", id, "--json"]);
     let written = pilot.call(&[
         "page",
@@ -10564,7 +10606,15 @@ fn page_check_refuses_input_it_cannot_read_and_pages_it_cannot_find() {
 fn create_and_write_warn_with_the_same_findings_and_strict_commits_nothing() {
     let pilot = Pilot::new(None);
     let dirty = pilot.root.join("dirty.html");
-    fs::write(&dirty, dirty_page()).unwrap();
+    let source = format!(
+        "<p>Intro</p>\n<tmt-review data-id=\"{CHECK_ID}\"><p data-title>One?</p></tmt-review>\n<tmt-review data-id=\"{CHECK_ID}\"><p>Two?</p></tmt-review>\n"
+    );
+    let expected = vec![
+        ("review-id-duplicate".to_owned(), 2),
+        ("review-heading-missing".to_owned(), 3),
+        ("review-id-duplicate".to_owned(), 3),
+    ];
+    fs::write(&dirty, &source).unwrap();
     let dirty = dirty.to_str().unwrap();
     // --strict stops a first create before it initializes any state.
     let strict = failure_args(
@@ -10575,7 +10625,7 @@ fn create_and_write_warn_with_the_same_findings_and_strict_commits_nothing() {
         ],
     );
     assert_eq!(strict["error"]["code"], "COLAB_PAGE_CHECK");
-    assert_eq!(finding_codes(&strict["findings"]), expected_dirty());
+    assert_eq!(finding_codes(&strict["findings"]), expected);
     assert!(
         !pilot.root.join("selected/colab").exists(),
         "strict create left state"
@@ -10585,11 +10635,11 @@ fn create_and_write_warn_with_the_same_findings_and_strict_commits_nothing() {
     let created = pilot.call(&[
         "page", "create", "--title", "Warned", "--layout", "column", "--file", dirty, "--json",
     ]);
-    assert_eq!(finding_codes(&created["warnings"]), expected_dirty());
+    assert_eq!(finding_codes(&created["warnings"]), expected);
     let id = created["pageId"].as_str().unwrap();
     assert_eq!(
         pilot.call(&["page", "read", id, "--json"])["source"],
-        dirty_page()
+        source
     );
     let clean_file = pilot.root.join("clean.html");
     fs::write(&clean_file, "<p>Plain</p>").unwrap();
@@ -10615,7 +10665,7 @@ fn create_and_write_warn_with_the_same_findings_and_strict_commits_nothing() {
     assert!(human.status.success(), "{human:?}");
     let warned = String::from_utf8(human.stderr).unwrap();
     assert!(
-        warned.contains("line 3") && warned.contains("question-kind-invalid"),
+        warned.contains("line 3") && warned.contains("review-heading-missing"),
         "{warned}"
     );
 
@@ -10633,10 +10683,10 @@ fn create_and_write_warn_with_the_same_findings_and_strict_commits_nothing() {
     assert_eq!(written["warnings"], json!([]));
     let again = pilot.call(&["page", "write", id, "--file", dirty, "--json"]);
     assert_eq!(again["changed"], true);
-    assert_eq!(finding_codes(&again["warnings"]), expected_dirty());
+    assert_eq!(finding_codes(&again["warnings"]), expected);
     let unchanged = pilot.call(&["page", "write", id, "--file", dirty, "--json"]);
     assert_eq!(unchanged["changed"], false);
-    assert_eq!(finding_codes(&unchanged["warnings"]), expected_dirty());
+    assert_eq!(finding_codes(&unchanged["warnings"]), expected);
 
     // --strict refuses before the write prepares anything: the page stays as it was.
     let stable = pilot.call(&["page", "read", id, "--json"]);
