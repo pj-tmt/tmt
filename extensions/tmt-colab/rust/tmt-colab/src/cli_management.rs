@@ -798,6 +798,11 @@ fn create_page_kind(
     shell: bool,
 ) -> Result<()> {
     let title = text(args, "title");
+    let read = crate::cli_layout::read_first(crate::cli_layout::own_reference(
+        shell,
+        page_layout,
+        &source,
+    ));
     let Created {
         page_id,
         result,
@@ -835,15 +840,15 @@ fn create_page_kind(
             warnings.push(tmt_colab::settings::UNREADABLE.to_owned());
         }
     }
-    if let Some(layout) = page_layout {
-        if let Some(fields) = crate::cli_layout::json_fields(layout).as_object() {
-            result
-                .as_object_mut()
-                .expect("creation result")
-                .extend(fields.clone());
-        }
-        result["read"] = json!(crate::cli_layout::READ_FIRST);
+    if let Some(layout) = page_layout
+        && let Some(fields) = crate::cli_layout::json_fields(layout).as_object()
+    {
+        result
+            .as_object_mut()
+            .expect("creation result")
+            .extend(fields.clone());
     }
+    result["read"] = json!(read);
     let template = args.try_get_one::<String>("template").ok().flatten();
     if let Some(name) = template {
         result["template"] = json!(name);
@@ -869,13 +874,8 @@ fn create_page_kind(
         if let Some(reason) = &layout.reason {
             rows.push(("reason", tmt_cli_style::table::escape(reason)));
         }
-        rows.push((
-            "read first",
-            crate::cli_layout::READ_FIRST
-                .map(|topic| format!("tmt colab skill {topic}"))
-                .join(" · "),
-        ));
     }
+    rows.push(("read first", read.join(" · ")));
     rows.extend(reach.step().map(|step| ("pair", step.to_owned())));
     tmt_cli_style::detail::write(&mut out, terminal, "PAGE CREATED", &rows)?;
     for what in &warnings {

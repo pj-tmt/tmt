@@ -17,8 +17,34 @@ use tmt_colab_model::crypto;
 
 use crate::cli_management::{fail, resolve_page};
 
-/// The skill topics an agent reads before writing a page's markup, in the order they help.
-pub const READ_FIRST: [&str; 2] = ["layout", "components"];
+/// The skill topics every new page starts from, in the order they help.
+const READ_FIRST: [&str; 3] = ["layout", "components", "page-style"];
+
+/// The reference for a new page's own type, when it has one: the data actions of a dashboard, or
+/// the runtime for a page that draws its own frame or opts in to the bundled one.
+pub fn own_reference(
+    shell: bool,
+    layout: Option<&PageLayout>,
+    source: &str,
+) -> Option<&'static str> {
+    if shell {
+        return Some("dashboard");
+    }
+    let canvas = layout.is_some_and(|layout| layout.kind == LayoutKind::Canvas);
+    // A source too deep to parse is left to the page check; the hint just stays out.
+    (canvas || tmt_colab::export::standalone::wants_runtime(source).unwrap_or(false))
+        .then_some("runtime")
+}
+
+/// The runnable `tmt colab skill` commands to read before filling a new page: the common set,
+/// then the page type's own.
+pub fn read_first(own: Option<&str>) -> Vec<String> {
+    READ_FIRST
+        .into_iter()
+        .chain(own)
+        .map(|topic| format!("tmt colab skill {topic}"))
+        .collect()
+}
 
 const KINDS: [&str; 3] = ["column", "full", "canvas"];
 
