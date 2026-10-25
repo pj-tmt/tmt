@@ -127,8 +127,9 @@ at most 1 KiB, and the stream at most 1 MiB. Event objects have a `kind`:
 `total_bytes` (integer or null); `settled` adds Boolean `warning`; `downloaded`,
 `verifying`, `verified`, `activating`, `activated` and `failed` have no other fields.
 Counts come from actual response bytes; Actions acquisition observes the payload ZIP,
-not the catalog ZIP. Download observations are throttled, with a known final byte count
-retained. Unknown fields, versions, products, malformed or incomplete lines invalidate
+not the catalog ZIP. Download observations are throttled; the last actual byte count is
+flushed before the next phase. A missing HTTP total retains the selected release size.
+Unknown fields, versions, products, malformed or incomplete lines invalidate
 the progress report; they never authorize a second apply or prove rollback. Final
 activation/skills results still come only from the validated stdout document and exit.
 Failure to render or emit observations cannot veto a verified publication.

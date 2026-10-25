@@ -75,7 +75,8 @@ impl InstallProgress {
                 State::Running,
                 Some(Transfer {
                     received_bytes,
-                    total_bytes,
+                    total_bytes: total_bytes
+                        .or_else(|| self.transfer.and_then(|transfer| transfer.total_bytes)),
                     elapsed: self.started.elapsed(),
                 }),
                 String::new(),
@@ -317,26 +318,66 @@ pub(crate) mod child {
         written: usize,
         disabled: bool,
         last_download: Option<Instant>,
+        pending_download: Option<(u64, Option<u64>)>,
     }
     impl Sender {
         pub(crate) fn observe(&mut self, product: Product, event: ProgressEvent<'_>) {
+            self.observe_to(
+                product,
+                event,
+                &mut tmt_cli_style::stream::stderr(),
+                Instant::now(),
+            );
+        }
+        fn observe_to(
+            &mut self,
+            product: Product,
+            event: ProgressEvent<'_>,
+            output: &mut impl Write,
+            now: Instant,
+        ) {
+            if matches!(event, ProgressEvent::Selected { .. }) {
+                self.pending_download = None;
+                self.last_download = None;
+            }
             if let ProgressEvent::Download {
                 received_bytes,
                 total_bytes,
             } = event
             {
+                self.pending_download = Some((received_bytes, total_bytes));
                 if total_bytes != Some(received_bytes)
-                    && self
-                        .last_download
-                        .is_some_and(|last| last.elapsed() < Duration::from_millis(100))
+                    && self.last_download.is_some_and(|last| {
+                        now.saturating_duration_since(last) < Duration::from_millis(100)
+                    })
                 {
                     return;
                 }
-                self.last_download = Some(Instant::now());
+                self.last_download = Some(now);
+                self.pending_download = None;
+            } else {
+                self.flush_download(product, output);
             }
-            self.send(product, UpgradeProgress::from_observation(event));
+            self.send_to(product, UpgradeProgress::from_observation(event), output);
+        }
+        fn flush_download(&mut self, product: Product, output: &mut impl Write) {
+            if let Some((received_bytes, total_bytes)) = self.pending_download.take() {
+                self.send_to(
+                    product,
+                    UpgradeProgress::Download {
+                        received_bytes,
+                        total_bytes,
+                    },
+                    output,
+                );
+            }
         }
         pub(crate) fn send(&mut self, product: Product, event: UpgradeProgress) {
+            let mut output = tmt_cli_style::stream::stderr();
+            self.flush_download(product, &mut output);
+            self.send_to(product, event, &mut output);
+        }
+        fn send_to(&mut self, product: Product, event: UpgradeProgress, output: &mut impl Write) {
             if self.disabled {
                 return;
             }
@@ -352,10 +393,9 @@ pub(crate) mod child {
                 return;
             }
             self.written += bytes.len();
-            let mut stderr = tmt_cli_style::stream::stderr();
-            if stderr
+            if output
                 .write_all(&bytes)
-                .and_then(|_| stderr.flush())
+                .and_then(|_| output.flush())
                 .is_err()
             {
                 self.disabled = true;
@@ -406,6 +446,62 @@ pub(crate) mod child {
     #[cfg(test)]
     mod tests {
         use super::*;
+        #[test]
+        fn a_throttled_unknown_length_transfer_flushes_actual_final_bytes_before_downloaded() {
+            let mut sender = Sender::default();
+            let mut output = Vec::new();
+            let now = Instant::now();
+            sender.observe_to(
+                Product::Ops,
+                ProgressEvent::Selected {
+                    version: "1.2.3",
+                    archive_bytes: 4,
+                },
+                &mut output,
+                now,
+            );
+            sender.observe_to(
+                Product::Ops,
+                ProgressEvent::Download {
+                    received_bytes: 2,
+                    total_bytes: None,
+                },
+                &mut output,
+                now,
+            );
+            sender.last_download = Some(now);
+            sender.observe_to(
+                Product::Ops,
+                ProgressEvent::Download {
+                    received_bytes: 4,
+                    total_bytes: None,
+                },
+                &mut output,
+                now,
+            );
+            assert_eq!(sender.pending_download, Some((4, None)));
+            sender.observe_to(Product::Ops, ProgressEvent::Downloaded, &mut output, now);
+            let mut decoder = Decoder::default();
+            let mut observed = Vec::new();
+            decoder.feed(&output, &mut |_, event| {
+                observed.push(match event {
+                    UpgradeProgress::Selected { .. } => ("selected", 0),
+                    UpgradeProgress::Download { received_bytes, .. } => ("bytes", received_bytes),
+                    UpgradeProgress::Downloaded => ("downloaded", 0),
+                    _ => panic!("unexpected progress"),
+                });
+            });
+            assert!(decoder.complete());
+            assert_eq!(
+                observed,
+                [
+                    ("selected", 0),
+                    ("bytes", 2),
+                    ("bytes", 4),
+                    ("downloaded", 0)
+                ]
+            );
+        }
         #[test]
         fn many_valid_records_cannot_exceed_the_stream_bound() {
             let bytes = b"{\"version\":1,\"product\":\"ops\",\"event\":{\"kind\":\"verified\"}}\n";
@@ -479,7 +575,7 @@ mod presentation_tests {
                 },
                 ProgressEvent::Download {
                     received_bytes: 4,
-                    total_bytes: Some(4),
+                    total_bytes: None,
                 },
                 ProgressEvent::Downloaded,
                 ProgressEvent::Verifying,
