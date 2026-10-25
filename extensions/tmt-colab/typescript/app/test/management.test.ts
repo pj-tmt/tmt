@@ -719,3 +719,9 @@ it('projects every page policy in one pass over the signed log, exactly as one p
   expect(() => projectPolicies(pages, f.log)).toThrow();
   expect(() => project(quiet, f.log, f.boot.owner)).toThrow();
 });
+
+it('projectPolicies reads no chain for a space with no page to project', () => {
+  // An empty space, or Home after the last page's deletion is still unconfirmed, has no log to
+  // fold; nothing asks for a policy, so nothing is refused.
+  expect(projectPolicies([], []).size).toBe(0);
+});

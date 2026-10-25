@@ -231,11 +231,13 @@ export function project(
 }
 
 /** The policy of each page in `pages`, from one pass over the chain rather than one per page.
- * Each is what [`project`] reports for that page. */
+ * Each is what [`project`] reports for that page. With no page the chain is not read: an empty
+ * space, or Home while the last page's deletion is unconfirmed, may have none to give. */
 export function projectPolicies(
   pages: readonly Omit<PageInfo, 'projects'>[],
   log: readonly statement.Verified[],
 ): Map<string, Policy> {
+  if (!pages.length) return new Map();
   const fold = foldLog(log, new Set(pages.map((page) => page.pageId)));
   return new Map(pages.map((page) => [page.pageId, policyOf(page, fold)]));
 }
