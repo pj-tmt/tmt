@@ -77,7 +77,7 @@ struct Pilot {
 }
 impl Pilot {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!(
+        let root = PathBuf::from("/tmp").join(format!(
             "tmt-613-cli-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
