@@ -19,27 +19,8 @@ impl Service {
     ) -> Result<(), RemoteError> {
         // Malformed or unconfirmed submissions are not background work. The
         // current original journal is the only source of receipt authority.
-        let prepare = || -> Result<Option<(Firestore,FirestoreConfirmation,invitations::port::Snapshot)>,RemoteError> {
-            let value=crate::wire::strict_json(&doc.body).ok_or_else(wire::invalid)?;
-            let context:Context=serde_json::from_value(value["context"].clone()).map_err(|_|wire::invalid())?;
-            v2::validate_context(&context)?;
-            if context.owner!=self.machine || context.owner_key!=self.key.public()
-                || context.offer!=doc.id || context.binding.reference!=provider.identity().project.as_bytes()
-                || context.binding.owner_principal!=provider.uid().as_bytes()
-                || now>=context.expires_at_ms || doc.created_ms>=context.expires_at_ms
-                || context.issued_at_ms.saturating_sub(doc.created_ms)>crate::session::CLOCK_SKEW.as_millis() as u64
-            {return Err(wire::invalid());}
-            let submitted=v2::read_submission(&doc.body,&context,&doc.uid,doc.token.ok_or_else(wire::invalid)?)?;
-            let sink=FirestoreConfirmation::new(self.store.clone(),context.owner_key,config.clone(),provider.uid().into())?;
-            let Some(original)=sink.captured(&context)? else { return Ok(None) };
-            let digest=invitations::possession_digest(&context,&submitted.candidate,&submitted.mac,&submitted.signature)?;
-            if original.snapshot.candidate!=submitted.candidate || original.snapshot.digest!=digest {return Err(wire::invalid());}
-            // This is this serving owner's already authenticated registration;
-            // no extra machine read is added to every reconciliation pass.
-            let backend=Firestore::new(Arc::new(self.provider(config,&self.machine,false)?),context,sink.clone(),self.store.clone(),self.wake.clone())?;
-            Ok(Some((backend,sink,original.snapshot)))
-        };
-        let prepared = match prepare() {
+        let prepared = self.invitation_original(provider, config, doc, now);
+        let prepared = match prepared {
             Err(error)
                 if matches!(
                     error.code.as_str(),
@@ -53,10 +34,92 @@ impl Service {
             other => other?,
         };
         if let Some((backend, sink, snapshot)) = prepared {
-            let coordinator = Coordinator::new(backend, sink);
-            coordinator.recover(&OwnerActor::local_interactive(), &snapshot, now, io)?;
+            let current = self
+                .invitation
+                .lock()
+                .map_err(crate::store::database)?
+                .clone();
+            if let Some(current) = current.filter(|current| {
+                current.status(now).is_ok_and(|status| {
+                    status.offer.as_deref() == Some(snapshot.context.offer.as_str())
+                })
+            }) {
+                // Share the live memory owner so its status learns the same
+                // durable acknowledgment. No Store guard is held here.
+                current.observe(now, io)?;
+            } else {
+                let coordinator = Coordinator::new(backend, sink);
+                coordinator.recover(&OwnerActor::local_interactive(), &snapshot, now, io)?;
+            }
         }
         Ok(())
+    }
+
+    fn invitation_original(
+        &self,
+        provider: &Provider,
+        config: &Value,
+        doc: &super::super::EnrollmentDocument,
+        now: u64,
+    ) -> Result<
+        Option<(
+            Firestore,
+            FirestoreConfirmation,
+            invitations::port::Snapshot,
+        )>,
+        RemoteError,
+    > {
+        let value = crate::wire::strict_json(&doc.body).ok_or_else(wire::invalid)?;
+        let context: Context =
+            serde_json::from_value(value["context"].clone()).map_err(|_| wire::invalid())?;
+        v2::validate_context(&context)?;
+        if context.owner != self.machine
+            || context.owner_key != self.key.public()
+            || context.offer != doc.id
+            || context.binding.reference != provider.identity().project.as_bytes()
+            || context.binding.owner_principal != provider.uid().as_bytes()
+            || now >= context.expires_at_ms
+            || doc.created_ms >= context.expires_at_ms
+            || context.issued_at_ms.saturating_sub(doc.created_ms)
+                > crate::session::CLOCK_SKEW.as_millis() as u64
+        {
+            return Err(wire::invalid());
+        }
+        let submitted = v2::read_submission(
+            &doc.body,
+            &context,
+            &doc.uid,
+            doc.token.ok_or_else(wire::invalid)?,
+        )?;
+        let sink = FirestoreConfirmation::new(
+            self.store.clone(),
+            context.owner_key,
+            config.clone(),
+            provider.uid().into(),
+        )?;
+        let Some(original) = sink.captured(&context)? else {
+            return Ok(None);
+        };
+        let digest = invitations::possession_digest(
+            &context,
+            &submitted.candidate,
+            &submitted.mac,
+            &submitted.signature,
+        )?;
+        if original.snapshot.candidate != submitted.candidate || original.snapshot.digest != digest
+        {
+            return Err(wire::invalid());
+        }
+        // Registration for this serving owner was already authenticated; do not
+        // add a machine GET to every enrollment recovery observation.
+        let backend = Firestore::new(
+            Arc::new(self.provider(config, &self.machine, false)?),
+            context,
+            sink.clone(),
+            self.store.clone(),
+            self.wake.clone(),
+        )?;
+        Ok(Some((backend, sink, original.snapshot)))
     }
 
     pub fn join(
@@ -206,6 +269,7 @@ impl Service {
                         receipt: bytes,
                         key,
                         connection: &verified_connection,
+                        owner_name: &invite.machine_name,
                         enable_sending: sending,
                     },
                     budget,

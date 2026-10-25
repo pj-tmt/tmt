@@ -199,7 +199,16 @@ impl Service {
                     self.request_reconcile();
                     return Ok(());
                 }
-                provider.wait(&io, crate::limits::CLOUD_POLL_MIN_MS)?;
+                if let Err(error) = provider.wait(&io, crate::limits::CLOUD_POLL_MIN_MS) {
+                    let now = crate::pairing::now_ms()?;
+                    return Err(
+                        if Instant::now() >= io.deadline || now >= context.expires_at_ms {
+                            self.invitation_incomplete(&coordinator, now)?
+                        } else {
+                            error
+                        },
+                    );
+                }
             }
         })();
         let cancel = AtomicBool::new(false);

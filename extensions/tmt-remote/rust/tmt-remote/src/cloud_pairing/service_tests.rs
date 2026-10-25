@@ -12,6 +12,8 @@ use crate::{
 use std::sync::{Weak, atomic::AtomicUsize, mpsc};
 #[path = "invitation_backend_tests.rs"]
 mod invitation_backend_tests;
+#[path = "invitation_cutover_tests.rs"]
+mod invitation_cutover_tests;
 const PROJECT: &str = "demo-native-pairing";
 const TARGET: &str = "66666666-6666-4666-8666-666666666666";
 #[test]
@@ -135,6 +137,26 @@ impl Http for Ports {
         self.wire.send(request, deadline, cancel)
     }
 }
+/// Test-only lost-success control shared by the injected HTTP and real emulator
+/// adapters. It counts only accepted receipt commits, never creates their bytes.
+#[derive(Default)]
+struct ReceiptAnswers {
+    lose_next: AtomicBool,
+    commits: Mutex<BTreeMap<String, usize>>,
+}
+impl ReceiptAnswers {
+    fn accepted(&self, input: &Value) -> bool {
+        let mut receipt = false;
+        for write in input["writes"].as_array().unwrap() {
+            if write["update"]["fields"]["kind"]["stringValue"] == "receipt" {
+                let name = write["update"]["name"].as_str().unwrap().to_owned();
+                *self.commits.lock().unwrap().entry(name).or_default() += 1;
+                receipt = true;
+            }
+        }
+        receipt && self.lose_next.swap(false, Ordering::AcqRel)
+    }
+}
 struct Wire {
     docs: Mutex<BTreeMap<String, Value>>,
     commits: Mutex<Vec<Value>>,
@@ -146,6 +168,7 @@ struct Wire {
     lost_invite_delete_reply: AtomicBool,
     invite_answer: Mutex<Option<Value>>,
     deny_invite_queries: AtomicBool,
+    receipt_answers: ReceiptAnswers,
 }
 impl Wire {
     fn new() -> Self {
@@ -160,6 +183,7 @@ impl Wire {
             lost_invite_delete_reply: AtomicBool::new(false),
             invite_answer: Mutex::new(None),
             deny_invite_queries: AtomicBool::new(false),
+            receipt_answers: ReceiptAnswers::default(),
         }
     }
     fn route(&self, service: &Arc<Service>) {
@@ -405,6 +429,9 @@ impl Http for Wire {
                     .is_some_and(|n| n.contains("/invites/"))
             })
         {
+            return response(503, json!({}));
+        }
+        if self.receipt_answers.accepted(&input) {
             return response(503, json!({}));
         }
         for machine in notify {

@@ -124,6 +124,7 @@ impl Exchange {
                     receipt: bytes,
                     key,
                     connection: &self.connection,
+                    owner_name: "Owner display name",
                     enable_sending: sending,
                 },
                 budget,
@@ -172,6 +173,7 @@ fn verified_receipt_adopts_reverse_member_policy_routes_and_consumes_original_at
         let store = exchange.peer.store.lock().unwrap();
         let grant = store.grant(&exchange.connection.owner).unwrap().unwrap();
         assert_eq!(grant.permits_scope("talk"), sending);
+        assert_eq!(grant.name, "Owner display name");
         assert!(
             store
                 .cloud_connection(&exchange.connection.owner)

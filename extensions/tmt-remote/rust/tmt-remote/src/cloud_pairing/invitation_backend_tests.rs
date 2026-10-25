@@ -188,10 +188,13 @@ fn v2_route_delegation_wakes_the_existing_worker_before_publishing_the_exact_rec
             .unwrap()
             .is_empty()
     });
-    let acknowledged = coordinator
-        .observe(crate::pairing::now_ms().unwrap(), &io)
-        .unwrap();
-    assert_eq!(acknowledged.state, State::Confirmed);
+    until(|| {
+        coordinator
+            .observe(crate::pairing::now_ms().unwrap(), &io)
+            .unwrap()
+            .state
+            == State::Confirmed
+    });
     let original = sink.original(&snapshot).unwrap().unwrap();
     assert_eq!(
         attempt.observe_receipt(&io).unwrap(),

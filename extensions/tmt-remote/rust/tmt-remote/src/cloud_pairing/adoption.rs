@@ -26,6 +26,7 @@ pub struct ReceiptAdoption<'a> {
     pub receipt: &'a [u8],
     pub key: &'a ReceiptKey,
     pub connection: &'a Connection,
+    pub owner_name: &'a str,
     /// The trusted local reverse-permission answer, never a wire field.
     pub enable_sending: bool,
 }
@@ -42,6 +43,7 @@ impl Store {
             receipt,
             key,
             connection,
+            owner_name,
             enable_sending,
         } = input;
         wire::v2::validate_context(context)?;
@@ -71,6 +73,7 @@ impl Store {
             || connection.peer != candidate.machine
             || connection.config["projectId"] != project
             || connection.uid.as_bytes() != candidate.principal
+            || !canonical::device_name(owner_name)
             || connection.version != 1
             || !super::uid_ok(&connection.uid)
         {
@@ -89,7 +92,9 @@ impl Store {
         }
         let previous =
             store::cloud_connection_in(&tx, &context.owner)?.ok_or_else(wire::invalid)?;
-        if previous.owner != context.owner { return Err(wire::invalid()); }
+        if previous.owner != context.owner {
+            return Err(wire::invalid());
+        }
         // A completed original can be observed again, but never restores policy,
         // revoked routes or another member after its claim has been consumed.
         if previous.pending_submission.is_none()
@@ -126,7 +131,7 @@ impl Store {
                 public_key: context.owner_key,
                 kind: "cli".into(),
                 origin: "cli".into(),
-                name: connection.name.clone(),
+                name: owner_name.into(),
                 agents: "all".into(),
                 scopes: DEFAULT_SCOPES.map(str::to_owned).into(),
                 mode: "direct".into(),

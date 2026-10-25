@@ -12,6 +12,7 @@ struct Emulator {
     receivers: Mutex<BTreeMap<String, Weak<Service>>>,
     calls: Mutex<BTreeMap<String, usize>>,
     probes: Mutex<BTreeMap<String, usize>>,
+    receipt_answers: ReceiptAnswers,
 }
 impl Jitter for Emulator {
     fn milliseconds(&self, _: u64) -> u64 {
@@ -46,6 +47,15 @@ impl Http for Emulator {
                 {
                     targets.insert(machine.to_owned());
                 }
+            }
+            if self.receipt_answers.accepted(&input) {
+                // Only the answer is lost; the ordinary-user emulator write
+                // above has already committed the real receipt.
+                return Ok(Response {
+                    status: 503,
+                    body: b"{}".to_vec(),
+                    retry_after_ms: None,
+                });
             }
             for target in targets {
                 let receiver = self
@@ -103,6 +113,7 @@ impl Emulator {
             receivers: Mutex::new(BTreeMap::new()),
             calls: Mutex::new(BTreeMap::new()),
             probes: Mutex::new(BTreeMap::new()),
+            receipt_answers: ReceiptAnswers::default(),
         }
     }
     fn route(&self, service: &Arc<Service>) {
@@ -183,6 +194,10 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
     let (owner, owner_lease) = service(&core.root.join("owner"), &core, emulator.ports());
     let (sender, sender_lease) = service(&core.root.join("sender"), &core, emulator.ports());
     emulator.seed_owner(&owner);
+    emulator
+        .receipt_answers
+        .lose_next
+        .store(true, Ordering::Release);
     let (token_tx, token_rx) = mpsc::channel();
     let (choice_tx, choice_rx) = mpsc::channel();
     let (words_tx, words_rx) = mpsc::channel();
@@ -235,7 +250,16 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
         assert!(owner.store().unwrap().grants().unwrap().is_empty());
         assert_eq!(core.sends(), 0);
         choice_tx.send((true, false)).unwrap();
-        invite.join().unwrap().unwrap();
+        assert_eq!(
+            invite.join().unwrap().unwrap_err().code,
+            "REMOTE_CLOUD_PROVIDER_UNAVAILABLE"
+        );
+        let observation = owner.invitation_status().unwrap().unwrap();
+        assert!(observation.local_confirmation_known);
+        assert_eq!(
+            observation.state,
+            crate::invitations::service::State::ProviderOutcomeUnconfirmed
+        );
         let events = join.join().unwrap();
         assert_eq!(
             events.iter().find(|e| e["event"] == "joining").unwrap()["words"],
@@ -248,6 +272,18 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
             connected["remote"].as_str().unwrap().to_owned(),
         )
     });
+    let committed = emulator.receipt_answers.commits.lock().unwrap().clone();
+    assert_eq!(committed.values().sum::<usize>(), 1);
+    owner.reconcile().unwrap();
+    assert_eq!(
+        owner.invitation_status().unwrap().unwrap().state,
+        crate::invitations::service::State::Confirmed
+    );
+    assert_eq!(
+        *emulator.receipt_answers.commits.lock().unwrap(),
+        committed,
+        "original recovery must observe without another receipt commit"
+    );
     eprintln!(
         "ceremony wire calls (Rules installation excluded): {:?}",
         emulator.calls.lock().unwrap()
@@ -512,13 +548,22 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
             .is_none()
     );
     emulator.seed_owner(&victim);
+    let mut cancelled_code = String::new();
     let result = victim.invite_selected(PROJECT, config(), |event| {
         if event["event"] == "invite" {
+            cancelled_code = event["code"].as_str().unwrap().to_owned();
             return Err(RemoteError::new("FIXTURE_STOP", "Stop after registration."));
         }
         Ok(None)
     });
     assert_eq!(result.unwrap_err().code, "FIXTURE_STOP");
+    assert!(!cancelled_code.is_empty());
+    assert_eq!(
+        sender.join(&cancelled_code, |_| Ok(None)).unwrap_err().code,
+        "REMOTE_CLOUD_ACCESS_DENIED"
+    );
+    assert!(victim.store().unwrap().grants().unwrap().is_empty());
+
     let row = run(attacker.machine_metadata(&sender.io()), &sender.io())
         .unwrap()
         .unwrap();
