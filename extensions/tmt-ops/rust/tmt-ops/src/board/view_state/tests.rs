@@ -1482,3 +1482,49 @@ fn retained_hint_input_timing() {
     }
     fs::write(output, serde_json::to_vec_pretty(&reports).unwrap()).unwrap();
 }
+
+#[test]
+fn navigation_trace_records_the_saved_hint_at_the_view_state_tick() {
+    use crate::board::{BoardEvent, timing::Trace};
+    use std::sync::{atomic::AtomicUsize, mpsc::channel};
+    let scratch = Scratch::new();
+    write(&scratch.file(), &saved());
+    let mut state = Session::load(scratch.file(), false, false);
+    let mut app = cold();
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    assert_ne!(app.workspace.selected, saved().selected);
+    let (trace, bytes) = Trace::buffer();
+    app.navigation_trace = Some(trace);
+    let (sender, input) = channel();
+    sender.send(BoardEvent::InputClosed).unwrap();
+    crate::board::session(
+        &mut app,
+        &AtomicUsize::new(0),
+        &input,
+        |_, _, _, _| {},
+        |_, _| {},
+        |_| {},
+        |_| {},
+        |_| {},
+        |_| {},
+        || Ok(()),
+        || Ok(()),
+        Some(&mut state),
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(app.workspace.selected, saved().selected);
+    let rows: Vec<Value> = String::from_utf8(bytes.lock().unwrap().clone())
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let writes: Vec<_> = rows
+        .iter()
+        .filter(|row| row["event"] == "selection_write")
+        .collect();
+    assert_eq!(writes.len(), 1, "{writes:?}");
+    assert_eq!(writes[0]["cause"], "ViewState");
+    assert_eq!(writes[0]["previous"]["kind"], "squad");
+    assert_eq!(writes[0]["selected"]["identityId"], MEMBER);
+}

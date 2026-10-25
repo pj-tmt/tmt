@@ -737,6 +737,7 @@ pub struct App {
     pub(in crate::board) workspace_action_hits:
         RefCell<Vec<(ratatui::layout::Rect, super::workspace::OpsTarget, Choice)>>,
     pub(super) timing: Option<super::timing::Ui>,
+    pub(super) navigation_trace: Option<super::timing::Trace>,
     pub(super) checklist: Option<super::checklist::Controller>,
     pub(super) recovery: Option<super::recovery::Controller>,
     pub(super) discovery: Option<super::discovery::Controller>,
@@ -2406,6 +2407,10 @@ impl App {
         action: &Action,
         member: Option<&super::workspace::OpsTarget>,
     ) -> Effect {
+        if let Some(trace) = &self.navigation_trace {
+            trace.navigation(json!({"event":"action", "verb":format!("{:?}",action.verb),
+                "selected":self.trace_target()}));
+        }
         if self.panels_save_pending {
             return self.say("Wait for the panel save to finish.");
         }
@@ -3962,7 +3967,50 @@ impl App {
         }
     }
 
+    pub(super) fn trace_target(&self) -> Value {
+        use super::workspace::OpsTarget;
+        match self.workspace.selected.as_ref() {
+            None => Value::Null,
+            Some(OpsTarget::DigestAll) => json!({"kind":"all"}),
+            Some(OpsTarget::Pool) => json!({"kind":"pool"}),
+            Some(OpsTarget::Squad(id)) => json!({"kind":"squad", "roomId":id}),
+            Some(OpsTarget::Member {
+                room_id,
+                identity_id,
+            }) => json!({"kind":"member", "roomId":room_id, "identityId":identity_id}),
+        }
+    }
+
+    pub(in crate::board) fn trace_key(&self, phase: &str, key: KeyEvent) {
+        let Some(trace) = &self.navigation_trace else {
+            return;
+        };
+        let owner = self.workspace_input_owner();
+        let verb = if matches!(
+            owner,
+            super::shell::OpsInputOwner::List | super::shell::OpsInputOwner::Reader
+        ) {
+            event_name(key).and_then(|name| {
+                self.bindings()
+                    .get(&name)
+                    .map(|action| format!("{:?}", action.verb))
+            })
+        } else {
+            None
+        };
+        trace.navigation(json!({"event":phase, "key":format!("{:?}",key.code),
+            "modifiers":format!("{:?}",key.modifiers), "kind":format!("{:?}",key.kind),
+            "owner":format!("{owner:?}"), "verb":verb, "selected":self.trace_target()}));
+    }
+
     pub fn key(&mut self, key: KeyEvent) -> Effect {
+        self.trace_key("key_before", key);
+        let effect = self.key_effect(key);
+        self.trace_key("key_after", key);
+        effect
+    }
+
+    fn key_effect(&mut self, key: KeyEvent) -> Effect {
         self.buttons.clear_hover();
         self.meter_hover = None;
         self.header_hover = None;

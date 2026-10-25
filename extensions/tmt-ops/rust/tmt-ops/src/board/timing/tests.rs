@@ -170,3 +170,48 @@ fn worker_and_ui_records_share_one_complete_line_writer() {
         );
     }
 }
+
+#[test]
+fn navigation_is_file_only_and_off_without_a_path() {
+    for value in [None, Some(OsStr::new("")), Some(OsStr::new("0"))] {
+        assert!(Trace::navigation_destination(value).is_none());
+    }
+    let root = std::env::temp_dir().join(format!("ops-key-trace-{}", crate::id::new_v4().unwrap()));
+    std::fs::create_dir(&root).unwrap();
+    let missing = root.join("missing").join("trace");
+    assert!(Trace::navigation_destination(Some(missing.as_os_str())).is_none());
+    assert!(!missing.exists());
+    std::fs::remove_dir(root).unwrap();
+}
+
+#[test]
+fn navigation_records_end_ownership_and_action() {
+    use crate::board::app::workspace::tests::{MEMBER, ROOM, board};
+    use crate::board::workspace::{AgentsFilter, OpsTarget};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = board();
+    app.workspace.filter = AgentsFilter::Agents;
+    app.workspace.expanded.insert(ROOM.into());
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.workspace_reconcile();
+    let (trace, buffer) = Trace::buffer();
+    app.navigation_trace = Some(trace);
+    app.key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+    let rows = records(&buffer);
+    let before = rows.iter().find(|r| r["event"] == "key_before").unwrap();
+    assert_eq!(before["key"], "End");
+    assert_eq!(before["owner"], "List");
+    assert_eq!(before["verb"], "Ui(Last)");
+    assert_eq!(before["selected"]["roomId"], ROOM);
+    let after = rows.iter().find(|r| r["event"] == "key_after").unwrap();
+    assert_eq!(after["selected"]["identityId"], MEMBER);
+    assert!(
+        rows.iter()
+            .any(|r| r["event"] == "action" && r["verb"] == "Ui(Last)")
+    );
+    assert!(
+        !String::from_utf8(buffer.lock().unwrap().clone())
+            .unwrap()
+            .contains("worker")
+    );
+}

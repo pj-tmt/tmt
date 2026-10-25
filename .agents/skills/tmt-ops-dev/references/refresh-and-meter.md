@@ -200,6 +200,19 @@ stay fresh. Stale never becomes idle. Painting a label or TEAM glyph records
 core time), so ages and the stale switch repaint from held values with no row
 rescan, timer, subprocess or reader.
 
+## E2E key trace
+
+`TMT_OPS_TEST_KEY_TRACE` is test diagnostics, set only by the claude-channel
+scenario to a fixture-owned file. The board reads it once at startup; unset,
+empty or `0` stays off. It reuses the timing trace's private append-only sink
+and failure handling. Records contain keys, input owner, action verb and selected
+UUID before/after input, plus selection changes observed once around each board
+event with its variant as the cause, and `Paint` or `ViewState` for frame or saved-view
+reconciliation; no message-body, draft,
+action-argument or query fields. The case includes the trace beside its captured
+screen on failure, preserving its assertions and deadlines. This is not a user
+feature or a selection policy.
+
 ## Load timing trace
 
 `TMT_OPS_TIMING_TRACE` enables board-only diagnostic JSON Lines. Unset, empty or
