@@ -70,6 +70,29 @@ fn a_claude_stop_final_survives_a_concurrent_usage_observation() {
             })
             .unwrap()
     );
+    let committed = BindingRows(storage.connection().unwrap())
+        .session_preferences(&id)
+        .unwrap();
+    let committed_state = committed
+        .remembered
+        .as_ref()
+        .unwrap()
+        .state
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        crate::runtime::driver_state::state_usage(committed_state)
+            .unwrap()
+            .tokens,
+        12,
+        "capture preserves the newer usage writer"
+    );
+    assert_eq!(
+        crate::runtime::driver_state::state_activity(committed_state)
+            .unwrap()
+            .phase,
+        tmt_core::binding::session::activity::ActivityPhase::Idle
+    );
     let response = storage.recent_responses(&id, 10, None, 8000).unwrap();
     assert_eq!(
         response["items"].as_array().unwrap().len(),

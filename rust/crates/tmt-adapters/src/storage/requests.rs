@@ -569,15 +569,25 @@ impl RequestRecords for RequestRows<'_> {
     }
 
     fn claim_wake(&mut self, request_id: &str) -> Result<bool, Self::Error> {
-        self.0
+        let changed = self
+            .0
             .execute(
                 "UPDATE request_attempts SET wake_state = 'claimed'
                  WHERE request_id = ? AND route_kind = 'inbox' AND status = 'queued'
                    AND request_kind = 'request' AND wake_state = 'not_attempted'",
                 [request_id],
             )
-            .map(|count| count == 1)
-            .map_err(|error| classify(error, "Claim request wake"))
+            .map_err(|error| classify(error, "Claim request wake"))?
+            == 1;
+        if changed {
+            super::capture_batches::delivered(
+                self.0,
+                request_id,
+                "pending",
+                crate::request_runtime::wall_time_ms(),
+            )?;
+        }
+        Ok(changed)
     }
 
     fn settle_wake(&mut self, request_id: &str, state: WakeState) -> Result<bool, Self::Error> {
@@ -596,6 +606,9 @@ impl RequestRecords for RequestRows<'_> {
                 },
                 crate::request_runtime::wall_time_ms(),
             )?;
+        }
+        if changed && state == WakeState::Unavailable {
+            super::capture_batches::discard_unpublished_input(self.0, request_id)?;
         }
         Ok(changed)
     }
@@ -1051,6 +1064,17 @@ impl RequestRecords for RequestRows<'_> {
                 },
                 now_ms,
             )?;
+        }
+        if changed == 1 && status == AttemptStatus::Sending {
+            super::capture_batches::delivered(self.0, &attempt.request_id, "pending", now_ms)?;
+        }
+        if changed == 1
+            && matches!(
+                status,
+                AttemptStatus::Queued | AttemptStatus::DefinitelyFailed
+            )
+        {
+            super::capture_batches::discard_unpublished_input(self.0, &attempt.request_id)?;
         }
         Ok(changed == 1)
     }

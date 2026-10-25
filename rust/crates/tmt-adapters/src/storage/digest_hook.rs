@@ -54,14 +54,6 @@ impl Storage {
                     DigestOpportunity::TurnBoundary,
                     through_limit,
                 )?;
-            if let Some(batch) = &claimed {
-                super::capture_batches::reserve_checklist(
-                    transaction,
-                    identity,
-                    &batch.id,
-                    crate::request_runtime::wall_time_ms(),
-                )?;
-            }
             Ok(claimed)
         })
     }

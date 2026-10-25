@@ -357,14 +357,15 @@ legacy-counter provenance and the difference between idle and turn-boundary elig
 
 `storage::responses::capture` owns the final's activity transition under the binding/session/process
 fence, recomputing from current activity so a usage-only writer cannot discard the final or be
-reverted. Payload finals commit before optional telemetry and before Digest can block. A missing
+reverted. Claude and Codex payload finals commit before optional telemetry and before Digest can block. A missing
 payload final may use the existing consented driver reader; usage failure cannot roll back a kept
 answer. Both hooks use this capture entry point, so a normal Stop is retained once regardless of
 hook order. Interrupted and stale events retain nothing.
 
 `storage::capture_batches` stores correlation and committed ordering over existing request and
 response bodies. An admitted prompt creates the input batch; verified folded deliveries and
-Digest continuation inputs join it. Every final has its own response id; a passthrough keeps its
+Digest continuation inputs join it. Shared checklist and transport claims reserve invisible
+input positions before publication; explicit prompt confirmation joins idle inputs to their new batch. Every final has its own response id; a passthrough keeps its
 first answer's id. Later finals share the batch without replacing that answer. Session/binding
 changes never transfer batch authority. `api::timeline` reads the ordered storage projection;
 Ops owns rendering, with no inferred time/text grouping. The

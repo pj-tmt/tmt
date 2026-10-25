@@ -126,7 +126,7 @@ Each item is `{responseId, text, endedMs, provider, truncated, originalBytes, se
 - `endedMs` is Core's observed turn-end time in Unix milliseconds, not a provider
   timestamp or a delivery/completion proof. Newest means capture order; an
   internal committed sequence breaks equal timestamps and wall-clock rollback.
-- `provider` is `claude`, `codex` or `agy`. `sessionId`, when available, is the admitted
+- `provider` is `claude` or `codex`. `sessionId`, when available, is the admitted
   provider session identifier; otherwise the field is omitted, not null.
 - `requestId` is present exactly when this final is the captured answer of a
   [passthrough](request-response-v1.md#passthrough) turn: the request whose text started or joined

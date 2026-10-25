@@ -258,7 +258,14 @@ fn pending_digest_inputs_keep_order_without_claiming_delivery() {
         .unwrap();
     db.execute("INSERT INTO focus_checklists(id,identity_id,attempt_token,through_sequence,opportunity,state,created_at_ms) VALUES('pending',?1,'token',1,'turn_boundary','claimed',?2)",params![w.agent,w.now as i64]).unwrap();
     db.execute("INSERT INTO focus_items(identity_id,request_id,kind,source,created_at_ms,checklist_id) VALUES(?1,?2,'fyi','incoming',?3,'pending')",params![w.agent,request,w.now as i64]).unwrap();
-    reserve_checklist(db, &w.agent, "pending", w.now).unwrap();
+    reserve_checklist(
+        db,
+        &w.agent,
+        "pending",
+        w.now,
+        tmt_core::request::digest::DigestOpportunity::TurnBoundary,
+    )
+    .unwrap();
     assert_eq!(w.timeline(50, None)["entries"], serde_json::json!([]));
     w.end("fast final", false);
     assert_eq!(w.timeline(50, None)["entries"][0]["kind"], "final");
@@ -432,74 +439,177 @@ fn a_new_session_key_and_an_ended_session_close_the_old_batch() {
 }
 
 #[test]
-fn agy_uses_its_own_stop_payload_and_never_retains_canceled_or_subagent_text() {
-    const SESSION: &str = "01234567-89ab-4def-8123-456789abcdef";
-    for canceled in [false, true] {
+fn an_explicit_reply_and_equal_provider_final_remain_separate_and_freeze_the_reply_key() {
+    use tmt_core::request::{FinalResponse, RequestRepository, RequestRoute};
+    let mut w = World::new();
+    let request = w.input(0);
+    // An ordinary request is answered explicitly; the provider's own final is
+    // a separate body even when the two texts happen to be equal.
+    w.storage
+        .connection()
+        .unwrap()
+        .execute(
+            "DELETE FROM request_passthrough WHERE request_id=?",
+            [&request],
+        )
+        .unwrap();
+    w.end("same answer", false);
+    let transaction = w.storage.connection_mut().unwrap().transaction().unwrap();
+    let mut repository = super::super::requests::TransactionRequests(&transaction);
+    repository
+        .with_request_transaction::<_, StorageError>(|records| {
+            records.create_response(&FinalResponse {
+                request_id: request.clone(),
+                attempt_id: request.clone(),
+                route: RequestRoute::Inbox {
+                    recipient_identity_id: w.agent.clone(),
+                },
+                body: "same answer".into(),
+                body_bytes: 11,
+                submitted_at_ms: w.now + 1,
+                response_expires_at_ms: w.now + 60_000,
+            })?;
+            records.set_attention_revision(&request, 3)?;
+            Ok(())
+        })
+        .unwrap();
+    transaction.commit().unwrap();
+    let page = w.timeline(50, None);
+    assert_eq!(page["entries"][1]["kind"], "final");
+    assert_eq!(page["entries"][2]["kind"], "reply");
+    assert_eq!(page["responses"][0]["text"], "same answer");
+    assert_eq!(page["entries"][2]["text"], "same answer");
+    assert_eq!(
+        page["entries"][1]["acknowledgements"],
+        serde_json::json!([])
+    );
+    assert_eq!(
+        page["entries"][2]["acknowledgements"],
+        serde_json::json!([{"identityId":w.person,"requestId":request,"revision":3}])
+    );
+    acknowledgeable(w.storage.connection().unwrap(), &request, 4).unwrap();
+    assert_eq!(
+        w.timeline(50, None)["entries"][2]["acknowledgements"],
+        page["entries"][2]["acknowledgements"]
+    );
+}
+
+#[test]
+fn ordinary_transport_reserves_input_before_a_fast_final_and_discards_definite_failure() {
+    for published in [false, true] {
         let mut w = World::new();
-        let session = ProviderSessionId::new(SESSION).unwrap();
-        w.storage
-            .connection()
-            .unwrap()
-            .execute(
-                "UPDATE bindings SET observed_provider_session_id=?",
-                [SESSION],
+        let request = w.input(0);
+        let db = w.storage.connection().unwrap();
+        db.execute("DELETE FROM capture_entries WHERE request_id=?", [&request])
+            .unwrap();
+        delivered(db, &request, "pending", w.now).unwrap();
+        assert_eq!(w.timeline(50, None)["entries"], serde_json::json!([]));
+        w.end("fast reply", false);
+        if published {
+            delivered(
+                w.storage.connection().unwrap(),
+                &request,
+                "delivered",
+                w.now,
             )
             .unwrap();
-        let mut prefs = BindingRows(w.storage.connection().unwrap())
-            .session_preferences(&w.agent)
-            .unwrap();
-        let remembered = prefs.remembered.as_mut().unwrap();
-        remembered.harness = tmt_core::binding::session::HarnessId::new("agy").unwrap();
-        remembered.provider_session = session.clone();
-        remembered.state = crate::runtime::driver_state::after_activity(
-            None,
-            &session,
-            &w.process,
-            &Event {
-                kind: EventKind::TurnStarted,
-                turn: None,
-            },
-            None,
-            w.now,
-        );
-        BindingRows(w.storage.connection().unwrap())
-            .set_session_preferences(&w.agent, &prefs)
-            .unwrap();
-        let lifecycle = crate::drivers::agy::AgyLifecycle;
-        let mut payload = serde_json::json!({"conversationId":SESSION,"terminationReason":if canceled {"USER_CANCELED"} else {"NO_TOOL_CALL"},"executionNum":1,"fullyIdle":true,"finalModelOutput":"agy answer"});
-        let bytes = payload.to_string();
-        let turn = lifecycle.decode_turn(bytes.as_bytes()).unwrap();
-        let activity = lifecycle.decode_activity(bytes.as_bytes()).unwrap();
-        let expected = Storage::context_by_identity(&w.path, &w.agent, w.now)
-            .unwrap()
-            .unwrap();
-        assert!(
-            w.storage
-                .capture_turn_end(TurnCapture {
-                    expected: &expected,
-                    process: &w.process,
-                    activity: &activity,
-                    interrupted: turn.interrupted,
-                    response: turn.final_text.map(|text| ResponseCapture { text }),
-                    now_ms: w.now + 1,
-                    deadline: Instant::now() + Duration::from_secs(2)
-                })
-                .unwrap()
-        );
-        let page = w.timeline(50, None);
-        assert_eq!(
-            page["responses"].as_array().unwrap().len(),
-            usize::from(!canceled)
-        );
-        if !canceled {
-            assert_eq!(page["responses"][0]["text"], "agy answer");
-            assert_eq!(page["responses"][0]["provider"], "agy");
+        } else {
+            discard_unpublished_input(w.storage.connection().unwrap(), &request).unwrap();
         }
-        payload["parentConversationId"] = serde_json::json!("11111111-1111-4111-8111-111111111111");
-        assert!(
-            lifecycle
-                .decode_turn(payload.to_string().as_bytes())
-                .is_none()
-        );
+        let page = w.timeline(50, None);
+        if published {
+            assert_eq!(page["entries"][0]["kind"], "input");
+            assert_eq!(page["entries"][1]["kind"], "final");
+        } else {
+            assert_eq!(page["entries"].as_array().unwrap().len(), 1);
+            assert_eq!(page["entries"][0]["kind"], "final");
+        }
     }
+}
+
+#[test]
+fn an_idle_checklist_joins_its_explicitly_confirmed_new_prompt_instead_of_the_previous_batch() {
+    let mut w = World::new();
+    w.end("previous answer", false);
+    let request = w.input(0);
+    let db = w.storage.connection().unwrap();
+    db.execute("DELETE FROM capture_entries WHERE request_id=?", [&request])
+        .unwrap();
+    db.execute("INSERT INTO focus_checklists(id,identity_id,attempt_token,through_sequence,opportunity,state,created_at_ms) VALUES('idle',?1,'idle-token',1,'idle','claimed',?2)",params![w.agent,w.now as i64]).unwrap();
+    db.execute("INSERT INTO focus_items(identity_id,request_id,kind,source,created_at_ms,checklist_id) VALUES(?1,?2,'fyi','incoming',?3,'idle')",params![w.agent,request,w.now as i64]).unwrap();
+    reserve_checklist(
+        db,
+        &w.agent,
+        "idle",
+        w.now,
+        tmt_core::request::digest::DigestOpportunity::Idle,
+    )
+    .unwrap();
+    settle_checklist(db, "idle", Some("delivered")).unwrap();
+    // Publication settlement owns both the checklist fact and these entry links.
+    db.execute(
+        "UPDATE focus_checklists SET state='delivered' WHERE id='idle'",
+        [],
+    )
+    .unwrap();
+    assert!(
+        w.timeline(50, None)["entries"][1]
+            .get("inputBatchId")
+            .is_none()
+    );
+    let mut prefs = BindingRows(w.storage.connection().unwrap())
+        .session_preferences(&w.agent)
+        .unwrap();
+    let remembered = prefs.remembered.as_mut().unwrap();
+    remembered.state = crate::runtime::driver_state::after_activity(
+        remembered.state.as_ref(),
+        &remembered.provider_session,
+        &w.process,
+        &Event {
+            kind: EventKind::TurnStarted,
+            turn: None,
+        },
+        None,
+        w.now + 1,
+    );
+    BindingRows(w.storage.connection().unwrap())
+        .set_session_preferences(&w.agent, &prefs)
+        .unwrap();
+    let binding = BindingRows(w.storage.connection().unwrap())
+        .entry_by_id(&w.agent)
+        .unwrap()
+        .unwrap()
+        .binding
+        .unwrap();
+    begin(
+        w.storage.connection().unwrap(),
+        &binding,
+        prefs.remembered.as_ref().unwrap(),
+        None,
+        w.now + 1,
+    )
+    .unwrap();
+    // The canonical confirmation owner returns the exact newly confirmed IDs.
+    let confirmed = super::super::requests::confirm_digest_by_prompt(
+        w.storage.connection().unwrap(),
+        &w.agent,
+        &format!("delivered {request}"),
+        w.now + 1,
+    )
+    .unwrap();
+    assert_eq!(confirmed, 1);
+    w.now += 2;
+    w.end("next answer", false);
+    let page = w.timeline(50, None);
+    assert_eq!(page["entries"][0]["kind"], "final");
+    assert_eq!(page["entries"][1]["kind"], "input");
+    assert_eq!(page["entries"][2]["kind"], "final");
+    assert_ne!(
+        page["entries"][0]["inputBatchId"],
+        page["entries"][1]["inputBatchId"]
+    );
+    assert_eq!(
+        page["entries"][1]["inputBatchId"],
+        page["entries"][2]["inputBatchId"]
+    );
 }

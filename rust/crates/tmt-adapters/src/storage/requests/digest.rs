@@ -253,6 +253,7 @@ pub(super) fn create_checklist(
     opportunity: tmt_core::request::digest::DigestOpportunity,
     sealed_count: u64,
 ) -> Result<(), StorageError> {
+    let input_opportunity = opportunity;
     let opportunity = match opportunity {
         tmt_core::request::digest::DigestOpportunity::Idle => "idle",
         tmt_core::request::digest::DigestOpportunity::TurnBoundary => "turn_boundary",
@@ -264,6 +265,13 @@ pub(super) fn create_checklist(
         AND EXISTS(SELECT 1 FROM request_attempts a WHERE a.request_id=focus_items.request_id AND a.retention_expires_at_ms>?4)",
         params![b.id,b.identity_id,checked_i64(b.through_sequence,"Digest snapshot sequence")?,checked_now(now,"Digest claim clock")?])
         .map_err(|e|classify(e,"Seal digest checklist membership"))?;
+    super::super::capture_batches::reserve_checklist(
+        db,
+        &b.identity_id,
+        &b.id,
+        now,
+        input_opportunity,
+    )?;
     Ok(())
 }
 pub(super) fn settle(
@@ -468,15 +476,27 @@ pub(super) fn confirm_by_prompt(
     prompt: &str,
     now: u64,
 ) -> Result<u64, StorageError> {
-    db.execute(
-        &format!(
-            "UPDATE focus_checklists AS c SET confirmed_at_ms=?3 WHERE {UNCONFIRMED}
-             AND EXISTS (SELECT 1 FROM focus_items i WHERE i.checklist_id=c.id AND instr(?2, i.request_id)>0)"
-        ),
-        params![identity, prompt, checked_now(now, "Digest confirmation clock")?],
-    )
-    .map(|changed| changed as u64)
-    .map_err(|e| classify(e, "Confirm a typed digest checklist"))
+    let ids = {
+        let mut statement=db.prepare(&format!("UPDATE focus_checklists AS c SET confirmed_at_ms=?3 WHERE {UNCONFIRMED}
+            AND EXISTS(SELECT 1 FROM focus_items i WHERE i.checklist_id=c.id AND instr(?2,i.request_id)>0) RETURNING id"))
+            .map_err(|e|classify(e,"Prepare typed checklist confirmation"))?;
+        statement
+            .query_map(
+                params![
+                    identity,
+                    prompt,
+                    checked_now(now, "Digest confirmation clock")?
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| classify(e, "Confirm typed checklist"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| classify(e, "Read confirmed checklists"))?
+    };
+    for id in &ids {
+        super::super::capture_batches::confirm_checklist_batch(db, identity, id)?;
+    }
+    Ok(ids.len() as u64)
 }
 
 pub(super) fn has_item(

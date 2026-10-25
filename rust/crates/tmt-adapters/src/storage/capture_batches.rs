@@ -105,6 +105,7 @@ pub(super) fn prompt_inputs(
         .map_err(|e| classify(e, "Decode admitted prompt inputs"))?;
     for request in ids {
         input(db, identity, batch, &request, "incoming", "delivered", now)?;
+        db.execute("UPDATE capture_entries SET batch_id=?3 WHERE identity_id=?1 AND request_id=?2 AND source='incoming' AND kind='input'",params![identity,request,batch]).map_err(|e|classify(e,"Join the admitted input batch"))?;
     }
     Ok(())
 }
@@ -117,6 +118,12 @@ pub(super) fn delivered(
     delivery: &str,
     now: u64,
 ) -> Result<(), StorageError> {
+    if delivery != "pending" {
+        let changed=db.execute("UPDATE capture_entries SET delivery=?2 WHERE request_id=?1 AND kind='input' AND source='incoming' AND checklist_id IS NULL AND delivery='pending'",params![request,delivery]).map_err(|e|classify(e,"Publish reserved input"))?;
+        if changed != 0 {
+            return Ok(());
+        }
+    }
     let identity: Option<String> = db
         .query_row(
             "SELECT recipient_identity_id FROM request_attempts WHERE request_id=?",
@@ -238,9 +245,18 @@ pub(super) fn reserve_checklist(
     identity: &str,
     checklist: &str,
     now: u64,
+    opportunity: tmt_core::request::digest::DigestOpportunity,
 ) -> Result<(), StorageError> {
-    let Some(batch) = current(db, identity)? else {
+    if BindingRows(db)
+        .entry_by_id(identity)?
+        .and_then(|entry| entry.binding)
+        .is_none()
+    {
         return Ok(());
+    }
+    let batch = match opportunity {
+        tmt_core::request::digest::DigestOpportunity::TurnBoundary => current(db, identity)?,
+        tmt_core::request::digest::DigestOpportunity::Idle => None,
     };
     db.execute("INSERT INTO capture_entries(identity_id,batch_id,kind,request_id,source,delivery,checklist_id,created_ms)
         SELECT ?1,?2,'input',request_id,source,'pending',?3,?4 FROM focus_items WHERE checklist_id=?3 ORDER BY sequence
@@ -271,3 +287,23 @@ pub(super) fn settle_checklist(
 
 #[cfg(test)]
 mod tests;
+
+pub(super) fn confirm_checklist_batch(
+    db: &Connection,
+    identity: &str,
+    checklist: &str,
+) -> Result<(), StorageError> {
+    let Some(batch) = current(db, identity)? else {
+        return Ok(());
+    };
+    db.execute("UPDATE capture_entries SET batch_id=?3 WHERE identity_id=?1 AND checklist_id=?2 AND kind='input'",params![identity,checklist,batch]).map_err(|e|classify(e,"Join the confirmed checklist batch"))?;
+    Ok(())
+}
+
+pub(super) fn discard_unpublished_input(
+    db: &Connection,
+    request: &str,
+) -> Result<(), StorageError> {
+    db.execute("DELETE FROM capture_entries WHERE request_id=?1 AND kind='input' AND source='incoming' AND checklist_id IS NULL AND delivery='pending'",[request]).map_err(|e|classify(e,"Discard definitely unpublished input"))?;
+    Ok(())
+}
