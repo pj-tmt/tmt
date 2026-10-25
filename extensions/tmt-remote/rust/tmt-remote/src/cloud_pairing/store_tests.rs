@@ -6,6 +6,54 @@ use crate::{
 use ed25519_dalek::Signer;
 
 #[test]
+fn route_acknowledgement_matches_member_incarnation_and_capability_hash() {
+    let (root, serving, candidate) = world();
+    let mut store = Store::open(&serving).unwrap();
+    store
+        .confirm_cloud_peer(&candidate, &[8; 32], 1, false, None)
+        .unwrap();
+    let peer = &candidate.candidate.peer;
+    let grant = store.grant(peer).unwrap().unwrap();
+    store.revoke(peer).unwrap();
+    let old_member = store.cloud_route_changes().unwrap().remove(0);
+    assert!(old_member.revoked);
+    store.confirm_member_grant(&grant).unwrap();
+    let new_member = store.cloud_route_changes().unwrap().remove(0);
+    assert_ne!(old_member.member, new_member.member);
+    assert_eq!(old_member.generation, new_member.generation);
+    assert_eq!(old_member.reroute_hash, new_member.reroute_hash);
+    // Route fields are otherwise unchanged: only the captured member can stop
+    // this late completion from clearing the new incarnation's pending work.
+    store.cloud_route_published(&old_member).unwrap();
+    assert_eq!(
+        store.cloud_route_changes().unwrap().as_slice(),
+        std::slice::from_ref(&new_member)
+    );
+    assert!(!store.cloud_routes_acknowledged(&[old_member]).unwrap());
+    store
+        .connection
+        .execute(
+            "UPDATE cloud_peers SET reroute_hash=?1 WHERE project=?2 AND client_id=?3",
+            rusqlite::params![[9u8; 32].as_slice(), candidate.challenge.project, peer],
+        )
+        .unwrap();
+    let new_hash = store.cloud_route_changes().unwrap().remove(0);
+    assert_eq!(new_hash.member, new_member.member);
+    store.cloud_route_published(&new_member).unwrap();
+    assert_eq!(
+        store.cloud_route_changes().unwrap().as_slice(),
+        std::slice::from_ref(&new_hash)
+    );
+    assert!(!store.cloud_routes_acknowledged(&[new_member]).unwrap());
+    store.cloud_route_published(&new_hash).unwrap();
+    assert!(store.cloud_route_changes().unwrap().is_empty());
+    assert!(store.cloud_routes_acknowledged(&[new_hash]).unwrap());
+    drop(store);
+    drop(serving);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn reciprocal_join_persists_default_off_grant_and_never_resets_later_policy() {
     let root = std::env::temp_dir().join(format!("tmt-reciprocal-{}", uuid_v4().unwrap()));
     let layout = Layout::open(&root).unwrap();
@@ -14,6 +62,7 @@ fn reciprocal_join_persists_default_off_grant_and_never_resets_later_policy() {
     let machine = store.machine().unwrap();
     let (challenge, _, _) = tests::fixture();
     let connection = Connection {
+        pending_submission: None,
         version: 1,
         name: "paired".into(),
         owner: challenge.owner.clone(),
@@ -137,6 +186,7 @@ fn owner_confirmation_commits_reverse_capability_with_the_grant_and_keeps_it_aft
     let (root, serving, candidate) = world();
     let mut store = Store::open(&serving).unwrap();
     let record = Connection {
+        pending_submission: None,
         version: 1,
         name: "reverse".into(),
         owner: candidate.candidate.peer.clone(),

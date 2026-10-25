@@ -6,12 +6,25 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+pub mod confirmation;
+pub mod invitation;
 mod provider;
 mod store;
+mod submissions;
 pub mod wire;
-pub use provider::{EnrollmentDocument, EnrollmentProof};
+pub use provider::{EnrollmentDocument, EnrollmentProof, InviteGate};
 pub mod service;
 pub use store::{Connection, PairReceipt, RouteChange};
+pub use submissions::PendingSubmission;
+
+impl crate::invitations::port::NativeSigner for crate::state::MachineKey {
+    fn public_key(&self) -> [u8; 32] {
+        self.public()
+    }
+    fn sign_possession(&self, message: &[u8]) -> [u8; 64] {
+        self.sign(message)
+    }
+}
 
 #[cfg(test)]
 mod store_tests;

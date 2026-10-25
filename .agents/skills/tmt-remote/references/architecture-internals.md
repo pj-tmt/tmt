@@ -434,7 +434,14 @@ comparison/confirmation, cancellation, revocation, disconnect and original-deadl
 recovery. The `port` exchanges bounded metadata; it cannot supply consent or create a grant.
 `store::StoreConfirmation` reuses the serving Store and the members owner check. It calls
 `members::confirm_member_grant_in` and saves the actual persisted grant receipt in the
-existing `management_receipts` journal in one IMMEDIATE transaction. No code or response
+existing `management_receipts` journal in one IMMEDIATE transaction.
+Its transaction-local extension admits backend effects without another opener or nested
+transaction; persisted policy is serialized afterward and backend receipt fields cannot
+replace it. Separate owner sending consent uses the existing member-policy writer after
+the initial off/direct sink in that transaction. A definite sink refusal requires proven
+rollback; uncertain commit/rollback remains original-only. The candidate proof owner uses
+the narrow native signing port and checks returned possession signatures; it never
+extracts `MachineKey` material. No code or response
 key is saved. Original receipt bytes remain immutable across later member-policy changes.
 Publication happens afterward,
 with durable attempt claims and unchanged-snapshot acknowledgments; uncertain writes are

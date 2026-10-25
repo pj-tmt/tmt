@@ -378,6 +378,7 @@ impl Service {
                     }
                     let candidate = verified.candidate();
                     let reciprocal = Connection {
+                        pending_submission: None,
                         version: 1,
                         name: self.connection_name(&candidate.peer, &candidate.name)?,
                         owner: candidate.peer.clone(),
@@ -504,6 +505,7 @@ impl Service {
         };
         let raw = submission.encode(&invite.challenge.offer)?;
         let mut connection = Connection {
+            pending_submission: None,
             version: 1,
             name: name.clone(),
             owner: invite.challenge.owner.clone(),
@@ -902,6 +904,7 @@ impl Service {
                 name = grant.client_id.clone();
             }
             self.store()?.save_cloud_connection(&Connection {
+                pending_submission: None,
                 version: 1,
                 name,
                 owner: grant.client_id.clone(),
@@ -948,6 +951,7 @@ impl Service {
                         io,
                     )?;
                     let mut record = previous.unwrap_or(Connection {
+                        pending_submission: None,
                         version: 1,
                         name: grant.client_id.clone(),
                         owner: grant.client_id.clone(),

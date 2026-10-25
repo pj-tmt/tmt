@@ -21,6 +21,14 @@ pub struct StoreConfirmation {
     owner_key: [u8; 32],
 }
 
+/// Transaction-local backend additions. The common owner serializes persisted
+/// policy first and refuses replacement of any of its receipt fields.
+#[derive(Default)]
+pub(crate) struct ConfirmationExtras {
+    pub receipt_fields: serde_json::Map<String, serde_json::Value>,
+    pub routes: Option<Vec<u8>>,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
@@ -33,6 +41,33 @@ impl StoreConfirmation {
     pub fn new(store: Arc<Mutex<Store>>, owner_key: [u8; 32]) -> Result<Self> {
         crate::crypto::public_key(&owner_key).map_err(|_| invalid())?;
         Ok(Self { store, owner_key })
+    }
+    /// A backend observes the original publication in this journal, never a
+    /// parallel provider-state cache. It cannot create or replace confirmation.
+    pub(crate) fn captured(&self, context: &Context) -> Result<Option<Committed>> {
+        let store = self.lock()?;
+        let saved: Option<String> = store
+            .connection
+            .query_row(
+                "SELECT outcome FROM management_receipts WHERE id=?1 AND operation=?2",
+                params![context.offer, OPERATION],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(database)?;
+        let Some(saved) = saved else {
+            return Ok(None);
+        };
+        let record: Record = serde_json::from_str(&saved).map_err(database)?;
+        if record.original.snapshot.context != *context {
+            return Err(conflict());
+        }
+        original(
+            &store.connection,
+            &record.original.snapshot,
+            pairing::now_ms()?,
+        )
+        .map(|record| record.map(|record| record.original))
     }
     fn lock(&self) -> Result<MutexGuard<'_, Store>> {
         self.store.lock().map_err(|_| {
@@ -73,23 +108,19 @@ impl StoreConfirmation {
         members::authorize_owner_in(connection, &owner, now)?;
         Ok(())
     }
-}
-
-impl ConfirmationSink for StoreConfirmation {
-    fn authorize(&self, context: &Context, actor: &OwnerActor) -> Result<()> {
-        self.owner(&self.lock()?.connection, context, actor, pairing::now_ms()?)
-    }
-
-    fn confirm(&self, input: Confirmation<'_>) -> Result<Committed> {
-        input.io.check().map_err(|_| invalid())?;
-        let mut store = self.lock()?;
-        let tx = store
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(database)?;
+    fn confirm_in(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        input: Confirmation<'_>,
+        extend: impl FnOnce(
+            &rusqlite::Transaction<'_>,
+            &Confirmation<'_>,
+            &members::Member,
+        ) -> Result<ConfirmationExtras>,
+    ) -> Result<Committed> {
         let now = pairing::now_ms()?;
         let snapshot = input.snapshot;
-        self.owner(&tx, &snapshot.context, input.actor, now)?;
+        self.owner(tx, &snapshot.context, input.actor, now)?;
         // Only the shared coordinator holds this verified, frozen candidate.
         // Recheck it after acquiring the writer, not just before waiting on it.
         if input.verified.context() != &snapshot.context
@@ -100,7 +131,7 @@ impl ConfirmationSink for StoreConfirmation {
         {
             return Err(invalid());
         }
-        if let Some(record) = original(&tx, snapshot, now)? {
+        if let Some(record) = original(tx, snapshot, now)? {
             return Ok(record.original);
         }
         let grant = input.grant;
@@ -143,16 +174,40 @@ impl ConfirmationSink for StoreConfirmation {
             ));
         }
         input.io.check().map_err(|_| invalid())?;
-        let member = members::confirm_member_grant_in(&tx, grant)?;
-        let persisted = grant_in(&tx, &grant.client_id)?.ok_or_else(invalid)?;
-        let receipt = pairing::receipt(&persisted, &snapshot.context.owner, &self.owner_key)?;
+        let member = members::confirm_member_grant_in(tx, grant)?;
+        if input.sending {
+            members::sending_for_client(tx, &grant.client_id, true)?.ok_or_else(invalid)?;
+        }
+        let extras = extend(tx, &input, &member)?;
+        let persisted = grant_in(tx, &grant.client_id)?.ok_or_else(invalid)?;
+        let mut receipt: serde_json::Value = serde_json::from_slice(&pairing::receipt(
+            &persisted,
+            &snapshot.context.owner,
+            &self.owner_key,
+        )?)
+        .map_err(database)?;
+        let fields = receipt.as_object_mut().ok_or_else(invalid)?;
+        for (name, value) in extras.receipt_fields {
+            if fields.insert(name, value).is_some() {
+                return Err(invalid());
+            }
+        }
+        let receipt = serde_json::to_vec(&receipt).map_err(database)?;
+        if receipt.len() > crate::limits::CLOUD_ENROLLMENT_BYTES
+            || extras
+                .routes
+                .as_ref()
+                .is_some_and(|bytes| bytes.len() > crate::limits::CLOUD_ENROLLMENT_BYTES)
+        {
+            return Err(invalid());
+        }
         let committed = Committed {
             snapshot: snapshot.clone(),
             member: member.member_id,
             grant_revision: persisted.revision,
             proof: input.receipt_key.prove(&receipt)?,
             receipt,
-            routes: None,
+            routes: extras.routes,
         };
         let record = Record {
             original: committed.clone(),
@@ -178,8 +233,52 @@ impl ConfirmationSink for StoreConfirmation {
         if pairing::now_ms()? >= snapshot.context.expires_at_ms {
             return Err(invalid());
         }
-        tx.commit().map_err(database)?;
         Ok(committed)
+    }
+    pub(crate) fn confirm_with(
+        &self,
+        input: Confirmation<'_>,
+        extend: impl FnOnce(
+            &rusqlite::Transaction<'_>,
+            &Confirmation<'_>,
+            &members::Member,
+        ) -> Result<ConfirmationExtras>,
+    ) -> std::result::Result<Committed, ConfirmationFailure> {
+        input
+            .io
+            .check()
+            .map_err(|_| ConfirmationFailure::Refused(invalid()))?;
+        let mut store = self.lock().map_err(ConfirmationFailure::Refused)?;
+        let tx = store
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database)
+            .map_err(ConfirmationFailure::Refused)?;
+        match self.confirm_in(&tx, input, extend) {
+            Ok(committed) => {
+                tx.commit()
+                    .map_err(database)
+                    .map_err(ConfirmationFailure::CommitUnknown)?;
+                Ok(committed)
+            }
+            Err(error) => match tx.rollback() {
+                Ok(()) => Err(ConfirmationFailure::Refused(error)),
+                Err(_) => Err(ConfirmationFailure::CommitUnknown(error)),
+            },
+        }
+    }
+}
+
+impl ConfirmationSink for StoreConfirmation {
+    fn authorize(&self, context: &Context, actor: &OwnerActor) -> Result<()> {
+        self.owner(&self.lock()?.connection, context, actor, pairing::now_ms()?)
+    }
+
+    fn confirm(
+        &self,
+        input: Confirmation<'_>,
+    ) -> std::result::Result<Committed, ConfirmationFailure> {
+        self.confirm_with(input, |_, _, _| Ok(ConfirmationExtras::default()))
     }
 
     fn original(&self, snapshot: &Snapshot) -> Result<Option<Committed>> {

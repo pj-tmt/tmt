@@ -25,6 +25,8 @@ pub struct Connection {
     pub descriptor: Vec<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reroute_token: Option<[u8; 32]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_submission: Option<super::PendingSubmission>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,7 +37,8 @@ pub struct PairReceipt {
 
 /// Desired owner-written route. A batch for one peer must be published in one
 /// provider commit so retiring old uid rows and creating the new row are atomic.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RouteChange {
     pub project: String,
     pub uid: String,
@@ -43,6 +46,8 @@ pub struct RouteChange {
     pub generation: u64,
     pub revoked: bool,
     pub reroute_hash: Option<[u8; 32]>,
+    /// Local acknowledgement fence only; never encoded into a provider row.
+    pub member: Option<String>,
 }
 
 fn refused() -> RemoteError {
@@ -128,8 +133,8 @@ impl Store {
         .map_err(database)?;
         tx.execute("INSERT INTO cloud_owner_projects(project,config) VALUES(?1,?2) ON CONFLICT(project) DO NOTHING",
             params![project, connection.config.to_string()]).map_err(database)?;
-        tx.execute("INSERT INTO cloud_remotes(name,owner,connection) VALUES(?1,?2,?3) ON CONFLICT(name) DO UPDATE SET connection=excluded.connection",
-            params![connection.name, connection.owner, serde_json::to_string(connection).map_err(database)?]).map_err(database)?;
+        let connection = super::submissions::retain_pending_in(&tx, connection)?;
+        write_cloud_connection_in(&tx, &connection)?;
         tx.commit().map_err(database)?;
         Ok(grant)
     }
@@ -138,31 +143,23 @@ impl Store {
         Ok(())
     }
     pub fn cloud_connection(&self, name: &str) -> Result<Option<Connection>, RemoteError> {
-        self.connection
-            .query_row(
-                "SELECT connection FROM cloud_remotes WHERE name=?1 OR owner=?1 ORDER BY name=?1 DESC LIMIT 1",
-                [name],
-                |r| r.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(database)?
-            .map(|s| {
-                let record: Connection = serde_json::from_str(&s).map_err(database)?;
-                if record.version != 1 { return Err(super::wire::upgrade()); }
-                Ok(record)
-            })
-            .transpose()
+        cloud_connection_in(&self.connection, name)
     }
-    pub fn save_cloud_connection(&self, record: &Connection) -> Result<(), RemoteError> {
-        if let Some(old) = self.cloud_connection(&record.name)?
+    pub fn save_cloud_connection(&mut self, record: &Connection) -> Result<(), RemoteError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database)?;
+        if let Some(old) = cloud_connection_in(&tx, &record.name)?
             && (old.owner != record.owner
                 || old.owner_key != record.owner_key
                 || old.peer != record.peer)
         {
             return Err(refused());
         }
-        self.connection.execute("INSERT INTO cloud_remotes VALUES(?1,?2,?3) ON CONFLICT(name) DO UPDATE SET connection=excluded.connection",params![record.name,record.owner,serde_json::to_string(record).map_err(database)?]).map_err(database)?;
-        Ok(())
+        let record = super::submissions::retain_pending_in(&tx, record)?;
+        write_cloud_connection_in(&tx, &record)?;
+        tx.commit().map_err(database)
     }
     pub(crate) fn cloud_connections(&self) -> Result<Vec<Connection>, RemoteError> {
         let mut statement = self
@@ -374,17 +371,6 @@ impl Store {
         let bytes = serde_json::to_vec(&receipt).map_err(database)?;
         let proof = crypto::server_proof(response_key, &bytes).map_err(|_| refused())?;
         tx.execute(
-            "INSERT INTO cloud_peers(project,client_id,owner,owner_key,generation,reroute_hash) VALUES(?1,?2,?3,?4,1,?5)",
-            params![
-                challenge.project,
-                candidate.peer,
-                challenge.owner,
-                challenge.owner_key.as_slice(),
-                hash.as_slice()
-            ],
-        )
-        .map_err(database)?;
-        tx.execute(
             "INSERT INTO cloud_pair_receipts VALUES(?1,?2,?3,?4,?5,?6)",
             params![
                 challenge.offer,
@@ -396,64 +382,30 @@ impl Store {
             ],
         )
         .map_err(database)?;
-        tx.execute(
-            "INSERT INTO cloud_peer_routes VALUES(?1,?2,?3,1,0,1)",
-            params![challenge.project, candidate.uid, candidate.peer],
-        )
-        .map_err(database)?;
-        if let Some(mut record) = reciprocal {
-            if record.version != 1
-                || !record.request.is_empty()
-                || record.owner != candidate.peer
-                || record.owner_key != candidate.public_key
-                || record.peer != challenge.owner
-                || !record.confirmed
-                || record.config["projectId"] != challenge.project
-                || !super::uid_ok(&record.uid)
-                || !crate::remote_catalog::name_ok(&record.name)
-            {
-                return Err(refused());
-            }
-            let old: Option<String> = tx
-                .query_row(
-                    "SELECT connection FROM cloud_remotes WHERE owner=?1",
-                    [&record.owner],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(database)?;
-            if let Some(old) = old {
-                let old: Connection = serde_json::from_str(&old).map_err(database)?;
-                if old.owner_key != record.owner_key || old.peer != record.peer {
-                    return Err(refused());
-                }
-            } else {
-                let occupied: bool = tx
-                    .query_row(
-                        "SELECT EXISTS(SELECT 1 FROM cloud_remotes WHERE name=?1)",
-                        [&record.name],
-                        |row| row.get(0),
-                    )
-                    .map_err(database)?;
-                if occupied {
-                    record.name = record.owner.clone();
-                }
+        let reciprocal = reciprocal
+            .map(|mut record| {
                 record.reroute_token = Some(super::wire::reverse_reroute_token(
                     response_key,
                     challenge,
                     &candidate.peer,
                 )?);
-                tx.execute(
-                    "INSERT INTO cloud_remotes VALUES(?1,?2,?3)",
-                    params![
-                        record.name,
-                        record.owner,
-                        serde_json::to_string(&record).map_err(database)?
-                    ],
-                )
-                .map_err(database)?;
-            }
-        }
+                Ok::<_, RemoteError>(record)
+            })
+            .transpose()?;
+        adopt_cloud_routes_in(
+            &tx,
+            PeerRoutes {
+                project: &challenge.project,
+                owner: &challenge.owner,
+                owner_key: &challenge.owner_key,
+                peer: &candidate.peer,
+                peer_key: &candidate.public_key,
+                uid: &candidate.uid,
+                reroute_hash: &hash,
+                reciprocal,
+            },
+            RouteAdoption::FirstGrant,
+        )?;
         crate::audit::append(
             &tx,
             crate::audit::AuditMetadata {
@@ -527,14 +479,13 @@ impl Store {
         {
             return Err(refused());
         }
-        // A uid belonging to another native peer cannot be overwritten, even
-        // when revoked: its history is needed for complete revocation cleanup.
-        let occupied: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM cloud_peer_routes WHERE project=?1 AND uid=?2 AND client_id!=?3)", params![project,request.uid,request.peer], |r| r.get(0)).map_err(database)?;
-        if occupied {
-            return Err(refused());
-        }
-        tx.execute("UPDATE cloud_peer_routes SET revoked=1,generation=?3,pending=1 WHERE project=?1 AND client_id=?2 AND revoked=0", params![project,request.peer,request.generation as i64]).map_err(database)?;
-        tx.execute("INSERT INTO cloud_peer_routes VALUES(?1,?2,?3,?4,0,1) ON CONFLICT(project,uid) DO UPDATE SET generation=excluded.generation,revoked=0,pending=1", params![project,request.uid,request.peer,request.generation as i64]).map_err(database)?;
+        replace_uid_route_in(
+            &tx,
+            project,
+            &request.peer,
+            &request.uid,
+            request.generation,
+        )?;
         tx.execute(
             "UPDATE cloud_peers SET generation=?3 WHERE project=?1 AND client_id=?2",
             params![project, request.peer, request.generation as i64],
@@ -545,15 +496,194 @@ impl Store {
 
     /// Pending desired rows survive provider failure and process restart.
     pub fn cloud_route_changes(&self) -> Result<Vec<RouteChange>, RemoteError> {
-        self.connection.prepare("SELECT r.project,r.uid,r.client_id,r.generation,r.revoked,p.reroute_hash FROM cloud_peer_routes r JOIN cloud_peers p ON p.project=r.project AND p.client_id=r.client_id WHERE r.pending=1 ORDER BY r.project,r.client_id,r.uid")
-            .and_then(|mut query| query.query_map([], |r| Ok(RouteChange {
-                project:r.get(0)?, uid:r.get(1)?, peer:r.get(2)?, generation:r.get::<_, i64>(3)? as u64, revoked:r.get(4)?, reroute_hash:r.get(5)?,
-            }))?.collect()).map_err(database)
+        cloud_route_changes_in(&self.connection)
     }
 
     pub fn cloud_route_published(&self, row: &RouteChange) -> Result<(), RemoteError> {
-        self.connection.execute("UPDATE cloud_peer_routes SET pending=0 WHERE project=?1 AND uid=?2 AND client_id=?3 AND generation=?4 AND revoked=?5",
-            params![row.project,row.uid,row.peer,row.generation as i64,row.revoked]).map_err(database)?;
+        self.connection.execute("UPDATE cloud_peer_routes SET pending=0 WHERE project=?1 AND uid=?2 AND client_id=?3 AND generation=?4 AND revoked=?5 AND EXISTS(SELECT 1 FROM cloud_peers p LEFT JOIN member_machines m ON m.remote_id=p.owner AND m.client_id=p.client_id WHERE p.project=?1 AND p.client_id=?3 AND p.reroute_hash IS ?6 AND m.member_id IS ?7)",
+            params![row.project,row.uid,row.peer,row.generation as i64,row.revoked,row.reroute_hash.as_ref().map(|hash|hash.as_slice()),row.member]).map_err(database)?;
         Ok(())
     }
+
+    /// Observation of the existing desired-route owner's exact acknowledged
+    /// snapshot, without provider I/O or another publication ledger.
+    pub fn cloud_routes_acknowledged(&self, rows: &[RouteChange]) -> Result<bool, RemoteError> {
+        if rows.is_empty() {
+            return Ok(false);
+        }
+        for row in rows {
+            let matches: bool = self.connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM cloud_peer_routes r JOIN cloud_peers p ON p.project=r.project AND p.client_id=r.client_id LEFT JOIN member_machines m ON m.remote_id=p.owner AND m.client_id=r.client_id WHERE r.project=?1 AND r.uid=?2 AND r.client_id=?3 AND r.generation=?4 AND r.revoked=?5 AND r.pending=0 AND p.reroute_hash IS ?6 AND m.member_id IS ?7)",
+                params![row.project,row.uid,row.peer,row.generation as i64,row.revoked,row.reroute_hash.as_ref().map(|hash|hash.as_slice()),row.member],
+                |r|r.get(0),
+            ).map_err(database)?;
+            if !matches {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+}
+
+pub(crate) fn cloud_route_changes_in(
+    connection: &rusqlite::Connection,
+) -> Result<Vec<RouteChange>, RemoteError> {
+    connection.prepare("SELECT r.project,r.uid,r.client_id,r.generation,r.revoked,p.reroute_hash,m.member_id FROM cloud_peer_routes r JOIN cloud_peers p ON p.project=r.project AND p.client_id=r.client_id LEFT JOIN member_machines m ON m.remote_id=p.owner AND m.client_id=r.client_id WHERE r.pending=1 ORDER BY r.project,r.client_id,r.uid")
+            .and_then(|mut query| query.query_map([], |r| Ok(RouteChange {
+                project:r.get(0)?, uid:r.get(1)?, peer:r.get(2)?, generation:r.get::<_, i64>(3)? as u64, revoked:r.get(4)?, reroute_hash:r.get(5)?,
+                member:r.get(6)?,
+            }))?.collect()).map_err(database)
+}
+
+pub(crate) enum RouteAdoption {
+    FirstGrant,
+    NewMember,
+}
+
+/// Verified confirmation routing only. Member/grant policy is written by its
+/// existing sink before this function, in the same transaction.
+pub(crate) struct PeerRoutes<'a> {
+    pub project: &'a str,
+    pub owner: &'a str,
+    pub owner_key: &'a [u8; 32],
+    pub peer: &'a str,
+    pub peer_key: &'a [u8; 32],
+    pub uid: &'a str,
+    pub reroute_hash: &'a [u8; 32],
+    pub reciprocal: Option<Connection>,
+}
+
+pub(crate) fn adopt_cloud_routes_in(
+    tx: &rusqlite::Transaction<'_>,
+    route: PeerRoutes<'_>,
+    adoption: RouteAdoption,
+) -> Result<(), RemoteError> {
+    let grant = grant_in(tx, route.peer)?
+        .filter(|g| !g.disabled && g.public_key == *route.peer_key)
+        .ok_or_else(refused)?;
+    if crate::store::machine_in(tx)?.id != route.owner
+        || grant.kind != "cli"
+        || grant.origin != "cli"
+        || !crate::deploy_run::project_ok(route.project)
+        || !super::uid_ok(route.uid)
+    {
+        return Err(refused());
+    }
+    let previous: Option<(String, Vec<u8>, i64)> = tx
+        .query_row(
+            "SELECT owner,owner_key,generation FROM cloud_peers WHERE project=?1 AND client_id=?2",
+            params![route.project, route.peer],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(database)?;
+    let generation = if let Some((owner, key, generation)) = previous {
+        if matches!(adoption, RouteAdoption::FirstGrant)
+            || owner != route.owner
+            || key.as_slice() != route.owner_key.as_slice()
+        {
+            return Err(refused());
+        }
+        generation
+    } else {
+        1
+    };
+    tx.execute("INSERT INTO cloud_peers(project,client_id,owner,owner_key,generation,reroute_hash) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(project,client_id) DO UPDATE SET reroute_hash=excluded.reroute_hash",
+        params![route.project,route.peer,route.owner,route.owner_key.as_slice(),generation,route.reroute_hash.as_slice()]).map_err(database)?;
+    replace_uid_route_in(tx, route.project, route.peer, route.uid, generation as u64)?;
+    if let Some(mut record) = route.reciprocal {
+        if record.version != 1
+            || !record.request.is_empty()
+            || record.owner != route.peer
+            || record.owner_key != *route.peer_key
+            || record.peer != route.owner
+            || !record.confirmed
+            || record.config["projectId"] != route.project
+            || !super::uid_ok(&record.uid)
+            || !crate::remote_catalog::name_ok(&record.name)
+            || record.reroute_token.is_none()
+        {
+            return Err(refused());
+        }
+        let old: Option<String> = tx
+            .query_row(
+                "SELECT connection FROM cloud_remotes WHERE owner=?1",
+                [route.peer],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(database)?;
+        if let Some(old) = old {
+            let old: Connection = serde_json::from_str(&old).map_err(database)?;
+            if old.peer != record.peer {
+                return Err(refused());
+            }
+            if matches!(adoption, RouteAdoption::FirstGrant) {
+                if old.owner_key != record.owner_key {
+                    return Err(refused());
+                }
+                return Ok(());
+            }
+            record.name = old.name;
+            if old.owner_key == record.owner_key && old.config == record.config {
+                record.descriptor = old.descriptor;
+            }
+            // This retained submission marks existing inviter provenance for uid
+            // maintenance; a new reverse connection must not erase that fact.
+            record.request = old.request;
+            record.pending_submission = old.pending_submission;
+        } else {
+            let occupied: bool = tx
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM cloud_remotes WHERE name=?1)",
+                    [&record.name],
+                    |r| r.get(0),
+                )
+                .map_err(database)?;
+            if occupied {
+                record.name = record.owner.clone();
+            }
+        }
+        write_cloud_connection_in(tx, &record)?;
+    }
+    Ok(())
+}
+
+fn replace_uid_route_in(
+    tx: &rusqlite::Transaction<'_>,
+    project: &str,
+    peer: &str,
+    uid: &str,
+    generation: u64,
+) -> Result<(), RemoteError> {
+    // Even revoked UIDs retain their peer binding for complete cleanup.
+    let occupied: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM cloud_peer_routes WHERE project=?1 AND uid=?2 AND client_id!=?3)", params![project,uid,peer], |r|r.get(0)).map_err(database)?;
+    if occupied {
+        return Err(refused());
+    }
+    tx.execute("UPDATE cloud_peer_routes SET revoked=1,generation=?3,pending=1 WHERE project=?1 AND client_id=?2 AND revoked=0", params![project,peer,generation as i64]).map_err(database)?;
+    tx.execute("INSERT INTO cloud_peer_routes VALUES(?1,?2,?3,?4,0,1) ON CONFLICT(project,uid) DO UPDATE SET generation=excluded.generation,revoked=0,pending=1", params![project,uid,peer,generation as i64]).map_err(database)?;
+    Ok(())
+}
+
+pub(crate) fn cloud_connection_in(
+    connection: &rusqlite::Connection,
+    name: &str,
+) -> Result<Option<Connection>, RemoteError> {
+    connection.query_row(
+        "SELECT connection FROM cloud_remotes WHERE name=?1 OR owner=?1 ORDER BY name=?1 DESC LIMIT 1", [name],
+        |r|r.get::<_,String>(0),
+    ).optional().map_err(database)?.map(|saved| {
+        let record: Connection = serde_json::from_str(&saved).map_err(database)?;
+        if record.version != 1 { return Err(super::wire::upgrade()); }
+        Ok(record)
+    }).transpose()
+}
+pub(crate) fn write_cloud_connection_in(
+    connection: &rusqlite::Connection,
+    record: &Connection,
+) -> Result<(), RemoteError> {
+    connection.execute("INSERT INTO cloud_remotes(name,owner,connection) VALUES(?1,?2,?3) ON CONFLICT(name) DO UPDATE SET connection=excluded.connection",
+        params![record.name,record.owner,serde_json::to_string(record).map_err(database)?]).map_err(database)?;
+    Ok(())
 }

@@ -2549,13 +2549,21 @@ action over that snapshot and comparison result; terminal and paired-owner-brows
 confirmation share the same transition owner. A normal user, mismatched comparison,
 JSON/agent command, cancellation, disconnect, expiry or revoked owner cannot supply that
 consent. Competing confirmations result in at most one committed receipt and first
-member-machine association. New invitation confirmation refuses talk/hold/agents options and persists M1's grant with sending off and direct delivery, whose stored values form the receipt; if I5 later offers an owner-browser default-no sending choice, it must apply member sending-on after that sink in the same transaction and serialize the result.
+member-machine association. New invitation confirmation refuses talk/hold/agents policy
+options and first persists M1's grant with sending off and direct delivery. Keep the
+separate default-no sending question for both candidate and reverse confirmation. An
+explicit owner yes applies sending-on through the member-policy writer immediately after
+the sink in the same transaction; no answer or EOF leaves sending off. The receipt always
+serializes the resulting persisted grant. This choice is not an enrollment policy field.
 
 Durable confirmation opens one existing Store IMMEDIATE transaction, rechecks authority
 and the frozen invitation/candidate, inserts the member and first grant through the M1
 transaction sink, and saves the immutable original receipt and policy in that same
 transaction. No second database opener, nested transaction or backend-owned grant writer
 is introduced. Provider publication happens after the transaction and outside its lock.
+A typed definite refusal requires proven no-commit or successful rollback and terminates
+the offer. A commit or rollback uncertainty remains original-journal observation-only;
+it cannot be reported as a definite refusal or retried as another confirmation.
 Publication observations and acknowledgments apply only to the unchanged captured
 snapshot; sending-off retains receiving routes, while revoke/removal uses the existing
 route cleanup owner.
@@ -2566,6 +2574,18 @@ candidate can recover only its original receipt through the retained proof and o
 expiry, not a regenerated grant or current mutable policy. Receipt proof authenticates
 its exact stored bytes. Failed or unknown provider cleanup does not turn logical expiry
 or revocation into authority.
+
+For Firestore version 2, confirmation captures the route/member/token snapshot in that
+transaction. Route publication only wakes the existing desired-route worker for an
+immediate flush and reports unconfirmed. Observation uses its existing Store publication
+acknowledgment, matching the captured member, generation, token hash and revocation; a
+late acknowledgment cannot cover a renewal. There is no new Rules read, publication
+ledger, poller or coordinator route retry. The existing idempotent desired-route flush
+remains the sole route writer. Receipt publication waits for that acknowledgment only
+within the offer's original remaining window. A route acknowledgment after expiry cannot
+publish a receipt: status remains locally confirmed with an undelivered receipt. Owner
+guidance is to remove this member and send a new invite; expiry alone does not roll back
+the locally committed member or grant.
 
 Old short-lived Firestore codes retain their original decoder, owner/native binding,
 remaining expiry and original-receipt recovery. They cannot be interpreted by another

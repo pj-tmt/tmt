@@ -19,6 +19,7 @@ mod tests;
 /// Public routing context. These exact bytes are signed/MAC-bound; neither a
 /// display alias nor a provider principal establishes native authority.
 #[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BackendBinding {
     pub backend: String,
     pub reference: Vec<u8>,
@@ -26,6 +27,7 @@ pub struct BackendBinding {
 }
 
 #[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Context {
     pub binding: BackendBinding,
     pub owner: String,
@@ -37,6 +39,7 @@ pub struct Context {
 }
 
 #[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Candidate {
     pub machine: String,
     pub public_key: [u8; 32],

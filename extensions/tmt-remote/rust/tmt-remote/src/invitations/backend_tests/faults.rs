@@ -5,6 +5,7 @@ use super::*;
 struct Faults {
     lose_offer: bool,
     lose_candidate: bool,
+    hold_routes_ack: bool,
     wrong_receipt_principal: bool,
     bad_receipt_proof: bool,
     wrong_candidate_principal: bool,
@@ -97,6 +98,9 @@ impl<B: Backend> Backend for Controlled<B> {
         {
             sink.ledger.lock().unwrap().revoked = true;
         }
+        if publication.exchange.part == Part::Routes && faults.hold_routes_ack {
+            return Ok(WriteOutcome::Unconfirmed);
+        }
         Ok(result)
     }
     fn observe(
@@ -109,6 +113,9 @@ impl<B: Backend> Backend for Controlled<B> {
             .unwrap()
             .owner_deadlines
             .push(io.deadline);
+        if exchange.part == Part::Routes && self.faults.lock().unwrap().hold_routes_ack {
+            return Ok(None);
+        }
         let mut row = self.inner.observe(exchange, io)?;
         if exchange.part == Part::Receipt
             && let Some(row) = row.as_mut()
@@ -223,8 +230,8 @@ fn faults<B: ScenarioBackend>(make: impl Fn() -> B) {
     );
     assert_eq!(sink.ledger.lock().unwrap().grants, 0);
 
-    // A writer may fail before commit, or commit and lose its answer. In both
-    // cases another confirm is forbidden; only the exact original is read.
+    // A definite no-commit refusal ends the offer. A lost commit answer stays
+    // observation-only; neither outcome permits another confirmation attempt.
     for after_commit in [false, true] {
         let backend = Controlled::new(make());
         let sink = Sink::default();
@@ -241,7 +248,11 @@ fn faults<B: ScenarioBackend>(make: impl Fn() -> B) {
         );
         assert_eq!(
             coordinator.status(3).unwrap().state,
-            State::ProviderOutcomeUnconfirmed
+            if after_commit {
+                State::ProviderOutcomeUnconfirmed
+            } else {
+                State::Refused
+            }
         );
         assert!(coordinator.deliver(&owner, 3).is_err());
         assert!(
@@ -264,6 +275,11 @@ fn faults<B: ScenarioBackend>(make: impl Fn() -> B) {
         assert_eq!(
             coordinator.status(6).unwrap().local_confirmation_known,
             after_commit
+        );
+        assert_eq!(
+            sink.ledger.lock().unwrap().last_original_read.is_some(),
+            after_commit,
+            "definite refusal entered uncertain-commit recovery"
         );
     }
 
@@ -301,4 +317,65 @@ fn append_log_lost_originals_authentication_and_stale_acknowledgements() {
     let (mut context, _, _) = super::super::tests::fixture();
     context.binding.backend = "append-log".into();
     faults(|| AppendLog::new(context.binding.clone()));
+}
+
+fn late_route_ack<B: ScenarioBackend>(make: impl Fn() -> B) {
+    let stopped = AtomicBool::new(false);
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(10),
+        cancelled: &stopped,
+    };
+    let backend = Controlled::new(make());
+    backend.faults.lock().unwrap().hold_routes_ack = true;
+    let sink = Sink {
+        routes: true,
+        ..Sink::default()
+    };
+    let (coordinator, _, snapshot) = pending(backend.clone(), sink.clone(), &io);
+    let confirmed = coordinator
+        .confirm(
+            &OwnerActor::local_interactive(),
+            &snapshot,
+            true,
+            &PairingPolicy::default(),
+            3,
+            &io,
+        )
+        .unwrap();
+    assert!(confirmed.local_confirmation_known);
+    assert_eq!(confirmed.state, State::ProviderOutcomeUnconfirmed);
+    assert_eq!(backend.writes(Part::Routes), 1);
+    assert_eq!(backend.writes(Part::Receipt), 0);
+    coordinator.observe(4, &io).unwrap();
+    assert_eq!(
+        backend.writes(Part::Routes),
+        1,
+        "pending route acknowledgement caused a coordinator retry"
+    );
+    backend.faults.lock().unwrap().hold_routes_ack = false;
+    let expired = coordinator
+        .observe(snapshot.context.expires_at_ms, &io)
+        .unwrap();
+    assert!(
+        expired.local_confirmation_known,
+        "expired delivery was reported as a rollback"
+    );
+    assert_eq!(expired.state, State::ProviderOutcomeUnconfirmed);
+    assert_eq!(expired.expires_at_ms, Some(snapshot.context.expires_at_ms));
+    assert_eq!(
+        backend.writes(Part::Receipt),
+        0,
+        "late route ACK published an expired receipt"
+    );
+    assert_eq!(sink.ledger.lock().unwrap().grants, 1);
+}
+#[test]
+fn mailbox_route_ack_after_expiry_never_publishes_receipt_or_reports_rollback() {
+    let (context, _, _) = super::super::tests::fixture();
+    late_route_ack(|| Mailbox::new(context.binding.clone()));
+}
+#[test]
+fn append_log_route_ack_after_expiry_never_publishes_receipt_or_reports_rollback() {
+    let (context, _, _) = super::super::tests::fixture();
+    late_route_ack(|| AppendLog::new(context.binding.clone()));
 }

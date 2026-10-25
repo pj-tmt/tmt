@@ -1,16 +1,19 @@
 //! Two actual consumers of the same typed port: a key-addressed mailbox and an
 //! append-only log with delayed visibility. Neither manufactures owner consent.
 mod backends;
+mod claims;
 mod confirmation;
 mod durable;
 mod durable_fixture;
 mod durable_refusals;
 mod faults;
+mod firestore;
 mod incarnation;
 mod lifecycle;
 mod policies;
 mod reinvite;
 mod submissions;
+mod transactions;
 use super::{
     port::*,
     service::{Coordinator, State, gate},

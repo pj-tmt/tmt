@@ -827,6 +827,7 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
         );
     }
     let rows = [RouteChange {
+        member: None,
         project: PROJECT.into(),
         uid: child_provider.uid().into(),
         peer: child.machine.clone(),
@@ -872,6 +873,7 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
     next[0].revoked = true;
     next[0].generation = 2;
     next.push(RouteChange {
+        member: None,
         project: PROJECT.into(),
         uid: stranger_provider.uid().into(),
         peer: child.machine.clone(),

@@ -10,6 +10,8 @@ use crate::{
     state::Serving,
 };
 use std::sync::{Weak, atomic::AtomicUsize, mpsc};
+#[path = "invitation_backend_tests.rs"]
+mod invitation_backend_tests;
 const PROJECT: &str = "demo-native-pairing";
 const TARGET: &str = "66666666-6666-4666-8666-666666666666";
 #[test]
@@ -620,6 +622,7 @@ fn public_core_message_reaches_the_serving_owner_and_a_lost_answer_stays_uncerta
         .store()
         .unwrap()
         .save_cloud_connection(&Connection {
+            pending_submission: None,
             version: 1,
             name: "peer".into(),
             owner: owner.machine.clone(),
@@ -831,6 +834,7 @@ fn inviter_registration_and_atomic_route_update_preserve_the_native_pin() {
     let owner_provider = owner.provider(&config(), &owner.machine, true).unwrap();
     let rows = [
         RouteChange {
+            member: None,
             project: PROJECT.into(),
             uid: provider.uid().into(),
             peer: child.machine.clone(),
@@ -839,6 +843,7 @@ fn inviter_registration_and_atomic_route_update_preserve_the_native_pin() {
             reroute_hash: None,
         },
         RouteChange {
+            member: None,
             project: PROJECT.into(),
             uid: "renewed-uid".into(),
             peer: child.machine.clone(),
@@ -898,6 +903,7 @@ fn inviter_registration_and_atomic_route_update_preserve_the_native_pin() {
     );
     let cap: Vec<_> = (0..crate::limits::CLOUD_ROUTE_BATCH)
         .map(|i| RouteChange {
+            member: None,
             project: PROJECT.into(),
             uid: format!("old-{i}"),
             peer: child.machine.clone(),
@@ -999,6 +1005,7 @@ fn route_batch_refuses_two_live_uids_without_a_provider_write() {
     let rows: Vec<_> = ["old-uid", "new-uid"]
         .into_iter()
         .map(|uid| RouteChange {
+            member: None,
             project: PROJECT.into(),
             uid: uid.into(),
             peer: TARGET.into(),
