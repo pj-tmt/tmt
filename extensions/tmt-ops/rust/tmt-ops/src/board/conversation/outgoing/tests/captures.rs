@@ -5,7 +5,7 @@ use crate::board::{activity::Phase, app::workspace::tests::MEMBER};
 use crate::look::Look;
 use unicode_width::UnicodeWidthStr;
 
-pub(in crate::board) const SCENES: [&str; 15] = [
+pub(in crate::board) const SCENES: [&str; 20] = [
     "sent-sending",
     "sent-working",
     "sent-earlier",
@@ -21,6 +21,11 @@ pub(in crate::board) const SCENES: [&str; 15] = [
     "chat-reconciled",
     "chat-reconciled-restored",
     "chat-unbound",
+    "chat-linked-different-text",
+    "chat-unlinked-identical",
+    "chat-distinct-identical",
+    "chat-pruned-final",
+    "chat-joined-answer",
 ];
 const QUESTION: &str = "Can you rerun the picker tests on main?";
 const REPLY: &str = "Yes. All 14 picker tests pass on main 6899a9f2.";
@@ -33,6 +38,38 @@ pub(in crate::board) fn fixture(scene: &str, look: Look, now_ms: u64) -> App {
         let app = window_capture_fixture(scene.ends_with("-restored"), look, now_ms);
         observe_pane(&app, vec![window_item(now_ms)]);
         return app;
+    }
+    if matches!(
+        scene,
+        "chat-linked-different-text"
+            | "chat-unlinked-identical"
+            | "chat-distinct-identical"
+            | "chat-pruned-final"
+    ) {
+        let app = window_capture_fixture(true, look, now_ms);
+        let mut item = window_item(now_ms);
+        match scene {
+            "chat-linked-different-text" => {
+                item.text = "The pane retained a different-length copy of this same final.".into();
+                item.truncated = true;
+                item.ended_ms -= 90_000;
+            }
+            "chat-unlinked-identical" => item.response_id = None,
+            "chat-distinct-identical" => item.response_id = Some("rsp_independent".into()),
+            _ => {}
+        }
+        observe_pane(
+            &app,
+            if scene == "chat-pruned-final" {
+                vec![]
+            } else {
+                vec![item]
+            },
+        );
+        return app;
+    }
+    if scene == "chat-joined-answer" {
+        return joined_capture_fixture(true, look, now_ms);
     }
     if scene.starts_with("chat-") {
         return chat_fixture(scene, look, now_ms);
@@ -203,6 +240,11 @@ pub(in crate::board) fn expected(scene: &str) -> &'static str {
         "chat-bound" => "the agent has started on it",
         "chat-unbound" => "session not bound",
         "chat-answered" | "chat-reconciled" | "chat-reconciled-restored" => "turn output",
+        "chat-linked-different-text"
+        | "chat-unlinked-identical"
+        | "chat-distinct-identical"
+        | "chat-pruned-final"
+        | "chat-joined-answer" => "turn output",
         "chat-truncated" => "turn output · truncated",
         "chat-no-answer" => "No turn output was captured for this message.",
         "chat-fallback" => "Sent as a request:",
@@ -493,7 +535,7 @@ fn window_capture_fixture(restored: bool, look: Look, now: u64) -> App {
             "requestId":REQUEST,"preparedAtMs":now-42_000,"text":QUESTION,"truncated":false,
             "mode":"passthrough","messageState":{"state":"delivered","reason":{"text":"delivered"}},
             "passthrough":{"state":"answered","boundAtMs":now-40_000,"settledAtMs":now-1_000,
-                "answer":{"text":REPLY,"truncated":false,"provider":"codex","endedMs":now-1_000}}
+                "answer":{"responseId":"rsp_linked","text":REPLY,"truncated":false,"provider":"codex","endedMs":now-1_000}}
         })]),
     );
     board_frame(&app, 160, 51);
@@ -569,6 +611,7 @@ fn one_provider_final_with_different_observation_and_settlement_clocks_paints_on
 
 fn window_item(now: u64) -> crate::board::recent_responses::Item {
     crate::board::recent_responses::Item {
+        response_id: Some("rsp_linked".into()),
         text: REPLY.into(),
         provider: "codex".into(),
         ended_ms: now - 1_007,
@@ -595,12 +638,17 @@ fn another_turn_with_identical_text_is_kept_and_ambiguous_observations_are_not_h
             let app = window_capture_fixture(restored, Look::default(), NOW);
             let matched = window_item(NOW);
             let mut earlier = matched.clone();
+            earlier.response_id = Some("rsp_earlier".into());
             earlier.ended_ms = NOW - 50_000; // A different turn, outside the capture window.
             observe_pane(&app, vec![earlier, matched.clone()]);
             let frame = board_frame(&app, 160, 51);
             assert_eq!(frame.matches(REPLY).count(), 2, "{frame}");
             assert_eq!(frame.matches("pane output").count(), 1, "{frame}");
-            observe_pane(&app, vec![matched.clone(), matched]);
+            let mut independent = matched.clone();
+            independent.response_id = Some("rsp_independent".into());
+            let mut another = independent.clone();
+            another.response_id = Some("rsp_another".into());
+            observe_pane(&app, vec![independent, another]);
             let frame = board_frame(&app, 160, 51);
             assert_eq!(
                 frame.matches(REPLY).count(),
@@ -613,75 +661,31 @@ fn another_turn_with_identical_text_is_kept_and_ambiguous_observations_are_not_h
 }
 
 #[test]
-fn capture_pairing_requires_exact_metadata_and_valid_bounds_without_a_tolerance() {
+fn capture_pairing_uses_only_the_response_id_even_when_text_or_clocks_differ() {
     const NOW: u64 = 1_791_600_000_160;
     crate::status::with_now_ms(NOW, || {
-        let app = window_capture_fixture(true, Look::default(), NOW);
-        let mut state = app.conversation.borrow_mut();
-        let session = state.sessions.values_mut().next().unwrap();
-        let matching = window_item(NOW);
-        assert_eq!(
-            session.captured_outputs(std::slice::from_ref(&matching)),
-            [0]
-        );
-        let mut other = matching.clone();
-        other.provider = "claude".into();
-        assert!(session.captured_outputs(&[other]).is_empty());
-        let mut other = matching.clone();
-        other.text.push(' ');
-        assert!(session.captured_outputs(&[other]).is_empty());
-        let mut other = matching.clone();
-        other.truncated = true;
-        assert!(session.captured_outputs(&[other]).is_empty());
-        for at in [NOW - 40_000, NOW - 1_000] {
-            let mut edge = matching.clone();
-            edge.ended_ms = at;
-            assert_eq!(session.captured_outputs(&[edge]), [0]);
-        }
-        for at in [NOW - 40_001, NOW - 999] {
-            let mut outside = matching.clone();
-            outside.ended_ms = at;
-            assert!(session.captured_outputs(&[outside]).is_empty());
-        }
-        let original = session.sent[0].capture.clone().unwrap();
-        for (bound, settled) in [
-            (None, Some(NOW - 1_000)),
-            (Some(NOW - 40_000), None),
-            (Some(NOW), Some(NOW - 1_000)),
-        ] {
-            let mut changed = original.clone();
-            let crate::board::row_detail::Capture::Answered {
-                bound_ms,
-                settled_ms,
-                ..
-            } = &mut changed
-            else {
-                unreachable!()
-            };
-            *bound_ms = bound;
-            *settled_ms = settled;
-            session.sent[0].capture = Some(changed);
+        for restored in [false, true] {
+            let app = window_capture_fixture(restored, Look::default(), NOW);
+            let state = app.conversation.borrow();
+            let session = state.sessions.values().next().unwrap();
+            let mut matching = window_item(NOW);
+            matching.text = "longer provider final than the captured prefix".into();
+            matching.provider = "claude".into();
+            matching.truncated = true;
+            matching.ended_ms = NOW - 90_000;
+            assert_eq!(
+                session.captured_outputs(std::slice::from_ref(&matching)),
+                [0]
+            );
+            matching.response_id = Some("rsp_distinct".into());
             assert!(
                 session
                     .captured_outputs(std::slice::from_ref(&matching))
                     .is_empty()
             );
-            let mut exact = matching.clone();
-            exact.ended_ms = NOW - 1_000;
-            assert_eq!(
-                session.captured_outputs(&[exact]),
-                [0],
-                "legacy exact observation still works"
-            );
+            matching.response_id = None;
+            assert!(session.captured_outputs(&[matching]).is_empty());
         }
-        session.sent[0].capture = Some(original);
-        let mut second = session.sent[0].clone();
-        second.request = "another-request".into();
-        session.sent.push(second);
-        assert!(
-            session.captured_outputs(&[matching]).is_empty(),
-            "two owned captures cannot claim one observation"
-        );
     });
 }
 
@@ -1335,4 +1339,94 @@ fn live_and_restored_sent_chips_copy_original_tokens_without_the_painted_gutter(
             }
         }
     });
+}
+
+#[test]
+fn unlinked_identical_answers_never_match_by_text_or_time() {
+    const NOW: u64 = 1_791_600_000_160;
+    crate::status::with_now_ms(NOW, || {
+        for restored in [false, true] {
+            let app = window_capture_fixture(restored, Look::default(), NOW);
+            let mut unlinked = window_item(NOW);
+            unlinked.response_id = None;
+            observe_pane(&app, vec![unlinked]);
+            let frame = board_frame(&app, 160, 51);
+            assert_eq!(frame.matches(REPLY).count(), 2, "{frame}");
+        }
+    });
+}
+
+#[test]
+fn joined_requests_render_the_linked_answer_once_in_live_and_restored_history() {
+    const NOW: u64 = 1_791_600_000_160;
+    crate::status::with_now_ms(NOW, || {
+        for restored in [false, true] {
+            let app = joined_capture_fixture(restored, Look::default(), NOW);
+            let frame = board_frame(&app, 160, 51);
+            assert_eq!(frame.matches(REPLY).count(), 1, "{frame}");
+            assert!(
+                frame.contains("Another message in the same turn"),
+                "{frame}"
+            );
+        }
+    });
+}
+
+#[test]
+fn a_pruned_recent_final_keeps_the_requests_linked_answer_once() {
+    const NOW: u64 = 1_791_600_000_160;
+    crate::status::with_now_ms(NOW, || {
+        for restored in [false, true] {
+            let app = window_capture_fixture(restored, Look::default(), NOW);
+            observe_pane(&app, vec![]);
+            let frame = board_frame(&app, 160, 51);
+            assert_eq!(frame.matches(REPLY).count(), 1, "{frame}");
+            assert!(!frame.contains("pane output"), "{frame}");
+        }
+    });
+}
+
+fn joined_capture_fixture(restored: bool, look: Look, now: u64) -> App {
+    let mut app = window_capture_fixture(restored, look, now);
+    let owner = app.conversation_finals().unwrap();
+    let packets = [REQUEST, "joined-request"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, request)| {
+            let text = if index == 0 {
+                QUESTION
+            } else {
+                "Another message in the same turn"
+            };
+            json!({
+                "requestId": request,
+                "preparedAtMs": now - 42_000 + index as u64,
+                "text": text,
+                "truncated": false,
+                "mode": "passthrough",
+                "messageState": {"state": "delivered", "reason": {"text": "delivered"}},
+                "passthrough": {
+                    "state": "answered",
+                    "boundAtMs": now - 40_000,
+                    "settledAtMs": now - 1_000,
+                    "answer": {
+                        "responseId": "rsp_linked",
+                        "text": REPLY,
+                        "truncated": false,
+                        "provider": "codex",
+                        "endedMs": now - 1_000
+                    }
+                }
+            })
+        })
+        .collect();
+    app.apply_sent(
+        crate::board::home_leads::SentKey {
+            sender: owner.sender,
+            agent: owner.agent,
+        },
+        Ok(packets),
+    );
+    observe_pane(&app, vec![window_item(now)]);
+    app
 }

@@ -105,6 +105,7 @@ fn page(start: u64, end: u64, next: Option<u64>) -> Arc<Page> {
             .map(|index| {
                 let text = format!("Answer {index}\nExact second line {index}");
                 Item {
+                    response_id: None,
                     original_bytes: text.len() as u64,
                     text,
                     provider: "codex".into(),

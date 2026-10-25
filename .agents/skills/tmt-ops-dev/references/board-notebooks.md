@@ -145,12 +145,12 @@ the answer after the last body. Annotate, ask-lead and failed sends never group;
 and restored sends use the same placement and keep each body's own source lines for copy and
 quote. A bound turn has
 no local ten-minute expiry. Captures never become ordinary replies or exact response attachments;
-no pane observation decides capture or settlement. A pane observation is paired once with an answered capture in that exact
-sender/recipient conversation, using identical provider, raw text and truncation
-plus its public bound-to-settled window (or identical end time for older data).
-Only unambiguous one-to-one pairs are omitted from recent pane output; equal
-text from other turns and ambiguous observations stay visible. This is display
-reconciliation, never request/source authority. A failed refresh preserves acquired sends until the next normal refresh.
+no pane observation decides capture or settlement. A pane observation and an answered capture in that exact
+sender/recipient conversation name one final only when Core gives both the same opaque
+`responseId`. The captured body stays under its request and the pane copy is omitted;
+joined requests also paint that answer once. Different IDs stay separate even with identical
+text. An absent link never matches by text, provider or time; unlinked answers stay visible.
+This is presentation deduplication, not new request, reply or acknowledgment authority. A failed refresh preserves acquired sends until the next normal refresh.
 Request bodies load off the UI thread on the selected-read lane, newest first, one selected read at a time.
 Until Core has answered for a conversation's exchanges (the agent's own finals read, or the shared
 originator page where there is none) it shows nothing for the first 400 ms, then `Loading

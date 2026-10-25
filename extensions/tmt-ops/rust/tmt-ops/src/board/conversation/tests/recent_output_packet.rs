@@ -138,6 +138,7 @@ fn capture_recent_pane_output_packet() {
                         Observation::Unavailable
                     } else {
                         Observation::observed((0..if scene.starts_with("long") {10}else{3}).map(|index|Item {
+                            response_id: None,
                             provider: "codex".into(),
                             text:if scene.starts_with("long") {format!("Capture {index}\n{}\nEnd capture {index}","Line in bounded pane capture\n".repeat(100))} else {format!("Pane capture {index}\n**Marked** text remains pane output.\nNot a submitted reply.")},
                             ended_ms:1_791_599_900_000+index,truncated:index==2,

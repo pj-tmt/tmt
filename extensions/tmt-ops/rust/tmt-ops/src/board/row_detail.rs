@@ -138,6 +138,7 @@ pub(super) enum Capture {
     Pending,
     Bound,
     Answered {
+        response_id: Option<String>,
         text: String,
         truncated: bool,
         provider: String,
@@ -148,6 +149,19 @@ pub(super) enum Capture {
     NoAnswer,
 }
 impl Capture {
+    pub(super) fn response_id(&self) -> Option<&str> {
+        match self {
+            Self::Answered { response_id, .. } => response_id.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Only Core's opaque link can identify a repeated answer. Legacy captures
+    /// without a link always stay visible, even with identical text and times.
+    pub(super) fn first<'a>(&'a self, seen: &mut std::collections::BTreeSet<&'a str>) -> bool {
+        self.response_id().is_none_or(|id| seen.insert(id))
+    }
+
     fn read(send: &Value) -> Option<Self> {
         if send["mode"] != "passthrough" {
             return None;
@@ -157,6 +171,10 @@ impl Capture {
             "pending" => Some(Self::Pending),
             "bound" => Some(Self::Bound),
             "answered" => Some(Self::Answered {
+                response_id: match capture["answer"].get("responseId") {
+                    None => None,
+                    Some(value) => Some(value.as_str()?.to_owned()),
+                },
                 text: capture["answer"]["text"]
                     .as_str()
                     .filter(|text| text.len() <= 8192)?

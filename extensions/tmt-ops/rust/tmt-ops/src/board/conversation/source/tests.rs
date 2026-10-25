@@ -1043,6 +1043,7 @@ fn deliver_output(app: &mut App, text: &str) {
     app.apply_pane_output(
         key,
         Observation::observed(vec![Item {
+            response_id: None,
             provider: "codex".into(),
             text: text.into(),
             ended_ms: 1_000,

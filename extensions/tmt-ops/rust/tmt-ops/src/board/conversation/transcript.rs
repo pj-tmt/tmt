@@ -578,6 +578,11 @@ impl Session {
             index
         };
         let captured_outputs = self.captured_outputs(items);
+        // Live outgoing bodies are already in `mapped`; restored history must
+        // not paint the same captured answer a second time.
+        let mut captured = self
+            .outgoing_capture_ids()
+            .collect::<std::collections::BTreeSet<_>>();
         let mut pane_start = None;
         if *enabled && self.pane_failure == Some(AnswerFailure::Older) {
             for line in history_caption(
@@ -799,6 +804,9 @@ impl Session {
                             Some((send.request.as_str(), send.capture.as_ref()?))
                         });
                         for (request, capture) in own.into_iter().chain(held) {
+                            if !capture.first(&mut captured) {
+                                continue;
+                            }
                             next_note.set(
                                 note_sources
                                     .borrow_mut()
