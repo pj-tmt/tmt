@@ -352,6 +352,10 @@ const MIGRATIONS: &[Migration] = &[
         "name the retained final a captured passthrough answer came from",
         "schema/072.sql"
     ),
+    migration!(
+        "store orchestration plans and their decision journal",
+        "schema/073.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

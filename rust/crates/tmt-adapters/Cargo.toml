@@ -15,6 +15,7 @@ vt100.workspace = true
 # Plain reply-notice columns share the pinned terminal-width implementation.
 unicode-width.workspace = true
 time.workspace = true
+jiff.workspace = true
 tungstenite.workspace = true
 serde.workspace = true
 ureq.workspace = true

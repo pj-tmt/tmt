@@ -1,0 +1,50 @@
+{
+  "description": "Handwritten v1 policy wire vectors. Expected values are independent of the resolver; do not regenerate them from product output.",
+  "identity": { "id": "33333333-3333-4333-8333-333333333333", "name": "night-1" },
+  "atMs": 1700000000000,
+  "plans": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "Quiet", "revision": 1, "priority": 1, "enabled": true,
+      "targets": [{ "kind": "all" }], "schedule": { "kind": "always" },
+      "fields": { "state": "sleep", "sending": "leads", "talkLimit": 20 }
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "name": "Shift", "revision": 2, "priority": 2, "enabled": true,
+      "targets": [{ "kind": "all" }], "schedule": { "kind": "always" }, "fields": {}
+    }
+  ],
+  "cases": [
+    {
+      "name": "Awake restores receiving and routine while sending still inherits",
+      "higherFields": { "state": "awake" },
+      "expected": { "state": "awake", "receiving": { "mode": "direct" }, "sending": "leads", "routine": "run", "talkLimit": 20 },
+      "receivingDefaulted": true
+    },
+    {
+      "name": "Low runs routine jobs and receives in thirty-minute batches",
+      "higherFields": { "state": "low" },
+      "expected": { "state": "low", "receiving": { "mode": "batch", "intervalMs": 1800000 }, "sending": "leads", "routine": "run", "talkLimit": 20 },
+      "receivingDefaulted": true
+    },
+    {
+      "name": "Focus has no special lead exemption",
+      "higherFields": { "state": "focus" },
+      "expected": { "state": "focus", "receiving": { "mode": "urgent" }, "sending": "leads", "routine": "hold", "talkLimit": 20 },
+      "receivingDefaulted": true
+    },
+    {
+      "name": "Sleep holds all receiving and routine work",
+      "higherFields": { "state": "sleep" },
+      "expected": { "state": "sleep", "receiving": { "mode": "hold" }, "sending": "leads", "routine": "hold", "talkLimit": 20 },
+      "receivingDefaulted": true
+    },
+    {
+      "name": "Explicit receiving and unlimited override state and lower plan",
+      "higherFields": { "state": "focus", "receiving": { "mode": "auto" }, "talkLimit": null },
+      "expected": { "state": "focus", "receiving": { "mode": "auto" }, "sending": "leads", "routine": "hold", "talkLimit": null },
+      "receivingDefaulted": false
+    }
+  ]
+}

@@ -104,8 +104,7 @@ aggregate's scope-skip proof with check-suite provenance, not recomputed selecti
 
 ## Runtime layers
 
-The Rust crates have deliberately narrow responsibilities. Module-level rules for
-the core crates live in the [tmt-core-runtime skill](.agents/skills/tmt-core-runtime/SKILL.md).
+[Orchestration](contracts/orchestration-v1.md): Core `effective()`; adapter calendar/SQLite; CLI/API reads. [Module rules](.agents/skills/tmt-core-runtime/SKILL.md).
 
 | Layer             | Owner                           | Responsibility                                                                                                                                                                                                  |
 | ----------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

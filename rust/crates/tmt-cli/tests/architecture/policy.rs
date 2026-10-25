@@ -53,6 +53,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         // Adapters run host drivers through the protocol crate (#570).
         "tmt-adapters" => &[
+            "jiff", // reviewed orchestration calendar/zone conversion; Core stays pure
             // Plain reply-notice alignment, without a terminal/output dependency.
             "unicode-width",
             // Safe macOS process inspection and UTC formatting of legacy ps tokens.

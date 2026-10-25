@@ -47,6 +47,7 @@ use tmt_adapters::pane_badge;
 mod consumption_sample_command;
 mod database_rename_command;
 mod digest_hook_command;
+mod orch_command;
 mod parser;
 mod profile_command;
 mod provider_hook_command;
@@ -393,6 +394,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Room(request) => {
             return room_command::execute(request, parsed.mode);
         }
+        Invocation::Orch(request) => return orch_command::execute(request, parsed.mode),
         Invocation::NotesPath { identity } => {
             return notes_command::execute(identity, parsed.mode);
         }

@@ -7,6 +7,13 @@ configuration. The owner map is in
 
 ## SQLite adapter
 
+`storage::orchestration` pins one read snapshot for plans, current identities and
+personal focus. `tmt-core::orchestration::effective` owns policy; its calendar port
+receives adapter/Jiff conversions only. Journal appends share the future calling
+owner's transaction and freeze source evidence. No live producers ship in slice 1;
+reads and preview append nothing. [Orchestration v1](../../../../contracts/orchestration-v1.md)
+owns shapes, recurrence rules, state defaults and slice boundaries.
+
 - Raw connections stay private; core sees narrow ports. Frozen fixtures keep their provenance in
   `typescript/test/fixtures/storage-history`.
 - WAL setup retries only classified Busy inside one five-second budget, verifies the returned

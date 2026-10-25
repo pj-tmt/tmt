@@ -210,6 +210,49 @@ fn core_allows_grouped_renamed_reexport_and_qualified_pure_std_references() {
 }
 
 #[test]
+fn orchestration_core_accepts_calendar_ports_and_rejects_clock_reads() {
+    assert_eq!(
+        policy::dependency_violations(&package(
+            "tmt-core",
+            vec![dependency("tmt-adapters", "normal", None, None)]
+        ))
+        .len(),
+        1
+    );
+    assert_eq!(
+        policy::dependency_violations(&package(
+            "tmt-core",
+            vec![dependency("jiff", "normal", None, None)]
+        ))
+        .len(),
+        1
+    );
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-adapters",
+            vec![dependency("jiff", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+    assert_exact(
+        &[syntax(
+            "tmt-core",
+            "orchestration.rs",
+            "pub trait OrchCalendarFixture { fn boundary(&self, day: i32) -> u64; } fn evaluate(c: &impl OrchCalendarFixture) -> u64 { c.boundary(1) }",
+        )],
+        &[],
+    );
+    assert_exact(
+        &[syntax(
+            "tmt-core",
+            "orchestration.rs",
+            "fn evaluate() { let _ = std::time::SystemTime::now(); }",
+        )],
+        &["tmt-core/orchestration.rs: non-pure core reference std::time::SystemTime::now"],
+    );
+}
+
+#[test]
 fn core_allows_duration_budget_values_but_rejects_clocks_and_broad_time_imports() {
     assert_exact(
         &[syntax(
