@@ -130,6 +130,9 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     // The updater's frozen skill-refresh protocol owns its own path admission
     // and output. Driver registration would discover configuration first and
     // print a directory-move diagnostic before that protocol can silence it.
+    if matches!(parsed.invocation, Invocation::NativeRefreshIntegrations) {
+        return setup_command::refresh::execute(parsed.mode);
+    }
     if matches!(
         parsed.invocation,
         Invocation::NativeRefreshSkills { managed: true }
@@ -484,6 +487,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::NativeRenameDatabase => {
             return database_rename_command::execute(parsed.mode);
+        }
+        Invocation::NativeRefreshIntegrations => {
+            return setup_command::refresh::execute(parsed.mode);
         }
         Invocation::Uninstall { purge, yes, prefix } => {
             return uninstall_command::execute(purge, yes, prefix.as_deref(), parsed.mode);

@@ -379,6 +379,10 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
         ),
         ("setup_command.rs", crate::setup_command::PRINTED_HINTS),
         (
+            "setup_command/refresh.rs",
+            crate::setup_command::refresh::PRINTED_HINTS,
+        ),
+        (
             "setup_command/guided.rs",
             crate::setup_command::GUIDED_HINTS,
         ),

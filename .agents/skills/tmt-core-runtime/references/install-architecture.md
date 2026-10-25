@@ -299,6 +299,12 @@ the move is a bootstrap reinstall.
   adapter's current-id publication fence retain that observation. Unsupported targets fail with
   a rerun hint, without an old-process fallback, activation retry or rollback. Product failures
   remain independent; CLI failure stops extensions, and a pinned CLI permits them.
+- After a completed unpinned upgrade, the activated CLI's bounded
+  `__native-refresh-integrations --json` phase refreshes only previously recorded setup scopes;
+  the [setup owner](identity-bindings.md#hooks-setup-and-uninstall) retains file and consent
+  authority. The additive `integrations` result reports each provider as unchanged, updated,
+  needsApproval or skipped with a fixed reason and a setup command when action is needed.
+  Child failure or an invalid report is an advisory warning, never an apply retry or rollback.
 - `NATIVE_UPGRADE_FAILED` carries a diagnostic `cause`; HTTPS failures never echo URI or proxy
   credentials. After binary activation, skill failures become `skills.status: "warning"` with
   path/cause and partial publication; they never turn that product into a failed upgrade or stop

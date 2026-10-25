@@ -239,8 +239,8 @@ a working directory, active pane or sole identity.
   binding cleanup.
 - Lifecycle hooks complete existing bindings, never create or move identities.
   Binding-owned starts and launch learning are diagnostic; [projections](contracts/identity-status-v1.md#session-binding-observation) read stored facts.
-  Bounded callbacks exit zero; launch hooks retain reviewed externalized-name compatibility. Persistent
-  provider configuration changes only through consented `tmt setup`.
+  Bounded hooks exit zero; launch hooks keep externalized-name compatibility. Only consented
+  `tmt setup` and its recorded upgrade refresh change provider settings.
 - `tmt-core::endpoint::ProcessIncarnation` (PID plus core's own start token) is the
   one value for comparing local processes.
 - Concrete implementations: `storage::{identities,identity_metadata,identity_status,bindings}`
