@@ -1,6 +1,8 @@
 use super::*;
 use crate::checklist::test_support::{CHECKLIST, Fixture, ITEM, LEAD, OTHER, ROOM, WORKER, id};
 
+const OTHER_ROOM: &str = "88888888-8888-4888-8888-888888888888";
+
 fn parsed(words: &[&str]) -> Result<ChecklistCommand, Error> {
     let matches = grammar()
         .try_get_matches_from(std::iter::once("checklist").chain(words.iter().copied()))
@@ -39,7 +41,7 @@ fn canonical_listing_alias_filters_and_completion_share_the_real_grammar() {
         ])
         .unwrap();
         assert_eq!(input.action, "list");
-        assert_eq!(input.room_id, id(ROOM));
+        assert_eq!(input.room_id, Some(id(ROOM)));
         let Operation::List(filter) = input.operation else {
             panic!("list")
         };
@@ -330,7 +332,8 @@ fn operation_inputs_are_typed_errors_and_grammar_errors_stay_usage_errors() {
         assert!(error.current.is_none());
     }
     for words in [
-        vec!["ls"],
+        // A bare ls is the caller's own list now; a member needs the room it is in.
+        vec!["ls", "--member", "Worker"],
         vec!["unknown"],
         vec!["ls", "--room", ROOM, "--identity", WORKER],
         vec!["ls", "--room", ROOM, "--completion", "closed"],
@@ -789,4 +792,154 @@ fn only_show_accepts_a_prefix() {
         ItemRef::parse("6666").unwrap(),
         ItemRef::Prefix("6666".into())
     );
+}
+
+#[test]
+fn an_agent_adds_lists_and_completes_on_its_own_list_without_any_uuid() {
+    let f = Fixture::new();
+    let first = invoke(&f, &["add", "Rerun P02 on the final head"]).document;
+    assert_eq!(first["action"], "add", "{first}");
+    assert_eq!(first["changed"], true);
+    // Attributed to the calling agent, on its own conversation list.
+    assert_eq!(first["current"]["member"]["id"], WORKER);
+    assert_eq!(f.keys(), [format!("{ROOM}/{WORKER}")]);
+    assert_eq!(first["current"]["items"][0]["addedBy"], WORKER);
+    let reference = first["reference"].as_str().unwrap();
+    let short = reference
+        .strip_prefix("#Rerun P02 on the final head (")
+        .and_then(|rest| rest.strip_suffix(')'))
+        .unwrap_or_else(|| panic!("{reference}"));
+    let first_id = first["itemId"].as_str().unwrap().to_owned();
+    assert!(
+        short.len() >= 4 && first_id.starts_with(short),
+        "{reference}"
+    );
+
+    let second = invoke(
+        &f,
+        &[
+            "add",
+            "Read the design",
+            "--body",
+            "Before Friday",
+            "--reference",
+            "https://example.org/design",
+        ],
+    )
+    .document;
+    assert_eq!(second["current"]["items"].as_array().unwrap().len(), 2);
+    assert_eq!(second["current"]["items"][1]["body"], "Before Friday");
+    assert_eq!(
+        second["current"]["items"][1]["reference"],
+        "https://example.org/design"
+    );
+    assert_ne!(second["itemId"], first["itemId"]);
+
+    // A bare ls is the same list.
+    let listed = invoke(&f, &["ls"]).document;
+    assert_eq!(listed["action"], "list", "{listed}");
+    assert_eq!(listed["current"]["member"]["id"], WORKER);
+    assert_eq!(listed["current"]["items"].as_array().unwrap().len(), 2);
+
+    // done by the short id, then again (no change), then by the exact UUID.
+    let done = invoke(&f, &["done", short]).document;
+    assert_eq!(done["action"], "done", "{done}");
+    assert_eq!(done["changed"], true);
+    assert_eq!(done["reference"], reference);
+    assert_eq!(done["current"]["items"][0]["completion"], "complete");
+    assert_eq!(done["current"]["items"][1]["completion"], "open");
+    let again = invoke(&f, &["done", short]).document;
+    assert_eq!(again["changed"], false, "{again}");
+    let second_id = second["itemId"].as_str().unwrap();
+    let exact = invoke(&f, &["done", second_id]).document;
+    assert_eq!(
+        exact["current"]["items"][1]["completion"], "complete",
+        "{exact}"
+    );
+
+    // The text form is one line naming the item as chat does.
+    let text = text_output(&done, Terminal::PLAIN);
+    assert!(text.contains(&format!("Done {reference}")), "{text}");
+    assert!(!text.contains("CHECKLIST"), "{text}");
+}
+
+#[test]
+fn an_agent_verb_names_why_it_cannot_find_the_callers_squad() {
+    let f = Fixture::new();
+    // Several squads: refused with each named; --room chooses.
+    f.change(|m| {
+        m["other"] = json!({"id": OTHER_ROOM, "name": "squad-other", "members": [WORKER]})
+    });
+    let several = invoke(&f, &["add", "Pick a squad"]).document;
+    assert_eq!(
+        several["error"]["code"], "CHECKLIST_INPUT_INVALID",
+        "{several}"
+    );
+    let message = several["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("product")
+            && message.contains(ROOM)
+            && message.contains("other")
+            && message.contains(OTHER_ROOM)
+            && message.contains("--room"),
+        "{message}"
+    );
+    assert!(
+        f.keys().is_empty(),
+        "nothing is written when the squad is unclear"
+    );
+    let chosen = invoke(&f, &["add", "Pick a squad", "--room", ROOM]).document;
+    assert_eq!(chosen["action"], "add", "{chosen}");
+    assert_eq!(f.keys(), [format!("{ROOM}/{WORKER}")]);
+
+    // On no roster.
+    f.change(|m| {
+        m["other"] = json!(null);
+        m["removed"] = json!([WORKER]);
+    });
+    let none = invoke(&f, &["ls"]).document;
+    assert_eq!(
+        none["error"]["code"], "CHECKLIST_ROOM_UNAVAILABLE",
+        "{none}"
+    );
+    assert!(
+        none["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Worker")
+    );
+
+    // No bound caller: an agent verb has nobody to act as.
+    f.change(|m| m["caller"] = json!(null));
+    let unbound = invoke(&f, &["done", "6666"]).document;
+    assert_eq!(unbound["error"]["code"], "CHECKLIST_FORBIDDEN", "{unbound}");
+}
+
+#[test]
+fn a_conflict_is_retried_once_and_anything_else_is_not() {
+    let conflict = || {
+        Err::<u8, _>(Error {
+            code: Code::Conflict,
+            message: "stale".into(),
+            current: None,
+        })
+    };
+    let mut attempts = 0;
+    let after_one = own::twice(|| {
+        attempts += 1;
+        if attempts == 1 { conflict() } else { Ok(7) }
+    });
+    assert_eq!((after_one.unwrap(), attempts), (7, 2));
+    let mut attempts = 0;
+    let after_two = own::twice(|| {
+        attempts += 1;
+        conflict()
+    });
+    assert_eq!((after_two.unwrap_err().code, attempts), (Code::Conflict, 2));
+    let mut attempts = 0;
+    let other = own::twice(|| {
+        attempts += 1;
+        Err::<u8, _>(invalid("no"))
+    });
+    assert_eq!((other.unwrap_err().code, attempts), (Code::InputInvalid, 1));
 }

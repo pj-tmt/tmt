@@ -113,8 +113,12 @@ if a[0]=='api':
   out={'identityId':u['id'],'name':u['name'],'created':False}
  elif op=='references.resolve':out={'identities':identities(i.get('identityIds',[])),'rooms':[{'id':r,'found':r==m['roomId'],'retired':m['roomRetired']} for r in i.get('roomIds',[])]}
  else:
-  if i['room']!=m['roomId'] or m['roomRetired']:fail('ROOM_NOT_FOUND')
-  prefix=i['metadataPrefix'];out={'members':[dict(x,metadata={prefix+'lead.marker':'true' if x['id']==m['lead'] else 'false'}) for x in m['members'] if x['id'] not in m['retired']+m['absent']+m['removed']]}
+  other=m.get('other')
+  if other and i['room']==other['id']:
+   prefix=i['metadataPrefix'];out={'members':[dict(x,metadata={prefix+'lead.marker':'false'}) for x in m['members'] if x['id'] in other['members']]}
+  else:
+   if i['room']!=m['roomId'] or m['roomRetired']:fail('ROOM_NOT_FOUND')
+   prefix=i['metadataPrefix'];out={'members':[dict(x,metadata={prefix+'lead.marker':'true' if x['id']==m['lead'] else 'false'}) for x in m['members'] if x['id'] not in m['retired']+m['absent']+m['removed']]}
 elif a[0]=='config':out={'paths':{'global':str(p/'config.toml')}}
 elif a[0]=='whoami':
  if m['caller']=='ambiguous':fail('CALLER_IDENTITY_AMBIGUOUS')
@@ -123,6 +127,8 @@ elif a[0]=='identity':
  x=next((x for x in m['members'] if (a[2].lower()==x['id'] or a[2]==x['name']) and x['id'] not in m['retired']+m['absent']),None)
  if x is None:fail('NAME_NOT_FOUND')
  out={'identity':x}
+elif a[:2]==['room','list']:
+ out={'rooms':([] if m['roomRetired'] else [{'id':m['roomId'],'name':m['roomName'],'retired':False}])+([{'id':m['other']['id'],'name':m['other']['name'],'retired':False}] if m.get('other') else [])}
 elif a[:2]==['room','show']:
  if a[2]!=m['roomId'] or m['roomRetired']:fail('ROOM_NOT_FOUND')
  out={'room':{'id':m['roomId'],'name':m['roomName'],'retired':False}}

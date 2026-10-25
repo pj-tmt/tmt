@@ -37,6 +37,18 @@ impl Id {
         &self.0
     }
 
+    /// The shortest prefix of this id, at least 4 hex characters, that no other id of `ids`
+    /// shares: the short id Ops chat shows as `#Title (3f2a)` and `show --item` accepts. It never
+    /// ends on a hyphen.
+    pub fn short_in<'a>(&self, ids: impl IntoIterator<Item = &'a Id>) -> &str {
+        let others: Vec<&Id> = ids.into_iter().filter(|other| *other != self).collect();
+        (4..self.0.len())
+            .filter(|length| !self.0[..*length].ends_with('-'))
+            .map(|length| &self.0[..length])
+            .find(|prefix| !others.iter().any(|other| other.0.starts_with(prefix)))
+            .unwrap_or(&self.0)
+    }
+
     /// The one checklist id a conversation list can have: derived from its two UUIDs, so a
     /// caller never invents one and the list is created on its first add under a stable name.
     pub fn conversation_checklist(room: &Id, member: &Id) -> Self {

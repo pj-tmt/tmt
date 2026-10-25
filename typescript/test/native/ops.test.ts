@@ -3256,6 +3256,80 @@ describe('Ops state database', () => {
     expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
   }
 
+  it('lets an agent add, list and complete items on its own checklist with no UUIDs', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'Owner');
+      const worker = await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Owner'])).status).toBe(0);
+      expect(
+        (await runCli(sandbox, ['room', 'join', 'squad-product', '--identity', 'worker', '--json']))
+          .status
+      ).toBe(0);
+      // Only the caller evidence is synthetic; every other call reaches the sandbox native CLI.
+      const shim = path.join(sandbox.root, 'agent-core');
+      await writeExecutable(
+        shim,
+        `#!/usr/bin/env python3
+import json,sys,subprocess
+args=sys.argv[1:]
+if args[0]=='whoami':
+ print(json.dumps({'bound':True,'id':${JSON.stringify(worker)},'name':'worker','lifetime':'saved'})); sys.exit(0)
+body=sys.stdin.buffer.read() if args[0]=='api' else None
+sys.exit(subprocess.run([${JSON.stringify(sandbox.cli.executable)}]+args,input=body).returncode)
+`,
+        0o700
+      );
+      const agent = async (args: string[]) => {
+        const result = await runCli(
+          {
+            ...sandbox,
+            cli: { executable: squadExecutable, args: [] },
+            env: { ...sandbox.env, TMT_EXECUTABLE: shim },
+          },
+          ['squad', 'checklist', ...args, '--json']
+        );
+        return { status: result.status, body: JSON.parse(result.stdout) };
+      };
+
+      const added = await agent(['add', 'Rerun P02 on the final head']);
+      expect(added.status, JSON.stringify(added.body)).toBe(0);
+      expect(added.body).toMatchObject({ action: 'add', changed: true });
+      expect(added.body.current.member.id).toBe(worker);
+      expect(added.body.current.items[0]).toMatchObject({ addedBy: worker });
+      const short = /^#Rerun P02 on the final head \(([0-9a-f]{4,})\)$/.exec(
+        added.body.reference
+      )?.[1];
+      expect(short, added.body.reference).toBeTruthy();
+      expect(added.body.itemId.startsWith(short)).toBe(true);
+
+      const listed = await agent(['ls']);
+      expect(listed.body.current.items.map((item: { title: string }) => item.title)).toEqual([
+        'Rerun P02 on the final head',
+      ]);
+      const shown = await agent([
+        'show',
+        '--room',
+        listed.body.current.room.id,
+        '--member',
+        'worker',
+        '--item',
+        short!,
+      ]);
+      expect(shown.status, JSON.stringify(shown.body)).toBe(0);
+
+      const done = await agent(['done', short!]);
+      expect(done.status, JSON.stringify(done.body)).toBe(0);
+      expect(done.body.current.items[0].completion).toBe('complete');
+      expect((await agent(['done', short!])).body.changed).toBe(false);
+
+      // Without a bound caller there is nobody to act as: refused, nothing written.
+      const anonymous = await squad(sandbox, ['checklist', 'add', 'Nobody asked']);
+      expect(anonymous.status).toBe(1);
+      expect(anonymous.body.error.code).toBe('CHECKLIST_FORBIDDEN');
+    });
+  });
+
   it('lets eight processes add cron jobs and edit checklist items at once, every one landing', async () => {
     await withSandbox(async (sandbox) => {
       await squadWithWorker(sandbox);
@@ -4360,7 +4434,8 @@ describe('Squad checklist native commands', () => {
       const usage = [
         [],
         ['unknown'],
-        ['ls'],
+        // A bare ls is the caller's own list; a member needs the room it is in.
+        ['ls', '--member', 'worker'],
         ['ls', '--room', f.roomId, '--completion', 'closed'],
         ['ls', '--room', f.roomId, '--identity', f.worker],
         ['edit', ...selected],
