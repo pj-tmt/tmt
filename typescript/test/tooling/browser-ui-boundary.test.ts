@@ -130,6 +130,12 @@ function productionViolations(directory: string): string[] {
 it('protects production and the React-free static graph', () => {
   expect(productionViolations(production)).toEqual([]);
 });
+it('keeps the search entry free of every import', () => {
+  const file = path.join(production, 'search.ts');
+  expect(imports(file, readFileSync(file, 'utf8'))).toEqual([]);
+  expect(imports(file, "import type { ReactNode } from 'react';")).toEqual(['react']);
+});
+
 it('admits the bare portal peer only in the exact shell React adapter', () => {
   const file = path.join(production, 'browser-shell.tsx');
   const source = "import {createPortal} from 'react-dom';";
