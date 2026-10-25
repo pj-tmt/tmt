@@ -3349,7 +3349,7 @@ print(json.dumps(out))
 
     #[test]
     fn navigation_observes_selection_reconciled_by_the_draw_callback() {
-        use app::workspace::tests::{ROOM, board};
+        use app::workspace::tests::board;
         let mut app = board();
         app.workspace.selected = None;
         let (trace, bytes) = timing::Trace::buffer();
@@ -3389,8 +3389,8 @@ print(json.dumps(out))
         assert_eq!(writes.len(), 1, "{writes:?}");
         assert_eq!(writes[0]["cause"], "Paint");
         assert!(writes[0]["previous"].is_null());
-        assert_eq!(writes[0]["selected"]["kind"], "squad");
-        assert_eq!(writes[0]["selected"]["roomId"], ROOM);
+        assert_eq!(writes[0]["selected"]["kind"], "pool");
+        assert_eq!(app.workspace.selected, Some(workspace::OpsTarget::Pool));
     }
 
     #[test]

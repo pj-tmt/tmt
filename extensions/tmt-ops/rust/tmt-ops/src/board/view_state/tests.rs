@@ -1491,6 +1491,8 @@ fn navigation_trace_records_the_saved_hint_at_the_view_state_tick() {
     write(&scratch.file(), &saved());
     let mut state = Session::load(scratch.file(), false, false);
     let mut app = cold();
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    assert_ne!(app.workspace.selected, saved().selected);
     let (trace, bytes) = Trace::buffer();
     app.navigation_trace = Some(trace);
     let (sender, input) = channel();
