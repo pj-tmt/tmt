@@ -107,7 +107,11 @@ export function PageListItem({
           )}
         </div>
         <span className="page-metadata">
-          {page.summary?.author ? <span className="page-author">{page.summary.author}</span> : null}
+          {page.summary?.author ? (
+            <span className="page-author" title={page.summary.author}>
+              {page.summary.author}
+            </span>
+          ) : null}
           {updated.dateTime ? (
             <time
               className="page-updated"
