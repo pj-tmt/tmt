@@ -58,3 +58,49 @@ test("Vite bundles complete article HTML and external modules at project and roo
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("a production build needs SITE_ORIGIN and its artifact names that origin, not the local one", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tmt-blog-origin-"));
+  const origin = "https://example.com";
+  try {
+    for (const path of ["src/blog", "src/posts", "scripts/fixtures/blog"])
+      await cp(path, join(root, path), { recursive: true });
+    await writeFile(
+      join(root, "index.html"),
+      "<!doctype html><html><body><h1>Site home</h1></body></html>",
+    );
+    const bundle = async (options) => {
+      const blog = await blogBuild({
+        root,
+        base: "/tmt/",
+        demo: false,
+        development: false,
+        ...options,
+      });
+      return build({
+        configFile: false,
+        root,
+        base: "/tmt/",
+        logLevel: "silent",
+        plugins: [blog.plugin],
+        build: { rolldownOptions: { input: [join(root, "index.html"), ...blog.entries] } },
+      });
+    };
+    await assert.rejects(bundle(), /SITE_ORIGIN is required/);
+    await assert.rejects(bundle({ origin: "" }), /SITE_ORIGIN is required/);
+    // A development server and a demo build need none.
+    await blogBuild({ root, base: "/tmt/", demo: false, development: true });
+    await bundle({ origin });
+    const dist = join(root, "dist");
+    await verifyDist(dist, { origin });
+    await assert.rejects(verifyDist(dist, { origin: "https://old.example.org" }), /Canonical link/);
+    const index = await readFile(join(dist, "blog/index.html"), "utf8");
+    assert.ok(index.includes(`<link rel="canonical" href="${origin}/tmt/blog/">`));
+    assert.match(
+      await readFile(join(dist, "blog/feed.xml"), "utf8"),
+      /<link>https:\/\/example\.com\/tmt\/blog\/<\/link>/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

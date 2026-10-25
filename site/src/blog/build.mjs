@@ -6,7 +6,7 @@ import { indexBody, layout, locationConfig, postBody, readPosts, rss } from "./s
 // Generated HTML lives under the Vite root so its output paths are blog/**.
 // Only this directory is disposable; approved src/posts and review records are not.
 export async function generate({ root, demo = false, development = false, base, origin }) {
-  const location = locationConfig({ base, origin });
+  const location = locationConfig({ base, origin: origin || undefined });
   const site = JSON.parse(await readFile(join(root, "src/blog/site.json"), "utf8"));
   let posts = await readPosts(join(root, "src/posts"));
   if (demo) {
@@ -83,6 +83,14 @@ export async function blogBuild({ root, base, origin, development, demo }) {
     plugin: {
       name: "tmt-blog",
       enforce: "pre",
+      // Config loading (lint, format, tests) also generates the pages, so the origin is demanded
+      // where a build starts: a production artifact never carries the neutral local origin.
+      buildStart() {
+        if (!origin && !demo && !development)
+          throw new Error(
+            "SITE_ORIGIN is required for a production build, for example https://example.com",
+          );
+      },
       // The mark is the blog's tab icon and header image; keep it a file, never an inline data URL.
       config: () => ({
         build: {

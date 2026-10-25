@@ -29,8 +29,8 @@ cd site
 pnpm install --frozen-lockfile
 pnpm dev                        # http://127.0.0.1:5173/tmt/
 pnpm check                      # types, Vite+ lint/format, MDX imports, translation sync
-pnpm build                      # four Homes, Colab landing and historical redirect stubs
-SITE_BASE=/ pnpm build          # root path or custom domain
+SITE_ORIGIN=https://example.com pnpm build              # four Homes, Colab landing, historical redirect stubs
+SITE_ORIGIN=https://example.com SITE_BASE=/ pnpm build  # root path or custom domain
 SITE_BASE=./ VITE_SITE_HISTORY=hash pnpm exec vp build   # preview at an unknown path
 ```
 
@@ -47,7 +47,8 @@ referenced module/image assets. Other post languages require an explicit
 for the Colab approval protocol and commands.
 
 Vite builds complete blog HTML plus external bundled article modules into the
-same `site/dist` artifact as Home; URLs derive from `SITE_BASE` plus `blog/`.
+same `site/dist` artifact as Home; URLs derive from `SITE_ORIGIN` plus `SITE_BASE` plus `blog/`
+(a production build requires `SITE_ORIGIN`; the workflow derives it from the repository owner).
 Preserve the existing blog CSP: no inline scripts or new resource origins.
 `pnpm blog:demo` is an explicit local example build; production verification
 rejects it by default. Only the existing `site.yml` Build site job checks/uploads
