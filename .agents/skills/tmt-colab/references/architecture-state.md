@@ -313,8 +313,8 @@ or an unverified read failure. An opaque socket disconnect, or a native fetch
 re-admitted with `reopenSession(previous, {retry:'bounded', signal})`) waits when the reason
 may pass (`unreachable`, `unconfirmed`, `transient`) and ends the page otherwise.
 An admitted update reaches the page as a fresh detached copy of the whole projection (`Live` clones
-it for each listener). The page route passes it through `shareView` (`share-view.ts`) against the
-view it holds, so every part equal by value keeps its object and a reply to one thread changes
+it for each listener). The page route passes it through
+`shareView` (`share-view.ts`) against the view it holds, so every part equal by value keeps its object and a reply to one thread changes
 only that thread's path. Sections keyed on a part, such as the document highlights and the question
 layers, do not run again for a change elsewhere, and the document frame is sent nothing for an
 update that does not touch it (`e2e/large-page-update.spec.ts` counts what the frame receives).
@@ -1060,6 +1060,8 @@ summary and no task offers the owner the add-task field directly.
 - `Live#publishViews` passes accepted folded titles and their exact admission
   registration to `mounted.ts`. Mounted tab ownership/current registration fences
   the best-effort cache write. Rejected folds and replaced sessions cannot supply hints.
+- `Live#publishViews` reuses an Ask intent's verification (`VerifiedAsks`) only while its
+  signed record and the writer's signing key are byte-identical; any change verifies again.
 - Home reads hints only after verified discovery/policy. `home-titles.tsx` admits visible
   uncached rows through a one-page queue (24 attempts and 16 MiB of incoming sync frames
   per Home generation). `mounted.ts::readTitle` uses the existing Admission/Connection/Fold
