@@ -213,7 +213,7 @@ fn preview_is_in_memory_and_bad_candidate_or_future_schema_preserves_state() {
     assert_eq!(cursor(&f.db()), before);
     let db = Connection::open(f.db()).unwrap();
     db.execute(
-        "INSERT INTO _migrations(version,name,applied_at) VALUES(74,'future','fixture')",
+        "INSERT INTO _migrations(version,name,applied_at) SELECT MAX(version)+1,'future','fixture' FROM _migrations",
         [],
     )
     .unwrap();
