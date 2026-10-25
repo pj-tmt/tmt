@@ -50,7 +50,8 @@
   top: var(--tmt-ui-space-xl);
   right: var(--tmt-ui-space-xl);
 }
-#tmt-settings-core-title {
+#tmt-settings-core-title,
+.tmt-settings-card:has(> .tmt-settings-read-only) > .tmt-ui-card-title {
   padding-right: 6rem;
 }
 .tmt-settings-warning {
@@ -274,5 +275,72 @@
   }
   .tmt-settings-identity-table th:nth-child(4) {
     width: 33%;
+  }
+}
+
+/* Modules and Drivers: records of a glyph tile, a name and its line, then facts and one action. */
+.tmt-settings-section > .tmt-settings-warning {
+  box-sizing: border-box;
+  width: 100%;
+  margin-block: var(--tmt-ui-space-l) var(--tmt-ui-space-xl);
+}
+.tmt-settings-warning[data-tone='neutral'] {
+  background: var(--tmt-ui-surface-hover);
+  border-color: var(--tmt-ui-surface-rule);
+}
+.tmt-settings-warning[data-tone='neutral'] > strong > .tmt-ui-glyph {
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-settings-records {
+  display: grid;
+  margin: var(--tmt-ui-space-l) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.tmt-settings-record {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--tmt-ui-space-l);
+  padding-block: var(--tmt-ui-space-l);
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.tmt-settings-record:first-child {
+  border-top: 0;
+}
+.tmt-settings-record-body {
+  display: grid;
+  gap: var(--tmt-ui-space-xs);
+  min-width: 0;
+}
+.tmt-settings-record-body > strong {
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.tmt-settings-record-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--tmt-ui-space-m);
+}
+.tmt-settings-fact {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.tmt-settings-mono {
+  font-family: var(--tmt-ui-font-mono);
+}
+:where(.tmt-page) a.tmt-settings-action {
+  text-decoration: none;
+}
+@media (max-width: 760px) {
+  .tmt-settings-record {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+  .tmt-settings-record-meta {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
   }
 }

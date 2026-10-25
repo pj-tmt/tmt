@@ -7376,13 +7376,50 @@ function settingsReadOnly() {
 	badge.append(createIcon("lock"), element$1("span", browserUiClasses.chipLabel, "Read only"));
 	return badge;
 }
-function settingsNotice(title, description) {
+function settingsNotice(title, description, tone = "waiting") {
 	const warning = element$1("div", "tmt-settings-warning");
 	warning.setAttribute("role", "note");
+	warning.dataset.tone = tone;
 	const lead = element$1("strong");
-	lead.append(createIcon("triangle-alert"), element$1("span", void 0, title));
+	lead.append(createIcon(tone === "waiting" ? "triangle-alert" : "terminal"), element$1("span", void 0, title));
 	warning.append(lead, element$1("p", void 0, description));
 	return warning;
+}
+/** One state chip: a mark and a word, never colour alone. */
+function settingsState(label, tone) {
+	const chip = element$1("span", browserUiClasses.chip);
+	chip.dataset.tone = tone;
+	const mark = element$1("span", browserUiClasses.stateMark);
+	mark.dataset.shape = tone === "muted" ? "ring" : "dot";
+	mark.setAttribute("aria-hidden", "true");
+	chip.append(mark, element$1("span", browserUiClasses.chipLabel, label));
+	return chip;
+}
+/** The list of one record kind. */
+function settingsRecords(label) {
+	const list = element$1("ul", "tmt-settings-records");
+	list.setAttribute("aria-label", label);
+	return list;
+}
+/** One record: a glyph tile, a name and a line, then its facts and one optional action. */
+function settingsRecord(record) {
+	const item = element$1("li", "tmt-settings-record");
+	const tile = element$1("span", browserUiClasses.glyphTile);
+	tile.append(createIcon(record.icon));
+	const body = element$1("div", "tmt-settings-record-body");
+	body.append(element$1("strong", void 0, record.name));
+	if (record.description) body.append(element$1("span", "tmt-settings-help", record.description));
+	const meta = element$1("div", "tmt-settings-record-meta");
+	for (const fact of record.facts ?? []) meta.append(typeof fact === "string" ? element$1("span", "tmt-settings-fact", fact) : fact);
+	if (record.action) meta.append(record.action);
+	item.append(tile, body, meta);
+	return item;
+}
+/** A link in the shape of a small secondary action. */
+function settingsAction(label, href) {
+	const link = element$1("a", `${browserUiClasses.action} tmt-settings-action`, label);
+	link.href = href;
+	return link;
 }
 //#endregion
 //#region src/tmt-settings-identities.ts
@@ -7505,6 +7542,81 @@ function identitiesView(settings) {
 	];
 }
 //#endregion
+//#region src/tmt-settings-copy.ts
+var MODULE_COPY = {
+	colab: {
+		icon: "file-text",
+		description: "Shared pages and agent collaboration."
+	},
+	remote: {
+		icon: "monitor-smartphone",
+		description: "Browser access to your machine."
+	},
+	ops: {
+		icon: "users",
+		description: "Squads, agent state and timers."
+	},
+	digest: {
+		icon: "chart-column",
+		description: "Usage and message batching."
+	}
+};
+var displayName = (name) => name.charAt(0).toUpperCase() + name.slice(1);
+//#endregion
+//#region src/tmt-settings-modules.ts
+/** Installed modules: the module list with each module's own settings, from the shell's description. */
+function moduleRecord(row, link) {
+	const known = MODULE_COPY[row.name];
+	const name = link?.label ?? displayName(row.name);
+	const facts = [settingsState(row.installed ? "Installed" : "Not installed", row.installed ? "working" : "muted")];
+	const detail = [row.channel, row.version].filter(Boolean).join(" · ");
+	if (row.installed && detail) facts.push(element$1("span", "tmt-settings-fact tmt-settings-mono", detail));
+	return settingsRecord({
+		icon: known?.icon ?? "box",
+		name,
+		...known ? { description: known.description } : {},
+		facts,
+		...row.installed && link?.href ? { action: settingsAction("Settings", link.href) } : {}
+	});
+}
+function modulesView(settings, links) {
+	const rows = settings.modules.rows;
+	const unavailable = settings.modules.unavailable;
+	const out = [settingsHead("Modules, in one place.", "A few focused tools. One connected workspace.")];
+	if (unavailable || !rows.length) {
+		const notice = settingsNotice(unavailable ? "Module inventory is not available to this browser yet." : "No modules to show.", "Read installed modules in your terminal.");
+		if (unavailable && unavailable !== notInBrowser("TMT settings", "tmt config show")) {
+			const reason = element$1("p");
+			notAvailable(reason, unavailable);
+			notice.append(reason);
+		}
+		notice.append(commandCopy("tmt extension ls"));
+		out.push(notice, element$1("p", "tmt-settings-foot", "Read only · Current records require a machine read"));
+		return out;
+	}
+	const notice = settingsNotice(settings.sample ? "Sample data" : "Read-only module records", settings.sample ? "These sample records are not this machine. Use tmt extension ls in your terminal to read modules." : "Manage modules in your terminal. Use tmt extension ls to inspect the current records.", "neutral");
+	notice.append(commandCopy("tmt extension ls"));
+	const card = settingsCard(settings.sample ? "Sample installed modules" : "Installed modules", "tmt-settings-modules-title");
+	card.append(settingsReadOnly());
+	const list = settingsRecords("Modules");
+	list.append(...rows.map((row) => moduleRecord(row, links.get(row.name))));
+	card.append(list);
+	const grid = element$1("div", "tmt-settings-grid");
+	grid.append(card);
+	const remote = links.get("remote");
+	if (rows.some((row) => row.name === "remote" && row.installed) && remote?.href) {
+		const aside = element$1("aside", `${browserUiClasses.card} tmt-settings-card`);
+		const tile = element$1("span", browserUiClasses.glyphTile);
+		tile.append(createIcon("monitor-smartphone"));
+		const link = element$1("a", "tmt-settings-link", "Open Remote settings →");
+		link.href = remote.href;
+		aside.append(tile, element$1("h2", browserUiClasses.cardTitle, "Remote"), element$1("p", "tmt-settings-help", "Pair browsers with this machine and manage their access. Each device keeps its own pairing and permissions."), element$1("hr", "tmt-settings-rule"), link, element$1("hr", "tmt-settings-rule"), element$1("p", "tmt-settings-help", "Source · Local CLI"), commandCopy("tmt extension ls"));
+		grid.append(aside);
+	}
+	out.push(notice, grid, element$1("p", "tmt-settings-foot", settings.sample ? "Sample inventory · No install or update actions" : "Read only · No install or update actions"));
+	return out;
+}
+//#endregion
 //#region src/settings-source.ts
 /**
 * What the TMT settings page (`/settings`) reads: this machine's identities, installed modules,
@@ -7565,9 +7677,8 @@ function moduleLinks(answer) {
 	});
 	return links;
 }
-var capitalize = (name) => name.charAt(0).toUpperCase() + name.slice(1);
 /** The section's rows; identities show live agents first, then by name. */
-function settingsRows(section, settings, links = /* @__PURE__ */ new Map()) {
+function settingsRows(section, settings) {
 	if (section === "general") return settings.general.rows.map((row) => ({
 		mark: "",
 		title: row.name,
@@ -7580,16 +7691,6 @@ function settingsRows(section, settings, links = /* @__PURE__ */ new Map()) {
 		detail: row.provider ? `${row.lifetime} · ${row.provider}` : row.lifetime,
 		state: row.online ? "active" : "offline"
 	}));
-	if (section === "modules") return settings.modules.rows.map((row) => {
-		const link = links.get(row.name);
-		return {
-			mark: row.installed ? "●" : "○",
-			title: link?.label ?? capitalize(row.name),
-			...row.installed && link?.href ? { href: link.href } : {},
-			detail: row.installed ? [row.version, row.channel].filter(Boolean).join(" · ") : "Not installed",
-			state: row.installed ? "installed" : ""
-		};
-	});
 	return [...settings.drivers.rows.map((row) => ({
 		mark: row.state === "ok" ? "●" : "◆",
 		waiting: row.state !== "ok",
@@ -7610,7 +7711,6 @@ function emptyText(section, settings) {
 	return {
 		general: "No settings to show.",
 		identities: "No identities yet.",
-		modules: "No modules.",
 		drivers: "No drivers or agent hooks are set up."
 	}[section];
 }
@@ -7764,7 +7864,8 @@ function generalView(settings) {
 function settingsSection(section, settings, links) {
 	if (section === "general") return generalView(settings);
 	if (section === "identities") return identitiesView(settings);
-	const rows = settingsRows(section, settings, links);
+	if (section === "modules") return modulesView(settings, links ?? /* @__PURE__ */ new Map());
+	const rows = settingsRows(section, settings);
 	const body = [];
 	if (rows.length) {
 		const list = document.createElement("ul");
@@ -7795,13 +7896,13 @@ function tmtSettingsPage(shell, source = settingsSource) {
 		const section = current();
 		if (settings) {
 			note.replaceChildren();
-			note.hidden = !settings.sample || section === "identities";
+			note.hidden = !settings.sample || section === "identities" || section === "modules";
 			if (!note.hidden) notAvailable(note, "Sample data: Core has no web read of this machine yet. `tmt ls`, `tmt extension ls` and `tmt driver ls` show the real values.");
 		}
 		const page = document.getElementById("tmt-settings-page");
 		if (page) {
 			page.dataset.section = section;
-			page.className = `tmt-page tmt-settings${section === "general" || section === "identities" ? " tmt-ui-page" : ""}`;
+			page.className = `tmt-page tmt-settings${section === "general" || section === "identities" || section === "modules" ? " tmt-ui-page" : ""}`;
 		}
 		shell.setMenu({
 			title: "TMT settings",

@@ -1,66 +1,21 @@
 import { expect, test, type Page } from '@playwright/test';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { build } from 'vite';
+import {
+  buildSettingsHost,
+  openSettings,
+  removeSettingsHost,
+  type SettingsHost,
+} from './settings-host.js';
 import { longIdentity } from './settings-identities-source.js';
 
 const origin = 'http://identities.test';
-const assets = new URL('../../../rust/tmt-remote/assets/', import.meta.url);
-let directory = '',
-  harness = '',
-  html = '',
-  css = '';
+let host: SettingsHost;
 test.beforeAll(async () => {
-  directory = await mkdtemp(join(tmpdir(), 'settings-identities-'));
-  await build({
-    root: new URL('..', import.meta.url).pathname,
-    logLevel: 'silent',
-    build: {
-      outDir: directory,
-      emptyOutDir: true,
-      minify: false,
-      lib: {
-        entry: new URL('./settings-identities-harness.ts', import.meta.url).pathname,
-        formats: ['es'],
-        fileName: () => 'harness.js',
-      },
-      rollupOptions: { output: { inlineDynamicImports: true } },
-    },
-  });
-  harness = await readFile(join(directory, 'harness.js'), 'utf8');
-  html = (await readFile(new URL('tmt-settings.html', assets), 'utf8')).replace(
-    '<script type="module" src="/sdk/shell.js"></script>',
-    '<script type="module" src="/harness.js"></script>',
-  );
-  css =
-    (await readFile(
-      new URL('../../../../../design/browser-ui/generated/static.css', import.meta.url),
-      'utf8',
-    )) +
-    (await readFile(new URL('pages.css', assets), 'utf8')) +
-    (await readFile(new URL('tmt-settings.css', assets), 'utf8'));
+  host = await buildSettingsHost('./settings-identities-harness.ts', 'settings-identities-');
 });
-test.afterAll(async () => {
-  if (directory) await rm(directory, { recursive: true, force: true });
-});
-async function open(page: Page, state: string, width = 1440, theme = 'light') {
-  await page.setViewportSize({ width, height: 1050 });
-  await page.addInitScript((theme) => localStorage.setItem('tmt-ui-theme', theme), theme);
-  await page.route(`${origin}/**`, (route) => {
-    const path = new URL(route.request().url()).pathname;
-    return route.fulfill({
-      contentType:
-        path === '/harness.js'
-          ? 'text/javascript'
-          : path === '/sdk/pages.css'
-            ? 'text/css'
-            : 'text/html',
-      body: path === '/harness.js' ? harness : path === '/sdk/pages.css' ? css : html,
-    });
-  });
-  await page.goto(`${origin}/settings/?state=${state}#identities`);
-}
+test.afterAll(() => removeSettingsHost(host));
+const open = (page: Page, state: string, width = 1440, theme = 'light') =>
+  openSettings(page, host, origin, { section: 'identities', state, width, theme });
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'])
     test(`injected identity table and selected detail at ${width} ${theme}`, async ({ page }) => {
@@ -70,6 +25,7 @@ for (const width of [1440, 390])
       ).toBeVisible();
       await expect(page.locator('#tmt-settings-note')).toBeHidden();
       await expect(page.locator('.tmt-settings-identity-notice')).toContainText('not this machine');
+
       const names = page.locator('.tmt-settings-identity-name');
       await expect(names).toHaveText(['core-1', 'tmt-lead', longIdentity, 'ux-1']);
       await expect(page.locator('tbody')).toContainText('Codex');

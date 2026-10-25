@@ -244,6 +244,18 @@ specific refusal text, and names tmt ls with the shared nonexecuting Copy. Injec
 labelled in the notice and inventory; the duplicated sample line is hidden on this section.
 Source failure and route-disposal fences remain with the existing page/source owner.
 
+## TMT Settings Modules
+
+Modules uses the same shell menu and inset: a hero, a read-only note with `tmt extension ls` and the
+shared nonexecuting Copy, and one card of module records (glyph tile, name, one line of product copy,
+an Installed or Not installed state with its mark, the channel and version in mono). The page keeps
+one static map of copy for the product's own modules (`tmt-settings-copy.ts`); another module shows
+no line. An installed module gets a Settings action only from the composed shell's description of it,
+which can arrive after the read and repaints the card; an uninstalled one never has an action. The
+Remote card and its link appear only for an installed, described Remote. Without a browser read the
+page shows the amber notice and the command and no record, version or channel; sample injection stays
+labelled "Sample installed modules". No install, update or read is added by this page.
+
 ## Digest presentation
 
 `digest-page` combines per-seat activity with Token usage through its Stacked/Lines and Absolute/Share
