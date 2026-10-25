@@ -566,7 +566,7 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   verified device as `tmt-device-context`, and never forwards the reserved `/.tmt/` subtree
   from a browser. Public short entries bootstrap from validated `tmt-mount` without device context;
   Colab resolves page prefixes from its verified catalog; reader seeds stay in fragments.
-  It stores ciphertext, never decodes Yjs; creation opening ignores TTY/JSON.
+  It stores ciphertext, never decodes Yjs.
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
   crypto), `tmt-extension-state`, `-objects`, `-serve` and `tmt-invoke`/`tmt-cli-style`; the browser
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
@@ -597,7 +597,7 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
 - **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use crypto, authenticated cuts, fold metadata and Saves.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.
   Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence (#2299) remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
-- **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. Hosted folds verify log anchors before checkpoint pairs. Native bootstrap installs a verified checkpoint pair; other verified originals use serve append ([architecture-state](.agents/skills/tmt-colab/references/architecture-state.md)).
+- **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. Hosted folds verify log anchors before checkpoint pairs. ([native opening](.agents/skills/tmt-colab/references/architecture-state.md#native-opening-and-admission))
 - **Plaintext.** Source, shell, discussion reads and export are root-local: only the isolated decoder
-  child decodes Yjs, no browser route serves plaintext (bar owner-only local titles in `/api/pages`), and the Worker is resource
+  child decodes Yjs, no browser route serves plaintext (bar owner-only local titles in `/api/pages`; [detail](.agents/skills/tmt-colab/references/architecture-state.md#native-opening-and-admission)), and the Worker is resource
   containment, not a security sandbox. Pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent; native code atomically stores content or a `kind:"own"` status action with its scoped terminal outcome in the Store. Source/shell actions, thread status and proposals publish through it (offline or the local `page-publish` route), browser Save uses the owner sync socket, signed by the root-local writer.
