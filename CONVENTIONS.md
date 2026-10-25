@@ -7,7 +7,8 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
 
 ## Style and readability
 
-- Write repository content in English. Use rustfmt for Rust and the nested
+- Follow the [repository language policy](AGENTS.md#repository-content-language).
+  Use rustfmt for Rust and the nested
   workspace-pinned Vite+ formatter and strict TypeScript configuration for developer
   tooling and extensions. Preserve each owner's explicit formatter configuration and
   file selection; run checks rather than restyling unrelated files.

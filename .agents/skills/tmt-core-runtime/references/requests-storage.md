@@ -52,6 +52,12 @@ owns shapes, recurrence rules, state defaults and slice boundaries.
 
 ## Request service
 
+`storage::requests` owns SQL and cleanup; `request::attention` owns attention.
+`request::delivery` derives message state and decides send-now. Talk and Digest
+use `tmt-adapters::request_frame` for each item; the Digest adapter renders the
+sealed checklist. Claims seal whole-item prefixes within 32 KiB; live paste may
+carry one oversized first item, while provider hooks leave it held.
+
 - Preparation, delivery transitions, exact final submission, waiter release, attention revisions
   and retention housekeeping belong to `RequestService`. Prompt/final content, attempt metadata,
   retention and acknowledgment have independent lifecycles.

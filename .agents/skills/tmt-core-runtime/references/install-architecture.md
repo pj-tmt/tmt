@@ -30,6 +30,18 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
   removal deletes only links into the owner's store.
 - Historical bundle inventories remain verification metadata only; retired guidance is no longer embedded or published by the bundled installer. The generic owner-supplied JSON API is unchanged. Refresh and default uninstall preserve existing retired links, owner records and immutable sources, regardless of the recorded owner. Full inventory and digest admission still fences old Core-name replacement.
 
+## Installed-guidance verification
+
+Verify exact embedded
+bytes, managed links, repeat no-op, catalog replacement, API conflict/backup and partial warnings,
+lock ownership and no effects on SQLite or tmux. `test/native/legacy-extension-skills.test.ts`
+owns the legacy-bundle regressions, `skill_installation::owned_tests` the
+extension-owned skills, and every fixture uses the isolated HOME/config sandbox.
+
+Review semantic changes and provider invocation behavior; matching installed bytes
+alone does not prove instruction correctness. Canonical ownership stays in
+[Development](../../../../DEVELOPMENT.md#installed-guidance-source-ownership).
+
 ## Native installation
 
 `tmt extension install <name> --to <version>` selects and pins the exact release through the
