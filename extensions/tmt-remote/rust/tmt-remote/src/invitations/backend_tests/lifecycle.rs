@@ -244,6 +244,43 @@ fn lifecycle<B: ScenarioBackend>(make: impl Fn() -> B) {
         "expiry never rolls back durable pairing"
     );
 
+    // Gate cleanup never relabels a committed or unknown outcome as rollback.
+    for unknown in [false, true] {
+        let backend = super::faults::Controlled::new(make());
+        let sink = Sink::default();
+        let (coordinator, delivery, snapshot) = pending(backend.clone(), sink.clone(), &io);
+        sink.ledger.lock().unwrap().lose_commit_answer = unknown;
+        let confirmed =
+            coordinator.confirm(&owner, &snapshot, true, &PairingPolicy::default(), 3, &io);
+        assert_eq!(confirmed.is_err(), unknown);
+        backend.fail_next_withdrawal();
+        let cleanup = coordinator
+            .withdraw(&owner, &delivery.context.offer, &io)
+            .unwrap();
+        assert_eq!(cleanup.local_confirmation_known, !unknown);
+        assert_eq!(
+            cleanup.state,
+            if unknown {
+                State::ProviderOutcomeUnconfirmed
+            } else {
+                State::Confirmed
+            }
+        );
+        assert_eq!(
+            cleanup.cleanup,
+            super::super::service::ProviderCleanup::Unconfirmed
+        );
+        assert_eq!(coordinator.status(4).unwrap().cleanup, cleanup.cleanup);
+        assert!(!coordinator.retains_secret().unwrap());
+        assert_eq!(sink.ledger.lock().unwrap().grants, 1);
+        assert_eq!(sink.ledger.lock().unwrap().confirms, 1);
+        assert!(
+            coordinator
+                .cancel(&owner, &delivery.context.offer, 4, &io)
+                .is_err()
+        );
+    }
+
     // A long caller budget cannot renew the original offer deadline while
     // confirmation waits for its writer. The sink sees that exact deadline.
     let backend = super::faults::Controlled::new(make());

@@ -2486,9 +2486,9 @@ reads after arrival. The original receiving Core remains authoritative for its a
 
 The shared `invitations` owner handles cross-person offers independently of a terminal,
 browser or provider. Its version-2 proof context is distinct from local-browser pairing
-and the existing version-1 Firestore profile. The Firestore adapter below remains its
-current production path until the adapter cutover; backend selection never rewrites a
-legacy code into another profile. Local native-owned browser automatic pairing is not a
+and the existing version-1 Firestore profile. New Firestore invite/join ceremonies use
+this shared coordinator with the explicit v2 binding below; backend selection never
+rewrites a legacy code into another profile. Local native-owned browser automatic pairing is not a
 cross-person invitation or an owner confirmation for one.
 
 One offer is single-use, with a maximum ten-minute lifetime. Raw offer secrets and derived
@@ -2613,17 +2613,32 @@ Talk/revoke resolve an exact client UUID or a unique active person name; duplica
 UUID. JSON, CI, agent and noninteractive invocation never consent. Ctrl+C cancels the active invite
 and erases its secret. Neither command opens a browser or creates a local-browser session.
 
-The code carries public connection metadata, the owner pin, an offer UUID, nonce, generation,
-expiry and 128-bit secret. Firestore never stores that secret. Its separate enrollment transcript
-binds every field, the candidate native UUID/key, authenticated uid, name and nonce. Existing HMAC,
-Ed25519 possession, fingerprint and response-proof primitives are reused with distinct framing.
+A new code explicitly selects version 2 and carries the public Firebase configuration,
+Firestore project reference, authenticated owner uid, owner UUID/key, offer UUID, nonce,
+issued-at/expiry and 128-bit secret. The configuration project equals the bound reference.
+Before using it, the joiner verifies the registered native pin and descriptor revision,
+and matches the machine row uid to that owner principal. The enrollment transcript is the
+shared version-2 framing above, including the candidate native UUID/key, authenticated uid,
+name and nonce. Old version-1 codes retain their distinct decoder/transcript and remaining
+lifetime. Firestore never stores either profile's secret. HMAC, Ed25519 possession,
+fingerprint and response-proof primitives retain their existing algorithms.
+Before the candidate's first provider call, the existing private Connection atomically
+claims the exact signed v2 request and context. A restart with the original code restores
+that claim as observation-only, including when no provider row is visible. It does not
+replace a confirmed connection's pin, uid or policy. After receipt authentication, one
+Store transaction consumes only that matching claim and adopts reverse membership,
+optional local sending consent, route/token and connection. A repeated original cannot
+reapply policy or restore revoked authority. No raw code, gate or response key is persisted.
+
 The mailbox is one create-only collection `/m/<machine>/enroll`: `<offerId>` holds a candidate,
 `<offerId>-response` the owner's receipt. Responses contain only `{uid,kind,body,createdAt}`.
 Candidates carry those fields plus `token` (32 bytes) for a join, or `token` and its canonical
 native `peer` for a reroute. Rules bind the candidate uid to `request.auth.uid`, exact kinds/UUIDs,
 bounded bytes and server request time.
 Before exposing a code, the owner creates `/m/<machine>/invites/<offerId>` with
-`{tokenHash,expiresAt}`. The join token is HMAC-SHA256 under the code over LP of
+`{tokenHash,expiresAt}`. For v2, the join token is HMAC-SHA256 under the code over LP of
+`"tmt-invitation-gate-v2"`, backend, reference, owner principal, owner UUID/key, offer UUID,
+nonce, decimal issued-at and expiry, using the exact context bytes. Legacy v1 retains LP of
 `"tmt-cloud-invite-token-v1"`, project, owner UUID and offer UUID. Only SHA-256 of that token is
 stored in the invitation; it is neither the raw code nor its enrollment MAC/response key.
 A join requires its matching unexpired gate. The owner attempts gate deletion when the ceremony ends

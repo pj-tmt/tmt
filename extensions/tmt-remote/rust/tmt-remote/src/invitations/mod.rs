@@ -7,6 +7,7 @@ mod proof;
 pub mod service;
 pub mod store;
 pub mod submission;
+pub(crate) use proof::possession_digest;
 pub use proof::{VerifiedCandidate, enrollment, verify_enrollment};
 
 #[cfg(test)]

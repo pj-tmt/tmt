@@ -6,6 +6,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+pub mod adoption;
 pub mod confirmation;
 pub mod invitation;
 mod provider;

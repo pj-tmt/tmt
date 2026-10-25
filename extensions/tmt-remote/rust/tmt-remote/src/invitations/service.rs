@@ -634,6 +634,32 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         self.finish_withdrawal(&context, result, io)
     }
 
+    /// Physical gate cleanup after a locally committed or uncertain outcome.
+    /// This never changes that authority outcome into cancellation or rollback.
+    pub fn withdraw(
+        &self,
+        actor: &OwnerActor,
+        expected_offer: &str,
+        io: &IoBudget<'_>,
+    ) -> Result<Status, RemoteError> {
+        let state = self.lock()?;
+        let offer = state.as_ref().ok_or_else(invalid)?;
+        if !actor.interactive()
+            || offer.context.offer != expected_offer
+            || !matches!(
+                offer.phase,
+                Phase::Confirmed(_) | Phase::CommitUnknown(_) | Phase::End(_)
+            )
+        {
+            return Err(invalid());
+        }
+        self.sink.authorize(&offer.context, actor)?;
+        let context = offer.context.clone();
+        let status = offer.status();
+        drop(state);
+        self.finish_withdrawal(&context, status, io)
+    }
+
     fn finish_withdrawal(
         &self,
         context: &Context,
@@ -645,10 +671,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             _ => ProviderCleanup::Unconfirmed,
         };
         let mut state = self.lock()?;
-        if let Some(offer) = state
-            .as_mut()
-            .filter(|offer| offer.context == *context && matches!(offer.phase, Phase::End(_)))
-        {
+        if let Some(offer) = state.as_mut().filter(|offer| offer.context == *context) {
             offer.cleanup = result.cleanup;
         }
         Ok(result)

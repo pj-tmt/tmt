@@ -201,6 +201,9 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
         let owner_ref = &owner;
         let invite = scope.spawn(move || {
             owner_ref.invite_selected(PROJECT, config(), |event| {
+                if event["event"] == "waiting" {
+                    owner_ref.flush_routes()?;
+                }
                 if event["event"] == "invite" {
                     token_tx
                         .send(event["code"].as_str().unwrap().to_owned())
@@ -249,8 +252,8 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
         "ceremony wire calls (Rules installation excluded): {:?}",
         emulator.calls.lock().unwrap()
     );
-    let mut expired = Invite::read(&token, crate::pairing::now_ms().unwrap()).unwrap();
-    expired.challenge.expires_at_ms = crate::pairing::now_ms().unwrap() - 1;
+    let mut expired = wire::v2::Invite::read(&token, crate::pairing::now_ms().unwrap()).unwrap();
+    expired.context.expires_at_ms = crate::pairing::now_ms().unwrap() - 1;
     let before = emulator.calls.lock().unwrap().clone();
     assert_eq!(
         sender

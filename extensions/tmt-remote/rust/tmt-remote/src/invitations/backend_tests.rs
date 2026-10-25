@@ -1,5 +1,6 @@
 //! Two actual consumers of the same typed port: a key-addressed mailbox and an
 //! append-only log with delayed visibility. Neither manufactures owner consent.
+mod adoption;
 mod backends;
 mod claims;
 mod confirmation;

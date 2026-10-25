@@ -68,7 +68,7 @@ impl Store {
             return Err(wire::expired());
         }
         let mut record = if let Some(old) = cloud_connection_in(&tx, &desired.owner)? {
-            if old.peer != desired.peer {
+            if old.owner != desired.owner || old.peer != desired.peer {
                 return Err(wire::invalid());
             }
             if let Some(claimed) = &old.pending_submission {

@@ -1,5 +1,8 @@
 //! Local-owner composition. Control owns terminal interaction; this service owns
 //! pairing policy and provider reconciliation, never Core preparation or state.
+mod ceremony;
+mod join;
+
 use super::{
     Candidate, Connection, RouteChange,
     wire::{self, Invite, Submission},
@@ -51,7 +54,7 @@ pub struct Service {
     pub projects: Arc<Projects>,
     stop: Arc<AtomicBool>,
     wake: Arc<(Mutex<bool>, Condvar)>,
-    inviting: AtomicBool,
+    invitation: Mutex<Option<Arc<ceremony::Ceremony>>>,
     last_error: Mutex<Option<String>>,
     published: Mutex<BTreeMap<String, Vec<u8>>>,
     cleanup: Mutex<BTreeMap<String, Instant>>,
@@ -91,7 +94,7 @@ impl Service {
             projects,
             stop,
             wake: Arc::new((Mutex::new(false), Condvar::new())),
-            inviting: AtomicBool::new(false),
+            invitation: Mutex::new(None),
             last_error: Mutex::new(None),
             published: Mutex::new(BTreeMap::new()),
             cleanup: Mutex::new(BTreeMap::new()),
@@ -128,7 +131,20 @@ impl Service {
         }
     }
     pub fn idle(&self) -> bool {
-        !self.inviting.load(Ordering::Acquire)
+        self.invitation_status().is_ok_and(|status| {
+            status.is_none_or(|status| {
+                status
+                    .expires_at_ms
+                    .is_some_and(|expiry| crate::pairing::now_ms().is_ok_and(|now| now >= expiry))
+                    || matches!(
+                        status.state,
+                        crate::invitations::service::State::Confirmed
+                            | crate::invitations::service::State::Refused
+                            | crate::invitations::service::State::Cancelled
+                            | crate::invitations::service::State::Expired
+                    )
+            })
+        })
     }
     fn register(
         &self,
@@ -307,155 +323,7 @@ impl Service {
         }
         self.invite_selected(&selected.project, selected.public_config, emit)
     }
-    fn invite_selected(
-        &self,
-        project: &str,
-        config: Value,
-        mut emit: impl FnMut(Value) -> Result<Option<(bool, bool)>, RemoteError>,
-    ) -> Result<(), RemoteError> {
-        if self.inviting.swap(true, Ordering::AcqRel) {
-            return Err(RemoteError::new(
-                "REMOTE_PAIRING_BUSY",
-                "An invite is already open.",
-            ));
-        }
-        struct End<'a>(&'a AtomicBool);
-        impl Drop for End<'_> {
-            fn drop(&mut self) {
-                self.0.store(false, Ordering::Release);
-            }
-        }
-        let _end = End(&self.inviting);
-        let provider = self.provider(&config, &self.machine, true)?;
-        let now = crate::pairing::now_ms()?;
-        self.keys.maintain(now)?;
-        let descriptor = self.keys.advertised(now)?;
-        self.register(&provider, descriptor.bytes(), None, &self.io())?;
-        self.store()?.remember_cloud_owner(project, &config)?;
-        // An explicit owner action may collect a gate left by its first interrupted invite.
-        // Without an enrolled peer, background reconciliation intentionally does no I/O.
-        let _ = self.cleanup_invites(&provider, now, &self.io());
-        let now = crate::pairing::now_ms()?;
-        let owner_name = std::env::var("USER")
-            .ok()
-            .filter(|v| canonical::device_name(v))
-            .unwrap_or("Owner".into());
-        let invite = Invite::new(
-            project,
-            &self.machine,
-            &self.key.public(),
-            config,
-            &owner_name,
-            now,
-        )?;
-        run(provider.publish_invite(&invite, &self.io()), &self.io())?;
-        let result = (|| {
-            emit(json!({"event":"invite","code":invite.token()?}))?;
-            let until = Instant::now() + crate::pairing::Timing::CONTRACT.lifetime;
-            let io = IoBudget {
-                deadline: until,
-                cancelled: &self.stop,
-            };
-            loop {
-                emit(json!({"event":"waiting"}))?;
-                if crate::pairing::now_ms()? >= invite.challenge.expires_at_ms {
-                    return Err(wire::expired());
-                }
-                if let Some(doc) = run(provider.enrollment_get(&invite.challenge.offer, &io), &io)?
-                {
-                    if doc.kind != "join" {
-                        return Err(wire::invalid());
-                    }
-                    let submission = Submission::read(&doc.body, &invite.challenge.offer)?;
-                    let verified =
-                        invite.verify(&submission, &doc.uid, crate::pairing::now_ms()?)?;
-                    let (matched,talk)=emit(json!({"event":"candidate","name":submission.candidate.name,"words":verified.words().map_err(|_|wire::invalid())?}))?.ok_or_else(wire::invalid)?;
-                    if !matched {
-                        return Err(RemoteError::new(
-                            "REMOTE_CLOUD_PAIR_REFUSED",
-                            "The owner declined the connection.",
-                        ));
-                    }
-                    let candidate = verified.candidate();
-                    let reciprocal = Connection {
-                        pending_submission: None,
-                        version: 1,
-                        name: self.connection_name(&candidate.peer, &candidate.name)?,
-                        owner: candidate.peer.clone(),
-                        owner_key: candidate.public_key,
-                        config: invite.public_config.clone(),
-                        peer: self.machine.clone(),
-                        uid: provider.uid().into(),
-                        request: Vec::new(),
-                        confirmed: true,
-                        descriptor: Vec::new(),
-                        reroute_token: None,
-                    };
-                    let confirmed_at = crate::pairing::now_ms()?;
-                    let mut store = self.store()?;
-                    let mut response_key = invite.response_key(&submission.candidate)?;
-                    let receipt = store.confirm_cloud_peer(
-                        &verified,
-                        &response_key,
-                        confirmed_at,
-                        talk,
-                        Some(reciprocal),
-                    );
-                    response_key.fill(0);
-                    drop(store);
-                    let receipt = receipt?;
-                    self.flush(&provider, &invite.public_config, &io)?;
-                    let body=json!({"receipt":canonical::base64url(&receipt.bytes),"proof":canonical::base64url(&receipt.proof)}).to_string();
-                    run(
-                        provider.enrollment_create(
-                            &format!("{}-response", invite.challenge.offer),
-                            &doc.uid,
-                            "receipt",
-                            body.as_bytes(),
-                            None,
-                            &io,
-                        ),
-                        &io,
-                    )?;
-                    let unique = self
-                        .store()?
-                        .active_grants()?
-                        .iter()
-                        .filter(|g| g.name == submission.candidate.name)
-                        .count()
-                        == 1;
-                    let hint = if unique {
-                        &submission.candidate.name
-                    } else {
-                        &submission.candidate.peer
-                    };
-                    let reverse_reference = self
-                        .store()?
-                        .cloud_connection(&submission.candidate.peer)?
-                        .ok_or_else(wire::invalid)?
-                        .name;
-                    emit(
-                        json!({"event":"connected","name":submission.candidate.name,"talk":talk,"clientId":submission.candidate.peer,"hintPerson":hint,
-                            "remote":reverse_reference}),
-                    )?;
-                    self.request_reconcile();
-                    return Ok(());
-                }
-                provider.wait(&io, crate::limits::CLOUD_POLL_MIN_MS)?;
-            }
-        })();
-        let cleanup_cancel = AtomicBool::new(false);
-        let cleanup_io = IoBudget {
-            deadline: Instant::now() + crate::limits::CLOUD_RECONCILE_CALL,
-            cancelled: &cleanup_cancel,
-        };
-        let _ = run(
-            provider.delete_invite(&invite.challenge.offer, &cleanup_io),
-            &cleanup_io,
-        );
-        result
-    }
-    pub fn join(
+    fn join_legacy(
         &self,
         token: &str,
         mut emit: impl FnMut(Value) -> Result<Option<bool>, RemoteError>,
@@ -796,7 +664,11 @@ impl Service {
                 };
                 match doc.kind.as_str() {
                     "join" => {
-                        if let Ok(submission) = Submission::read(&doc.body, &doc.id) {
+                        if crate::wire::strict_json(&doc.body)
+                            .is_some_and(|value| value["version"] == 2)
+                        {
+                            self.recover_invitation(&provider, &config, &doc, now, &io)?;
+                        } else if let Ok(submission) = Submission::read(&doc.body, &doc.id) {
                             let recovered = {
                                 self.store()?.recover_cloud_join(
                                     &doc.id,

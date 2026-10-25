@@ -136,28 +136,6 @@ impl Provider {
     pub fn uid(&self) -> &str {
         &self.identity().uid
     }
-    pub(super) async fn publish_invite(
-        &self,
-        invite: &super::wire::Invite,
-        io: &IoBudget<'_>,
-    ) -> Result<(), RemoteError> {
-        use sha2::{Digest, Sha256};
-        if invite.challenge.owner != self.machine()
-            || invite.challenge.project != self.identity().project
-        {
-            return Err(invalid());
-        }
-        let mut token = invite.gate_token()?;
-        let hash: [u8; 32] = Sha256::digest(token).into();
-        token.fill(0);
-        self.publish_invite_gate(
-            &invite.challenge.offer,
-            &hash,
-            invite.challenge.expires_at_ms,
-            io,
-        )
-        .await
-    }
     pub async fn publish_invite_gate(
         &self,
         offer: &str,

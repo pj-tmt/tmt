@@ -7,7 +7,6 @@ use super::{
 };
 use crate::{canonical, crypto, error::RemoteError, limits, objects::IoBudget};
 use ed25519_dalek::{Signer, SigningKey};
-use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
 
 impl NativeSigner for SigningKey {
@@ -102,7 +101,7 @@ impl<B: Backend> SubmissionAttempt<B> {
         if backend.binding() != context.binding || submission.gate != gate(&context, code)? {
             return Err(invalid());
         }
-        super::verify_enrollment(
+        let verified = super::verify_enrollment(
             &context,
             &submission.candidate,
             &submission.candidate.principal,
@@ -112,8 +111,6 @@ impl<B: Backend> SubmissionAttempt<B> {
             now_ms,
         )?;
         let transcript = proof::enrollment(&context, &submission.candidate)?;
-        let possession =
-            canonical::possession(&transcript, &submission.mac).map_err(|_| invalid())?;
         let response_key =
             ReceiptKey(crypto::response_key(code, &transcript).map_err(|_| invalid())?);
         let deadline = started + Duration::from_millis(context.expires_at_ms - now_ms);
@@ -121,7 +118,7 @@ impl<B: Backend> SubmissionAttempt<B> {
             backend,
             context,
             submission,
-            snapshot: Sha256::digest(&possession).into(),
+            snapshot: *verified.digest(),
             response_key: Some(response_key),
             receipt: None,
             deadline,

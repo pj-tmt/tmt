@@ -452,13 +452,30 @@ confirmation acquires coordinator state before Store. Codes and response keys re
 memory-only and clear on termination.
 `submission::SubmissionAttempt` signs one candidate proof, observes an uncertain original
 without resending and authenticates the exact receipt; it cannot confirm or create authority.
-Two fake backend consumers prove this library independently of transport. Current Firestore
-entry points below remain on their version-1 profile until the adapter cutover (I3); no
-legacy code is reinterpreted as a different backend or extended beyond its original expiry.
+Two fake backend consumers prove this library independently of transport. New Firestore
+entry points use that same coordinator through `cloud_pairing::invitation::Firestore`.
+The Service verifies the registered owner native pin, descriptor revision and authenticated
+uid before constructing the exact v2 binding. Its current coordinator observation replaces
+the standalone invite flag. The terminal only presents the code, comparison and separate
+default-no sending choices. Version-1 join and original-receipt recovery retain their
+isolated decoder and original expiry; there is no new v1 offer producer.
 
-`cloud_pairing` separates byte proofs from local-owner confirmation. Its distinct transcript binds
-project, owner UUID/key, offer/challenge/generation/expiry, peer UUID/key, authenticated uid, name
-and candidate nonce. One-shot reroutes sign the target machine UUID/key, peer, new uid, generation
+The candidate claims its exact signed original in the existing private Connection before
+HTTP. `pending_submission` contains only the public context and signed body, never the
+code, gate or response key. Normal descriptor/uid saves retain a concurrent claim and do
+not replace confirmed trust or policy. A restored claim observes even when the provider
+has no row; it cannot send another candidate. The authenticated receipt handoff consumes
+the scoped response key and adopts the reverse M1 member, optional sending choice,
+route/hash and confirmed Connection in one Store transaction. Only that consuming writer
+clears the matching claim. An active independent grant keeps its policy; replay of an
+already consumed original cannot restore revoked authority or reapply sending. The
+existing enrollment worker recovers v2 originals from the same management journal and
+publication claims, after native possession/snapshot and remaining-window checks.
+
+`cloud_pairing` separates byte proofs from local-owner confirmation. Version 2 binds the
+Firestore project reference and authenticated owner uid in the common invitation transcript;
+the isolated v1 profile binds project, owner UUID/key, offer/challenge/generation/expiry,
+peer UUID/key, authenticated uid, name and candidate nonce. One-shot reroutes sign the target machine UUID/key, peer, new uid, generation
 and timestamp; the provider createTime supplies the 60-second freshness reference. It reuses local pairing MAC, possession, fingerprint and receipt-proof primitives.
 A verified proof alone grants nothing. `pairing_cli` adapts the owner-only control socket to explicit
 terminal consent; `cloud_pairing::service` owns policy and reconciliation, and its `provider` extends
@@ -471,7 +488,7 @@ no raw code or response key. The sender reserves its counter durably before sign
 generation replaces a uid only under the current grant fence, without changing permissions. Revoke
 marks routes for cleanup inside the existing revoker transaction.
 Provider publication must apply each peer's desired route swap atomically; acknowledgments compare
-project/uid/peer/generation/revocation, so stale completion cannot hide newer changes. Offline work
+project/uid/peer/member/generation/capability hash/revocation, so stale completion cannot hide newer changes. Offline work
 stays pending. This state is not a second operation ledger.
 
 `native_sync::Projects` owns one cached Auth/runtime/budget per project, shared with extension sync.
