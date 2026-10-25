@@ -28,8 +28,10 @@ const rows = (page: Page) => app(page).locator('.pages > li');
 const titles = (page: Page) => rows(page).locator('.tmt-ui-list-title > a');
 const search = (page: Page) => app(page).getByRole('combobox', { name: 'Search pages' });
 const requests = (page: Page) => page.evaluate(() => window.__projectRequests);
-/** The shell's module menu: All pages, each project with its counts, then the project actions. */
-const moduleMenu = (page: Page) => app(page).locator('.tmt-ui-module-menu');
+/** The shell's module menu: All pages, each project with its counts, then the project actions. On a
+ * wide screen its entries nest under Colab in the rail; on a phone they are the strip under the bar. */
+const moduleMenu = (page: Page) =>
+  app(page).locator('.tmt-ui-rail-sub:visible, .tmt-ui-module-menu:visible');
 /** The menu's current scope row, named by its value. */
 const scopeTrigger = (page: Page, value = 'All pages') =>
   moduleMenu(page)
@@ -888,12 +890,11 @@ test('the module menu lists All pages and each project with its counts and needs
   const rows = scopeRows(page);
   await expect(rows).toHaveCount(4);
   // Active pages shown: All 4; design 2 (Alpha waits on the viewer); ops 1; q4 plan 1 (also waits).
-  await expect(rows.nth(0)).toContainText('All pages');
-  await expect(rows.nth(0)).toContainText('4');
-  await expect(rows.nth(0)).toContainText('◆ 1');
-  await expect(rows.nth(1)).toHaveText(/design\s*2\s*◆ 1/);
+  // The rail draws the counts as numbers (the needs-you one in a pill); the phone strip keeps the mark.
+  await expect(rows.nth(0)).toHaveText(/All pages\s*4\s*(?:◆ )?1/);
+  await expect(rows.nth(1)).toHaveText(/design\s*2\s*(?:◆ )?1/);
   await expect(rows.nth(2)).toHaveText(/ops\s*1\s*$/);
-  await expect(rows.nth(3)).toHaveText(/q4 plan\s*1\s*◆ 1/);
+  await expect(rows.nth(3)).toHaveText(/q4 plan\s*1\s*(?:◆ )?1/);
   await expect(rows.nth(0)).toHaveAttribute('aria-current', 'page');
   await expect(moduleMenu(page).getByRole('link', { name: 'New project…' })).toBeVisible();
   await expect(moduleMenu(page).getByRole('link', { name: 'Manage projects…' })).toBeVisible();
@@ -941,7 +942,7 @@ for (const theme of ['light', 'dark'] as const) {
       document.documentElement.dataset.theme = theme;
     }, theme);
     const row = scopeRows(page).nth(1);
-    await expect(row).toHaveText(/design\s*2\s*◆ 1/);
+    await expect(row).toHaveText(/design\s*2\s*(?:◆ )?1/);
     // A token no CSS defines leaves the declaration invalid, so the count would inherit the name's
     // colour; the count must instead be the colour the secondary token has in this theme.
     const colors = await row.evaluate((element) => {
@@ -958,7 +959,13 @@ for (const theme of ['light', 'dark'] as const) {
       };
     });
     expect(colors.count).toBe(colors.secondary);
-    expect(colors.count).not.toBe(colors.name);
+    // A rail row at rest is drawn in the secondary colour itself; the current row's name is not.
+    const current = await scopeRows(page)
+      .first()
+      .evaluate(
+        (element) => getComputedStyle(element.querySelector('.tmt-ui-module-menu-label')!).color,
+      );
+    expect(colors.count).not.toBe(current);
     await page.screenshot({ path: await capturePath(`3952-scope-menu-${theme}.png`) });
   });
 }
@@ -1043,7 +1050,7 @@ test('a page opened from a scoped list shows the project it came from and links 
   await mount(page);
   await scopeTo(page, 'design');
   await rows(page).first().getByRole('link', { name: 'Alpha plan' }).click();
-  const crumb = app(page).getByRole('link', { name: 'design', exact: true });
+  const crumb = app(page).locator('.colab-scope-crumb', { hasText: /^design$/ });
   await expect(crumb).toBeVisible();
   await crumb.click();
   await expect(scopeTrigger(page, 'design')).toBeVisible();
@@ -1053,7 +1060,7 @@ test('a page opened from a scoped list shows the project it came from and links 
   // From the unscoped list, or by a copied link, no crumb: the page link stays clean.
   await scopeTo(page, 'All pages');
   await rows(page).first().getByRole('link', { name: 'Alpha plan' }).click();
-  await expect(app(page).getByRole('link', { name: 'design', exact: true })).toHaveCount(0);
+  await expect(app(page).locator('.colab-scope-crumb', { hasText: /^design$/ })).toHaveCount(0);
 });
 
 test('empty spaces and filters say what is missing', async ({ page }) => {
@@ -1303,7 +1310,7 @@ for (const width of [1440, 390])
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3747-scoped-list-${width}-${theme}.png`) });
       await rows(page).first().getByRole('link', { name: 'Alpha plan' }).click();
-      const crumb = app(page).getByRole('link', { name: 'design', exact: true });
+      const crumb = app(page).locator('.colab-scope-crumb', { hasText: /^design$/ });
       if (width > 390) await expect(crumb).toBeVisible();
       else await expect(crumb).toBeHidden();
       expect(await flat()).toBe(true);
@@ -1508,8 +1515,12 @@ for (const width of [1440, 390, 320])
       const inside = () =>
         page.evaluate(() => {
           const viewport = document.documentElement.clientWidth;
-          const crumb = document
-            .querySelector('#list-fixture .tmt-ui-module-menu a[aria-current="page"]')!
+          const crumb = [
+            ...document.querySelectorAll(
+              '#list-fixture .tmt-ui-rail-sub-item[aria-current="page"], #list-fixture .tmt-ui-module-menu a[aria-current="page"]',
+            ),
+          ]
+            .find((node) => (node as HTMLElement).offsetParent !== null)!
             .getBoundingClientRect();
           return {
             scroll: document.documentElement.scrollWidth - viewport,
@@ -1534,7 +1545,7 @@ for (const width of [1440, 390, 320])
         expect(await inside()).toEqual({ scroll: 0, crumbInside: true });
         await rows(page).first().getByRole('link', { name: 'Long names' }).click();
         // A heading too narrow for the crumb and the title leaves the crumb out; the title stays.
-        const crumb = app(page).getByRole('link', { name: long, exact: true });
+        const crumb = app(page).locator('.colab-scope-crumb', { hasText: long });
         if (width > 390) await expect(crumb).toBeVisible();
         else await expect(crumb).toBeHidden();
         expect(

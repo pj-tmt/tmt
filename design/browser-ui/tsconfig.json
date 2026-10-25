@@ -14,5 +14,5 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["src", "test", "gallery", "*.ts"]
+  "include": ["src", "test", "gallery", "e2e", "*.ts"]
 }

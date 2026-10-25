@@ -80,9 +80,9 @@ the TMT roles and follow Colab's light or dark theme by themselves, so a page ne
 `bg-paper`, `bg-sheet`, `bg-code`, `bg-command`, `bg-selection`, `bg-disabled`, `text-text`,
 `text-secondary`, `text-link`, `border-edge`, `border-rule`, and the state colours `text-working`,
 `text-waiting`, `text-review`, `text-blocked` (`bg-`, `border-` and so on work for each). Also
-`black`, `white`, `transparent` and `current`. Radius is square on every `rounded-*`, shadows are
-removed and focus is one outline in the focus colour; spacing, flex, grid and type scales are
-Tailwind's. Do not use a colour Tailwind's default palette names (`bg-blue-500`): it does not exist
+`black`, `white`, `transparent` and `current`. `rounded` and every sized `rounded-*` take the one
+control radius (`rounded-full` stays a pill, `rounded-none` square), shadows are removed and focus is
+one outline in the focus colour; spacing, flex, grid and type scales are Tailwind's. Do not use a colour Tailwind's default palette names (`bg-blue-500`): it does not exist
 here. Write each class name in full (a lookup of complete names, never `text-${state}`). Mark every state with a symbol and a word, never colour alone.
 
 On a `column` or `full` page Colab sets the width and gaps ([layout](layout.md)); do not set your own

@@ -2,6 +2,7 @@ import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { captureDirectory } from './captures.js';
+import { tokens } from './tokens.js';
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
   return page.evaluate(
@@ -122,7 +123,7 @@ for (const width of [1440, 390])
             composer.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
           ).toBeInViewport();
           await expect(composer.locator('.tmt-ui-field-label')).toHaveCSS('width', '1px');
-          await expect(input).toHaveCSS('border-radius', '0px');
+          await expect(input).toHaveCSS('border-radius', tokens.browser.metric.radius);
           await expect(input).toHaveCSS('box-shadow', 'none');
           const current = await appearance(composer);
           if (surface === 'thread') baseline = current;

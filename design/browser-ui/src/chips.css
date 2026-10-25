@@ -20,6 +20,8 @@
   padding: 0;
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
+  /* The remove segment is a straight, square block clipped by the chip's own rounded edge. */
+  overflow: hidden;
   background: var(--tmt-ui-surface-sheet);
   color: var(--tmt-ui-color-text);
   font-family: var(--tmt-ui-font-body);
@@ -48,10 +50,21 @@
   margin: 0;
   border: var(--tmt-ui-rule-width) solid transparent;
   border-left-color: var(--tmt-ui-surface-rule);
+  /* Square: a divider on a rounded box would curl, so the segment carries no radius. */
+  border-radius: 0;
+}
+/* The chip clips its remove segment, so the focus frame is the chip's own border: it follows the
+   radius and never cuts off at the rounded edge. */
+.tmt-ui-chip:has(.tmt-ui-icon-action-control:focus-visible) {
+  border-color: var(--tmt-ui-color-focus);
 }
 .tmt-ui-chip .tmt-ui-icon-action-control:focus-visible {
-  border-color: var(--tmt-ui-color-focus);
   outline: 0;
+}
+/* One focus frame: the segment draws no fill, border or outline of its own on focus, only the
+   chip's border changes. Hover still tints it. */
+.tmt-ui-chip .tmt-ui-icon-action-control:focus-visible:not(:hover) {
+  background: transparent;
 }
 .tmt-ui-chips-add {
   box-sizing: border-box;
@@ -100,7 +113,7 @@
   background: var(--tmt-ui-surface-sheet);
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
-  box-shadow: none;
+  box-shadow: var(--tmt-ui-shadow-overlay);
 }
 .tmt-ui-chips-surface::backdrop {
   background: transparent;

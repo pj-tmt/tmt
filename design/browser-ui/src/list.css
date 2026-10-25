@@ -21,7 +21,8 @@
   );
   padding: var(--tmt-ui-list-padding-block) var(--tmt-ui-list-padding-inline);
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius);
+  /* A row's rule is a one-sided border: the row stays square (a rounded box never takes one side). */
+  border-radius: 0;
   box-shadow: none;
 }
 .tmt-ui-list-row[data-leading] {

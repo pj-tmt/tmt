@@ -170,19 +170,18 @@ for (const width of [320, 390, 1440])
       page.on('pageerror', (error) => failures.push(error.message));
       const scope = page.getByRole('region', { name: 'Real shadcn primitives' });
       const button = page.getByRole('button', { name: 'Ready action', exact: true });
-      await expect(button).toHaveCSS(
-        'background-color',
-        rgb(tokens.browser.surface.selection[theme]),
-      );
-      await expect(button).toHaveCSS('color', rgb(tokens.browser.color['selected-text'][theme]));
+      // The default (primary) action is the accent fill with its own ink.
+      await expect(button).toHaveCSS('background-color', rgb(tokens.browser.color.accent[theme]));
+      await expect(button).toHaveCSS('color', rgb(tokens.browser.color['on-accent'][theme]));
       await expect(button).toHaveCSS('font-size', tokens.browser.metric['command-size']);
-      await expect(button).toHaveCSS('border-radius', '0px');
+      await expect(button).toHaveCSS('border-radius', tokens.browser.metric.radius);
       await expect(button).toHaveCSS('box-shadow', 'none');
       await page.keyboard.press('Tab');
       await button.focus();
       expect(await button.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
-      // One focus frame (#3998): the button's own border takes the focus colour, no outline.
-      await expect(button).toHaveCSS('border-top-color', rgb(tokens.browser.color.focus[theme]));
+      // One focus frame (#3998): the button's own border takes the focus edge, no outline. The accent
+      // fill hides an accent edge, so a filled button's edge is the text colour.
+      await expect(button).toHaveCSS('border-top-color', rgb(tokens.browser.color.text[theme]));
       await expect(button).toHaveCSS('outline-style', 'none');
       for (const name of ['Controlled input', 'Controlled textarea']) {
         const field = page.getByLabel(name);
@@ -197,12 +196,12 @@ for (const width of [320, 390, 1440])
       );
       const alert = scope.getByRole('alert').filter({ hasText: 'Ready information' });
       await expect(alert).toHaveCSS('background-color', rgb(tokens.browser.surface.sheet[theme]));
-      await expect(alert).toHaveCSS('border-radius', '0px');
+      await expect(alert).toHaveCSS('border-radius', tokens.browser.metric.radius);
       const tab = page.getByRole('tab', { name: 'First', exact: true });
       await tab.focus();
       await expect(tab).toHaveCSS('border-top-color', rgb(tokens.browser.color.focus[theme]));
       await expect(tab).toHaveCSS('outline-style', 'none');
-      await expect(tab).toHaveCSS('border-radius', '0px');
+      await expect(tab).toHaveCSS('border-radius', tokens.browser.metric.radius);
       await expect(page.getByRole('tab', { name: 'Second', exact: true })).toHaveCSS(
         'background-color',
         'rgba(0, 0, 0, 0)',

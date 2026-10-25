@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { rgb, tokens } from './tokens.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -152,11 +153,11 @@ for (const width of [1440, 390]) {
     // The block is the page sheet (dark here) with a light rule, whatever the page paints.
     await expect(page.locator('.question-compact-block')).toHaveCSS(
       'background-color',
-      'rgb(16, 16, 16)',
+      rgb(tokens.browser.surface.sheet.dark),
     );
     await expect(page.locator('.question-compact-block')).toHaveCSS(
       'outline-color',
-      'rgb(48, 48, 48)',
+      rgb(tokens.browser.surface.rule.dark),
     );
     await expect(row.locator('.question-line-chevron svg')).toHaveCSS('width', '16px');
     await expect(row.locator('.question-line-chevron svg')).toHaveCSS('height', '16px');

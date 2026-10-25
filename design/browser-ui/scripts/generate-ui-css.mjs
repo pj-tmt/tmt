@@ -19,8 +19,8 @@ const roles = {
   'card-foreground': ['color', 'text'],
   popover: ['surface', 'sheet'],
   'popover-foreground': ['color', 'text'],
-  primary: ['surface', 'selection'],
-  'primary-foreground': ['color', 'selected-text'],
+  primary: ['color', 'accent'],
+  'primary-foreground': ['color', 'on-accent'],
   secondary: ['surface', 'command'],
   'secondary-foreground': ['color', 'text'],
   muted: ['surface', 'disabled'],
@@ -28,13 +28,24 @@ const roles = {
   accent: ['surface', 'selection'],
   'accent-foreground': ['color', 'selected-text'],
   destructive: ['color', 'blocked'],
+  'destructive-ring': ['color', 'focus-destructive'],
+  'destructive-soft': ['surface', 'blocked-soft'],
   'layer-boundary': ['surface', 'rule'],
   border: ['surface', 'rule'],
   input: ['surface', 'rule'],
   indicator: ['color', 'edge'],
   ring: ['color', 'focus'],
   scrim: ['surface', 'scrim'],
+  // Not a colour utility: the one shadow, for floating layers only (`shadow-overlay`).
+  'shadow-overlay': ['shadow', 'overlay'],
 };
+const colourRoles = Object.keys(roles).filter((key) => key !== 'shadow-overlay');
+/** The motion tokens as foundation properties; `reduced` zeroes every duration. */
+function motion(reduced = false, indent = '  ') {
+  return Object.entries(tokens.browser.motion)
+    .filter(([key]) => !key.startsWith('$') && (!reduced || ['fast', 'base'].includes(key)))
+    .map(([key, value]) => `${indent}--tmt-foundation-motion-${key}: ${reduced ? '0ms' : value};`);
+}
 const themed = (theme) =>
   Object.entries(roles)
     .map(
@@ -46,9 +57,18 @@ const fixed = [
   ...Object.entries(tokens.browser.ui).map(
     ([key, value]) => `  --tmt-foundation-${key}: ${value};`,
   ),
-  ...['radius', 'rule-width', 'focus-width', 'command-size', 'caption-size', 'eyebrow-weight'].map(
-    (key) => `  --tmt-foundation-${key}: ${tokens.browser.metric[key]};`,
-  ),
+  ...[
+    'radius',
+    'radius-s',
+    'radius-l',
+    'radius-pill',
+    'rule-width',
+    'focus-width',
+    'command-size',
+    'caption-size',
+    'eyebrow-weight',
+  ].map((key) => `  --tmt-foundation-${key}: ${tokens.browser.metric[key]};`),
+  ...motion(),
   ...Object.entries(tokens.font).map(
     ([key, value]) => `  --tmt-foundation-font-${key}: ${value.stack};`,
   ),
@@ -72,10 +92,34 @@ const source = (
   await Promise.all(['src/ui/', 'test/fixtures/ui/'].map((path) => sources(new URL(path, home))))
 ).join('\n');
 const candidates = uiCandidates(source);
+// Layer enter and exit as named animations (`animate-pop-in`, `animate-slide-out-right`, ...) over
+// the keyframes below, on the motion tokens: `pop-fast-*` is the fast duration, the rest the base.
+const motionVar = (token) => `var(--tmt-foundation-motion-${token})`;
+const animations = [
+  ['pop-fast-in', 'pop-in', 'fast', 'ease-out'],
+  ['pop-fast-out', 'pop-out', 'fast', 'ease-in'],
+  ['pop-in', 'pop-in', 'base', 'ease-out'],
+  ['pop-out', 'pop-out', 'base', 'ease-in'],
+  ['fade-in', 'fade-in', 'base', 'ease-out'],
+  ['fade-out', 'fade-out', 'base', 'ease-in'],
+  ...['right', 'left', 'top', 'bottom'].flatMap((side) => [
+    [`slide-in-${side}`, `slide-in-${side}`, 'base', 'ease-out'],
+    [`slide-out-${side}`, `slide-out-${side}`, 'base', 'ease-in'],
+  ]),
+].map(
+  ([name, keyframes, duration, ease]) =>
+    `--animate-${name}: tmt-foundation-${keyframes} ${motionVar(duration)} ${motionVar(`ease-${ease.slice(5)}`)} both;`,
+);
 const theme = [
   '--*: initial;',
-  ...Object.keys(roles).map((key) => `--color-${key}: var(--tmt-foundation-${key});`),
+  ...colourRoles.map((key) => `--color-${key}: var(--tmt-foundation-${key});`),
+  '--shadow-overlay: var(--tmt-foundation-shadow-overlay);',
+  '--radius-control: var(--tmt-foundation-radius);',
+  '--radius-small: var(--tmt-foundation-radius-s);',
+  '--radius-surface: var(--tmt-foundation-radius-l);',
+  '--radius-pill: var(--tmt-foundation-radius-pill);',
   '--spacing: var(--tmt-foundation-spacing-unit);',
+  ...animations,
   ...Object.keys(tokens.font).map((key) => `--font-${key}: var(--tmt-foundation-font-${key});`),
 ].join('\n');
 // No imports, default theme or preflight. Only this leaf's complete prefixed class literals.
@@ -98,6 +142,25 @@ assertUiUtilities(utilities);
 const reset = defaults.length
   ? `  &, & *, &::before, &::after, & *::before, & *::after, & *::backdrop {\n${defaults.join('\n').replaceAll('--tw-', '--tmt-foundation-tw-')}\n  }\n`
   : '';
+// Layer enter and exit, named in the layer classes (`animate-[tmt-foundation-pop-in_...]`). Radix
+// keeps a layer mounted while its exit animation runs. `scale` and `transform` compose with the
+// `translate` a layer already uses for its position.
+const slides = ['right', 'left', 'top', 'bottom'].map((side) => {
+  const from = {
+    right: 'translateX(100%)',
+    left: 'translateX(-100%)',
+    top: 'translateY(-100%)',
+    bottom: 'translateY(100%)',
+  }[side];
+  return `@keyframes tmt-foundation-slide-in-${side} {\n  from {\n    transform: ${from};\n  }\n}\n@keyframes tmt-foundation-slide-out-${side} {\n  to {\n    transform: ${from};\n  }\n}`;
+});
+const keyframes = [
+  '@keyframes tmt-foundation-fade-in {\n  from {\n    opacity: 0;\n  }\n}',
+  '@keyframes tmt-foundation-fade-out {\n  to {\n    opacity: 0;\n  }\n}',
+  '@keyframes tmt-foundation-pop-in {\n  from {\n    opacity: 0;\n    scale: var(--tmt-foundation-motion-scale);\n  }\n}',
+  '@keyframes tmt-foundation-pop-out {\n  to {\n    opacity: 0;\n    scale: var(--tmt-foundation-motion-scale);\n  }\n}',
+  ...slides,
+].join('\n');
 const css = `/* Generated by scripts/generate-ui-css.mjs; no preflight or global theme. */
 [data-tmt-ui] {\n${fixed}\n${themed('light')}\n  color-scheme: light;\n}
 @media (prefers-color-scheme: dark) {
@@ -105,6 +168,10 @@ const css = `/* Generated by scripts/generate-ui-css.mjs; no preflight or global
 }
 [data-tmt-ui][data-tmt-theme='light'] {\n${themed('light')}\n  color-scheme: light;\n}
 [data-tmt-ui][data-tmt-theme='dark'] {\n${themed('dark')}\n  color-scheme: dark;\n}
+@media (prefers-reduced-motion: reduce) {
+  [data-tmt-ui] {\n${motion(true, '    ').join('\n')}\n  }
+}
+${keyframes}
 :where([data-tmt-ui]) {\n${reset}${utilities
   .trim()
   .split('\n')

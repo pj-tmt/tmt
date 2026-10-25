@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { rgb, tokens } from './tokens.js';
 
 /**
  * Colab draws its cards over the author's page (#3959): whatever the page paints, and whatever
@@ -168,8 +169,8 @@ for (const width of [1440, 390])
           expect(text.filter((entry) => entry.ratio < 4.5)).toEqual([]);
           // Every card is the painted scheme's sheet with a 1px light rule and no dark edge; the 3:1 boundary
           // floor does not apply to it, by Ben's decision (#4068, as for floating panels in #4025).
-          const sheet = scheme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)';
-          const rule = scheme === 'dark' ? 'rgb(48, 48, 48)' : 'rgb(208, 208, 208)';
+          const sheet = rgb(tokens.browser.surface.sheet[scheme]);
+          const rule = rgb(tokens.browser.surface.rule[scheme]);
           // A reading and a review band hold no card of these two kinds.
           if (cardsOnPage) expect(cards.length).toBeGreaterThan(0);
           expect(

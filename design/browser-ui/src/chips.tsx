@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { BrowserIconAction } from './icon-action.js';
 import { admitsOverlayEscape, outsideOverlay, restoreOverlayFocus } from './overlay.js';
 import { claimBrowserPopup, placeBrowserPopup } from './popup.js';
+import { usePresence } from './presence.js';
 import { browserUiClasses as c } from './static.js';
 import type {
   BrowserChipItem as StaticChipItem,
@@ -115,6 +116,7 @@ export function BrowserChips({
   const input = useRef<HTMLInputElement>(null);
   const buttons = useRef(new Map<string, HTMLButtonElement>());
   const [open, setOpen] = useState(false);
+  const present = usePresence(open, dialog);
   const [active, setActive] = useState<string>();
   const visibility = useRef({ reported: false, callback: onOpenChange });
   visibility.current.callback = onOpenChange;
@@ -302,11 +304,12 @@ export function BrowserChips({
           {statusText}
         </span>
       )}
-      {open && (
+      {present && (
         <dialog
           ref={dialog}
           id={`${id}-surface`}
           className={c.chipsSurface}
+          data-state={open ? 'open' : 'closed'}
           aria-label={addLabel}
           onClose={(event) => {
             event.stopPropagation();

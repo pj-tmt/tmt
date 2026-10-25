@@ -390,7 +390,8 @@ for (const width of [320, 390, 1440]) {
       expect(
         await popup.evaluate((node) => Number.parseFloat(getComputedStyle(node).borderRadius)),
       ).toBe(Number.parseFloat(tokens.browser.metric.radius));
-      expect(await popup.evaluate((node) => getComputedStyle(node).boxShadow)).toBe('none');
+      // A floating layer carries the one overlay shadow.
+      expect(await popup.evaluate((node) => getComputedStyle(node).boxShadow)).toMatch(/60px/);
       const assertContained = async () => {
         await expect
           .poll(() =>

@@ -19,6 +19,15 @@ import { PageSectionsSection, TablesSection, VisuallyHiddenSection } from './lay
 import { NotificationsSection, OverlaysSection, ShellSection } from './frames.js';
 import { ChartsSection } from './charts.js';
 import { UiLayerSection } from './ui-layer.js';
+import { UiOverlaysSection } from './ui-overlays.js';
+import { AgentInputSection } from './composer.js';
+import {
+  AvatarSection,
+  ChoiceSection,
+  CountChipSection,
+  PagerSection,
+  StatusTileSection,
+} from './pieces.js';
 
 /** Every gallery section, in the order of `sections` (covered.ts). */
 export function GallerySections() {
@@ -35,6 +44,11 @@ export function GallerySections() {
       <ToggleSection />
       <CheckboxSection />
       <ChipsSection />
+      <CountChipSection />
+      <AvatarSection />
+      <ChoiceSection />
+      <PagerSection />
+      <StatusTileSection />
       <MenusSection />
       <TabsSection />
       <ListSection />
@@ -44,6 +58,8 @@ export function GallerySections() {
       <CommandSection />
       <NoticeSection />
       <OverlaysSection />
+      <UiOverlaysSection />
+      <AgentInputSection />
       <NotificationsSection />
       <ChartsSection />
       <UiLayerSection />

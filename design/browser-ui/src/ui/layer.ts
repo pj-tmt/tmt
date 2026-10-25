@@ -33,6 +33,10 @@ export interface LayerController {
   requestClose(reason?: LayerCloseReason, originalEvent?: Event): boolean;
 }
 
+/** The open hosted layers, bottom to top. Radix keeps a layer on its stack until its exit has played,
+ * so a leaving layer hands its Escape to the top open one here instead of swallowing it. */
+const openLayers = new Set<Pick<LayerController, 'requestClose'>>();
+
 /** Host state remains authoritative. Raw open=false/unmount bypasses this admission. */
 export function useLayerController(options: LayerControllerOptions): LayerController {
   const current = useRef(options);
@@ -57,6 +61,12 @@ export function useLayerController(options: LayerControllerOptions): LayerContro
   const requestOpen = useCallback(() => {
     if (!current.current.open) current.current.onOpenChange(true);
   }, []);
+  useLayoutEffect(() => {
+    if (!options.open) return;
+    const entry = { requestClose };
+    openLayers.add(entry);
+    return () => void openLayers.delete(entry);
+  }, [options.open, requestClose]);
   return { open: options.open, requestOpen, requestClose };
 }
 
@@ -168,6 +178,11 @@ export function admitLayerDismiss(
   if (event.defaultPrevented || !controller) return;
   // One host request handles both accepted and vetoed paths; no second Radix close.
   event.preventDefault();
+  if (!controller.open) {
+    // A leaving layer takes no dismissal: its Escape goes to the open layer under it at once.
+    if (reason === 'escape') [...openLayers].at(-1)?.requestClose('escape', event);
+    return;
+  }
   const detail: unknown = 'detail' in event ? event.detail : undefined;
   const original =
     typeof detail === 'object' &&

@@ -4,6 +4,7 @@ import { Tooltip as Primitive } from 'radix-ui';
 import { cn } from './utils.js';
 import { useUiPortalContainer } from './theme.js';
 import { useLayerSurface } from './layer.js';
+import { popMotion } from './motion.js';
 
 export function TooltipProvider({
   delayDuration = 0,
@@ -36,6 +37,8 @@ export function TooltipContent({
         sideOffset={sideOffset}
         className={cn(
           'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:z-(--tmt-foundation-z-tooltip) tmt:w-fit tmt:max-w-(--tmt-layer-available-width) tmt:border-solid tmt:border-layer-boundary tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-foreground tmt:text-background tmt:px-3 tmt:py-1.5 tmt:text-balance',
+          'tmt:rounded-small',
+          popMotion,
           className,
         )}
         style={{ ...style, ...surface.viewportStyle }}

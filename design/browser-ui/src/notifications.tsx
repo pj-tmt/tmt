@@ -6,6 +6,11 @@ import { admitsOverlayEscape, restoreOverlayFocus } from './overlay.js';
 import { NotificationQueue } from './notification-queue.js';
 import type { BrowserNotificationData } from './static.js';
 
+interface Closing {
+  event: BrowserNotification;
+  index: number;
+}
+
 export interface BrowserNotification extends BrowserNotificationData {
   onActivate(event: MouseEvent<HTMLButtonElement>): void;
 }
@@ -30,6 +35,56 @@ function NotificationSurface({ events, suspended, isEligible }: BrowserNotificat
   host.current = { suspended, isEligible };
   const [announcements, setAnnouncements] = useState<readonly BrowserNotification[]>([]);
   const snapshot = useSyncExternalStore(queue.subscribe, queue.getSnapshot, queue.getSnapshot);
+  // A dismissed or expired card stays mounted as closed while its exit plays, then goes.
+  const [previous, setPrevious] = useState(snapshot.visible);
+  const [closing, setClosing] = useState<ReadonlyMap<string, Closing>>(new Map());
+  if (previous !== snapshot.visible) {
+    setPrevious(snapshot.visible);
+    const gone = previous.filter(
+      (event) =>
+        !snapshot.visible.some((visible) => visible.id === event.id) && !closing.has(event.id),
+    );
+    if (gone.length)
+      setClosing(
+        new Map([
+          ...closing,
+          ...gone.map((event): [string, Closing] => [
+            event.id,
+            { event, index: previous.indexOf(event) },
+          ]),
+        ]),
+      );
+  }
+  const settling = useRef(new Set<string>());
+  useLayoutEffect(() => {
+    const finish = (id: string) =>
+      setClosing((current) => {
+        if (!current.has(id)) return current;
+        const next = new Map(current);
+        next.delete(id);
+        return next;
+      });
+    for (const id of closing.keys()) {
+      if (settling.current.has(id)) continue;
+      settling.current.add(id);
+      const running =
+        surface.current
+          ?.querySelector<HTMLElement>(`[data-notification="${CSS.escape(id)}"]`)
+          ?.getAnimations?.() ?? [];
+      const done = () => {
+        settling.current.delete(id);
+        finish(id);
+      };
+      if (running.length) void Promise.allSettled(running.map((a) => a.finished)).then(done);
+      else done();
+    }
+  }, [closing]);
+  const cards: { event: BrowserNotification; open: boolean }[] = snapshot.visible.map((event) => ({
+    event,
+    open: true,
+  }));
+  for (const { event, index } of [...closing.values()].sort((a, b) => a.index - b.index))
+    cards.splice(Math.min(index, cards.length), 0, { event, open: false });
   function dismiss(id: string, target: HTMLElement) {
     const focused = target
       .closest('.tmt-ui-notification')!
@@ -57,7 +112,7 @@ function NotificationSurface({ events, suspended, isEligible }: BrowserNotificat
   }, [queue, events, suspended, isEligible]);
   useLayoutEffect(() => {
     const node = surface.current!;
-    if (queue.getSnapshot().visible.length && !suspended) {
+    if ((queue.getSnapshot().visible.length || closing.size) && !suspended) {
       if (!node.matches(':popover-open')) node.showPopover();
       const next = queue.takeAnnouncements();
       if (next.length) setAnnouncements(next);
@@ -71,8 +126,9 @@ function NotificationSurface({ events, suspended, isEligible }: BrowserNotificat
     } else {
       if (node.matches(':popover-open')) node.hidePopover();
       setAnnouncements((previous) => (previous.length ? [] : previous));
+      if (closing.size) setClosing(new Map());
     }
-  }, [queue, snapshot, suspended]);
+  }, [queue, snapshot, suspended, closing]);
 
   return (
     <>
@@ -99,10 +155,13 @@ function NotificationSurface({ events, suspended, isEligible }: BrowserNotificat
           }
         }}
       >
-        {snapshot.visible.map((event) => (
+        {cards.map(({ event, open }) => (
           <article
             key={event.id}
             className="tmt-ui-notification"
+            data-notification={event.id}
+            data-state={open ? 'open' : 'closed'}
+            inert={open ? undefined : true}
             aria-label={`${event.destination} reply`}
             onMouseEnter={() => queue.pause(event.id, 'hover', true)}
             onMouseLeave={() => queue.pause(event.id, 'hover', false)}

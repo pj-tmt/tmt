@@ -13,7 +13,7 @@ export function PageSectionsSection() {
     <Section id="section">
       <Pair title="BrowserSection · label">
         {() => (
-          <BrowserSection heading="Needs you">
+          <BrowserSection heading="Needs you" headingLevel="none">
             <BrowserList label="Needs you">
               <BrowserListRow
                 title={<a href="#section">Release plan for the remote channel</a>}
@@ -27,10 +27,10 @@ export function PageSectionsSection() {
       <Pair title="BrowserSection · title, divided">
         {() => (
           <>
-            <BrowserSection heading="Browser opening" variant="title" divided>
+            <BrowserSection heading="Browser opening" variant="title" headingLevel="none" divided>
               <p>Opens the printed link in this browser.</p>
             </BrowserSection>
-            <BrowserSection heading="Paired devices" variant="title" divided>
+            <BrowserSection heading="Paired devices" variant="title" headingLevel="none" divided>
               <p>No other device is paired.</p>
             </BrowserSection>
           </>

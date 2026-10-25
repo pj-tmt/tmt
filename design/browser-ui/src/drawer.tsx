@@ -53,6 +53,7 @@ export function BrowserDrawer({
       className={`tmt-ui-drawer ${className}`}
       data-panel={panel}
       data-width={width}
+      data-state={open ? 'open' : 'closed'}
       aria-labelledby={label}
     >
       <header className="tmt-ui-drawer-header">

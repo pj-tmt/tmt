@@ -19,7 +19,7 @@
 .tmt-ui-field-control {
   box-sizing: border-box;
   color: var(--tmt-ui-color-text);
-  background: var(--tmt-ui-surface-sheet);
+  background: var(--tmt-ui-surface-field);
   border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   padding: var(--tmt-ui-host-field-padding);

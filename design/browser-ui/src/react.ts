@@ -30,11 +30,27 @@ export { BrowserTable } from './table.js';
 export type { BrowserTableProps } from './table.js';
 export { BrowserTabs } from './tabs.js';
 export type { BrowserTabsProps, BrowserTab, BrowserTabSelectReason } from './tabs.js';
-export type { BrowserNoticeTone, BrowserActionVariant, BrowserAnnouncement } from './static';
+export type {
+  BrowserNoticeTone,
+  BrowserActionVariant,
+  BrowserAnnouncement,
+  BrowserCountTone,
+  BrowserStatusTone,
+} from './static';
 export { BrowserDrawer } from './drawer.js';
 export type { BrowserDrawerProps, BrowserDrawerDismissReason } from './drawer.js';
 export { BrowserDialog } from './dialog.js';
 export type { BrowserDialogProps, BrowserDialogDismissReason } from './dialog.js';
+export { BrowserAvatar } from './avatar.js';
+export type { BrowserAvatarProps } from './avatar.js';
+export { BrowserChoice, BrowserChoiceGroup } from './choice.js';
+export type { BrowserChoiceProps, BrowserChoiceGroupProps } from './choice.js';
+export { BrowserPager } from './pager.js';
+export type { BrowserPagerProps } from './pager.js';
+export { BrowserStatusTile, BrowserStatusTiles } from './status-tile.js';
+export type { BrowserStatusTileProps } from './status-tile.js';
+export { BrowserCountChip } from './count-chip.js';
+export type { BrowserCountChipProps } from './count-chip.js';
 export { BrowserMenu } from './menu.js';
 export type { BrowserMenuProps, BrowserMenuItem } from './menu.js';
 export { BrowserNotifications } from './notifications.js';

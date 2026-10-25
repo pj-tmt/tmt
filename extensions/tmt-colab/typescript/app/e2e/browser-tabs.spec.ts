@@ -86,6 +86,7 @@ for (const theme of ['light', 'dark']) {
           pageFits: document.documentElement.scrollWidth <= innerWidth,
           pageY: scrollY,
           selectedRule: getComputedStyle(chosen).borderTopWidth,
+          selectedFilled: getComputedStyle(chosen).backgroundColor !== 'rgba(0, 0, 0, 0)',
           shadow: getComputedStyle(chosen).boxShadow,
         };
       });
@@ -106,7 +107,9 @@ for (const theme of ['light', 'dark']) {
         contained: true,
         pageFits: true,
         pageY: 0,
-        selectedRule: '2px',
+        // A segmented strip: the selected tab is a fill, not a rule on one edge.
+        selectedRule: '0px',
+        selectedFilled: true,
         shadow: 'none',
       });
       // Resize must retain the selected tab without an extra selection or page scroll.

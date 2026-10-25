@@ -61,6 +61,7 @@ it('drops the default palette and shadows and takes the radius, focus and fonts 
   const colors = [...theme.matchAll(/^ {2}--color-([\w-]+):/gm)].map((match) => match[1]);
   expect(colors).toEqual(expect.arrayContaining(['black', 'white', 'transparent', 'current']));
   expect(colors).not.toContain('red-500');
+  expect(theme).toContain(`--radius: ${tokens.browser.metric.radius};`);
   expect(theme).toContain(`--radius-lg: ${tokens.browser.metric.radius};`);
   expect(theme).toContain(
     `outline: ${tokens.browser.metric['focus-width']} solid var(--color-focus);`,

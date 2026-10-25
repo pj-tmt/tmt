@@ -1,6 +1,6 @@
 // Generates the Tailwind theme of the bundled page runtime (#1693) from the design tokens, so a page
 // that opts in looks like Colab with no author code: the browser paint roles as colour names that
-// follow the app theme, no default palette, square corners, no shadows, system fonts, one focus frame.
+// follow the app theme, no default palette, one control radius, no shadows, system fonts, one focus frame.
 // Usage: node generate-runtime-theme.mjs --write | --check   (writes app/src/runtime/theme.css)
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -21,7 +21,7 @@ export const excluded = {
   ],
 };
 
-// Tailwind's own scale names; every one takes the token radius, so `rounded-*` is square.
+// Tailwind's own scale names; every one takes the token radius, so every `rounded-*` is that one radius.
 const radii = ['xs', 'sm', 'md', 'lg', 'xl', '2xl', '3xl', '4xl'];
 
 /** The system part of a font stack: the leading quoted web font cannot load in the frame, and the
@@ -61,6 +61,7 @@ export function buildTheme(tokens) {
     '--color-current: currentColor;',
     ...roles.map((role) => `--color-${role.key}: var(${variable(role)});`),
     '--radius-*: initial;',
+    `--radius: ${radius};`,
     ...radii.map((size) => `--radius-${size}: ${radius};`),
     '--shadow-*: initial;',
     '--inset-shadow-*: initial;',

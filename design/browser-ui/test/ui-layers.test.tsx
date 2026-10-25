@@ -12,13 +12,22 @@ import {
 import { uiCandidates } from '../scripts/ui-source-policy.mjs';
 
 // Callback/observer unit proofs only. Real Radix DOM/focus qualification is the browser gate.
-const hooks = vi.hoisted(() => ({ index: 0, refs: [] as { current: unknown }[] }));
+const hooks = vi.hoisted(() => ({
+  index: 0,
+  refs: [] as { current: unknown }[],
+  cleanups: [] as (() => void)[],
+}));
 vi.mock('react', async (original) => ({
   ...(await original<typeof import('react')>()),
   useRef: (value: unknown) => (hooks.refs[hooks.index++] ??= { current: value }),
   useCallback: (callback: unknown) => callback,
+  useLayoutEffect: (effect: () => void | (() => void)) => {
+    const cleanup = effect();
+    if (typeof cleanup === 'function') hooks.cleanups.push(cleanup);
+  },
 }));
 afterEach(() => {
+  hooks.cleanups.splice(0).forEach((cleanup) => cleanup());
   hooks.index = 0;
   hooks.refs = [];
   vi.unstubAllGlobals();
@@ -30,6 +39,45 @@ function rerender(options: LayerControllerOptions) {
 function cancelable(type = 'close') {
   return new Event(type, { cancelable: true });
 }
+
+describe('a leaving layer releases input', () => {
+  /** A second, independent hook instance: its own refs, as a second mounted host would have. */
+  function another(options: LayerControllerOptions) {
+    hooks.index = hooks.refs.length;
+    return useLayerController(options);
+  }
+  it('hands its Escape to the open layer under it and takes no dismissal itself', () => {
+    const underChanged = vi.fn();
+    const leavingChanged = vi.fn();
+    rerender({ open: true, onOpenChange: underChanged });
+    const leaving = another({ open: false, onOpenChange: leavingChanged });
+    const event = cancelable('keydown');
+    admitLayerDismiss(event, leaving, 'escape');
+    expect(event.defaultPrevented).toBe(true);
+    expect(underChanged).toHaveBeenCalledTimes(1);
+    expect(underChanged).toHaveBeenCalledWith(false);
+    expect(leavingChanged).not.toHaveBeenCalled();
+  });
+  it('keeps an outside press from the layer under it', () => {
+    const underChanged = vi.fn();
+    rerender({ open: true, onOpenChange: underChanged });
+    const leaving = another({ open: false, onOpenChange: vi.fn() });
+    const event = cancelable('pointerdown');
+    admitLayerDismiss(event, leaving, 'outside');
+    expect(event.defaultPrevented).toBe(true);
+    expect(underChanged).not.toHaveBeenCalled();
+  });
+  it('lets the top open layer take the Escape, not the one below it', () => {
+    const bottom = vi.fn();
+    const top = vi.fn();
+    rerender({ open: true, onOpenChange: bottom });
+    another({ open: true, onOpenChange: top });
+    const leaving = another({ open: false, onOpenChange: vi.fn() });
+    admitLayerDismiss(cancelable('keydown'), leaving, 'escape');
+    expect(top).toHaveBeenCalledTimes(1);
+    expect(bottom).not.toHaveBeenCalled();
+  });
+});
 
 for (const reason of [
   'escape',

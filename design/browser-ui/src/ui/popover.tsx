@@ -1,6 +1,6 @@
 // Adapted from pinned shadcn/ui (MIT); see provenance.json and LICENSE.shadcn.
 import type { ComponentProps } from 'react';
-import { Popover as Primitive } from 'radix-ui';
+import { Popover as Primitive, Portal } from 'radix-ui';
 import { cn } from './utils.js';
 import { useUiPortalContainer } from './theme.js';
 import {
@@ -12,6 +12,7 @@ import {
   type LayerController,
   type LayerFocusOptions,
 } from './layer.js';
+import { popMotion } from './motion.js';
 
 export function Popover({
   controller,
@@ -63,31 +64,36 @@ export function PopoverContent({
   const surface = useLayerSurface(ref);
   if (outsidePress === 'dismiss-only' && !controller)
     throw new Error('Dismiss-only Popover requires its host layer controller');
+  const shield =
+    outsidePress === 'dismiss-only' && controller?.open && container ? (
+      <Portal.Root asChild container={container}>
+        <div
+          data-slot="popover-outside-shield"
+          aria-hidden="true"
+          className="tmt:fixed tmt:inset-0 tmt:z-(--tmt-foundation-z-layer) tmt:bg-transparent"
+          onPointerDown={(event) => {
+            // Swallow the first press even when the host vetoes closing. The
+            // shield, not a deferred outside observer, owns this real target.
+            event.preventDefault();
+            event.stopPropagation();
+            controller.requestClose('outside', event.nativeEvent);
+          }}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+        />
+      </Portal.Root>
+    ) : null;
+  // The content is the portal's direct child, so its own Presence can play the exit animation.
   return container ? (
-    <Primitive.Portal container={container}>
-      <div className="tmt:contents">
-        {outsidePress === 'dismiss-only' && (
-          <div
-            data-slot="popover-outside-shield"
-            aria-hidden="true"
-            className="tmt:fixed tmt:inset-0 tmt:z-(--tmt-foundation-z-layer) tmt:bg-transparent"
-            onPointerDown={(event) => {
-              // Swallow the first press even when the host vetoes closing. The
-              // shield, not a deferred outside observer, owns this real target.
-              event.preventDefault();
-              event.stopPropagation();
-              controller?.requestClose('outside', event.nativeEvent);
-            }}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-          />
-        )}
+    <>
+      {shield}
+      <Primitive.Portal container={container}>
         <Primitive.Content
           data-slot="popover-content"
           {...props}
@@ -96,6 +102,8 @@ export function PopoverContent({
           sideOffset={sideOffset}
           className={cn(
             'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:z-(--tmt-foundation-z-layer) tmt:w-72 tmt:max-w-(--tmt-layer-available-width) tmt:max-h-[min(var(--radix-popover-content-available-height),var(--tmt-layer-available-height))] tmt:overflow-y-auto tmt:overscroll-contain tmt:border-solid tmt:border-layer-boundary tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-popover tmt:text-popover-foreground tmt:p-4 tmt:outline-none',
+            'tmt:rounded-control tmt:shadow-overlay',
+            popMotion,
             className,
           )}
           style={{ ...style, ...surface.viewportStyle }}
@@ -116,8 +124,8 @@ export function PopoverContent({
             admitLayerDismiss(event, controller, 'outside');
           }}
         />
-      </div>
-    </Primitive.Portal>
+      </Primitive.Portal>
+    </>
   ) : null;
 }
 export function PopoverHeader({ className, ...props }: ComponentProps<'div'>) {

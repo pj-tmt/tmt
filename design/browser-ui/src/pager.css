@@ -1,0 +1,11 @@
+.tmt-ui-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-pager-position {
+  min-width: 3ch;
+  font: var(--tmt-ui-caption-size) / 1 var(--tmt-ui-font-mono);
+  text-align: center;
+}

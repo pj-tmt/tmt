@@ -30,6 +30,10 @@
 .tmt-ui-toggle:not(:disabled):not([aria-pressed='true']):hover {
   background: var(--tmt-ui-surface-hover);
 }
+/* The hover tint is darker than the sheet, so the indicator's edge steps up to keep 3:1. */
+.tmt-ui-toggle:not(:disabled):not([aria-pressed='true']):hover .tmt-ui-toggle-indicator {
+  border-color: var(--tmt-ui-color-secondary);
+}
 .tmt-ui-toggle:focus-visible {
   border-color: var(--tmt-ui-color-focus);
   outline: 0;

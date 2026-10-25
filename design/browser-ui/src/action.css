@@ -10,12 +10,40 @@
     var(--tmt-ui-host-action-size)/var(--tmt-ui-host-action-line-height)
     var(--tmt-ui-host-action-font);
   color: var(--tmt-ui-color-text);
-  background: var(--tmt-ui-surface-sheet);
+  background: var(--tmt-ui-surface-command);
   border: var(--tmt-ui-action-border-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   box-shadow: none;
   opacity: 1;
   cursor: pointer;
+  /* Hover and press move in the fast duration (0ms under reduced motion). */
+  transition:
+    background-color var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out),
+    border-color var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out),
+    color var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out),
+    scale var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out);
+}
+.tmt-ui-action:active:not(:disabled) {
+  scale: var(--tmt-ui-motion-scale);
+}
+.tmt-ui-action[data-variant='primary'] {
+  border-color: var(--tmt-ui-color-accent-strong);
+  background: var(--tmt-ui-color-accent);
+  color: var(--tmt-ui-color-on-accent);
+  font-weight: 600;
+}
+.tmt-ui-action[data-variant='primary']:not(:disabled):hover,
+.tmt-ui-action[data-variant='primary']:not(:disabled):focus-visible {
+  background: var(--tmt-ui-color-accent-strong);
+}
+/* One focus frame (#3998): the mint fill hides a mint edge, so its focus edge is the text colour. */
+.tmt-ui-action[data-variant='primary']:focus-visible {
+  border-color: var(--tmt-ui-color-selected-text);
+}
+.tmt-ui-action[data-variant='primary']:disabled {
+  border-color: var(--tmt-ui-surface-rule);
+  background: var(--tmt-ui-surface-disabled);
+  color: var(--tmt-ui-color-disabled-text);
 }
 .tmt-ui-action[data-variant='text'] {
   border: 0;
@@ -33,6 +61,18 @@
 }
 .tmt-ui-action[data-variant='destructive'] .tmt-ui-action-label {
   color: var(--tmt-ui-color-blocked);
+}
+/* A destructive control keeps one colour family: red text, a red-tinted hover and a red focus
+   edge. Mint and red never share a control. */
+.tmt-ui-action[data-variant='destructive'] .tmt-ui-action-mark {
+  color: var(--tmt-ui-color-blocked);
+}
+.tmt-ui-action[data-variant='destructive']:not(:disabled):hover,
+.tmt-ui-action[data-variant='destructive']:not(:disabled):focus-visible {
+  background: var(--tmt-ui-surface-blocked-soft);
+}
+.tmt-ui-action[data-variant='destructive']:focus-visible {
+  border-color: var(--tmt-ui-color-focus-destructive);
 }
 .tmt-ui-action:not(:disabled):hover,
 .tmt-ui-action:not(:disabled):focus-visible {

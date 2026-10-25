@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
 import type { ThreadView } from '../src/thread-records.js';
 import { pageAction } from '../test/page-actions.js';
+import { rgb, tokens } from './tokens.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -445,15 +446,12 @@ for (const width of [1440, 390])
         await expect(
           page.locator('.page-cards', { has: page.locator('[data-question-group]') }).first(),
         ).toHaveAttribute('data-theme', scheme);
-        const ink = scheme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)';
+        const ink = rgb(tokens.browser.color.text[scheme]);
         await expect(block).toHaveCSS(
           'background-color',
-          scheme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
+          rgb(tokens.browser.surface.sheet[scheme]),
         );
-        await expect(block).toHaveCSS(
-          'outline-color',
-          scheme === 'dark' ? 'rgb(48, 48, 48)' : 'rgb(208, 208, 208)',
-        );
+        await expect(block).toHaveCSS('outline-color', rgb(tokens.browser.surface.rule[scheme]));
         await expect(block).toHaveCSS('border-top-width', '0px');
         for (const surface of [
           activeCard(page).locator('.question-controls'),

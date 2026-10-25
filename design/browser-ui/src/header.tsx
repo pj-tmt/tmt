@@ -1,4 +1,4 @@
-import type { ReactNode, Ref } from 'react';
+import type { ElementType, ReactNode, Ref } from 'react';
 import { browserUiClasses as c } from './static';
 import { BrandMark } from './brand-mark.js';
 export interface BrowserHeaderProps {
@@ -10,6 +10,8 @@ export interface BrowserHeaderProps {
   leading?: ReactNode;
   headingPrefix?: ReactNode;
   headingSuffix?: ReactNode;
+  /** `none` renders the title as a styled block, for a sample that must stay out of the page's heading outline. */
+  headingLevel?: 'h1' | 'none';
   status?: ReactNode;
   actions?: ReactNode;
   headerRef?: Ref<HTMLElement>;
@@ -30,11 +32,13 @@ export function BrowserHeader({
   leading,
   headingPrefix,
   headingSuffix,
+  headingLevel = 'h1',
   status,
   actions,
   headerRef,
   disclosure,
 }: BrowserHeaderProps) {
+  const Title: ElementType = headingLevel === 'none' ? 'div' : 'h1';
   if (caption !== undefined && !captionId)
     throw new Error('Caption requires an explicit association ID');
   const brand = (
@@ -53,13 +57,13 @@ export function BrowserHeader({
       <div className={c.brand}>{brandLink ? brandLink(brand) : brand}</div>
       <div className={c.heading}>
         {headingPrefix}
-        <h1
+        <Title
           className={c.title}
           title={title}
           aria-describedby={caption !== undefined ? captionId : undefined}
         >
           {title}
-        </h1>
+        </Title>
         {headingSuffix !== undefined && <div className={c.headingSuffix}>{headingSuffix}</div>}
         {caption !== undefined && (
           <div className={c.caption} id={captionId} title={caption}>

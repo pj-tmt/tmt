@@ -35,17 +35,41 @@
   gap: var(--tmt-ui-space-s);
   padding: var(--tmt-ui-space-m);
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  border-radius: 0;
+  border-radius: var(--tmt-ui-radius);
   background: var(--tmt-ui-surface-sheet);
-  box-shadow: none;
+  box-shadow: var(--tmt-ui-shadow-overlay);
   pointer-events: auto;
   font-size: 14px;
   line-height: 1.45;
+}
+/* A card enters and leaves with a fade and a small rise in the base duration; a closed card stays
+   rendered (inert) until its exit has played, and under reduced motion every duration is 0ms. */
+.tmt-ui-notification {
+  transition:
+    opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out),
+    translate var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
+}
+.tmt-ui-notification[data-state='closed'] {
+  opacity: 0;
+  pointer-events: none;
+  translate: 0 calc(-1 * var(--tmt-ui-motion-rise));
+  transition-timing-function: var(--tmt-ui-motion-ease-in);
+}
+@starting-style {
+  .tmt-ui-notification {
+    opacity: 0;
+    translate: 0 calc(-1 * var(--tmt-ui-motion-rise));
+  }
 }
 .tmt-ui-notification > .tmt-ui-action::after {
   content: '';
   position: absolute;
   inset: 0;
+}
+/* The card-wide hit target hangs off this button, so a press scale would shrink it under the
+   pointer and drop a click near the card's edge. */
+.tmt-ui-notification > .tmt-ui-action:active:not(:disabled) {
+  scale: none;
 }
 .tmt-ui-notification-heading .tmt-ui-icon-action {
   position: relative;

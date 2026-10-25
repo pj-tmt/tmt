@@ -66,13 +66,14 @@ export function BrandSection() {
 export function HeaderSection() {
   return (
     <Section id="header">
-      <Pair title="BrowserHeader">
+      <Pair title="BrowserHeader" stacked>
         {(theme) => (
           <div className="gallery-stack">
-            <BrowserHeader productLabel="Colab" title="Pages" />
+            <BrowserHeader productLabel="Colab" title="Pages" headingLevel="none" />
             <BrowserHeader
               productLabel="Colab"
-              title="Release plan for the remote channel"
+              headingLevel="none"
+              title="Release plan"
               caption="Updated 2 minutes ago"
               captionId={`header-caption-${theme}`}
               headingSuffix={<span>· draft</span>}
@@ -89,6 +90,24 @@ export function HeaderSection() {
                   <BrowserAction type="button" variant="primary" label="Share" onActivate={noop} />
                 </>
               }
+            />
+          </div>
+        )}
+      </Pair>
+      <Pair
+        title="BrowserHeader, long title"
+        note="A title longer than its room truncates; the suffix keeps its width."
+        stacked
+      >
+        {(theme) => (
+          <div style={{ maxWidth: 560 }}>
+            <BrowserHeader
+              productLabel="Colab"
+              headingLevel="none"
+              title="Release plan for the remote channel and the digest rollout"
+              captionId={`header-long-${theme}`}
+              headingSuffix={<span>· draft</span>}
+              status={<span>◆ 2 need you</span>}
             />
           </div>
         )}
@@ -666,6 +685,7 @@ export function NoticeSection() {
             {tones.map(([tone, mark, word]) => (
               <BrowserNotice
                 key={tone}
+                headingLevel="none"
                 tone={tone}
                 announcement="none"
                 mark={mark}
