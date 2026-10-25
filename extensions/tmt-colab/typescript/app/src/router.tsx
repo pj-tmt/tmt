@@ -6,7 +6,6 @@ import { AgentActivityProvider } from './components/agent-activity.js';
 import { RemoteAttention, RemotePresenceProvider } from './remote-header.js';
 import { PagePinNotice, PageProjects } from './page-projects.js';
 import type { PagePinRequest, PagePinState } from './pins.js';
-import { SourceEditor } from './source-editor.js';
 import { OwnPublicationTimeout } from './own-publication.js';
 import { entryMount, entryOpenTarget, inShell, publicEntry } from './entry.js';
 import {
@@ -122,14 +121,14 @@ import { FilesSurface } from './files-panel.js';
 import { CreatorDefaultProvider } from './creator-default.js';
 import { CHAT_DRAFT, SavedDrafts, savedDrafts } from './saved-drafts.js';
 import { isChatThread, threadNumbers } from './thread-records.js';
-import { PageSizeNotice, PageSizeSection, usePageSize } from './page-size.js';
-import { usePageEditor } from './use-page-editor.js';
+import { PageSizeSection, usePageSize } from './page-size.js';
+import { SourceDraft } from './use-page-editor.js';
+import { PageSource } from './page-source.js';
 import { usePagePanels } from './use-page-panels.js';
 import { usePanelMode } from './panel-mode.js';
 import './panel-layout.css';
 import { useAnnotations } from './use-annotations.js';
 import { usePageRenderer } from './use-page-renderer.js';
-import { SaveNotice } from './save-notice.js';
 
 /** Controls in the page and above it that the floating actions move above, never over: the cards'
  * footers, and the open work band's controls and add-task row, which can fill a phone's viewport. */
@@ -1340,22 +1339,8 @@ function OpenPage({
   }, [space, snapshot.id]);
   const latest = useRef(view);
   const size = usePageSize(snapshot.binding);
-  const {
-    draft,
-    changed: draftChanged,
-    saving,
-    error: editError,
-    merged,
-    copied,
-    sourceArea,
-    saveSettled,
-    adoptSnapshot,
-    adoptUpdate,
-    save,
-    copyDraft,
-    compactFromRefusal,
-    type: typeSource,
-  } = usePageEditor({ snapshot, latest, size });
+  // The Source draft lives outside the route's state: only the Source drawer renders as it changes.
+  const [sourceDraft] = useState(() => new SourceDraft(snapshot));
   const { state: connection, controller: connectionOwner } = useConnection({
     loaded,
     binding: () => snapshot.binding,
@@ -1387,7 +1372,7 @@ function OpenPage({
     wasArchived.current = archived;
   }, [archived]);
   useEffect(() => {
-    adoptSnapshot(snapshot);
+    sourceDraft.adoptSnapshot(snapshot);
     setView({
       discussionPending: snapshot.discussionPending,
       pageType: snapshot.pageType,
@@ -1422,14 +1407,14 @@ function OpenPage({
         }
         latest.current = next;
         setView(next);
-        adoptUpdate(value.source);
+        sourceDraft.adoptUpdate(value.source);
       },
       (error) => connectionOwner.report(error),
     );
     return () => {
       unsubscribe?.();
     };
-  }, [snapshot, loaded, transport, connectionOwner, replyObserver, adoptSnapshot, adoptUpdate]);
+  }, [snapshot, loaded, transport, connectionOwner, replyObserver, sourceDraft]);
   const refreshSize = size.refresh;
   useEffect(() => {
     if (panel === 'about' || panel === 'source') void refreshSize();
@@ -2324,91 +2309,22 @@ function OpenPage({
           files={snapshot.binding.files}
           readOnly={archived}
           disabled={!!liveError}
-          afterSave={() => saveSettled.current ?? Promise.resolve(true)}
+          afterSave={() => sourceDraft.saveSettled ?? Promise.resolve(true)}
         />
       )}
-      <BrowserDrawer
+      <PageSource
+        draft={sourceDraft}
+        binding={snapshot.binding}
+        latest={latest}
+        size={size}
+        open={panel === 'source'}
         notice={endedNotice}
         focusFallback={environment.focusFallback}
-        open={panel === 'source'}
-        title={text.source}
-        panel="source"
-        width="wide"
-        headerActions={
-          snapshot.binding &&
-          !archived && (
-            <BrowserAction
-              type="button"
-              variant="primary"
-              label={text.save}
-              visibleLabel={text.sourceSave}
-              busy={saving}
-              busyMark={<BusyMark />}
-              disabled={!!liveError || !draftChanged}
-              onActivate={() => void save()}
-            />
-          )
-        }
+        archived={archived}
+        disabled={!!liveError}
         onDismiss={() => close()}
-      >
-        <SourceEditor
-          changed={draftChanged}
-          editor={{
-            ref: sourceArea,
-            readOnly: archived || !snapshot.binding || saving || !!liveError,
-            value: draft,
-            onChange: (event) => typeSource(event.target.value),
-          }}
-        >
-          {/* Save problems take priority over routine usage in this one notice slot. */}
-          {editError ? (
-            <SaveNotice
-              problem={editError}
-              actions={
-                editError.full === 'compact' ? (
-                  <BrowserAction
-                    type="button"
-                    label={text.pageSize.compact}
-                    variant="text"
-                    disabled={size.compacting}
-                    onActivate={() => void compactFromRefusal()}
-                  />
-                ) : editError.full === 'export' ? (
-                  <BrowserAction
-                    type="button"
-                    label={text.pageSize.export}
-                    variant="text"
-                    onActivate={() => show('export')}
-                  />
-                ) : editError.conflict ? (
-                  <>
-                    <BrowserAction
-                      type="button"
-                      label={text.saveCopyDraft}
-                      variant="text"
-                      onActivate={(event) => {
-                        if (event.isTrusted) copyDraft();
-                      }}
-                    />
-                    {copied && (
-                      <span role="status">
-                        {copied === 'copied' ? text.saveDraftCopied : text.saveDraftNotCopied}
-                      </span>
-                    )}
-                  </>
-                ) : undefined
-              }
-            />
-          ) : (
-            <PageSizeNotice size={size} exportPage={() => show('export')} />
-          )}
-          {merged && !editError && (
-            <div className="source-notice">
-              <p role="status">{text.saveMerged}</p>
-            </div>
-          )}
-        </SourceEditor>
-      </BrowserDrawer>
+        exportPage={() => show('export')}
+      />
       <BrowserDrawer
         notice={endedNotice}
         focusFallback={environment.focusFallback}
