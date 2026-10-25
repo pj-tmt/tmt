@@ -28,7 +28,7 @@ export interface PageView extends Projection {
   readonly agentActivity?: ActivityObservation;
   readonly messageStates?: MessageStates;
 }
-import type { PageActivity, PageId } from './bootstrap.js';
+import type { PageActivity, PageId, ProjectPins } from './bootstrap.js';
 import type { DraftStore } from './draft-store.js';
 import type { ExpiryInfo } from './expiry.js';
 export interface PageSummary extends Partial<ExpiryInfo> {
@@ -109,6 +109,8 @@ export interface SpaceHome {
   readonly title: string;
   /** Every project of the space, those with no page too; absent where a source has none. */
   readonly projects?: readonly string[];
+  /** The owner's side-menu projects; absent where a source has none (the menu then lists every project). */
+  readonly projectPins?: ProjectPins;
   readonly pages: readonly PageSummary[];
   readonly pageIds?: readonly PageId[];
 }

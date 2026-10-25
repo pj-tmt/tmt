@@ -231,6 +231,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
             return {
               title: text.product,
               projects: boot.projects,
+              projectPins: boot.projectPins,
               pageIds: boot.pageIds,
               pages: await Promise.all(
                 boot.pages.map(async (page) => {

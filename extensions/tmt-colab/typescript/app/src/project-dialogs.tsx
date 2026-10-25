@@ -4,9 +4,12 @@ import {
   BrowserDialog,
   BrowserDrawer,
   BrowserField,
+  BrowserIconAction,
 } from '@tmt/browser-ui/react';
 import { useEffect, useId, useRef, useState } from 'react';
-import { FileText, Plus } from 'lucide-react';
+import { ArrowDown, ArrowUp, FileText, Pin, Plus } from 'lucide-react';
+import { PROJECT_PINS, type ProjectPins } from './bootstrap.js';
+import { menuProjects, movedPin, withPin } from './project-pins.js';
 import {
   projectNameError,
   withProject,
@@ -252,11 +255,45 @@ type Step =
   | { kind: 'rename'; name: string; to: string }
   | { kind: 'delete'; name: string };
 
+/**
+ * The pin control of a project row: an icon action whose pressed state says whether the project is
+ * pinned. Its name stays "Pin <name> to sidebar" in both states, so the state is carried by
+ * `aria-pressed` alone.
+ */
+function PinToggle({
+  pressed,
+  action,
+  label,
+  disabled,
+  onActivate,
+}: {
+  pressed: boolean;
+  action: string;
+  label: string;
+  disabled: boolean;
+  onActivate: () => void;
+}) {
+  return (
+    <span data-project-action={action}>
+      <BrowserIconAction
+        type="button"
+        variant="text"
+        label={label}
+        icon={<Pin />}
+        pressed={pressed}
+        disabled={disabled}
+        onActivate={onActivate}
+      />
+    </span>
+  );
+}
+
 /** Rename and delete reach every page in the project, archived or not, whatever the list shows. */
 export function ManageProjectsDialog({
   open,
   pages,
   projects,
+  pins,
   writing,
   onClose,
   onNewProject,
@@ -265,6 +302,8 @@ export function ManageProjectsDialog({
   pages: readonly PageSummary[];
   /** Every project of the space, including those with no pages. */
   projects: readonly { name: string; count: number }[];
+  /** The owner's side-menu list; absent where a source has none, which offers no pinning. */
+  pins?: ProjectPins;
   writing: ProjectWriting;
   onClose(): void;
   onNewProject(): void;
@@ -313,6 +352,33 @@ export function ManageProjectsDialog({
     } else setMessage({ text: writing.failureText(outcome.failure), failed: true });
   }
   const carrying = (name: string) => pages.filter((page) => page.projects?.includes(name));
+  // The side menu's list, and the rows in its order: pinned projects first, then every other one.
+  const menu = menuProjects(
+    projects.map((project) => project.name),
+    pins,
+  );
+  const rows = pins
+    ? [
+        ...menu.names.map((name) => projects.find((project) => project.name === name)!),
+        ...projects.filter((project) => !menu.names.includes(project.name)),
+      ]
+    : projects;
+  /** Write the whole list the owner would then have; the first write makes an automatic list theirs. */
+  async function writePins(next: string[], done: string, focus: string) {
+    if (busy) return;
+    if (next.length > PROJECT_PINS) {
+      setMessage({ text: t.projectPinsFull(PROJECT_PINS), failed: true });
+      return;
+    }
+    setBusy(true);
+    setMessage(undefined);
+    const outcome = await writing.manage({ action: 'pins', names: next });
+    setBusy(false);
+    if (outcome.failure === undefined) {
+      returnAction.current = focus;
+      setMessage({ text: done, failed: false });
+    } else setMessage({ text: writing.failureText(outcome.failure), failed: true });
+  }
   return (
     <>
       <BrowserDrawer
@@ -324,20 +390,85 @@ export function ManageProjectsDialog({
       >
         <div className="project-form" ref={manager}>
           <p className="project-hint">{t.manageProjectsHint}</p>
+          {pins && projects.length > 0 && (
+            <p className="project-hint">
+              {menu.automatic ? t.sidebarAutomatic : t.sidebarProjectsHint}
+            </p>
+          )}
           {projects.length ? (
             <ul className="project-manage">
-              {projects.map(({ name, count }) => {
+              {rows.map(({ name, count }) => {
                 const archived = carrying(name).filter((page) => page.archived).length;
+                const place = menu.names.indexOf(name);
+                const pinned = pins !== undefined && place >= 0;
                 return (
-                  <li key={name}>
+                  <li key={name} data-pinned={pinned ? '' : undefined}>
                     <div className="project-manage-row">
                       <span className="project-manage-text">
                         <span className="project-manage-name">{name}</span>
                         <span className="project-manage-count">
                           {t.activeProjectCount(count - archived, archived)}
+                          {pinned ? ` · ${t.pinnedPlace(place + 1, menu.names.length)}` : ''}
                         </span>
                       </span>
                       <span className="project-manage-actions">
+                        {pins && (
+                          <>
+                            <PinToggle
+                              pressed={pinned}
+                              action={`pin:${name}`}
+                              label={t.pinProject(name)}
+                              disabled={busy}
+                              onActivate={() =>
+                                void writePins(
+                                  withPin(menu.names, name, !pinned),
+                                  pinned ? t.projectUnpinned(name) : t.projectPinned(name),
+                                  `pin:${name}`,
+                                )
+                              }
+                            />
+                            {pinned && (
+                              <>
+                                <span data-project-action={`up:${name}`}>
+                                  <BrowserAction
+                                    type="button"
+                                    variant="ghost"
+                                    label={t.moveProjectUp(name)}
+                                    visibleLabel=""
+                                    leadingIcon={<ArrowUp size={14} />}
+                                    disabled={busy || place === 0}
+                                    onActivate={() =>
+                                      void writePins(
+                                        movedPin(menu.names, name, -1),
+                                        t.projectSaved,
+                                        place === 1 ? `down:${name}` : `up:${name}`,
+                                      )
+                                    }
+                                  />
+                                </span>
+                                <span data-project-action={`down:${name}`}>
+                                  <BrowserAction
+                                    type="button"
+                                    variant="ghost"
+                                    label={t.moveProjectDown(name)}
+                                    visibleLabel=""
+                                    leadingIcon={<ArrowDown size={14} />}
+                                    disabled={busy || place === menu.names.length - 1}
+                                    onActivate={() =>
+                                      void writePins(
+                                        movedPin(menu.names, name, 1),
+                                        t.projectSaved,
+                                        place === menu.names.length - 2
+                                          ? `up:${name}`
+                                          : `down:${name}`,
+                                      )
+                                    }
+                                  />
+                                </span>
+                              </>
+                            )}
+                          </>
+                        )}
                         <span data-project-action={`rename:${name}`}>
                           <BrowserAction
                             type="button"

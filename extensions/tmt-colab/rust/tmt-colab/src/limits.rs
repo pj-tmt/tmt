@@ -159,6 +159,11 @@ pub const SPACE_PROJECT_PAGES: usize = 1000;
 /// Pinned pages (contract: Pins): at most this many in the space, so the owner list stays short and
 /// the `/api/pages` reply stays under its cap.
 pub const SPACE_PINS: usize = 20;
+/// Pinned projects (contract: Projects): at most this many names in the owner's sidebar list.
+/// `AUTOMATIC_PROJECT_PINS` is how many recently used projects the sidebar shows until the owner
+/// first writes the list.
+pub const SPACE_PROJECT_PINS: usize = 20;
+pub const AUTOMATIC_PROJECT_PINS: usize = 5;
 /// Pages one `page.projects` request may change, in one store transaction (the payload stays under
 /// the 16 KiB management cap for ordinary names; a larger batch is several requests).
 pub const PROJECT_REQUEST_PAGES: usize = 64;

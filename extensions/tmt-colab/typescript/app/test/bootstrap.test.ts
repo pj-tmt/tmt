@@ -48,6 +48,7 @@ async function response(pages: unknown[], extra: unknown[] = []) {
         ...extra,
       ]),
     ].sort(),
+    projectPins: { names: [], automatic: true },
     pages,
     pageIds: pages
       .map((page) => ({ pageId: (page as { pageId: string }).pageId, deleted: false }))
@@ -472,6 +473,7 @@ it('refuses a malformed space project list or an entry naming a project the spac
       ownerKey: encodeBinary(owner),
       revision: '1',
       ...(projects === undefined ? {} : { projects }),
+      projectPins: { names: [], automatic: true },
       pages,
       pageIds: pages.map((page) => ({
         pageId: (page as { pageId: string }).pageId,
@@ -498,6 +500,55 @@ it('refuses a malformed space project list or an entry naming a project the spac
   }
   // The page names a project the space does not list.
   reply(['a'], [{ ...metadata, projects: ['b'] }]);
+  await expect(discover(mount)).rejects.toThrow();
+});
+it('accepts the owner pinned projects only as an ordered, unique list of projects the space has', async () => {
+  const owner = new Uint8Array(32).fill(9),
+    space = await deriveSpaceId(owner);
+  vi.stubGlobal('location', { hash: `#space=${space}` });
+  const reply = (pins: unknown, projects: string[] = ['a', 'b', 'c']) => {
+    const body = JSON.stringify({
+      spaceId: space,
+      ownerKey: encodeBinary(owner),
+      revision: '1',
+      projects,
+      ...(pins === undefined ? {} : { projectPins: pins }),
+      pages: [],
+      pageIds: [],
+    });
+    vi.stubGlobal('fetch', async () => new Response(body));
+  };
+  reply({ names: ['c', 'a'], automatic: false });
+  await expect(discover(mount)).resolves.toMatchObject({
+    projectPins: { names: ['c', 'a'], automatic: false },
+  });
+  // The owner's empty list is a choice and arrives as one.
+  reply({ names: [], automatic: false });
+  await expect(discover(mount)).resolves.toMatchObject({ projectPins: { names: [] } });
+  const twenty = Array.from({ length: 20 }, (_, n) => `p${n}`);
+  reply({ names: twenty, automatic: false }, twenty);
+  await expect(discover(mount)).resolves.toMatchObject({ projectPins: { names: twenty } });
+  for (const pins of [
+    undefined,
+    null,
+    [],
+    { names: ['a'] },
+    { automatic: true },
+    { names: ['a'], automatic: 'yes' },
+    { names: ['a'], automatic: true, extra: 1 },
+    { names: 'a', automatic: true },
+    { names: ['a', 'a'], automatic: true },
+    { names: ['missing'], automatic: true },
+    { names: [1], automatic: true },
+    { names: [''], automatic: true },
+    { names: ['tab\there'], automatic: true },
+  ]) {
+    reply(pins);
+    await expect(discover(mount)).rejects.toThrow();
+  }
+  // A 21st pin is past what the owner stores.
+  const over = Array.from({ length: 21 }, (_, n) => `p${n}`);
+  reply({ names: over, automatic: false }, over);
   await expect(discover(mount)).rejects.toThrow();
 });
 it('rejects unsafe or ill-typed expiry hints before accepting discovery', async () => {

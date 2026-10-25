@@ -78,12 +78,14 @@
 }
 .project-manage-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 .project-manage-text {
   display: grid;
+  flex: 1 1 10em;
   gap: 6px;
   min-width: 0;
 }
@@ -99,6 +101,8 @@
 .project-manage-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   flex: none;
   gap: 8px;
 }

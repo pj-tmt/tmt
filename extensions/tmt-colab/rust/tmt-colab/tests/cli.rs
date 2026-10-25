@@ -1413,7 +1413,7 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
-        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
+        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     drop(conn);
@@ -6428,7 +6428,7 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -6524,7 +6524,7 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -10418,7 +10418,7 @@ fn page_projects_add_remove_and_list_without_touching_the_owner_log_offline_and_
         let list = pilot.call(&["project", "list", "--json"]);
         assert_eq!(
             list["projects"],
-            json!([{"name":"q4 plan","pages":1},{"name":"urgent","pages":0}])
+            json!([{"name":"q4 plan","pages":1,"pinned":1},{"name":"urgent","pages":0,"pinned":null}])
         );
         // Names obey the grammar; a page is in at most eight; refusals change nothing.
         failure(
@@ -10538,7 +10538,7 @@ fn projects_can_be_created_empty_and_filter_the_page_list() {
         );
         assert_eq!(
             pilot.call(&["project", "ls", "--json"])["projects"],
-            json!([{"name":"launch","pages":0}])
+            json!([{"name":"launch","pages":0,"pinned":null}])
         );
         assert_eq!(
             pilot.call(&["ls", "--project", "launch", "--json"])["pages"],
@@ -10626,7 +10626,7 @@ fn renaming_or_deleting_a_project_changes_every_page_that_is_in_it_in_one_step()
         assert_eq!(deleted["pages"], 2);
         assert_eq!(
             pilot.call(&["project", "list", "--json"])["projects"],
-            json!([{"name":"c","pages":1}])
+            json!([{"name":"c","pages":1,"pinned":null}])
         );
         failure(
             &pilot,
@@ -10639,7 +10639,7 @@ fn renaming_or_deleting_a_project_changes_every_page_that_is_in_it_in_one_step()
         assert_eq!(project_rows(&pilot, &two), 0);
         assert_eq!(
             pilot.call(&["project", "list", "--json"])["projects"],
-            json!([{"name":"c","pages":0}])
+            json!([{"name":"c","pages":0,"pinned":null}])
         );
         if serving {
             pilot.stop();
@@ -10916,4 +10916,193 @@ fn a_large_cached_list_reads_metadata_without_opening_page_content() {
     // Observation only: operation-count tests enforce the performance invariant without a
     // flaky wall-clock threshold. The owned command's deadline bounds hangs, not performance.
     eprintln!("200-page cached ls: {} us", elapsed.as_micros());
+}
+
+#[test]
+fn project_pin_and_unpin_write_the_owners_list_and_ls_reports_each_place() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        titled_page(&pilot, "One");
+        let places = |pilot: &Pilot| -> Vec<(String, Value)> {
+            pilot.call(&["project", "ls", "--json"])["projects"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|project| {
+                    (
+                        project["name"].as_str().unwrap().to_owned(),
+                        project["pinned"].clone(),
+                    )
+                })
+                .collect()
+        };
+        for name in ["x", "y", "z"] {
+            pilot.call(&["project", "create", name, "--json"]);
+        }
+        // Projects with no page never qualify for the automatic list: nothing is shown yet.
+        let list = pilot.call(&["project", "ls", "--json"]);
+        assert_eq!(list["pinsAutomatic"], true);
+        assert!(places(&pilot).iter().all(|(_, place)| place.is_null()));
+        // The first pin makes the list the owner's.
+        let first = pilot.call(&["project", "pin", "x", "--json"]);
+        assert_eq!(
+            first,
+            json!({"spaceId":first["spaceId"],"name":"x","pinned":true,"position":1,"changed":true})
+        );
+        assert_eq!(
+            pilot.call(&["project", "ls", "--json"])["pinsAutomatic"],
+            false
+        );
+        assert_eq!(
+            pilot.call(&["project", "pin", "y", "--json"])["position"],
+            2
+        );
+        assert_eq!(
+            pilot.call(&["project", "pin", "z", "--position", "1", "--json"])["position"],
+            1
+        );
+        // Pinning a pinned project moves it; the same place again changes nothing.
+        assert_eq!(
+            pilot.call(&["project", "pin", "x", "--position", "3", "--json"])["changed"],
+            true
+        );
+        assert_eq!(
+            pilot.call(&["project", "pin", "x", "--position", "3", "--json"])["changed"],
+            false
+        );
+        assert_eq!(
+            places(&pilot),
+            [("x", json!(3)), ("y", json!(2)), ("z", json!(1))]
+                .map(|(name, place)| (name.to_owned(), place))
+        );
+        let unpinned = pilot.call(&["project", "unpin", "y", "--json"]);
+        assert_eq!(unpinned["pinned"], false);
+        assert_eq!(unpinned["position"], Value::Null);
+        assert_eq!(unpinned["changed"], true);
+        assert_eq!(
+            pilot.call(&["project", "unpin", "y", "--json"])["changed"],
+            false
+        );
+        assert_eq!(
+            places(&pilot),
+            [("x", json!(2)), ("y", Value::Null), ("z", json!(1))]
+                .map(|(name, place)| (name.to_owned(), place))
+        );
+        // Refusals change nothing: an unknown project, a place past the end, a name outside the grammar.
+        failure(
+            &pilot,
+            &["project", "pin", "nope", "--json"],
+            "COLAB_PROJECT_NOT_FOUND",
+        );
+        failure(
+            &pilot,
+            &["project", "unpin", "nope", "--json"],
+            "COLAB_PROJECT_NOT_FOUND",
+        );
+        failure(
+            &pilot,
+            &["project", "pin", "y", "--position", "4", "--json"],
+            "COLAB_INPUT_INVALID",
+        );
+        failure(
+            &pilot,
+            &["project", "pin", "y", "--position", "0", "--json"],
+            "COLAB_INPUT_INVALID",
+        );
+        assert_eq!(places(&pilot)[1].1, Value::Null);
+        // A pin follows a rename, and a delete takes it out; the list stays the owner's.
+        pilot.call(&["project", "rename", "z", "w", "--json"]);
+        assert_eq!(
+            places(&pilot)
+                .iter()
+                .find(|(name, _)| name == "w")
+                .unwrap()
+                .1,
+            json!(1)
+        );
+        pilot.call(&["project", "delete", "w", "--json"]);
+        pilot.call(&["project", "delete", "x", "--json"]);
+        let after = pilot.call(&["project", "ls", "--json"]);
+        assert_eq!(after["pinsAutomatic"], false);
+        assert_eq!(
+            after["projects"],
+            json!([{"name":"y","pages":0,"pinned":null}])
+        );
+        if serving {
+            pilot.stop();
+        }
+    }
+}
+
+#[test]
+fn the_first_pin_keeps_the_automatic_list_that_was_showing_and_a_21st_pin_is_refused() {
+    let pilot = Pilot::new(None);
+    let one = titled_page(&pilot, "One");
+    pilot.call(&["project", "add", &one, "used", "--json"]);
+    pilot.call(&["project", "create", "idle", "--json"]);
+    // The automatic list holds the project with an active page and not the empty one.
+    let list = pilot.call(&["project", "ls", "--json"]);
+    assert_eq!(list["pinsAutomatic"], true);
+    assert_eq!(
+        list["projects"],
+        json!([{"name":"idle","pages":0,"pinned":null},{"name":"used","pages":1,"pinned":1}])
+    );
+    // Pinning the empty one adds to what was showing, instead of replacing it; and it is the owner's now.
+    assert_eq!(
+        pilot.call(&["project", "pin", "idle", "--json"])["position"],
+        2
+    );
+    let list = pilot.call(&["project", "ls", "--json"]);
+    assert_eq!(list["pinsAutomatic"], false);
+    assert_eq!(
+        list["projects"],
+        json!([{"name":"idle","pages":0,"pinned":2},{"name":"used","pages":1,"pinned":1}])
+    );
+    // The human output names the place, and says when the list is automatic.
+    let human = pilot.command().args(["project", "ls"]).output().unwrap();
+    assert!(
+        String::from_utf8_lossy(&human.stdout).contains("pinned 1"),
+        "{human:?}"
+    );
+    // Unpinning a shown automatic project writes the rest.
+    let fresh = Pilot::new(None);
+    let two = titled_page(&fresh, "Two");
+    fresh.call(&["project", "add", &two, "only", "--json"]);
+    assert_eq!(
+        fresh.call(&["project", "unpin", "only", "--json"])["changed"],
+        true
+    );
+    let list = fresh.call(&["project", "ls", "--json"]);
+    assert_eq!(list["pinsAutomatic"], false);
+    assert_eq!(
+        list["projects"],
+        json!([{"name":"only","pages":1,"pinned":null}])
+    );
+    // At most twenty: the 21st pin is refused and no older pin is dropped.
+    let full = Pilot::new(None);
+    titled_page(&full, "Three");
+    for n in 0..21 {
+        full.call(&["project", "create", &format!("p{n:02}"), "--json"]);
+    }
+    for n in 0..20 {
+        full.call(&["project", "pin", &format!("p{n:02}"), "--json"]);
+    }
+    failure(
+        &full,
+        &["project", "pin", "p20", "--json"],
+        "COLAB_CAPACITY",
+    );
+    let kept = full.call(&["project", "ls", "--json"]);
+    assert_eq!(
+        kept["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|project| !project["pinned"].is_null())
+            .count(),
+        20
+    );
 }

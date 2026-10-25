@@ -195,6 +195,7 @@ async function fixture(
         ownerKey: c.encodeBinary(ownerKey),
         revision: '2',
         projects: [],
+        projectPins: { names: [], automatic: true },
         pageIds: empty ? [] : [{ pageId, deleted: false }],
         pages: empty
           ? []
@@ -316,6 +317,7 @@ for (const width of [1440, 390]) {
           ownerKey: c.encodeBinary(f.ownerKey),
           revision: String(head.revision),
           projects: [],
+          projectPins: { names: [], automatic: true },
           pages: rows,
           pageIds: [pageId, ...pins].sort().map((id) => ({ pageId: id, deleted: false })),
         },
@@ -538,6 +540,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
         ownerKey: c.encodeBinary(f.ownerKey),
         revision: String(head.revision),
         projects: [],
+        projectPins: { names: [], automatic: true },
         pageIds: [{ pageId, deleted: false }],
         pages: [
           {
@@ -830,6 +833,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
         ownerKey: c.encodeBinary(f.ownerKey),
         revision: String(head.revision),
         projects: [],
+        projectPins: { names: [], automatic: true },
         pageIds: [pageId, other].sort().map((id) => ({ pageId: id, deleted: !states.has(id) })),
         pages: [...states.values()],
       },
@@ -1057,6 +1061,7 @@ test.describe('relative retention evidence', () => {
           ownerKey: c.encodeBinary(f.ownerKey),
           revision: '2',
           projects: [],
+          projectPins: { names: [], automatic: true },
           pageIds: [{ pageId, deleted: false }],
           pages: [
             {

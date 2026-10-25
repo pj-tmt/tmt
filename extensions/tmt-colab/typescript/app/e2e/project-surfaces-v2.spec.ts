@@ -14,7 +14,7 @@ async function mount(page: Page, width = 1586, theme: 'light' | 'dark' = 'light'
   }, theme);
   await app(page)
     .locator('.tmt-ui-rail-sub:visible, .tmt-ui-module-menu:visible')
-    .getByRole('link', { name: 'Manage projects…', exact: true })
+    .getByRole('link', { name: 'All projects…', exact: true })
     .click();
 }
 
@@ -68,7 +68,7 @@ for (const width of [1586, 390])
       await expect(create).toHaveCount(0);
       await app(page)
         .locator('.tmt-ui-rail-sub:visible, .tmt-ui-module-menu:visible')
-        .getByRole('link', { name: 'Manage projects…', exact: true })
+        .getByRole('link', { name: 'All projects…', exact: true })
         .click();
       await manager.getByRole('button', { name: 'Rename design', exact: true }).click();
       const rename = app(page).getByRole('dialog', { name: 'Rename project', exact: true });

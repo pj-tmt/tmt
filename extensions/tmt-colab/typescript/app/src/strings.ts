@@ -849,6 +849,23 @@ export const text = {
     moreWorking: (count: number) => `+${count}`,
     manageProjects: 'Manage projects',
     projects: 'Projects',
+    /** The side menu's project group while the owner has not pinned any: the most recently used. */
+    recentProjects: 'Recent projects',
+    /** The side menu's entry that opens Manage projects, where every project is. */
+    allProjectsItem: 'All projects…',
+    scopeNotPinned: 'Not pinned: shown while you are in it.',
+    pinToSidebar: 'Pin to sidebar',
+    unpinFromSidebar: 'Unpin from sidebar',
+    pinProject: (name: string) => `Pin ${name} to sidebar`,
+    moveProjectUp: (name: string) => `Move ${name} up in the sidebar`,
+    moveProjectDown: (name: string) => `Move ${name} down in the sidebar`,
+    pinnedPlace: (place: number, count: number) => `Sidebar place ${place} of ${count}`,
+    sidebarAutomatic: 'Shown in the sidebar because you used it recently. Pin to keep it.',
+    sidebarProjectsHint: 'Pin the projects the sidebar lists.',
+    projectPinned: (name: string) => `${name} is in the sidebar.`,
+    projectUnpinned: (name: string) => `${name} is out of the sidebar.`,
+    projectPinsFull: (limit: number) =>
+      `The sidebar holds at most ${limit} projects. Unpin one first.`,
     scopeLabel: 'Project',
     allPages: 'All pages',
     noPagesInProject: (name: string) => `No pages in ${name} yet.`,

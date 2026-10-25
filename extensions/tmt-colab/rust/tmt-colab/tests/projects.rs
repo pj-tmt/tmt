@@ -9,7 +9,7 @@ use std::{
 };
 use tmt_colab::{
     keyring::{Keyring, Layout},
-    limits::{PAGE_PROJECTS, SPACE_PINS, SPACE_PROJECT_PAGES, SPACE_PROJECTS},
+    limits::{PAGE_PROJECTS, SPACE_PINS, SPACE_PROJECT_PAGES, SPACE_PROJECT_PINS, SPACE_PROJECTS},
     projects::Change,
     store::{Store, owner::OwnerFault},
 };
@@ -101,6 +101,22 @@ impl Fixture {
             .project_transaction(&key.space_id, &key.owner_public(), |tx| tx.pins())
             .unwrap()
     }
+    /// The pinned projects and whether the owner has written the list.
+    fn project_pins(&mut self) -> (bool, Vec<String>) {
+        let key = &self.key;
+        self.store
+            .project_transaction(&key.space_id, &key.owner_public(), |tx| tx.project_pins())
+            .unwrap()
+    }
+    fn pin_projects(&mut self, names: &[&str]) -> tmt_colab::Result<()> {
+        self.manage(Change::Pins(
+            names.iter().map(|n| (*n).to_owned()).collect(),
+        ))
+    }
+    /// The effective pinned projects as the page list reports them.
+    fn reported_pins(&self) -> serde_json::Value {
+        tmt_colab::inspection::catalog(&self.store, &self.key).unwrap()["projectPins"].clone()
+    }
     fn rows(&self) -> usize {
         let rows: i64 = self
             .oracle()
@@ -112,7 +128,7 @@ impl Fixture {
     fn as_schema_12(&mut self, labels: &[(&str, &str)]) {
         let db = self.oracle();
         db.execute_batch(
-            "DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
+            "DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
              CREATE TABLE page_labels(page TEXT NOT NULL, label TEXT NOT NULL,
                 PRIMARY KEY(page,label), FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
              PRAGMA user_version=12;",
@@ -157,7 +173,7 @@ fn the_schema_adds_projects_and_keeps_what_was_there() {
     // A store from before labels (schema 6) gains the tables on the next open; nothing else moves.
     f.oracle()
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6;",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6;",
         )
         .unwrap();
     f.reopen();
@@ -516,4 +532,144 @@ fn a_pin_past_the_space_limit_is_refused_and_keeps_the_older_pins() {
     // Unpinning frees a place.
     assert!(f.pin(&page(1), false).unwrap());
     assert!(f.pin(&page(SPACE_PINS + 1), true).unwrap());
+}
+
+#[test]
+fn schema_18_adds_the_pin_tables_to_a_store_from_schema_17_and_the_list_starts_unchosen() {
+    let mut f = Fixture::new();
+    f.open_page(&page(1));
+    f.set(&[(&page(1), &["a"])]).unwrap();
+    f.pin_projects(&["a"]).unwrap();
+    assert_eq!(f.project_pins(), (true, vec!["a".to_owned()]));
+    f.oracle()
+        .execute_batch(
+            "DROP TABLE project_pin_choice; DROP TABLE project_pins; PRAGMA user_version=17;",
+        )
+        .unwrap();
+    f.reopen();
+    let version: u32 = f
+        .oracle()
+        .pragma_query_value(None, "user_version", |r| r.get(0))
+        .unwrap();
+    // The number is pinned: a later migration renumbers this test on purpose.
+    assert_eq!(version, 18);
+    assert_eq!(f.project_pins(), (false, vec![]));
+    assert_eq!(f.names(), ["a"]);
+}
+
+#[test]
+fn the_pinned_list_is_written_whole_in_the_owners_order_and_an_empty_list_is_a_choice() {
+    let mut f = Fixture::new();
+    f.open_page(&page(1));
+    f.set(&[(&page(1), &["a", "b", "c"])]).unwrap();
+    assert_eq!(f.project_pins(), (false, vec![]));
+    f.pin_projects(&["c", "a"]).unwrap();
+    assert_eq!(
+        f.project_pins(),
+        (true, vec!["c".to_owned(), "a".to_owned()])
+    );
+    // The same write again changes nothing; a new order replaces the old one.
+    f.pin_projects(&["c", "a"]).unwrap();
+    f.pin_projects(&["a", "b", "c"]).unwrap();
+    assert_eq!(f.project_pins().1, ["a", "b", "c"]);
+    // Empty is the owner's choice, not the automatic default.
+    f.pin_projects(&[]).unwrap();
+    assert_eq!(f.project_pins(), (true, vec![]));
+}
+
+#[test]
+fn a_refused_pinned_list_changes_nothing_and_the_limit_is_a_capacity_refusal() {
+    let mut f = Fixture::new();
+    f.open_page(&page(1));
+    f.set(&[(&page(1), &["a", "b"])]).unwrap();
+    f.pin_projects(&["a", "b"]).unwrap();
+    for bad in [
+        vec!["a", "missing"],
+        vec!["a", "a"],
+        vec![" a"],
+        vec!["a", ""],
+    ] {
+        let error = f.pin_projects(&bad).unwrap_err();
+        assert_eq!(fault(error).as_deref(), Some("Invalid"), "{bad:?}");
+        assert_eq!(f.project_pins().1, ["a", "b"], "{bad:?}");
+    }
+    let many: Vec<String> = (0..=SPACE_PROJECT_PINS)
+        .map(|n| format!("p{n:02}"))
+        .collect();
+    for name in &many {
+        f.manage(create(name)).unwrap();
+    }
+    let all: Vec<&str> = many.iter().map(String::as_str).collect();
+    let error = f.pin_projects(&all).unwrap_err();
+    assert_eq!(fault(error).as_deref(), Some("Capacity"));
+    assert_eq!(f.project_pins().1, ["a", "b"]);
+    // Exactly the limit is accepted, with no older pin dropped.
+    f.pin_projects(&all[..SPACE_PROJECT_PINS]).unwrap();
+    assert_eq!(f.project_pins().1.len(), SPACE_PROJECT_PINS);
+}
+
+#[test]
+fn a_pin_moves_with_a_rename_keeps_the_earlier_place_in_a_merge_and_leaves_with_a_delete() {
+    let mut f = Fixture::new();
+    for name in ["a", "b", "c", "d", "u"] {
+        f.manage(create(name)).unwrap();
+    }
+    f.pin_projects(&["a", "b", "c"]).unwrap();
+    // A rename keeps the place; onto an unpinned project the pin moves to the new name.
+    f.manage(rename("b", "x")).unwrap();
+    assert_eq!(f.project_pins().1, ["a", "x", "c"]);
+    f.manage(rename("x", "d")).unwrap();
+    assert_eq!(f.project_pins().1, ["a", "d", "c"]);
+    // Onto a pinned project the two merge and the earlier place wins.
+    f.manage(rename("c", "a")).unwrap();
+    assert_eq!(f.project_pins().1, ["a", "d"]);
+    f.manage(rename("d", "a")).unwrap();
+    assert_eq!(f.project_pins().1, ["a"]);
+    // An unpinned project renamed onto a pinned one adds nothing; creating pins nothing.
+    f.manage(rename("u", "a")).unwrap();
+    f.manage(create("fresh")).unwrap();
+    assert_eq!(f.project_pins().1, ["a"]);
+    // Delete removes the pin, and an emptied list stays the owner's.
+    f.manage(delete("a")).unwrap();
+    assert_eq!(f.project_pins(), (true, vec![]));
+}
+
+#[test]
+fn the_page_list_reports_the_written_list_or_the_five_most_recently_used_projects() {
+    let mut f = Fixture::new();
+    for n in 1..=7 {
+        f.open_page(&page(n));
+        f.oracle()
+            .execute(
+                "UPDATE pages SET last_update_at_ms=? WHERE page=?",
+                rusqlite::params![(n * 1000) as i64, page(n)],
+            )
+            .unwrap();
+    }
+    // Page n is in project "p<n>"; page 7 also holds "p1", so p1 is as recent as p7. "idle" has no page.
+    let names: Vec<String> = (1..=7).map(|n| format!("p{n}")).collect();
+    for n in 1..=7 {
+        let mut projects = vec![names[n - 1].as_str()];
+        if n == 7 {
+            projects.push("p1");
+        }
+        f.set(&[(&page(n), &projects)]).unwrap();
+    }
+    f.manage(create("idle")).unwrap();
+    // p7 and p1 tie at 7000 and sort by code point; the next three are p6, p5, p4.
+    assert_eq!(
+        f.reported_pins(),
+        serde_json::json!({"names":["p1","p7","p6","p5","p4"],"automatic":true})
+    );
+    // The owner's list replaces it for good, including an empty one.
+    f.pin_projects(&["idle", "p2"]).unwrap();
+    assert_eq!(
+        f.reported_pins(),
+        serde_json::json!({"names":["idle","p2"],"automatic":false})
+    );
+    f.pin_projects(&[]).unwrap();
+    assert_eq!(
+        f.reported_pins(),
+        serde_json::json!({"names":[],"automatic":false})
+    );
 }

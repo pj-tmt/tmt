@@ -881,7 +881,7 @@ test('a reader gets search, filters and the scope, but no project writes or arch
   await expect(titles(page)).toHaveText(['Delta ops']);
   await expect(scopeRows(page)).toHaveCount(4);
   await expect(moduleMenu(page).getByRole('link', { name: 'New project…' })).toHaveCount(0);
-  await expect(moduleMenu(page).getByRole('link', { name: 'Manage projects…' })).toHaveCount(0);
+  await expect(moduleMenu(page).getByRole('link', { name: 'All projects…' })).toHaveCount(0);
 });
 
 test('the module menu lists All pages and each project with its counts and needs-you', async ({
@@ -899,7 +899,7 @@ test('the module menu lists All pages and each project with its counts and needs
   await expect(rows.nth(3)).toHaveText(/q4 plan\s*1\s*(?:◆ )?1/);
   await expect(rows.nth(0)).toHaveAttribute('aria-current', 'page');
   await expect(moduleMenu(page).getByRole('link', { name: 'New project…' })).toBeVisible();
-  await expect(moduleMenu(page).getByRole('link', { name: 'Manage projects…' })).toBeVisible();
+  await expect(moduleMenu(page).getByRole('link', { name: 'All projects…' })).toBeVisible();
 });
 
 test('the module menu lists dashboards under Dashboards and opens Colab settings read-only', async ({
@@ -1224,7 +1224,7 @@ test('rename is one request for every page in the project, archived included, an
   page,
 }) => {
   await mount(page, 'bulk');
-  await fromScopeMenu(page, 'Manage projects…');
+  await fromScopeMenu(page, 'All projects…');
   // Management replaces its drawer with a confirmation, then returns to the same owner.
   const dialog = app(page).getByRole('dialog');
   await expect(dialog).toContainText('old');
@@ -1252,7 +1252,7 @@ test('rename is one request for every page in the project, archived included, an
 
 test('renaming onto an existing project says it merges', async ({ page }) => {
   await mount(page);
-  await fromScopeMenu(page, 'Manage projects…');
+  await fromScopeMenu(page, 'All projects…');
   // Management replaces its drawer with a confirmation, then returns to the same owner.
   const dialog = app(page).getByRole('dialog');
   await dialog.getByRole('button', { name: 'Rename ops' }).click();
@@ -1271,7 +1271,7 @@ test('renaming onto an existing project says it merges', async ({ page }) => {
 
 test('delete removes the project in one request and keeps the pages', async ({ page }) => {
   await mount(page);
-  await fromScopeMenu(page, 'Manage projects…');
+  await fromScopeMenu(page, 'All projects…');
   // Management replaces its drawer with a confirmation, then returns to the same owner.
   const dialog = app(page).getByRole('dialog');
   // The list shows the active pages (2 are in design); the dialog counts the archived one too.
@@ -1383,7 +1383,7 @@ for (const width of [1440, 390])
         .getByRole('tab', { name: /^All, \d+\+?$/ })
         .click();
       await page.screenshot({ path: await capturePath(`3747-scope-menu-${width}-${theme}.png`) });
-      await fromScopeMenu(page, 'Manage projects…');
+      await fromScopeMenu(page, 'All projects…');
       await expect(app(page).getByRole('dialog', { name: 'Manage projects' })).toBeVisible();
       await page.screenshot({ path: await capturePath(`2588-manage-${width}-${theme}.png`) });
       // Renaming onto an existing project says the two merge.

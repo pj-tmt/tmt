@@ -179,6 +179,7 @@ async function wire(
         ownerKey: c.encodeBinary(owner),
         revision: String(head.head.revision),
         projects: [],
+        projectPins: { names: [], automatic: true },
         pageIds: [{ pageId: v.page, deleted: false }],
         pages: [
           {
