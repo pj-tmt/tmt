@@ -5360,7 +5360,8 @@ with captured correlation and no offline fallback.
 a migration that will run, once, while it holds the writer lock: `space.db.pre-v<N>.bak` beside the
 store, N the schema it is leaving, owner-only (0600), written as a `.partial` file that is synced and
 renamed, then the directory is synced. A second upgrade from the same schema replaces that copy; after a
-committed migration only the two copies at the newest schemas stay. A store with no schema yet and one
+committed migration only two copies stay: the one just taken, whatever schemas the others are at, and the
+newest other by schema. A migration that fails, in whole or in part, leaves the store as it was and removes no copy. A store with no schema yet and one
 already current make none, and `Store::read` and `Store::write_existing` never migrate, so never copy.
 If the copy cannot be written the migration does not run and the store is untouched:
 `COLAB_STORE_BACKUP_FAILED`, "Colab could not save a backup of this space before updating it.
