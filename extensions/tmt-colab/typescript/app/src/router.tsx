@@ -42,7 +42,7 @@ import {
 } from 'lucide-react';
 import { moreButtonRect, PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
-import { PageAttribution } from './page-attribution.js';
+import { creatorName, PageAttribution } from './page-attribution.js';
 import { PageLayoutSection } from './page-layout-section.js';
 import { ErrorDetails, NoticeCard } from './notice-card.js';
 import { openFailure } from './open-failure.js';
@@ -1928,30 +1928,35 @@ function OpenPage({
                       item.kind === 'reading' ? { read: item.id } : undefined,
                     )
                   }
-                  items={pendingNeedsYou([
-                    ...proposalLayer.navigation,
-                    ...readingLayer.items
-                      .filter((item) => inlineSlots.readingIds.has(item.id))
-                      .map((item) => ({
-                        ...item,
-                        kind: 'reading' as const,
-                        agents: [
-                          readings.find((reading) => reading.id === item.id)?.agent ?? '',
-                        ].filter(Boolean),
-                      })),
-                    ...(verifiedQuestionStates(view) ?? [])
-                      .filter((question) => question.state === 'open')
-                      .map((question) => ({
-                        kind: 'answer' as const,
-                        state: 'unanswered' as const,
-                        id: question.id,
-                        title: question.title ?? question.id,
-                        agents: [question.agent?.name ?? view.creator?.agent.name ?? ''].filter(
-                          Boolean,
-                        ),
-                      })),
-                    ...reviewLayer.navigation,
-                  ])}
+                  items={pendingNeedsYou(
+                    [
+                      ...proposalLayer.navigation,
+                      ...readingLayer.items
+                        .filter((item) => inlineSlots.readingIds.has(item.id))
+                        .map((item) => ({
+                          ...item,
+                          kind: 'reading' as const,
+                          agents: [
+                            readings.find((reading) => reading.id === item.id)?.agent ?? '',
+                          ].filter(Boolean),
+                        })),
+                      ...(view.questions === undefined
+                        ? questionLayer.navigation
+                        : (verifiedQuestionStates(view) ?? [])
+                            .filter((question) => question.state === 'open')
+                            .map((question) => ({
+                              kind: 'answer' as const,
+                              state: 'unanswered' as const,
+                              id: question.id,
+                              title: question.title ?? question.id,
+                              agents: [
+                                question.agent?.name ?? view.creator?.agent.name ?? '',
+                              ].filter(Boolean),
+                            }))),
+                      ...reviewLayer.navigation,
+                    ],
+                    view.questions !== undefined,
+                  )}
                   onPick={(item) => {
                     if (item.kind === 'proposal') {
                       if (!proposalLayer.jump(item.id)) {
@@ -2004,12 +2009,7 @@ function OpenPage({
             canFiles={!!snapshot.binding?.files}
             canProjects={!!transport.management}
             pin={pin}
-            creatorLabel={
-              view.creator?.agent.name ??
-              (view.creationRecipient
-                ? (view.originalAuthor ?? view.creationRecipient.agentId)
-                : undefined)
-            }
+            creatorLabel={creatorName(view)}
             onSelect={(action) => {
               if (action === 'creator' || action === 'questions') {
                 close();

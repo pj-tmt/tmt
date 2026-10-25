@@ -2389,7 +2389,7 @@ export function renameReadingRequester() {
 /** Full source/provenance vector through the real layers and opaque renderer. */
 export function pendingVector(vector: PendingVector) {
   admitFixtureQuestions = false;
-  current = { ...current, ...pendingVectorData(vector), questions: [] };
+  current = { ...current, ...pendingVectorData(vector), questions: undefined };
   emit();
 }
 

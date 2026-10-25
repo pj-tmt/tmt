@@ -12,7 +12,7 @@ for (const vector of vectors.cases) {
       app.pendingVector(vector);
     }, vector);
     const host = page.locator('#ask-page-fixture');
-    const expected = vector.expected.filter((item) => item.kind !== 'answer');
+    const expected = vector.expected;
     const count = expected.length;
     if (count) {
       const trigger = host.getByRole('button', { name: `Needs you: ${count}`, exact: true });
@@ -54,9 +54,9 @@ for (const detached of [false, true]) {
         const app = await import(/* @vite-ignore */ fixture);
         return { records: app.discussionProof(), sends: app.proof() };
       });
-    await expect(page.getByRole('button', { name: 'Needs you: 3', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Needs you: 4', exact: true })).toBeVisible();
     const before = await proof();
-    await page.getByRole('button', { name: 'Needs you: 3', exact: true }).click();
+    await page.getByRole('button', { name: 'Needs you: 4', exact: true }).click();
     await expect(page.getByRole('menu').getByText('Please decide · 1')).toBeVisible();
     await page.getByRole('menuitem', { name: 'Choose release · Agent 1' }).click();
     await expect(page.getByRole('menu')).toHaveCount(0);

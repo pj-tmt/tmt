@@ -44,7 +44,11 @@ export const text = {
     removed: 'Removed from page source',
     onPage: 'On this page',
     currentCreator: (name: string) => `Current creator: ${name}`,
-    selectedCreator: (name: string) => `Selected: ${name}`,
+    assignedTo: (name: string) => `Assigned to ${name}`,
+    summary: (open: number, answered: number, handled: number) =>
+      `${open} open · ${answered} answered · ${handled} handled`,
+    cancel: 'Cancel',
+    close: 'Close',
     creatorHint:
       'New drafts use the creator. Existing question assignments and sent messages keep their recipients.',
     directoryUnavailable: (code?: string) =>

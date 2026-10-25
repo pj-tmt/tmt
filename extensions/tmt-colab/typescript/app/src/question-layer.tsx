@@ -22,6 +22,7 @@ import type {
   ReadingRenderBlock,
   mountRenderer,
 } from './renderer.js';
+import { text } from './strings.js';
 import { verifiedQuestionStates } from './question-registry.js';
 import type { CommentContext } from './thread-store.js';
 
@@ -278,7 +279,7 @@ export function useQuestionLayer({
                   (view.creationRecipient
                     ? {
                         id: view.creationRecipient.agentId,
-                        name: view.originalAuthor ?? view.creationRecipient.agentId,
+                        name: view.originalAuthor ?? text.unknownAuthor,
                       }
                     : undefined)
                 }

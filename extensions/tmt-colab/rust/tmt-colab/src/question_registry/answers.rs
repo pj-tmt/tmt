@@ -77,7 +77,7 @@ mod tests {
             );
             let (report, anchors) = crate::page_check::summary("", &view.threads).unwrap();
             let pending =
-                crate::summary_pending::items(&report, &anchors, &view, &writers, &actual);
+                crate::summary_pending::items(&report, &anchors, &view, &writers, Some(&actual));
             let ids: Vec<_> = pending.iter().map(|item| item.id.clone()).collect();
             assert_eq!(
                 serde_json::to_value(ids).unwrap(),

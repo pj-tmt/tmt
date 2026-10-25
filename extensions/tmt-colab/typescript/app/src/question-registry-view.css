@@ -26,3 +26,11 @@
 .metadata-question-state[data-state='answered'] {
   color: var(--tmt-ui-color-working);
 }
+
+.metadata-question-action {
+  justify-self: start;
+}
+.metadata-question-summary {
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+}

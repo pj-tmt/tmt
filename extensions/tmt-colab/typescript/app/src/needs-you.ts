@@ -15,7 +15,10 @@ export type NeedsYouCandidate = Target &
   );
 
 /** Each admitted owner supplies its existing state. The header adds no independent state. */
-export function pendingNeedsYou(candidates: readonly NeedsYouCandidate[]): NeedsYouCandidate[] {
+export function pendingNeedsYou(
+  candidates: readonly NeedsYouCandidate[],
+  registeredQuestions = false,
+): NeedsYouCandidate[] {
   const seen = new Set<string>();
   const pending = {
     proposal: 'waiting',
@@ -27,7 +30,7 @@ export function pendingNeedsYou(candidates: readonly NeedsYouCandidate[]): Needs
     candidates.filter((item) => {
       // Registered questions retain their own target even when legacy markup reused an ID for
       // a reading/review/proposal. Other passage kinds keep their existing cross-kind dedup.
-      const key = JSON.stringify([kind === 'answer', item.id]);
+      const key = JSON.stringify([registeredQuestions && kind === 'answer', item.id]);
       if (item.kind !== kind || item.state !== pending[kind] || seen.has(key)) return false;
       seen.add(key);
       return true;

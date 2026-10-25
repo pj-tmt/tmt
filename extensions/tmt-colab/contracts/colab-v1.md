@@ -1165,7 +1165,7 @@ ignored shapes; the parser's depth and page limits do not become an unbounded se
 Nonblocking `hints` remain separate from findings. Native and browser Needs-you count each registered
 open question, including registrations whose markup has been removed. Multiple questions in a group
 remain separate targets. Browser discussion that is still being verified supplies no answer projection;
-it is not an empty verified history. Legacy unregistered markup is not a registered pending target.
+it is not an empty verified history. When no `meta.questions` registry is present, retain the legacy admitted-markup rule: an unanswered group counts once and a standalone unanswered question counts once. An explicit registry, including an empty one, replaces that markup count; it never adds both projections.
 
 The owner browser exposes Questions… and Creator… in More, after Pin to top and before Agent status.
 Creator display belongs in About beside original-author attribution, not in a header action.

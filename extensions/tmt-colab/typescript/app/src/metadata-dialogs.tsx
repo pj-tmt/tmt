@@ -6,6 +6,7 @@ import { QuestionRegistryView } from './question-registry-view.js';
 import type { MetadataAction } from './save.js';
 import type { PageBinding, PageView } from './transport.js';
 import { useNotificationModalPresence } from './reply-notification-context.js';
+import { creatorName } from './page-attribution.js';
 import { text } from './strings.js';
 import './metadata-dialogs.css';
 const t = text.metadata;
@@ -97,7 +98,7 @@ function MetadataEditor({ kind, view, binding, onDismiss }: Props & { kind: Kind
           <BrowserAction
             type="button"
             variant="secondary"
-            label={kind === 'creator' ? 'Cancel' : 'Close'}
+            label={kind === 'creator' ? t.cancel : t.close}
             disabled={!!pending}
             onActivate={onDismiss}
           />
@@ -142,15 +143,7 @@ function MetadataEditor({ kind, view, binding, onDismiss }: Props & { kind: Kind
         {kind === 'creator' ? (
           <>
             <p>{t.creatorHint}</p>
-            <p>
-              {t.currentCreator(
-                view.creator?.agent.name ??
-                  (view.creationRecipient
-                    ? (view.originalAuthor ?? view.creationRecipient.agentId)
-                    : t.noCreator),
-              )}
-            </p>
-            {selected && <p>{t.selectedCreator(selected.agentName)}</p>}
+            <p>{t.currentCreator(creatorName(view) ?? t.noCreator)}</p>
             {owner &&
               (directory.state === 'ready' ? (
                 <BrowserField

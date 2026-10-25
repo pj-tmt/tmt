@@ -86,6 +86,6 @@ it('registered questions own their count independently of a legacy passage with 
   const reading = candidate('same', 'unread', 'reading');
   const answer = candidate('same', 'unanswered', 'answer');
   expect(
-    pendingNeedsYou([answer, reading, answer, candidate('same', 'waiting', 'review')]),
+    pendingNeedsYou([answer, reading, answer, candidate('same', 'waiting', 'review')], true),
   ).toEqual([reading, answer]);
 });

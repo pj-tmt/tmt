@@ -68,7 +68,7 @@ fn every_pending_item_of_the_shared_vectors_is_named_review_first_and_in_page_or
             crate::page_check::summary(case["source"].as_str().unwrap(), &conversations.threads)
                 .unwrap();
         let pending =
-            crate::summary_pending::items(&report, &anchors, &conversations, &writers, &[]);
+            crate::summary_pending::items(&report, &anchors, &conversations, &writers, None);
         let named = needs(&report, &conversations, &pending, &[]);
         let name = case["name"].as_str().unwrap();
         // The same targets as the count, none lost and none added.
@@ -107,8 +107,13 @@ fn registered_questions_are_named_individually_and_a_reading_carries_its_reason(
         crate::page_check::summary(case["source"].as_str().unwrap(), &conversations.threads)
             .unwrap();
     let questions: Vec<_> = report.questions.iter().map(|question| serde_json::json!({"id":question.id,"title":question.title,"agent":{"name":question.agent},"state":"open"})).collect();
-    let pending =
-        crate::summary_pending::items(&report, &anchors, &conversations, &writers, &questions);
+    let pending = crate::summary_pending::items(
+        &report,
+        &anchors,
+        &conversations,
+        &writers,
+        Some(&questions),
+    );
     let named = needs(&report, &conversations, &pending, &questions);
     assert_eq!(
         named
@@ -165,7 +170,7 @@ fn only_the_first_twenty_by_rank_are_named_while_the_count_stays_whole() {
     let (report, anchors) =
         crate::page_check::summary("<p>Plain</p>", &conversations.threads).unwrap();
     let pending =
-        crate::summary_pending::items(&report, &anchors, &conversations, &Default::default(), &[]);
+        crate::summary_pending::items(&report, &anchors, &conversations, &Default::default(), None);
     assert_eq!(pending.len(), 25, "{}", case["name"]);
     let named = needs(&report, &conversations, &pending, &[]);
     assert_eq!(named.len(), NEEDS_PASSAGES);

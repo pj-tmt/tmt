@@ -40,6 +40,15 @@ for (const width of [1440, 390])
         'Open',
       ]);
       await expect(dialog.getByText('Removed from page source')).toHaveCount(2);
+      await expect(
+        dialog.getByText('2 open · 1 answered · 1 handled', { exact: true }),
+      ).toBeVisible();
+      await expect(dialog.getByText('Assigned to First creator', { exact: true })).toHaveCount(4);
+      const row = dialog.locator('.metadata-questions > li').first();
+      const action = row.getByRole('button', { name: 'Mark handled', exact: true });
+      expect((await action.boundingBox())!.width).toBeLessThan(
+        (await row.boundingBox())!.width * 0.75,
+      );
       const first = dialog
         .locator('li')
         .filter({ has: page.getByText('First question', { exact: true }) });
@@ -90,7 +99,11 @@ test('unavailable directory preserves creator, explicit Retry recovers, stale ch
   await command(page, 'setMode', 'stale');
   await dialog.getByRole('button', { name: 'Set creator', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('Page changed');
-  await expect(dialog.getByText('Selected: Next creator', { exact: true })).toBeVisible();
+  await dialog.getByRole('combobox').press('ArrowDown');
+  await expect(dialog.getByRole('option', { name: 'Next creator', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
   expect((await command(page, 'proof')).view.creator.agent.name).toBe('First creator');
 });
 test('link editor sees states read-only without owner-store CLI guidance', async ({ page }) => {
@@ -295,4 +308,30 @@ test('navigation disposes a pending editor and its late result cannot reopen an 
   await command(page, 'settle');
   await expect(page.locator('dialog[open]')).toHaveCount(0);
   expect((await command(page, 'proof')).commands).toHaveLength(1);
+});
+
+for (const originalAuthor of ['Legacy author', undefined]) {
+  test(`legacy creator display uses a label, never the recipient UUID (${originalAuthor ?? 'unknown'})`, async ({
+    page,
+  }) => {
+    await ready(page);
+    await command(page, 'legacyCreator', originalAuthor);
+    const name = originalAuthor ?? 'Unknown author';
+    const creator = await open(page, `Creator: ${name}…`);
+    await expect(creator.getByText(`Current creator: ${name}`, { exact: true })).toBeVisible();
+    await expect(creator.getByText(/^Selected:/)).toHaveCount(0);
+    await expect(creator).not.toContainText('00000000-0000-4000-8000-000000000006');
+    await creator.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await (await pageAction(page, 'About this page')).click();
+    const about = page.locator('.tmt-ui-drawer[data-panel=about]');
+    await expect(about.locator('.page-attribution dd').first()).toHaveText(name);
+    await expect(about).not.toContainText('00000000-0000-4000-8000-000000000006');
+  });
+}
+
+test('an explicit empty registry replaces legacy markup pending targets', async ({ page }) => {
+  await ready(page);
+  await expect(page.getByRole('button', { name: 'Needs you: 2', exact: true })).toBeVisible();
+  await command(page, 'emptyRegistry');
+  await expect(page.locator('.needs-you-header-trigger')).toHaveCount(0);
 });

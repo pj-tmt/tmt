@@ -181,3 +181,18 @@ export function longLabels() {
   };
   publish?.(structuredClone(view));
 }
+
+export function legacyCreator(originalAuthor?: string) {
+  view = {
+    ...view,
+    creator: undefined,
+    creationRecipient: { machineId: id(4), agentId: id(6) },
+    originalAuthor,
+  };
+  publish?.(structuredClone(view));
+}
+
+export function emptyRegistry() {
+  view = { ...view, questions: [] };
+  publish?.(structuredClone(view));
+}
