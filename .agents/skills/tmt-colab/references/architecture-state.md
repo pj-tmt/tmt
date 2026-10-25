@@ -136,7 +136,11 @@ final publication owner; offline file checks remain markup-only. `templates.rs` 
 first-party catalog and exact-source creation admission. The verified own-record projection
 in `question_registry/answers.rs` derives effective answers, without commenter content writes
 or an Ask-success dependency. The [question metadata contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#question-metadata-5052)
-owns fields, bounds and CLI repairs. Browser controls/routing adoption is separate (#5146).
+owns fields, bounds and CLI repairs. `page/metadata.rs` adapts the closed owner-browser commands
+through the same conditional publisher and operation/status store. The browser's
+`metadata-dialogs.tsx` owns only its selection/refusal lifetime; verified registry/answer projections
+supply its state and creator defaults. `question-registry-view.tsx` shares read-only rows with Reader
+Info; the native/hosted readers reuse admitted own records and existing writer-provenance checks. See [page chrome](page-chrome.md) for controls and role limits.
 
 ## App build entries
 

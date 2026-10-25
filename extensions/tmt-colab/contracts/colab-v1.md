@@ -1162,9 +1162,24 @@ An empty
 ID/name, or the current creator for an unassigned registration. Existing markup findings still describe
 ignored shapes; the parser's depth and page limits do not become an unbounded second parse.
 `page check FILE` remains markup-only/offline; `--page PAGE` adds this registry comparison.
-Nonblocking `hints` remain separate from findings. Native Needs-you counts each registered open question;
-until #5146 adopts the registry, browser question counts remain per markup group. This temporary
-count mismatch grants no write or Ask authority.
+Nonblocking `hints` remain separate from findings. Native and browser Needs-you count each registered
+open question, including registrations whose markup has been removed. Multiple questions in a group
+remain separate targets. Browser discussion that is still being verified supplies no answer projection;
+it is not an empty verified history. Legacy unregistered markup is not a registered pending target.
+
+The owner browser exposes Questions… and Creator… in More, after Pin to top and before Agent status.
+Creator display belongs in About beside original-author attribution, not in a header action.
+Creator and handled/reopen commands capture the verified revision when their editor opens; stale
+choices refuse without publication. They reuse the save operation/status lifetime, never resend an
+uncertain command, and do not take over Source drafts or Work admission. Link readers see metadata
+read-only in the shared reader’s Info; link editors see “Only the page owner can change this here”,
+without owner-store CLI guidance. Its states use the same admitted own-record and writer-provenance
+checks without additional reads or metadata write authority.
+The directory supplies stable creator IDs and observed labels; names do not grant authority. A creator
+change supplies new draft defaults without remounting composers or changing dirty/sent recipients.
+Question Send binds its ordinary answer comment to the registered ID before the separate Ask. A failed
+Ask cannot undo that answer; comment edits preserve the binding and last-answer deletion reopens an
+unhandled registration. No commenter writes an answered metadata state.
 
 `page create --file` refuses live question blocks before commit and prints the empty-create,
 per-question register and source-write sequence, using the file's IDs and admitted titles.
@@ -3982,27 +3997,29 @@ upgrade cannot establish authorship. Removed access terminates live subscription
 space, page and epoch. The backend moves bytes, not Yjs state vectors. The wire
 operations are:
 
-| Type            | Additional fields / behavior                                                                                                                                                                |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hello`         | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                                                                       |
-| `catchup`       | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail                                                |
-| `subscribe`     | `cursors`; observe only the admitted page/current epoch                                                                                                                                     |
-| `append`        | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                                                                           |
-| `save`          | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]`; owner device only; the browser's Save, prepared and committed natively                                             |
-| `savestatus`    | `operationId`; owner device only; what the page recorded for an earlier `save`                                                                                                              |
-| `saveresult`    | `operationId, state` and `revision[, merged, sourceSha256]` or `code, message[, conflicts]`, plus `childPage` where a `task.convert` made a page; the one reply to a `save` or `savestatus` |
-| `work`          | `operationId, action, body`; owner device only; one closed work action of the page ([Work](#work-4050)), prepared and committed natively                                                    |
-| `workresult`    | as `saveresult`, plus `taskId` for a committed `task.add` and `childPage` for a `task.convert`; the one reply to a `work`                                                                   |
-| `usage`         | no fields; owner device only; how full the page is                                                                                                                                          |
-| `usageresult`   | `usage` ([Page usage](#page-usage-and-requested-compaction-2846)) or `error: {code, message}`; the one reply to a `usage`                                                                   |
-| `compact`       | no fields; owner device only; combine the root-local device's own stream                                                                                                                    |
-| `compactresult` | `report` (the compaction report) or `error: {code, message}`; the one reply to a `compact`                                                                                                  |
-| `receipt`       | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                                                                      |
-| `broadcast`     | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                                                                             |
-| `checkpoint`    | `streamId, namespace, seq, envelopeHash`; a notice that the serve stored a paired checkpoint; grants nothing                                                                                |
-| `ack`           | `cursors`; scoped delivery positions only                                                                                                                                                   |
-| `awareness`     | `device, data`; bounded ephemeral presence, never persisted or authority                                                                                                                    |
-| `error`         | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                                                                              |
+| Type             | Additional fields / behavior                                                                                                                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `hello`          | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                                                                                              |
+| `catchup`        | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail                                                                       |
+| `subscribe`      | `cursors`; observe only the admitted page/current epoch                                                                                                                                                            |
+| `append`         | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                                                                                                  |
+| `save`           | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]`; owner device only; the browser's Save, prepared and committed natively                                                                    |
+| `savestatus`     | `operationId`; owner device only; what the page recorded for an earlier `save`                                                                                                                                     |
+| `saveresult`     | `operationId, state` and `revision[, merged, sourceSha256]` or `code, message[, conflicts]`, plus `childPage` where a `task.convert` made a page; the one reply to a `save` or `savestatus`                        |
+| `work`           | `operationId, action, body`; owner device only; one closed work action of the page ([Work](#work-4050)), prepared and committed natively                                                                           |
+| `workresult`     | as `saveresult`, plus `taskId` for a committed `task.add` and `childPage` for a `task.convert`; the one reply to a `work`                                                                                          |
+| `metadata`       | `operationId, expectedRevision, action, body`; owner device only; closed `creator.set` (`{agent:{id,name}}`), `question.handle` or `question.reopen` (`{id}`), committed through the conditional content publisher |
+| `metadataresult` | as `saveresult`; the one reply to a `metadata` frame; `savestatus` settles a lost reply for the same operation ID                                                                                                  |
+| `usage`          | no fields; owner device only; how full the page is                                                                                                                                                                 |
+| `usageresult`    | `usage` ([Page usage](#page-usage-and-requested-compaction-2846)) or `error: {code, message}`; the one reply to a `usage`                                                                                          |
+| `compact`        | no fields; owner device only; combine the root-local device's own stream                                                                                                                                           |
+| `compactresult`  | `report` (the compaction report) or `error: {code, message}`; the one reply to a `compact`                                                                                                                         |
+| `receipt`        | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                                                                                             |
+| `broadcast`      | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                                                                                                    |
+| `checkpoint`     | `streamId, namespace, seq, envelopeHash`; a notice that the serve stored a paired checkpoint; grants nothing                                                                                                       |
+| `ack`            | `cursors`; scoped delivery positions only                                                                                                                                                                          |
+| `awareness`      | `device, data`; bounded ephemeral presence, never persisted or authority                                                                                                                                           |
+| `error`          | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                                                                                                     |
 
 ### Implemented stream subset (#1156, #1166)
 
@@ -5679,8 +5696,9 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   50 answer blocks and 50 reviews), with a target ID counted once. The order for deduplication
   and the page-header menu is proposals, readings, answers, reviews. A proposal waits while
   not deleted, not resolved and without a live decision. A reading is unread until its canonical
-  exact fixed-form device comment and a person's Resolve exist. An unanswered group counts once
-  while any admitted member lacks its canonical device answer; a standalone question counts once.
+  exact fixed-form device comment and a person's Resolve exist. Each registered open question counts
+  once, including source-removed registrations; group wrappers do not collapse those targets.
+  Answered is projected from verified question-bound ordinary own comments, independently of Ask.
   A review waits unless person-closed or its latest device change request is still waiting for an
   agent reply. Agent prose, device labels and publisher clocks cannot substitute for provenance.
 - `waiting` is exactly `needsYou > 0`, not a separate proposal-only definition.

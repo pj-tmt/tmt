@@ -7,6 +7,7 @@ import { FilesSurface } from './files-panel.js';
 import { BusyMark } from '@tmt/browser-ui/react';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
+import { QuestionRegistryView } from './question-registry-view.js';
 import { ReaderSource, type ReaderEdit } from './reader-source.js';
 import { NoticeCard } from './notice-card.js';
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
@@ -215,9 +216,18 @@ export function ReaderApp({
                   <section>
                     <h3>{text.aboutAuthor}</h3>
                     <PageAttribution
+                      creator={state.view.creator}
+                      creationRecipient={state.view.creationRecipient}
                       originalAuthor={state.view.originalAuthor}
                       publisherAgent={state.view.publisherAgent}
                     />
+                  </section>
+                )}
+                {state.kind === 'ready' && state.view.questions !== undefined && (
+                  <section>
+                    <h3>{text.metadata.questions}</h3>
+                    {canEdit && <p>{text.metadata.ownerOnly}</p>}
+                    <QuestionRegistryView view={state.view} />
                   </section>
                 )}
                 <section>

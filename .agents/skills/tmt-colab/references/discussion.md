@@ -78,7 +78,11 @@ owns record fields, limits, revision semantics and trust boundaries.
   owns drafts and visible recipient chips, delegates explicit Send to `sendAnswers`,
   and supplies controlled `QuestionCard` panels. Shared replies/retries resolve from
   verified comments and Ask records, with the canonical thread rendering the reply.
-  Latest device provenance is projected by `readThreads`, never stored in a record;
+  Send includes the immutable registered `questionId` on each ordinary answer comment before
+  its independent Ask. `questionStates` consumes verified own comments for Open/Answered/Handled;
+  source-removed registrations remain visible in Questions and pending counts stay per registration.
+  Creator and Handle/Reopen use the owner-only conditional metadata port; no commenter writes an
+  answered content value. Latest device provenance is projected by `readThreads`, never stored in a record;
   edits read admitted records rather than copying projection metadata. Agent replies
   cannot supply Answered. The canonical thread prefers a verified device answer,
   with writer/thread identity order breaking ties or choosing an unanswered thread;

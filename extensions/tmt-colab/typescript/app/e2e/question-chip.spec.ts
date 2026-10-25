@@ -47,7 +47,7 @@ test('existing chip-form markup becomes compact rows and opening pushes followin
   await expect(rows).toHaveCount(2);
   await expect(page.getByRole('tab')).toHaveCount(0);
   await expect(rows.first()).toContainText('Which list version?');
-  await expect(rows.first()).toContainText('Needs your answer');
+  await expect(rows.first()).toContainText('Open');
   await expect(frame(page).locator('tmt-questions')).toBeHidden();
   await settled(page);
   const closed = await afterTop(page);

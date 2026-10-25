@@ -34,7 +34,7 @@ async function send(page: Page) {
 for (const kind of ['single', 'multiple', 'short', 'long']) {
   test(`${kind} creates a normal quote thread and changing answers appends`, async ({ page }) => {
     const card = await mount(page, { kind, other: kind === 'single' || kind === 'multiple' });
-    await expect(card.locator('.question-line')).toContainText('Needs your answer');
+    await expect(card.locator('.question-line')).toContainText('Open');
     if (kind === 'single' || kind === 'multiple') {
       await card.getByLabel('Change it', { exact: true }).check();
       if (kind === 'multiple') await card.getByLabel('Keep it', { exact: true }).check();
@@ -226,7 +226,8 @@ test('answering a card moves the page once, however late the record and the Ask 
   await watchSlotHeight(page);
   await slotStep(page, 'send');
   await card.getByRole('button', { name: /^Send answer/ }).click();
-  await expectAnswered(card.locator('.question-line'), 'Keep it');
+  await expect(card.locator('.question-line-state')).toHaveText('Open');
+  await expect(card.locator('.question-line-answer')).toContainText('Keep it');
   await page.waitForTimeout(600);
   await slotStep(page, 'record');
   await run(page, 'releaseQuestionView');
@@ -259,7 +260,7 @@ test('a failed answer re-opens its folded card on the error row, Retry focused, 
     'Could not confirm this answer. Your draft is kept for the next Send.',
   );
   await expect(line).toHaveAttribute('aria-expanded', 'true');
-  await expect(line).toContainText('Needs your answer');
+  await expect(line).toContainText('Open');
   await expect(retry).toBeFocused();
   await expect(card.getByLabel('Keep it', { exact: true })).toBeChecked();
   expect(await run(page, 'discussionProof')).toHaveLength(0);
@@ -645,7 +646,7 @@ test('cosmetic frame claims cannot supply an answer or send authority', async ({
         ),
     )
     .toBeGreaterThan(0);
-  await expect(card.locator('.question-line')).toContainText('Needs your answer');
+  await expect(card.locator('.question-line')).toContainText('Open');
   await expect(card.locator('.question-answer')).toHaveCount(0);
   await card.getByLabel('Keep it', { exact: true }).check();
   await expect(

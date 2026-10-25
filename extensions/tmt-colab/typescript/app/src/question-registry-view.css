@@ -1,0 +1,28 @@
+.metadata-questions {
+  overflow-wrap: anywhere;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.metadata-questions > li {
+  display: grid;
+  gap: 8px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
+}
+.metadata-question-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+.metadata-question-state {
+  white-space: nowrap;
+  color: var(--tmt-ui-color-secondary);
+}
+.metadata-question-state[data-state='open'] {
+  color: var(--tmt-ui-color-waiting);
+}
+.metadata-question-state[data-state='answered'] {
+  color: var(--tmt-ui-color-working);
+}

@@ -6803,3 +6803,6 @@ fn describe_keeps_navigation_without_unknown_counts_and_during_busy_catalog() {
     let body: Value = serde_json::from_str(refused.split_once("\r\n\r\n").unwrap().1).unwrap();
     assert_eq!(body["error"]["code"], "COLAB_UNAVAILABLE");
 }
+
+#[path = "socket/metadata.rs"]
+mod metadata;

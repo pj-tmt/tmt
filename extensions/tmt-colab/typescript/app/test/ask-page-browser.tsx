@@ -58,6 +58,8 @@ let publish: ((value: PageView) => void) | undefined;
 let fail: ((error: Error) => void) | undefined;
 let records: PageAsk[];
 let current: PageView;
+let registryAgents: readonly AgentDestination[] = [];
+let admitFixtureQuestions = true;
 let seen: ThreadStatusSeen | undefined;
 let seenOpens = 0;
 let scope = 'epoch-1';
@@ -65,8 +67,29 @@ let pageEpoch = '1';
 let openGate: (() => void) | undefined;
 let ownerDevice = true;
 let hooks: { seed(): void; agentResolves(): void } | undefined;
+/** These scenarios model admitted first-party pages. Explicitly supply their registry instead
+ * of making the UI infer registration authority from markup. Keep removed registrations. */
+function registerFixtureQuestions() {
+  if (!admitFixtureQuestions) return;
+  const entries = [...(current.questions ?? [])];
+  for (const question of inspectQuestions(current.source).questions) {
+    if (entries.some((entry) => entry.id === question.id)) continue;
+    const matches = registryAgents.filter((agent) => agent.agentName === question.agent);
+    entries.push({
+      id: question.id,
+      title: question.title,
+      state: 'open',
+      ...(matches.length === 1
+        ? { agent: { id: matches[0].agent, name: matches[0].agentName } }
+        : {}),
+      attribution: { writerId: id(4), timeMs: 1 },
+    });
+  }
+  current = { ...current, questions: entries };
+}
 /** What a viewer is given while the discussion is unverified: the document, without its threads and asks. */
 function shown(): PageView {
+  registerFixtureQuestions();
   if (!current.discussionPending) return current;
   const {
     threads: _threads,
@@ -78,6 +101,7 @@ function shown(): PageView {
 }
 /** Parent-computed presentation inputs, as Live publishes them. */
 function emit() {
+  registerFixtureQuestions();
   if (current.discussionPending) return publish?.(shown());
   current = {
     ...current,
@@ -315,6 +339,7 @@ export async function mount(
         },
       ]
     : [];
+  admitFixtureQuestions = true;
   current = {
     source: '<p id="selected">Exact selected text</p>',
     title: 'Live shared page',
@@ -327,6 +352,14 @@ export async function mount(
       ? { creationRecipient: { machineId: destination().machine, agentId: destination().agent } }
       : {}),
   };
+  registryAgents =
+    options.agents ??
+    Array.from({ length: 5 }, (_, index) => ({
+      ...destination(),
+      agent: id(6 + index),
+      agentName: `Agent ${index + 1}`,
+      presence: index === 0 ? ('active' as const) : ('unknown' as const),
+    }));
   let preparationFailures = options.prepareFailures ?? 0;
   let askRefusals = options.refuseAsks ?? 0;
   presentationAgents = (options.presentation ?? []).map((agentName) => ({
@@ -552,7 +585,12 @@ export async function mount(
     }
     return commit();
   }
-  function addTurn(body: string, thread: ThreadView, attach?: MessageAttachments) {
+  function addTurn(
+    body: string,
+    thread: ThreadView,
+    attach?: MessageAttachments,
+    questionId?: string,
+  ) {
     if (attach?.stored.some((s: StoredAttachment) => s.filename.includes('stale')) && staleOnce) {
       staleOnce = false;
       throw new AttachmentStaleError(
@@ -583,6 +621,7 @@ export async function mount(
       thread: thread.ref,
       body,
       messageId,
+      ...(questionId === undefined ? {} : { questionId }),
       ...(attach
         ? { attachments: attach.stored.map((s: StoredAttachment) => s.original.descriptor) }
         : {}),
@@ -608,6 +647,7 @@ export async function mount(
     anchor: QuoteSelector | null,
     threadId: string,
     attach?: MessageAttachments,
+    questionId?: string,
   ) {
     const thread: ThreadView = {
       version: 1,
@@ -627,7 +667,7 @@ export async function mount(
       ref: { writer: id(4), id: threadId },
       comments: [],
     };
-    return addTurn(body, thread, attach);
+    return addTurn(body, thread, attach, questionId);
   }
   const discussion: ThreadBinding = {
     attachments,
@@ -709,7 +749,7 @@ export async function mount(
       }
       return createThread(body, null, id(4), attach);
     },
-    async reply(ref, body, _expected, attach) {
+    async reply(ref, body, _expected, attach, questionId) {
       await replyGate.held;
       if (replyGate.fail) {
         replyGate.fail = false;
@@ -720,16 +760,19 @@ export async function mount(
           body,
           current.threads!.find((thread) => thread.ref.id === ref.id)!,
           attach,
+          questionId,
         ),
       );
     },
-    async create(body, anchor, attach) {
+    async create(body, anchor, attach, questionId) {
       await replyGate.held;
       if (replyGate.fail) {
         replyGate.fail = false;
         throw new Error('Comment refused');
       }
-      return publishAnswer(body, () => createThread(body, anchor, crypto.randomUUID(), attach));
+      return publishAnswer(body, () =>
+        createThread(body, anchor, crypto.randomUUID(), attach, questionId),
+      );
     },
     async edit() {
       throw new Error('Not used');
@@ -2118,6 +2161,8 @@ export function questionSibling(options: {
   const threadId = id(92 + (options.index ?? 0) * 3),
     writer = options.canonical ? id(2) : id(93 + (options.index ?? 0) * 3),
     messageId = id(94 + (options.index ?? 0) * 3);
+  // This fixture is a legacy unbound annotation, not a copy of the new answer binding.
+  const { questionId: _binding, ...legacyComment } = first.comments[0];
   const sibling: ThreadView = {
     ...first,
     threadId,
@@ -2126,7 +2171,7 @@ export function questionSibling(options: {
       ? []
       : [
           {
-            ...first.comments[0],
+            ...legacyComment,
             thread: { writer, id: threadId },
             messageId,
             ref: { writer, id: messageId },
@@ -2343,6 +2388,30 @@ export function renameReadingRequester() {
 
 /** Full source/provenance vector through the real layers and opaque renderer. */
 export function pendingVector(vector: PendingVector) {
-  current = { ...current, ...pendingVectorData(vector) };
+  admitFixtureQuestions = false;
+  current = { ...current, ...pendingVectorData(vector), questions: [] };
+  emit();
+}
+
+/** A verified remote owner action empties registered pending targets without deleting markup. */
+export function handleQuestions() {
+  current = {
+    ...current,
+    questions: current.questions?.map((entry) => ({ ...entry, state: 'handled' })),
+  };
+  emit();
+}
+
+/** An admitted owner metadata change; no source or existing question assignment is rewritten. */
+export function changePageCreator(index: number) {
+  const agent = registryAgents[index];
+  if (!agent) throw new Error('Unknown fixture creator');
+  current = {
+    ...current,
+    creator: {
+      agent: { id: agent.agent, name: agent.agentName },
+      attribution: { writerId: id(4), timeMs: 2 },
+    },
+  };
   emit();
 }

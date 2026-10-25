@@ -25,8 +25,11 @@ export function pendingNeedsYou(candidates: readonly NeedsYouCandidate[]): Needs
   } as const;
   return (['proposal', 'reading', 'answer', 'review'] as const).flatMap((kind) =>
     candidates.filter((item) => {
-      if (item.kind !== kind || item.state !== pending[kind] || seen.has(item.id)) return false;
-      seen.add(item.id);
+      // Registered questions retain their own target even when legacy markup reused an ID for
+      // a reading/review/proposal. Other passage kinds keep their existing cross-kind dedup.
+      const key = JSON.stringify([kind === 'answer', item.id]);
+      if (item.kind !== kind || item.state !== pending[kind] || seen.has(key)) return false;
+      seen.add(key);
       return true;
     }),
   );

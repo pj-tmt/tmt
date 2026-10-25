@@ -444,10 +444,16 @@ test('one-row fitting retains full labels, stable content and compact action aut
     await expect(actions.getByRole('button')).toHaveCount(1);
     const more = actions.getByRole('button', { name: 'More', exact: true });
     await more.press('ArrowDown');
-    // Share… waits on page management and a page that holds no file shows no Files entry; the first
-    // enabled entry is Agent status, then Source and Export page.
+    // Share… waits on page management and an empty page has no Files entry. Metadata inspection
+    // remains reachable before Agent status, Source and Export page.
     await expect(actions.getByRole('menuitem', { name: /^Share…/ })).toBeDisabled();
     await expect(actions.getByRole('menuitem', { name: /^Files/ })).toHaveCount(0);
+    await expect(actions.getByRole('menuitem', { name: 'Questions…', exact: true })).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(
+      actions.getByRole('menuitem', { name: 'Set creator…', exact: true }),
+    ).toBeFocused();
+    await page.keyboard.press('ArrowDown');
     await expect(
       actions.getByRole('menuitem', { name: 'Agent status', exact: true }),
     ).toBeFocused();

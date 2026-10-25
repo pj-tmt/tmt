@@ -81,3 +81,11 @@ it('uses the canonical device answer; an empty sibling or agent prose does not h
     ).toEqual([first]);
   }
 });
+
+it('registered questions own their count independently of a legacy passage with the same ID', () => {
+  const reading = candidate('same', 'unread', 'reading');
+  const answer = candidate('same', 'unanswered', 'answer');
+  expect(
+    pendingNeedsYou([answer, reading, answer, candidate('same', 'waiting', 'review')]),
+  ).toEqual([reading, answer]);
+});

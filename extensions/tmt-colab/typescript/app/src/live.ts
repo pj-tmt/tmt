@@ -1,3 +1,4 @@
+import { canonical } from './closed.js';
 import type { CompactReport, PageUsage } from './page-usage.js';
 import { disclosureScope } from './attachment-service.js';
 import { LiveDocumentFiles, type DocumentFiles } from './document-files.js';
@@ -24,11 +25,13 @@ import { Writer, type OwnCompaction } from './writer.js';
 import {
   SAVE_REOPEN_MS,
   SaveOutcomeUnknown,
+  SaveRefused,
   SaveTooLarge,
   settled,
   settledAgainst,
   type SaveResult,
   type WorkAction,
+  type MetadataAction,
   type WorkResult,
 } from './save.js';
 import { hunksOf } from './save-hunks.js';
@@ -843,6 +846,44 @@ export class Live implements PageBinding {
       ...(result.taskId === undefined ? {} : { taskId: result.taskId }),
       ...(result.childPage === undefined ? {} : { childPage: result.childPage }),
     };
+  }
+  canMetadata(): boolean {
+    return this.canWork();
+  }
+  async metadataRevision(shown: Pick<PageView, 'creator' | 'questions'>): Promise<string> {
+    const connection = await this.#settled();
+    // Capture through the same serialized owner as Export: a newly admitted revision cannot
+    // silently turn an old visible choice into an edit of newer metadata.
+    return connection.run(async () => {
+      if (!this.canMetadata() || connection !== this.#connection)
+        throw new Error('Page metadata editing unavailable');
+      const metadata = (value: Pick<PageView, 'creator' | 'questions'>) =>
+        canonical({ creator: value.creator, questions: value.questions });
+      if (metadata(shown) !== metadata(this.#admitted))
+        throw new SaveRefused(
+          'COLAB_STALE_BASE',
+          'Page metadata changed. Read it again before writing.',
+        );
+      return connection.objects.revision();
+    });
+  }
+  async metadata(
+    action: MetadataAction,
+    body: Record<string, unknown>,
+    expectedRevision: string,
+  ): Promise<void> {
+    if (!this.canMetadata()) throw new Error('Page metadata editing unavailable');
+    const c = await this.#current;
+    const operationId = crypto.randomUUID();
+    let result: SaveResult;
+    try {
+      result = await c.metadata(operationId, action, body, expectedRevision);
+    } catch (error) {
+      if (!(error instanceof Error) || c.active) throw error;
+      result = await this.#settleLost(c, operationId);
+    }
+    settled(result);
+    await this.#showsRevision(result.revision);
   }
   /** The serve counts every device but its own as "other". This device's own changes are not
    * other devices': it can combine them itself, so the page-size surface counts them as its own. */

@@ -10,6 +10,7 @@ export const QuestionLine = forwardRef<
   HTMLButtonElement,
   {
     question: Question;
+    status?: 'open' | 'answered' | 'handled' | 'unknown' | 'unregistered';
     /** The answer the line shows: the verified one, or the one being sent while `pending`. */
     answer?: string;
     /** The answer is sent but no verified record backs it yet: the line is folded and inert. */
@@ -22,11 +23,26 @@ export const QuestionLine = forwardRef<
     onMove?(direction: -1 | 1): void;
   }
 >(function QuestionLine(
-  { question, answer, pending = false, eyebrow = true, expanded, panelId, onToggle, onMove },
+  {
+    question,
+    status,
+    answer,
+    pending = false,
+    eyebrow = true,
+    expanded,
+    panelId,
+    onToggle,
+    onMove,
+  },
   ref,
 ) {
   const summary = answer === undefined ? undefined : questionText(answer);
-  const state = summary === undefined ? text.questionLine.waiting : text.questionLine.answered;
+  const state =
+    status === undefined
+      ? summary === undefined
+        ? text.questionLine.waiting
+        : text.questionLine.answered
+      : text.metadata.status[status];
   // The shared busy-mark delay: an answer verified within it never shows the mark.
   const marked = useBusyMark(pending);
   return (
@@ -34,7 +50,15 @@ export const QuestionLine = forwardRef<
       type="button"
       ref={ref}
       className="question-line"
-      data-state={summary !== undefined ? 'answered' : 'waiting'}
+      data-state={
+        status === undefined
+          ? summary !== undefined
+            ? 'answered'
+            : 'waiting'
+          : status === 'open'
+            ? 'waiting'
+            : status
+      }
       aria-label={`${question.title}, ${summary === undefined ? state : `${state}: ${summary}`}`}
       aria-expanded={expanded}
       aria-controls={panelId}

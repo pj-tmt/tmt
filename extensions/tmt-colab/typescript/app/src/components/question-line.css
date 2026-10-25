@@ -89,9 +89,9 @@
   line-height: 1.3;
   white-space: nowrap;
 }
-/* An answered line is quiet: the check and the word in the secondary role. */
+/* Registry state words use the existing semantic roles. */
 .question-line[data-state='answered'] .question-line-state {
-  color: var(--tmt-ui-color-secondary);
+  color: var(--tmt-ui-color-working);
 }
 /* The mark and the spinner that stands in for it while an answer is sent share one cell, so the
    swap moves nothing. */
@@ -184,4 +184,9 @@
   width: 1px;
   height: 1px;
   pointer-events: none;
+}
+
+.question-line:is([data-state='handled'], [data-state='unknown'], [data-state='unregistered'])
+  .question-line-state {
+  color: var(--tmt-ui-color-secondary);
 }

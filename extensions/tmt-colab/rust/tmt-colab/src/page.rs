@@ -4,6 +4,7 @@ pub mod compact_ipc;
 pub mod convert;
 pub mod ipc;
 pub mod lines;
+pub mod metadata;
 pub mod owner_fold;
 pub mod patch;
 pub mod save;
