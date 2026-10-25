@@ -64,10 +64,18 @@ pub enum DeliveryAcceptance {
 /// A message as it is typed into an agent's pane, as raw input or a prompt,
 /// on every host. Coding-agent shells can read an ASCII `!` as a bash-mode
 /// shortcut before the text reaches the agent, so each becomes a fullwidth
-/// `！`. This is delivery policy, not output rewriting: stored requests keep
-/// the original text.
+/// `！`. A host pastes the text between bracketed-paste markers, and an end
+/// marker inside the message would close the paste early and type the rest as
+/// keys, so the ESC of an `ESC [ 200 ~` or `ESC [ 201 ~` in the text becomes the
+/// visible `␛`. Only ESC bytes change, so no new marker can form from the text
+/// around a replaced one.
+/// This is delivery policy, not output rewriting: stored requests keep the
+/// original text.
 pub fn pane_input_text(message: &str) -> String {
-    message.replace('!', "\u{ff01}")
+    message
+        .replace("\u{1b}[200~", "\u{241b}[200~")
+        .replace("\u{1b}[201~", "\u{241b}[201~")
+        .replace('!', "\u{ff01}")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -242,6 +250,38 @@ mod tests {
             "！ if (！ready)！\n尾 ！ --x \"q\" $v `c`"
         );
         assert_eq!(pane_input_text(""), "");
+    }
+
+    #[test]
+    fn a_bracketed_paste_marker_in_the_text_loses_its_escape_and_cannot_be_rebuilt() {
+        // ESC is "\x1b"; the substitute is the visible U+241B.
+        for (message, typed) in [
+            ("a\x1b[201~b\r", "a\u{241b}[201~b\r"),
+            ("\x1b[200~x\x1b[201~", "\u{241b}[200~x\u{241b}[201~"),
+            ("\x1b[201~\x1b[201~", "\u{241b}[201~\u{241b}[201~"),
+            // A marker nested in another, or splitting one: nothing is left to join.
+            ("\x1b[2\x1b[201~01~", "\x1b[2\u{241b}[201~01~"),
+            ("\x1b\x1b[201~", "\x1b\u{241b}[201~"),
+            // `!` is still rewritten beside a marker.
+            ("hi!\x1b[201~", "hi\u{ff01}\u{241b}[201~"),
+        ] {
+            let text = pane_input_text(message);
+            assert_eq!(text, typed, "{message:?}");
+            assert!(
+                !text.contains("\x1b[200~") && !text.contains("\x1b[201~"),
+                "{message:?} still carries a marker"
+            );
+        }
+        // Other escapes and a marker-like text without ESC are left as they are.
+        for message in [
+            "\x1b[31mred\x1b[0m",
+            "[201~",
+            "\x1b[20~",
+            "\x1b[2010~",
+            "\x1b",
+        ] {
+            assert_eq!(pane_input_text(message), message);
+        }
     }
 
     struct Unsupported;

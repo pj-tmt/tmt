@@ -303,7 +303,9 @@ belong to the [host reference](../.agents/skills/tmt-core-runtime/references/hos
   `input("", enter: true)`, and a driver that submitted on the first call
   would deliver before core's delay. Core has already applied its delivery
   policy (`!` protection, staging, size), so the driver adds and interprets
-  nothing.
+  nothing. That policy also keeps a bracketed-paste marker out of the text: the ESC
+  of an `ESC [ 200 ~` or `ESC [ 201 ~` in a message becomes the visible `␛` before any
+  host pastes, so a message cannot end the host's paste early.
 - **`capture`:** `lines: 0` asks for the visible screen, as tmux reads it.
   `lines` of 1 or more asks for the tail of the pane's text, with at least the
   last `lines` lines. A driver must not refuse `lines: 0` as `bad_request`.
