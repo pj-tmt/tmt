@@ -31,13 +31,28 @@ async function edit(found: Locator, body: string) {
   await comment.getByRole('button', { name: 'Save comment', exact: true }).click();
   await expect(comment.locator('.comment-body')).toHaveText(body);
 }
-/** The Comments drawer's view tab. */
-const view = (page: Page, name: 'Open' | 'Resolved') =>
-  commentsRegion(page)
+/** Select the Comments list view, returning from a retained Discussion first. */
+async function view(page: Page, name: 'Open' | 'Resolved') {
+  await commentList(page);
+  await commentsRegion(page)
     .getByRole('tab', { name: new RegExp(`^(● )?${name}`) })
     .click();
+}
 async function comments(page: Page) {
-  if (!(await commentsRegion(page).isVisible())) await (await pageAction(page, 'Comments')).click();
+  // The document header precedes verified threads after reload. Its count is absent until
+  // that projection is ready; do not toggle against the opening header and lose the action.
+  await expect(
+    page.locator('.page-header-actions').getByRole('button', { name: /^Discussion \(\d+\)/ }),
+  ).toBeVisible();
+  const panel = commentsRegion(page);
+  if (!(await panel.isVisible())) await (await pageAction(page, 'Comments')).click();
+  await expect(panel).toBeVisible();
+}
+async function commentList(page: Page) {
+  await comments(page);
+  const panel = commentsRegion(page);
+  const back = panel.getByRole('button', { name: 'All comments', exact: true });
+  if (await back.isVisible()) await back.click();
 }
 
 test.afterEach(disposeActiveWorlds);
@@ -132,7 +147,7 @@ test('a same-request annotation reply recovers from a visible transient read fai
     );
     await expect(page.getByTestId('ask-state')).toHaveCount(0);
     await page.reload();
-    await comments(page);
+    await commentList(page);
     await page.getByTestId('annotation-row').filter({ hasText: 'Quoted passage.' }).click();
     await expect(page.getByTestId('ask-reply')).toHaveText(expected);
     await expect(page.getByTestId('ask-reply-attribution')).toContainText(agent.name);
@@ -334,7 +349,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await expect(t1.getByText(text.commentQuoteChanged)).toHaveCount(0);
     const threadId = (await t1.getAttribute('data-thread-id'))!;
     const messageId = await t1.getByTestId('comment-entry').first().getAttribute('data-message-id');
-    await comments(second);
+    await commentList(second);
     const row2 = second
       .getByTestId('annotation-row')
       .filter({ hasText: 'An & 🌍 exact quote for review.' });
@@ -345,7 +360,9 @@ test('paired writers retain anchored annotation conversations, direct exact send
       'discussion-author · just now',
     );
     // Status is not writer-owned: this is another owner device, so it may resolve the thread.
-    await expect(t2.getByRole('button', { name: text.threadResolve, exact: true })).toBeEnabled();
+    await expect(
+      commentsRegion(second).getByRole('button', { name: text.threadResolve, exact: true }),
+    ).toBeEnabled();
     await expect(t1.getByTestId('ask-reply')).toBeVisible();
     await expect(t2.getByTestId('ask-reply')).toBeVisible();
     await expect(t1.getByTestId('ask-reply-attribution')).toContainText(agent.name);
@@ -392,9 +409,11 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await first.setViewportSize({ width: 1440, height: 900 });
     await first.evaluate(() => (document.documentElement.dataset.theme = 'light'));
     const beforeCommentsWidth = (await first.locator('iframe').boundingBox())!.width;
-    await comments(first);
+    await commentList(first);
     await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
-    await t1.getByRole('button', { name: text.threadResolve, exact: true }).click();
+    await commentsRegion(first)
+      .getByRole('button', { name: text.threadResolve, exact: true })
+      .click();
     await view(second, 'Resolved');
     await expect(row2).toContainText(text.threadResolved);
     // A person's resolve notifies the mentioned agent exactly once, through the Ask path.
@@ -402,10 +421,15 @@ test('paired writers retain anchored annotation conversations, direct exact send
     const notice = String(agent.received()[2].message);
     expect(notice).toContain('Thread resolved by discussion-author.');
     expect(notice).toContain(quote!);
-    await t1.getByRole('button', { name: text.threadReopen, exact: true }).click();
+    await commentsRegion(first)
+      .getByRole('button', { name: text.threadReopen, exact: true })
+      .click();
     await view(second, 'Open');
     await expect(row2).toBeVisible();
     await expect(row2).not.toContainText(text.threadResolved);
+    // The list and Discussion are separate views; reopen the peer thread to observe later edits.
+    await row2.click();
+    await expect(t2).toBeVisible();
     const marker = first.frameLocator('iframe').locator('[data-colab-thread]');
     await expect(marker).toHaveCount(1);
     const traffic = await first
@@ -444,9 +468,11 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await commentsClose(first, 'list').click();
     await marker.click();
     await expect(t1).toBeVisible();
-    await expect(openPanel(first)).toHaveCount(0);
+    // The current Discussion opens in the non-modal workspace column, not a floating window.
+    await expect(commentsRegion(first)).toBeVisible();
+    await expect(first.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
     const frameWidth = (await first.locator('iframe').boundingBox())!.width;
-    expect(frameWidth).toBe(beforeCommentsWidth);
+    expect(frameWidth).toBeLessThan(beforeCommentsWidth);
     await first
       .frameLocator('iframe')
       .locator('body')
@@ -455,17 +481,21 @@ test('paired writers retain anchored annotation conversations, direct exact send
       await first.setViewportSize({ width, height: 900 });
       await first.evaluate(() => window.scrollTo(0, 0));
       await expect(t1).toHaveAttribute('data-anchor', 'attached');
-      await t1.getByRole('button', { name: text.threadCollapse, exact: true }).click();
+      await commentsClose(first, 'discussion').click();
       await first.screenshot({ path: `${captureDir}/1587-native-${width}-light-markers.png` });
       await marker.click();
-      await expect(openPanel(first)).toHaveCount(0);
-      await comments(first);
+      await expect(commentsRegion(first)).toBeVisible();
+      await expect(first.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
+      await commentList(first);
       await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
       for (const theme of ['light', 'dark']) {
         await first.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
         }, theme);
-        await t1.getByRole('combobox', { name: 'Message', exact: true }).press('Escape');
+        // Blur the field for capture; Escape now correctly dismisses the whole Discussion.
+        await commentsRegion(first)
+          .getByRole('heading', { name: 'Discussion', exact: true })
+          .click();
         await commentsRegion(first)
           .locator('.tmt-ui-drawer-body')
           .evaluate((node) => {
@@ -502,7 +532,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
       await marker.click();
     }
     await first.setViewportSize({ width: 1440, height: 900 });
-    await comments(first);
+    await commentList(first);
     await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
     await (await pageAction(first, 'Source')).click();
     const inserted = '<p style="height:300px">Inserted above.</p>' + html;
@@ -546,13 +576,13 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await first.getByRole('button', { name: text.allComments, exact: true }).click();
     await expect(first.getByTestId('annotation-row')).toHaveCount(2);
     await first.reload();
-    await comments(first);
+    await commentList(first);
     await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
     await expect(first.getByTestId('comment-thread')).toHaveAttribute('data-thread-id', threadId);
     await expect(first.getByTestId('comment-thread')).toContainText('Comment deleted');
     await restartColab(world, door);
     await second.reload();
-    await comments(second);
+    await commentList(second);
     await expect(second.getByTestId('annotation-row')).toHaveCount(2);
     await second.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
     await expect(second.getByTestId('comment-thread')).toContainText('Comment deleted');
@@ -591,19 +621,25 @@ test('composer records plain annotations and replies without a recipient, then s
       '<p id="quote">Frozen original quote.</p>',
       agent.pane,
     );
-    const page = await openPage(door, browser, created);
-    await selectInRenderer(page, '#quote');
-    await composerAssets(page, 'composer-owner');
-    const opened = operations.filter((operation) => operation === 'session.open').length;
+    const page = await browser.context.newPage();
     let injectedContextReads = 0;
-    // Ordinary network failure at the existing context GET before directory discovery.
-    // No signed agents.list is fabricated or interrupted; content admission/sync is untouched.
+    let bootstrapContext = true;
+    // Let the initial mounted session open; fail subsequent context reads before the eager
+    // composer can discover its directory. No signed response or admission is fabricated.
     const unavailableDirectoryContext = async (route: Route) => {
       if (route.request().method() !== 'GET') return route.continue();
+      if (bootstrapContext) {
+        bootstrapContext = false;
+        return route.continue();
+      }
       injectedContextReads++;
       await route.abort('failed');
     };
     await page.route('**/api/session', unavailableDirectoryContext);
+    await page.goto(new URL(created.path, `${door.address}/`).href);
+    await selectInRenderer(page, '#quote');
+    await composerAssets(page, 'composer-owner');
+    const opened = operations.filter((operation) => operation === 'session.open').length;
     await page.getByTestId('selection-ask').click();
     const compose = page.getByRole('dialog', { name: 'Annotate selection' });
     const input = compose.getByRole('combobox', { name: 'Message', exact: true });
@@ -665,7 +701,7 @@ test('composer records plain annotations and replies without a recipient, then s
     ).toBeVisible();
     await thread.getByRole('button', { name: 'Try again', exact: true }).click();
     await expect(thread.locator('.annotation-hint[role="status"]')).toContainText(
-      'Posts as a comment.',
+      text.messageCommentSend,
     );
     await expect(thread.getByTestId('comment-entry')).toHaveCount(2);
     const question = `@${agent.name} Explain this exact quote.\n  Keep these spaces and this line.  `;
@@ -738,7 +774,7 @@ test('composer records plain annotations and replies without a recipient, then s
       'reply for the original request',
     );
     await page.reload();
-    await comments(page);
+    await commentList(page);
     await page.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
     const restored = page.locator(`[data-testid=comment-thread][data-thread-id="${threadId}"]`);
     await expect
@@ -751,7 +787,7 @@ test('composer records plain annotations and replies without a recipient, then s
       .poll(() =>
         restored.locator(`[data-message-id="${askMessageId}"] .comment-body`).textContent(),
       )
-      .toBe(shown);
+      .toBe(question);
     await expect
       .poll(() => restored.locator('.thread-state').first().getAttribute('title'))
       .toBe('Frozen original quote.');
@@ -934,7 +970,8 @@ test('answer blocks publish verified normal annotations and keep changes and age
     await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveText('Send answer');
     await card.getByLabel('Keep it', { exact: true }).check();
     await card.getByRole('button', { name: /^Send answer/ }).click();
-    await expect(row).toContainText('Answered: Keep it');
+    await expect(row).toHaveAttribute('data-state', 'answered');
+    await expect(row.locator('.question-line-answer')).toHaveText('Keep it');
     await expect(row).toHaveAttribute('aria-expanded', 'false');
     await row.click();
     await until(() => agent.received().length === 1, 'first question answer');
@@ -966,13 +1003,15 @@ test('answer blocks publish verified normal annotations and keep changes and age
     await card.getByLabel('Change it', { exact: true }).check();
     await card.getByRole('button', { name: /^Send answer/ }).click();
     await until(() => agent.received().length === 2, 'changed question answer');
-    await expect(row).toContainText('Answered: Change it');
+    await expect(row).toHaveAttribute('data-state', 'answered');
+    await expect(row.locator('.question-line-answer')).toHaveText('Change it');
     const changed = threads();
     expect(changed).toHaveLength(1);
     expect(changed[0].id).toBe(initial[0].id);
     expect(changed[0].comments).toHaveLength(2);
     await page.reload();
-    await expect(row).toContainText('Answered: Change it');
+    await expect(row).toHaveAttribute('data-state', 'answered');
+    await expect(row.locator('.question-line-answer')).toHaveText('Change it');
     await expect(row).toHaveAttribute('aria-expanded', 'false');
     await row.click();
     await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
@@ -1012,7 +1051,7 @@ test('paired comment-only selection creates one durable comment without any Ask 
       'A durable selected comment',
     );
     await page.reload();
-    await comments(page);
+    await commentList(page);
     await page.getByTestId('annotation-row').filter({ hasText: 'Comment without talk.' }).click();
     await expect(page.getByTestId('comment-entry').locator('.comment-body')).toHaveText(
       'A durable selected comment',
@@ -1050,7 +1089,8 @@ test('answer Send names start with visible text through the served question grou
     ).toBeVisible();
     await send.click();
     await expect(rows.first()).toHaveAttribute('aria-expanded', 'false');
-    await expect(rows.first()).toContainText('Answered: Yes');
+    await expect(rows.first()).toHaveAttribute('data-state', 'answered');
+    await expect(rows.first().locator('.question-line-answer')).toHaveText('Yes');
     await rows.nth(1).click();
     const last = group.locator('.question-card:visible');
     await last.getByLabel('Your answer', { exact: true }).fill('One detail');

@@ -163,7 +163,11 @@ test('an authenticated participant comment notifies the thread author and opens 
     await expect(page.locator('.status.live')).toBeVisible();
     await expect(card).toHaveCount(0);
     await (await pageAction(page, 'Comments')).click();
-    await page.getByTestId('annotation-row').filter({ hasText: 'Canonical quote.' }).click();
+    const panel = commentsRegion(page);
+    await expect(panel).toBeVisible();
+    const back = panel.getByRole('button', { name: 'All comments', exact: true });
+    if (await back.isVisible()) await back.click();
+    await panel.getByTestId('annotation-row').filter({ hasText: 'Canonical quote.' }).click();
     await expect(original.getByTestId('comment-entry')).toHaveCount(2);
   });
 });
@@ -223,7 +227,8 @@ for (const [destination, forceFallback] of [
           .getByRole('button', { name: /^Send answer/ });
         await expect(send).toBeEnabled();
         await send.click();
-        await expect(row).toContainText('Answered: Follow this direction.');
+        await expect(row).toHaveAttribute('data-state', 'answered');
+        await expect(row.locator('.question-line-answer')).toHaveText('Follow this direction.');
         await expect(row).toHaveAttribute('aria-expanded', 'false');
         await row.click();
         await expect(
@@ -239,7 +244,7 @@ for (const [destination, forceFallback] of [
         await input.fill(`@${agent.name} Please follow up on this proposal.`);
         await annotationInput(block, agent.name);
         await expect(block.locator('.annotation-hint[role="status"]')).toContainText(
-          `Asks ${agent.name}.`,
+          `Asks ${agent.name} · Enter to send`,
         );
         await block.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
       }
