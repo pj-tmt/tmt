@@ -5,6 +5,8 @@
 //! older executable, and a setter keeps the keys it does not own. `{"github": {"repo": "OWNER/REPO"}}`
 //! is the repository the GitHub driver pushes tasks to (`work_github.rs`). `{"pageExpiry": N|"off"}`
 //! is the space's days without activity before a page is archived (`page_expiry.rs`).
+//! `{"defaultTemplate": NAME|ID}` is the template `page create` starts from when none is named
+//! (`templates.rs`); absent means TMT's `starter`.
 use crate::{
     Result,
     keyring::{Layout, StateFault},
@@ -31,6 +33,8 @@ pub struct ColabSettings {
     /// The repository the GitHub driver pushes tasks to; `None` until one is set.
     github_repo: Option<Repo>,
     page_expiry: SpaceExpiry,
+    /// The space's default template, a name or a page ID; `None` is TMT's `starter`.
+    default_template: Option<String>,
     /// The file exists but could not be read; defaults apply.
     pub malformed: bool,
 }
@@ -54,6 +58,10 @@ impl ColabSettings {
     pub fn page_expiry(&self) -> SpaceExpiry {
         self.page_expiry
     }
+    /// The template a `page create` without `--template` starts from; `None` is `starter`.
+    pub fn default_template(&self) -> Option<&str> {
+        self.default_template.as_deref()
+    }
     pub fn json(&self) -> Value {
         let mut settings = json!({"open": self.open(), "source": self.source(),
             "wipLimit": {"default": self.wip.default.unwrap_or(crate::wip::DEFAULT_LIMIT),
@@ -63,6 +71,10 @@ impl ColabSettings {
         if let Some(repo) = &self.github_repo {
             settings["githubRepo"] = json!(repo.slug());
         }
+        // Likewise: only a space that chose a default template says so.
+        if let Some(template) = &self.default_template {
+            settings["defaultTemplate"] = json!(template);
+        }
         settings
     }
     fn parse(bytes: &[u8]) -> Self {
@@ -71,15 +83,18 @@ impl ColabSettings {
                 let wip = parse_wip(&value["wip"]);
                 let github = parse_github(&value["github"]);
                 let expiry = parse_expiry(&value["pageExpiry"]);
+                let template = parse_default_template(&value["defaultTemplate"]);
                 Self {
                     open: value["open"].as_bool(),
                     malformed: (!value["open"].is_null() && !value["open"].is_boolean())
                         || (!value["wip"].is_null() && wip.is_none())
                         || github.is_none()
-                        || expiry.is_none(),
+                        || expiry.is_none()
+                        || template.is_none(),
                     wip: wip.unwrap_or_default(),
                     github_repo: github.flatten(),
                     page_expiry: expiry.unwrap_or_default(),
+                    default_template: template.flatten(),
                 }
             }
             _ => Self {
@@ -134,6 +149,24 @@ fn parse_expiry(value: &Value) -> Option<SpaceExpiry> {
                 .then_some(SpaceExpiry::Days(days))
         }
     }
+}
+
+/// `None` when the value is present but not a template name or ID; absent is `starter`.
+fn parse_default_template(value: &Value) -> Option<Option<String>> {
+    match value {
+        Value::Null => Some(None),
+        Value::String(text) => valid_default_template(text).then(|| Some(text.clone())),
+        _ => None,
+    }
+}
+
+/// A template reference: a name (at most 40 characters) or a page ID (36), one line, no spaces.
+pub fn valid_default_template(text: &str) -> bool {
+    !text.is_empty()
+        && text.len() <= 40
+        && text
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 /// What a person is told when the file is damaged or unreadable.
@@ -310,6 +343,20 @@ pub fn set_page_expiry(root: &Path, expiry: SpaceExpiry) -> Result<ColabSettings
     })
 }
 
+/// Set the space's default template (a name or a page ID), or return it to `starter` (`None`).
+pub fn set_default_template(root: &Path, template: Option<&str>) -> Result<ColabSettings> {
+    let retry = format!(
+        "tmt colab template default {}",
+        template.unwrap_or("--reset")
+    );
+    update(root, &retry, |table| {
+        table.remove("defaultTemplate");
+        if let Some(template) = template {
+            table.insert("defaultTemplate".into(), json!(template));
+        }
+    })
+}
+
 /// Set the repository the GitHub driver pushes tasks to, or clear it (`repo` is `None`).
 pub fn set_github_repo(root: &Path, repo: Option<&Repo>) -> Result<ColabSettings> {
     let retry = format!(
@@ -396,6 +443,35 @@ mod tests {
         ] {
             let parsed = ColabSettings::parse(bad.as_bytes());
             assert!(parsed.malformed && parsed.github_repo().is_none(), "{bad}");
+        }
+    }
+    #[test]
+    fn the_default_template_reads_a_name_or_id_and_a_bad_one_is_malformed() {
+        let parsed = ColabSettings::parse(br#"{"defaultTemplate":"weekly-review"}"#);
+        assert!(!parsed.malformed);
+        assert_eq!(parsed.default_template(), Some("weekly-review"));
+        assert_eq!(parsed.json()["defaultTemplate"], "weekly-review");
+        let by_id =
+            ColabSettings::parse(br#"{"defaultTemplate":"3f9b02c7-0000-4000-8000-000000000001"}"#);
+        assert_eq!(
+            by_id.default_template(),
+            Some("3f9b02c7-0000-4000-8000-000000000001")
+        );
+        let absent = ColabSettings::parse(b"{}");
+        assert_eq!(absent.default_template(), None);
+        assert!(absent.json().get("defaultTemplate").is_none());
+        for bad in [
+            r#"{"defaultTemplate":""}"#,
+            r#"{"defaultTemplate":3}"#,
+            r#"{"defaultTemplate":"Weekly"}"#,
+            r#"{"defaultTemplate":"two words"}"#,
+            r#"{"defaultTemplate":"has/slash"}"#,
+        ] {
+            let parsed = ColabSettings::parse(bad.as_bytes());
+            assert!(
+                parsed.malformed && parsed.default_template().is_none(),
+                "{bad}"
+            );
         }
     }
     #[test]

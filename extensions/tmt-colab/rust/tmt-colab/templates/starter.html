@@ -1,0 +1,23 @@
+<!-- layout: column. Colab sets the column width and the gaps: never set max-width or margin on a block. See tmt colab skill layout, section The frame -->
+<!-- style: the base look, from tmt colab skill page-style. Keep it, and change colours and type there, never the frame. See tmt colab skill page-style -->
+{{style}}
+<!-- component: summary. One short paragraph: the result and what the reader should do next. See tmt colab skill components, section Summary -->
+<section class="tmt-ui-card">
+  <h2 class="tmt-ui-card-title">Summary</h2>
+  <p>State the result in a sentence, then what the reader should do next.</p>
+</section>
+<!-- component: section. One topic in a block; add a block per topic and keep related ones close with data-gap="tight". See tmt colab skill components, section Section -->
+<section class="tmt-ui-card">
+  <h2 class="tmt-ui-card-title">First section</h2>
+  <p>What this part says.</p>
+</section>
+<!-- component: questions. A question the reader answers in the page; Colab draws the controls. Every data-id is a fresh UUID and set data-agent to your own name. See tmt colab skill components, section Questions. Rules for questions: tmt colab skill questions -->
+<section class="tmt-ui-card">
+  <tmt-questions data-id="{{uuid:questions}}">
+    <p data-title>Decision for the reader</p>
+    <tmt-question data-id="{{uuid:first-question}}" data-kind="single" data-agent="Your agent name">
+      <p data-question>Which option fits?</p>
+      <span data-choice>First</span><span data-choice>Second</span>
+    </tmt-question>
+  </tmt-questions>
+</section>

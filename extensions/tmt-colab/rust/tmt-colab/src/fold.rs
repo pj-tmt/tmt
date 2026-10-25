@@ -911,6 +911,9 @@ impl Snapshot {
             StructuredKind::Creator if !shell && edit.action == "creator.set" => {
                 crate::question_registry::set_creator(&edit.body, &edit.attribution).map(drop)
             }
+            StructuredKind::Template if !shell => {
+                crate::template_marks::apply(&edit.action, &edit.body).map(drop)
+            }
             _ => Err(crate::closed::Invalid),
         }
         .map_err(|_| crate::page::Fault::Invalid)?;
@@ -980,6 +983,8 @@ impl Snapshot {
             let view = BaselineInput {
                 creator: None,
                 questions: None,
+                template: None,
+                from_template: None,
                 work: None,
                 original_author: None,
                 layout: None,

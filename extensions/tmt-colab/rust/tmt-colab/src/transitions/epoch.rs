@@ -40,6 +40,8 @@ impl Prepared {
         let baseline_input = BaselineInput {
             creator: view.meta.get("creator"),
             questions: view.meta.get("questions"),
+            template: view.meta.get("template"),
+            from_template: view.meta.get("fromTemplate"),
             work: view.meta.get("work"),
             original_author: view.original_author.as_deref(),
             layout: layout.as_ref(),

@@ -72,6 +72,10 @@ const SKILL_REFERENCES: &[(&str, &str)] = &[
         include_str!("../../../skills/tmt-colab/references/runtime.md"),
     ),
     (
+        "templates",
+        include_str!("../../../skills/tmt-colab/references/templates.md"),
+    ),
+    (
         "dashboard",
         include_str!("../../../skills/tmt-colab/references/dashboard.md"),
     ),
@@ -909,22 +913,28 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     }
     if command == "create" {
         // The layout is chosen before any state is initialized or any source is read. A template
-        // brings its own layout and source (clap keeps it apart from --layout, --reason, --file).
-        let template = cli_template::chosen(args);
-        let page_layout = match template {
-            Some(template) => template.layout(),
+        // brings its own layout and source (clap keeps it apart from --layout, --reason, --file); a
+        // create that names none of the three starts from the space's default template.
+        let start = cli_template::start(root, args)?;
+        let page_layout = match &start {
+            Some(start) => start.layout.clone(),
             None => cli_layout::choice(args)?,
         };
-        let metadata = cli_metadata::creation(args, template.map(|template| template.name))?;
-        let source = match template {
-            Some(template) => cli_metadata::template_source(template, &metadata)?,
+        let mut metadata =
+            cli_metadata::creation(args, start.as_ref().map(|start| start.name.as_str()))?;
+        if let Some(start) = &start {
+            metadata.template_page = start.page.clone();
+            metadata.template_default = start.by_default;
+        }
+        let source = match &start {
+            Some(start) => start.source(&metadata)?,
             None => args
                 .get_one::<std::path::PathBuf>("file")
                 .map(|path| page_source(path))
                 .transpose()?
                 .unwrap_or_default(),
         };
-        if template.is_none() {
+        if start.is_none() {
             cli_metadata::admit_create_file(&source, args, &metadata)?;
         }
         // A new page has no attachments: every reference in its first source is unresolved.
@@ -1293,6 +1303,9 @@ fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'stat
     if let Some(refused) = error.downcast_ref::<tmt_colab::question_registry::Refused>() {
         return refused.code();
     }
+    if let Some(refusal) = error.downcast_ref::<tmt_colab::template_catalog::Refusal>() {
+        return refusal.code();
+    }
     if error.is::<supervisor::CleanupUnconfirmed>() {
         return "COLAB_OUTCOME_UNKNOWN";
     }
@@ -1422,6 +1435,11 @@ fn main() -> ExitCode {
             let next = schema.and_then(tmt_colab::store::Fault::next);
             let hint = start
                 .and_then(|fault| fault.hint.as_deref())
+                .or_else(|| {
+                    error
+                        .downcast_ref::<tmt_colab::template_catalog::Refusal>()
+                        .and_then(tmt_colab::template_catalog::Refusal::hint)
+                })
                 .or_else(|| schema.and_then(tmt_colab::store::Fault::hint));
             if json_output {
                 let mut value = cli_failure
@@ -1431,6 +1449,9 @@ fn main() -> ExitCode {
                     value = recovery.correlation.clone();
                 }
                 value["error"] = json!({"code":code,"message":error.to_string()});
+                if let Some(hint) = hint {
+                    value["error"]["hint"] = json!(hint);
+                }
                 if let Some(refused) = error.downcast_ref::<tmt_colab::question_registry::Refused>()
                 {
                     value["findings"] = cli_page_check::findings_json(&refused.findings);

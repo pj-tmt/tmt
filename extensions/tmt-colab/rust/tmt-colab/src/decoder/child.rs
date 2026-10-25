@@ -432,12 +432,19 @@ fn prepare_content(
             let key = structured.kind.key();
             let meta = doc.get_or_insert_map("meta");
             let mut tx = doc.transact_mut();
-            meta.insert(
-                &mut tx,
-                key,
-                Any::from_json(&expected["meta"][key].to_string())
-                    .map_err(|_| DecodeFault::Rejected)?,
-            );
+            match expected["meta"].get(key) {
+                Some(value) => {
+                    meta.insert(
+                        &mut tx,
+                        key,
+                        Any::from_json(&value.to_string()).map_err(|_| DecodeFault::Rejected)?,
+                    );
+                }
+                // A cleared value (a template mark) leaves the key absent.
+                None => {
+                    meta.remove(&mut tx, key);
+                }
+            }
             updates.push(tx.encode_update_v1());
         } else {
             let old = before["html"].as_str().ok_or(DecodeFault::Rejected)?;
@@ -700,6 +707,14 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
             .questions
             .as_ref()
             .is_some_and(|v| crate::question_registry::validate(v).is_err())
+        || wire
+            .template
+            .as_ref()
+            .is_some_and(|v| crate::template_marks::validate_template(v).is_err())
+        || wire
+            .from_template
+            .as_ref()
+            .is_some_and(|v| crate::template_marks::validate_from(v).is_err())
         || wire.creation_recipient.as_ref().is_some_and(|v| !v.valid())
         || wire
             .original_author
@@ -731,6 +746,8 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
             let creation = BaselineMeta {
                 creator: wire.creator.as_ref(),
                 questions: wire.questions.as_ref(),
+                template: wire.template.as_ref(),
+                from_template: wire.from_template.as_ref(),
                 publisher_agent: wire.publisher_agent.as_deref(),
                 original_author: wire.original_author.as_deref(),
                 creation_recipient: wire.creation_recipient.as_ref(),
@@ -822,7 +839,9 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
     }
     if producing
         && (projection["meta"].get("creator") != wire.creator.as_ref()
-            || projection["meta"].get("questions") != wire.questions.as_ref())
+            || projection["meta"].get("questions") != wire.questions.as_ref()
+            || projection["meta"].get("template") != wire.template.as_ref()
+            || projection["meta"].get("fromTemplate") != wire.from_template.as_ref())
     {
         return Err(DecodeFault::Rejected);
     }
@@ -931,6 +950,8 @@ fn chunked_baseline(
 struct BaselineMeta<'a> {
     creator: Option<&'a Value>,
     questions: Option<&'a Value>,
+    template: Option<&'a Value>,
+    from_template: Option<&'a Value>,
     publisher_agent: Option<&'a str>,
     original_author: Option<&'a str>,
     creation_recipient: Option<&'a CreationRecipient>,
@@ -940,7 +961,12 @@ struct BaselineMeta<'a> {
 }
 impl BaselineMeta<'_> {
     fn insert(&self, meta: &MapRef, txn: &mut TransactionMut) {
-        for (key, value) in [("creator", self.creator), ("questions", self.questions)] {
+        for (key, value) in [
+            ("creator", self.creator),
+            ("questions", self.questions),
+            ("template", self.template),
+            ("fromTemplate", self.from_template),
+        ] {
             if let Some(value) = value {
                 meta.insert(
                     txn,
@@ -1031,6 +1057,8 @@ mod baseline_tests {
                 &BaselineMeta {
                     creator: None,
                     questions: None,
+                    template: None,
+                    from_template: None,
                     publisher_agent: vector["publisherAgent"].as_str(),
                     original_author: vector["originalAuthor"].as_str(),
                     creation_recipient: recipient.as_ref(),

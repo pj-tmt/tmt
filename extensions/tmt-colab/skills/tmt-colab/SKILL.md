@@ -25,8 +25,8 @@ seed; never create or disclose them to bypass pairing.
 
 ## Start and ask
 
-Start a page from `tmt colab page create --template NAME` (`tmt colab template ls`) or from the
-starter in [page-style](references/page-style.md) (`tmt colab skill page-style`).
+Start a page with `tmt colab page create --title T` (the space's default template) or
+`--template NAME`: [templates](references/templates.md) (`tmt colab skill templates`).
 Ask with registered `tmt-question`, never prose; follow [questions](references/questions.md).
 
 ```html

@@ -145,6 +145,7 @@ pub enum StructuredKind {
     Work,
     Questions,
     Creator,
+    Template,
 }
 impl StructuredKind {
     /// The `meta` key that holds the value.
@@ -154,6 +155,7 @@ impl StructuredKind {
             Self::Work => "work",
             Self::Questions => "questions",
             Self::Creator => "creator",
+            Self::Template => "template",
         }
     }
 }
@@ -212,6 +214,10 @@ pub fn valid_publisher_agent(value: &str) -> bool {
 pub struct BaselineInput<'a> {
     pub creator: Option<&'a Value>,
     pub questions: Option<&'a Value>,
+    /// `meta.template`, the mark that makes the page a template; a new epoch keeps it.
+    pub template: Option<&'a Value>,
+    /// `meta.fromTemplate`, what the page was created from; a new epoch keeps it.
+    pub from_template: Option<&'a Value>,
     pub original_author: Option<&'a str>,
     pub layout: Option<&'a PageLayout>,
     pub attachments: Option<&'a tmt_colab_model::attachment::DocumentAttachments>,
@@ -781,6 +787,12 @@ impl Decoder {
             || view
                 .questions
                 .is_some_and(|v| crate::question_registry::validate(v).is_err())
+            || view
+                .template
+                .is_some_and(|v| crate::template_marks::validate_template(v).is_err())
+            || view
+                .from_template
+                .is_some_and(|v| crate::template_marks::validate_from(v).is_err())
         {
             return Err(DecodeFault::InvalidInput);
         }
@@ -818,6 +830,8 @@ impl Decoder {
         let input = serde_json::to_vec(&WireBaseline {
             creator: view.creator.cloned(),
             questions: view.questions.cloned(),
+            template: view.template.cloned(),
+            from_template: view.from_template.cloned(),
             attachments: view.attachments.cloned(),
             version: 1,
             source: if matches!(action, BaselineAction::Produce { .. }) {
@@ -1155,6 +1169,19 @@ fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<V
                 crate::question_registry::set_creator(&edit.body, &edit.attribution)
                     .map_err(|_| DecodeFault::InvalidInput)?;
         }
+        StructuredKind::Template if !shell => {
+            match crate::template_marks::apply(&edit.action, &edit.body)
+                .map_err(|_| DecodeFault::InvalidInput)?
+            {
+                Some(mark) => expected["meta"]["template"] = mark,
+                None => {
+                    expected["meta"]
+                        .as_object_mut()
+                        .ok_or(DecodeFault::InvalidInput)?
+                        .remove("template");
+                }
+            }
+        }
         _ => return Err(DecodeFault::InvalidInput),
     }
     Ok(expected)
@@ -1284,6 +1311,10 @@ struct WireBaseline {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     questions: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    template: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    from_template: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     original_author: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attachments: Option<tmt_colab_model::attachment::DocumentAttachments>,
@@ -1382,6 +1413,8 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 }
                 "creator" => crate::question_registry::validate_creator(v).is_err(),
                 "questions" => crate::question_registry::validate(v).is_err(),
+                "template" => crate::template_marks::validate_template(v).is_err(),
+                "fromTemplate" => crate::template_marks::validate_from(v).is_err(),
                 "attachments" => !serde_json::from_value::<
                     tmt_colab_model::attachment::DocumentAttachments,
                 >(v.clone())
@@ -1412,7 +1445,7 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
             // Work belongs to an ordinary page; a shell keeps its own summary.
             if meta.contains_key("pageType") != meta.contains_key("shell")
                 || (meta.contains_key("pageType")
-                    && ["work", "creator", "questions"]
+                    && ["work", "creator", "questions", "template", "fromTemplate"]
                         .iter()
                         .any(|key| meta.contains_key(*key)))
                 || (meta.contains_key("shell")

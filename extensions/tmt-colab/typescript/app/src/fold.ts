@@ -94,6 +94,8 @@ export class Fold {
             ...(Object.hasOwn(value.projection, 'creationRecipient') ? ['creationRecipient'] : []),
             ...(Object.hasOwn(value.projection, 'creator') ? ['creator'] : []),
             ...(Object.hasOwn(value.projection, 'questions') ? ['questions'] : []),
+            ...(Object.hasOwn(value.projection, 'template') ? ['template'] : []),
+            ...(Object.hasOwn(value.projection, 'fromTemplate') ? ['fromTemplate'] : []),
             ...(Object.hasOwn(value.projection, 'attachments') ? ['attachments'] : []),
             ...(Object.hasOwn(value.projection, 'work') ? ['work'] : []),
           ]);
@@ -133,6 +135,8 @@ export class Fold {
           ...(Object.hasOwn(event.data as object, 'work') ? ['work'] : []),
           ...(Object.hasOwn(event.data as object, 'creator') ? ['creator'] : []),
           ...(Object.hasOwn(event.data as object, 'questions') ? ['questions'] : []),
+          ...(Object.hasOwn(event.data as object, 'template') ? ['template'] : []),
+          ...(Object.hasOwn(event.data as object, 'fromTemplate') ? ['fromTemplate'] : []),
           ...(Object.hasOwn(event.data as object, 'creationRecipient')
             ? ['creationRecipient']
             : []),
@@ -158,6 +162,8 @@ export class Fold {
               creationRecipient: value.creationRecipient,
               creator: value.creator,
               questions: value.questions,
+              template: value.template,
+              fromTemplate: value.fromTemplate,
               attachments: value.attachments,
               pageType: value.pageType,
               shell: value.shell,
@@ -186,6 +192,8 @@ export class Fold {
           ...(Object.hasOwn(value, 'work') ? { work: value.work } : {}),
           ...(Object.hasOwn(value, 'creator') ? { creator: value.creator } : {}),
           ...(Object.hasOwn(value, 'questions') ? { questions: value.questions } : {}),
+          ...(Object.hasOwn(value, 'template') ? { template: value.template } : {}),
+          ...(Object.hasOwn(value, 'fromTemplate') ? { fromTemplate: value.fromTemplate } : {}),
           ...(value.publisherAgent === undefined ? {} : { publisherAgent: value.publisherAgent }),
           ...(value.creationRecipient === undefined
             ? {}
@@ -220,6 +228,8 @@ export class Fold {
       ...(Object.hasOwn(base, 'creationRecipient') ? ['creationRecipient'] : []),
       ...(Object.hasOwn(base, 'creator') ? ['creator'] : []),
       ...(Object.hasOwn(base, 'questions') ? ['questions'] : []),
+      ...(Object.hasOwn(base, 'template') ? ['template'] : []),
+      ...(Object.hasOwn(base, 'fromTemplate') ? ['fromTemplate'] : []),
       ...(Object.hasOwn(base, 'attachments') ? ['attachments'] : []),
       ...(Object.hasOwn(base, 'work') ? ['work'] : []),
     ]);

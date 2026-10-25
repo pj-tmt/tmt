@@ -85,6 +85,7 @@ impl Fixture {
         self.apply(OwnerAction::Create {
             creator: None,
             template: None,
+            template_page: None,
             layout: None,
             creation_recipient: None,
             page: PAGE,
@@ -208,6 +209,7 @@ fn a_locally_forever_page_shows_its_confirmed_cloud_deadline_and_the_same_warnin
     f.apply(OwnerAction::Create {
         creator: None,
         template: None,
+        template_page: None,
         layout: None,
         creation_recipient: None,
         page: OTHER,
@@ -273,6 +275,7 @@ fn a_page_never_confirmed_is_not_in_the_cloud_only_once_this_machine_has_a_cloud
     f.apply(OwnerAction::Create {
         creator: None,
         template: None,
+        template_page: None,
         layout: None,
         creation_recipient: None,
         page: OTHER,

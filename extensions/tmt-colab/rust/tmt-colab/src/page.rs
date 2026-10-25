@@ -106,6 +106,12 @@ pub struct Page {
     pub creator: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub questions: Option<serde_json::Value>,
+    /// `{name, description}` when the page is a template (#5066).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template: Option<serde_json::Value>,
+    /// `{name}` or `{name, revision}` when the page was created from a template.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_template: Option<serde_json::Value>,
     pub space_id: String,
     pub page_id: String,
     pub source: String,
@@ -460,6 +466,8 @@ pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> 
         question_states,
         creator: view.meta.get("creator").cloned(),
         questions: view.meta.get("questions").cloned(),
+        template: view.meta.get("template").cloned(),
+        from_template: view.meta.get("fromTemplate").cloned(),
         space_id: key.space_id.clone(),
         page_id: page.into(),
         source: view.source,

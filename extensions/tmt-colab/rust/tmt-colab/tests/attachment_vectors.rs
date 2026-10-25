@@ -100,6 +100,8 @@ fn descriptors_survive_real_decode_source_edits_checkpoints_and_baselines() {
         let view = || BaselineInput {
             creator: None,
             questions: None,
+            template: None,
+            from_template: None,
             work: None,
             layout: None,
             original_author: None,

@@ -1,0 +1,483 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "name and empty description",
+      "kind": "template",
+      "value": {
+        "name": "weekly-review",
+        "description": ""
+      },
+      "valid": true
+    },
+    {
+      "name": "name and description",
+      "kind": "template",
+      "value": {
+        "name": "weekly-review",
+        "description": "Shipped, open and next"
+      },
+      "valid": true
+    },
+    {
+      "name": "name at 40 characters",
+      "kind": "template",
+      "value": {
+        "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "description": ""
+      },
+      "valid": true
+    },
+    {
+      "name": "digits and hyphens",
+      "kind": "template",
+      "value": {
+        "name": "2026-q4",
+        "description": "d"
+      },
+      "valid": true
+    },
+    {
+      "name": "description at 200 bytes",
+      "kind": "template",
+      "value": {
+        "name": "notes",
+        "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "valid": true
+    },
+    {
+      "name": "description of multibyte text within 200 bytes",
+      "kind": "template",
+      "value": {
+        "name": "notes",
+        "description": "週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報"
+      },
+      "valid": true
+    },
+    {
+      "name": "interior space in the description",
+      "kind": "template",
+      "value": {
+        "name": "notes",
+        "description": "two words"
+      },
+      "valid": true
+    },
+    {
+      "name": "description ending in a mark that is not white space",
+      "kind": "template",
+      "value": {
+        "name": "notes",
+        "description": "end·"
+      },
+      "valid": true
+    },
+    {
+      "name": "built-in name starter",
+      "kind": "template",
+      "value": {
+        "name": "starter",
+        "description": ""
+      },
+      "valid": false
+    },
+    {
+      "name": "built-in name report",
+      "kind": "template",
+      "value": {
+        "name": "report",
+        "description": ""
+      },
+      "valid": false
+    },
+    {
+      "name": "built-in name review",
+      "kind": "template",
+      "value": {
+        "name": "review",
+        "description": ""
+      },
+      "valid": false
+    },
+    {
+      "name": "built-in name compare",
+      "kind": "template",
+      "value": {
+        "name": "compare",
+        "description": ""
+      },
+      "valid": false
+    },
+    {
+      "name": "built-in name board",
+      "kind": "template",
+      "value": {
+        "name": "board",
+        "description": ""
+      },
+      "valid": false
+    },
+    {
+      "name": "built-in name gallery",
+      "kind": "template",
+      "value": {
+        "name": "gallery",
+        "description": ""
+      },
+      "valid": false
+    },
+    {
+      "name": "name over 40 characters",
+      "kind": "template",
+      "value": {
+        "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "description": ""
+      },
+      "valid": false
+    },
+    {
+      "name": "empty name",
+      "kind": "template",
+      "value": {
+        "name": "",
+        "description": ""
+      },
+      "valid": false
+    },
+    {
+      "name": "uppercase name",
+      "kind": "template",
+      "value": {
+        "name": "Weekly",
+        "description": ""
+      },
+      "valid": false
+    },
+    {
+      "name": "underscore in the name",
+      "kind": "template",
+      "value": {
+        "name": "weekly_review",
+        "description": ""
+      },
+      "valid": false
+    },
+    {
+      "name": "space in the name",
+      "kind": "template",
+      "value": {
+        "name": "weekly review",
+        "description": ""
+      },
+      "valid": false
+    },
+    {
+      "name": "non-ASCII name",
+      "kind": "template",
+      "value": {
+        "name": "週報",
+        "description": ""
+      },
+      "valid": false
+    },
+    {
+      "name": "description over 200 bytes",
+      "kind": "template",
+      "value": {
+        "name": "notes",
+        "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "valid": false
+    },
+    {
+      "name": "description over 200 bytes in multibyte text",
+      "kind": "template",
+      "value": {
+        "name": "notes",
+        "description": "週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報週報"
+      },
+      "valid": false
+    },
+    {
+      "name": "leading space in the description",
+      "kind": "template",
+      "value": {
+        "name": "notes",
+        "description": " padded"
+      },
+      "valid": false
+    },
+    {
+      "name": "trailing space in the description",
+      "kind": "template",
+      "value": {
+        "name": "notes",
+        "description": "padded "
+      },
+      "valid": false
+    },
+    {
+      "name": "non-breaking space at the end of the description",
+      "kind": "template",
+      "value": {
+        "name": "notes",
+        "description": "padded "
+      },
+      "valid": false
+    },
+    {
+      "name": "byte order mark at the end of the description",
+      "kind": "template",
+      "value": {
+        "name": "notes",
+        "description": "padded﻿"
+      },
+      "valid": false
+    },
+    {
+      "name": "line break in the description",
+      "kind": "template",
+      "value": {
+        "name": "notes",
+        "description": "two\nlines"
+      },
+      "valid": false
+    },
+    {
+      "name": "tab in the description",
+      "kind": "template",
+      "value": {
+        "name": "notes",
+        "description": "a\tb"
+      },
+      "valid": false
+    },
+    {
+      "name": "control character in the description",
+      "kind": "template",
+      "value": {
+        "name": "notes",
+        "description": "a\u0001b"
+      },
+      "valid": false
+    },
+    {
+      "name": "missing description",
+      "kind": "template",
+      "value": {
+        "name": "notes"
+      },
+      "valid": false
+    },
+    {
+      "name": "missing name",
+      "kind": "template",
+      "value": {
+        "description": "d"
+      },
+      "valid": false
+    },
+    {
+      "name": "null description",
+      "kind": "template",
+      "value": {
+        "name": "notes",
+        "description": null
+      },
+      "valid": false
+    },
+    {
+      "name": "numeric name",
+      "kind": "template",
+      "value": {
+        "name": 7,
+        "description": ""
+      },
+      "valid": false
+    },
+    {
+      "name": "extra member",
+      "kind": "template",
+      "value": {
+        "name": "notes",
+        "description": "",
+        "extra": 1
+      },
+      "valid": false
+    },
+    {
+      "name": "string instead of an object",
+      "kind": "template",
+      "value": "notes",
+      "valid": false
+    },
+    {
+      "name": "array instead of an object",
+      "kind": "template",
+      "value": [],
+      "valid": false
+    },
+    {
+      "name": "built-in name",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "report"
+      },
+      "valid": true
+    },
+    {
+      "name": "starter",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "starter"
+      },
+      "valid": true
+    },
+    {
+      "name": "user template with a revision",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "weekly-review",
+        "revision": "v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "valid": true
+    },
+    {
+      "name": "revision of another version",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "weekly-review",
+        "revision": "v2:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "valid": false
+    },
+    {
+      "name": "revision without its prefix",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "weekly-review",
+        "revision": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "valid": false
+    },
+    {
+      "name": "revision with uppercase hex",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "weekly-review",
+        "revision": "v1:0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"
+      },
+      "valid": false
+    },
+    {
+      "name": "revision one digit short",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "weekly-review",
+        "revision": "v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde"
+      },
+      "valid": false
+    },
+    {
+      "name": "revision one digit long",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "weekly-review",
+        "revision": "v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0"
+      },
+      "valid": false
+    },
+    {
+      "name": "decimal revision",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "weekly-review",
+        "revision": "130"
+      },
+      "valid": false
+    },
+    {
+      "name": "empty revision",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "weekly-review",
+        "revision": ""
+      },
+      "valid": false
+    },
+    {
+      "name": "numeric revision",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "weekly-review",
+        "revision": 130
+      },
+      "valid": false
+    },
+    {
+      "name": "null revision",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "weekly-review",
+        "revision": null
+      },
+      "valid": false
+    },
+    {
+      "name": "revision with a space",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "weekly-review",
+        "revision": "v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef "
+      },
+      "valid": false
+    },
+    {
+      "name": "uppercase name",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "Report"
+      },
+      "valid": false
+    },
+    {
+      "name": "empty object",
+      "kind": "fromTemplate",
+      "value": {},
+      "valid": false
+    },
+    {
+      "name": "extra member",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "report",
+        "other": "x"
+      },
+      "valid": false
+    },
+    {
+      "name": "description is not part of a source",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "report",
+        "description": ""
+      },
+      "valid": false
+    },
+    {
+      "name": "name over 40 characters",
+      "kind": "fromTemplate",
+      "value": {
+        "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "valid": false
+    },
+    {
+      "name": "string instead of an object",
+      "kind": "fromTemplate",
+      "value": "report",
+      "valid": false
+    }
+  ]
+}

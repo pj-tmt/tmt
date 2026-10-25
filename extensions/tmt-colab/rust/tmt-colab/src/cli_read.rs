@@ -201,18 +201,28 @@ fn json_bytes(value: &serde_json::Value) -> Result<Vec<u8>> {
 fn metadata(value: &page::Page) -> Result<()> {
     let mut output = tmt_cli_style::stream::stderr();
     let terminal = output.terminal();
-    tmt_cli_style::detail::write(
-        &mut output,
-        terminal,
-        "PAGE SOURCE",
-        &[
-            ("page", value.page_id.clone()),
-            ("revision", value.revision.clone()),
-            ("membership", value.membership_head.revision.clone()),
-            ("head", value.membership_head.statement_hash.clone()),
-            ("epoch", value.epoch.clone()),
-        ],
-    )?;
+    let mut rows = vec![
+        ("page", value.page_id.clone()),
+        ("revision", value.revision.clone()),
+        ("membership", value.membership_head.revision.clone()),
+        ("head", value.membership_head.statement_hash.clone()),
+        ("epoch", value.epoch.clone()),
+    ];
+    if let Some(name) = value
+        .template
+        .as_ref()
+        .and_then(|mark| mark["name"].as_str())
+    {
+        rows.push(("template", name.to_owned()));
+    }
+    if let Some(name) = value
+        .from_template
+        .as_ref()
+        .and_then(|from| from["name"].as_str())
+    {
+        rows.push(("from template", name.to_owned()));
+    }
+    tmt_cli_style::detail::write(&mut output, terminal, "PAGE SOURCE", &rows)?;
     Ok(())
 }
 pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {

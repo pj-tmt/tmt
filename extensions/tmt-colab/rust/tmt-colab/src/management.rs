@@ -127,6 +127,9 @@ struct Create {
     creator: Option<Value>,
     #[serde(default, deserialize_with = "present_text")]
     template: Option<String>,
+    /// The page of a user template that `template` names; absent for a compiled template.
+    #[serde(default, deserialize_with = "present_text")]
+    template_page: Option<String>,
     #[serde(default, deserialize_with = "present_text")]
     page_type: Option<String>,
     #[serde(default, deserialize_with = "creation_recipient")]
@@ -638,7 +641,7 @@ fn apply(
 
     let action = match &command.action {
         Action::Create(v) if v.page_type.is_some() => {
-            if v.creator.is_some() || v.template.is_some() {
+            if v.creator.is_some() || v.template.is_some() || v.template_page.is_some() {
                 return Err(Code::Invalid);
             }
             OwnerAction::CreateShell {
@@ -656,6 +659,7 @@ fn apply(
             creation_recipient: v.creation_recipient.as_ref(),
             creator: v.creator.as_ref(),
             template: v.template.as_deref(),
+            template_page: v.template_page.as_deref(),
             layout: v.layout.as_ref(),
         },
         Action::Advance => OwnerAction::EpochAdvance {
