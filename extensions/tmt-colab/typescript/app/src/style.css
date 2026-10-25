@@ -2020,20 +2020,69 @@ button.discussion-quote:focus-visible {
   gap: 8px;
 }
 .selection-mode .tmt-ui-icon-action-control {
-  width: 40px;
-  height: 40px;
-  min-height: 40px;
-  border: 1px solid var(--c-text);
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
 }
+/* One capsule holds both actions (#4919): one border, radius and shadow around the group, the actions
+   borderless and divided by a hairline. The shadow is the design system's one overlay shadow. The group
+   does not clip: an action's tooltip stands above it, so each end action carries its own rounded end. */
 .page-floating-actions {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: stretch;
+  background: var(--c-sheet);
+  border: 1px solid var(--c-rule);
+  border-radius: 22px;
+  box-shadow: var(--tmt-ui-shadow-overlay);
+}
+.page-floating-actions > * + * {
+  border-left: 1px solid var(--c-rule);
+}
+.page-floating-actions .tmt-ui-icon-action-control {
+  height: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.page-floating-actions > :first-child .tmt-ui-icon-action-control {
+  border-start-start-radius: 21px;
+  border-end-start-radius: 21px;
+}
+.page-floating-actions > :last-child .tmt-ui-icon-action-control {
+  border-start-end-radius: 21px;
+  border-end-end-radius: 21px;
 }
 .page-floating-actions .tmt-ui-icon-action-control[aria-haspopup='dialog'] {
   width: auto;
-  min-width: 40px;
-  padding: 0 10px;
+  min-width: 44px;
+  padding: 0 12px;
+}
+/* While Chat is open the dock has become the panel: it keeps its place, unseen, for the drawer to open out
+   of and close back into (chat-dock-motion.ts), and for focus to return to. */
+.selection-mode[data-chat-open] {
+  opacity: 0;
+  pointer-events: none;
+}
+.selection-mode {
+  transition: opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
+}
+/* Chat does not slide in from the edge: its motion is the clip in chat-dock-motion.ts, so the drawer is
+   always in its place and only the leaf's leaving transition keeps it rendered. */
+/* The leaf lays the open drawer out as a column (`[open]`); a leaving drawer is still rendered but no longer
+   `[open]`, so it would fall back to a row. Chat keeps its column while it closes into the dock. */
+.tmt-ui-drawer[data-panel='chat'],
+.tmt-ui-drawer[data-panel='chat'][open] {
+  flex-direction: column;
+  translate: 0 0;
+  transition:
+    overlay var(--tmt-ui-motion-base) allow-discrete,
+    display var(--tmt-ui-motion-base) allow-discrete;
+}
+@starting-style {
+  .tmt-ui-drawer[data-panel='chat'][open] {
+    translate: 0 0;
+  }
 }
 .chat-unread {
   color: var(--c-waiting);
@@ -2041,10 +2090,9 @@ button.discussion-quote:focus-visible {
 }
 .selection-mode .tmt-ui-icon-action-control[aria-pressed='true'] {
   width: auto;
-  padding: 0 12px;
-  background: var(--c-text);
-  color: var(--c-sheet);
-  border-color: var(--c-text);
+  padding: 0 14px;
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
 }
 .selection-mode .tmt-ui-icon-action-icon {
   width: auto;
