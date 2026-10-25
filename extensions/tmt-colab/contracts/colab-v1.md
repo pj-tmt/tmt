@@ -3720,12 +3720,15 @@ authority.
 
 ### Page Chat (#1645)
 
-Discussion → Chat and the floating Chat icon beside the selection-mode control
-open the same retained Chat drawer without resizing or reflowing the page.
-The floating Chat control hides while selection mode or an annotation window is open;
-Close/Escape or a backdrop press returns focus to its opener. No press sends a message.
-At compact widths the modal drawer covers the floating action: Close/Escape dismisses;
-at wide widths a press at the exposed floating location dismisses through the backdrop.
+Discussion → Chat and the Chat action in the page's dock open the same retained Chat drawer
+without resizing or reflowing the page. The dock is one capsule at the page's lower corner that holds
+the Chat and selection-mode actions, divided by a hairline; the Chat action hides while selection mode
+or an annotation window is open. The drawer opens out of the dock's rectangle and closes back into it:
+the same dialog, clipped to the dock at one end of the motion (180 ms, the leaf's `--tmt-ui-motion-base`
+and easings); under reduced motion there is no animation. While Chat is open the dock stays in its place,
+unseen and out of reach, and the drawer covers it. Close/Escape or a backdrop press returns focus to the
+Chat action. No press sends a message. At compact widths the modal drawer covers the dock: Close/Escape
+dismisses; at wide widths a press on the backdrop, anywhere outside the drawer, dismisses.
 Messages scroll inside it; one shared plaintext message input remains at the bottom.
 Chat uses the same shared history owner and scroll policy as inline annotation
 conversations: it opens at the bottom and follows new record identities within

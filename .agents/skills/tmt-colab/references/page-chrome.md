@@ -89,8 +89,11 @@ words. In the shell it joins the header slot, pushing the phone sub-bar and page
 leaving the page or Close clears it; at 480px and wider the existing header alert is unchanged.
 Each moved action keeps its accessible name and handler. Icons are centralized inline SVG;
 labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.
-The floating Chat icon shares the selection control's corner and opens the same
-retained drawer in one press; it hides during selection mode or an annotation.
+The floating Chat action and the selection control are one capsule, the dock, in the page's corner (one
+border, radius and the design system's overlay shadow, a hairline between the actions); Chat opens the same
+retained drawer in one press, out of the dock and back into it on close (`chat-dock-motion.ts`: the dialog
+clipped to the dock's rectangle, no animation under reduced motion), and hides during selection mode or an
+annotation. The dock sits unseen under the drawer while Chat is open.
 Its mark plus `Unread` (also on the Chat menu entry) is device-local reply attention,
 not the unresolved/Unseen count. Only visible Chat history at its end clears it;
 toast dismissal/expiry, closing and reload do not. Close/Escape restores the opener.

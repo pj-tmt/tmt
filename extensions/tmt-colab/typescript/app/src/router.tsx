@@ -116,6 +116,7 @@ import { BrowserDrawer, BrowserPanel } from '@tmt/browser-ui/react';
 import { AgentStatusPanel } from './agent-status-panel.js';
 import { AgentPresentation, useAgentPresentation } from './agent-directory.js';
 import { ChatPanel } from './chat-panel.js';
+import { useChatDockMotion } from './chat-dock-motion.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
 import { FilesSurface } from './files-panel.js';
 import { CreatorDefaultProvider } from './creator-default.js';
@@ -178,7 +179,11 @@ function PageFloatingActions({
       // These parent-owned overlays sit outside the renderer host's layout box.
       // Their actual bounds keep the control clear without altering author geometry.
       // A page hosted in a panel sits inside that panel's drawer; only another drawer is an overlay.
-      const drawer = [...document.querySelectorAll<HTMLDialogElement>('.tmt-ui-drawer[open]')]
+      const drawer = [
+        ...document.querySelectorAll<HTMLDialogElement>(
+          '.tmt-ui-drawer[open]:not([data-panel="chat"])',
+        ),
+      ]
         .find((candidate) => !candidate.contains(host))
         ?.getBoundingClientRect();
       // A card sits over the page's right edge and a sheet over its bottom; a column is a grid
@@ -257,7 +262,12 @@ function PageFloatingActions({
     };
   }, [host, enabled, panel, discussionOpen, slots]);
   return (
-    <div ref={element} className="selection-mode" style={placement}>
+    <div
+      ref={element}
+      className="selection-mode"
+      style={placement}
+      data-chat-open={panel === 'chat' ? '' : undefined}
+    >
       {enabled && !discussionOpen && (
         <p className="selection-mode-hint">{text.selectionModeHint}</p>
       )}
@@ -1290,6 +1300,7 @@ function OpenPage({
     setActiveThread,
   } = panels;
   const floatingChat = useRef<HTMLButtonElement>(null);
+  useChatDockMotion(panel === 'chat');
   const activateChat = useRef<() => boolean>(() => false);
 
   // The page's own projects: the picker opens from its chips and from Projects… in the More menu.

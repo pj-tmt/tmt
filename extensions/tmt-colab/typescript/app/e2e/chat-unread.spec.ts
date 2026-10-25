@@ -64,10 +64,10 @@ for (const width of [320, 390, 1440])
         await expect(page.getByTestId('chat-panel')).toBeVisible();
         await expect(input).toHaveText('Keep this exact unsent draft.');
         expect(await input.evaluate((node, original) => node === original, editor)).toBe(true);
-        const box = await action(page).boundingBox();
         if (width > 640) {
-          // Exposed desktop location dismisses through the native backdrop only.
-          await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+          // The dock sits under the panel while Chat is open (#4919); the native backdrop is the rest
+          // of the window, and it alone dismisses.
+          await page.mouse.click(40, 450);
         } else {
           // Compact modality covers/inerts the original control, not a duplicate
           // over the composer. Close is the reachable pointer dismissal action.
