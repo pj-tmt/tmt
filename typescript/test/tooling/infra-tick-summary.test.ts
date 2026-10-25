@@ -1,13 +1,24 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { describe, expect, it } from 'vite-plus/test';
 import {
+  boundCallLog,
   collectInfraTick,
   createTickClient,
+  pruneTickEvidence,
   failingTests,
   renderInfraTick,
   QUEUE_QUERY,
@@ -1787,6 +1798,60 @@ else if(endpoint.includes('/pulls?')){
       test.cleanup();
     }
   });
+  it('a retention failure after the cursor is written leaves the tick complete', () => {
+    const test = volume(0);
+    const elsewhere = mkdtempSync(path.join(os.tmpdir(), 'tick-elsewhere-'));
+    try {
+      // The evidence directory is a link out of the output: pruning refuses it.
+      symlinkSync(elsewhere, path.join(test.directory, 'evidence'));
+      const result = test.invoke();
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      const report = test.report();
+      expect(report.complete).toBe(true);
+      expect(report.retention).toEqual({ skipped: 'Tick evidence is not a directory.' });
+      expect(JSON.parse(test.currentCursor()).until).toBe(options.until);
+      expect(result.stdout).toContain(
+        'Evidence retention skipped: Tick evidence is not a directory.'
+      );
+      expect(result.stdout).not.toContain('refused');
+    } finally {
+      test.cleanup();
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+  it('a complete tick prunes stale unreferenced evidence; a refused tick leaves every file', () => {
+    const old = new Date(Date.now() - 72 * 60 * 60_000);
+    const stale = (test: { directory: string }, name: string) => {
+      const file = path.join(test.directory, 'evidence', `${name.repeat(64)}.json`);
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, '{}\n');
+      utimesSync(file, old, old);
+      return file;
+    };
+    const refused = volume(0, 'live-count-persistent-queued');
+    try {
+      const file = stale(refused, 'e');
+      expect(refused.invoke().status).toBe(1);
+      expect(existsSync(file)).toBe(true);
+      expect(refused.report().retention).toBeUndefined();
+    } finally {
+      refused.cleanup();
+    }
+    const complete = volume(0);
+    try {
+      const file = stale(complete, 'e');
+      const result = complete.invoke();
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      expect(existsSync(file)).toBe(false);
+      const { retention } = complete.report();
+      expect(retention).toMatchObject({ prunedFiles: 1, prunedBytes: 3 });
+      // Everything this tick read is kept.
+      expect(retention.keptFiles).toBe(complete.report().evidence.files.length);
+      expect(result.stdout).toContain('Evidence retention: pruned 1 files (3 bytes)');
+    } finally {
+      complete.cleanup();
+    }
+  });
 });
 
 it('fetches the full REST comments only for a paginated PR, including an older head statement', () => {
@@ -2275,5 +2340,122 @@ describe('local CI watcher heartbeat (#4872)', () => {
     expect(renderInfraTick(report)).toContain(
       'INCOMPLETE: queue coverage unavailable; cursor not advanced'
     );
+  });
+});
+
+describe('tick evidence and call-log retention (#5040)', () => {
+  const now = Date.parse('2026-10-26T00:00:00Z');
+  const hours = (count: number) => new Date(now - count * 60 * 60_000);
+  function fixture() {
+    const output = mkdtempSync(path.join(os.tmpdir(), 'tick-retention-'));
+    const evidence = path.join(output, 'evidence');
+    mkdirSync(evidence);
+    const put = (name: string, ageHours: number, bytes = 10) => {
+      const file = path.join(evidence, name);
+      writeFileSync(file, 'x'.repeat(bytes));
+      utimesSync(file, hours(ageHours), hours(ageHours));
+      return file;
+    };
+    return {
+      output,
+      evidence,
+      put,
+      cleanup: () => rmSync(output, { recursive: true, force: true }),
+    };
+  }
+  const name = (char: string) => `${char.repeat(64)}.json`;
+
+  it('keeps recent, cursor-referenced and used files, and only ever removes generated regular files', () => {
+    const test = fixture();
+    try {
+      const old = test.put(name('a'), 72);
+      const recent = test.put(name('b'), 1);
+      const referenced = test.put(name('c'), 72);
+      const used = test.put(name('d'), 72);
+      writeFileSync(
+        path.join(test.output, 'cursor.json'),
+        JSON.stringify({ logHash: 'c'.repeat(64) })
+      );
+      const foreign = test.put('notes.json', 72);
+      const outside = path.join(test.output, 'outside.json');
+      writeFileSync(outside, 'keep');
+      utimesSync(outside, hours(72), hours(72));
+      const link = path.join(test.evidence, name('f'));
+      symlinkSync(outside, link);
+      const counts = pruneTickEvidence(test.output, { keep: [used], now });
+      expect(counts).toEqual({ prunedFiles: 1, prunedBytes: 10, keptFiles: 3, keptBytes: 30 });
+      expect(existsSync(old)).toBe(false);
+      for (const file of [recent, referenced, used, foreign, outside, link])
+        expect(existsSync(file), file).toBe(true);
+      expect(existsSync(path.join(test.output, 'cursor.json'))).toBe(true);
+      // A second run has nothing left to remove.
+      expect(pruneTickEvidence(test.output, { keep: [used], now }).prunedFiles).toBe(0);
+    } finally {
+      test.cleanup();
+    }
+  });
+
+  it('removes the oldest unprotected recent files while the total exceeds the byte cap', () => {
+    const test = fixture();
+    try {
+      const oldest = test.put(name('1'), 30, 40);
+      const middle = test.put(name('2'), 20, 40);
+      const newest = test.put(name('3'), 10, 40);
+      const pinned = test.put(name('4'), 40, 40);
+      const counts = pruneTickEvidence(test.output, { keep: [pinned], now, maxBytes: 100 });
+      expect(counts).toEqual({ prunedFiles: 2, prunedBytes: 80, keptFiles: 2, keptBytes: 80 });
+      expect([oldest, middle, newest, pinned].map((file) => existsSync(file))).toEqual([
+        false,
+        false,
+        true,
+        true,
+      ]);
+    } finally {
+      test.cleanup();
+    }
+  });
+
+  it('refuses an evidence directory that is a link out of the output', () => {
+    const test = fixture();
+    const elsewhere = mkdtempSync(path.join(os.tmpdir(), 'tick-elsewhere-'));
+    try {
+      rmSync(test.evidence, { recursive: true });
+      symlinkSync(elsewhere, test.evidence);
+      writeFileSync(path.join(elsewhere, name('a')), 'x');
+      utimesSync(path.join(elsewhere, name('a')), hours(72), hours(72));
+      expect(() => pruneTickEvidence(test.output, { now })).toThrow();
+      expect(existsSync(path.join(elsewhere, name('a')))).toBe(true);
+    } finally {
+      test.cleanup();
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  it('bounds calls.jsonl to the last day of invocations and a line cap', () => {
+    const test = fixture();
+    try {
+      const file = path.join(test.output, 'calls.jsonl');
+      const line = (until: string, request: number) =>
+        JSON.stringify({ invocation: `${until}:42`, request }) + '\n';
+      writeFileSync(
+        file,
+        line('2026-10-24T00:00:00.000Z', 1) +
+          'not json\n' +
+          line('2026-10-25T06:00:00.000Z', 2) +
+          line('2026-10-25T23:00:00.000Z', 3) +
+          line('2026-10-25T23:00:00.000Z', 4)
+      );
+      boundCallLog(file, '2026-10-26T00:00:00.000Z');
+      const kept = () =>
+        readFileSync(file, 'utf8')
+          .trim()
+          .split('\n')
+          .map((row) => JSON.parse(row).request);
+      expect(kept()).toEqual([2, 3, 4]);
+      boundCallLog(file, '2026-10-26T00:00:00.000Z', { maxLines: 2 });
+      expect(kept()).toEqual([3, 4]);
+    } finally {
+      test.cleanup();
+    }
   });
 });

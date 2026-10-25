@@ -5,8 +5,11 @@ import {
   existsSync,
   appendFileSync,
   linkSync,
+  lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   statfsSync,
   unlinkSync,
@@ -1210,6 +1213,104 @@ export function renderInfraTick(report) {
   return rows.join('\n');
 }
 
+/** Cached REST evidence names: the SHA-256 of the request path (`merge-queue-metrics.mjs`). */
+const EVIDENCE_FILE = /^[0-9a-f]{64}\.json$/;
+export const EVIDENCE_RETENTION = { maxAgeMs: 48 * 60 * 60_000, maxBytes: 50 * 1024 ** 2 };
+/** How much of `calls.jsonl` a tick keeps: the invocations of the last day, at most this many lines. */
+export const CALL_LOG_RETENTION = { maxAgeMs: 24 * 60 * 60_000, maxLines: 20_000 };
+
+/**
+ * After a complete tick, removes cached evidence the next tick does not need. Kept: everything
+ * modified within `maxAgeMs`, every file whose name `cursor.json` mentions, and every file this
+ * tick read (`keep`); then, while the rest exceeds `maxBytes`, the oldest unprotected files go
+ * first. Only regular files directly in `<output>/evidence` with a generated name are candidates;
+ * links are never followed. Returns counts only.
+ */
+export function pruneTickEvidence(
+  output,
+  {
+    keep = [],
+    now = Date.now(),
+    maxAgeMs = EVIDENCE_RETENTION.maxAgeMs,
+    maxBytes = EVIDENCE_RETENTION.maxBytes,
+  } = {}
+) {
+  const directory = path.join(output, 'evidence');
+  const counts = { prunedFiles: 0, prunedBytes: 0, keptFiles: 0, keptBytes: 0 };
+  if (!existsSync(directory)) return counts;
+  assert.ok(lstatSync(directory).isDirectory(), 'Tick evidence is not a directory.');
+  assert.equal(
+    realpathSync(directory),
+    path.join(realpathSync(output), 'evidence'),
+    'Tick evidence escapes its output directory.'
+  );
+  const cursor = path.join(output, 'cursor.json');
+  const referenced = new Set(
+    existsSync(cursor) ? (readFileSync(cursor, 'utf8').match(/[0-9a-f]{64}/g) ?? []) : []
+  );
+  const used = new Set(keep.map((file) => path.basename(file)));
+  const files = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (!entry.isFile() || !EVIDENCE_FILE.test(entry.name)) continue;
+    const file = path.join(directory, entry.name);
+    const stat = lstatSync(file);
+    if (!stat.isFile()) continue;
+    const pinned = referenced.has(entry.name.slice(0, 64)) || used.has(entry.name);
+    files.push({ file, size: stat.size, mtime: stat.mtimeMs, pinned });
+  }
+  const remove = (entry) => {
+    unlinkSync(entry.file);
+    counts.prunedFiles += 1;
+    counts.prunedBytes += entry.size;
+    entry.removed = true;
+  };
+  for (const entry of files) if (!entry.pinned && now - entry.mtime > maxAgeMs) remove(entry);
+  let total = files.reduce((sum, entry) => sum + (entry.removed ? 0 : entry.size), 0);
+  for (const entry of files
+    .filter((item) => !item.removed && !item.pinned)
+    .sort((a, b) => a.mtime - b.mtime || a.file.localeCompare(b.file))) {
+    if (total <= maxBytes) break;
+    remove(entry);
+    total -= entry.size;
+  }
+  for (const entry of files)
+    if (!entry.removed) {
+      counts.keptFiles += 1;
+      counts.keptBytes += entry.size;
+    }
+  return counts;
+}
+
+/**
+ * Rewrites `calls.jsonl` (atomically) to the invocations that ended within `maxAgeMs` of `until`,
+ * at most `maxLines` of them, so the trace never grows without bound. An unreadable line is
+ * dropped with its invocation.
+ */
+export function boundCallLog(
+  file,
+  until,
+  { maxAgeMs = CALL_LOG_RETENTION.maxAgeMs, maxLines = CALL_LOG_RETENTION.maxLines } = {}
+) {
+  if (!existsSync(file)) return;
+  const floor = Date.parse(until) - maxAgeMs;
+  const lines = readFileSync(file, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .filter((line) => {
+      try {
+        const { invocation } = JSON.parse(line);
+        const ended = Date.parse(String(invocation).replace(/:\d+$/, ''));
+        return Number.isFinite(ended) && ended >= floor;
+      } catch {
+        return false;
+      }
+    })
+    .slice(-maxLines);
+  const temporary = `${file}.${process.pid}.tmp`;
+  writeFileSync(temporary, lines.map((line) => `${line}\n`).join(''), { mode: 0o600 });
+  renameSync(temporary, file);
+}
+
 function main() {
   const { values } = parseArgs({
     options: {
@@ -1232,6 +1333,7 @@ function main() {
   assert.ok(time(until) <= Date.now(), 'Tick end cannot be in the future.');
   const invocation = `${until}:${process.pid}`;
   const callLog = path.join(values.output, 'calls.jsonl');
+  boundCallLog(callLog, until);
   const trace = (entry) =>
     appendFileSync(callLog, redactCredentials(JSON.stringify({ invocation, ...entry })) + '\n', {
       mode: 0o600,
@@ -1339,6 +1441,23 @@ function main() {
         { mode: 0o600 }
       );
       renameSync(temporary, cursor);
+      // Only a complete tick prunes, after its cursor names what the next tick still needs.
+      // Pruning is best effort: its failure never turns the complete tick into a refusal.
+      let retention;
+      try {
+        report.retention = pruneTickEvidence(values.output, { keep: api.evidence().files });
+        retention = `\nEvidence retention: pruned ${report.retention.prunedFiles} files (${report.retention.prunedBytes} bytes); kept ${report.retention.keptFiles} files (${report.retention.keptBytes} bytes).\n`;
+      } catch (error) {
+        report.retention = { skipped: redactCredentials(error.message) };
+        retention = `\nEvidence retention skipped: ${report.retention.skipped}\n`;
+      }
+      writeFileSync(
+        path.join(values.output, 'summary.json'),
+        redactCredentials(JSON.stringify(report, null, 2) + '\n'),
+        { mode: 0o600 }
+      );
+      appendFileSync(path.join(values.output, 'summary.md'), retention, { mode: 0o600 });
+      process.stdout.write(retention);
     } else process.exitCode = 1;
     trace({ event: 'completed', requests: api.evidence().requests, complete: report.complete });
   } catch (error) {
