@@ -146,15 +146,48 @@ fn source_shrink_replacement_and_scan_overflow_start_at_eof_with_a_gap() {
             fs::metadata(&path).unwrap().len()
         );
         // Historical records are not replayed on an identical retry.
-        assert_eq!(
-            claude(&root.path, &path, Some(&gap), NOW + 2),
-            Some(gap.clone())
-        );
+        let retried = claude(&root.path, &path, Some(&gap), NOW + 2).unwrap();
+        assert_eq!(retried.value.counts(), Counts::default(), "{change}");
         append(&path, &format!("\n{}\n", CLAUDE.lines().nth(3).unwrap()));
-        let recovered = claude(&root.path, &path, Some(&gap), NOW + 3).unwrap();
+        let recovered = claude(&root.path, &path, Some(&retried), NOW + 3).unwrap();
         assert_eq!(recovered.value.epoch, gap.value.epoch);
         assert!(recovered.value.complete && !recovered.value.gap);
     }
+}
+
+/// A read caught up at a line end has observed everything the source holds:
+/// after a gap it is a complete zero observation, so an idle agent is observed,
+/// not unknown (#5122). Once complete, an unchanged source writes nothing.
+#[test]
+fn a_caught_up_read_after_a_gap_is_a_complete_zero_observation() {
+    for change in ["shrink", "replace"] {
+        let (root, path, first) = claude_file();
+        match change {
+            "shrink" => fs::write(&path, "").unwrap(),
+            _ => {
+                let replacement = path.with_extension("replacement");
+                fs::write(&replacement, CLAUDE).unwrap();
+                fs::rename(replacement, &path).unwrap();
+            }
+        }
+        let gap = claude(&root.path, &path, Some(&first), NOW + 1).unwrap();
+        assert!(gap.value.gap && !gap.value.complete, "{change}");
+        let idle = claude(&root.path, &path, Some(&gap), NOW + 2).unwrap();
+        assert!(idle.value.complete && !idle.value.gap, "{change}");
+        assert_eq!(idle.value.epoch, gap.value.epoch);
+        assert_eq!(idle.value.sequence, gap.value.sequence + 1);
+        assert_eq!(idle.value.observed_at_ms, NOW + 2);
+        assert_eq!(idle.value.counts(), Counts::default());
+        assert_eq!(idle.value.delta_by_model, Some(Vec::new()));
+        assert_eq!(idle.cursor, gap.cursor);
+        assert_eq!(claude(&root.path, &path, Some(&idle), NOW + 3), Some(idle));
+    }
+    // Without a line end the source may still hold an unfinished record.
+    let (root, path, first) = claude_file();
+    append(&path, &"x".repeat(transcript::TAIL_LIMIT as usize + 1));
+    let gap = claude(&root.path, &path, Some(&first), NOW + 1).unwrap();
+    assert!(gap.value.gap && !gap.value.complete);
+    assert_eq!(claude(&root.path, &path, Some(&gap), NOW + 2), Some(gap));
 }
 
 #[test]
@@ -304,6 +337,55 @@ fn codex_regression_and_file_replacement_are_new_baselines_not_negative_rates() 
     }
 }
 
+/// The Codex reader takes the same caught-up rule as the appended reader: an
+/// unchanged, complete read after a gap is a complete zero observation, and
+/// an unchanged complete one writes nothing (#5122).
+#[test]
+fn a_caught_up_codex_read_after_a_gap_is_a_complete_zero_observation() {
+    let root = TestDirectory::new();
+    let path = root.path.join("rollout.jsonl");
+    fs::write(&path, CODEX).unwrap();
+    let first = codex(&root.path, &path, None, NOW).unwrap();
+    let new = root.path.join("new.jsonl");
+    fs::write(&new, CODEX).unwrap();
+    fs::rename(new, &path).unwrap();
+    let gap = codex(&root.path, &path, Some(&first), NOW + 1).unwrap();
+    assert!(
+        gap.value.gap && !gap.value.complete,
+        "a replaced rollout is a gap"
+    );
+    let idle = codex(&root.path, &path, Some(&gap), NOW + 2).unwrap();
+    assert!(idle.value.complete && !idle.value.gap);
+    assert_eq!(idle.value.epoch, gap.value.epoch);
+    assert_eq!(idle.value.sequence, gap.value.sequence + 1);
+    assert_eq!(idle.value.observed_at_ms, NOW + 2);
+    assert_eq!(idle.value.counts(), gap.value.counts());
+    assert_eq!(idle.value.delta_by_model, Some(Vec::new()));
+    assert_eq!(idle.cursor, gap.cursor);
+    assert_eq!(
+        codex(&root.path, &path, Some(&idle), NOW + 3),
+        Some(idle.clone())
+    );
+    let mut event: Value = serde_json::from_str(CODEX).unwrap();
+    event["payload"]["info"]["total_token_usage"]["output_tokens"] = 6_910_978.into();
+    event["payload"]["info"]["total_token_usage"]["total_tokens"] = 2_681_568_849u64.into();
+    append(&path, &format!("{event}\n"));
+    let grown = codex(&root.path, &path, Some(&idle), NOW + 4).unwrap();
+    assert!(grown.value.complete && !grown.value.gap);
+    assert_eq!(grown.value.epoch, idle.value.epoch);
+    assert_eq!(grown.value.output_tokens - idle.value.output_tokens, 10);
+    // A replacement that ends in an unfinished line is not caught up: the gap stays.
+    let new = root.path.join("new.jsonl");
+    fs::write(&new, format!("{CODEX}{event}")).unwrap();
+    fs::rename(new, &path).unwrap();
+    let pending = codex(&root.path, &path, Some(&grown), NOW + 5).unwrap();
+    assert!(pending.value.gap && !pending.value.complete);
+    assert_eq!(
+        codex(&root.path, &path, Some(&pending), NOW + 6),
+        Some(pending)
+    );
+}
+
 #[test]
 fn invalid_totals_and_clock_rollback_are_unavailable() {
     let root = TestDirectory::new();
@@ -403,6 +485,12 @@ fn consumption_round_trips_with_activity_and_never_expands_the_one_kib_cap() {
             let restarted = driver_state::after_start(None, None, Some(&ended), NOW + 2).unwrap();
             assert!(driver_state::state_consumption(&restarted).is_none());
             assert_eq!(restarted.version(), driver_state::MODEL_STATE_VERSION);
+            // Only a compaction keeps the counter: its source continues (#5122).
+            let compacted = driver_state::after_compaction(None, Some(&ended), NOW + 2).unwrap();
+            assert_eq!(
+                driver_state::state_consumption(&compacted),
+                driver_state::state_consumption(&ended)
+            );
         }
     }
 }

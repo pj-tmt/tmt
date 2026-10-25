@@ -315,6 +315,28 @@ pub fn after_start(
     previous: Option<&DriverState>,
     now_ms: u64,
 ) -> Option<DriverState> {
+    started(reported, usage, previous, None, now_ms)
+}
+
+/// The state after a compaction start. Unlike any other start, it keeps the
+/// consumption counter: the provider goes on appending to the same source, so
+/// an idle agent stays observed rather than starting a gap (#5122).
+pub fn after_compaction(
+    reported: Option<&str>,
+    previous: Option<&DriverState>,
+    now_ms: u64,
+) -> Option<DriverState> {
+    let consumption = previous.and_then(state_consumption);
+    started(reported, None, previous, consumption, now_ms)
+}
+
+fn started(
+    reported: Option<&str>,
+    usage: Option<Usage>,
+    previous: Option<&DriverState>,
+    consumption: Option<super::consumption::State>,
+    now_ms: u64,
+) -> Option<DriverState> {
     let reported = reported.filter(|model| valid_model(model));
     Document {
         model: reported
@@ -322,7 +344,7 @@ pub fn after_start(
             .or_else(|| previous.and_then(state_model)),
         usage,
         activity: None,
-        consumption: None,
+        consumption,
         observed: reported.and_then(|model| ObservedModel::new(model, now_ms)),
     }
     .write()
