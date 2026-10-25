@@ -82,10 +82,12 @@ fn a_retired_identitys_rows_expire_with_the_next_sample_of_any_identity() {
         .connection()
         .unwrap()
         .execute_batch(&format!(
-            "INSERT INTO consumption_buckets(identity_id,from_ms,input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous) \
+            "PRAGMA foreign_keys = OFF;
+             INSERT INTO consumption_buckets(identity_id,from_ms,input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous) \
              VALUES('{other}',0,0,0,0,0,1,0,0),('{other}',5000,0,0,0,0,1,0,0);
              INSERT INTO consumption_tier5m(identity_id,from_ms,input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous) \
-             VALUES('{other}',0,0,0,0,0,1,0,0);"
+             VALUES('{other}',0,0,0,0,0,1,0,0);
+             PRAGMA foreign_keys = ON;"
         ))
         .unwrap();
     let now = ROLLUP_MS + ROLLUP_BUCKET_MS * 3;
