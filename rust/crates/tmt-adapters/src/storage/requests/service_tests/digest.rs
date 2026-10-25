@@ -142,7 +142,10 @@ fn orchestration_sleep_and_focus_gate_every_claim_and_seal_only_urgent_members()
     );
     service(&mut f).make_digest_due(&target).unwrap();
     assert_eq!(
-        service(&mut f).digest_stats(&[target.clone()]).unwrap()[0].due_count,
+        service(&mut f)
+            .digest_stats(std::slice::from_ref(&target))
+            .unwrap()[0]
+            .due_count,
         0
     );
     for opportunity in [DigestOpportunity::Idle, DigestOpportunity::TurnBoundary] {

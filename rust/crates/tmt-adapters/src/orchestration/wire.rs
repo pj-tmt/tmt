@@ -537,7 +537,7 @@ struct OrchSourceDocument {
     defaulted: bool,
 }
 impl OrchSourceDocument {
-    fn to_core(self) -> Result<OrchSource, OrchError> {
+    fn into_core(self) -> Result<OrchSource, OrchError> {
         let kind = match self.kind.as_str() {
             "base" => OrchSourceKind::Base,
             "plan" => OrchSourceKind::Plan,
@@ -568,7 +568,7 @@ pub(crate) fn decode_source(text: &str) -> Result<OrchSource, OrchError> {
     }
     serde_json::from_str::<OrchSourceDocument>(text)
         .map_err(|_| OrchError::Invalid)?
-        .to_core()
+        .into_core()
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -639,7 +639,7 @@ pub(crate) fn decode_sources(text: &str) -> Result<Vec<Value>, OrchError> {
             if !fields.insert(field) {
                 return Err(OrchError::Invalid);
             }
-            let source = entry.source.to_core()?;
+            let source = entry.source.into_core()?;
             Ok(decision_source_value(&OrchDecisionSource { field, source }))
         })
         .collect()
