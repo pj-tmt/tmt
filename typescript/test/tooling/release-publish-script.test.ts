@@ -699,20 +699,20 @@ describe('release-publish.mjs index entry', () => {
       '--directory',
       path.join(fixture.directory, 'record-fixture'),
     ];
-    expect(fixture.run(args, 'pj-tmt/tmt')).toMatchObject({
+    expect(fixture.run(args, 'tmt-ninja/tmt')).toMatchObject({
       status: 0,
       summary: expect.stringContaining('Release index advanced'),
     });
-    expect(fixture.run(args, 'pj-tmt/tmt')).toMatchObject({
+    expect(fixture.run(args, 'tmt-ninja/tmt')).toMatchObject({
       status: 0,
       summary: expect.stringContaining('Release index unchanged'),
     });
     const writes = fixture.calls().filter((args) => args.includes('--input'));
     expect(writes.map((args) => args[1])).toEqual([
-      'repos/pj-tmt/tmt/git/blobs',
-      'repos/pj-tmt/tmt/git/trees',
-      'repos/pj-tmt/tmt/git/commits',
-      'repos/pj-tmt/tmt/git/refs/heads/release-index',
+      'repos/tmt-ninja/tmt/git/blobs',
+      'repos/tmt-ninja/tmt/git/trees',
+      'repos/tmt-ninja/tmt/git/commits',
+      'repos/tmt-ninja/tmt/git/refs/heads/release-index',
     ]);
     expect(fixture.calls().some((args) => args[0] === 'release')).toBe(false);
   });
@@ -727,13 +727,14 @@ describe('release-publish.mjs index entry', () => {
       '--directory',
       path.join(fixture.directory, 'record-fixture'),
     ];
-    expect(fixture.run(args, 'pj-tmt/tmt')).toMatchObject({
+    expect(fixture.run(args, 'tmt-ninja/tmt')).toMatchObject({
       status: 1,
       stderr: expect.stringContaining('Index ref update failed (403)'),
     });
     const absent = scenario();
     expect(
-      absent.run([...args.slice(0, -1), path.join(absent.directory, 'absent')], 'pj-tmt/tmt').status
+      absent.run([...args.slice(0, -1), path.join(absent.directory, 'absent')], 'tmt-ninja/tmt')
+        .status
     ).toBe(1);
     expect(absent.calls().some((args) => args.includes('--input'))).toBe(false);
   });
@@ -755,19 +756,19 @@ describe('release-publish.mjs index entry', () => {
           '--directory',
           path.join(fixture.directory, 'record-fixture'),
         ],
-        'pj-tmt/tmt'
+        'tmt-ninja/tmt'
       )
     ).toMatchObject({ status: 0, summary: expect.stringContaining('Release index advanced') });
     const endpoints = fixture.calls().map((args) => args[1]);
-    const refUpdate = 'repos/pj-tmt/tmt/git/refs/heads/release-index';
+    const refUpdate = 'repos/tmt-ninja/tmt/git/refs/heads/release-index';
     const firstUpdate = endpoints.indexOf(refUpdate);
     expect(endpoints.filter((endpoint) => endpoint === refUpdate)).toHaveLength(2);
     expect(endpoints.slice(firstUpdate + 1, firstUpdate + 3)).toEqual([
-      'repos/pj-tmt/tmt/git/ref/heads/release-index',
-      `repos/pj-tmt/tmt/git/commits/${'b'.repeat(40)}`,
+      'repos/tmt-ninja/tmt/git/ref/heads/release-index',
+      `repos/tmt-ninja/tmt/git/commits/${'b'.repeat(40)}`,
     ]);
     expect(
-      endpoints.filter((endpoint) => endpoint === 'repos/pj-tmt/tmt/git/commits')
+      endpoints.filter((endpoint) => endpoint === 'repos/tmt-ninja/tmt/git/commits')
     ).toHaveLength(2);
   });
 
@@ -789,17 +790,21 @@ describe('release-publish.mjs index entry', () => {
           '--directory',
           path.join(fixture.directory, 'record-fixture'),
         ],
-        'pj-tmt/tmt'
+        'tmt-ninja/tmt'
       )
     ).toMatchObject({
       status: 1,
       stderr: expect.stringContaining('Release index non-force race budget exhausted (5 attempts)'),
     });
     expect(
-      fixture.calls().filter((args) => args[1] === 'repos/pj-tmt/tmt/git/refs/heads/release-index')
+      fixture
+        .calls()
+        .filter((args) => args[1] === 'repos/tmt-ninja/tmt/git/refs/heads/release-index')
     ).toHaveLength(5);
     expect(
-      fixture.calls().filter((args) => args[1] === 'repos/pj-tmt/tmt/git/ref/heads/release-index')
+      fixture
+        .calls()
+        .filter((args) => args[1] === 'repos/tmt-ninja/tmt/git/ref/heads/release-index')
     ).toHaveLength(5);
   });
 
@@ -821,14 +826,16 @@ describe('release-publish.mjs index entry', () => {
           '--directory',
           path.join(fixture.directory, 'record-fixture'),
         ],
-        'pj-tmt/tmt'
+        'tmt-ninja/tmt'
       )
     ).toMatchObject({
       status: 1,
       stderr: expect.stringContaining(`Index ref update failed (${status}): ${message}`),
     });
     expect(
-      fixture.calls().filter((args) => args[1] === 'repos/pj-tmt/tmt/git/refs/heads/release-index')
+      fixture
+        .calls()
+        .filter((args) => args[1] === 'repos/tmt-ninja/tmt/git/refs/heads/release-index')
     ).toHaveLength(1);
   });
 

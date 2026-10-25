@@ -1,5 +1,5 @@
 import type { ApplicationSchema } from './native-application-schema.mjs';
-export const RC_REPOSITORY: 'pj-tmt/tmt';
+export const RC_REPOSITORY: 'tmt-ninja/tmt';
 export const RC_TARGETS: string[];
 export const RC_TTL_MS: number;
 export interface RCMember {
