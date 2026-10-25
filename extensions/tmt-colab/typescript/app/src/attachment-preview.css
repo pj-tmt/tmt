@@ -4,7 +4,7 @@
   max-height: calc(100dvh - 24px);
   padding: 0;
   border: 1px solid var(--c-rule);
-  border-radius: 0;
+  border-radius: var(--tmt-ui-radius-l);
   background: var(--c-paper);
   color: var(--c-text);
 }
