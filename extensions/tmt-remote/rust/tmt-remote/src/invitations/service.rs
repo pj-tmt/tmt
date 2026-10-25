@@ -396,6 +396,28 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         now_ms: u64,
         io: &IoBudget<'_>,
     ) -> Result<Status, RemoteError> {
+        self.confirm_owner_decision(
+            actor,
+            expected,
+            OwnerDecision {
+                matched,
+                enable_sending: false,
+            },
+            policy,
+            now_ms,
+            io,
+        )
+    }
+
+    pub fn confirm_owner_decision(
+        &self,
+        actor: &OwnerActor,
+        expected: &Snapshot,
+        decision: OwnerDecision,
+        policy: &PairingPolicy,
+        now_ms: u64,
+        io: &IoBudget<'_>,
+    ) -> Result<Status, RemoteError> {
         check(io)?;
         if !actor.interactive() {
             return Err(invalid());
@@ -416,7 +438,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             return Err(invalid());
         }
         self.sink.authorize(&offer.context, actor)?;
-        if !matched {
+        if !decision.matched {
             let context = offer.context.clone();
             offer.clear_code();
             offer.phase = Phase::End(State::Refused);
@@ -437,13 +459,25 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             actor,
             grant: &grant,
             receipt_key: &receipt_key,
+            sending: decision.enable_sending,
             io: &confirmation_io,
         });
-        // After a writer error, only the original journal can settle the outcome;
-        // another confirm cannot manufacture another member or receipt.
         offer.clear_code();
         offer.phase = Phase::CommitUnknown(expected.clone());
-        let committed = committed?;
+        let committed = match committed {
+            Ok(committed) => committed,
+            Err(ConfirmationFailure::CommitUnknown(error)) => return Err(error),
+            Err(ConfirmationFailure::Refused(error)) => {
+                let context = offer.context.clone();
+                offer.phase = Phase::End(State::Refused);
+                offer.cleanup = ProviderCleanup::Unconfirmed;
+                let status = offer.status();
+                drop(state);
+                // Physical cleanup must not replace the original refusal.
+                let _ = self.finish_withdrawal(&context, status, io);
+                return Err(error);
+            }
+        };
         if !valid_commit(&committed, expected)
             || crypto::verify_server_proof(&receipt_key.0, &committed.receipt, &committed.proof)
                 .is_err()
@@ -600,6 +634,32 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
         self.finish_withdrawal(&context, result, io)
     }
 
+    /// Physical gate cleanup after a locally committed or uncertain outcome.
+    /// This never changes that authority outcome into cancellation or rollback.
+    pub fn withdraw(
+        &self,
+        actor: &OwnerActor,
+        expected_offer: &str,
+        io: &IoBudget<'_>,
+    ) -> Result<Status, RemoteError> {
+        let state = self.lock()?;
+        let offer = state.as_ref().ok_or_else(invalid)?;
+        if !actor.interactive()
+            || offer.context.offer != expected_offer
+            || !matches!(
+                offer.phase,
+                Phase::Confirmed(_) | Phase::CommitUnknown(_) | Phase::End(_)
+            )
+        {
+            return Err(invalid());
+        }
+        self.sink.authorize(&offer.context, actor)?;
+        let context = offer.context.clone();
+        let status = offer.status();
+        drop(state);
+        self.finish_withdrawal(&context, status, io)
+    }
+
     fn finish_withdrawal(
         &self,
         context: &Context,
@@ -611,10 +671,7 @@ impl<B: Backend, S: ConfirmationSink> Coordinator<B, S> {
             _ => ProviderCleanup::Unconfirmed,
         };
         let mut state = self.lock()?;
-        if let Some(offer) = state
-            .as_mut()
-            .filter(|offer| offer.context == *context && matches!(offer.phase, Phase::End(_)))
-        {
+        if let Some(offer) = state.as_mut().filter(|offer| offer.context == *context) {
             offer.cleanup = result.cleanup;
         }
         Ok(result)
@@ -814,7 +871,7 @@ pub(super) fn offer_io<'a>(io: &IoBudget<'a>, deadline: Instant) -> IoBudget<'a>
         cancelled: io.cancelled,
     }
 }
-pub(super) fn check(io: &IoBudget<'_>) -> Result<(), RemoteError> {
+pub(crate) fn check(io: &IoBudget<'_>) -> Result<(), RemoteError> {
     io.check().map_err(|_| {
         RemoteError::new(
             "REMOTE_INVITATION_STOPPED",
@@ -823,13 +880,15 @@ pub(super) fn check(io: &IoBudget<'_>) -> Result<(), RemoteError> {
     })
 }
 pub(super) fn provider(failure: BackendFailure) -> RemoteError {
+    let code = match failure {
+        BackendFailure::Provider(error) => return error,
+        BackendFailure::Refused => "REMOTE_INVITATION_REFUSED",
+        BackendFailure::InvalidEvidence => "REMOTE_INVITATION_INVALID",
+        BackendFailure::Cancelled | BackendFailure::Deadline => "REMOTE_INVITATION_STOPPED",
+        BackendFailure::Unavailable => "REMOTE_INVITATION_PROVIDER_UNAVAILABLE",
+    };
     RemoteError::new(
-        match failure {
-            BackendFailure::Refused => "REMOTE_INVITATION_REFUSED",
-            BackendFailure::InvalidEvidence => "REMOTE_INVITATION_INVALID",
-            BackendFailure::Cancelled | BackendFailure::Deadline => "REMOTE_INVITATION_STOPPED",
-            BackendFailure::Unavailable => "REMOTE_INVITATION_PROVIDER_UNAVAILABLE",
-        },
+        code,
         "The invitation provider operation could not be completed.",
     )
 }

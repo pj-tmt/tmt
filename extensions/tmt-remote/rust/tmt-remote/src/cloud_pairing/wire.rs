@@ -5,6 +5,8 @@ use crate::{canonical, crypto, error::RemoteError, limits, state::MachineKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+pub mod v2;
+
 pub(super) fn invalid() -> RemoteError {
     RemoteError::new(
         "REMOTE_CLOUD_PAIR_INVALID",
@@ -198,13 +200,7 @@ pub(super) fn reroute_token(
     challenge: &Challenge,
     peer: &str,
 ) -> Result<[u8; 32], RemoteError> {
-    let context = canonical::framed(&[
-        b"tmt-cloud-reroute-token-v1",
-        challenge.project.as_bytes(),
-        challenge.owner.as_bytes(),
-        peer.as_bytes(),
-    ])
-    .map_err(|_| invalid())?;
+    let context = reroute_context(&challenge.project, &challenge.owner, peer, false)?;
     Ok(crypto::mac(response_key, &context))
 }
 
@@ -215,15 +211,33 @@ pub(super) fn reverse_reroute_token(
     challenge: &Challenge,
     joiner: &str,
 ) -> Result<[u8; 32], RemoteError> {
-    let context = canonical::framed(&[
-        b"tmt-cloud-reroute-token-v1",
-        b"reverse",
-        challenge.project.as_bytes(),
-        joiner.as_bytes(),
-        challenge.owner.as_bytes(),
-    ])
-    .map_err(|_| invalid())?;
+    let context = reroute_context(&challenge.project, &challenge.owner, joiner, true)?;
     Ok(crypto::mac(response_key, &context))
+}
+
+pub(super) fn reroute_context(
+    project: &str,
+    owner: &str,
+    peer: &str,
+    reverse: bool,
+) -> Result<Vec<u8>, RemoteError> {
+    let parts: Vec<&[u8]> = if reverse {
+        vec![
+            b"tmt-cloud-reroute-token-v1",
+            b"reverse",
+            project.as_bytes(),
+            peer.as_bytes(),
+            owner.as_bytes(),
+        ]
+    } else {
+        vec![
+            b"tmt-cloud-reroute-token-v1",
+            project.as_bytes(),
+            owner.as_bytes(),
+            peer.as_bytes(),
+        ]
+    };
+    canonical::framed(&parts).map_err(|_| invalid())
 }
 
 pub struct Submission {

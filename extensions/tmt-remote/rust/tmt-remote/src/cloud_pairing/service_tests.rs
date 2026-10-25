@@ -10,6 +10,10 @@ use crate::{
     state::Serving,
 };
 use std::sync::{Weak, atomic::AtomicUsize, mpsc};
+#[path = "invitation_backend_tests.rs"]
+mod invitation_backend_tests;
+#[path = "invitation_cutover_tests.rs"]
+mod invitation_cutover_tests;
 const PROJECT: &str = "demo-native-pairing";
 const TARGET: &str = "66666666-6666-4666-8666-666666666666";
 #[test]
@@ -133,6 +137,26 @@ impl Http for Ports {
         self.wire.send(request, deadline, cancel)
     }
 }
+/// Test-only lost-success control shared by the injected HTTP and real emulator
+/// adapters. It counts only accepted receipt commits, never creates their bytes.
+#[derive(Default)]
+struct ReceiptAnswers {
+    lose_next: AtomicBool,
+    commits: Mutex<BTreeMap<String, usize>>,
+}
+impl ReceiptAnswers {
+    fn accepted(&self, input: &Value) -> bool {
+        let mut receipt = false;
+        for write in input["writes"].as_array().unwrap() {
+            if write["update"]["fields"]["kind"]["stringValue"] == "receipt" {
+                let name = write["update"]["name"].as_str().unwrap().to_owned();
+                *self.commits.lock().unwrap().entry(name).or_default() += 1;
+                receipt = true;
+            }
+        }
+        receipt && self.lose_next.swap(false, Ordering::AcqRel)
+    }
+}
 struct Wire {
     docs: Mutex<BTreeMap<String, Value>>,
     commits: Mutex<Vec<Value>>,
@@ -144,6 +168,7 @@ struct Wire {
     lost_invite_delete_reply: AtomicBool,
     invite_answer: Mutex<Option<Value>>,
     deny_invite_queries: AtomicBool,
+    receipt_answers: ReceiptAnswers,
 }
 impl Wire {
     fn new() -> Self {
@@ -158,6 +183,7 @@ impl Wire {
             lost_invite_delete_reply: AtomicBool::new(false),
             invite_answer: Mutex::new(None),
             deny_invite_queries: AtomicBool::new(false),
+            receipt_answers: ReceiptAnswers::default(),
         }
     }
     fn route(&self, service: &Arc<Service>) {
@@ -405,6 +431,9 @@ impl Http for Wire {
         {
             return response(503, json!({}));
         }
+        if self.receipt_answers.accepted(&input) {
+            return response(503, json!({}));
+        }
         for machine in notify {
             let receiver = self
                 .receivers
@@ -620,6 +649,7 @@ fn public_core_message_reaches_the_serving_owner_and_a_lost_answer_stays_uncerta
         .store()
         .unwrap()
         .save_cloud_connection(&Connection {
+            pending_submission: None,
             version: 1,
             name: "peer".into(),
             owner: owner.machine.clone(),
@@ -831,6 +861,7 @@ fn inviter_registration_and_atomic_route_update_preserve_the_native_pin() {
     let owner_provider = owner.provider(&config(), &owner.machine, true).unwrap();
     let rows = [
         RouteChange {
+            member: None,
             project: PROJECT.into(),
             uid: provider.uid().into(),
             peer: child.machine.clone(),
@@ -839,6 +870,7 @@ fn inviter_registration_and_atomic_route_update_preserve_the_native_pin() {
             reroute_hash: None,
         },
         RouteChange {
+            member: None,
             project: PROJECT.into(),
             uid: "renewed-uid".into(),
             peer: child.machine.clone(),
@@ -898,6 +930,7 @@ fn inviter_registration_and_atomic_route_update_preserve_the_native_pin() {
     );
     let cap: Vec<_> = (0..crate::limits::CLOUD_ROUTE_BATCH)
         .map(|i| RouteChange {
+            member: None,
             project: PROJECT.into(),
             uid: format!("old-{i}"),
             peer: child.machine.clone(),
@@ -999,6 +1032,7 @@ fn route_batch_refuses_two_live_uids_without_a_provider_write() {
     let rows: Vec<_> = ["old-uid", "new-uid"]
         .into_iter()
         .map(|uid| RouteChange {
+            member: None,
             project: PROJECT.into(),
             uid: uid.into(),
             peer: TARGET.into(),
@@ -1048,14 +1082,14 @@ fn invite_gate_is_published_before_the_code_and_removed_when_the_ceremony_ends()
         let mut gate = String::new();
         let result = owner.invite_selected(PROJECT, config(), |event| {
             if event["event"] == "invite" {
-                let invite = Invite::read(
+                let invite = wire::v2::Invite::read(
                     event["code"].as_str().unwrap(),
                     crate::pairing::now_ms().unwrap(),
                 )
                 .unwrap();
                 gate = format!(
                     "projects/{PROJECT}/databases/(default)/documents/m/{}/invites/{}",
-                    owner.machine, invite.challenge.offer,
+                    owner.machine, invite.context.offer,
                 );
                 let docs = wire.docs.lock().unwrap();
                 let row = docs
@@ -1064,7 +1098,7 @@ fn invite_gate_is_published_before_the_code_and_removed_when_the_ceremony_ends()
                 assert_eq!(row["fields"].as_object().unwrap().len(), 2);
                 assert_eq!(
                     row["fields"]["expiresAt"]["timestampValue"],
-                    crate::cloud_inbox::stamp(invite.challenge.expires_at_ms),
+                    crate::cloud_inbox::stamp(invite.context.expires_at_ms),
                 );
                 let hash = STANDARD
                     .decode(row["fields"]["tokenHash"]["bytesValue"].as_str().unwrap())
@@ -1123,6 +1157,9 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
         let owner_clone = owner.clone();
         let invite = scope.spawn(move || {
             owner_clone.invite_selected(PROJECT, config(), |event| {
+                if event["event"] == "waiting" {
+                    owner_clone.flush_routes()?;
+                }
                 if event["event"] == "invite" {
                     token_tx
                         .send(event["code"].as_str().unwrap().to_owned())
@@ -1375,6 +1412,9 @@ fn pair_with_reciprocal_choice(
         let owner_copy = owner.clone();
         let invite = scope.spawn(move || {
             owner_copy.invite_selected(PROJECT, config(), |event| {
+                if event["event"] == "waiting" {
+                    owner_copy.flush_routes()?;
+                }
                 if event["event"] == "invite" {
                     code_tx
                         .send(event["code"].as_str().unwrap().to_owned())
@@ -2276,6 +2316,44 @@ fn denied_invite_cleanup_does_not_block_enrolled_reconciliation_or_receipt_pruni
         .unwrap()
         .to_owned();
     assert!(!owner.store().unwrap().active_grants().unwrap().is_empty());
+    // New ceremonies use the management journal. Keep a genuine v1 original
+    // here to retain the legacy pruning/old-Rules compatibility assertion.
+    let legacy_key =
+        MachineKey::open(&Layout::open(&core.root.join("legacy-peer")).unwrap()).unwrap();
+    let now = crate::pairing::now_ms().unwrap();
+    let legacy_invite = Invite::new(
+        PROJECT,
+        &owner.machine,
+        &owner.key.public(),
+        config(),
+        "Legacy owner",
+        now,
+    )
+    .unwrap();
+    let legacy_submission = legacy_invite
+        .submit(
+            Candidate {
+                peer: crate::store::uuid_v4().unwrap(),
+                public_key: legacy_key.public(),
+                uid: "legacy-uid".into(),
+                name: "Legacy peer".into(),
+                nonce: [3; 16],
+            },
+            &legacy_key,
+        )
+        .unwrap();
+    let legacy_verified = legacy_invite
+        .verify(&legacy_submission, "legacy-uid", now)
+        .unwrap();
+    let mut legacy_response_key = legacy_invite
+        .response_key(&legacy_submission.candidate)
+        .unwrap();
+    owner
+        .store()
+        .unwrap()
+        .confirm_cloud_peer(&legacy_verified, &legacy_response_key, now, false, None)
+        .unwrap();
+    legacy_response_key.fill(0);
     assert!(
         owner
             .store()

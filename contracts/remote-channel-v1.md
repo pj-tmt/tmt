@@ -2486,9 +2486,9 @@ reads after arrival. The original receiving Core remains authoritative for its a
 
 The shared `invitations` owner handles cross-person offers independently of a terminal,
 browser or provider. Its version-2 proof context is distinct from local-browser pairing
-and the existing version-1 Firestore profile. The Firestore adapter below remains its
-current production path until the adapter cutover; backend selection never rewrites a
-legacy code into another profile. Local native-owned browser automatic pairing is not a
+and the existing version-1 Firestore profile. New Firestore invite/join ceremonies use
+this shared coordinator with the explicit v2 binding below; backend selection never
+rewrites a legacy code into another profile. Local native-owned browser automatic pairing is not a
 cross-person invitation or an owner confirmation for one.
 
 One offer is single-use, with a maximum ten-minute lifetime. Raw offer secrets and derived
@@ -2549,13 +2549,21 @@ action over that snapshot and comparison result; terminal and paired-owner-brows
 confirmation share the same transition owner. A normal user, mismatched comparison,
 JSON/agent command, cancellation, disconnect, expiry or revoked owner cannot supply that
 consent. Competing confirmations result in at most one committed receipt and first
-member-machine association. New invitation confirmation refuses talk/hold/agents options and persists M1's grant with sending off and direct delivery, whose stored values form the receipt; if I5 later offers an owner-browser default-no sending choice, it must apply member sending-on after that sink in the same transaction and serialize the result.
+member-machine association. New invitation confirmation refuses talk/hold/agents policy
+options and first persists M1's grant with sending off and direct delivery. Keep the
+separate default-no sending question for both candidate and reverse confirmation. An
+explicit owner yes applies sending-on through the member-policy writer immediately after
+the sink in the same transaction; no answer or EOF leaves sending off. The receipt always
+serializes the resulting persisted grant. This choice is not an enrollment policy field.
 
 Durable confirmation opens one existing Store IMMEDIATE transaction, rechecks authority
 and the frozen invitation/candidate, inserts the member and first grant through the M1
 transaction sink, and saves the immutable original receipt and policy in that same
 transaction. No second database opener, nested transaction or backend-owned grant writer
 is introduced. Provider publication happens after the transaction and outside its lock.
+A typed definite refusal requires proven no-commit or successful rollback and terminates
+the offer. A commit or rollback uncertainty remains original-journal observation-only;
+it cannot be reported as a definite refusal or retried as another confirmation.
 Publication observations and acknowledgments apply only to the unchanged captured
 snapshot; sending-off retains receiving routes, while revoke/removal uses the existing
 route cleanup owner.
@@ -2566,6 +2574,18 @@ candidate can recover only its original receipt through the retained proof and o
 expiry, not a regenerated grant or current mutable policy. Receipt proof authenticates
 its exact stored bytes. Failed or unknown provider cleanup does not turn logical expiry
 or revocation into authority.
+
+For Firestore version 2, confirmation captures the route/member/token snapshot in that
+transaction. Route publication only wakes the existing desired-route worker for an
+immediate flush and reports unconfirmed. Observation uses its existing Store publication
+acknowledgment, matching the captured member, generation, token hash and revocation; a
+late acknowledgment cannot cover a renewal. There is no new Rules read, publication
+ledger, poller or coordinator route retry. The existing idempotent desired-route flush
+remains the sole route writer. Receipt publication waits for that acknowledgment only
+within the offer's original remaining window. A route acknowledgment after expiry cannot
+publish a receipt: status remains locally confirmed with an undelivered receipt. Owner
+guidance is to remove this member and send a new invite; expiry alone does not roll back
+the locally committed member or grant.
 
 Old short-lived Firestore codes retain their original decoder, owner/native binding,
 remaining expiry and original-receipt recovery. They cannot be interpreted by another
@@ -2593,17 +2613,32 @@ Talk/revoke resolve an exact client UUID or a unique active person name; duplica
 UUID. JSON, CI, agent and noninteractive invocation never consent. Ctrl+C cancels the active invite
 and erases its secret. Neither command opens a browser or creates a local-browser session.
 
-The code carries public connection metadata, the owner pin, an offer UUID, nonce, generation,
-expiry and 128-bit secret. Firestore never stores that secret. Its separate enrollment transcript
-binds every field, the candidate native UUID/key, authenticated uid, name and nonce. Existing HMAC,
-Ed25519 possession, fingerprint and response-proof primitives are reused with distinct framing.
+A new code explicitly selects version 2 and carries the public Firebase configuration,
+Firestore project reference, authenticated owner uid, owner UUID/key, offer UUID, nonce,
+issued-at/expiry and 128-bit secret. The configuration project equals the bound reference.
+Before using it, the joiner verifies the registered native pin and descriptor revision,
+and matches the machine row uid to that owner principal. The enrollment transcript is the
+shared version-2 framing above, including the candidate native UUID/key, authenticated uid,
+name and nonce. Old version-1 codes retain their distinct decoder/transcript and remaining
+lifetime. Firestore never stores either profile's secret. HMAC, Ed25519 possession,
+fingerprint and response-proof primitives retain their existing algorithms.
+Before the candidate's first provider call, the existing private Connection atomically
+claims the exact signed v2 request and context. A restart with the original code restores
+that claim as observation-only, including when no provider row is visible. It does not
+replace a confirmed connection's pin, uid or policy. After receipt authentication, one
+Store transaction consumes only that matching claim and adopts reverse membership,
+optional local sending consent, route/token and connection. A repeated original cannot
+reapply policy or restore revoked authority. No raw code, gate or response key is persisted.
+
 The mailbox is one create-only collection `/m/<machine>/enroll`: `<offerId>` holds a candidate,
 `<offerId>-response` the owner's receipt. Responses contain only `{uid,kind,body,createdAt}`.
 Candidates carry those fields plus `token` (32 bytes) for a join, or `token` and its canonical
 native `peer` for a reroute. Rules bind the candidate uid to `request.auth.uid`, exact kinds/UUIDs,
 bounded bytes and server request time.
 Before exposing a code, the owner creates `/m/<machine>/invites/<offerId>` with
-`{tokenHash,expiresAt}`. The join token is HMAC-SHA256 under the code over LP of
+`{tokenHash,expiresAt}`. For v2, the join token is HMAC-SHA256 under the code over LP of
+`"tmt-invitation-gate-v2"`, backend, reference, owner principal, owner UUID/key, offer UUID,
+nonce, decimal issued-at and expiry, using the exact context bytes. Legacy v1 retains LP of
 `"tmt-cloud-invite-token-v1"`, project, owner UUID and offer UUID. Only SHA-256 of that token is
 stored in the invitation; it is neither the raw code nor its enrollment MAC/response key.
 A join requires its matching unexpired gate. The owner attempts gate deletion when the ceremony ends

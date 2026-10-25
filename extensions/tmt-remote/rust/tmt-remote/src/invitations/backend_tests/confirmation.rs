@@ -48,50 +48,58 @@ impl ConfirmationSink for Sink {
             Err(invalid())
         }
     }
-    fn confirm(&self, input: Confirmation<'_>) -> Result<Committed, crate::error::RemoteError> {
+    fn confirm(&self, input: Confirmation<'_>) -> Result<Committed, ConfirmationFailure> {
         let mut ledger = self.ledger.lock().unwrap();
-        if !actor_allowed(&input.snapshot.context, input.actor, &ledger) {
-            return Err(invalid());
-        }
-        input.io.check().map_err(|_| invalid())?;
-        ledger.confirmation_deadline = Some(input.io.deadline);
-        ledger.confirms += 1;
-        if ledger.fail_commit {
-            return Err(invalid());
-        }
-        if let Some(original) = ledger.records.get(&input.snapshot.context.offer) {
-            if original.snapshot != *input.snapshot {
+        let record = (|| -> Result<Committed, crate::error::RemoteError> {
+            if !actor_allowed(&input.snapshot.context, input.actor, &ledger) {
                 return Err(invalid());
             }
-            return Ok(original.clone());
-        }
-        // Model M1's enforced initial grant, then serialize exactly the values
-        // committed to the fake row rather than the incoming request options.
-        let mut persisted = input.grant.clone();
-        persisted.scopes.retain(|scope| scope != "talk");
-        persisted.mode = "direct".into();
-        let receipt = crate::pairing::receipt(
-            &persisted,
-            &input.snapshot.context.owner,
-            &input.snapshot.context.owner_key,
-        )?;
-        let record = Committed {
-            snapshot: input.snapshot.clone(),
-            member: crate::store::uuid_v4()?,
-            grant_revision: persisted.revision,
-            proof: input.receipt_key.prove(&receipt)?,
-            receipt,
-            routes: self.routes.then(|| b"opaque route capability".to_vec()),
-        };
-        ledger.grants += 1;
-        ledger
-            .grant_rows
-            .insert(persisted.client_id.clone(), persisted);
-        ledger
-            .records
-            .insert(input.snapshot.context.offer.clone(), record.clone());
+            input.io.check().map_err(|_| invalid())?;
+            ledger.confirmation_deadline = Some(input.io.deadline);
+            ledger.confirms += 1;
+            if ledger.fail_commit {
+                return Err(invalid());
+            }
+            if let Some(original) = ledger.records.get(&input.snapshot.context.offer) {
+                if original.snapshot != *input.snapshot {
+                    return Err(invalid());
+                }
+                return Ok(original.clone());
+            }
+            // Model M1's enforced initial grant, then serialize exactly the values
+            // committed to the fake row rather than the incoming request options.
+            let mut persisted = input.grant.clone();
+            persisted.scopes.retain(|scope| scope != "talk");
+            persisted.mode = "direct".into();
+            if input.sending {
+                persisted.scopes.push("talk".into());
+                persisted.revision += 1;
+            }
+            let receipt = crate::pairing::receipt(
+                &persisted,
+                &input.snapshot.context.owner,
+                &input.snapshot.context.owner_key,
+            )?;
+            let record = Committed {
+                snapshot: input.snapshot.clone(),
+                member: crate::store::uuid_v4()?,
+                grant_revision: persisted.revision,
+                proof: input.receipt_key.prove(&receipt)?,
+                receipt,
+                routes: self.routes.then(|| b"opaque route capability".to_vec()),
+            };
+            ledger.grants += 1;
+            ledger
+                .grant_rows
+                .insert(persisted.client_id.clone(), persisted);
+            ledger
+                .records
+                .insert(input.snapshot.context.offer.clone(), record.clone());
+            Ok(record)
+        })()
+        .map_err(ConfirmationFailure::Refused)?;
         if ledger.lose_commit_answer {
-            return Err(invalid());
+            return Err(ConfirmationFailure::CommitUnknown(invalid()));
         }
         Ok(record)
     }
@@ -147,7 +155,7 @@ impl<S: ConfirmationSink> ConfirmationSink for AdmissionRace<S> {
     ) -> Result<(), crate::error::RemoteError> {
         self.sink.authorize(context, actor)
     }
-    fn confirm(&self, input: Confirmation<'_>) -> Result<Committed, crate::error::RemoteError> {
+    fn confirm(&self, input: Confirmation<'_>) -> Result<Committed, ConfirmationFailure> {
         self.entered.wait();
         self.resume.wait();
         self.sink.confirm(input)
