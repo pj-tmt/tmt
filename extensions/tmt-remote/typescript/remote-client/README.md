@@ -393,6 +393,15 @@ Re-admission of the existing paired key needs no new gesture and never widens it
 
 ## Hosted anonymous bootstrap
 
+`firebaseRemote.verifyLink(remoteLink)` validates the canonical descriptor and its checksum
+against the current browser origin without loading Firebase or making a network call.
+It returns `{ origin, publicWebConfig, hostingSite? }`; `hostingSite` appears only for a
+non-default Hosting site. Consumers use the validated `origin`, never a hostname guessed
+from `publicWebConfig.projectId`. This is public configuration, not authentication or
+membership evidence. `firebaseRemote.originLink()` derives the same carrier from the
+bounded same-origin reserved Firebase configuration read. Default-site carriers retain
+their original bytes.
+
 `firebaseRemote.connect(remoteLink, { bytes, digest })` verifies the canonical public-config
 carrier and its same-origin `/__/firebase/init.json` before loading Firebase. `bytes` is the
 extension's frozen deployment declaration; `digest` is its lowercase SHA-256. A mismatched

@@ -300,6 +300,11 @@ fn public_bundle_command_has_fixed_argv_and_capture_precedes_any_provider_setup(
         }
     }
     let args = tmt_remote::deploy_cli::FirestoreArgs {
+        database: Some("(default)".into()),
+        web_app: Some("new".into()),
+        site: Some("new".into()),
+        defaults: true,
+
         remote: None,
         project: "demo-remote-1".into(),
         region: "asia-east1".into(),
@@ -455,6 +460,11 @@ fn serving_config_boundary_is_checked_before_provider_setup() {
     declaration["hosting"] = serde_json::to_value(manifest).unwrap();
     set_declaration(&mut declared, &declaration);
     let args = tmt_remote::deploy_cli::FirestoreArgs {
+        database: Some("(default)".into()),
+        web_app: Some("new".into()),
+        site: Some("new".into()),
+        defaults: true,
+
         remote: None,
         project: "demo-remote-1".into(),
         region: "asia-east1".into(),
@@ -558,6 +568,9 @@ fn hosted_declaration_is_exactly_the_native_sealed_and_plan_digest() {
                 web_apps: vec![],
                 live: None,
             },
+            "demo-remote-1",
+            None,
+            true,
         )
         .unwrap();
         let authorized = tmt_remote::deploy_run::prepare_with_hosting(

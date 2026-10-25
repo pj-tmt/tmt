@@ -671,7 +671,7 @@ function reservedHostingFiles() {
     status: 'ACTIVE',
   }));
 }
-function hostedFixture() {
+function hostedFixture(siteId = PROJECT) {
   const files = [
     {
       path: '/index.html',
@@ -728,7 +728,7 @@ function hostedFixture() {
           appId: '1:123:web:mine',
           extra: 'never disclosed',
         });
-      if (route === `/v1beta1/projects/${PROJECT}/sites/${PROJECT}`) {
+      if (route === `/v1beta1/projects/${PROJECT}/sites/${siteId}`) {
         if (method === 'PATCH') {
           assert.equal(new URL(url).searchParams.get('updateMask'), 'appId');
           assert.deepEqual(Object.keys(payload), ['appId']);
@@ -738,18 +738,18 @@ function hostedFixture() {
         return state.site ? ok(state.site) : missing();
       }
       if (route === `/v1beta1/projects/${PROJECT}/sites` && method === 'POST') {
-        assert.equal(new URL(url).searchParams.get('siteId'), PROJECT);
+        assert.equal(new URL(url).searchParams.get('siteId'), siteId);
         assert.deepEqual(payload, {}); // Association has one separate plan-listed step.
         state.site = {
-          name: `projects/${PROJECT}/sites/${PROJECT}`,
-          defaultUrl: `https://${PROJECT}.web.app`,
+          name: `projects/${PROJECT}/sites/${siteId}`,
+          defaultUrl: `https://${siteId}.web.app`,
         };
         return ok(state.site);
       }
-      if (route === `/v1beta1/sites/${PROJECT}/versions`) {
+      if (route === `/v1beta1/sites/${siteId}/versions`) {
         if (method === 'GET') return ok({ versions: state.versions });
         const version = {
-          name: `sites/${PROJECT}/versions/one`,
+          name: `sites/${siteId}/versions/one`,
           createTime: new Date().toISOString(),
           status: 'CREATED',
           ...payload,
@@ -758,7 +758,7 @@ function hostedFixture() {
         state.files = reservedHostingFiles();
         return ok(version);
       }
-      if (route === `/v1beta1/sites/${PROJECT}/versions/one`) {
+      if (route === `/v1beta1/sites/${siteId}/versions/one`) {
         if (method === 'PATCH') state.versions[0].status = payload.status;
         return ok(state.versions[0]);
       }
@@ -790,7 +790,7 @@ function hostedFixture() {
             : { uploadRequiredHashes: state.files.filter((f) => f.status === 'EXPECTED').map((f) => f.hash) }),
           uploadUrl:
             state.uploadUrl ??
-            `https://upload-firebasehosting.googleapis.com/upload/sites/${PROJECT}/versions/one/files`,
+            `https://upload-firebasehosting.googleapis.com/upload/sites/${siteId}/versions/one/files`,
         });
       }
       if (url.startsWith('https://upload-firebasehosting.googleapis.com/')) {
@@ -800,14 +800,14 @@ function hostedFixture() {
           .forEach((f) => (f.status = 'ACTIVE'));
         return ok(null);
       }
-      if (route === `/v1beta1/sites/${PROJECT}/channels/live`)
+      if (route === `/v1beta1/sites/${siteId}/channels/live`)
         return ok(state.live ? { release: {
           ...state.live,
           ...(Object.hasOwn(state, 'channelReleaseName') ? { name: state.channelReleaseName } : {}),
         } } : {});
-      if (route === `/v1beta1/sites/${PROJECT}/releases`) {
+      if (route === `/v1beta1/sites/${siteId}/releases`) {
         assert.equal(new URL(url).searchParams.get('versionName'), state.versions[0].name);
-        state.live = { name: `sites/${PROJECT}/releases/one`, version: state.versions[0] };
+        state.live = { name: `sites/${siteId}/releases/one`, version: state.versions[0] };
         return ok({
           ...state.live,
           ...(Object.hasOwn(state, 'postReleaseName') ? { name: state.postReleaseName } : {}),
@@ -826,8 +826,8 @@ function hostedFixture() {
     planDigest: 'a'.repeat(64),
     contentDigest: 'c'.repeat(64),
     hosting: {
-      site: PROJECT,
-      publicUrl: `https://${PROJECT}.web.app`,
+      site: siteId,
+      publicUrl: `https://${siteId}.web.app`,
       createSite: true,
       configureSite: true,
       siteAppId: null,
@@ -861,6 +861,29 @@ function hostedFixture() {
   }
   return { f, state, calls, input, call };
 }
+test('selected-site app association, publication and read-back never target the project-default site', async () => {
+  const site = 'tmt-selected-site';
+  const x = hostedFixture(site);
+  for (const action of ['web-app', 'site', 'configure', 'create', 'populate'])
+    assert.equal((await x.call('apply-hosting', action)).state, 'done');
+  const file = x.input.hosting.content.files[0];
+  assert.equal((await x.call('apply-hosting', 'upload', { hash: file.gzipDigest, bytesBase64: Buffer.from('gzip-fixture').toString('base64') })).state, 'done');
+  for (const action of ['finalize', 'release'])
+    assert.equal((await x.call('apply-hosting', action)).state, 'done');
+  await x.call('verify-hosting', 'verify');
+  assert.equal((await x.call('observe-hosting', 'release')).state, 'satisfied');
+  const inventory = await execute(request('hosting-inventory', { project: PROJECT, site }), x.f);
+  assert.equal(inventory.siteExists, true);
+  assert.equal(inventory.siteAppConfig.projectId, PROJECT);
+  assert.equal(x.state.site.name, `projects/${PROJECT}/sites/${site}`);
+  assert.equal(x.state.site.defaultUrl, `https://${site}.web.app`);
+  const requests = x.calls.filter((call) => call.url.includes('firebasehosting'));
+  assert.ok(!requests.some((call) => new URL(call.url).pathname.includes(`/sites/${PROJECT}/`)));
+  const creates = requests.filter((call) => call.method === 'POST' && new URL(call.url).pathname.endsWith('/sites'));
+  assert.equal(creates.length, 1);
+  assert.equal(new URL(creates[0].url).searchParams.get('siteId'), site);
+});
+
 test('Hosting fresh reserved init files permit one populate POST without a mismatch', async () => {
   const x = hostedFixture();
   await x.call('apply-hosting', 'create');
@@ -933,7 +956,7 @@ test('Hosting reserved files plus 15 planned files complete every later file che
     assert.equal((await x.call('apply-hosting', action)).state, 'done');
   await x.call('verify-hosting', 'verify');
   assert.equal((await x.call('observe-hosting', 'release')).state, 'satisfied');
-  const inventory = await execute(request('hosting-inventory', { project: PROJECT }), x.f);
+  const inventory = await execute(request('hosting-inventory', { project: PROJECT, site: PROJECT }), x.f);
   assert.deepEqual(
     inventory.live.files,
     x.input.hosting.content.files.map((file) => ({
@@ -1020,7 +1043,7 @@ test('Hosting inventory admits an omitted default WebApp display name without an
     projectId: PROJECT,
     state: 'ACTIVE',
   });
-  const observed = await execute(request('hosting-inventory', { project: PROJECT }), x.f);
+  const observed = await execute(request('hosting-inventory', { project: PROJECT, site: PROJECT }), x.f);
   assert.deepEqual(observed.webApps, [{ id: '1:123:web:other', displayName: '', state: 'ACTIVE' }]);
   assert.equal((await x.call('observe-hosting', 'web-app')).state, 'absent');
   assert.equal(x.calls.filter((c) => c.method !== 'GET').length, 0);
@@ -1059,7 +1082,7 @@ test('Hosting omitted-name admission still refuses malformed or foreign WebApps 
   ]) {
     const x = hostedFixture();
     x.state.apps.push(value);
-    await failure(() => execute(request('hosting-inventory', { project: PROJECT }), x.f), 'unknown');
+    await failure(() => execute(request('hosting-inventory', { project: PROJECT, site: PROJECT }), x.f), 'unknown');
     assert.equal(x.calls.filter((c) => c.method !== 'GET').length, 0);
   }
 });
@@ -1090,7 +1113,7 @@ test('Hosting retains an old foreign fingerprint and refuses before release, but
       return { status: 200, body: previous };
     return http(url.replace('/versions/previous/files', '/versions/one/files'), options, deadline);
   };
-  const observed = await execute(request('hosting-inventory', { project: PROJECT }), x.f);
+  const observed = await execute(request('hosting-inventory', { project: PROJECT, site: PROJECT }), x.f);
   const canonical = (value) =>
     Array.isArray(value)
       ? value.map(canonical)

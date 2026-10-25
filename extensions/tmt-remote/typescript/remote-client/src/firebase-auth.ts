@@ -73,7 +73,7 @@ export async function connectHosted(
   try {
     port = await bounded(async (signal) => {
       await verifyHostedDeclaration(frozenDeclaration);
-      const config = await verifyHostedLink(link, deps.origin);
+      const { publicWebConfig: config } = await verifyHostedLink(link, deps.origin);
       verifiedConfig = config;
       await confirmHostedConfig(config, deps.origin, deps.fetch, signal);
       if (signal.aborted) throw new ClientError('timeout', 'Hosted bootstrap timed out.');

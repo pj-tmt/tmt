@@ -643,6 +643,8 @@ fn index_record(
         );
     }
     DeployRecord {
+        inputs: None,
+
         superseded_runs: Vec::new(),
         deployment_id: "3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11".into(),
         binding: Some(DeployBinding {

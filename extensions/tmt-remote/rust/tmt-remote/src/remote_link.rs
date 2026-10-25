@@ -19,6 +19,8 @@ struct Descriptor {
     version: u8,
     kind: String,
     public_web_config: PublicConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hosting_site: Option<String>,
     checksum: String,
 }
 /// Fixed, credential-free owner guidance. A missing link never triggers deployment.
@@ -42,6 +44,9 @@ impl Descriptor {
         self.version == 1
             && self.kind == "firestore"
             && crate::deploy_run::project_ok(&self.public_web_config.project_id)
+            && self.hosting_site.as_ref().is_none_or(|site| {
+                crate::hosting::site_id_ok(site) && site != &self.public_web_config.project_id
+            })
             && self.public_web_config.auth_domain
                 == format!("{}.firebaseapp.com", self.public_web_config.project_id)
             && [
@@ -64,7 +69,9 @@ impl Descriptor {
         let bytes = serde_json::to_vec(&value).expect("value serializes");
         let url = format!(
             "https://{}.web.app/pair#{}",
-            self.public_web_config.project_id,
+            self.hosting_site
+                .as_deref()
+                .unwrap_or(&self.public_web_config.project_id),
             URL_SAFE_NO_PAD.encode(bytes)
         );
         if url.len() > limits::REMOTE_LINK_BYTES {
@@ -79,10 +86,18 @@ pub fn from_record(record: &DeployRecord) -> Result<String, RemoteError> {
     let publication = record.verified_publication().ok_or_else(unavailable)?;
     let public_web_config: PublicConfig =
         serde_json::from_value(publication.public_config().clone()).map_err(|_| unavailable())?;
+    let site = publication
+        .entry_url()
+        .strip_prefix("https://")
+        .and_then(|origin| origin.strip_suffix(".web.app"))
+        .filter(|site| crate::hosting::site_id_ok(site))
+        .ok_or_else(unavailable)?;
+    let hosting_site = (site != public_web_config.project_id).then(|| site.to_owned());
     let mut descriptor = Descriptor {
         version: 1,
         kind: "firestore".into(),
         public_web_config,
+        hosting_site,
         checksum: String::new(),
     };
     descriptor.checksum = hash(&serde_json::to_vec(&descriptor.body()).expect("body serializes"));
@@ -102,7 +117,10 @@ fn parse(url: &str) -> Result<Descriptor, RemoteError> {
     if origin
         != format!(
             "https://{}.web.app",
-            descriptor.public_web_config.project_id
+            descriptor
+                .hosting_site
+                .as_deref()
+                .unwrap_or(&descriptor.public_web_config.project_id)
         )
         || descriptor.url()? != url
     {
@@ -129,6 +147,14 @@ pub fn matches_record(url: &str, record: &DeployRecord) -> bool {
         config["projectId"] == descriptor.public_web_config.project_id
             && config["appId"] == descriptor.public_web_config.app_id
             && config["authDomain"] == descriptor.public_web_config.auth_domain
+            && publication.entry_url()
+                == format!(
+                    "https://{}.web.app",
+                    descriptor
+                        .hosting_site
+                        .as_deref()
+                        .unwrap_or(&descriptor.public_web_config.project_id)
+                )
     })
 }
 /// Extract a project only after validating the complete public reference.
@@ -150,6 +176,7 @@ mod tests {
                 app_id: "1:123:web:mine".into(),
             },
             checksum: String::new(),
+            hosting_site: None,
         };
         d.checksum = hash(&serde_json::to_vec(&d.body()).unwrap());
         d
@@ -208,6 +235,38 @@ mod tests {
         }
         assert!(validate(&(url.clone() + "=")).is_err());
         assert!(validate(&"x".repeat(limits::REMOTE_LINK_BYTES + 1)).is_err());
+    }
+    #[test]
+    fn selected_site_vector_is_bound_to_its_origin_and_keeps_config_project_identity() {
+        let mut descriptor = vector();
+        descriptor.hosting_site = Some("tmt-selected-site".into());
+        descriptor.checksum = hash(&serde_json::to_vec(&descriptor.body()).unwrap());
+        // Python json(sort_keys=True, separators=(',', ':')) + hashlib.sha256,
+        // independent of the native/SDK descriptor serializers.
+        let golden: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/remote_link/descriptor-v1-selected-site.json"
+        ))
+        .unwrap();
+        assert_eq!(serde_json::to_value(&descriptor).unwrap(), golden);
+        let link = descriptor.url().unwrap();
+        assert!(link.starts_with("https://tmt-selected-site.web.app/pair#"));
+        assert_eq!(public_config(&link).unwrap()["projectId"], "demo-remote-1");
+        assert!(
+            validate(&link.replacen("tmt-selected-site.web.app", "demo-remote-1.web.app", 1))
+                .is_err()
+        );
+        for invalid in [
+            "",
+            "demo-remote-1",
+            "site/other",
+            "UPPER",
+            "abcdefghijklmnopqrstuvwxyz12345",
+        ] {
+            let mut changed = descriptor.clone();
+            changed.hosting_site = Some(invalid.into());
+            changed.checksum = hash(&serde_json::to_vec(&changed.body()).unwrap());
+            assert!(changed.url().is_err(), "{invalid}");
+        }
     }
     #[test]
     fn inconsistent_or_unsafe_fields_never_form_a_link() {

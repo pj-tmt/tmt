@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test, vi } from 'vite-plus/test';
 import { base64url } from '../src/canonical-bytes.js';
 import { originLink, verifyHostedLink } from '../src/firebase-bootstrap.js';
+import { firebaseRemote } from '../src/browser.js';
 import { connectHosted, type FirebaseAuthPort } from '../src/firebase-auth.js';
 import { ClientError, RefusalError } from '../src/operations.js';
 
@@ -53,11 +54,46 @@ test('origin bootstrap produces the independent canonical link and still runs ev
   }) as typeof fetch;
   const derived = await originLink(origin, fetcher);
   assert.equal(derived, link);
-  assert.deepEqual(await verifyHostedLink(derived, origin), config);
+  assert.deepEqual(await verifyHostedLink(derived, origin), { origin, publicWebConfig: config });
   assert.deepEqual(calls, [`${origin}/__/firebase/init.json`]);
   const f = fake();
   await (await connectHosted(derived, declaration, f.deps)).close();
   assert.deepEqual(f.calls, [`${origin}/__/firebase/init.json`, 'load', 'initialize', 'close']);
+});
+
+test('dedicated-site links use the independent descriptor and preserve the four-field config', async () => {
+  const selected = readFileSync(
+    new URL(
+      '../../../rust/tmt-remote/tests/fixtures/remote_link/descriptor-v1-selected-site.json',
+      import.meta.url,
+    ),
+    'utf8',
+  ).trim();
+  const at = 'https://tmt-selected-site.web.app';
+  const selectedLink = `${at}/pair#${base64url(new TextEncoder().encode(selected))}`;
+  assert.equal(await originLink(at, async () => reply()), selectedLink);
+  assert.deepEqual(await verifyHostedLink(selectedLink, at), {
+    origin: at,
+    publicWebConfig: config,
+    hostingSite: 'tmt-selected-site',
+  });
+  vi.stubGlobal('location', { origin: at });
+  try {
+    assert.deepEqual(await firebaseRemote.verifyLink(selectedLink), {
+      origin: at,
+      publicWebConfig: config,
+      hostingSite: 'tmt-selected-site',
+    });
+    await assert.rejects(firebaseRemote.verifyLink(link));
+  } finally {
+    vi.unstubAllGlobals();
+  }
+  await assert.rejects(verifyHostedLink(selectedLink.replace(at, origin), origin));
+  await assert.rejects(verifyHostedLink(link.replace(origin, at), at));
+  const f = fake();
+  const auth = await connectHosted(selectedLink, declaration, { ...f.deps, origin: at });
+  await auth.close();
+  assert.deepEqual(f.calls, [`${at}/__/firebase/init.json`, 'load', 'initialize', 'close']);
 });
 
 test('origin bootstrap refuses invalid public config and mismatched origins before any Firebase load', async () => {
@@ -67,7 +103,6 @@ test('origin bootstrap refuses invalid public config and mismatched origins befo
     [origin, { ...config, authDomain: 'other-project.firebaseapp.com' }],
     [origin, { ...config, appId: ['1:123:web:mine'] }],
     [origin, []],
-    ['https://other-project.web.app', config],
     ['http://demo-remote-1.web.app', config],
     ['https://demo-remote-1.firebaseapp.com', config],
   ] as const) {

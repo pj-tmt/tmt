@@ -38,7 +38,7 @@ fn base(root: &Root) -> Command {
         .current_dir(&root.0);
     command
 }
-const ARGS: [&str; 8] = [
+const ARGS: [&str; 9] = [
     "deploy",
     "firestore",
     "--project",
@@ -47,6 +47,7 @@ const ARGS: [&str; 8] = [
     "asia-east1",
     "--sign-in",
     "anonymous",
+    "--defaults",
 ];
 #[test]
 fn help_and_invalid_authorization_do_not_invoke_core_or_provider() {
@@ -323,7 +324,7 @@ fn available_binary_plan_is_read_only_and_authorization_completes_the_saved_orig
         let message = reply["error"]["message"].as_str().unwrap();
         assert_eq!(
             message,
-            "Project demo-remote-1 uses region asia-east1, not us-central1.: Run tmt remote deploy firestore --project demo-remote-1 --region asia-east1 --sign-in anonymous"
+            "--region differs from the recorded deployment; its resources were not changed."
         );
         assert_eq!(
             fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
@@ -514,7 +515,11 @@ fn completed_hosting_is_own_on_identical_and_changed_bundle_replans() {
             "--json",
         ],
     ));
-    assert_eq!(complete["record"]["run"]["state"], "complete");
+    assert_eq!(
+        complete["record"]["run"]["state"], "complete",
+        "steps: {}",
+        complete["record"]["run"]["steps"]
+    );
     let owner = complete["record"]["run"]["steps"]
         .as_array()
         .unwrap()
@@ -679,7 +684,9 @@ fn declared_hosting_runs_through_the_binary_and_publishes_only_after_joint_readb
     assert_eq!(complete["planDigest"], preview["planDigest"]);
     assert_eq!(complete["record"]["run"]["state"], "complete");
     let publication = &complete["record"]["run"]["hosting"]["publication"];
-    assert_eq!(publication["entryUrl"], "https://demo-remote-1.web.app");
+    let site = complete["plan"]["hosting"]["site"].as_str().unwrap();
+    assert_ne!(site, "demo-remote-1");
+    assert_eq!(publication["entryUrl"], format!("https://{site}.web.app"));
     assert_eq!(publication["siteAppId"], publication["appId"]);
     assert_eq!(
         publication["publicConfig"],

@@ -94,6 +94,14 @@ global.fetch = async (url, options) => {
   ) {
     const h = value.hosting;
     const route = new URL(url).pathname;
+    const requested = route.startsWith(`/v1beta1/projects/${value.project}/sites/`)
+      ? route.split('/').at(-1)
+      : new URL(url).searchParams.get('siteId');
+    if (requested) {
+      if (h.siteId && h.siteId !== requested) throw Error('TOKEN_CANARY_SITE_CHANGED');
+      h.siteId = requested;
+    }
+    const site = h.siteId;
     const body = options.body && !Buffer.isBuffer(options.body) ? JSON.parse(options.body) : null;
     let result,
       status = 200;
@@ -115,7 +123,7 @@ global.fetch = async (url, options) => {
         authDomain: `${value.project}.firebaseapp.com`,
         apiKey: 'public-api-key',
       };
-    else if (route === `/v1beta1/projects/${value.project}/sites/${value.project}`) {
+    else if (route === `/v1beta1/projects/${value.project}/sites/${site}`) {
       if (options.method === 'PATCH') {
         if (
           new URL(url).searchParams.get('updateMask') !== 'appId' ||
@@ -133,21 +141,21 @@ global.fetch = async (url, options) => {
     } else if (route === `/v1beta1/projects/${value.project}/sites`) {
       if (Object.keys(body).length) throw Error('TOKEN_CANARY_SITE_ASSOCIATION');
       h.site = {
-        name: `projects/${value.project}/sites/${value.project}`,
-        defaultUrl: `https://${value.project}.web.app`,
+        name: `projects/${value.project}/sites/${site}`,
+        defaultUrl: `https://${site}.web.app`,
       };
       result = h.site;
-    } else if (route === `/v1beta1/sites/${value.project}/versions`) {
+    } else if (route === `/v1beta1/sites/${site}/versions`) {
       if (options.method === 'POST') {
         h.version = {
-          name: `sites/${value.project}/versions/one`,
+          name: `sites/${site}/versions/one`,
           createTime: new Date().toISOString(),
           status: 'CREATED',
           ...body,
         };
         result = h.version;
       } else result = { versions: h.version ? [h.version] : [] };
-    } else if (route === `/v1beta1/sites/${value.project}/versions/one`) {
+    } else if (route === `/v1beta1/sites/${site}/versions/one`) {
       if (options.method === 'PATCH') h.version.status = body.status;
       result = h.version;
     } else if (route.endsWith('/versions/one:populateFiles')) {
@@ -158,7 +166,7 @@ global.fetch = async (url, options) => {
       }));
       result = {
         uploadRequiredHashes: h.files.map((f) => f.hash),
-        uploadUrl: `https://upload-firebasehosting.googleapis.com/upload/sites/${value.project}/versions/one/files`,
+        uploadUrl: `https://upload-firebasehosting.googleapis.com/upload/sites/${site}/versions/one/files`,
       };
     } else if (url.startsWith('https://upload-firebasehosting.googleapis.com/')) {
       h.files.filter((f) => url.endsWith('/' + f.hash)).forEach((f) => (f.status = 'ACTIVE'));
@@ -168,8 +176,8 @@ global.fetch = async (url, options) => {
       if (!['EXPECTED', 'ACTIVE'].includes(status)) throw Error('TOKEN_CANARY_FILE_STATUS');
       result = { files: h.files.filter((f) => f.status === status) };
     } else if (route.endsWith('/channels/live')) result = h.live ? { release: h.live } : {};
-    else if (route === `/v1beta1/sites/${value.project}/releases`) {
-      h.live = { name: `sites/${value.project}/releases/one`, version: h.version };
+    else if (route === `/v1beta1/sites/${site}/releases`) {
+      h.live = { name: `sites/${site}/releases/one`, version: h.version };
       result = h.live;
     } else throw Error('TOKEN_CANARY_UNEXPECTED_HOSTING_ROUTE');
     fs.writeFileSync(path.join(__dirname, '../state.json'), JSON.stringify(value));

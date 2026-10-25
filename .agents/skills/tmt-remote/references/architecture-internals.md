@@ -179,7 +179,9 @@ tests use a vendored layout stub and canary credentials, never real login or pro
 registered option/help support and fixed missing-input details, with no I/O or persistence.
 `error::RemoteError` publishes that detail through the ordinary error envelope and exit-1
 boundary. The [input contract](../../../../contracts/remote-channel-v1.md#deployment-input-manifest)
-owns semantics; backend integration remains separate from this shared model.
+owns semantics; `deploy_cli::inputs` owns the Firestore manifest, pre-provider validation,
+recorded selection and permission-to-step metadata. The existing `deploy_record` owner
+persists optional resource intent; the captured run retains actual app/site identities.
 `deploy_cli` owns argv, short/full preview and terminal-only `progress`; `deploy_command`
 retains captured inputs across consent; pure `deploy_run` owns transitions and persistence.
 Progress notifications do not change effects or records; the joined heartbeat clears before
@@ -204,7 +206,8 @@ diagnostics, user-file projection (including reserved init paths) and forward-on
 Rust `hosting` alone hashes content identity; the adapter supplies it privately to the helper,
 which uses it for labels/read-back without a second hash implementation. The same deploy runner
 executes Hosting and Rules, and joint verification alone records Complete.
-`remote_link` derives descriptors only from that typed verified publication; the
+`remote_link` derives descriptors, including an optional selected Hosting site, only from
+that typed verified publication; the
 [link contract](../../../../contracts/remote-channel-v1.md#extension-backend-declarations) owns read-only reprinting and refusal.
 
 For offline declaration-vector regeneration, run from `rust/`:

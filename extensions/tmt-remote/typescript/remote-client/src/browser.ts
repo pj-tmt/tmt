@@ -54,11 +54,15 @@ export type {
 import type { HostedDeclaration } from './firebase-declaration.js';
 export type { HostedDeclaration } from './firebase-declaration.js';
 import { connectHosted, type HostedAuth } from './firebase-auth.js';
-import { originLink } from './firebase-bootstrap.js';
+import { originLink, verifyHostedLink, type HostedReference } from './firebase-bootstrap.js';
+export type { HostedReference } from './firebase-bootstrap.js';
 export type { HostedAuth, SyncAdmissionGuard, SyncAdmissionCost } from './firebase-auth.js';
 
 /** Explicit hosted bootstrap; ordinary local SDK imports never load Firebase. */
 export const firebaseRemote = {
+  verifyLink(link: string): Promise<HostedReference> {
+    return verifyHostedLink(link, location.origin);
+  },
   originLink(): Promise<string> {
     return originLink(location.origin, globalThis.fetch.bind(globalThis));
   },

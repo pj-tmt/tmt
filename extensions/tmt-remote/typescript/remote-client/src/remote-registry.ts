@@ -64,7 +64,7 @@ export async function reference(alias: string, address: string): Promise<RemoteR
     valid(false);
   }
   if (url.protocol === 'https:' && url.hostname.endsWith('.web.app') && url.pathname === '/pair') {
-    const config = await verifyHostedLink(address, url.origin).catch(() => {
+    const { publicWebConfig: config } = await verifyHostedLink(address, url.origin).catch(() => {
       valid(false);
     });
     return { name: alias, kind: 'firestore', url: address, project: config.projectId };

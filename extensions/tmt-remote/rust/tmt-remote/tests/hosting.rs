@@ -189,9 +189,17 @@ fn owned_content_identity_ignores_provider_config_object_key_order() {
         }),
     };
     assert_eq!(
-        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory)
-            .unwrap()
-            .replaces,
+        hosting::deployment_view(
+            &content,
+            "demo-remote-1",
+            ID,
+            &inventory,
+            "demo-remote-1",
+            None,
+            true
+        )
+        .unwrap()
+        .replaces,
         "none"
     );
 }
@@ -207,7 +215,16 @@ fn site_creation_web_app_choice_and_foreign_fingerprint_are_named_in_the_plan() 
         web_apps: vec![],
         live: None,
     };
-    let planned = hosting::deployment_view(&content, "demo-remote-1", ID, &absent).unwrap();
+    let planned = hosting::deployment_view(
+        &content,
+        "demo-remote-1",
+        ID,
+        &absent,
+        "demo-remote-1",
+        None,
+        true,
+    )
+    .unwrap();
     assert!(planned.create_site && planned.create_web_app);
     assert_eq!(planned.public_url, "https://demo-remote-1.web.app");
     let mut inventory = HostingInventory {
@@ -222,10 +239,18 @@ fn site_creation_web_app_choice_and_foreign_fingerprint_are_named_in_the_plan() 
         live: None,
     };
     assert_eq!(
-        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory)
-            .unwrap()
-            .web_app
-            .as_deref(),
+        hosting::deployment_view(
+            &content,
+            "demo-remote-1",
+            ID,
+            &inventory,
+            "demo-remote-1",
+            None,
+            true
+        )
+        .unwrap()
+        .web_app
+        .as_deref(),
         Some("1:123:web:abc")
     );
     inventory.web_apps.push(hosting::HostingWebApp {
@@ -234,7 +259,15 @@ fn site_creation_web_app_choice_and_foreign_fingerprint_are_named_in_the_plan() 
         state: "ACTIVE".into(),
     });
     assert!(matches!(
-        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory),
+        hosting::deployment_view(
+            &content,
+            "demo-remote-1",
+            ID,
+            &inventory,
+            "demo-remote-1",
+            None,
+            true
+        ),
         Err(HostingRefusal::WebAppSelection)
     ));
     inventory.web_apps.truncate(1);
@@ -247,22 +280,47 @@ fn site_creation_web_app_choice_and_foreign_fingerprint_are_named_in_the_plan() 
         config: content.config().clone(),
     });
     assert_eq!(
-        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory)
-            .unwrap()
-            .replaces,
+        hosting::deployment_view(
+            &content,
+            "demo-remote-1",
+            ID,
+            &inventory,
+            "demo-remote-1",
+            None,
+            true
+        )
+        .unwrap()
+        .replaces,
         "none"
     );
     inventory.live.as_mut().unwrap().deployment_id = None;
-    let foreign = hosting::deployment_view(&content, "demo-remote-1", ID, &inventory).unwrap();
+    let foreign = hosting::deployment_view(
+        &content,
+        "demo-remote-1",
+        ID,
+        &inventory,
+        "demo-remote-1",
+        None,
+        true,
+    )
+    .unwrap();
     assert_eq!(foreign.replaces, "foreign");
     let fingerprint = foreign.replaced_fingerprint.unwrap();
     assert_eq!(fingerprint.len(), 64);
     inventory.live.as_mut().unwrap().config["cleanUrls"] = json!(true);
     assert_ne!(
-        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory)
-            .unwrap()
-            .replaced_fingerprint
-            .unwrap(),
+        hosting::deployment_view(
+            &content,
+            "demo-remote-1",
+            ID,
+            &inventory,
+            "demo-remote-1",
+            None,
+            true
+        )
+        .unwrap()
+        .replaced_fingerprint
+        .unwrap(),
         fingerprint
     );
 }
@@ -326,13 +384,30 @@ fn matching_labels_do_not_adopt_an_edited_release_and_foreign_order_is_canonical
             config: content.config().clone(),
         }),
     };
-    let first = hosting::deployment_view(&content, "demo-remote-1", ID, &inventory).unwrap();
+    let first = hosting::deployment_view(
+        &content,
+        "demo-remote-1",
+        ID,
+        &inventory,
+        "demo-remote-1",
+        None,
+        true,
+    )
+    .unwrap();
     assert_eq!(first.replaces, "foreign");
     inventory.live.as_mut().unwrap().files.reverse();
     assert_eq!(
-        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory)
-            .unwrap()
-            .replaced_fingerprint,
+        hosting::deployment_view(
+            &content,
+            "demo-remote-1",
+            ID,
+            &inventory,
+            "demo-remote-1",
+            None,
+            true
+        )
+        .unwrap()
+        .replaced_fingerprint,
         first.replaced_fingerprint
     );
 }
@@ -516,9 +591,17 @@ fn unassociated_foreign_apps_are_not_selected_and_recorded_identity_must_remain_
         live: None,
     };
     assert!(
-        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory)
-            .unwrap()
-            .create_web_app
+        hosting::deployment_view(
+            &content,
+            "demo-remote-1",
+            ID,
+            &inventory,
+            "demo-remote-1",
+            None,
+            true
+        )
+        .unwrap()
+        .create_web_app
     );
     inventory.web_apps.push(hosting::HostingWebApp {
         id: "mine".into(),
@@ -526,27 +609,45 @@ fn unassociated_foreign_apps_are_not_selected_and_recorded_identity_must_remain_
         state: "ACTIVE".into(),
     });
     assert_eq!(
-        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory)
-            .unwrap()
-            .web_app
-            .as_deref(),
-        Some("mine")
-    );
-    assert_eq!(
-        hosting::deployment_view_for_app(
+        hosting::deployment_view(
             &content,
             "demo-remote-1",
             ID,
             &inventory,
-            Some("missing")
+            "demo-remote-1",
+            None,
+            true
+        )
+        .unwrap()
+        .web_app
+        .as_deref(),
+        Some("mine")
+    );
+    assert_eq!(
+        hosting::deployment_view(
+            &content,
+            "demo-remote-1",
+            ID,
+            &inventory,
+            "demo-remote-1",
+            Some("missing"),
+            true
         )
         .unwrap_err(),
         HostingRefusal::WebAppSelection
     );
     inventory.web_apps[1].state = "DELETED".into();
     assert_eq!(
-        hosting::deployment_view_for_app(&content, "demo-remote-1", ID, &inventory, Some("mine"))
-            .unwrap_err(),
+        hosting::deployment_view(
+            &content,
+            "demo-remote-1",
+            ID,
+            &inventory,
+            "demo-remote-1",
+            Some("mine"),
+            true
+        )
+        .unwrap_err(),
         HostingRefusal::WebAppSelection
     );
 }
@@ -573,12 +674,29 @@ fn site_association_selects_only_an_active_same_project_public_config_and_never_
         ],
         live: None,
     };
-    let chosen = hosting::deployment_view(&content, "demo-remote-1", ID, &inventory).unwrap();
+    let chosen = hosting::deployment_view(
+        &content,
+        "demo-remote-1",
+        ID,
+        &inventory,
+        "demo-remote-1",
+        None,
+        true,
+    )
+    .unwrap();
     assert_eq!(chosen.web_app.as_deref(), Some("associated"));
     assert!(!chosen.create_web_app && !chosen.configure_site);
     assert_eq!(
-        hosting::deployment_view_for_app(&content, "demo-remote-1", ID, &inventory, Some("named"))
-            .unwrap_err(),
+        hosting::deployment_view(
+            &content,
+            "demo-remote-1",
+            ID,
+            &inventory,
+            "demo-remote-1",
+            Some("named"),
+            true
+        )
+        .unwrap_err(),
         HostingRefusal::WebAppSelection
     );
     for (field, value) in [
@@ -590,7 +708,16 @@ fn site_association_selects_only_an_active_same_project_public_config_and_never_
         let original = inventory.site_app_config.clone();
         inventory.site_app_config.as_mut().unwrap()[field] = json!(value);
         assert_eq!(
-            hosting::deployment_view(&content, "demo-remote-1", ID, &inventory).unwrap_err(),
+            hosting::deployment_view(
+                &content,
+                "demo-remote-1",
+                ID,
+                &inventory,
+                "demo-remote-1",
+                None,
+                true
+            )
+            .unwrap_err(),
             HostingRefusal::WebAppSelection
         );
         inventory.site_app_config = original;
@@ -600,33 +727,71 @@ fn site_association_selects_only_an_active_same_project_public_config_and_never_
     non_ascii_app.web_apps[0].id = "app-\u{e9}".into();
     non_ascii_app.site_app_config = Some(config("app-\u{e9}"));
     assert_eq!(
-        hosting::deployment_view(&content, "demo-remote-1", ID, &non_ascii_app).unwrap_err(),
+        hosting::deployment_view(
+            &content,
+            "demo-remote-1",
+            ID,
+            &non_ascii_app,
+            "demo-remote-1",
+            None,
+            true
+        )
+        .unwrap_err(),
         HostingRefusal::WebAppSelection
     );
     inventory.web_apps[0].state = "DELETED".into();
     assert_eq!(
-        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory).unwrap_err(),
+        hosting::deployment_view(
+            &content,
+            "demo-remote-1",
+            ID,
+            &inventory,
+            "demo-remote-1",
+            None,
+            true
+        )
+        .unwrap_err(),
         HostingRefusal::WebAppSelection
     );
     inventory.web_apps[0].state = "ACTIVE".into();
     inventory.site_app_id = None;
     inventory.site_app_config = None;
-    let named = hosting::deployment_view(&content, "demo-remote-1", ID, &inventory).unwrap();
-    assert_eq!(named.web_app.as_deref(), Some("named"));
-    assert!(named.configure_site);
-    let recorded = hosting::deployment_view_for_app(
+    let named = hosting::deployment_view(
         &content,
         "demo-remote-1",
         ID,
         &inventory,
+        "demo-remote-1",
+        None,
+        true,
+    )
+    .unwrap();
+    assert_eq!(named.web_app.as_deref(), Some("named"));
+    assert!(named.configure_site);
+    let recorded = hosting::deployment_view(
+        &content,
+        "demo-remote-1",
+        ID,
+        &inventory,
+        "demo-remote-1",
         Some("associated"),
+        true,
     )
     .unwrap();
     assert_eq!(recorded.web_app.as_deref(), Some("associated"));
     assert!(recorded.configure_site);
     inventory.web_apps[0].display_name = hosting::app_name(ID);
     assert_eq!(
-        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory).unwrap_err(),
+        hosting::deployment_view(
+            &content,
+            "demo-remote-1",
+            ID,
+            &inventory,
+            "demo-remote-1",
+            None,
+            true
+        )
+        .unwrap_err(),
         HostingRefusal::WebAppSelection
     );
 }
