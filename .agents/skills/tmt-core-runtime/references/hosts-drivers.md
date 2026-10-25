@@ -313,6 +313,11 @@ stream its terminal yet.
 - **Tests** run real pseudo-terminals with `sh` programs, in process
   (`tmt-adapters/src/pty/tests.rs`) and as a process (`tmt-cli/tests/pty_supervisor.rs`:
   terminal ownership, SIGKILL hang-up and restart, second supervisor, refused starts).
+  `tmt-cli/tests/pty_host.rs` drives the public CLI with a `PATH` that has no tmux; its
+  `pty_host/e2e.rs` story runs two replying members through talk, attach and detach, then
+  loses one supervisor: the other member keeps answering, the lost one reads offline and
+  queues a new request without any replay, and a member that exits on its own removes its
+  socket and lock. The resume leg is the separate `#[ignore]`d test quarantined for #4767.
 
 ## Agent drivers
 

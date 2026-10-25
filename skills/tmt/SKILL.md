@@ -898,7 +898,10 @@ selected message channel cannot take initial handoff input, use the error's
 TMT records the owned command's exit and keeps its remembered session. A foreground
 launch returns the command's status, or 128 plus a terminating signal number; a
 built-in background launch returns startup confirmation. Its supervisor ends when
-the owned launcher exits, so its binding can become offline. It reaps only
+the owned launcher exits, so its binding can become offline. A supervisor that is
+killed takes its program with it: `tmt ls` shows the member offline, `check` refuses
+it as not active, and a new `talk` queues for its inbox instead of pasting anywhere;
+other built-in members are unaffected. It reaps only
 its direct child; harness-created background processes are the harness's
 responsibility. Killing TMT with SIGKILL cannot guarantee child cleanup. A live
 child whose launch owner is lost is Unknown and is not a verified input target.
