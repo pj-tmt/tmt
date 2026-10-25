@@ -84,7 +84,8 @@ unchanged recovery. Due attempts read topology once and publish only changed
 recovery content. All errors are advisory to the admitted event.
 
 `workspace.capture` is the public, recorded-socket-only backstop port; its strict
-input, aggregate budget, bounded counts and native fences live in the
+input, aggregate budget, bounded counts, per-record `reasons` (an unpublished record
+always names why, so a failed attempt is never silent) and native fences live in the
 [contract](../../../../contracts/workspace-v1.md#capture-triggers-and-public-backstop).
 An optional Ops minute consumer uses its own existing cancellation lifecycle;
 Core installs no tmux hooks, scheduled jobs or background owner. Pure reads still
