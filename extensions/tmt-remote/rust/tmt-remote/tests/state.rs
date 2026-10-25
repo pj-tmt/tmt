@@ -364,7 +364,7 @@ fn schema5(root: &Root, prefix: &str) -> Layout {
         )
         .unwrap();
     connection.execute_batch("INSERT INTO door_port VALUES (1, 12345);
-        INSERT INTO grants VALUES ('00000000-0000-4000-8000-000000000002', zeroblob(32), 'browser',
+        INSERT INTO grants VALUES ('client', zeroblob(32), 'browser',
         'http://127.0.0.1:12345', 'Legacy browser', 'all', 'agents.read talk', 'direct', 1, NULL, 1, 0);").unwrap();
     layout
 }
@@ -386,7 +386,7 @@ fn schema6_changes_only_the_prefix_once_and_preserves_origin_bound_grants() {
     assert_eq!(migrated.remembered_port().unwrap(), Some(12345));
     let grants = migrated.grants().unwrap();
     assert_eq!(grants.len(), 1);
-    assert_eq!(grants[0].client_id, "00000000-0000-4000-8000-000000000002");
+    assert_eq!(grants[0].client_id, "client");
     assert_eq!(grants[0].origin, "http://127.0.0.1:12345");
     assert_eq!(grants[0].name, "Legacy browser");
     assert_eq!(grants[0].revision, 1);

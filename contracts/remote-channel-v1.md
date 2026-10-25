@@ -755,7 +755,8 @@ grants. `members(remote_id, member_id, role, display_name, sending_enabled, revi
 created_at_ms, revoked_at_ms)` has primary key `(remote_id, member_id)`;
 `member_machines(remote_id, client_id, member_id, associated_at_ms)` has primary key
 `(remote_id, client_id)` and foreign keys to that member and `grants.client_id`.
-IDs are canonical UUIDs. `remote_id` is the verified native machine UUID, never an
+New IDs are canonical UUIDs; migration preserves each legacy `client_id` verbatim as its `member_id`.
+`remote_id` is the verified native machine UUID, never an
 alias, project name or provider uid. Role is exactly `owner|user`, sending is a
 boolean, and effective policy changes advance the member revision.
 

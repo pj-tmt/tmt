@@ -103,9 +103,6 @@ pub(crate) fn migrate_legacy(c: &Connection) -> Result<()> {
     sync_designation(c)
 }
 pub(crate) fn insert_mapping(c: &Connection, g: &Grant) -> Result<()> {
-    if !canonical::is_core_id(&g.client_id) {
-        return Err(database("invalid grant identity for member association"));
-    }
     let remote = machine_in(c)?.id;
     c.execute(
         "INSERT INTO members VALUES(?1,?2,'user',?3,?4,1,?5,?6)",

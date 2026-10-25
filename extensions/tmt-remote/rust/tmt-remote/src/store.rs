@@ -835,6 +835,9 @@ impl Store {
     }
 }
 pub(crate) fn insert_grant_in(connection: &Connection, grant: &Grant) -> Result<(), RemoteError> {
+    if !crate::canonical::is_core_id(&grant.client_id) {
+        return Err(database("invalid grant identity for member association"));
+    }
     let millis = |value: u64| {
         i64::try_from(value)
             .ok()

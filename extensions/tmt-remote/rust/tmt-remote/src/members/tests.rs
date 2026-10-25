@@ -342,7 +342,7 @@ fn frozen_schema13_preserves_grants_receipts_designation_and_migrates_once() {
         .unwrap();
     let remote = "10000000-0000-4000-8000-000000000001";
     let a = "20000000-0000-4000-8000-000000000002";
-    let b = "30000000-0000-4000-8000-000000000003";
+    let b = "client";
     c.execute(
         "INSERT INTO machine VALUES(1,?1,'/r/aaaaaaaaaaaaaaaa')",
         [remote],
@@ -425,6 +425,56 @@ fn frozen_schema13_preserves_grants_receipts_designation_and_migrates_once() {
         )
         .unwrap();
     assert_eq!(receipt, [0x12, 0x34]);
+    let legacy = f.store.member_for_client(b).unwrap().unwrap();
+    assert_eq!(legacy.member_id, b);
+    let off = f
+        .store
+        .set_member_sending(Owner::LocalOwner, b, legacy.revision, false, 10)
+        .unwrap();
+    assert!(!off.member.sending_enabled);
+    assert_eq!(off.clients, [b]);
+    assert!(!f.store.grant(b).unwrap().unwrap().permits_scope("talk"));
+    let revoked = f
+        .store
+        .revoke_member(Owner::LocalOwner, b, off.member.revision, 11)
+        .unwrap();
+    assert_eq!(revoked.member.revoked_at_ms, Some(11));
+    assert_eq!(revoked.clients, [b]);
+    assert!(f.store.grant(b).unwrap().unwrap().disabled);
+    let route: (bool, bool) = f
+        .store
+        .connection
+        .query_row(
+            "SELECT revoked,pending FROM cloud_peer_routes WHERE client_id=?1",
+            [b],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(route, (true, true));
+    f.reopen();
+    assert_eq!(f.store.member_for_client(b).unwrap(), Some(revoked.member));
+    assert!(f.store.grant(b).unwrap().unwrap().disabled);
+}
+
+#[test]
+fn new_grants_and_confirmation_reject_noncanonical_ids_without_writing() {
+    let mut f = Fixture::new();
+    let mut g = f.grant("Existing", true);
+    g.client_id = "client".into();
+    g.public_key = [19; 32];
+    let grants = f.store.grants().unwrap();
+    let members = f.store.members().unwrap();
+    assert_eq!(
+        f.store.insert_grant(&g).unwrap_err().code,
+        "REMOTE_STATE_UNAVAILABLE"
+    );
+    assert_eq!(
+        f.store.confirm_member_grant(&g).unwrap_err().code,
+        "REMOTE_STATE_UNAVAILABLE"
+    );
+    assert_eq!(f.store.grants().unwrap(), grants);
+    assert_eq!(f.store.members().unwrap(), members);
+    assert!(f.store.member_for_client("client").unwrap().is_none());
 }
 
 #[test]
