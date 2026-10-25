@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/dev-extension.mdx
-sourceRevision: 402559a20a1a14ad69427e0e929ca8267b56cbaf
+sourceRevision: 9fdca28ea65858f365cd3a6839a81bb14aee9446
 title: 拡張機能を作る
 ---
 
@@ -51,7 +51,7 @@ $ tmt help hello          # 実行：tmt-hello --help
 tmt のデータベースを直接開かないでください。ほかのプログラムと同じ入口を使います。
 
 - **通常のコマンドに `--json` を付けます。** `whoami`、`identity show`、`list`、`room show`、`x`、`reply`、`result` など、人も実行する操作に使います。
-- **プログラム向けの操作には `tmt api` を使います。** バージョン付きの JSON リクエストを標準入力に1つ渡し、JSON 応答を標準出力から1つ受け取ります。完全な契約は [contracts/extension-api.md](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md) にあります。
+- **プログラム向けの操作には `tmt api` を使います。** バージョン付きの JSON リクエストを標準入力に1つ渡し、JSON 応答を標準出力から1つ受け取ります。完全な契約は [contracts/extension-api.md](https://github.com/tmt-ninja/tmt/blob/main/contracts/extension-api.md) にあります。
 
 <Cmd>{`
 $ printf '%s' '{"version":1,"operation":"capabilities","input":{}}' | "$TMT_EXECUTABLE" api
@@ -104,4 +104,4 @@ $ tmt extension hooks disable hello
 
 有効にするには、ユーザーが所有し、ファイルにもそのディレクトリにも他人の書き込み権限がない実行ファイルが必要です。そのファイル自体を登録するため、更新や変更の後はユーザーが再び有効にします。コマンドの変更が確定した後、tmt は `tmt-<name> __tmt-hooks 1 observe` を実行し、identity や room の作成、名前変更、廃止のイベントを JSON で標準入力に渡します。hook が受け取るのは ID と状態だけで、名前やメッセージは渡しません。コマンドを妨げたり変更したりすることもできません。イベントは取りこぼしや重複があるため、再確認のきっかけとして扱ってください。
 
-hook を有効にした拡張機能は、最大240文字の情報提供用の1行を、`tmt whoami --context` とセッション開始時のコンテキストに追加できます。`tmt setup` で prompt hook を入れた後は、各プロンプトのコンテキストにも追加できます。tmt は拡張機能名と `(informational)` を添えるので、指示の形で書かないでください。イベントとフィールドの契約は [contracts/extension-api.md](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md) にあります。
+hook を有効にした拡張機能は、最大240文字の情報提供用の1行を、`tmt whoami --context` とセッション開始時のコンテキストに追加できます。`tmt setup` で prompt hook を入れた後は、各プロンプトのコンテキストにも追加できます。tmt は拡張機能名と `(informational)` を添えるので、指示の形で書かないでください。イベントとフィールドの契約は [contracts/extension-api.md](https://github.com/tmt-ninja/tmt/blob/main/contracts/extension-api.md) にあります。
