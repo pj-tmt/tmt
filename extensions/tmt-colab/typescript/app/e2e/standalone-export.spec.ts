@@ -237,3 +237,25 @@ for (const kind of ['unpainted', 'painted'] as const)
       expect(requests.filter((url) => !url.startsWith('file:'))).toEqual([]);
       await context.close();
     });
+
+test('a design-system copy follows the system theme live, and one the author paints stays as painted', async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ colorScheme: 'light', offline: true });
+  const unpainted = await context.newPage();
+  await unpainted.goto(pathToFileURL(designCopies.unpainted).href);
+  await expect(unpainted.locator('html')).toHaveAttribute('data-colab-scheme', 'light');
+  const painted = await context.newPage();
+  await painted.goto(pathToFileURL(designCopies.painted).href);
+  await expect(painted.locator('html')).toHaveAttribute('data-colab-scheme', 'light');
+  for (const scheme of ['dark', 'light', 'dark'] as const) {
+    await unpainted.emulateMedia({ colorScheme: scheme });
+    await painted.emulateMedia({ colorScheme: scheme });
+    // The scheme measured earlier must not keep painting the page in itself.
+    await expect(unpainted.locator('html')).toHaveAttribute('data-colab-scheme', scheme);
+    await expect(unpainted.locator('body')).toHaveCSS('background-color', surface('paper', scheme));
+    await expect(painted.locator('html')).toHaveAttribute('data-theme', scheme);
+    await expect(painted.locator('html')).toHaveAttribute('data-colab-scheme', 'light');
+  }
+  await context.close();
+});

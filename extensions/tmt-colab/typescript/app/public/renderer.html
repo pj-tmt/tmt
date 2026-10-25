@@ -215,6 +215,9 @@
           // the frame does.
           // BEGIN PAGE SCHEME
           function paintedScheme(swatch) {
+            // Measure under the viewer's tokens: a scheme measured earlier would keep painting the page in
+            // itself, so a page painted by the frame could never follow a change of theme.
+            document.documentElement.removeAttribute('data-colab-scheme');
             const fills = [document.documentElement, document.body].map((node) => {
               swatch.clearRect(0, 0, 1, 1);
               swatch.fillStyle = '#000';

@@ -2580,7 +2580,9 @@ paints only one of paper and ink paints the other. The same pages take the schem
 viewer's: the frame's paint measurement (the one behind the parent's card scheme, #4081) also writes
 `data-colab-scheme` (`light` or `dark`) on the root, and the design tokens and the frame's annotation
 roles follow it, so a page that paints its own light body under a dark viewer gets light components on it;
-a page that paints nothing is painted by the frame and measures as the viewer's scheme. Any other page
+a page that paints nothing is painted by the frame and measures as the viewer's scheme. Each
+measurement drops the root's own `data-colab-scheme` first, so it reads the page under the tokens of
+`data-theme`, and a page the frame paints follows a change of theme in either direction. Any other page
 keeps the white canvas in both themes (#2267, #4081).
 The same bootstrap defines the `tmt-icon` element: `name` names one of the Lucide icons the page
 runtime lists (lowercase kebab-case), drawn as inline SVG at 16 px with stroke 1.75 and square caps,
