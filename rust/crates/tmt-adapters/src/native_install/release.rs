@@ -8,15 +8,29 @@ use semver::Version;
 use serde_json::Value;
 use std::{collections::BTreeMap, io, time::Instant};
 use tmt_core::content_digest::{is_sha256, sha256};
-use tmt_core::native_install::Channel;
+use tmt_core::native_install::{Channel, OFFICIAL_REPOSITORY, PREVIOUS_REPOSITORY};
 
-const INDEX_BASE: &str = "https://raw.githubusercontent.com/pj-tmt/tmt/release-index/";
-const RELEASE_BASE: &str = "https://github.com/pj-tmt/tmt/releases/download/";
 const POINTER_LIMIT: usize = 16 * 1024;
 const RECORD_LIMIT: usize = 256 * 1024;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const MANIFEST_NAME: &str = "dist-manifest.json";
 const RECORD_NAME: &str = "tmt-release-record.json";
+fn index_url(repository: &str, path: &str) -> String {
+    format!("https://raw.githubusercontent.com/{repository}/release-index/{path}")
+}
+fn release_url(repository: &str, path: &str) -> String {
+    format!("https://github.com/{repository}/releases/download/{path}")
+}
+
+/// The official URL for `claimed` when it names the same file under the official repository or,
+/// for records published before the rename, under the previous one. Bytes are always fetched
+/// from the official URL and checked against the record's size and SHA-256.
+fn official_url(claimed: &Value, url: &dyn Fn(&str) -> String) -> Option<String> {
+    let official = url(OFFICIAL_REPOSITORY);
+    (*claimed == official.as_str() || *claimed == url(PREVIOUS_REPOSITORY).as_str())
+        .then_some(official)
+}
+
 const TARGETS: [&str; 4] = [
     "aarch64-apple-darwin",
     "aarch64-unknown-linux-musl",
@@ -200,7 +214,7 @@ fn selected_record(
     if let Some(version) = exact {
         canonical_version(&version.to_string())?;
         let tag = format!("{}{version}", product.tag_prefix());
-        let response = get(&format!("{RELEASE_BASE}{tag}/{RECORD_NAME}"), "application/json", RECORD_LIMIT, deadline)
+        let response = get(&release_url(OFFICIAL_REPOSITORY, &format!("{tag}/{RECORD_NAME}")), "application/json", RECORD_LIMIT, deadline)
             .map_err(|error| {
                 if error.kind() == io::ErrorKind::NotFound {
                     io::Error::new(error.kind(), format!("{tag} cannot be installed directly. Omit --to to get the latest release. Nothing was changed."))
@@ -227,10 +241,9 @@ pub(super) fn discover_latest(
             return Err(invalid("Published release channel required."));
         }
         let pointer = get(
-            &format!(
-                "{INDEX_BASE}channels/{}/{}.json",
-                product.as_str(),
-                channel.as_str()
+            &index_url(
+                OFFICIAL_REPOSITORY,
+                &format!("channels/{}/{}.json", product.as_str(), channel.as_str()),
             ),
             "application/json",
             POINTER_LIMIT,
@@ -245,14 +258,20 @@ pub(super) fn discover_latest(
             return Err(invalid("Release index channel mismatch."));
         }
         let tag = format!("{}{version}", product.tag_prefix());
-        let url = pointer["record"]["url"]
-            .as_str()
-            .ok_or_else(|| invalid("Release index record URL missing."))?;
-        if url != format!("{RELEASE_BASE}{tag}/{RECORD_NAME}")
-            && url != format!("{INDEX_BASE}records/{tag}.json")
-        {
-            return Err(invalid("Release index record URL mismatch."));
+        let url = &pointer["record"]["url"];
+        if url.as_str().is_none() {
+            return Err(invalid("Release index record URL missing."));
         }
+        let by_release =
+            |repository: &str| release_url(repository, &format!("{tag}/{RECORD_NAME}"));
+        let by_index = |repository: &str| index_url(repository, &format!("records/{tag}.json"));
+        let url: &dyn Fn(&str) -> String = if official_url(url, &by_release).is_some() {
+            &by_release
+        } else if official_url(url, &by_index).is_some() {
+            &by_index
+        } else {
+            return Err(invalid("Release index record URL mismatch."));
+        };
         let descriptor = descriptor(&pointer["record"], RECORD_NAME, url, RECORD_LIMIT)?;
         let bytes = fetch_asset(&descriptor, RECORD_LIMIT, deadline, get)?;
         let record = parse_record(&bytes, product, channel, Some(&version))?;
@@ -321,7 +340,12 @@ fn identity(value: &Value, product: super::Product, channel: Channel) -> io::Res
     Ok(version)
 }
 
-fn descriptor(value: &Value, name: &str, url: &str, maximum: usize) -> io::Result<Asset> {
+fn descriptor(
+    value: &Value,
+    name: &str,
+    url: &dyn Fn(&str) -> String,
+    maximum: usize,
+) -> io::Result<Asset> {
     let size = value["size"]
         .as_u64()
         .filter(|size| *size > 0 && *size <= maximum as u64)
@@ -331,12 +355,12 @@ fn descriptor(value: &Value, name: &str, url: &str, maximum: usize) -> io::Resul
         .as_str()
         .filter(|hash| is_sha256(hash))
         .ok_or_else(|| invalid("Release index requires SHA-256."))?;
-    if !value.is_object() || value["url"] != url {
-        return Err(invalid("Release index asset URL mismatch."));
-    }
+    let url = official_url(&value["url"], url)
+        .filter(|_| value.is_object())
+        .ok_or_else(|| invalid("Release index asset URL mismatch."))?;
     Ok(Asset {
         name: name.into(),
-        url: url.into(),
+        url,
         size,
         digest: digest.into(),
     })
@@ -371,7 +395,12 @@ fn parse_record(
         if value["name"] != name {
             return Err(invalid("Release index asset name mismatch."));
         }
-        descriptor(value, name, &format!("{RELEASE_BASE}{tag}/{name}"), limit)
+        descriptor(
+            value,
+            name,
+            &|repository| release_url(repository, &format!("{tag}/{name}")),
+            limit,
+        )
     };
     let manifest = asset(&record["manifest"], MANIFEST_NAME, artifact::MANIFEST_LIMIT)?;
     let entries = record["archives"]
@@ -404,7 +433,7 @@ fn fetch_asset(
     deadline: Instant,
     get: &mut impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
 ) -> io::Result<Vec<u8>> {
-    let host = if asset.url.starts_with(INDEX_BASE) {
+    let host = if asset.url.starts_with(&index_url(OFFICIAL_REPOSITORY, "")) {
         "raw.githubusercontent.com"
     } else {
         "github.com"

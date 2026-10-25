@@ -65,9 +65,10 @@ use std::{
     io,
     path::{Path, PathBuf},
 };
-use tmt_core::native_install::{Channel, PinAction, PrVersionContext, plan_candidate_version};
-
-const OFFICIAL_REPOSITORY: &str = "pj-tmt/tmt";
+use tmt_core::native_install::{
+    Channel, OFFICIAL_REPOSITORY, PREVIOUS_REPOSITORY, PinAction, PrVersionContext,
+    plan_candidate_version,
+};
 
 /// Model-free schema export for the reviewed publisher. The supplied source
 /// identity must be verified against every compiled source digest by that owner.
@@ -99,13 +100,21 @@ pub fn compiled_application_schema(source_sha: &str) -> io::Result<serde_json::V
     record.validate("cli", source_sha)?;
     serde_json::to_value(record).map_err(io::Error::other)
 }
-/// The former organization name retained in historical receipt provenance.
+/// An older organization name retained in historical release receipt provenance.
 /// Read-only compatibility: lookups and new receipts use the current repository.
 const LEGACY_REPOSITORIES: [&str; 1] = ["wkh237/tmt"];
 
-/// Accept only this repository's current and historical receipt provenance.
+/// The names a PR receipt or catalog may carry: the current repository, and the previous one for
+/// candidates and receipts written before the rename.
+fn current_or_previous_repository(recorded: &str) -> bool {
+    recorded == OFFICIAL_REPOSITORY || recorded == PREVIOUS_REPOSITORY
+}
+
+/// Accept only this repository's current and historical release receipt provenance.
 fn official_repository(recorded: &serde_json::Value) -> bool {
-    recorded == OFFICIAL_REPOSITORY || LEGACY_REPOSITORIES.iter().any(|name| recorded == *name)
+    recorded.as_str().is_some_and(|name| {
+        current_or_previous_repository(name) || LEGACY_REPOSITORIES.contains(&name)
+    })
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

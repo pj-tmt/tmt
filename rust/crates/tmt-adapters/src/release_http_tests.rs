@@ -552,7 +552,7 @@ fn request_errors_retain_causes_without_echoing_rejected_credentials() {
 #[test]
 fn metadata_response_preserves_pagination_evidence_over_real_tls() {
     let (config, certificate) = tls_material();
-    let link = "<https://api.github.com/repos/pj-tmt/tmt/git/matching-refs/tags/v?per_page=100&page=2>; rel=\"next\"";
+    let link = "<https://api.github.com/repos/tmt-ninja/tmt/git/matching-refs/tags/v?per_page=100&page=2>; rel=\"next\"";
     let server = TestServer::spawn(
         config,
         Response {
@@ -790,7 +790,7 @@ fn actions_download_requires_auth_and_never_forwards_it_to_signed_blob_redirects
         ),
         Response::ok("zip"),
     ]);
-    let url = "https://api.github.com/repos/pj-tmt/tmt/actions/artifacts/42/zip";
+    let url = "https://api.github.com/repos/tmt-ninja/tmt/actions/artifacts/42/zip";
     assert!(
         client
             .get_actions(url, 64, Instant::now() + Duration::from_secs(1))

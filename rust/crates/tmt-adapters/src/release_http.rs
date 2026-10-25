@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use tmt_core::native_install::OFFICIAL_REPOSITORY;
 use ureq::{
     Agent,
     http::{StatusCode, Uri},
@@ -179,7 +180,7 @@ impl Https {
             || !is_api(&initial)
             || !initial
                 .path()
-                .starts_with("/repos/pj-tmt/tmt/actions/artifacts/")
+                .starts_with(&format!("/repos/{OFFICIAL_REPOSITORY}/actions/artifacts/"))
             || !initial.path().ends_with("/zip")
             || initial.query().is_some()
         {

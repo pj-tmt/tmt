@@ -41,7 +41,7 @@ malformed probe prevents installation. Public upgrade reports
 `NATIVE_UPGRADE_INSTALLER_UNSUPPORTED` with this message:
 
 ```text
-This release needs a newer installer: rerun install.sh with: curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh
+This release needs a newer installer: rerun install.sh with: curl -fsSL https://github.com/tmt-ninja/tmt/releases/latest/download/install.sh | sh
 ```
 
 Already-published binaries without this handoff retain their original errors.

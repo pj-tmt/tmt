@@ -35,6 +35,17 @@ fn frozen_wire_revision_two_parses_without_registering_synthetic_authority() {
 }
 
 #[test]
+fn a_catalog_names_the_current_or_the_previous_repository() {
+    let original: Value = serde_json::from_slice(FIXTURE).unwrap();
+    for repository in ["tmt-ninja/tmt", "pj-tmt/tmt"] {
+        let mut catalog = original.clone();
+        catalog["repository"] = repository.into();
+        parse(&serde_json::to_vec(&catalog).unwrap())
+            .unwrap_or_else(|error| panic!("{repository}: {error}"));
+    }
+}
+
+#[test]
 fn catalog_refuses_wrong_source_trust_schema_and_incomplete_generations() {
     let original: Value = serde_json::from_slice(FIXTURE).unwrap();
     for (pointer, replacement) in [

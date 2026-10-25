@@ -1,7 +1,7 @@
 //! Bounded authenticated Actions acquisition; remote JSON cannot approve a writer.
 
 use super::{
-    OFFICIAL_REPOSITORY, Product, artifact, invalid, pr_catalog as wire, pr_json,
+    Product, artifact, invalid, pr_catalog as wire, pr_json,
     pr_receipt::{Admission, PrProvenance},
     pr_zip,
     receipt::Provenance,
@@ -10,9 +10,11 @@ use super::{
 use crate::release_http::Response;
 use serde_json::Value;
 use std::{collections::BTreeSet, io, time::Instant};
-use tmt_core::native_install::{Channel, PrNumber};
+use tmt_core::native_install::{Channel, OFFICIAL_REPOSITORY, PrNumber};
 
-const ROOT: &str = "https://api.github.com/repos/pj-tmt/tmt";
+fn api_root() -> String {
+    format!("https://api.github.com/repos/{OFFICIAL_REPOSITORY}")
+}
 const METADATA_LIMIT: usize = 2 * 1024 * 1024;
 
 // Official pr-rc.yml identity; protected main owns reviewed producer changes.
@@ -50,7 +52,7 @@ where
         }
         self.requests += 1;
         let response = (self.get)(
-            &format!("{ROOT}/{route}"),
+            &format!("{}/{route}", api_root()),
             "application/vnd.github+json",
             self.remaining,
             self.deadline,
@@ -77,7 +79,7 @@ where
             return Err(invalid("Actions artifact exceeds its ZIP bound."));
         }
         let bytes = (self.get)(
-            &format!("{ROOT}/actions/artifacts/{artifact_id}/zip"),
+            &format!("{}/actions/artifacts/{artifact_id}/zip", api_root()),
             "application/vnd.github+json",
             maximum,
             self.deadline,
@@ -591,9 +593,9 @@ fn resolve_observed(
         target,
         deadline,
         &mut |url, accept, maximum, deadline| {
-            if url.starts_with(ROOT) && accept == "application/vnd.github+json" {
+            if url.starts_with(&api_root()) && accept == "application/vnd.github+json" {
                 api.metadata(
-                    url.strip_prefix(&format!("{ROOT}/"))
+                    url.strip_prefix(&format!("{}/", api_root()))
                         .ok_or_else(|| invalid("Invalid alpha API route."))?,
                 )
                 .map(|(_, body)| Response { body, link: None })

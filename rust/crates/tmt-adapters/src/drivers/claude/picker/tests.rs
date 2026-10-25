@@ -27,7 +27,7 @@ const WITH_PICKER: &str = r#"[
 ]"#;
 const WITHOUT_PICKER: &str = r#"[{"id":"other@market","scope":"user","enabled":true}]"#;
 
-fn hint(output: Result<&'static str, crate::process::CommandError>) -> Option<&'static str> {
+fn hint(output: Result<&'static str, crate::process::CommandError>) -> Option<String> {
     let directory = TestDirectory::new();
     let environment = environment_with_claude(&directory);
     let runner = ScriptedRunner::new([output]);
@@ -48,9 +48,14 @@ fn an_installed_picker_stays_silent() {
 
 #[test]
 fn a_missing_picker_gets_the_one_install_line() {
-    assert_eq!(hint(Ok(WITHOUT_PICKER)), Some(MISSING_HINT));
-    assert_eq!(hint(Ok("[]")), Some(MISSING_HINT));
-    assert_eq!(MISSING_HINT.lines().count(), 1);
+    assert_eq!(hint(Ok(WITHOUT_PICKER)), Some(missing_hint_line()));
+    assert_eq!(hint(Ok("[]")), Some(missing_hint_line()));
+    assert_eq!(missing_hint_line().lines().count(), 1);
+    assert!(
+        missing_hint_line().contains("claude plugin marketplace add tmt-ninja/tmt &&"),
+        "{}",
+        missing_hint_line()
+    );
 }
 
 #[test]
@@ -62,7 +67,7 @@ fn the_picker_from_any_marketplace_counts_as_installed() {
     // The prefix is the plugin name, not a substring of another plugin's id.
     assert_eq!(
         hint(Ok(r#"[{"id":"not-tmt-picker@tmt"}]"#)),
-        Some(MISSING_HINT)
+        Some(missing_hint_line())
     );
 }
 

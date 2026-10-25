@@ -25,7 +25,7 @@ a published release or unproven local archive.
 
 ## Acquisition and eligibility
 
-Only same-repository, open PRs in `pj-tmt/tmt` are eligible. The exact `rc-build`
+Only same-repository, open PRs in `tmt-ninja/tmt` are eligible. The exact `rc-build`
 label must be present with the same numerical label ID as the catalog. A complete
 one-page issue timeline, at most 100 events, must prove a unique latest UTC-second
 `labeled` transition for that label; its ID/time must match the catalog's enable
@@ -33,6 +33,8 @@ epoch. Latest removal, remove/re-add, label recreation, ties, missing evidence,
 denied requests or pagination refuse. Manual dispatch produces one generation
 only after the operator explicitly adds the label; the producer never adds it.
 Disabling means removing the label. The installer never dispatches or edits labels.
+A catalog or receipt written before the organization rename names `pj-tmt/tmt` and is still
+accepted; the live pull request must report `tmt-ninja/tmt`.
 
 Authenticated Actions acquisition uses only nonempty `GH_TOKEN`, then `GITHUB_TOKEN`,
 from the invocation environment; never `gh auth token`, a keychain or a prompt.

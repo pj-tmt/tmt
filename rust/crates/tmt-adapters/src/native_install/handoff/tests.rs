@@ -251,7 +251,10 @@ fn unsupported_or_malformed_probe_never_calls_install_or_changes_current() {
         )
         .unwrap_err();
         assert!(error.get_ref().unwrap().is::<Unsupported>());
-        assert_eq!(error.to_string(), UNSUPPORTED);
+        assert_eq!(
+            error.to_string(),
+            "This release needs a newer installer: rerun install.sh with: curl -fsSL https://github.com/tmt-ninja/tmt/releases/latest/download/install.sh | sh"
+        );
         assert_eq!(*calls.borrow(), 1);
         assert_eq!(layout.current().unwrap().unwrap().id, old.id);
         assert_clean(&runner);

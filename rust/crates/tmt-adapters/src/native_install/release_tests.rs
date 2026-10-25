@@ -8,7 +8,7 @@ use std::{
 };
 use tar::{Builder, EntryType, Header};
 use tmt_core::content_digest::sha256;
-use tmt_core::native_install::{Channel, Product};
+use tmt_core::native_install::{Channel, OFFICIAL_REPOSITORY, PREVIOUS_REPOSITORY, Product};
 const TARGET: &str = "aarch64-apple-darwin";
 const MANIFEST_NAME: &str = "dist-manifest.json";
 /// Test-owned network recorder shared by normal release acquisition fixtures.
@@ -179,7 +179,7 @@ pub(in crate::native_install) fn indexed_routes(
     } else {
         "stable"
     };
-    let base = format!("{}{tag}/", super::RELEASE_BASE);
+    let base = super::release_url(OFFICIAL_REPOSITORY, &format!("{tag}/"));
     let descriptor = |name: &str, bytes: &[u8]| json!({"name":name,"url":format!("{base}{name}"),"size":bytes.len(),"sha256":sha256(bytes)});
     let mut archives = serde_json::Map::new();
     for target in super::TARGETS {
@@ -194,10 +194,9 @@ pub(in crate::native_install) fn indexed_routes(
         "record":{"url":record_url,"size":record.len(),"sha256":sha256(&record)}});
     let mut routes = BTreeMap::from([
         (
-            format!(
-                "{}channels/{}/{channel}.json",
-                super::INDEX_BASE,
-                product.as_str()
+            super::index_url(
+                OFFICIAL_REPOSITORY,
+                &format!("channels/{}/{channel}.json", product.as_str()),
             ),
             serde_json::to_vec(&pointer).unwrap(),
         ),
@@ -361,6 +360,45 @@ fn each_product_and_channel_reads_one_pointer_without_api_fallback() {
 }
 
 #[test]
+fn records_published_under_the_previous_name_are_accepted_and_fetched_from_the_official_one() {
+    let mut fixture = Fixture::new(Product::Cli, "1.2.4");
+    let record = fixture.record();
+    let renamed = String::from_utf8(fixture.routes[&record].clone())
+        .unwrap()
+        .replace(OFFICIAL_REPOSITORY, PREVIOUS_REPOSITORY);
+    assert!(renamed.contains(PREVIOUS_REPOSITORY) && !renamed.contains(OFFICIAL_REPOSITORY));
+    fixture.routes.insert(record, renamed.into_bytes());
+    let pointer = fixture.pointer();
+    fixture.change(&pointer, |value| {
+        let url = value["record"]["url"].as_str().unwrap();
+        value["record"]["url"] = url.replace(OFFICIAL_REPOSITORY, PREVIOUS_REPOSITORY).into();
+    });
+    fixture.rebind();
+    let release = fixture.run(Product::Cli, Channel::Stable, None).unwrap();
+    assert_eq!(release.version.to_string(), "1.2.4");
+    // The names in the record are accepted, but no byte is fetched from the previous one.
+    assert_eq!(fixture.calls.len(), 4, "{:?}", fixture.calls);
+    for url in &fixture.calls {
+        assert!(url.contains(OFFICIAL_REPOSITORY), "{url}");
+        assert!(!url.contains(PREVIOUS_REPOSITORY), "{url}");
+    }
+}
+
+#[test]
+fn a_record_naming_another_repository_is_refused_before_any_asset_is_fetched() {
+    let mut fixture = Fixture::new(Product::Cli, "1.2.4");
+    let record = fixture.record();
+    let foreign = String::from_utf8(fixture.routes[&record].clone())
+        .unwrap()
+        .replace(OFFICIAL_REPOSITORY, "other/tmt");
+    fixture.routes.insert(record, foreign.into_bytes());
+    fixture.rebind();
+    assert!(fixture.run(Product::Cli, Channel::Stable, None).is_err());
+    // Only the pointer and the record were read.
+    assert_eq!(fixture.calls.len(), 2, "{:?}", fixture.calls);
+}
+
+#[test]
 fn exact_version_reads_its_record_without_a_pointer() {
     let mut fixture = Fixture::new(Product::Cli, "1.2.4");
     fixture
@@ -485,9 +523,10 @@ fn pointer_identity_and_locations_fail_closed() {
         assert_eq!(fixture.calls.len(), 1);
     }
     for url in [
-        "https://api.github.com/repos/pj-tmt/tmt/releases/42",
+        "https://api.github.com/repos/tmt-ninja/tmt/releases/42",
         "https://raw.githubusercontent.com/other/repo/main/record.json",
-        "https://github.com/pj-tmt/tmt/releases/download/v1.2.5/tmt-release-record.json",
+        "https://github.com/tmt-ninja/tmt/releases/download/v1.2.5/tmt-release-record.json",
+        "https://github.com/other/tmt/releases/download/v1.2.4/tmt-release-record.json",
     ] {
         let mut fixture = Fixture::new(Product::Cli, "1.2.4");
         let pointer = fixture.pointer();
@@ -601,7 +640,7 @@ fn manifest_and_archive_bytes_remain_bound() {
 fn bootstrap_record_and_additive_fields_are_supported() {
     let mut fixture = Fixture::new(Product::Cli, "1.2.4");
     let record = fixture.record();
-    let url = format!("{}records/v1.2.4.json", super::INDEX_BASE);
+    let url = super::index_url(OFFICIAL_REPOSITORY, "records/v1.2.4.json");
     let bytes = fixture.routes.remove(&record).unwrap();
     fixture.routes.insert(url.clone(), bytes);
     let pointer = fixture.pointer();
