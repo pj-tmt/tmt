@@ -499,14 +499,19 @@ STANDALONE_THEME_SWITCH = ("(()=>{const q=matchMedia('(prefers-color-scheme: dar
                            "q.addEventListener('change',s)})()")
 
 
-def standalone_document(source, script, style):
-    return ('<!doctype html><html><head>'
+def standalone_document(source, runtime=None, design=None):
+    """The head holds, in order: the design style and the runtime's theme (the frame carries them in
+    that order), the theme switch, then the design script and the runtime script (#5057). A page that
+    needs only the runtime gets the same bytes as before the design system."""
+    return ('<!doctype html><html' + (' data-colab-design' if design else '') + '><head>'
             f'<meta http-equiv="Content-Security-Policy" content="{STANDALONE_POLICY}">'
             '<meta charset="utf-8">'
-            f'<style type="text/tailwindcss">{style}</style>'
-            f'<script>{STANDALONE_THEME_SWITCH}</script>'
-            f'<script>{script}</script>'
-            f'</head><body>{source}</body></html>')
+            + (f'<style>{design["style"]}</style>' if design else '')
+            + (f'<style type="text/tailwindcss">{runtime["style"]}</style>' if runtime else '')
+            + f'<script>{STANDALONE_THEME_SWITCH}</script>'
+            + (f'<script>{design["script"]}</script>' if design else '')
+            + (f'<script>{runtime["script"]}</script>' if runtime else '')
+            + f'</head><body>{source}</body></html>')
 
 
 def vector():
@@ -570,20 +575,37 @@ def vector():
     opted_source = ('<meta name="tmt-colab-runtime" content="react tailwind">\r\n'
                     "<p>λ 😀\u0000 & exact</p>")
     runtime = {"script": "window.tmt={};", "style": "@theme inline{}"}
-    copy = standalone_document(opted_source, runtime["script"], runtime["style"])
-    copy_info = dict(info("page.standalone.html", copy.encode("utf-8")), derivedFrom="page.html")
-    manifest_standalone = manifest_of([info("page.html", opted_source.encode("utf-8")), copy_info]
-                                      + conversation_files)
-    standalone = {
-        "source": opted_source,
-        "runtime": runtime,
-        "policy": STANDALONE_POLICY,
-        "themeSwitch": STANDALONE_THEME_SWITCH,
-        "fileUtf8": copy,
-        "fileSha256": hashlib.sha256(copy.encode("utf-8")).hexdigest(),
-        "manifestUtf8": manifest_standalone,
-        "manifestSha256": hashlib.sha256(manifest_standalone.encode("utf-8")).hexdigest(),
-    }
+    design = {"script": "window.ui={};", "style": "@layer tmt-ui{}"}
+
+    def standalone_case(source_text, runtime_text, design_text):
+        file_text = standalone_document(source_text, runtime_text, design_text)
+        file_info = dict(info("page.standalone.html", file_text.encode("utf-8")), derivedFrom="page.html")
+        manifest_text = manifest_of([info("page.html", source_text.encode("utf-8")), file_info]
+                                    + conversation_files)
+        case = {"source": source_text}
+        if runtime_text:
+            case["runtime"] = runtime_text
+        if design_text:
+            case["design"] = design_text
+        case.update({
+            "fileUtf8": file_text,
+            "fileSha256": hashlib.sha256(file_text.encode("utf-8")).hexdigest(),
+            "manifestUtf8": manifest_text,
+            "manifestSha256": hashlib.sha256(manifest_text.encode("utf-8")).hexdigest(),
+        })
+        return case
+
+    base = standalone_case(opted_source, runtime, None)
+    standalone = {"source": base["source"], "runtime": base["runtime"], "policy": STANDALONE_POLICY,
+                  "themeSwitch": STANDALONE_THEME_SWITCH,
+                  **{key: base[key] for key in ("fileUtf8", "fileSha256", "manifestUtf8", "manifestSha256")}}
+    # A page that uses the design system (#5057) gets its copy with the design style and script and no
+    # runtime unless it asks for one; a page that uses both gets both, in the frame's order.
+    design_source = '<section class="tmt-ui-card">λ 😀\u0000 & exact</section>'
+    both_source = ('<meta name="tmt-colab-runtime" content="react">\r\n'
+                   '<tmt-icon name="check"></tmt-icon><p>λ 😀\u0000 & exact</p>')
+    standalone_design = standalone_case(design_source, None, design)
+    standalone_both = standalone_case(both_source, runtime, design)
     return {
         "provenance": "Independent Python stdlib (UTF-8, hashlib SHA-256, compact JSON) with cryptography Ed25519 "
                       "over public RFC 8032 fixture seeds; export-reference.py. Unicode, control and bidi characters "
@@ -602,6 +624,8 @@ def vector():
         "manifestWorkUtf8": manifest_work,
         "manifestWorkSha256": hashlib.sha256(manifest_work.encode("utf-8")).hexdigest(),
         "standalone": standalone,
+        "standaloneDesign": standalone_design,
+        "standaloneBoth": standalone_both,
     }
 
 

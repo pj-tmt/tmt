@@ -210,9 +210,11 @@
           const swatch = document.createElement('canvas').getContext('2d', {
             willReadFrequently: true,
           });
-          function measureScheme() {
-            schemeTimer = undefined;
-            if (stopped || !document.body || !swatch) return;
+          // The scheme the page paints. The code between these two markers is also in the script a standalone
+          // export carries (scripts/page-ui.mjs reads it from here), so the export measures a page the way
+          // the frame does.
+          // BEGIN PAGE SCHEME
+          function paintedScheme(swatch) {
             const fills = [document.documentElement, document.body].map((node) => {
               swatch.clearRect(0, 0, 1, 1);
               swatch.fillStyle = '#000';
@@ -228,7 +230,13 @@
               return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
             };
             const luminance = 0.2126 * lin(fill[0]) + 0.7152 * lin(fill[1]) + 0.0722 * lin(fill[2]);
-            const next = luminance < 0.179 ? 'dark' : 'light';
+            return luminance < 0.179 ? 'dark' : 'light';
+          }
+          // END PAGE SCHEME
+          function measureScheme() {
+            schemeTimer = undefined;
+            if (stopped || !document.body || !swatch) return;
+            const next = paintedScheme(swatch);
             // The design system's components take the scheme the page paints (#5057), not the viewer's:
             // light components on a light page under a dark viewer. A page that paints nothing is painted
             // by the frame's paper, so it measures as the viewer's own scheme.
@@ -368,8 +376,11 @@
           // stylesheet each time would restyle the whole page. It comes first, so its layer order wins.
           // `<tmt-icon name="check">` draws a bounded Lucide icon as inline SVG with the Colab defaults
           // (16px, stroke 1.75, square caps); an unknown name draws nothing, and `page check` reports it.
-          // An icon is decorative unless the page names it with `label`.
+          // An icon is decorative unless the page names it with `label`. The code between these two
+          // markers is also the body of the `tmt-icon` script a standalone export carries (scripts/page-ui.mjs
+          // reads it from here), so the export cannot draw an icon the frame does not.
           const iconNodes = JSON.parse(pageIcons);
+          // BEGIN PAGE ICON ELEMENT
           customElements.define(
             'tmt-icon',
             class extends HTMLElement {
@@ -406,6 +417,7 @@
               }
             },
           );
+          // END PAGE ICON ELEMENT
           const ui = document.createElement('style');
           ui.textContent = pageUi;
           document.head.append(ui);

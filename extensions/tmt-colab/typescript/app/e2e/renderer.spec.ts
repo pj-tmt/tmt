@@ -784,6 +784,28 @@ test("a design-system page the author paints takes the scheme it paints, not the
   });
 });
 
+test('the frame treats a page as using the design system exactly as the shared marker vectors say', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const vectors = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/design-marker-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  expect(vectors.cases.length).toBeGreaterThanOrEqual(20);
+  for (const [index, row] of vectors.cases.entries()) {
+    const id = `target-marker-${index}`;
+    await bindFrame(page, id, { source: row.source });
+    const root = page.frameLocator(`#${id}`).locator('html');
+    // The bootstrap sets the theme first, so the document is written once it is there.
+    await expect(root).toHaveAttribute('data-theme', 'light');
+    if (row.usesDesign) await expect(root, row.name).toHaveAttribute('data-colab-design', '');
+    else await expect(root, row.name).not.toHaveAttribute('data-colab-design');
+  }
+});
+
 test('<tmt-icon> draws a bounded Lucide icon with the Colab defaults, and an unknown name draws nothing', async ({
   page,
 }) => {

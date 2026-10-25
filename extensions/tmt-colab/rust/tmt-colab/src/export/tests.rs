@@ -384,9 +384,12 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
     );
     let copy = standalone::document(
         opted,
-        &standalone::Runtime {
-            script: case["runtime"]["script"].as_str().unwrap(),
-            style: case["runtime"]["style"].as_str().unwrap(),
+        &standalone::Assets {
+            runtime: Some(standalone::Runtime {
+                script: case["runtime"]["script"].as_str().unwrap(),
+                style: case["runtime"]["style"].as_str().unwrap(),
+            }),
+            design: None,
         },
     )
     .unwrap();
@@ -404,6 +407,43 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
     let manifest = manifest_of(&derived);
     assert_eq!(manifest, case["manifestUtf8"].as_str().unwrap().as_bytes());
     assert_eq!(hex(&crypto::digest(&manifest)), case["manifestSha256"]);
+    // A page that uses the design system (#5057) and one that asks for the runtime as well get
+    // their copies, with the design system's style and script written before the runtime's.
+    for key in ["standaloneDesign", "standaloneBoth"] {
+        let case = &fixture[key];
+        let source = case["source"].as_str().unwrap();
+        assert!(standalone::uses_design(source), "{key}");
+        let part = |name: &str| {
+            case.get(name).map(|texts| {
+                (
+                    texts["script"].as_str().unwrap(),
+                    texts["style"].as_str().unwrap(),
+                )
+            })
+        };
+        let assets = standalone::Assets {
+            runtime: part("runtime").map(|(script, style)| standalone::Runtime { script, style }),
+            design: part("design").map(|(script, style)| standalone::Design { script, style }),
+        };
+        let copy = standalone::document(source, &assets).unwrap();
+        assert_eq!(copy, case["fileUtf8"].as_str().unwrap().as_bytes(), "{key}");
+        assert_eq!(hex(&crypto::digest(&copy)), case["fileSha256"], "{key}");
+        let derived = vec![
+            FileInfo::new("page.html", source.as_bytes()),
+            FileInfo {
+                derived_from: Some(standalone::DERIVED_FROM),
+                ..FileInfo::new(standalone::FILE, &copy)
+            },
+            files[1].clone(),
+            files[2].clone(),
+        ];
+        let manifest = manifest_of(&derived);
+        assert_eq!(manifest, case["manifestUtf8"].as_str().unwrap().as_bytes());
+        assert_eq!(hex(&crypto::digest(&manifest)), case["manifestSha256"]);
+        // `derive` makes the same bytes from what the build offers.
+        let offered = standalone::derive(source, &assets).unwrap();
+        assert_eq!(offered.file.as_deref(), Some(copy.as_slice()), "{key}");
+    }
 }
 
 #[test]

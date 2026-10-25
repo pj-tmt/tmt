@@ -571,6 +571,10 @@ export const text = {
     'runtime-unavailable':
       'No standalone copy: the page runtime could not be loaded. Export again to retry.',
     'runtime-unusable': 'No standalone copy: the page runtime cannot be written into an HTML file.',
+    'design-unavailable':
+      'No standalone copy: the page design system could not be loaded. Export again to retry.',
+    'design-unusable':
+      'No standalone copy: the page design system cannot be written into an HTML file.',
   },
   exportAttachments: 'Attachments',
   exportAttachmentRequested: 'Download requested',
