@@ -84,42 +84,67 @@ async function durationOf(page: Page, token: 'base' | 'fast') {
   }, token);
 }
 
-/** Dismisses the surface and reports when it was marked closed and when it left the document
- * (null while it stays), timed by the page's own observers rather than by sampling. */
-async function leave(page: Page, test: Case) {
-  await page.evaluate((selector) => {
-    const log = { closedAt: null as number | null, goneAt: null as number | null };
-    (window as unknown as { __leave: typeof log }).__leave = log;
-    const check = () => {
-      const element = document.querySelector(selector);
-      if (element?.getAttribute('data-state') === 'closed' && log.closedAt === null)
-        log.closedAt = performance.now();
-      if (!element && log.closedAt !== null && log.goneAt === null) log.goneAt = performance.now();
-    };
-    new MutationObserver(check).observe(document, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      attributeFilter: ['data-state'],
-    });
-  }, test.surface);
-  if (test.dismiss === 'Escape') await page.keyboard.press('Escape');
-  else await page.locator(test.dismiss).click();
-  if (test.stays) {
-    await expect(page.locator(test.surface)).toHaveAttribute('data-state', 'closed');
-    await page.locator(test.surface).evaluate(async (element) => {
-      await Promise.all(
-        element.getAnimations().map((animation) => animation.finished.catch(() => {})),
-      );
-    });
-  } else {
-    await expect(page.locator(test.surface)).toHaveCount(0);
-  }
-  return page.evaluate(
-    () =>
-      (window as unknown as { __leave: { closedAt: number | null; goneAt: number | null } })
-        .__leave,
+type ExitProbe = {
+  closed: boolean;
+  animations: Animation[];
+  initial: { playState: AnimationPlayState; playbackRate: number }[];
+  observer: MutationObserver;
+};
+
+/** Capture and hold the real exit animation as soon as the host marks the surface closed.
+ * Seeking its timeline proves the lifetime without treating a busy CI frame as extra motion. */
+async function dismiss(page: Page, motion: Case, hold: boolean) {
+  await page.evaluate(
+    ({ selector, hold }) => {
+      const observer = new MutationObserver(() => {
+        const element = document.querySelector(selector);
+        if (!probe.closed && element?.getAttribute('data-state') === 'closed') {
+          probe.closed = true;
+          probe.animations = element.getAnimations();
+          probe.initial = probe.animations.map((animation) => ({
+            playState: animation.playState,
+            playbackRate: animation.playbackRate,
+          }));
+          if (hold)
+            for (const animation of probe.animations) {
+              animation.pause();
+              animation.currentTime = 0;
+            }
+        }
+      });
+      const probe: ExitProbe = { closed: false, animations: [], initial: [], observer };
+      (window as unknown as { __exitProbe: ExitProbe }).__exitProbe = probe;
+      observer.observe(document, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['data-state'],
+      });
+    },
+    { selector: motion.surface, hold },
   );
+  if (motion.dismiss === 'Escape') await page.keyboard.press('Escape');
+  else await page.locator(motion.dismiss).click();
+}
+
+async function exitTimings(page: Page) {
+  return page.evaluate(() =>
+    (window as unknown as { __exitProbe: ExitProbe }).__exitProbe.animations.map((animation) => {
+      const timing = animation.effect!.getComputedTiming();
+      return {
+        duration: timing.duration,
+        delay: timing.delay,
+        activeDuration: timing.activeDuration,
+        endTime: timing.endTime,
+      };
+    }),
+  );
+}
+
+async function releaseProbe(page: Page) {
+  await page.evaluate(() => {
+    (window as unknown as { __exitProbe: ExitProbe }).__exitProbe.observer.disconnect();
+  });
 }
 
 for (const motion of cases) {
@@ -129,17 +154,42 @@ for (const motion of cases) {
     await expect(page.locator(motion.surface).first()).toBeVisible();
     const duration = await durationOf(page, motion.duration);
     expect(duration).toBe(motion.duration === 'base' ? 180 : 120);
-    const { closedAt, goneAt } = await leave(page, motion);
-    expect(closedAt, 'marked data-state=closed').not.toBeNull();
-    if (motion.stays) {
-      // The drawer stays in the document, closed and off-screen, after the slide.
-      expect(goneAt).toBeNull();
+    await dismiss(page, motion, true);
+    try {
+      await expect
+        .poll(() =>
+          page.evaluate(() => (window as unknown as { __exitProbe: ExitProbe }).__exitProbe.closed),
+        )
+        .toBe(true);
+      const timings = await exitTimings(page);
+      const initial = await page.evaluate(
+        () => (window as unknown as { __exitProbe: ExitProbe }).__exitProbe.initial,
+      );
+      for (const animation of initial)
+        expect(animation).toEqual({ playState: 'running', playbackRate: 1 });
+      // Native Drawer retains its closed, off-screen node even when there is no running motion.
+      if (!motion.stays) expect(timings.length).toBeGreaterThan(0);
+      for (const timing of timings)
+        expect(timing).toEqual({ duration, delay: 0, activeDuration: duration, endTime: duration });
+      await page.evaluate(async (duration) => {
+        const probe = (window as unknown as { __exitProbe: ExitProbe }).__exitProbe;
+        for (const animation of probe.animations) animation.currentTime = duration - 1;
+        // Let layout and the host's effects settle while the paused timeline cannot finish.
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        );
+      }, duration);
       await expect(page.locator(motion.surface)).toHaveAttribute('data-state', 'closed');
-    } else {
-      expect(goneAt, 'left the document').not.toBeNull();
-      // Mounted as closed for the exit duration (a frame of slack either way).
-      expect(goneAt! - closedAt!).toBeGreaterThan(duration * 0.8);
-      expect(goneAt! - closedAt!).toBeLessThan(duration * 2);
+      await page.evaluate(async () => {
+        const animations = (window as unknown as { __exitProbe: ExitProbe }).__exitProbe.animations;
+        for (const animation of animations) animation.finish();
+        await Promise.all(animations.map((animation) => animation.finished));
+      });
+      if (motion.stays)
+        await expect(page.locator(motion.surface)).toHaveAttribute('data-state', 'closed');
+      else await expect(page.locator(motion.surface)).toHaveCount(0);
+    } finally {
+      await releaseProbe(page);
     }
   });
 
@@ -149,11 +199,21 @@ for (const motion of cases) {
     await page.goto(motion.url);
     await expect(page.locator(motion.surface).first()).toBeVisible();
     expect(await durationOf(page, motion.duration)).toBe(0);
-    const { closedAt, goneAt } = await leave(page, motion);
-    if (motion.stays) {
-      expect(await page.evaluate(() => document.getAnimations().length)).toBe(0);
-    } else if (closedAt !== null) {
-      expect(goneAt! - closedAt).toBeLessThan(60);
+    await dismiss(page, motion, false);
+    try {
+      if (motion.stays) {
+        await expect(page.locator(motion.surface)).toHaveAttribute('data-state', 'closed');
+        expect(
+          await page.locator(motion.surface).evaluate((node) => node.getAnimations().length),
+        ).toBe(0);
+      } else await expect(page.locator(motion.surface)).toHaveCount(0);
+      // Radix can expose a zero-duration CSSAnimation for its animationend bookkeeping.
+      // Reduced motion requires no effective exit time, rather than no Animation object.
+      const timings = await exitTimings(page);
+      for (const timing of timings)
+        expect(timing).toEqual({ duration: 0, delay: 0, activeDuration: 0, endTime: 0 });
+    } finally {
+      await releaseProbe(page);
     }
   });
 }
