@@ -47,7 +47,7 @@ independent of storage access.
 | `capabilities`           | `{}`                                                                                                | Protocol range, operations, byte limits and ordinary commands                                                                                                     |
 | `orchestration.read`     | Tagged `view`: `overview`, `plans`, `preview` or `why`                                              | [Orchestration v1](orchestration-v1.md): effective field sources, timeline, in-memory preview or retained decision page; additive at API version 1                |
 | `storage.root`           | `{}`                                                                                                | `dataRoot`: absolute selected TMT data directory; no directory creation or storage/config reads                                                                   |
-| `changes.cursor`         | `{}`                                                                                                | `cursor`: an opaque non-negative integer that changes whenever core's board-relevant durable records change (see below)                                           |
+| `changes.cursor`         | `{}`                                                                                                | `cursor`: an opaque non-negative integer that changes whenever core's durable records change; `usage`: the same kind of integer for the usage sampler's records (see below) |
 | `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`/`"answers"`; `limit`, `before`  | `items`, `nextBefore`                                                                                                                                             |
 | `requests.show`          | `requestId`                                                                                         | Request detail including retained prompt/final state; a passthrough adds its turn-output capture ([Passthrough](request-response-v1.md#passthrough))              |
 | `requests.sendNow`       | `requestId`; the envelope names the caller (originator or the user)                                 | `status` (`sent`/`already`), `requestId`, `state`; a refusal is a `SEND_NOW_*` or `DELIVERY_*` fault ([Send now](request-response-v1.md#send-now))                |
@@ -852,7 +852,11 @@ it across data roots. It is not a subscription and carries no description of
 what changed. It does not cover what core does not store as records: a pane's
 live presence (a binding's verification time is an observation, not a change,
 and a write that leaves every value the same is not a change either),
-notebook files, configuration files, and any extension's own storage. A client
+notebook files, configuration files, and any extension's own storage. The usage
+sampler's records (consumption sources, buckets, rollup and family rows) advance
+`usage` instead and never `cursor`, because a sampler tick is telemetry no screen
+reloads for; `usage` is compared the same way. A core before schema 73 returns
+`cursor` alone and counts those writes in it. A client
 that reloads on a changed cursor must still reload on its own interval for
 those, and must treat `API_INPUT_INVALID` for this operation (an older core) as
 "no cursor" and keep its interval.

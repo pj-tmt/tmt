@@ -358,6 +358,10 @@ const MIGRATIONS: &[Migration] = &[
         "store orchestration plans and their decision journal",
         "schema/073.sql"
     ),
+    migration!(
+        "count usage writes on their own cursor, so the sampler does not wake the board",
+        "schema/074.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

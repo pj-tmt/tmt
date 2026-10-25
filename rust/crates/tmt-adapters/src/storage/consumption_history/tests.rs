@@ -1423,7 +1423,7 @@ mod family {
             [file(1), file(2)]
         );
         // One row moves, one is folded away; the unchanged header is not rewritten.
-        let cursor = storage.change_cursor().unwrap();
+        let cursor = storage.usage_cursor().unwrap();
         write(
             &storage,
             &id,
@@ -1432,10 +1432,10 @@ mod family {
             vec![member(1, 150)],
             vec![file(2)],
         );
-        assert!(storage.change_cursor().unwrap() > cursor);
+        assert!(storage.usage_cursor().unwrap() > cursor);
         let stored = storage.consumption_family(&id).unwrap().unwrap();
         assert_eq!(stored.members, [member(1, 150)]);
-        let cursor = storage.change_cursor().unwrap();
+        let cursor = storage.usage_cursor().unwrap();
         write(
             &storage,
             &id,
@@ -1445,7 +1445,7 @@ mod family {
             vec![],
         );
         assert_eq!(
-            storage.change_cursor().unwrap(),
+            storage.usage_cursor().unwrap(),
             cursor,
             "an identical write changes nothing"
         );

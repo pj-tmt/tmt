@@ -1588,6 +1588,24 @@ mod tests {
         );
         assert!(cursor() > written, "a request advances it");
         assert!(capabilities_list().contains(&"changes.cursor".to_owned()));
+        // The sampler's writes move `usage` and leave `cursor` (#5019).
+        let both = || run("changes.cursor", json!({}), json!({}));
+        let (change, usage) = (both()["cursor"].clone(), both()["usage"].clone());
+        assert!(usage.as_u64().is_some(), "{usage}");
+        let sampler = rusqlite::Connection::open(&paths.database).unwrap();
+        sampler.execute_batch("PRAGMA foreign_keys = OFF").unwrap();
+        sampler
+            .execute(
+                "INSERT INTO consumption_sources (identity_id, binding_id, driver, session) VALUES (?, 'fixture-binding', 'claude', 'fixture-session')",
+                [ada],
+            )
+            .unwrap();
+        let after = both();
+        assert_eq!(
+            after["cursor"], change,
+            "a usage write does not wake the board"
+        );
+        assert_ne!(after["usage"], usage, "it advances the usage cursor");
         // Strict input, as every other operation.
         assert!(
             decode(
