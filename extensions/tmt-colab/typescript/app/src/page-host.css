@@ -1,0 +1,43 @@
+/* The page host profile (#5057): the metrics the injected design-system classes read from their host.
+   This file is inlined into renderer.html by scripts/generate-renderer-style.mjs, in the same
+   `tmt-ui` layer as the classes, so an author's own `:root` rule overrides any of them. The values
+   are Colab's (the leaf README's host table); keep them in step with the Colab app, not with a page. */
+:root {
+  --tmt-ui-host-header-action-gap: 6px;
+  --tmt-ui-host-focus-offset: 3px;
+  --tmt-ui-host-toggle-focus-offset: 2px;
+  --tmt-ui-host-notice-mark-size: 18px;
+  --tmt-ui-host-eyebrow-line-height: 1.55;
+  --tmt-ui-host-notice-heading-size: 18px;
+  --tmt-ui-host-notice-heading-weight: 600;
+  --tmt-ui-host-notice-heading-tracking: normal;
+  --tmt-ui-host-notice-body-size: 14px;
+  --tmt-ui-host-notice-body-line-height: 1.5;
+  --tmt-ui-host-notice-action-gap: 12px;
+  --tmt-ui-host-notice-action-margin: var(--tmt-ui-space-l);
+  --tmt-ui-notice-padding: var(--tmt-ui-card-padding);
+  --tmt-ui-notice-border-width: 1px;
+  --tmt-ui-notice-heading-line-height: 1.25;
+  --tmt-ui-host-action-padding: 7px 12px;
+  --tmt-ui-host-action-min-height: 24px;
+  --tmt-ui-host-action-size: 14px;
+  --tmt-ui-host-action-weight: 400;
+  --tmt-ui-host-action-line-height: 1.5;
+  --tmt-ui-host-action-font: var(--tmt-ui-font-body);
+  --tmt-ui-host-action-gap: 6px;
+  --tmt-ui-host-action-underline-offset: 4px;
+  --tmt-ui-host-icon-action-size: 34px;
+  --tmt-ui-host-field-padding: 8px;
+  --tmt-ui-host-field-size: 14px;
+  --tmt-ui-host-field-line-height: 1.5;
+  --tmt-ui-host-field-label-size: 12px;
+  --tmt-ui-host-field-label-weight: 400;
+  --tmt-ui-host-field-label-line-height: 1.5;
+  --tmt-ui-host-field-label-font: var(--tmt-ui-font-body);
+}
+/* `<tmt-icon name>` is drawn by the frame (renderer.html): a 16px inline box on the text line. */
+tmt-icon {
+  display: inline-flex;
+  vertical-align: -0.125em;
+  line-height: 0;
+}

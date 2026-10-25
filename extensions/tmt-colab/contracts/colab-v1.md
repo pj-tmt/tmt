@@ -2563,6 +2563,18 @@ and question lines on the same column. The layout is the page's verified `meta.l
 browser binds the frame from the live view, so a change that arrives without a new source
 (a `page layout` from the CLI or another device) reframes the open page.
 
+Every page frame, whatever its layout, also carries the product's design system (#5057): in a
+`<style>` of its own, written before the highlight sheet, the leaf's generated `static.css` (the
+`tmt-ui-*` classes and their tokens, which follow the frame's `data-theme`) and the page host profile
+(`src/page-host.css`, the host metrics those classes read) in the layer `tmt-ui`, after the layer order
+`colab-frame, tmt-starter, tmt-ui`; an author's unlayered CSS beats all three. The sheet is inlined
+into `renderer.html` by `scripts/generate-renderer-style.mjs`, which fails when it grows past 120,000
+bytes. The same bootstrap defines the `tmt-icon` element: `name` names one of the Lucide icons the page
+runtime lists (lowercase kebab-case), drawn as inline SVG at 16 px with stroke 1.75 and square caps,
+decorative unless `label` is set; a name it does not have draws nothing. No network, script authority or
+sandbox rule changes. `page check` reports a `tmt-ui-*` class and a `tmt-icon` name the frame does not
+have (`unknown-ui-class`, `unknown-icon`, in the table below).
+
 For a fixed look, author CSS uses an unconditional palette and `color-scheme`,
 without theme-attribute or OS-media palette overrides. The bootstrap overwrites an
 author-pinned `<html data-theme>` with Colab's effective theme; the attribute is
@@ -6128,6 +6140,8 @@ the choice-shape rules for a valid kind, so one defect is not reported twice):
 | `attachment-ref-invalid`                                          | warning  | an `<img>` `src` starting `colab-attachment:` that is not the scheme plus 8 lowercase hex digits or a full lowercase UUID                                                                 |
 | `attachment-ref-too-many`                                         | warning  | more than 128 distinct well-formed references; one finding, on the 129th                                                                                                                  |
 | `attachment-ref-unresolved` / `-ambiguous`                        | warning  | with `--page`, `page write` or `page create`: no, or more than one, current document attachment of the page matches the reference (an 8-digit token is a prefix, a full ID must be equal) |
+| `unknown-ui-class`                                                | warning  | an element whose `class` holds a `tmt-ui-*` token the page frame's design system does not define (it styles nothing); one finding per element                                             |
+| `unknown-icon`                                                    | warning  | a `<tmt-icon>` whose `name` is missing, not lowercase kebab-case or not in the frame's icon set (it draws nothing)                                                                        |
 
 Groups (`tmt-questions`, a `<p data-title>` and up to 12 direct `tmt-question` children). A group
 reports the first structural rule it fails, in table order, and is then skipped whole: its

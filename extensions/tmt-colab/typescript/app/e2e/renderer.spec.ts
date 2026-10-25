@@ -593,6 +593,85 @@ test('a bind may carry a layout; only column and full select the page column, ev
   await expect(page.frameLocator('#target-wide').getByText('Bound text')).toHaveCount(0);
 });
 
+test('every frame carries the design system in its own layer, below the starter and the author, and follows the viewer theme', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await bindFrame(page, 'target-ui', {
+    source: `<style>.tmt-ui-card.mine{padding:3px}</style>
+      <section class="tmt-ui-card" id="plain"><h2 class="tmt-ui-card-title">Card</h2></section>
+      <section class="tmt-ui-card mine" id="mine">Mine</section>
+      <button class="tmt-ui-action" data-variant="primary" id="action"><span class="tmt-ui-action-label">Go</span></button>`,
+  });
+  const target = page.frameLocator('#target-ui');
+  await expect(target.locator('#plain')).toBeVisible();
+  const read = () =>
+    target.locator('html').evaluate((html) => {
+      const doc = html.ownerDocument;
+      const style = (id: string) => getComputedStyle(doc.getElementById(id)!);
+      const layers = [...doc.styleSheets].flatMap((sheet) =>
+        [...sheet.cssRules].filter((rule) => rule instanceof CSSLayerStatementRule),
+      ) as CSSLayerStatementRule[];
+      return {
+        order: layers.flatMap((rule) => [...rule.nameList]),
+        card: {
+          padding: style('plain').paddingTop,
+          radius: style('plain').borderTopLeftRadius,
+          border: style('plain').borderTopWidth,
+          fill: style('plain').backgroundColor,
+        },
+        mine: style('mine').paddingTop,
+        action: style('action').paddingTop,
+        icon: !!doc.querySelector('tmt-icon svg'),
+        hostProfile: getComputedStyle(html).getPropertyValue('--tmt-ui-host-action-padding').trim(),
+      };
+    });
+  const light = await read();
+  // One order: the frame, then the starter, then the classes; an author's unlayered rule beats a class.
+  expect(light.order).toEqual(['colab-frame', 'tmt-starter', 'tmt-ui']);
+  expect(light.card).toMatchObject({ padding: '24px', radius: '8px', border: '1px' });
+  expect(light.mine).toBe('3px');
+  expect(light.action).toBe('7px');
+  expect(light.hostProfile).toBe('7px 12px');
+  // The theme the viewer sends is the theme the classes paint.
+  await bindFrame(page, 'target-ui-dark', {
+    theme: 'dark',
+    source: '<section class="tmt-ui-card" id="plain">Card</section>',
+  });
+  const dark = await page
+    .frameLocator('#target-ui-dark')
+    .locator('#plain')
+    .evaluate((card) => getComputedStyle(card).backgroundColor);
+  expect(dark).not.toBe(light.card.fill);
+});
+
+test('<tmt-icon> draws a bounded Lucide icon with the Colab defaults, and an unknown name draws nothing', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await bindFrame(page, 'target-icons', {
+    source: `<p>Done <tmt-icon id="ok" name="check"></tmt-icon>
+      <tmt-icon id="named" name="circle-check" label="Passed"></tmt-icon>
+      <tmt-icon id="none" name="not-an-icon"></tmt-icon>
+      <tmt-icon id="proto" name="constructor"></tmt-icon></p>`,
+  });
+  const target = page.frameLocator('#target-icons');
+  await expect(target.locator('#ok svg')).toHaveCount(1);
+  expect(
+    await target.locator('#ok svg').evaluate((svg) => ({
+      size: [svg.getAttribute('width'), svg.getAttribute('height')],
+      stroke: svg.getAttribute('stroke-width'),
+      caps: svg.getAttribute('stroke-linecap'),
+      hidden: svg.getAttribute('aria-hidden'),
+    })),
+  ).toEqual({ size: ['16', '16'], stroke: '1.75', caps: 'square', hidden: 'true' });
+  // A named icon is an image with that name; unknown names, and names that are only object keys, draw nothing.
+  await expect(target.locator('#named svg')).toHaveAttribute('role', 'img');
+  await expect(target.locator('#named svg')).toHaveAttribute('aria-label', 'Passed');
+  await expect(target.locator('#none svg')).toHaveCount(0);
+  await expect(target.locator('#proto svg')).toHaveCount(0);
+});
+
 test('a page opts in to the bundled runtime exactly as the shared marker vectors say', async ({
   page,
 }) => {
