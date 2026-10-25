@@ -121,27 +121,42 @@ fn lines(app: &App, now: u64) -> Vec<String> {
         for kind in crate::board::limits::QuotaWindow::ALL {
             let value =
                 crate::board::overview::quota::projection(app, standing.provider.id(), kind, now);
-            let Some(balance) = value.balance else {
-                lines.push(format!(
-                    "{}: quota unavailable or stale; no balance or rate inferred",
-                    kind.key()
-                ));
+            let Some(point) = value.balance.point() else {
+                let words = match value.balance {
+                    crate::board::limits::observation::Evidence::Absent => "no limit source",
+                    _ => "quota unavailable",
+                };
+                lines.push(format!("{}: {words}", kind.key()));
                 continue;
             };
+            let balance = point.balance();
             lines.push(format!(
-                "{}: {} remaining · reset {} ({} ms)",
+                "Observed: {} ms · {} ago",
+                point.observed_at_ms,
+                super::reset(now.saturating_sub(point.observed_at_ms))
+            ));
+            if balance.resets_at_ms <= now {
+                lines.push(format!(
+                    "{}: window reset ({} ms); last reported {} remaining",
+                    kind.key(),
+                    balance.resets_at_ms,
+                    super::percent(balance.left)
+                ));
+                continue;
+            }
+            lines.push(format!(
+                "{}: {} remaining{} · reset {} ({} ms)",
                 kind.key(),
                 super::percent(balance.left),
+                if now.saturating_sub(point.observed_at_ms) > crate::board::limits::pace::HORIZON_MS
+                {
+                    " (last known)"
+                } else {
+                    ""
+                },
                 super::reset(balance.resets_at_ms.saturating_sub(now)),
                 balance.resets_at_ms
             ));
-            if let Some(point) = value.pace.latest {
-                lines.push(format!(
-                    "Observed: {} ms · {} ago",
-                    point.observed_at_ms,
-                    super::age(now.saturating_sub(point.observed_at_ms))
-                ));
-            }
             lines.push(
                 value
                     .pace
@@ -244,5 +259,41 @@ impl App {
         self.quota_details = Some(Default::default());
         self.invalidate_frame_geometry();
         Effect::None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn agents_details_keeps_old_evidence_and_distinguishes_a_reset_window() {
+        const NOW: u64 = 1_791_600_000_000;
+        crate::status::with_now_ms(NOW, || {
+            let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
+            app.shell.tab = crate::board::shell::OpsTab::Agents;
+            let standings = app.limits.as_mut().unwrap();
+            standings.truncate(1);
+            let latest = standings[0].latest.as_mut().unwrap();
+            latest.observed_at_ms = NOW - 40 * 3_600_000;
+            latest.weekly.left = 83.0;
+            latest.weekly.resets_at_ms = NOW + 3_600_000;
+            latest.short = Some(crate::board::limits::Window {
+                left: 90.0,
+                resets_at_ms: NOW - 1,
+            });
+            let text = lines(&app, NOW).join("\n");
+            assert!(text.contains("83% remaining (last known)"), "{text}");
+            assert!(text.contains("1d16h ago"), "{text}");
+            assert!(text.contains("2h pace: unknown"), "{text}");
+            assert!(text.contains("5h: window reset"), "{text}");
+            assert!(!text.contains("Projected depletion") && !text.contains("no limit source"));
+            assert_eq!(
+                app.limits.as_ref().unwrap()[0]
+                    .latest
+                    .unwrap()
+                    .observed_at_ms,
+                NOW - 40 * 3_600_000
+            );
+        });
     }
 }

@@ -385,7 +385,7 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   code spells a driver (the #440 guard). The HOME usage receipt's one `ls` also
   carries each session's `resume.consumption.rateLimits` when Core has them
   (percent used, so the board shows percent left). For a provider whose
-  sessions report usage but no limits (Claude today), the windows exist only in
+  sessions report usage but no limits, the windows exist only in
   a pane's statusline footer: at most once a minute per provider, and only when
   a listed active session has newer usage than the last reading or attempt, the
   worker reads up to three panes with `tmt check <name> --capture-only --lines
@@ -409,7 +409,12 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   Retained buckets carry optional limits; fine buckets never do. The shared typed
   parser rejects an invalid optional limit object without discarding token deltas.
   All admitted quota observations remain available for reset/drop guards, and
-  repeated account evidence is deduplicated, never summed. Digest shows each
+  repeated account evidence is deduplicated, never summed. Agents retains the
+  selected window's last-known balance with its original source age after two
+  hours; that age advances from the board clock without another read. Rate,
+  trend and depletion still require fresh, unreset evidence. An absent window
+  reads `no limit source`, a past reset `window reset`, and conflicts remain
+  unavailable; Details retains the full evidence when the row cannot fit it. Digest shows each
   reported weekly/short window with remaining-share fill, percent and reset;
   weekly held pace never supplies short-window pace. Positive
   balances below one percent retain one filled cell; known zero has none.

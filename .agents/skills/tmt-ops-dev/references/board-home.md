@@ -384,7 +384,12 @@ has no token cells, and model metadata is best effort. See the
 Agents places Usage across the frame above its body panes. One shared 7d/5h
 choice in the quota heading selects the window for every provider. The selected
 quota, rate and forecast are neutral; only the early-runout ◆ uses attention color.
-Missing windows, stale balances or insufficient rate evidence remain explicit.
+Missing windows, reset windows and insufficient rate evidence remain explicit.
+An older current balance stays numeric with its original source age (for example
+`83% left · 1d16h ago`), without a current rate, trend or depletion forecast.
+`no limit source` means the selected window is absent; conflicting evidence is
+unavailable, and a past reset reads `window reset`. Narrow rows keep complete
+value/age fields or leave the full evidence in Quota Details.
 The Subscriptions panel ID controls these inline cells; Usage controls the section.
 At 103/148 columns the quota track occupies 37/49 cells plus its three-cell gap.
 Smaller widths admit complete fields or leave full values in the existing Details.

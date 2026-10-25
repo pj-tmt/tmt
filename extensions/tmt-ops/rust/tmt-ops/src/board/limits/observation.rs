@@ -18,6 +18,24 @@ impl Point {
     }
 }
 
+/// Absence is different from evidence that cannot select one truthful value.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(in crate::board) enum Evidence {
+    #[default]
+    Absent,
+    Unavailable,
+    Observed(Point),
+}
+
+impl Evidence {
+    pub fn point(self) -> Option<Point> {
+        match self {
+            Self::Observed(point) => Some(point),
+            Self::Absent | Self::Unavailable => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::board) struct Report {
     pub observed_at_ms: u64,

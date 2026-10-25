@@ -4,7 +4,8 @@ use crate::{
         app::App,
         home::limits as rules,
         limits::{
-            Outlook, QuotaWindow, Trend, Window,
+            QuotaWindow, Trend,
+            observation::{Evidence, Point},
             pace::{self, Pace},
         },
     },
@@ -15,7 +16,7 @@ use tmt_cli_style::Role;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(in crate::board) struct Projection {
-    pub balance: Option<Window>,
+    pub balance: Evidence,
     pub pace: Pace,
 }
 
@@ -38,22 +39,35 @@ pub(in crate::board) fn projection(
         .collect();
     let pace = pace::project(reports.iter().copied(), kind, now);
     let balance = if reports.is_empty() {
-        app.limits
-            .as_deref()
-            .and_then(|items| items.iter().find(|s| s.provider.id() == provider))
-            .and_then(|s| match s.outlook(now) {
-                Outlook::Known(figures) => match kind {
-                    QuotaWindow::Weekly => Some(figures.weekly),
-                    QuotaWindow::Short => figures.short,
-                },
-                _ => None,
-            })
-            .map(|left| Window {
-                left: left.percent,
-                resets_at_ms: now.saturating_add(left.resets_in_ms),
-            })
+        match app.limits.as_deref() {
+            None => Evidence::Unavailable,
+            Some(items) => items
+                .iter()
+                .find(|s| s.provider.id() == provider)
+                .and_then(|standing| standing.latest)
+                .map_or(Evidence::Absent, |reading| {
+                    if reading.observed_at_ms > now {
+                        return Evidence::Unavailable;
+                    }
+                    let window = match kind {
+                        QuotaWindow::Weekly => Some(reading.weekly),
+                        QuotaWindow::Short => reading.short,
+                    };
+                    window.map_or(Evidence::Absent, |window| {
+                        Evidence::Observed(Point {
+                            observed_at_ms: reading.observed_at_ms,
+                            window_minutes: match kind {
+                                QuotaWindow::Weekly => 10_080,
+                                QuotaWindow::Short => 300,
+                            },
+                            used_percent: 100.0 - window.left,
+                            resets_at_ms: window.resets_at_ms,
+                        })
+                    })
+                }),
+        }
     } else {
-        pace.latest.map(|point| point.balance())
+        pace.latest
     };
     Projection { balance, pace }
 }
@@ -64,16 +78,38 @@ pub(in crate::board) fn usage_row(
     width: u16,
     look: Look,
 ) -> Line<'static> {
-    let Some(balance) = value.balance else {
-        return Line::styled(
-            if width >= 18 {
-                "—  no limit source"
-            } else {
-                "—"
-            },
-            look.role(Role::Dim),
-        );
+    let point = match value.balance {
+        Evidence::Observed(point) if point.resets_at_ms > now => point,
+        missing => {
+            let words = match missing {
+                Evidence::Absent => "no limit source",
+                Evidence::Unavailable => "quota unavailable",
+                Evidence::Observed(_) => "window reset",
+            };
+            return Line::styled(
+                if usize::from(width) >= words.len() + 3 {
+                    format!("—  {words}")
+                } else {
+                    "—".into()
+                },
+                look.role(Role::Dim),
+            );
+        }
     };
+    let balance = point.balance();
+    let age = now.saturating_sub(point.observed_at_ms);
+    if age > pace::HORIZON_MS {
+        let percent = rules::percent(balance.left);
+        let full = format!("{percent} left · {} ago", rules::reset(age));
+        let compact = format!("{percent} · {} ago", rules::age(age));
+        return Line::styled(
+            [full, compact]
+                .into_iter()
+                .find(|text| text.chars().count() <= usize::from(width))
+                .unwrap_or("—".into()),
+            look.role(Role::Muted),
+        );
+    }
     let percent = rules::percent(balance.left);
     let filled = ((balance.left / 10.0).round().clamp(0.0, 10.0) as usize)
         .max(usize::from(balance.left > 0.0));
@@ -183,18 +219,22 @@ pub(in crate::board) fn usage_clock_mark(app: &App, now: u64, width: u16) -> Str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::limits::observation::Point;
+    use crate::board::limits::observation::{Point, Report};
+    use serde_json::json;
     use tmt_cli_style::{Depth, Theme};
     const NOW: u64 = 1_791_600_000_000;
+    const HOUR: u64 = 3_600_000;
     fn value(left: f64, rate: Option<f64>, early: Option<u64>) -> Projection {
         let reset = NOW + 6 * 86_400_000;
         Projection {
-            balance: Some(Window {
-                left,
+            balance: Evidence::Observed(Point {
+                observed_at_ms: NOW,
+                window_minutes: 10_080,
+                used_percent: 100.0 - left,
                 resets_at_ms: reset,
             }),
             pace: Pace {
-                latest: Some(Point {
+                latest: Evidence::Observed(Point {
                     observed_at_ms: NOW,
                     window_minutes: 10_080,
                     used_percent: 100.0 - left,
@@ -263,12 +303,53 @@ mod tests {
         assert!(row.contains("on pace") && !row.contains('↑') && !row.contains('◆'));
     }
     #[test]
+    fn last_known_held_weekly_balance_keeps_its_age_without_a_forecast() {
+        crate::status::with_now_ms(NOW, || {
+            let _no_commands = crate::runner::forbid_commands();
+            let mut app = crate::board::home::tests::oracle::metered(Look::default());
+            let standing = &mut app.limits.as_mut().unwrap()[0];
+            let provider = standing.provider.id().to_owned();
+            let reading = standing.latest.as_mut().unwrap();
+            reading.observed_at_ms = NOW - 40 * 3_600_000;
+            reading.weekly.left = 83.0;
+            reading.weekly.resets_at_ms = NOW + 86_400_000;
+            let row = usage_row(
+                projection(&app, &provider, QuotaWindow::Weekly, NOW),
+                NOW,
+                49,
+                app.look(),
+            )
+            .to_string();
+            assert!(row.contains("83% left · 1d16h ago"), "{row}");
+            assert!(!row.contains("no limit source") && !row.contains("/h") && !row.contains('◆'));
+            let later = usage_row(
+                projection(&app, &provider, QuotaWindow::Weekly, NOW + 3_600_000),
+                NOW + 3_600_000,
+                49,
+                app.look(),
+            )
+            .to_string();
+            assert!(later.contains("83% left · 1d17h ago"), "{later}");
+            assert_ne!(
+                usage_clock_mark(&app, NOW, 49),
+                usage_clock_mark(&app, NOW + 3_600_000, 49)
+            );
+            assert_eq!(
+                app.limits.as_ref().unwrap()[0]
+                    .latest
+                    .unwrap()
+                    .observed_at_ms,
+                NOW - 40 * 3_600_000
+            );
+        });
+    }
+    #[test]
     fn held_balances_remain_available_without_claiming_an_api_backed_rate() {
         crate::status::with_now_ms(NOW, || {
             let app = crate::board::home::tests::oracle::metered(Look::default());
             let standing = &app.limits.as_ref().unwrap()[0];
             let before = projection(&app, standing.provider.id(), QuotaWindow::Weekly, NOW);
-            assert!(before.balance.is_some());
+            assert!(before.balance.point().is_some());
             assert_eq!(before.pace.per_hour, None);
             let later = projection(
                 &app,
@@ -276,11 +357,82 @@ mod tests {
                 QuotaWindow::Weekly,
                 NOW + 7_200_001,
             );
-            assert!(later.balance.is_none());
+            assert!(later.balance.point().is_some());
             assert_ne!(
                 usage_clock_mark(&app, NOW, 49),
                 usage_clock_mark(&app, NOW + 7_200_001, 49)
             );
         });
+    }
+
+    #[test]
+    fn last_known_api_rows_keep_complete_value_and_age_at_each_width() {
+        let report = Report::read(&json!({"observedAtMs":NOW-40*HOUR,"windows":[
+            {"windowMinutes":10080,"usedPercent":17,"resetsAtMs":NOW+HOUR}
+        ]}))
+        .unwrap();
+        let pace = pace::project([&report], QuotaWindow::Weekly, NOW);
+        let value = Projection {
+            balance: pace.latest,
+            pace,
+        };
+        let look = Look::default();
+        for width in [80, 49, 37, 21, 16, 12, 4] {
+            let row = usage_row(value, NOW, width, look);
+            let text = row.to_string();
+            assert!(row.width() <= usize::from(width), "{text}");
+            assert!(
+                !text.contains("/h") && !text.contains('◆') && !text.contains("no limit source")
+            );
+            assert!(
+                text == "—" || (text.contains("83%") && text.contains("ago")),
+                "{text}"
+            );
+            if width >= 21 {
+                assert_eq!(text, "83% left · 1d16h ago");
+            }
+        }
+        assert_eq!(
+            usage_row(value, NOW + HOUR, 49, look).to_string(),
+            "—  window reset"
+        );
+    }
+
+    #[test]
+    fn source_absence_and_conflict_have_different_copy_and_zero_stays_numeric() {
+        let look = Look::default();
+        for (balance, words) in [
+            (Evidence::Absent, "no limit source"),
+            (Evidence::Unavailable, "quota unavailable"),
+        ] {
+            let row = usage_row(
+                Projection {
+                    balance,
+                    ..Default::default()
+                },
+                NOW,
+                49,
+                look,
+            )
+            .to_string();
+            assert_eq!(row, format!("—  {words}"));
+        }
+        let mut value = Projection {
+            balance: Evidence::Observed(Point {
+                observed_at_ms: NOW - 2 * HOUR,
+                window_minutes: 10080,
+                used_percent: 100.0,
+                resets_at_ms: NOW + HOUR,
+            }),
+            ..Default::default()
+        };
+        assert!(!usage_row(value, NOW, 49, look).to_string().contains("ago"));
+        assert!(
+            usage_row(value, NOW + 1, 49, look)
+                .to_string()
+                .contains("0% left · 2h00m ago")
+        );
+        value.balance = Evidence::Unavailable;
+        assert!(!usage_row(value, NOW, 49, look).to_string().contains('%'));
     }
 }

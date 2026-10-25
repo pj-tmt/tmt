@@ -342,6 +342,74 @@ fn capture_frame(
     captured
 }
 
+/// Dated public quota readings; no source acquisition or clock re-dating.
+fn quota_age_case(state: &str, look: crate::look::Look) -> App {
+    const NOW: u64 = 1_791_600_000_000;
+    const HOUR: u64 = 3_600_000;
+    let mut app = metered(look);
+    let standing = &mut app.limits.as_mut().unwrap()[0];
+    match state {
+        "quota-age-absent" => standing.latest = None,
+        _ => {
+            let latest = standing.latest.as_mut().unwrap();
+            latest.observed_at_ms = if state == "quota-age-fresh" {
+                NOW - 60_000
+            } else {
+                NOW - 40 * HOUR
+            };
+            latest.weekly.left = 83.0;
+            latest.weekly.resets_at_ms = if state == "quota-age-reset" {
+                NOW - 1
+            } else {
+                NOW + 3 * 86_400_000
+            };
+            latest.short = None;
+        }
+    }
+    app
+}
+
+#[test]
+fn quota_age_scenes_show_the_selected_source_state_and_full_details() {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let _no_commands = crate::runner::forbid_commands();
+        for (state, expected) in [
+            ("quota-age-fresh", "83%"),
+            ("quota-age-old", "83% left · 1d16h ago"),
+            ("quota-age-absent", "no limit source"),
+            ("quota-age-reset", "window reset"),
+        ] {
+            let mut app = quota_age_case(state, looks()[0].1);
+            let mut styles = Styles::default();
+            let frame = capture_frame(&app, state, "tmt", 160, 50, &mut styles);
+            let text = frame["lines"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|line| line.as_str().unwrap())
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(text.contains(expected), "{state}: {text}");
+            app.open_quota_details();
+            let frame = capture_frame(&app, state, "tmt", 160, 50, &mut styles);
+            let text = frame["lines"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|line| line.as_str().unwrap())
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(
+                text.contains("Subscriptions · reported windows"),
+                "{state}: {text}"
+            );
+            if state == "quota-age-old" {
+                assert!(text.contains("83% remaining (last known)"));
+            }
+        }
+    });
+}
+
 fn captures() -> Value {
     const NOW: u64 = 1_791_600_000_000;
     crate::status::with_now_ms(NOW, || {
@@ -992,6 +1060,35 @@ fn captures() -> Value {
                         look_name,
                         width,
                         36,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
+        for (look_name, look) in looks() {
+            for state in [
+                "quota-age-fresh",
+                "quota-age-old",
+                "quota-age-absent",
+                "quota-age-reset",
+            ] {
+                for (width, height) in [(160, 50), (120, 40), (100, 32), (80, 32)] {
+                    let mut app = quota_age_case(state, look);
+                    frames.push(capture_frame(
+                        &app,
+                        state,
+                        look_name,
+                        width,
+                        height,
+                        &mut styles,
+                    ));
+                    app.open_quota_details();
+                    frames.push(capture_frame(
+                        &app,
+                        &format!("{state}-details"),
+                        look_name,
+                        width,
+                        height,
                         &mut styles,
                     ));
                 }

@@ -1680,10 +1680,14 @@ the preceding 2h. Chart Time per bar/Range controls do not affect either horizon
 or percentage drop starts a new suffix. Fewer than two observations or less than
 30 minutes of spacing means `—`; an unknown prior rate shows no arrow.
 Only a positive known rate projects depletion. ◆ marks a projected runout before
-reset; otherwise a known projection says `on pace`. Only ◆ is colored. Missing,
-stale or reset windows remain unknown, and small widths omit whole fields rather
-than clipping numbers. Quota Details retain full source, reset and projection
-values. A footer-only balance does not claim an API-backed two-hour rate.
+reset; otherwise a known projection says `on pace`. Only ◆ is colored. A balance
+older than 2h stays visible with its original source age, for example
+`83% left · 1d16h ago`, but has no current rate, trend or depletion forecast.
+`no limit source` means the selected window is absent; a past reset reads
+`window reset`, and conflicting evidence stays unavailable. Small widths omit
+whole value/age fields rather than clipping numbers; Quota Details retains full
+source, reset and projection values. A footer-only balance does not claim an
+API-backed two-hour rate.
 
 Digest keeps its existing account meters: fill follows remaining percent and
 warnings remain independent of fill. Its held weekly pace compares recent use

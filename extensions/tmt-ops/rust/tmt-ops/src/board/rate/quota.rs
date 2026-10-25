@@ -165,7 +165,7 @@ mod tests {
         let reports: Vec<_> = rate.quota_reports().map(|(_, report)| report).collect();
         assert_eq!(reports.len(), 1);
         let value = pace::project(reports, QuotaWindow::Short, NOW);
-        assert_eq!(value.latest.unwrap().balance().left, 80.0);
+        assert_eq!(value.latest.point().unwrap().balance().left, 80.0);
         assert_eq!(value.per_hour, None);
     }
 

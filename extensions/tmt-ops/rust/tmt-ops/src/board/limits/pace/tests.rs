@@ -25,7 +25,7 @@ fn rate_uses_actual_endpoint_spacing_and_trend_uses_the_preceding_two_hours() {
     let pace = project_week(&points);
     assert_eq!(pace.per_hour, Some(2.0)); // 3 percentage points in 90 minutes.
     assert_eq!(pace.trend, Some(Trend::Up));
-    assert_eq!(pace.latest.unwrap().balance().left, 77.0);
+    assert_eq!(pace.latest.point().unwrap().balance().left, 77.0);
     assert_eq!(
         project(&points, QuotaWindow::Short, NOW).per_hour,
         Some(1.0)
@@ -68,14 +68,13 @@ fn sparse_zero_future_stale_and_conflicting_evidence_are_honest() {
     let mut future = points.to_vec();
     future.push(report(NOW + HOUR, 90.0, RESET));
     assert_eq!(project_week(&future), zero);
-    assert_eq!(
-        project(&points, QuotaWindow::Weekly, NOW + 3 * HOUR),
-        Pace::default()
-    );
-    assert_eq!(
-        project(&points, QuotaWindow::Weekly, RESET),
-        Pace::default()
-    );
+    for through in [NOW + 3 * HOUR, RESET] {
+        let old = project(&points, QuotaWindow::Weekly, through);
+        assert_eq!(old.latest, zero.latest);
+        assert_eq!(old.per_hour, None);
+        assert_eq!(old.trend, None);
+        assert_eq!(old.exhausts_at_ms, None);
+    }
 }
 #[test]
 fn every_intermediate_drop_or_reset_restarts_the_suffix() {
@@ -153,4 +152,62 @@ fn actual_clock_includes_an_observation_at_the_horizon_endpoint() {
     ];
     let value = project(&points, QuotaWindow::Weekly, now);
     assert!((value.per_hour.unwrap() - 240.0 / 113.0).abs() < 1e-10);
+}
+
+#[test]
+fn last_known_api_balance_survives_its_rate_horizon() {
+    let at = NOW - 40 * HOUR;
+    let pace = project_week(&[report(at, 17.0, RESET)]);
+    assert_eq!(
+        pace.latest
+            .point()
+            .map(|p| (p.balance().left, p.observed_at_ms)),
+        Some((83.0, at))
+    );
+    assert_eq!(pace.per_hour, None);
+    assert_eq!(pace.trend, None);
+    assert_eq!(pace.exhausts_at_ms, None);
+}
+
+#[test]
+fn absence_conflict_and_future_evidence_are_distinct_from_an_old_balance() {
+    assert_eq!(project_week(&[]).latest, Evidence::Absent);
+    assert_eq!(
+        project_week(&[report(NOW + 1, 17.0, RESET)]).latest,
+        Evidence::Unavailable
+    );
+    let first = report(NOW - 40 * HOUR, 17.0, RESET);
+    let conflict = report(NOW - 40 * HOUR, 18.0, RESET);
+    assert_eq!(
+        project_week(&[first.clone(), conflict]).latest,
+        Evidence::Unavailable
+    );
+    let once = project_week(&[first.clone()]);
+    assert_eq!(once, project_week(&[first.clone(), first.clone()]));
+    let short = Report::read(&json!({"observedAtMs":NOW,"windows":[
+        {"windowMinutes":300,"usedPercent":5,"resetsAtMs":RESET}
+    ]}))
+    .unwrap();
+    assert_eq!(
+        project_week(&[first, short.clone()]).latest,
+        Evidence::Absent
+    );
+    assert_eq!(
+        project_week(&[report(NOW, 17.0, RESET), short]).latest,
+        Evidence::Unavailable
+    );
+}
+
+#[test]
+fn freshness_and_reset_fences_keep_the_balance_but_never_a_stale_forecast() {
+    let reports = [report(NOW - HOUR, 10.0, RESET), report(NOW, 17.0, RESET)];
+    let boundary = project(&reports, QuotaWindow::Weekly, NOW + 2 * HOUR);
+    assert!(boundary.latest.point().is_some());
+    for at in [NOW + 2 * HOUR + 1, RESET] {
+        let value = project(&reports, QuotaWindow::Weekly, at);
+        assert_eq!(value.latest, boundary.latest);
+        assert_eq!(value.per_hour, None);
+        assert_eq!(value.trend, None);
+        assert_eq!(value.exhausts_at_ms, None);
+    }
 }

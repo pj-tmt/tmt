@@ -1,7 +1,7 @@
 //! Account pace over fixed two-hour horizons, independent of chart aggregation.
 use super::{
     QuotaWindow, Trend,
-    observation::{Point, Report},
+    observation::{Evidence, Point, Report},
 };
 
 pub(in crate::board) const HORIZON_MS: u64 = 2 * 3_600_000;
@@ -9,14 +9,14 @@ const MIN_SPACING_MS: u64 = 30 * 60_000;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(in crate::board) struct Pace {
-    pub latest: Option<Point>,
+    pub latest: Evidence,
     pub per_hour: Option<f64>,
     pub trend: Option<Trend>,
     pub exhausts_at_ms: Option<u64>,
 }
 impl Pace {
     pub fn early_ms(self) -> Option<u64> {
-        let reset = self.latest?.resets_at_ms;
+        let reset = self.latest.point()?.resets_at_ms;
         let exhausted = self.exhausts_at_ms?;
         reset.checked_sub(exhausted).filter(|ms| *ms > 0)
     }
@@ -29,19 +29,31 @@ pub(in crate::board) fn project<'a>(
     kind: QuotaWindow,
     now: u64,
 ) -> Pace {
-    let reports: Vec<_> = reports
-        .into_iter()
-        .filter(|report| report.observed_at_ms <= now)
-        .collect();
-    let Some(newest_at) = reports.iter().map(|report| report.observed_at_ms).max() else {
-        return Pace::default();
+    let mut reports: Vec<_> = reports.into_iter().collect();
+    let mut pace = Pace {
+        latest: if reports.is_empty() {
+            Evidence::Absent
+        } else {
+            Evidence::Unavailable
+        },
+        ..Default::default()
     };
-    if reports
-        .iter()
-        .filter(|report| report.observed_at_ms == newest_at)
-        .any(|report| report.window(kind).is_none())
-    {
-        return Pace::default();
+    reports.retain(|report| report.observed_at_ms <= now);
+    let Some(newest_at) = reports.iter().map(|report| report.observed_at_ms).max() else {
+        return pace;
+    };
+    let newest = || {
+        reports
+            .iter()
+            .filter(|report| report.observed_at_ms == newest_at)
+    };
+    if newest().any(|report| report.window(kind).is_none()) {
+        pace.latest = if newest().all(|report| report.window(kind).is_none()) {
+            Evidence::Absent
+        } else {
+            Evidence::Unavailable
+        };
+        return pace;
     }
     let mut points: Vec<_> = reports
         .into_iter()
@@ -49,10 +61,7 @@ pub(in crate::board) fn project<'a>(
         .collect();
     points.sort_by_key(|point| point.observed_at_ms);
     points.dedup(); // Repeated account evidence from several seats is not summed.
-    let mut pace = Pace::default();
-    let Some(latest) = points.last().copied().filter(|point| {
-        now.saturating_sub(point.observed_at_ms) <= HORIZON_MS && point.resets_at_ms > now
-    }) else {
+    let Some(latest) = points.last().copied() else {
         return pace;
     };
     // A conflicting newest timestamp cannot supply even a truthful balance.
@@ -65,7 +74,12 @@ pub(in crate::board) fn project<'a>(
     {
         return pace;
     }
-    pace.latest = Some(latest);
+    pace.latest = Evidence::Observed(latest);
+    // A dated balance remains evidence after its forecast horizon, never a
+    // fresh rate or a claim about a window that has already reset.
+    if now.saturating_sub(latest.observed_at_ms) > HORIZON_MS || latest.resets_at_ms <= now {
+        return pace;
+    }
     let Some(rate) = horizon(&points, now) else {
         return pace;
     };
