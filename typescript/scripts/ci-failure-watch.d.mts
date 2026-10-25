@@ -22,6 +22,7 @@ export interface WatchAlert {
   workflowPath: string;
   event: string;
   job: string;
+  jobs?: string[];
   route: { squad: string; source: string };
   firstSeen: number;
   lastSeen: number;
@@ -60,6 +61,7 @@ export const WATCH_LIMITS: Readonly<{
   deadlineMs: number;
   maxPages: number;
   maxSignatures: number;
+  maxNoticeBytes: number;
 }>;
 export interface WatchApi {
   get(endpoint: string, etag?: string): { status: number; etag?: string; body: unknown };
@@ -72,11 +74,11 @@ export function routeFailure(
   job: string
 ): { squad: string; source: string };
 export function watchedRun(run: WatchRun): boolean;
-export function failureSignature(run: WatchRun, job: string): string;
+export function failureSignature(run: WatchRun, jobs: string | string[]): string;
 export function observeRun(
   state: WatchState,
   run: WatchRun,
-  jobs: { id?: number; name: string; conclusion: string }[],
+  jobs: { id?: number; name: string; conclusion: string; started_at?: string | null }[],
   routing: RoutingMap,
   now: number
 ): void;
