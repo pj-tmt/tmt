@@ -39,8 +39,8 @@ its candidates and a missing one says so.
 ## Rules
 
 - Never mark someone else's item done unless you were asked to, or you did exactly
-  that work. In particular, items Ben added are his: leave them open unless he
-  asks you to complete them.
+  that work. In particular, items the person you work with added are theirs: leave
+  them open unless they ask you to complete them.
 - Keep titles short and put detail in `--body`. Items are visible on the board, so
   never put secrets in them.
 - You cannot edit, archive, reorder or delete from these commands; those stay with
