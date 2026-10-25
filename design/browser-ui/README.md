@@ -488,7 +488,11 @@ remain host-owned.
 ## Non-modal panel
 
 `BrowserPanel` is a controlled `aside` labelled by its string heading. It shares
-Drawer's heading, optional position caption and Close control. The host selects
+Drawer's heading, optional position caption and Close control. Optional `headerActions`
+passes host-owned controls to that shared header immediately before Close in DOM
+and keyboard order, with shared spacing. Omitted, it adds no element or layout
+change. Actions retain their labels, admission, state and effects; the panel
+retains its existing dismissal and focus ownership. The host selects
 `mode="column" | "card" | "sheet"`; the panel does not infer a product breakpoint.
 Column mode leaves grid, reflow, dividers and sticky positioning to the host.
 The floating card is 330px wide, 12px from the right and bottom, and starts at the
