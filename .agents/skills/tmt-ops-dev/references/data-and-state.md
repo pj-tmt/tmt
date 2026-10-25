@@ -317,6 +317,20 @@ projects its typed results/errors. The board consumes the same typed service dir
   unsent form belongs to the conversation, not the overlay: Esc closes the overlay and keeps
   a changed form, a sent one is dropped on success and re-aimed at the item's new revision
   on a conflict.
+- The selected conversation's same checklist read also calls public `Service::events` after
+  its held cursor (at most two 500-event pages per turn). `conversation_checklist::activity`
+  retains at most 1000 ID-ordered facts per room/member and copies only labels referenced by
+  those events. Failed reads and stale write epochs never advance the cursor or erase held
+  events. Preview and event failures are independent.
+  Core's user UUID, acquired separately from the caller, suppresses the user's events;
+  an unresolved user suppresses attribution. The transcript's `conversation::activity` projects
+  current sanitized item titles (even after a later revision), with `an item` for missing content
+  and roster/global names or `an agent` for actors. A deletion event suppresses a stale
+  preview title. Legacy/pruned gaps, further pages and
+  failed reads stay explicit. Literal event times merge stream heads while event IDs preserve
+  order through clock rollback. Room/member/event anchors and acquired-fact/label generations
+  invalidate the existing transcript cache. These muted, inert rows grant no request, source,
+  annotation, delivery or acknowledgment authority and persist no transcript.
 - A write queues behind another writer for at most five seconds; a spent budget is
   `CHECKLIST_STORAGE_ERROR` saying nothing was saved with the one retry, and a commit that
   timed out is `CHECKLIST_OUTCOME_UNKNOWN`. The implementation limits are 64 MiB per document

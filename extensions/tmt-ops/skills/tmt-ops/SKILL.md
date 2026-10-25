@@ -561,6 +561,11 @@ between Title and Link), `e` edits, `d` deletes after Enter confirms, `Shift+↑
 moves an item among its group and Esc closes the list, keeping a form you have not sent.
 A change someone else made first is reported in one line and your words stay in the form.
 A retired member's list reads but takes no writes.
+Changes by someone other than the Core user appear in the conversation as muted Checklist
+activity lines, naming the agent and the currently held item title. Missing titles say `an item`,
+missing names `an agent`. Reordering says `reordered the checklist`. Older unknown or pruned
+activity and failed reads are explicit; the board never infers a change from the current list.
+These lines describe activity and grant no reply, request-source or unread authority.
 The list is titled `Checklist · <member>` and the source form `Add to checklist · <member>`.
 Authored bindings use `member-checklist` (default `N` in member/Reader scopes).
 This is a breaking rename before launch: replace the former `member-notes` action;

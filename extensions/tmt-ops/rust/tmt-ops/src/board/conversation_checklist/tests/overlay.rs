@@ -42,7 +42,10 @@ fn read_with(items: Vec<ItemView>) -> (App, Key) {
     let answer = Completed {
         key: task.key.clone(),
         epoch: task.epoch,
-        outcome: Outcome::Read(Ok(preview(items))),
+        outcome: Outcome::Read {
+            preview: Ok(preview(items)),
+            activity: activity::Read::default(),
+        },
     };
     app.finished_notes(answer, now);
     (app, key)
@@ -518,7 +521,10 @@ fn a_read_that_began_before_a_write_cannot_undo_it() {
     let stale = Completed {
         key: read.key.clone(),
         epoch: read.epoch,
-        outcome: Outcome::Read(Ok(preview(vec![todo(1)]))),
+        outcome: Outcome::Read {
+            preview: Ok(preview(vec![todo(1)])),
+            activity: activity::Read::default(),
+        },
     };
     app.finished_notes(stale, t1);
     assert_eq!(
