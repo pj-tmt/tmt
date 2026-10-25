@@ -94,7 +94,11 @@ it.each(['claude', 'codex'] as const)(
     const mock = await startMockModelServer({
       turns: [{ protocol, model, text: marker, inputTokens: 12, outputTokens: 8 }],
       sessionSource: provider === 'claude' ? 'claude-code-2.1.285' : 'codex-0.160.0',
-      // No side requests are declared until the first hosted census observes them.
+      // Observed in hosted run 40072755557; no other side route is assumed.
+      sideRequests:
+        provider === 'claude'
+          ? [{ method: 'HEAD', path: '/api/hello', maxCalls: 1, response: {} }]
+          : [],
     });
     try {
       await withE2EFixture(async (fixture) => {
@@ -176,54 +180,72 @@ it.each(['claude', 'codex'] as const)(
             ? ['--permission-mode', 'bypassPermissions', '--model', model]
             : ['--dangerously-bypass-approvals-and-sandbox', '--dangerously-bypass-hook-trust'];
         submit(fixture, pane, ['run', name, provider, ...args], status, env);
-        let identity: ListedIdentity | undefined;
-        await expect
-          .poll(
-            async () => {
-              const result = await fixture.runJsonCli<{ identities: ListedIdentity[] }>(['ls']);
-              identity = result.json?.identities.find((row) => row.name === name);
-              return identity?.resume?.session;
-            },
-            { timeout: 45_000, interval: 500 }
-          )
-          .toBeTruthy();
-        // The response marker is never typed: terminal input echo cannot satisfy this check.
-        fixture.tmux([
-          'send-keys',
-          '-t',
-          pane,
-          '-l',
-          'Reply briefly with plain text. Do not use tools.',
-        ]);
-        fixture.tmux(['send-keys', '-t', pane, 'Enter']);
-        await expect
-          .poll(
-            async () => {
-              const snapshot = mock.snapshot();
-              if (snapshot.failure)
-                throw new Error(`${snapshot.failure.code}: ${snapshot.failure.message}`);
-              const result = await fixture.runJsonCli<{ output: string }>(['check', name, '0']);
-              return result.code === 0 && result.json?.output.includes(marker);
-            },
-            { timeout: 60_000, interval: 500 }
-          )
-          .toBe(true);
-        const result = await fixture.runJsonCli<{ identities: ListedIdentity[] }>(['ls']);
-        identity = result.json?.identities.find((row) => row.name === name);
-        report.publicIdentity = identity;
-        report.diagnosticMarkerObserved = true;
-        const observed = mock.snapshot().census.find((row) => row.kind === 'turn')?.sessionId;
-        expect(
-          observed,
-          'HARNESS_SESSION_NOT_PROVEN: pinned wire location not observed'
-        ).toBeTruthy();
-        expect(identity?.resume?.driver).toBe(provider);
-        expect(identity?.resume?.session).toBe(observed);
-        expect(identity?.session?.unbound).toBe(false);
-        report.sessionCondition = 'matched public session to mock UUID';
-        expect(mock.snapshot().completedTurns).toBe(1);
-        fixture.tmux(['send-keys', '-t', pane, 'C-c', 'C-c']);
-        await waitForFileContent(status, { timeoutMs: 10_000 });
+        try {
+          let identity: ListedIdentity | undefined;
+          await expect
+            .poll(
+              async () => {
+                const result = await fixture.runJsonCli<{ identities: ListedIdentity[] }>(['ls']);
+                identity = result.json?.identities.find((row) => row.name === name);
+                return identity?.resume?.session;
+              },
+              { timeout: 45_000, interval: 500 }
+            )
+            .toBeTruthy();
+          // The response marker is never typed: terminal input echo cannot satisfy this check.
+          fixture.tmux([
+            'send-keys',
+            '-t',
+            pane,
+            '-l',
+            'Reply briefly with plain text. Do not use tools.',
+          ]);
+          fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+          await expect
+            .poll(
+              async () => {
+                const snapshot = mock.snapshot();
+                if (snapshot.failure)
+                  throw new Error(`${snapshot.failure.code}: ${snapshot.failure.message}`);
+                const result = await fixture.runJsonCli<{ output: string }>(['check', name, '0']);
+                return result.code === 0 && result.json?.output.includes(marker);
+              },
+              { timeout: 60_000, interval: 500 }
+            )
+            .toBe(true);
+          const result = await fixture.runJsonCli<{ identities: ListedIdentity[] }>(['ls']);
+          identity = result.json?.identities.find((row) => row.name === name);
+          report.publicIdentity = identity;
+          report.diagnosticMarkerObserved = true;
+          const observed = mock.snapshot().census.find((row) => row.kind === 'turn')?.sessionId;
+          expect(
+            observed,
+            'HARNESS_SESSION_NOT_PROVEN: pinned wire location not observed'
+          ).toBeTruthy();
+          expect(identity?.resume?.driver).toBe(provider);
+          expect(identity?.resume?.session).toBe(observed);
+          expect(identity?.session?.unbound).toBe(false);
+          report.sessionCondition = 'matched public session to mock UUID';
+          expect(mock.snapshot().completedTurns).toBe(1);
+          fixture.tmux(['send-keys', '-t', pane, 'C-c', 'C-c']);
+          await waitForFileContent(status, { timeoutMs: 10_000 });
+        } catch (error) {
+          // Public JSON and our own exit marker only: no hook files or transcripts.
+          const listed = await fixture.runJsonCli<{ identities: ListedIdentity[] }>(['ls']);
+          report.publicStartup = {
+            code: listed.code,
+            identity: listed.json?.identities.find((row) => row.name === name),
+            stderr: listed.stderr.slice(0, 2048),
+            exitStatus: existsSync(status) ? readFileSync(status, 'utf8').slice(0, 16) : null,
+          };
+          const diagnostic = await fixture.runJsonCli<{ output: string }>(['check', name, '0']);
+          report.publicCheckDiagnostic = {
+            code: diagnostic.code,
+            output: diagnostic.json?.output?.slice(0, 8192),
+            stderr: diagnostic.stderr.slice(0, 2048),
+          };
+          throw error;
+        }
       });
       report.qualified = true;
     } catch (error) {

@@ -543,3 +543,23 @@ it.each([undefined, 'not-a-uuid', sessionId.toUpperCase()])(
     expect(server.snapshot().census[0]).not.toHaveProperty('sessionId');
   }
 );
+
+it('accepts the observed Claude HEAD hello without consuming a turn or returning a body', async () => {
+  const server = await startMockModelServer({
+    turns: [turn('messages')],
+    sideRequests: [{ method: 'HEAD', path: '/api/hello', maxCalls: 1, response: {} }],
+  });
+  servers.push(server);
+  const hello = await fetch(`${server.baseUrl}/api/hello`, { method: 'HEAD' });
+  expect(hello.status).toBe(200);
+  expect(await hello.text()).toBe('');
+  expect(server.snapshot()).toMatchObject({ sideRequestsSeen: 1, completedTurns: 0 });
+  expect(server.snapshot().failure).toBeUndefined();
+  expect(server.snapshot().census[0]).toMatchObject({
+    method: 'HEAD',
+    path: '/api/hello',
+    kind: 'side',
+  });
+  expect((await post(server, 'messages')).status).toBe(200);
+  expect(server.snapshot().completedTurns).toBe(1);
+});
