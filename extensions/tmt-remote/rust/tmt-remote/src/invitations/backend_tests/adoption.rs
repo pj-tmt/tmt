@@ -304,6 +304,60 @@ fn active_independent_reverse_policy_is_preserved_and_wrong_claim_is_never_consu
 }
 
 #[test]
+fn late_independent_reverse_grant_keeps_policy_despite_an_earlier_sending_yes() {
+    let stopped = AtomicBool::new(false);
+    let io = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(30),
+        cancelled: &stopped,
+    };
+    for independent_sending in [false, true] {
+        let mut exchange = Exchange::new(&io);
+        // The answer was obtained while no reverse member existed. Another
+        // owner action establishes independent policy before adoption's tx.
+        let grant = crate::store::Grant {
+            client_id: exchange.connection.owner.clone(),
+            public_key: exchange.connection.owner_key,
+            kind: "cli".into(),
+            origin: "cli".into(),
+            name: "Independent owner".into(),
+            agents: "all".into(),
+            scopes: crate::store::DEFAULT_SCOPES.map(str::to_owned).into(),
+            mode: "direct".into(),
+            issued_at_ms: crate::pairing::now_ms().unwrap(),
+            expires_at_ms: None,
+            revision: 1,
+            disabled: false,
+        };
+        let original = {
+            let mut store = exchange.peer.store.lock().unwrap();
+            store.confirm_member_grant(&grant).unwrap();
+            if independent_sending {
+                store.talk(&grant.client_id, true).unwrap().unwrap()
+            } else {
+                store.grant(&grant.client_id).unwrap().unwrap()
+            }
+        };
+        let adopted = exchange.adopt(true, &io).unwrap().unwrap();
+        assert!(adopted.confirmed && adopted.pending_submission.is_none());
+        exchange.peer.reopen();
+        assert_eq!(
+            exchange
+                .peer
+                .store
+                .lock()
+                .unwrap()
+                .grant(&grant.client_id)
+                .unwrap()
+                .unwrap(),
+            original,
+            "the earlier answer cannot change independent policy found inside adoption"
+        );
+        assert_eq!(exchange.peer.counts(), (1, 1, 1, 0));
+        assert_eq!(routes(&exchange.peer), 1);
+    }
+}
+
+#[test]
 fn original_receipt_after_reopen_never_reapplies_policy_or_revives_revoked_reverse_authority() {
     let stopped = AtomicBool::new(false);
     let io = IoBudget {

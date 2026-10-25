@@ -461,7 +461,10 @@ Two fake backend consumers prove this library independently of transport. New Fi
 entry points use that same coordinator through `cloud_pairing::invitation::Firestore`.
 The Service verifies the registered owner native pin, descriptor revision and authenticated
 uid before constructing the exact v2 binding. Its current coordinator observation replaces
-the standalone invite flag. The terminal only presents the code, comparison and separate
+the standalone invite flag. Setup reserves one slot, without retaining the invitation mutex
+through provider I/O; failed setup releases only its own reservation. Pending setup is busy
+and not idle, with no current-offer observation until coordinator creation settles.
+The terminal only presents the code, comparison and separate
 default-no sending choices. Version-1 join and original-receipt recovery retain their
 isolated decoder and original expiry; there is no new v1 offer producer.
 
@@ -472,8 +475,10 @@ not replace confirmed trust or policy. A restored claim observes even when the p
 has no row; it cannot send another candidate. The authenticated receipt handoff consumes
 the scoped response key and adopts the reverse M1 member, optional sending choice,
 route/hash and confirmed Connection in one Store transaction. Only that consuming writer
-clears the matching claim. An active independent grant keeps its policy; replay of an
-already consumed original cannot restore revoked authority or reapply sending. The
+clears the matching claim. The earlier sending answer applies only when that transaction
+creates the reverse grant; an active independent grant keeps its policy. A drop guard clears
+the temporary reroute capabilities on every exit. Replay of an already consumed original
+cannot restore revoked authority or reapply sending. The
 existing enrollment worker recovers v2 originals from the same management journal and
 publication claims, after native possession/snapshot and remaining-window checks.
 

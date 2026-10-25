@@ -7,7 +7,92 @@ use crate::invitations::{
     port::{OwnerActor, OwnerDecision},
     service::{Coordinator, State, Status},
 };
+use std::sync::OnceLock;
 pub(super) type Ceremony = Coordinator<Firestore, FirestoreConfirmation>;
+
+/// An unset slot is reserved preparation, not an idle or published offer.
+#[derive(Default)]
+pub(super) struct Slot {
+    coordinator: OnceLock<Arc<Ceremony>>,
+}
+impl Slot {
+    pub(super) fn current(&self) -> Option<Arc<Ceremony>> {
+        self.coordinator.get().cloned()
+    }
+    pub(super) fn idle(&self) -> Result<bool, RemoteError> {
+        let Some(coordinator) = self.current() else {
+            return Ok(false);
+        };
+        let now = crate::pairing::now_ms()?;
+        let status = coordinator.status(now)?;
+        Ok(status.expires_at_ms.is_some_and(|expiry| now >= expiry)
+            || matches!(
+                status.state,
+                State::Confirmed | State::Refused | State::Cancelled | State::Expired
+            ))
+    }
+}
+
+struct Reservation<'a> {
+    service: &'a Service,
+    slot: Arc<Slot>,
+}
+impl<'a> Reservation<'a> {
+    fn reserve(service: &'a Service) -> Result<Self, RemoteError> {
+        let previous = service
+            .invitation
+            .lock()
+            .map_err(crate::store::database)?
+            .clone();
+        if let Some(previous) = &previous
+            && !previous.idle()?
+        {
+            return Err(busy());
+        }
+        let slot = Arc::new(Slot::default());
+        let mut handle = service.invitation.lock().map_err(crate::store::database)?;
+        let unchanged = match (&previous, handle.as_ref()) {
+            (None, None) => true,
+            (Some(previous), Some(current)) => Arc::ptr_eq(previous, current),
+            _ => false,
+        };
+        if !unchanged {
+            return Err(busy());
+        }
+        *handle = Some(slot.clone());
+        Ok(Self { service, slot })
+    }
+    fn activate(&self, coordinator: Arc<Ceremony>) -> Result<(), RemoteError> {
+        self.slot
+            .coordinator
+            .set(coordinator)
+            .map_err(|_| unavailable())
+    }
+    fn release(&self) -> Result<(), RemoteError> {
+        let mut handle = self
+            .service
+            .invitation
+            .lock()
+            .map_err(crate::store::database)?;
+        if handle
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, &self.slot))
+        {
+            *handle = None;
+        }
+        Ok(())
+    }
+}
+impl Drop for Reservation<'_> {
+    fn drop(&mut self) {
+        if self.slot.current().is_none() {
+            let _ = self.release();
+        }
+    }
+}
+fn busy() -> RemoteError {
+    RemoteError::new("REMOTE_PAIRING_BUSY", "An invite is already open.")
+}
 
 pub(super) fn remaining(context: &Context) -> Result<Instant, RemoteError> {
     let now = crate::pairing::now_ms()?;
@@ -24,7 +109,8 @@ impl Service {
             .invitation
             .lock()
             .map_err(crate::store::database)?
-            .clone();
+            .clone()
+            .and_then(|slot| slot.current());
         coordinator
             .map(|coordinator| coordinator.status(crate::pairing::now_ms()?))
             .transpose()
@@ -68,24 +154,9 @@ impl Service {
         config: Value,
         mut emit: impl FnMut(Value) -> Result<Option<(bool, bool)>, RemoteError>,
     ) -> Result<(), RemoteError> {
-        // Hold only the handle reservation through preparation. Coordinator
-        // calls and the terminal loop run after releasing this composition lock.
-        let mut handle = self.invitation.lock().map_err(crate::store::database)?;
-        if let Some(previous) = handle.as_ref() {
-            let now = crate::pairing::now_ms()?;
-            let status = previous.status(now)?;
-            if status.expires_at_ms.is_none_or(|expiry| now < expiry)
-                && !matches!(
-                    status.state,
-                    State::Confirmed | State::Refused | State::Cancelled | State::Expired
-                )
-            {
-                return Err(RemoteError::new(
-                    "REMOTE_PAIRING_BUSY",
-                    "An invite is already open.",
-                ));
-            }
-        }
+        // The reservation owns preparation without retaining the composition
+        // mutex through provider I/O. A failed preparation releases only itself.
+        let reservation = Reservation::reserve(self)?;
         let provider = Arc::new(self.provider(&config, &self.machine, true)?);
         if provider.identity().project != project {
             return Err(wire::invalid());
@@ -116,15 +187,17 @@ impl Service {
             self.invitation_backend(provider.clone(), &context, &config, &[], &self.io())?;
         let coordinator = Arc::new(Coordinator::new(backend, sink));
         let deadline = remaining(&context)?;
-        *handle = Some(coordinator.clone());
-        drop(handle);
         let actor = OwnerActor::local_interactive();
         let io = IoBudget {
             deadline,
             cancelled: &self.stop,
         };
         let result = (|| {
-            coordinator.create(&actor, context.clone(), now, &io)?;
+            let created = coordinator.create(&actor, context.clone(), now, &io);
+            // Keep the slot reserved until create has established its state.
+            // Even a lost publication answer must remain observable afterward.
+            reservation.activate(coordinator.clone())?;
+            created?;
             let delivery = coordinator.deliver(&actor, crate::pairing::now_ms()?)?;
             let owner_name = std::env::var("USER")
                 .ok()
@@ -226,13 +299,7 @@ impl Service {
             .status(crate::pairing::now_ms()?)
             .is_ok_and(|status| status.offer.is_none())
         {
-            let mut handle = self.invitation.lock().map_err(crate::store::database)?;
-            if handle
-                .as_ref()
-                .is_some_and(|current| Arc::ptr_eq(current, &coordinator))
-            {
-                *handle = None;
-            }
+            reservation.release()?;
         }
         result
     }
