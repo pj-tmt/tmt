@@ -151,6 +151,23 @@ for (const { mode, width } of modes)
       });
     });
 
+test('a panel that is already open when the page mounts does not play the dock motion', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const call = (method: string, argument?: unknown) =>
+    page.evaluate(
+      async ({ fixture, method, argument }) => (await import(fixture))[method](argument),
+      { fixture: '/test/dock-motion-browser.tsx', method, argument },
+    );
+  await call('mount', 'chat');
+  expect(await call('recorded')).toEqual([]);
+  // Closing and opening it again are the dock's motion, so the hook still plays.
+  await call('show', null);
+  await call('show', 'chat');
+  expect(await call('recorded')).toEqual(['chat', 'chat']);
+});
+
 test('the count is the open threads and a thread with news turns it to the needs-you colour', async ({
   page,
 }) => {

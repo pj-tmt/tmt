@@ -92,9 +92,9 @@ test('the Comments list is the website list: views, rows and an empty state per 
   await run(page, 'seedThread');
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
   const panel = commentsRegion(page);
-  // Three views in one strip (no Proposals view without a proposal), and the add action under it.
+  // Two views in one strip (no Proposals view without a proposal), and the add action under it.
   const views = panel.getByRole('tablist', { name: 'Comment views' });
-  await expect(views.getByRole('tab')).toHaveText(['Open', 'Needs you', 'Resolved']);
+  await expect(views.getByRole('tab')).toHaveText(['Open', 'Needs you']);
   await expect(views.getByRole('tab', { name: 'Open', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
@@ -132,14 +132,12 @@ test('the Comments list is the website list: views, rows and an empty state per 
       .getByRole('tab', { name: 'Open', exact: true })
       .evaluate((node) => getComputedStyle(node).backgroundColor),
   ).not.toBe('rgba(0, 0, 0, 0)');
-  // The other views are empty here, and say so.
+  // The other view is empty here, and says so.
   await views.getByRole('tab', { name: 'Needs you', exact: true }).click();
   await expect(panel.getByTestId('annotation-row')).toHaveCount(0);
   const empty = panel.getByTestId('comments-empty');
   await expect(empty.getByRole('heading')).toHaveText('Nothing waiting here.');
   await expect(empty).toContainText('You are caught up in this view.');
-  await views.getByRole('tab', { name: 'Resolved', exact: true }).click();
-  await expect(empty).toContainText('Resolved threads will appear here.');
 });
 
 test('a row opens the Discussion view: header, title passage, turns, reply, Resolve in the header', async ({
@@ -204,7 +202,6 @@ test('a row opens the Discussion view: header, title passage, turns, reply, Reso
   await expect(drawer.getByRole('heading', { level: 2 })).toHaveText('Comments');
   await expect(drawer.getByRole('tablist', { name: 'Comment views' })).toBeVisible();
   // Show in the page scrolls to the passage; the non-modal panel stays beside or over it.
-  await drawer.getByRole('tab', { name: 'Resolved', exact: true }).click();
   await drawer.getByTestId('annotation-row').click();
   await drawer.getByRole('button', { name: /^Show in the page/ }).click();
   await expect(commentsRegion(page)).toBeVisible();

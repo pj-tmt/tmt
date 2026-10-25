@@ -63,13 +63,13 @@ test('resolving hides the margin marker, Reopen restores it, and each click writ
 });
 
 test('an agent resolution stays unseen until the person opens the thread', async ({ page }) => {
+  // The resolved thread is listed only with Show resolved on.
+  await showResolvedOn(page);
   const { toggle, markers, row, status, state } = await open(page);
   await run(page, 'agentResolves');
   await expect(markers).toHaveCount(0);
   await expect(toggle).toHaveAccessibleName(/New/);
-  // The thread left the Open view; the Resolved tab carries the news.
-  await expect(page.getByRole('tab', { name: 'Open', exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: '● Resolved · New', exact: true }).click();
+  // The dock's name carries the news; the thread's row, listed with Show resolved, says so too.
   await expect(status).toHaveText('1 comment · Resolved by Atlas · New');
   // Rendering and the open panel never acknowledge it.
   expect(await run(page, 'seenProof')).toBe(0);

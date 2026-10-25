@@ -1328,8 +1328,9 @@ Open mark. Opening the resolved row discloses retained history without
 reopening the proposal or changing the pending count. This explicit opening
 acknowledges a locally unseen resolution; rendering or filtering does not.
 Comments mixes proposals with ordinary annotations in one list with the views
-Open, Needs you, Resolved and, only when the page has a proposal, Proposals (a rule closes the
-view strip and every row). Row titles stay at 14px (the compact body token); quoted passages
+Open, Needs you and, only when the page has a proposal, Proposals (a rule closes the
+view strip and every row). Open leaves resolved threads out until the panel's Show resolved toggle is on;
+there is no Resolved view. Row titles stay at 14px (the compact body token); quoted passages
 and metadata use the caption size. The
 open thread stays listed in every view. Needs you holds undecided proposals and
 threads with news the person has not seen. Changing the view never changes status, sends a request or changes the header
@@ -3763,7 +3764,8 @@ closes back into it: the same dialog, clipped to the dock at one end of the moti
 out of the dock the same way, with one motion for both: in a column (from 1180 px) the dock stays in
 place and reachable with its Comments action pressed, and the panel opens with the motion and leaves
 the page grid at once when it closes; as a card or a sheet the panel covers the dock's corner, so the
-dock stays in its place, unseen and out of reach, and the clip runs back into it on close. While Chat is
+dock stays in its place, unseen and out of reach, and the clip runs back into it on close. A panel that is
+already open when the page mounts (a restored panel or route) is there at once, without the motion. While Chat is
 open the dock stays in its place, unseen and out of reach, and the drawer covers it. Close/Escape or a
 backdrop press returns focus to the Chat action; closing the Comments panel returns it to the Comments
 action. No press sends a message. At compact widths the modal drawer covers the dock: Close/Escape

@@ -97,7 +97,8 @@ Comments and Chat hide during selection mode or an annotation. The dock sits uns
 Chat is open. Comments shows the open-thread count (`.dock-count`, its slot held while the threads are
 verified), in the needs-you colour with a bullet while a thread has news, and presses open the
 Comments panel out of the dock with the same motion: a column leaves the dock in place with Comments
-pressed (the panel opens with the motion and leaves the grid at once on close), a card or a sheet hides it
+pressed (the panel opens with the motion and leaves the grid at once on close; one already open when
+the page mounts is there at once, without it), a card or a sheet hides it
 in its place and the clip runs back into it. It has no shortcut. The three-action capsule fits at 320 px.
 Its mark plus `Unread` (also on the Chat menu entry) is device-local reply attention,
 not the unresolved/Unseen count. Only visible Chat history at its end clears it;

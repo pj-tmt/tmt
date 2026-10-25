@@ -353,7 +353,6 @@ export const text = {
   commentsEmptyNoneHint: 'Select text to start a thread, or comment on the page.',
   commentsEmptyTitle: 'Nothing waiting here.',
   commentsEmptyCaughtUp: 'You are caught up in this view.',
-  commentsEmptyResolved: 'Resolved threads will appear here.',
   /** The Comments panel's pressed toggle: resolved threads are hidden until it is on. */
   showResolved: 'Show resolved',
   commentsNoOpen: 'No open threads',

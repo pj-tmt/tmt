@@ -39,7 +39,7 @@ function clip(inset: [number, number, number, number], radius: number) {
  * no animation support opens and closes as before.
  */
 export function useDockMotion(open: DockPanel | null, mode: PanelMode) {
-  const previous = useRef<DockPanel | null>(null);
+  const previous = useRef<DockPanel | null>(open);
   useLayoutEffect(() => {
     const was = previous.current;
     previous.current = open;

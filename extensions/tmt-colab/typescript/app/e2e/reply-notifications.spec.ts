@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { commentsClose, commentsRegion } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, showResolvedOn } from '../test/page-actions.js';
 import { capturePath } from './captures.js';
 import { PNG, attach, send } from '../test/attachment-page.js';
 
@@ -125,6 +125,8 @@ for (const destination of ['Chat', 'Thread'] as const) {
       page,
     }) => {
       if (removal === 'expiry') await page.clock.install();
+      // The news is in a resolved thread, which the Comments panel lists only with Show resolved on.
+      await showResolvedOn(page);
       await mount(page);
       await run(page, 'secondThread');
       const discussion = page
@@ -140,11 +142,10 @@ for (const destination of ['Chat', 'Thread'] as const) {
         if (destination === 'Chat') await open(page, 'Chat');
         else {
           await open(page, 'Comments');
-          // Comments reopens on the thread it had selected; otherwise the news is in Resolved.
+          // Comments reopens on the thread it had selected; otherwise the news is in the list.
           await expect(commentsRegion(page)).toBeVisible();
           if (await page.getByRole('button', { name: 'All comments', exact: true }).isVisible())
             return;
-          await page.getByRole('tab', { name: /Resolved/ }).click();
           await page.getByTestId('annotation-row').filter({ hasText: 'Resolved by Atlas' }).click();
         }
       };
@@ -445,6 +446,7 @@ for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme });
       await page.clock.install();
+      await showResolvedOn(page);
       await mount(page);
       await run(page, 'secondThread');
       await run(page, 'agentResolves');
@@ -472,7 +474,6 @@ for (const width of [1440, 390]) {
       await page.screenshot({ path: capturePath(`counts-expired-${width}-${theme}.png`) });
       await page.clock.resume();
       await open(page, 'Comments');
-      await page.getByRole('tab', { name: /Resolved/ }).click();
       await page.getByTestId('annotation-row').filter({ hasText: 'Resolved by Atlas' }).click();
       await expect(page.getByTestId('comment-thread').getByTestId('ask-reply')).toHaveText([
         'Thread reply 201\nSecond reply line',
