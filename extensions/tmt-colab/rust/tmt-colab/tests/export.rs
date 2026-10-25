@@ -243,20 +243,23 @@ fn verify(
 /// its HTML, described as derived; any other page exports exactly as before.
 #[test]
 fn a_page_that_opts_in_exports_a_derived_standalone_copy_and_any_other_page_does_not() {
-    use tmt_colab::export::standalone::{self, Runtime};
-    let runtime = Runtime {
-        script: "window.tmt={};",
-        style: "@theme inline{}",
+    use tmt_colab::export::standalone::{self, Assets, Runtime};
+    let runtime = Assets {
+        runtime: Some(Runtime {
+            script: "window.tmt={};",
+            style: "@theme inline{}",
+        }),
+        design: None,
     };
-    let capture = |f: &Fixture, runtime: Option<&Runtime>| {
-        Bundle::capture_with_runtime(
+    let capture = |f: &Fixture, assets: &Assets| {
+        Bundle::capture_with_assets(
             &f.store,
             &f.key,
             PAGE,
             &mut Decoder::with_config(support::decoder_config(BINARY.into())).unwrap(),
             1234,
             &Unserved,
-            runtime,
+            assets,
         )
         .unwrap()
     };
@@ -272,7 +275,7 @@ fn a_page_that_opts_in_exports_a_derived_standalone_copy_and_any_other_page_does
     let source = "<meta name=\"tmt-colab-runtime\" content=\"react tailwind\">\r\n<p>雪🦀\0</p>";
     let mut f = Fixture::new();
     f.append(source, "Opted in");
-    let published = capture(&f, Some(&runtime)).publish(&f.root).unwrap();
+    let published = capture(&f, &runtime).publish(&f.root).unwrap();
     assert_eq!(
         published.standalone,
         Some(standalone::Outcome {
@@ -330,7 +333,7 @@ fn a_page_that_opts_in_exports_a_derived_standalone_copy_and_any_other_page_does
     );
 
     // A build with no runtime still exports the page and says why there is no copy.
-    let without = capture(&f, None).publish(&f.root).unwrap();
+    let without = capture(&f, &Assets::default()).publish(&f.root).unwrap();
     assert_eq!(
         without.standalone,
         Some(standalone::Outcome {
@@ -350,13 +353,108 @@ fn a_page_that_opts_in_exports_a_derived_standalone_copy_and_any_other_page_does
     // A page that does not ask exports as before, with the runtime on offer or not.
     let mut plain = Fixture::new();
     plain.append("<p>plain</p>", "Plain");
-    for offered in [Some(&runtime), None] {
+    for offered in [&runtime, &Assets::default()] {
         let published = capture(&plain, offered).publish(&plain.root).unwrap();
         assert_eq!(published.standalone, None);
         assert!(!published.directory.join("page.standalone.html").exists());
         let json = serde_json::to_string(&published).unwrap();
         assert!(!json.contains("standalone") && !json.contains("derivedFrom"));
     }
+}
+/// A page that uses the design system (#5057) also exports a derived standalone copy, with the
+/// design system's style and script and no runtime unless it asks for one; a build without the
+/// design files still exports the page and says why there is no copy.
+#[test]
+fn a_page_that_uses_the_design_system_exports_a_derived_standalone_copy() {
+    use tmt_colab::export::standalone::{self, Assets, Design, Runtime};
+    let runtime = Runtime {
+        script: "window.tmt={};",
+        style: "@theme inline{}",
+    };
+    let design = Design {
+        script: "window.ui={};",
+        style: "@layer tmt-ui{}",
+    };
+    let offered = Assets {
+        runtime: Some(runtime),
+        design: Some(design),
+    };
+    let capture = |f: &Fixture, assets: &Assets| {
+        Bundle::capture_with_assets(
+            &f.store,
+            &f.key,
+            PAGE,
+            &mut Decoder::with_config(support::decoder_config(BINARY.into())).unwrap(),
+            1234,
+            &Unserved,
+            assets,
+        )
+        .unwrap()
+    };
+
+    let source = "<section class=\"tmt-ui-card\">雪🦀\0</section>";
+    let mut f = Fixture::new();
+    f.append(source, "Uses the design system");
+    let published = capture(&f, &offered).publish(&f.root).unwrap();
+    assert_eq!(
+        published.standalone,
+        Some(standalone::Outcome {
+            included: true,
+            reason: None
+        })
+    );
+    let copy = fs::read(published.directory.join("page.standalone.html")).unwrap();
+    assert_eq!(
+        copy,
+        standalone::document(
+            source,
+            &Assets {
+                runtime: None,
+                design: Some(design)
+            }
+        )
+        .unwrap(),
+        "the design system alone: no runtime, the exact source in the body"
+    );
+    let text = String::from_utf8(copy).unwrap();
+    assert!(text.starts_with("<!doctype html><html data-colab-design><head>"));
+    assert!(!text.contains("tailwindcss"));
+    assert_eq!(
+        fs::read(published.directory.join("page.html")).unwrap(),
+        source.as_bytes()
+    );
+
+    // A build without the design files still exports the page and says why there is no copy.
+    let without = capture(
+        &f,
+        &Assets {
+            runtime: Some(runtime),
+            design: None,
+        },
+    )
+    .publish(&f.root)
+    .unwrap();
+    assert_eq!(
+        without.standalone,
+        Some(standalone::Outcome {
+            included: false,
+            reason: Some("design-unavailable")
+        })
+    );
+    assert!(!without.directory.join("page.standalone.html").exists());
+
+    // A page that asks only for the runtime is not given the design system, whatever is on offer.
+    let mut react = Fixture::new();
+    react.append(
+        "<meta name=\"tmt-colab-runtime\" content=\"react\"><p>plain</p>",
+        "Runtime only",
+    );
+    let published = capture(&react, &offered).publish(&react.root).unwrap();
+    let text =
+        String::from_utf8(fs::read(published.directory.join("page.standalone.html")).unwrap())
+            .unwrap();
+    assert!(text.starts_with("<!doctype html><html><head>"));
+    assert!(!text.contains("window.ui"));
 }
 #[test]
 fn exact_authenticated_bytes_survive_export_reopen_and_baseline_rotation() {

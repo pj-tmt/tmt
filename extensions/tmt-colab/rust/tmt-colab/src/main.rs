@@ -594,24 +594,29 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         .duration_since(std::time::UNIX_EPOCH)?
         .as_millis()
         .try_into()?;
-    // The build's page runtime, for the standalone copy of a page that asks for it (#1693): the
-    // same bytes the app serves, from the embedded inventory or a local build.
+    // The build's page runtime (#1693) and design system (#5057), for the standalone copy of a page
+    // that needs them: the same bytes the app serves, from the embedded inventory or a local build.
     let app = tmt_colab::assets::App::selected(None).ok().flatten();
     let text = |path: &str| {
         let (_, bytes) = app.as_ref()?.find(path)?;
         std::str::from_utf8(bytes).ok()
     };
-    let runtime = text("/assets/colab-runtime.js")
-        .zip(text("/assets/colab-runtime.css"))
-        .map(|(script, style)| tmt_colab::export::standalone::Runtime { script, style });
-    let bundle = Bundle::capture_with_runtime(
+    let assets = tmt_colab::export::standalone::Assets {
+        runtime: text("/assets/colab-runtime.js")
+            .zip(text("/assets/colab-runtime.css"))
+            .map(|(script, style)| tmt_colab::export::standalone::Runtime { script, style }),
+        design: text("/assets/colab-page-ui.js")
+            .zip(text("/assets/colab-page-ui.css"))
+            .map(|(script, style)| tmt_colab::export::standalone::Design { script, style }),
+    };
+    let bundle = Bundle::capture_with_assets(
         &store,
         &keyring,
         &page_id,
         &mut decoder,
         now,
         &tmt_colab::export::attachments::Serve(&layout),
-        runtime.as_ref(),
+        &assets,
     );
     let closed = store.close();
     let bundle = bundle?;

@@ -56,7 +56,7 @@ export default defineConfig(({ mode }) => ({
     {
       name: 'colab-runtime-tailwind',
       apply: () => mode === 'runtime',
-      generateBundle(_options, bundle) {
+      async generateBundle(_options, bundle) {
         const compiler = readFileSync(
           createRequire(import.meta.url).resolve('@tailwindcss/browser'),
           'utf8',
@@ -73,6 +73,13 @@ export default defineConfig(({ mode }) => ({
           fileName: 'assets/colab-runtime.css',
           source: readFileSync(new URL('./src/runtime/theme.css', import.meta.url), 'utf8'),
         });
+        // The design system a page frame carries (#5057), for the standalone export of a page that uses
+        // it: the same CSS and `tmt-icon` script the renderer inlines, built by one module.
+        const { pageUiStyle, pageUiScript } = await (
+          await import('../../scripts/page-ui.mjs')
+        ).buildPageUi();
+        this.emitFile({ type: 'asset', fileName: 'assets/colab-page-ui.css', source: pageUiStyle });
+        this.emitFile({ type: 'asset', fileName: 'assets/colab-page-ui.js', source: pageUiScript });
       },
     },
     {

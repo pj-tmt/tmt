@@ -2580,7 +2580,9 @@ paints only one of paper and ink paints the other. The same pages take the schem
 viewer's: the frame's paint measurement (the one behind the parent's card scheme, #4081) also writes
 `data-colab-scheme` (`light` or `dark`) on the root, and the design tokens and the frame's annotation
 roles follow it, so a page that paints its own light body under a dark viewer gets light components on it;
-a page that paints nothing is painted by the frame and measures as the viewer's scheme. Any other page
+a page that paints nothing is painted by the frame and measures as the viewer's scheme. Each
+measurement drops the root's own `data-colab-scheme` first, so it reads the page under the tokens of
+`data-theme`, and a page the frame paints follows a change of theme in either direction. Any other page
 keeps the white canvas in both themes (#2267, #4081).
 The same bootstrap defines the `tmt-icon` element: `name` names one of the Lucide icons the page
 runtime lists (lowercase kebab-case), drawn as inline SVG at 16 px with stroke 1.75 and square caps,
@@ -6199,8 +6201,8 @@ image sizes need payloads of tens of KiB, and reference resolution needs a page'
 Export v1 emits `page.html`, `conversations.json`, `conversations.md`, one
 `attachments/<attachmentId>` file for each attachment it could read, and `manifest.json` (see
 [Conversation export](#conversation-export-1574) and [Attachments in an export](#attachments-in-an-export-1867)).
-A page that opts in to the bundled runtime also gets `page.standalone.html` (see
-[Standalone copy of a page that uses the runtime](#standalone-copy-of-a-page-that-uses-the-runtime-1693)). Native captures one
+A page that opts in to the bundled runtime or uses the design system also gets `page.standalone.html` (see
+[Standalone copy of a page that uses the runtime or the design system](#standalone-copy-of-a-page-that-uses-the-runtime-or-the-design-system-1693-5057)). Native captures one
 owner-authenticated read snapshot through its isolated decoder; the mounted
 browser captures one admitted committed projection through its connection executor.
 HTML is the exact admitted UTF-8 source, including CR/LF, Unicode and NUL; export MUST NOT
@@ -6296,45 +6298,63 @@ bounded download handoff and all outstanding URLs on close/navigation or blocked
 binding cleanup. The renderer receives no export handler, URL or capability.
 Archived browser export is not supported; deleted pages remain denied.
 
-### Standalone copy of a page that uses the runtime (#1693)
+### Standalone copy of a page that uses the runtime or the design system (#1693, #5057)
 
-`page.html` is the exact admitted source and never changes. For an ordinary page whose source opts
-in to the bundled runtime (the page runtime's marker rule: the first `<meta name="tmt-colab-runtime">`
-in document order, found by parsing, with a `react` or `tailwind` token), the export also writes
-`page.standalone.html`, listed right after `page.html` (after `work.json` when the page has work) and
-before `conversations.json`. It is the document the renderer frame builds for the page, with the
-runtime written into its head, so the page works when the file is opened from disk with no Colab and
-no network. Its bytes are this template around the exact source, in UTF-8, with the text between
-braces written verbatim and nothing else added:
+`page.html` is the exact admitted source and never changes. For an ordinary page that needs a
+standalone copy, the export also writes `page.standalone.html`, listed right after `page.html` (after
+`work.json` when the page has work) and before `conversations.json`. It is the document the renderer
+frame builds for the page, with what the page needs written into its head, so the page looks and works
+when the file is opened from disk with no Colab and no network. A page needs a copy when either holds:
+
+- It opts in to the bundled runtime: the first `<meta name="tmt-colab-runtime">` in document order,
+  found by parsing, has a `react` or `tailwind` token. The copy carries the runtime.
+- It uses the design system: its source contains `tmt-ui-`, `<tmt-icon` or `tmt-starter`, ignoring
+  ASCII case, as plain text with no parsing (the test the renderer frame makes to paint the page,
+  [Renderer and live anchors](#renderer-and-live-anchors)). The copy carries the design system and writes `data-colab-design` on
+  the root.
+
+A page can need both; it then carries both. The bytes are this template around the exact source, in
+UTF-8, with the text between braces written verbatim, the parts in square brackets written only for
+what the page needs, and nothing else added:
 
 ```text
-<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="{policy}"><meta charset="utf-8"><style type="text/tailwindcss">{style}</style><script>{themeSwitch}</script><script>{script}</script></head><body>{source}</body></html>
+<!doctype html><html[ data-colab-design]><head><meta http-equiv="Content-Security-Policy" content="{policy}"><meta charset="utf-8">[<style>{designStyle}</style>][<style type="text/tailwindcss">{style}</style>]<script>{themeSwitch}</script>[<script>{designScript}</script>][<script>{script}</script>]</head><body>{source}</body></html>
 ```
+
+A page that needs only the runtime gets exactly the bytes it got before the design system existed.
 
 - `{policy}` is the renderer frame's response policy without its `sandbox allow-scripts` directive:
   a `<meta>` cannot carry `sandbox`, so the copy has the same no-network policy (nothing loads or
   leaves) but is not sandboxed; opened from disk it runs with the origin the browser gives a local
   file, like any HTML file.
 - `{themeSwitch}` is one fixed script that sets `data-theme` on the root from the system colour
-  scheme and follows its changes, because the runtime theme reads `data-theme` only.
+  scheme and follows its changes, because the runtime theme and the design tokens read `data-theme`.
 - `{script}` and `{style}` are the bytes of `assets/colab-runtime.js` and `assets/colab-runtime.css`
-  of the same build. A runtime text that contains `<!--`, or `</script` / `</style` in any ASCII case,
-  is not written (the build already refuses them).
+  of the same build. `{designScript}` and `{designStyle}` are the bytes of `assets/colab-page-ui.js` and
+  `assets/colab-page-ui.css` of the same build: the design system's CSS and the script that defines
+  `<tmt-icon>` and measures the scheme the page paints (`data-colab-scheme`), written by the runtime
+  build from the same sources the renderer frame inlines, so the file draws what the frame draws. A text
+  that contains `<!--`, or `</script` / `</style` in any ASCII case, is not written (the build already
+  refuses them).
 
 The manifest row of the copy is `{name, sizeBytes, sha256, derivedFrom:"page.html"}`; `derivedFrom`
-appears on no other row. A page that does not opt in, and every dashboard, exports byte for byte as
+appears on no other row. A page that needs no copy, and every dashboard, exports byte for byte as
 before: no file, no new field.
 
-When a page opts in but no copy can be made, the export still succeeds without the file and says
+When a page needs a copy but none can be made, the export still succeeds without the file and says
 why. The reasons are `runtime-unavailable` (the build carries no runtime, or the browser could not
-load it), `runtime-unusable` (a runtime text could escape its element) and, for native export only,
-`page-too-deep` (the page nests past the parse depth, so its marker cannot be judged). The CLI JSON
-result has `standalone: {included, reason?}` (absent for a page that does not opt in) and the human
-output prints a line naming the reason; the browser's Export panel does the same. Native export
-reads the marker with an HTML parser that has scripting off, as `DOMParser` does, and both sides
-pass the same cases (`vectors/runtime-marker-v1.json`). Native and browser export write identical
-bytes: `vectors/export-v1.json` has a `standalone` section with a tiny stand-in runtime that pins the
-copy, its policy, theme switch, hash and the manifest.
+load it), `runtime-unusable` (a runtime text could escape its element), `design-unavailable` and
+`design-unusable` (the same for the design system's files) and, for native export only, `page-too-deep`
+(the page nests past the parse depth, so its runtime marker cannot be judged). The first part the page
+needs that is missing names the reason, runtime before design. The CLI JSON result has
+`standalone: {included, reason?}` (absent for a page that needs no copy) and the human output prints a
+line naming the reason; the browser's Export panel does the same. Native export reads the runtime
+marker with an HTML parser that has scripting off, as `DOMParser` does, and both sides pass the same
+cases (`vectors/runtime-marker-v1.json`); the design test is the same text test in the frame, the
+browser export and the native export, pinned by `vectors/design-marker-v1.json`. Native and browser
+export write identical bytes: `vectors/export-v1.json` has `standalone` (the runtime), `standaloneDesign`
+and `standaloneBoth` sections with tiny stand-in files that pin each copy, its policy, theme switch, hash
+and the manifest.
 
 ### Attachments in an export (#1867)
 

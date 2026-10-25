@@ -48,3 +48,25 @@ export function loadRuntime(baseUri: string): Promise<PageRuntime> {
   }
   return runtime;
 }
+
+/** What a standalone export of a page that uses the design system carries (#5057): the same CSS and
+ * `tmt-icon` script the renderer frame holds, built into the app as `colab-page-ui.css` and
+ * `colab-page-ui.js`. */
+export interface PageDesign {
+  readonly script: string;
+  readonly style: string;
+}
+const designs = new Map<string, Promise<PageDesign>>();
+/** Fetched once per origin path; a failure is not cached. Only an export asks for it. */
+export function loadDesign(baseUri: string): Promise<PageDesign> {
+  const key = runtimeUrl(baseUri, 'colab-page-ui.js');
+  let design = designs.get(key);
+  if (!design) {
+    design = Promise.all([read(key), read(runtimeUrl(baseUri, 'colab-page-ui.css'))]).then(
+      ([script, style]) => Object.freeze({ script, style }),
+    );
+    design.catch(() => designs.delete(key));
+    designs.set(key, design);
+  }
+  return design;
+}
