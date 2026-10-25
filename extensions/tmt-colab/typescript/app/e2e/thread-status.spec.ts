@@ -1,4 +1,4 @@
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, commentsAction, showResolvedOn } from '../test/page-actions.js';
 import { capturePath } from './captures.js';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
@@ -19,7 +19,7 @@ async function open(page: Page) {
   const toggle = await pageAction(host, 'Comments');
   await toggle.click();
   return {
-    toggle: host.getByRole('button', { name: /^Discussion \(/ }),
+    toggle: commentsAction(host),
     markers: page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]'),
     row: page.getByTestId('annotation-row'),
     status: page.getByTestId('thread-row-status'),
@@ -36,6 +36,8 @@ const statusActions = async (page: Page) =>
 test('resolving hides the margin marker, Reopen restores it, and each click writes once', async ({
   page,
 }) => {
+  // The resolved thread stays in view, to be reopened, only with Show resolved on.
+  await showResolvedOn(page);
   const { markers, row, status, state } = await open(page);
   await expect(markers).toHaveCount(1);
   await expect(status).toHaveText('1 comment');
@@ -117,6 +119,7 @@ test('Resolve shows the resolved thread in the click frame, and the record takes
   page,
 }) => {
   await setLook(page);
+  await showResolvedOn(page);
   const { row, state } = await open(page);
   await row.click();
   const thread = page.getByTestId('comment-thread');

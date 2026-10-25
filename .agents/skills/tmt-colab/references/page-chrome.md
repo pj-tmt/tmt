@@ -60,7 +60,7 @@ that switch. Only explicit Preview/Download reads bytes, and only confirmation
 writes a file-reference removal; decorative type marks are inert.
 
 `page-header-actions.tsx` owns the page header's base entry points at every
-width: Search, Discussion (combined pending count; opens Chat or Comments), and More.
+width: Search and More. Comments and Chat are the page dock's (below), not the header's.
 More lists, top to bottom: Share… (the page's sharing and connection words as secondary text; it
 opens the Manage dialog), Remote (the submenu above), Projects… (when the viewer writes
 projects; opens the picker below), Pin to top / Unpin (below 640px, once the owner list confirms a
@@ -89,11 +89,16 @@ words. In the shell it joins the header slot, pushing the phone sub-bar and page
 leaving the page or Close clears it; at 480px and wider the existing header alert is unchanged.
 Each moved action keeps its accessible name and handler. Icons are centralized inline SVG;
 labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.
-The floating Chat action and the selection control are one capsule, the dock, in the page's corner (one
-border, radius and the design system's overlay shadow, a hairline between the actions); Chat opens the same
-retained drawer in one press, out of the dock and back into it on close (`chat-dock-motion.ts`: the dialog
-clipped to the dock's rectangle, no animation under reduced motion), and hides during selection mode or an
-annotation. The dock sits unseen under the drawer while Chat is open.
+The Comments action, the Chat action and the selection control are one capsule, the dock, in the page's
+corner (one border, radius and the design system's overlay shadow, a hairline between the actions), in
+that order. Chat opens the retained drawer in one press, out of the dock and back into it on close
+(`dock-motion.ts`: the dialog clipped to the dock's rectangle, no animation under reduced motion), and
+Comments and Chat hide during selection mode or an annotation. The dock sits unseen under the drawer while
+Chat is open. Comments shows the open-thread count (`.dock-count`, its slot held while the threads are
+verified), in the needs-you colour with a bullet while a thread has news, and presses open the
+Comments panel out of the dock with the same motion: a column leaves the dock in place with Comments
+pressed (the panel opens with the motion and leaves the grid at once on close), a card or a sheet hides it
+in its place and the clip runs back into it. It has no shortcut. The three-action capsule fits at 320 px.
 Its mark plus `Unread` (also on the Chat menu entry) is device-local reply attention,
 not the unresolved/Unseen count. Only visible Chat history at its end clears it;
 toast dismissal/expiry, closing and reload do not. Close/Escape restores the opener.
@@ -383,7 +388,13 @@ the one edge between them: the column draws no rule, and its content starts one 
 A thread's composer sits on the column's surface (the page's paper; the sheet's in a card or sheet)
 with no rule above it, and the last turn ends the thread without one. A
 card (330 px, 12 px from the right and bottom, top at the header plus 13 px) and a sheet (7 px insets, up to
-75dvh) float over the page; the floating page controls move left of a card and above a sheet. Escape
+75dvh) float over the page and cover the dock, which hides in its place for the panel to open out of and
+close back into (a column leaves it, pressed). The panel lists and walks the open threads: `Show resolved`,
+a pressed icon toggle in its header (`use-show-resolved.ts`, kept on this device in browser storage, off
+by default, never page data), adds the resolved ones, marked resolved; the position `n / m` and the
+previous and next arrows follow the listed threads, and the dock's count is always the open ones. Resolving
+the thread being viewed with resolved threads hidden moves to the next open thread, or to the list's
+`No open threads` state. Escape
 closes the panel only from inside it (a Discussion view steps back to the list first); on the page it
 falls through to the annotation window and selection mode. `Show in the page` scrolls to the passage
 and leaves the panel open. The Discussion view's header holds the position (`n / m`, a text button named
@@ -452,7 +463,7 @@ a light, a dark and an unpainted page in both themes at 1440 and 390 px.
 published the document; the threads, asks and presentations follow when `#publishViews` has
 verified them. Until then `PageView.discussionPending` is set and those three fields are absent,
 never empty, so nothing unverified reads as verified: the router shows no comment count (the
-Discussion button and its Comments row carry no number), no `Needs you` entry (not `✓ Nothing waits`),
+dock's Comments action carries no number), no `Needs you` entry (not `✓ Nothing waits`),
 no inline question, review, reading or proposal layer, and no thread highlights. The Comments panel and the
 Chat drawer show one quiet `Loading comments…` status instead of a list or composer. The document
 frame does not move when verification arrives; the layers and the count then appear. `ThreadStore`

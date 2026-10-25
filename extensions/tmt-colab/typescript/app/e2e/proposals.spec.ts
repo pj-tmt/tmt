@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { commentsRegion } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { commentsAction, pageAction } from '../test/page-actions.js';
 import { text } from '../src/strings.js';
 import { rgb, tokens } from './tokens.js';
 const fixture = '/test/ask-page-browser.tsx';
@@ -355,10 +355,8 @@ for (const [width, theme] of [
     await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
     if (theme === 'dark')
       await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
-    const header = page
-      .locator('.page-header-actions')
-      .getByRole('button', { name: /^Discussion \(/ });
-    await expect(header).toHaveAccessibleName('Discussion (2)');
+    const header = commentsAction(page);
+    await expect(header).toHaveAccessibleName('Comments (2)');
     if (captureDir) {
       mkdirSync(captureDir, { recursive: true });
       await page.screenshot({ path: `${captureDir}/header-count-${width}-${theme}.png` });
@@ -390,19 +388,19 @@ for (const [width, theme] of [
     await panel.getByRole('tab', { name: 'Proposals', exact: true }).click();
     await expect(panel.getByTestId('annotation-row')).toHaveCount(3);
     await expect(panel).not.toContainText('Review the supporting notes.');
-    await expect(header).toHaveAccessibleName('Discussion (2)');
+    await expect(header).toHaveAccessibleName('Comments (2)');
     if (captureDir)
       await page.screenshot({ path: `${captureDir}/proposals-filter-${width}-${theme}.png` });
     // Opening the folded row shows its retained history in the Discussion view; All comments returns.
     await folded.getByTestId('annotation-row').click();
     await expect(panel.getByTestId('discussion-state')).toHaveText(/^Resolved/);
     await expect(panel.locator('.proposal-body')).toBeVisible();
-    await expect(header).toHaveAccessibleName('Discussion (2)');
+    await expect(header).toHaveAccessibleName('Comments (2)');
     await commentsRegion(page).getByRole('button', { name: 'All comments', exact: true }).click();
     await expect(panel.locator('.proposal-body')).toHaveCount(0);
     // Reopening opens the proposal's Discussion view, where it can be decided again.
     await folded.getByRole('button', { name: 'Reopen', exact: true }).click();
-    await expect(header).toHaveAccessibleName('Discussion (3)');
+    await expect(header).toHaveAccessibleName('Comments (3)');
     await expect(panel.getByTestId('discussion-state')).toContainText('Needs you');
     await commentsRegion(page).getByRole('button', { name: 'All comments', exact: true }).click();
     await expect(panel.getByTestId('annotation-row')).toHaveCount(3);
@@ -415,7 +413,7 @@ for (const [width, theme] of [
       .filter({ hasText: 'Keep the supporting notes' });
     await expect(approved.locator('.proposal-state')).toHaveText('Approved');
     await approved.getByRole('button', { name: 'Resolve', exact: true }).click();
-    await expect(header).toHaveAccessibleName('Discussion (3)');
+    await expect(header).toHaveAccessibleName('Comments (3)');
     // Resolve folds the proposal: the panel is back on the list, with a folded row.
     await expect(row).toHaveAttribute('data-resolved', 'true');
     await row
@@ -424,7 +422,7 @@ for (const [width, theme] of [
       .getByRole('button', { name: 'Reopen', exact: true })
       .click();
     await expect(approved.locator('.proposal-state')).toHaveText('Approved');
-    await expect(header).toHaveAccessibleName('Discussion (3)');
+    await expect(header).toHaveAccessibleName('Comments (3)');
     expect((await run(page, 'proof')).sends).toHaveLength(0);
   });
 

@@ -15,47 +15,15 @@ export type PageHeaderAction =
   | 'export'
   | 'manage'
   | 'about';
-type HeaderIcon = 'discussion' | 'more';
 
-/** One set of decorative page-header icons; hosts retain each action's authority. */
-function PageHeaderIcon({
-  name,
-  count,
-  reserveCount,
-  unseen,
-}: {
-  name: HeaderIcon;
-  count?: number;
-  /** Keeps the count's slot while it is unknown, so the icons beside it do not move when it arrives. */
-  reserveCount?: boolean;
-  unseen?: boolean;
-}) {
+/** The More trigger's decorative icon; hosts retain each action's authority. */
+function MoreIcon() {
   return (
-    <>
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        aria-hidden="true"
-      >
-        {name === 'discussion' ? (
-          <path d="M4 4h16v12H9l-5 4V4Z" />
-        ) : (
-          <>
-            <circle cx="5" cy="12" r="1" />
-            <circle cx="12" cy="12" r="1" />
-            <circle cx="19" cy="12" r="1" />
-          </>
-        )}
-      </svg>
-      {count !== undefined ? (
-        <span className="page-header-count">{count}</span>
-      ) : (
-        reserveCount && <span className="page-header-count" data-pending aria-hidden="true" />
-      )}
-      {unseen && <span className="page-header-unseen">•</span>}
-    </>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <circle cx="5" cy="12" r="1" />
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="19" cy="12" r="1" />
+    </svg>
   );
 }
 
@@ -69,12 +37,9 @@ export function moreButtonRect(): DOMRect | undefined {
   return rects[rects.length - 1];
 }
 
-/** Discussion stays in the header; page tools live in the More menu. */
+/** The header holds the More menu; Comments and Chat are in the page's dock. */
 export function PageHeaderActions({
-  comments,
   files,
-  unseen,
-  chatUnread = false,
   canExport,
   canManage,
   readOnly = false,
@@ -84,11 +49,7 @@ export function PageHeaderActions({
   access,
   onSelect,
 }: {
-  /** Absent while the page's threads are still being verified: no count is better than a false 0. */
-  comments?: number;
   files: number;
-  unseen: boolean;
-  chatUnread?: boolean;
   canExport: boolean;
   canManage: boolean;
   canFiles: boolean;
@@ -153,22 +114,10 @@ export function PageHeaderActions({
   };
   return (
     <nav className="page-header-actions" aria-label={text.pageHeaderActions}>
-      <BrowserMenu
-        label={`${text.discussion}${comments === undefined ? '' : ` (${comments})`}${unseen ? ` · ${text.threadUnseen}` : ''}`}
-        icon={<PageHeaderIcon name="discussion" count={comments} reserveCount unseen={unseen} />}
-        items={[
-          { key: 'chat', label: chatUnread ? `${text.chat} · ${text.chatUnread}` : text.chat },
-          {
-            key: 'comments',
-            label: `${text.comments}${comments === undefined ? '' : ` ${comments}`}${unseen ? ` · ${text.threadUnseen}` : ''}`,
-          },
-        ]}
-        onSelect={(key) => onSelect(key as 'chat' | 'comments')}
-      />
       {remoteAvailable ? (
         <RemoteMoreMenu remoteAfter="share" {...more} />
       ) : (
-        <BrowserMenu label={text.more} icon={<PageHeaderIcon name="more" />} {...more} />
+        <BrowserMenu label={text.more} icon={<MoreIcon />} {...more} />
       )}
     </nav>
   );

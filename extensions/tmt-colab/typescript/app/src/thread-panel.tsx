@@ -936,6 +936,7 @@ export function ThreadPanel({
   creationRecipient,
   hideHeader = false,
   threads,
+  showResolved = false,
   resolved,
   anchorsChecked,
   selection,
@@ -961,6 +962,8 @@ export function ThreadPanel({
   creationRecipient?: CreationRecipient;
   hideHeader?: boolean;
   threads: readonly ThreadView[];
+  /** The Open view also lists resolved threads, marked as resolved. */
+  showResolved?: boolean;
   numbers?: ReadonlyMap<string, number>;
   resolved: readonly string[];
   anchorsChecked: boolean;
@@ -1008,7 +1011,7 @@ export function ThreadPanel({
   });
   const matches = (row: (typeof rows)[number]) =>
     shownView === 'open'
-      ? !row.shownResolved
+      ? showResolved || !row.shownResolved
       : shownView === 'needs'
         ? row.needsYou
         : shownView === 'resolved'
@@ -1166,13 +1169,21 @@ export function ThreadPanel({
               {!visibleRows.length && (
                 <div className="comments-empty" data-testid="comments-empty">
                   <Check aria-hidden />
-                  <h3>{threads.length ? text.commentsEmptyTitle : text.commentsEmptyNone}</h3>
+                  <h3>
+                    {!threads.length
+                      ? text.commentsEmptyNone
+                      : shownView === 'open'
+                        ? text.commentsNoOpen
+                        : text.commentsEmptyTitle}
+                  </h3>
                   <p>
                     {!threads.length
                       ? text.commentsEmptyNoneHint
                       : shownView === 'resolved'
                         ? text.commentsEmptyResolved
-                        : text.commentsEmptyCaughtUp}
+                        : shownView === 'open' && rows.some((row) => row.shownResolved)
+                          ? text.commentsNoOpenHidden
+                          : text.commentsEmptyCaughtUp}
                   </p>
                 </div>
               )}

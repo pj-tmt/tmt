@@ -1,5 +1,5 @@
 import { openPanel } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, showResolvedOn } from '../test/page-actions.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { captureDirectory } from './captures.js';
@@ -491,6 +491,7 @@ for (const surface of ['chat', 'thread'] as const)
 test('status copy preserves every ledger outcome and explicit trusted tracking actions', async ({
   page,
 }) => {
+  await showResolvedOn(page);
   await mount(page, 'thread', 'uncertain');
   const window = page.getByTestId('comment-thread');
   const check = window.getByRole('button', { name: text.askRecheck });

@@ -1,5 +1,5 @@
 import { homeList } from '../test/home-list.js';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, commentsAction } from '../test/page-actions.js';
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -177,7 +177,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(page.locator('iframe')).toBeVisible();
     await page.reload();
-    await expect(page.getByRole('button', { name: /^Discussion \(/ })).toBeVisible();
+    await expect(commentsAction(page)).toBeVisible();
     expect(recipient.received()).toHaveLength(0);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,

@@ -128,11 +128,11 @@ for (const destination of ['Chat', 'Thread'] as const) {
       await mount(page);
       await run(page, 'secondThread');
       const discussion = page
-        .locator('.page-header-actions')
-        .getByRole('button', { name: /^Discussion \(/, includeHidden: true });
-      await expect(discussion).toHaveAccessibleName('Discussion (2)');
+        .locator('.page-floating-actions')
+        .getByRole('button', { name: /^Comments \(/, includeHidden: true });
+      await expect(discussion).toHaveAccessibleName('Comments (2)');
       await run(page, 'agentResolves');
-      await expect(discussion).toHaveAccessibleName('Discussion (1) · New');
+      await expect(discussion).toHaveAccessibleName('Comments (1) · New');
       if (removal === 'expiry') {
         await page.clock.pauseAt(await page.evaluate(() => new Date(Date.now() + 100)));
       }
@@ -169,7 +169,7 @@ for (const destination of ['Chat', 'Thread'] as const) {
       }
       await expect(cards(page)).toHaveCount(0);
       if (removal !== 'Open') {
-        await expect(discussion).toHaveAccessibleName('Discussion (1) · New');
+        await expect(discussion).toHaveAccessibleName('Comments (1) · New');
         expect(await run(page, 'seenProof')).toBe(0);
         // The record remains available even after the transient card is gone.
         const snapshot = await run(page, 'snapshot');
@@ -183,7 +183,7 @@ for (const destination of ['Chat', 'Thread'] as const) {
       await expect(surface).toBeVisible();
       await expect(surface.getByTestId('ask-reply')).toHaveText(body);
       await expect(discussion).toHaveAccessibleName(
-        destination === 'Thread' ? 'Discussion (1)' : 'Discussion (1) · New',
+        destination === 'Thread' ? 'Comments (1)' : 'Comments (1) · New',
       );
       const proof = await run(page, 'proof');
       expect(proof.sends).toEqual([]);
@@ -196,12 +196,12 @@ for (const destination of ['Chat', 'Thread'] as const) {
       await run(page, 'repeat');
       await expect(cards(page)).toHaveCount(0);
       await expect(discussion).toHaveAccessibleName(
-        destination === 'Thread' ? 'Discussion (1)' : 'Discussion (1) · New',
+        destination === 'Thread' ? 'Comments (1)' : 'Comments (1) · New',
       );
       await openDestination();
       await expect(surface.getByTestId('ask-reply')).toHaveText(body);
       await expect(discussion).toHaveAccessibleName(
-        destination === 'Thread' ? 'Discussion (1)' : 'Discussion (1) · New',
+        destination === 'Thread' ? 'Comments (1)' : 'Comments (1) · New',
       );
       await expect(live(page)).toHaveText('');
     });
@@ -263,7 +263,7 @@ test('Chat New messages attention clears at the history end without changing the
   const attention = chat.getByRole('button', { name: 'New messages', exact: true });
   await expect(attention).toBeVisible();
   await expect(live(page)).toHaveText('');
-  await expect(page.locator('.page-header-count').first()).toHaveText('1');
+  await expect(page.locator('.dock-count').first()).toHaveText('1');
   await run(page, 'repeat');
   await expect(attention).toBeVisible();
   await expect.poll(() => history.evaluate((node) => node.scrollTop)).toBe(100);
@@ -276,7 +276,7 @@ test('Chat New messages attention clears at the history end without changing the
   await expect(chat.getByTestId('ask-reply')).toHaveText(
     'Retained reply beyond the reading position',
   );
-  await expect(page.locator('.page-header-count').first()).toHaveText('1');
+  await expect(page.locator('.dock-count').first()).toHaveText('1');
   expect(await run(page, 'seenProof')).toBe(0);
   expect((await run(page, 'proof')).sends).toEqual([]);
 });
@@ -449,9 +449,9 @@ for (const width of [1440, 390]) {
       await run(page, 'secondThread');
       await run(page, 'agentResolves');
       const discussion = page
-        .locator('.page-header-actions')
-        .getByRole('button', { name: /^Discussion \(/, includeHidden: true });
-      await expect(discussion).toHaveAccessibleName('Discussion (1) · New');
+        .locator('.page-floating-actions')
+        .getByRole('button', { name: /^Comments \(/, includeHidden: true });
+      await expect(discussion).toHaveAccessibleName('Comments (1) · New');
       await page.clock.pauseAt(await page.evaluate(() => new Date(Date.now() + 100)));
       for (const destination of ['Chat', 'Thread', 'Chat', 'Thread'] as const) {
         await run(page, 'arrive', { destination });
@@ -462,12 +462,12 @@ for (const width of [1440, 390]) {
       await cards(page).first().getByRole('button', { name: 'Open Chat', exact: true }).focus();
       await page.keyboard.press('Escape');
       await expect(cards(page)).toHaveCount(3);
-      await expect(discussion).toHaveAccessibleName('Discussion (1) · New');
+      await expect(discussion).toHaveAccessibleName('Comments (1) · New');
       await page.screenshot({ path: capturePath(`counts-dismissed-${width}-${theme}.png`) });
       await page.mouse.move(0, 800);
       await page.clock.runFor(6000);
       await expect(cards(page)).toHaveCount(0);
-      await expect(discussion).toHaveAccessibleName('Discussion (1) · New');
+      await expect(discussion).toHaveAccessibleName('Comments (1) · New');
       expect(await run(page, 'seenProof')).toBe(0);
       await page.screenshot({ path: capturePath(`counts-expired-${width}-${theme}.png`) });
       await page.clock.resume();
@@ -478,7 +478,7 @@ for (const width of [1440, 390]) {
         'Thread reply 201\nSecond reply line',
         'Thread reply 203\nSecond reply line',
       ]);
-      await expect(discussion).toHaveAccessibleName('Discussion (1)');
+      await expect(discussion).toHaveAccessibleName('Comments (1)');
       await page.screenshot({ path: capturePath(`counts-thread-open-${width}-${theme}.png`) });
       await close(page, 'Comments');
       await open(page, 'Chat');
@@ -486,7 +486,7 @@ for (const width of [1440, 390]) {
         'Chat reply 200\nSecond reply line',
         'Chat reply 202\nSecond reply line',
       ]);
-      await expect(discussion).toHaveAccessibleName('Discussion (1)');
+      await expect(discussion).toHaveAccessibleName('Comments (1)');
       await expect(live(page)).toHaveText('');
       await page.screenshot({ path: capturePath(`counts-chat-open-${width}-${theme}.png`) });
     });
@@ -509,7 +509,7 @@ for (const [width, theme] of [
     await expect(cards(page)).toHaveCount(3);
     await expect(page.locator('.tmt-ui-notification-waiting')).toHaveText('2 more waiting');
     await expect(page.locator('.reply-announcement')).toHaveCount(0);
-    const count = await page.locator('.page-header-count').first().textContent();
+    const count = await page.locator('.dock-count').first().textContent();
     await page.screenshot({ path: capturePath(`replies-queue-${width}-${theme}.png`) });
     await cards(page)
       .filter({ has: page.getByRole('button', { name: 'Open Thread', exact: true }) })
@@ -518,7 +518,7 @@ for (const [width, theme] of [
     await expect(page.getByTestId('comment-thread')).toBeVisible();
     await expect(page.locator('.tmt-ui-notifications')).not.toBeVisible();
     await expect(live(page)).toHaveText('');
-    await expect(page.locator('.page-header-count').first()).toHaveText(count!);
+    await expect(page.locator('.dock-count').first()).toHaveText(count!);
     await page.screenshot({ path: capturePath(`replies-thread-${width}-${theme}.png`) });
     await run(page, 'arrive', { destination: 'Chat', body: 'Held while reading the thread' });
     await expect(page.locator('.tmt-ui-notifications')).not.toBeVisible();

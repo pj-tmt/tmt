@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { destination } from '../test/ask-fixtures.js';
 import { capturePath } from './captures.js';
 import { commentsRegion } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, showResolvedOn } from '../test/page-actions.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -146,6 +146,8 @@ test('a row opens the Discussion view: header, title passage, turns, reply, Reso
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
+  // The resolved thread stays in view, to be reopened, only with Show resolved on.
+  await showResolvedOn(page);
   await page.goto('/');
   await run(page, 'mount');
   await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');

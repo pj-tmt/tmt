@@ -374,7 +374,7 @@ for (const width of [1440, 390, 320])
 
 for (const width of [1440, 390, 320])
   for (const theme of ['light', 'dark'] as const)
-    test(`page header names the connection, shows no access words, and keeps two fitting actions: ${width}px ${theme}`, async ({
+    test(`page header names the connection, shows no access words, and keeps its one fitting action: ${width}px ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 800 });
@@ -411,7 +411,8 @@ for (const width of [1440, 390, 320])
       await expect(heading).toBeVisible();
       expect(await fittingCharacters(heading)).toBeGreaterThanOrEqual(width === 390 ? 12 : 1);
       const actions = header.getByRole('navigation', { name: 'Page actions' });
-      await expect(actions.getByRole('button')).toHaveCount(2);
+      // Comments and Chat are the dock's; the header holds More alone.
+      await expect(actions.getByRole('button')).toHaveCount(1);
       for (const button of await actions.getByRole('button').all()) {
         await expect(button).toBeInViewport();
         expect(await button.getAttribute('aria-label')).toBeTruthy();

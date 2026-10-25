@@ -3676,7 +3676,7 @@ remains a listbox. A nested menu consumes Escape before its drawer. Comments is 
 exception: a non-modal panel (a column beside the page, a card or a sheet by width) with no scrim,
 trap or inert page, sharing the single panel slot with the drawers.
 A trusted non-editing `@` key opens the existing Chat under the same admission as
-the header Discussion action: a mounted, unarchived page and no other menu or
+the dock's Chat action: a mounted, unarchived page and no other menu or
 dialog. An anchored annotation does not block it. Only a mounted editable composer
 receives focus and one literal `@` on opening; an already open Chat only receives
 focus. Modified keys other than Shift, repeat and IME confirmation are ignored.
@@ -3750,14 +3750,23 @@ authority.
 
 ### Page Chat (#1645)
 
-Discussion → Chat and the Chat action in the page's dock open the same retained Chat drawer
-without resizing or reflowing the page. The dock is one capsule at the page's lower corner that holds
-the Chat and selection-mode actions, divided by a hairline; the Chat action hides while selection mode
-or an annotation window is open. The drawer opens out of the dock's rectangle and closes back into it:
-the same dialog, clipped to the dock at one end of the motion (180 ms, the leaf's `--tmt-ui-motion-base`
-and easings); under reduced motion there is no animation. While Chat is open the dock stays in its place,
-unseen and out of reach, and the drawer covers it. Close/Escape or a backdrop press returns focus to the
-Chat action. No press sends a message. At compact widths the modal drawer covers the dock: Close/Escape
+The Chat action in the page's dock opens the retained Chat drawer without resizing or reflowing the
+page. The dock is one capsule at the page's lower corner that holds, left to right, the Comments, Chat and
+selection-mode actions, divided by hairlines; the Comments and Chat actions hide while selection mode or
+an annotation window is open. The page header holds no Comments or Chat control: the dock is where
+both are. The Comments action shows the page's open-thread count beside its icon (its slot is held while
+the threads are verified, so no false 0) and, while any thread has news the viewer has not seen, the count
+takes the needs-you colour and a bullet, and the action's name says so (`Comments (2) · New`); it presses
+open the Comments panel and has no keyboard shortcut. The drawer opens out of the dock's rectangle and
+closes back into it: the same dialog, clipped to the dock at one end of the motion (180 ms, the leaf's
+`--tmt-ui-motion-base` and easings); under reduced motion there is no animation. The Comments panel opens
+out of the dock the same way, with one motion for both: in a column (from 1180 px) the dock stays in
+place and reachable with its Comments action pressed, and the panel opens with the motion and leaves
+the page grid at once when it closes; as a card or a sheet the panel covers the dock's corner, so the
+dock stays in its place, unseen and out of reach, and the clip runs back into it on close. While Chat is
+open the dock stays in its place, unseen and out of reach, and the drawer covers it. Close/Escape or a
+backdrop press returns focus to the Chat action; closing the Comments panel returns it to the Comments
+action. No press sends a message. At compact widths the modal drawer covers the dock: Close/Escape
 dismisses; at wide widths a press on the backdrop, anywhere outside the drawer, dismisses.
 Messages scroll inside it; one shared plaintext message input remains at the bottom.
 Chat uses the same shared history owner and scroll policy as inline annotation

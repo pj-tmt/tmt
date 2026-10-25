@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { openPanel } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { commentsAction, pageAction } from '../test/page-actions.js';
 import { capturePath } from './captures.js';
 
 /**
@@ -54,7 +54,7 @@ for (const width of [1440, 390])
   }) => {
     await open(page, width);
     // Nothing unverified reads as verified: no "(0)", no "✓ Nothing waits".
-    await expect(page.getByRole('button', { name: 'Discussion', exact: true })).toBeVisible();
+    await expect(commentsAction(page)).toHaveAccessibleName('Comments');
     const needsYou = page.locator(
       '#ask-page-fixture [aria-label*="Needs you"]:not([role="tab"]), #ask-page-fixture [aria-label*="Nothing waits"]',
     );
@@ -72,7 +72,7 @@ for (const width of [1440, 390])
     expect(await select.evaluate((node) => (node as HTMLButtonElement).disabled)).toBe(false);
     const pending = await placed(page);
     await run(page, 'verifyDiscussion');
-    await expect(page.getByRole('button', { name: /^Discussion \(1\)/ })).toBeVisible();
+    await expect(commentsAction(page)).toHaveAccessibleName('Comments (1)');
     await expect(frame(page).locator('[data-colab-thread]')).toHaveCount(1);
     await expect(needsYou).toHaveCount(1);
     await expect(select).not.toHaveAttribute('aria-busy', 'true');

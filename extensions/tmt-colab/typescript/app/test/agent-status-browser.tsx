@@ -227,9 +227,7 @@ export function refuseNewest() {
 export function mountReaderHeader() {
   root.render(
     <PageHeaderActions
-      comments={0}
       files={0}
-      unseen={false}
       canExport={false}
       canManage={false}
       canFiles={false}

@@ -213,18 +213,18 @@ test('a pending snapshot does not replace the open More menu or its focused row'
   expect(await readCount(page)).toBe(1);
 });
 
-test('page-action lookup dismisses the modal Remote More before opening Discussion', async ({
+test('page-action lookup finds an entry of the modal Remote More that is already open', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await fixture(page);
   const header = page.locator('#remote-header-fixture header');
-  await header.getByRole('button', { name: 'More', exact: true }).click();
+  const more = header.getByRole('button', { name: 'More', exact: true });
+  await more.click();
   await expect(await pageAction(page, 'Source')).toBeVisible();
-  await expect(await pageAction(page, 'Chat')).toBeVisible();
-  await expect(page.locator('[data-slot="dropdown-menu-content"]')).toBeHidden();
+  await expect(page.locator('[data-slot="dropdown-menu-content"]')).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(header.getByRole('button', { name: /^Discussion \(/ })).toBeFocused();
+  await expect(more).toBeFocused();
 });
 
 test('Manage captures the persistent More opener after the shared menu closes', async ({

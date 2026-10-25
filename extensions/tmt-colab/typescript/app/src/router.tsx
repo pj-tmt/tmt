@@ -32,8 +32,10 @@ import {
   ArrowUpRight,
   ChevronLeft,
   ChevronRight,
+  Eye,
   MessageCircle,
   MessageSquarePlus,
+  MessagesSquare,
   Moon,
   MousePointer2,
   Sun,
@@ -93,6 +95,8 @@ import { ReplyNotificationContext } from './reply-notification-context.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
+import { afterResolving, listedThreads, threadKey } from './comments-listing.js';
+import { useShowResolved } from './use-show-resolved.js';
 import type { QuoteSelector } from './thread-records.js';
 import { Home, validateHomeSearch, type HomeSearch } from './home.js';
 import { knownScope, readScope } from './project-scope.js';
@@ -115,7 +119,7 @@ import { BrowserDrawer, BrowserPanel } from '@tmt/browser-ui/react';
 import { AgentStatusPanel } from './agent-status-panel.js';
 import { AgentPresentation, useAgentPresentation } from './agent-directory.js';
 import { ChatPanel } from './chat-panel.js';
-import { useChatDockMotion } from './chat-dock-motion.js';
+import { dockPanel, useDockMotion } from './dock-motion.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
 import { FilesSurface } from './files-panel.js';
 import { CreatorDefaultProvider } from './creator-default.js';
@@ -125,7 +129,7 @@ import { PageSizeSection, usePageSize } from './page-size.js';
 import { SourceDraft } from './use-page-editor.js';
 import { PageSource } from './page-source.js';
 import { usePagePanels } from './use-page-panels.js';
-import { usePanelMode } from './panel-mode.js';
+import { usePanelMode, type PanelMode } from './panel-mode.js';
 import './panel-layout.css';
 import { useAnnotations } from './use-annotations.js';
 import { usePageRenderer } from './use-page-renderer.js';
@@ -146,6 +150,11 @@ function PageFloatingActions({
   chatUnread,
   chatButton,
   toggleChat,
+  comments,
+  unseen,
+  commentsButton,
+  toggleComments,
+  panelMode,
   canSelect,
   selectPending,
   slots,
@@ -159,6 +168,13 @@ function PageFloatingActions({
   chatUnread: boolean;
   chatButton: Ref<HTMLButtonElement>;
   toggleChat(): void;
+  /** The open threads; absent while the page's threads are still being verified: a place held, not a false 0. */
+  comments?: number;
+  /** Some thread has news for the viewer. */
+  unseen: boolean;
+  commentsButton: Ref<HTMLButtonElement>;
+  toggleComments(): void;
+  panelMode: PanelMode;
   canSelect: boolean;
   /** The button's place while the threads are unverified: fenced, not greyed. */
   selectPending: boolean;
@@ -173,7 +189,8 @@ function PageFloatingActions({
     const workspace = host?.closest('.workspace');
     const place = () => {
       const box = host?.getBoundingClientRect();
-      if (!box) return;
+      // An open panel the dock hides for keeps the place it opens out of and closes back into.
+      if (!box || element.current?.hasAttribute('data-panel-open')) return;
       const margin = innerWidth <= 640 ? 16 : 24;
       // These parent-owned overlays sit outside the renderer host's layout box.
       // Their actual bounds keep the control clear without altering author geometry.
@@ -265,12 +282,39 @@ function PageFloatingActions({
       ref={element}
       className="selection-mode"
       style={placement}
-      data-chat-open={panel === 'chat' ? '' : undefined}
+      data-panel-open={
+        panel === 'chat' || (panel === 'comments' && panelMode !== 'column') ? '' : undefined
+      }
     >
       {enabled && !discussionOpen && (
         <p className="selection-mode-hint">{text.selectionModeHint}</p>
       )}
       <div className="page-floating-actions">
+        {!enabled && !discussionOpen && (
+          <BrowserIconAction
+            type="button"
+            variant="secondary"
+            label={`${text.comments}${comments === undefined ? '' : ` (${comments})`}${unseen ? ` · ${text.threadUnseen}` : ''}`}
+            buttonRef={commentsButton}
+            expanded={panel === 'comments'}
+            icon={
+              <>
+                <MessagesSquare />
+                {comments !== undefined ? (
+                  <span className="dock-count" data-unseen={unseen || undefined}>
+                    {comments}
+                    {unseen && <span aria-hidden="true">•</span>}
+                  </span>
+                ) : (
+                  <span className="dock-count" data-pending aria-hidden="true" />
+                )}
+              </>
+            }
+            onActivate={(event) => {
+              if (event.isTrusted) toggleComments();
+            }}
+          />
+        )}
         {!enabled && !discussionOpen && (
           <BrowserIconAction
             type="button"
@@ -1299,7 +1343,8 @@ function OpenPage({
     setActiveThread,
   } = panels;
   const floatingChat = useRef<HTMLButtonElement>(null);
-  useChatDockMotion(panel === 'chat');
+  const floatingComments = useRef<HTMLButtonElement>(null);
+  useDockMotion(dockPanel(panel), panelMode);
   const activateChat = useRef<() => boolean>(() => false);
 
   // The page's own projects: the picker opens from its chips and from Projects… in the More menu.
@@ -1488,14 +1533,22 @@ function OpenPage({
   // The Discussion header's arrows walk the threads in the order of their numbers, the order of the
   // position it shows.
   const [resolveSlot, setResolveSlot] = useState<HTMLElement | null>(null);
-  const neighbour = (offset: -1 | 1) => {
-    if (activeThread === null) return undefined;
-    const ordered = [...numbers.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id);
-    const next = ordered[ordered.indexOf(activeThread) + offset];
-    return next === undefined
-      ? undefined
-      : (view.threads ?? []).find((thread) => `${thread.ref.writer}:${thread.threadId}` === next);
-  };
+  // The panel lists and walks the open threads; Show resolved (kept on this device) adds the rest.
+  const [showResolved, setShowResolved] = useShowResolved();
+  const listed = useMemo(
+    () => listedThreads(view.threads ?? [], numbers, showResolved, activeThread),
+    [view.threads, numbers, showResolved, activeThread],
+  );
+  const [advanceFrom, setAdvanceFrom] = useState<string | null>(null);
+  useEffect(() => {
+    if (advanceFrom === null || changingStatus) return;
+    setAdvanceFrom(null);
+    if (activeThread === advanceFrom)
+      openThread(afterResolving(view.threads ?? [], numbers, advanceFrom)?.ref ?? null);
+  }, [advanceFrom, changingStatus, activeThread, view.threads, numbers, openThread]);
+  const position =
+    activeThread === null ? -1 : listed.findIndex((t) => threadKey(t) === activeThread);
+  const neighbour = (offset: -1 | 1) => (position < 0 ? undefined : listed[position + offset]);
   const openNeighbour = (offset: -1 | 1) => {
     const thread = neighbour(offset);
     if (thread) openThread(thread.ref);
@@ -1800,6 +1853,18 @@ function OpenPage({
       return true;
     },
   });
+  const showResolvedToggle = (
+    <BrowserIconAction
+      type="button"
+      variant="text"
+      label={text.showResolved}
+      icon={<Eye />}
+      pressed={showResolved}
+      onActivate={(event) => {
+        if (event.isTrusted) setShowResolved(!showResolved);
+      }}
+    />
+  );
   const content = (
     <section className="page">
       <BrowserNotifications
@@ -1910,10 +1975,7 @@ function OpenPage({
         }
         actions={
           <PageHeaderActions
-            comments={openThreads}
             files={fileCount}
-            unseen={unseenThreads}
-            chatUnread={notifications.chatUnread}
             readOnly={archived}
             access={`${archived ? '○ ' : `${text[snapshot.sharing]} · `}${accessLabel}`}
             canExport={!!snapshot.binding && !liveError && !archived}
@@ -2054,7 +2116,7 @@ function OpenPage({
                   if (event.isTrusted) openThread(null);
                 }}
               >
-                {text.discussionPosition(numbers.get(activeThread!)!, numbers.size)}
+                {text.discussionPosition(position + 1, listed.length)}
               </button>
             ) : undefined
           }
@@ -2081,9 +2143,12 @@ function OpenPage({
                     if (event.isTrusted) openNeighbour(1);
                   }}
                 />
+                {showResolvedToggle}
                 <span className="discussion-header-slot" ref={setResolveSlot} />
               </>
-            ) : undefined
+            ) : (
+              showResolvedToggle
+            )
           }
           data-panel="comments"
           data-discussion={discussedThread || undefined}
@@ -2119,6 +2184,7 @@ function OpenPage({
               renderProposal={proposalLayer.renderProposal}
               key={`discussion:${snapshot.id}:${draftsReady}`}
               threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
+              showResolved={showResolved}
               resolved={resolved}
               anchorsChecked={anchorsChecked}
               selection={selector}
@@ -2138,7 +2204,14 @@ function OpenPage({
               presentations={view.threadPresentations}
               onStatusChange={
                 statusCoordinator
-                  ? (thread, resolved) => statusCoordinator.change(thread, resolved)
+                  ? async (thread, resolved) => {
+                      const outcome = await statusCoordinator.change(thread, resolved);
+                      // With resolved threads hidden, resolving the one being viewed moves on to the
+                      // next open thread, or to the list's empty state, once the change has settled.
+                      if (outcome.changed && resolved && !showResolved)
+                        setAdvanceFrom(threadKey(thread));
+                      return outcome;
+                    }
                   : undefined
               }
               onBusy={(busy) => {
@@ -2163,6 +2236,11 @@ function OpenPage({
           chatUnread={notifications.chatUnread}
           chatButton={floatingChat}
           toggleChat={() => toggle('chat')}
+          comments={openThreads}
+          unseen={unseenThreads}
+          commentsButton={floatingComments}
+          toggleComments={() => toggle('comments')}
+          panelMode={panelMode}
           canSelect={canSelect}
           selectPending={selectPending}
         />
