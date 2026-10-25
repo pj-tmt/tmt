@@ -320,6 +320,24 @@ this first discovery slice. CLI fixtures suppress automatic browser opens.
   binaries and the rollback release open the old name through the link (default open flags, no
   `NOFOLLOW`) and SQLite places the journals under `tmt.db`. Removing the link belongs to the
   later alias decision.
+- **Free pages and compaction (#5036).** A store created with `auto_vacuum=NONE` keeps every page
+  it ever used; deletes only grow the free list. `storage::compaction` owns the fix. The one-time
+  switch to `INCREMENTAL` needs a full `VACUUM`, so it runs only in `tmt upgrade`, after the rename
+  (hidden `__native-compact-database`, report key `databaseCompaction`, a 60 s child like the
+  rename). It never waits for a writer: busy timeout 0, a `BEGIN IMMEDIATE` probe, then `VACUUM`
+  with the same zero wait, so a concurrent writer refuses it (`in-use`, nothing changed) rather
+  than queueing. It also refuses unless the filesystem has twice the database's bytes (file plus
+  log) free, and reports `absent`, `current`, `compacted` (with bytes before and after) or
+  `refused` with a reason. A refusal never fails the upgrade. `Storage::open` does not compact or
+  change the mode. After the switch, request retention (`delete_retained`, the last step of
+  `RequestService` cleanup inside its immediate request transaction, which runs on every request
+  read and prepare) also runs `PRAGMA incremental_vacuum(64)` when the free list is not empty, so
+  freed pages return to the filesystem while agents run, at most 256 KiB per transaction.
+  `tmt storage` reports each local store read-only: `stat` sizes, the Core database's page
+  counts through a read-only connection (read as immutable when no `-wal` exists, so no sidecar
+  is created), notes under `<data root>/notes` (bounded walk) and Colab `colab/space.db` with its
+  `space.db.pre-v<N>.bak` copies; a missing store is `present: false`, and a pending compaction
+  names `tmt upgrade`.
 
 - `config::document` uses shared `Document` for set, theme-base and clear: current-byte
   read, known-setting validation through `tmt-core::settings` and mutation share one

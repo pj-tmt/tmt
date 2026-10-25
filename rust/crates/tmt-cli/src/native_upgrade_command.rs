@@ -1,5 +1,6 @@
 //! Native update composition; the new executable owns skill refresh and extensions.
 
+mod compaction;
 mod database;
 mod extensions;
 mod integrations;
@@ -153,7 +154,15 @@ pub fn execute_with_schema_consent(
     };
     if report.skipped_pinned {
         drop(interrupt);
-        return finish(&report, None, None, extension_consent, &prior, None, mode);
+        return finish(
+            &report,
+            None,
+            None,
+            extension_consent,
+            &prior,
+            DatabaseSteps::default(),
+            mode,
+        );
     }
     if interrupt.is_interrupted() {
         if show_progress.get() {
@@ -198,13 +207,21 @@ pub fn execute_with_schema_consent(
     let database = failure
         .is_none()
         .then(|| database::run(&report.installation.active_executable, &UnixCommandRunner));
+    // After the rename, the same executable switches the database to
+    // incremental auto-vacuum once (#5036); a refusal leaves it pending.
+    let compaction = failure
+        .is_none()
+        .then(|| compaction::run(&report.installation.active_executable, &UnixCommandRunner));
     finish(
         &report,
         skills,
         failure,
         extension_consent,
         &prior,
-        database,
+        DatabaseSteps {
+            rename: database,
+            compaction,
+        },
         mode,
     )
 }
@@ -270,13 +287,20 @@ fn installed_versions(executable: &Path) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// The reports of the database phases the activated executable ran.
+#[derive(Default)]
+struct DatabaseSteps {
+    rename: Option<Value>,
+    compaction: Option<Value>,
+}
+
 fn finish(
     report: &UpgradeReport,
     skills: Option<Value>,
     failure: Option<Failure>,
     yes: bool,
     prior: &Prior,
-    database: Option<Value>,
+    database: DatabaseSteps,
     mode: OutputMode,
 ) -> io::Result<u8> {
     let integration_report = (failure.is_none() && !report.skipped_pinned)
@@ -341,7 +365,8 @@ fn finish(
             integrations: integration_report.as_ref(),
             pane_rename: &rename_hints,
             named: &named_hints,
-            database: database.as_ref(),
+            database: database.rename.as_ref(),
+            compaction: database.compaction.as_ref(),
             before: Some(&prior.versions),
             repeat: Some(&prior.repeat),
         },
@@ -451,13 +476,14 @@ fn publish_products(
 
 /// What an upgrade tells the user beyond its products: pane option cutover
 /// hints, named hints that also appear in the JSON (the missing prompt picker,
-/// the retained former prefix) and the database rename outcome.
+/// the retained former prefix) and the database rename and compaction outcomes.
 #[derive(Default)]
 struct Notices<'a> {
     integrations: Option<&'a tmt_adapters::setup::IntegrationRefreshReport>,
     pane_rename: &'a [String],
     named: &'a [(&'a str, &'a str)],
     database: Option<&'a Value>,
+    compaction: Option<&'a Value>,
     /// Versions installed before the upgrade, by product name.
     before: Option<&'a BTreeMap<String, String>>,
     /// The command that repeats this invocation.
@@ -477,6 +503,7 @@ fn publish_products_with_hints(
         pane_rename: rename_hints,
         named: named_hints,
         database,
+        compaction,
         before,
         repeat,
     } = notices;
@@ -524,6 +551,9 @@ fn publish_products_with_hints(
     if let Some(database) = database {
         document["databaseRename"] = database.clone();
     }
+    if let Some(compaction) = compaction {
+        document["databaseCompaction"] = compaction.clone();
+    }
     let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     let terminal = stdout.terminal();
     if mode.json {
@@ -550,9 +580,11 @@ fn publish_products_with_hints(
             .chain(database.and_then(database::hint))
             .chain(integration_report.into_iter().flat_map(integrations::hints))
             .collect::<Vec<_>>();
+        let compaction_hint = compaction.and_then(compaction::hint);
         let optional = named_hints
             .iter()
             .map(|(_, hint)| *hint)
+            .chain(compaction_hint.as_deref())
             .collect::<Vec<_>>();
         if let Some(report) = integration_report {
             integrations::write(&mut stdout, terminal, report)?;
@@ -720,6 +752,9 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
 ];
+
+#[cfg(test)]
+pub(crate) use compaction::PRINTED_HINTS as COMPACTION_HINTS;
 
 #[cfg(test)]
 pub(crate) use database::PRINTED_HINTS as DATABASE_HINTS;

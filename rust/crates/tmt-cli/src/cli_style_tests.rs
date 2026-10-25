@@ -345,6 +345,10 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
             crate::native_upgrade_command::PRINTED_HINTS,
         ),
         (
+            "native_upgrade_command/compaction.rs",
+            crate::native_upgrade_command::COMPACTION_HINTS,
+        ),
+        (
             "native_upgrade_command/database.rs",
             crate::native_upgrade_command::DATABASE_HINTS,
         ),
@@ -404,6 +408,7 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
             crate::skill_refresh_command::PRINTED_HINTS,
         ),
         ("skill_reminder.rs", crate::skill_reminder::PRINTED_HINTS),
+        ("storage_command.rs", crate::storage_command::PRINTED_HINTS),
         ("talk_command.rs", crate::talk_command::PRINTED_HINTS),
         ("target.rs", crate::target::PRINTED_HINTS),
         (

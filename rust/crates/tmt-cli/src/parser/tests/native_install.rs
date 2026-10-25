@@ -271,6 +271,26 @@ fn the_database_rename_step_takes_no_operands() {
 }
 
 #[test]
+fn the_database_compaction_step_and_the_storage_report_take_no_operands() {
+    let compact = parsed(&["__native-compact-database", "--json"]);
+    assert_eq!(compact.invocation, Invocation::NativeCompactDatabase);
+    assert!(compact.mode.json);
+    assert_eq!(parsed(&["storage"]).invocation, Invocation::Storage);
+    let report = parsed(&["storage", "--json"]);
+    assert_eq!(report.invocation, Invocation::Storage);
+    assert!(report.mode.json);
+    for args in [
+        vec!["__native-compact-database", "extra"],
+        vec!["__native-compact-database", "--prefix", "/p"],
+        vec!["storage", "tmt.db"],
+        vec!["storage", "compact"],
+        vec!["storage", "--yes"],
+    ] {
+        assert_eq!(parse_error(&args).code, "USAGE_ERROR", "{args:?}");
+    }
+}
+
+#[test]
 fn managed_skill_refresh_is_explicit() {
     for (args, managed) in [
         (vec!["__native-refresh-skills", "--json"], false),

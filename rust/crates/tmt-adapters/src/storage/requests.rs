@@ -1466,6 +1466,12 @@ impl RequestRecords for RequestRows<'_> {
             )
             .map_err(|error| classify(error, "Delete retained requests"))?;
         digest::prune_settled(self.0, settled_cutoff_ms, limit)?;
+        // Retention is the regular writer that frees pages; it also returns a
+        // bounded number of them to the filesystem once the database uses
+        // incremental auto-vacuum (#5036). Reclaiming is best effort: a failure
+        // leaves the pages free for the next transaction and never fails the
+        // request work this transaction carries.
+        let _ = super::compaction::reclaim_free_pages(self.0);
         Ok(())
     }
 }
