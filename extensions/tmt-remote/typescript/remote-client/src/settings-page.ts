@@ -1,3 +1,4 @@
+import { managementRole } from './remote-state.js';
 import { settingsChoice } from './settings-controls.js';
 import { remoteRegistryPage, type RemoteRegistryPage } from './remote-registry-page.js';
 import type { RemoteShell } from './remote-shell.js';
@@ -247,6 +248,8 @@ export async function settingsPage(
           : page.access === 'checking'
             ? 'Checking'
             : 'Unconfirmed',
+      undefined,
+      managementRole(page.access, page.settings?.capabilities.settingsWrite) ?? null,
     );
     if (confirmation) {
       const target = page.devices?.devices.find(

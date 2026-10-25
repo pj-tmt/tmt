@@ -2349,6 +2349,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	const status = document.getElementById("remote-status");
 	const add = document.getElementById("remote-add");
 	let observed = "Checking";
+	let observedRole;
 	let address = document.documentElement.dataset.tmtPage === "settings" ? new URL("./", location.href).href : void 0;
 	let currentDialog;
 	let catalog = {
@@ -2519,7 +2520,8 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		const projection = registryView(catalog, {
 			pageUrl: location.href,
 			state: observed,
-			address
+			address,
+			role: observedRole
 		});
 		const existing = [...list.children];
 		if (existing.length === projection.rows.length && existing.every((row, index) => {
@@ -2648,8 +2650,10 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		history.replaceState(null, "", location.pathname + location.search);
 		receive(value);
 	}, { signal: (shell ?? remoteShell())?.signal });
-	const observe = (state, checkedAddress) => {
+	const observe = (state, checkedAddress, role) => {
 		observed = state;
+		if (state !== "Connected" || role === null) observedRole = void 0;
+		else if (role !== void 0) observedRole = role;
 		if (checkedAddress) address = checkedAddress;
 		paint();
 	};

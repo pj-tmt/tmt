@@ -430,3 +430,22 @@ test('registry observations retain the focused row control and never guess a rol
     cleanUp();
   }
 });
+
+test('the current registry row displays only a live observed browser role', async () => {
+  const view = await registryPage();
+  try {
+    view.observe('Connected', undefined, 'owner');
+    assert.equal(view.list.children[0]!.querySelector('[data-role]')!.textContent, 'Admin');
+    view.observe('Connected', undefined, 'user');
+    assert.equal(view.list.children[0]!.querySelector('[data-role]')!.textContent, 'Member');
+    view.observe('Connected', undefined, null);
+    assert.equal(view.list.children[0]!.querySelector('[data-role]')!.textContent, 'Role unknown');
+    view.observe('Connected', undefined, 'owner');
+    view.observe('Unconfirmed');
+    assert.equal(view.list.children[0]!.querySelector('[data-role]')!.textContent, 'Role unknown');
+    view.observe('Connected');
+    assert.equal(view.list.children[0]!.querySelector('[data-role]')!.textContent, 'Role unknown');
+  } finally {
+    cleanUp();
+  }
+});

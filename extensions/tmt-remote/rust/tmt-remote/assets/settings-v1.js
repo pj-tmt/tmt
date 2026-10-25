@@ -1,4 +1,113 @@
 import { ClientError, RefusalError, ReopenSessionError, budget, management, reopenSession } from "/sdk/remote-v1.js";
+//#region src/remote-state.ts
+/** A display observation only; pairing and sending permissions never imply a role. */
+function remoteRole(role) {
+	return role === "owner" ? "Admin" : role === "user" ? "Member" : "Role unknown";
+}
+/** M1 browser-role display from the existing readable management observation; grants nothing. */
+function managementRole(access, settingsWrite) {
+	if (access !== "live") return void 0;
+	return settingsWrite === true ? "owner" : settingsWrite === false ? "user" : void 0;
+}
+/** Foreign references stay unchecked. Unknown input does not become an offline verdict. */
+function remoteState(state, current = true) {
+	if (!current) return {
+		text: "Not checked",
+		word: "not checked",
+		mark: "◌",
+		tone: "muted",
+		action: ""
+	};
+	const known = {
+		Connected: [
+			"Connected",
+			"connected",
+			"●",
+			""
+		],
+		Checking: [
+			"Checking…",
+			"connecting",
+			"◌",
+			""
+		],
+		"Access ended": [
+			"Access ended",
+			"access ended",
+			"✗",
+			"Pair again"
+		],
+		"Different machine": [
+			"Different machine",
+			"different machine",
+			"?",
+			"Pair again"
+		],
+		"Not paired": [
+			"Not paired",
+			"not paired",
+			"?",
+			"Pair again"
+		],
+		"Pairing unreadable": [
+			"Pairing unreadable",
+			"pairing unreadable",
+			"?",
+			"Pair again"
+		],
+		Offline: [
+			"Offline",
+			"offline",
+			"✗",
+			"Retry"
+		],
+		Unconfirmed: [
+			"Connection unconfirmed",
+			"unconfirmed",
+			"?",
+			"Retry"
+		],
+		"Not accepted": [
+			"Not accepted",
+			"not accepted",
+			"?",
+			"Retry"
+		],
+		"Can't reach Remote": [
+			"Connection unconfirmed",
+			"unconfirmed",
+			"?",
+			"Retry"
+		]
+	};
+	const value = Object.hasOwn(known, state) ? known[state] : void 0;
+	if (!value) return {
+		text: "Status unknown",
+		word: "unknown",
+		mark: "?",
+		tone: "muted",
+		action: ""
+	};
+	const [text, word, mark, action] = value;
+	return {
+		text,
+		word,
+		mark,
+		action,
+		tone: "neutral"
+	};
+}
+/** The native page's door root, shared by the registry projection and current-row check. */
+function currentDoor(pageUrl) {
+	const root = new URL("./", pageUrl);
+	if (root.pathname === "/remote/") root.pathname = "/";
+	return root.href;
+}
+/** Both page owners and the menu identify the current Local row by the same door root. */
+function currentRemote(entry, address, pageUrl) {
+	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === currentDoor(pageUrl));
+}
+//#endregion
 //#region src/settings-controls.ts
 /** Static settings choices; values are drafts, never management authority. */
 function settingsChoice(trigger, surface) {
@@ -698,110 +807,6 @@ async function writeRegistry(expected, text) {
 	}).finally(() => transaction.db.close());
 }
 //#endregion
-//#region src/remote-state.ts
-/** A display observation only; pairing and sending permissions never imply a role. */
-function remoteRole(role) {
-	return role === "owner" ? "Admin" : role === "user" ? "Member" : "Role unknown";
-}
-/** Foreign references stay unchecked. Unknown input does not become an offline verdict. */
-function remoteState(state, current = true) {
-	if (!current) return {
-		text: "Not checked",
-		word: "not checked",
-		mark: "◌",
-		tone: "muted",
-		action: ""
-	};
-	const known = {
-		Connected: [
-			"Connected",
-			"connected",
-			"●",
-			""
-		],
-		Checking: [
-			"Checking…",
-			"connecting",
-			"◌",
-			""
-		],
-		"Access ended": [
-			"Access ended",
-			"access ended",
-			"✗",
-			"Pair again"
-		],
-		"Different machine": [
-			"Different machine",
-			"different machine",
-			"?",
-			"Pair again"
-		],
-		"Not paired": [
-			"Not paired",
-			"not paired",
-			"?",
-			"Pair again"
-		],
-		"Pairing unreadable": [
-			"Pairing unreadable",
-			"pairing unreadable",
-			"?",
-			"Pair again"
-		],
-		Offline: [
-			"Offline",
-			"offline",
-			"✗",
-			"Retry"
-		],
-		Unconfirmed: [
-			"Connection unconfirmed",
-			"unconfirmed",
-			"?",
-			"Retry"
-		],
-		"Not accepted": [
-			"Not accepted",
-			"not accepted",
-			"?",
-			"Retry"
-		],
-		"Can't reach Remote": [
-			"Connection unconfirmed",
-			"unconfirmed",
-			"?",
-			"Retry"
-		]
-	};
-	const value = Object.hasOwn(known, state) ? known[state] : void 0;
-	if (!value) return {
-		text: "Status unknown",
-		word: "unknown",
-		mark: "?",
-		tone: "muted",
-		action: ""
-	};
-	const [text, word, mark, action] = value;
-	return {
-		text,
-		word,
-		mark,
-		action,
-		tone: "neutral"
-	};
-}
-/** The native page's door root, shared by the registry projection and current-row check. */
-function currentDoor(pageUrl) {
-	const root = new URL("./", pageUrl);
-	if (root.pathname === "/remote/") root.pathname = "/";
-	return root.href;
-}
-/** Both page owners and the menu identify the current Local row by the same door root. */
-function currentRemote(entry, address, pageUrl) {
-	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === currentDoor(pageUrl));
-}
-//#endregion
 //#region src/remote-registry.ts
 /** Public references only; keys, pairings, credentials, drafts and intents never enter a catalog. */
 /** One projection feeds the list and rail; this machine is first even without a saved alias. */
@@ -1123,6 +1128,7 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	const status = document.getElementById("remote-status");
 	const add = document.getElementById("remote-add");
 	let observed = "Checking";
+	let observedRole;
 	let address = document.documentElement.dataset.tmtPage === "settings" ? new URL("./", location.href).href : void 0;
 	let currentDialog;
 	let catalog = {
@@ -1293,7 +1299,8 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		const projection = registryView(catalog, {
 			pageUrl: location.href,
 			state: observed,
-			address
+			address,
+			role: observedRole
 		});
 		const existing = [...list.children];
 		if (existing.length === projection.rows.length && existing.every((row, index) => {
@@ -1422,8 +1429,10 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		history.replaceState(null, "", location.pathname + location.search);
 		receive(value);
 	}, { signal: (shell ?? void 0)?.signal });
-	const observe = (state, checkedAddress) => {
+	const observe = (state, checkedAddress, role) => {
 		observed = state;
+		if (state !== "Connected" || role === null) observedRole = void 0;
+		else if (role !== void 0) observedRole = role;
 		if (checkedAddress) address = checkedAddress;
 		paint();
 	};
@@ -2040,7 +2049,7 @@ async function settingsPage(shell, registry) {
 		}
 	}
 	function render() {
-		registryState(page.access === "live" ? "Connected" : page.access === "lost" ? "Access ended" : page.access === "checking" ? "Checking" : "Unconfirmed");
+		registryState(page.access === "live" ? "Connected" : page.access === "lost" ? "Access ended" : page.access === "checking" ? "Checking" : "Unconfirmed", void 0, managementRole(page.access, page.settings?.capabilities.settingsWrite) ?? null);
 		if (confirmation) {
 			const target = page.devices?.devices.find((device) => device.clientId === confirmation.clientId);
 			if (!page.writable || !target || targetSignature(target) !== confirmation.signature) cancelConfirmation();

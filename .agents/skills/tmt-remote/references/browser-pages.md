@@ -72,7 +72,9 @@ The Remote rail opens **My Remotes** at the existing `/remote/settings` route. O
 `registryView` projection feeds the page and the rail's current-machine context; the rail does
 not enumerate a second remote list. This machine is first, explicitly marked, including when
 no public reference has been saved. Each row shows its backend, mark plus connection word,
-and Admin/Member only from an explicit role observation; absent role or state remains unknown.
+and the viewer role from the existing confirmed readable management observation: a designated
+settings browser is Admin; a readable non-designated pairing is Member (M1 browser grants are
+users). Unreadable or unconfirmed access is Role unknown. This display grants no authority.
 Foreign entries show `◌ Not checked` and are never probed. Current access reuses the page's
 existing observation and grants no additional authority. Create a Remote and Join a Remote
 link to the existing machine/connect guidance until their dedicated flows ship.

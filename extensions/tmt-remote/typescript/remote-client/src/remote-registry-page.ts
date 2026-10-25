@@ -1,5 +1,6 @@
 import { remoteShell, type RemoteShell } from './remote-shell.js';
 import { remoteMenu } from './remote-menu.js';
+import type { ViewerRole } from './remote-state.js';
 import { createIcon } from '@tmt/browser-ui/glyph';
 import { browserUiClasses } from '@tmt/browser-ui/static';
 /** Remote pages' public-reference consumer. It never probes a foreign origin or shares a key. */
@@ -44,7 +45,11 @@ function kindLabel(entry: RemoteReference): string {
 }
 
 /** The page's registry controller: observations in, and the reason a switch is held (settings). */
-export type RemoteRegistryPage = ((state: string, address?: string) => void) & {
+export type RemoteRegistryPage = ((
+  state: string,
+  address?: string,
+  role?: ViewerRole | null,
+) => void) & {
   /** Replaces the reason a foreign Open waits (the settings page holds unsent work). */
   blockedBy(reason: () => string): void;
 };
@@ -64,6 +69,7 @@ export function remoteRegistryPage(
   const status = document.getElementById('remote-status')!;
   const add = document.getElementById('remote-add') as HTMLButtonElement;
   let observed = 'Checking';
+  let observedRole: ViewerRole | undefined;
   let address: string | undefined =
     document.documentElement.dataset.tmtPage === 'settings'
       ? new URL('./', location.href).href
@@ -283,7 +289,12 @@ export function remoteRegistryPage(
     view.box.showModal();
   };
   const paint = (): void => {
-    const projection = registryView(catalog, { pageUrl: location.href, state: observed, address });
+    const projection = registryView(catalog, {
+      pageUrl: location.href,
+      state: observed,
+      address,
+      role: observedRole,
+    });
     const existing = [...list.children] as HTMLElement[];
     if (
       existing.length === projection.rows.length &&
@@ -438,8 +449,10 @@ export function remoteRegistryPage(
     },
     { signal: (shell ?? remoteShell())?.signal },
   );
-  const observe = (state: string, checkedAddress?: string): void => {
+  const observe = (state: string, checkedAddress?: string, role?: ViewerRole | null): void => {
     observed = state;
+    if (state !== 'Connected' || role === null) observedRole = undefined;
+    else if (role !== undefined) observedRole = role;
     if (checkedAddress) address = checkedAddress;
     paint();
   };

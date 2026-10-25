@@ -14,6 +14,15 @@ export function remoteRole(role: unknown): 'Admin' | 'Member' | 'Role unknown' {
   return role === 'owner' ? 'Admin' : role === 'user' ? 'Member' : 'Role unknown';
 }
 
+/** M1 browser-role display from the existing readable management observation; grants nothing. */
+export function managementRole(
+  access: string,
+  settingsWrite: boolean | undefined,
+): ViewerRole | undefined {
+  if (access !== 'live') return undefined;
+  return settingsWrite === true ? 'owner' : settingsWrite === false ? 'user' : undefined;
+}
+
 /** Foreign references stay unchecked. Unknown input does not become an offline verdict. */
 export function remoteState(state: string, current = true): RemoteConnectionView {
   if (!current)

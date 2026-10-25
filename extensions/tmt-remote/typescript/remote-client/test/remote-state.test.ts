@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vite-plus/test';
-import { remoteState, currentRemote, remoteRole } from '../src/remote-state.js';
+import { remoteState, currentRemote, remoteRole, managementRole } from '../src/remote-state.js';
 
 test('connection words and marks require current explicit observations', () => {
   assert.equal(remoteState('Connected').mark, '●');
@@ -54,5 +54,15 @@ test('moved Remote pages retain the saved door-root identity without marking ano
     assert.equal(currentRemote(root, `${root.url}r/aaaaaaaaaaaaaaaa`, page), true);
     assert.equal(currentRemote(foreign, undefined, page), false);
     assert.equal(currentRemote({ ...root, kind: 'firestore' }, root.url, page), false);
+  }
+});
+
+test('management observations display Admin, Member or unknown without widening authority', () => {
+  assert.equal(managementRole('live', true), 'owner');
+  assert.equal(managementRole('live', false), 'user');
+  assert.equal(managementRole('live', undefined), undefined);
+  for (const access of ['checking', 'lost', 'unconfirmed']) {
+    assert.equal(managementRole(access, true), undefined);
+    assert.equal(managementRole(access, false), undefined);
   }
 });

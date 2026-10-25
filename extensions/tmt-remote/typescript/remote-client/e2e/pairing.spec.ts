@@ -3296,6 +3296,7 @@ test('settings shared presentation keeps unavailable initialization read-only', 
   await expect(page.locator('#access')).toHaveText(
     "Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged.",
   );
+  await expect(page.locator('#remote-list [data-role]').first()).toHaveText('Role unknown');
   await expect(page.locator('#opening')).toBeDisabled();
   await expect(page.locator('#refresh')).toBeDisabled();
   await expect(page.locator('#controls-reason')).toBeVisible();
@@ -4486,7 +4487,9 @@ async function withRegistryWorld(run: (world: RegistryWorld) => Promise<void>): 
 test('landing registry keeps two origins independent and confirms public-only handoffs', async () => {
   await withRegistryWorld(
     async ({ page, context, network, secondOrigin, secondEnv, pairAt, identity, sdk }) => {
-      const captureDirectory = process.env.TMT_REMOTE_REGISTRY_CAPTURE_DIR;
+      const captureDirectory =
+        process.env.TMT_REMOTE_REGISTRY_CAPTURE_DIR ??
+        (process.env.CI ? test.info().outputPath('my-remotes-captures') : undefined);
       async function capture(state: string, lookAt: string) {
         await captureState(
           page,
@@ -4508,7 +4511,8 @@ test('landing registry keeps two origins independent and confirms public-only ha
         'data-remote',
         '@this-machine',
       );
-      await expect(page.locator('#remote-list [data-role]')).toHaveText('Role unknown');
+      await expect(page.locator('#refresh')).toHaveAttribute('aria-busy', 'false');
+      await expect(page.locator('#remote-list [data-role]')).toHaveText('Member');
       await capture(
         'empty',
         'This machine remains visible without a remembered reference; its role is not guessed.',
@@ -4525,7 +4529,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
         'studio',
       );
       await expect(page.locator('[data-remote="studio"]')).toContainText('This machine');
-      await expect(page.locator('[data-remote="studio"] [data-role]')).toHaveText('Role unknown');
+      await expect(page.locator('[data-remote="studio"] [data-role]')).toHaveText('Member');
       await expect(page.getByRole('button', { name: 'Open studio', exact: true })).toBeVisible();
       await expect(
         page.locator('[data-remote="studio"]').getByRole('button', { name: 'Rename studio' }),
@@ -4761,7 +4765,11 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
     await expect(menu.locator('a', { hasText: /^Open desk/ })).toHaveCount(0);
     await menu.getByRole('link', { name: 'My Remotes', exact: true }).click();
     await expect(foreignItem).toBeVisible();
-    const switchCapture = process.env.TMT_REMOTE_SWITCHER_CAPTURE_DIR;
+    await expect(page.locator('#refresh')).toHaveAttribute('aria-busy', 'false');
+    await expect(page.locator('[data-remote="studio"] [data-role]')).toHaveText('Member');
+    const switchCapture =
+      process.env.TMT_REMOTE_SWITCHER_CAPTURE_DIR ??
+      (process.env.CI ? test.info().outputPath('my-remotes-captures') : undefined);
     async function switchShot(state: string, lookAt: string) {
       await captureState(
         page,
@@ -4792,6 +4800,9 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
     await menu.getByRole('link', { name: 'My Remotes', exact: true }).click();
     await expect(page.locator('#access')).toHaveText('Current browser access confirmed.');
     await expect(page.locator('#remotes')).toBeVisible();
+    await expect(page.locator('#refresh')).toHaveAttribute('aria-busy', 'false');
+    await expect(page.locator('[data-remote="studio"] [data-role]')).toHaveText('Admin');
+    await expect(page.locator('[data-remote="desk"] [data-role]')).toHaveText('Role unknown');
     await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveText(
       '● Connected',
     );
