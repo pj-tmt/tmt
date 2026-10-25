@@ -60,7 +60,7 @@ for (const width of [1440, 390])
       await expect(header.getByText('Nothing waits')).toBeHidden();
       await expect(header.locator('.remote-header-chip')).toHaveCount(0);
       // Search sits in the shell bar's cluster, to the right of the page's own actions.
-      expect(await names(page)).toEqual(['Discussion (0)', 'More']);
+      expect(await names(page)).toEqual(['More']);
       await expect(
         page
           .locator('.tmt-ui-shell-tools')
@@ -95,7 +95,7 @@ for (const width of [1440, 390])
       const order = await names(page);
       expect(order[0]).toBe('Needs you: 2');
       expect(order.slice(1, 3).join(' ')).toMatch(/^△.*◉/s);
-      expect(order.slice(-2)).toEqual(['Discussion (0)', 'More']);
+      expect(order.slice(-1)).toEqual(['More']);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );

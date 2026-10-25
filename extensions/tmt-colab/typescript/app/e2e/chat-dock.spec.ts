@@ -3,7 +3,7 @@ import { capturePath } from './captures.js';
 
 // #4919: the page's two floating actions sit in one capsule, the dock; Chat opens out of the dock and
 // closes back into it. The motion is the leaf drawer's own dialog, clipped to the dock's rectangle at one
-// end (chat-dock-motion.ts), so these tests read the animation and the dialog, never a fixed delay.
+// end (dock-motion.ts), so these tests read the animation and the dialog, never a fixed delay.
 const fixture = '/test/reply-notifications-browser.ts';
 const run = (page: Page, method: string, argument?: unknown) =>
   page.evaluate(
@@ -21,7 +21,7 @@ const record = () => {
   const original = Element.prototype.animate;
   Element.prototype.animate = function (this: Element, frames, options) {
     const timing = options as KeyframeAnimationOptions | undefined;
-    if (timing?.id === 'chat-dock') {
+    if (timing?.id === 'dock-motion') {
       const dialog = this as HTMLDialogElement;
       started.push({
         clip: (frames as { clipPath: string[] }).clipPath,
@@ -57,7 +57,7 @@ const settled = (page: Page) =>
     await Promise.all(
       dialog
         .getAnimations()
-        .filter((animation) => animation.id === 'chat-dock')
+        .filter((animation) => animation.id === 'dock-motion')
         .map((animation) => animation.finished),
     );
   });
@@ -67,7 +67,9 @@ for (const width of [1440, 390])
     test.describe(`${width} ${theme}`, () => {
       test.use({ viewport: { width, height: 900 }, colorScheme: theme });
 
-      test('one capsule holds both actions, divided by a visible hairline', async ({ page }) => {
+      test('one capsule holds Comments, Chat and Select, divided by visible hairlines', async ({
+        page,
+      }) => {
         await mount(page);
         const group = await dock(page).evaluate((node) => {
           const style = getComputedStyle(node);
@@ -84,13 +86,15 @@ for (const width of [1440, 390])
             ),
           };
         });
-        expect(group.count).toBe(2);
+        expect(group.count).toBe(3);
         expect(group.radius).toBe('22px');
-        expect(group.lineWidth).toEqual(['1px']);
-        expect(group.frames).toEqual(['0px', '0px']);
-        // The hairline is a real colour that is not the capsule's own surface, in both themes.
-        expect(group.line[0]).not.toBe('rgba(0, 0, 0, 0)');
-        expect(group.line[0]).not.toBe(group.background);
+        expect(group.lineWidth).toEqual(['1px', '1px']);
+        expect(group.frames).toEqual(['0px', '0px', '0px']);
+        // Each hairline is a real colour that is not the capsule's own surface, in both themes.
+        for (const line of group.line) {
+          expect(line).not.toBe('rgba(0, 0, 0, 0)');
+          expect(line).not.toBe(group.background);
+        }
         await page.screenshot({
           path: capturePath(`dock-closed-${width}-${theme}.png`),
           clip: { x: Math.max(0, width - 360), y: 780, width: Math.min(360, width), height: 120 },

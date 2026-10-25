@@ -4,7 +4,7 @@ import { captureDirectory } from './captures.js';
 import { readFrameStyle } from './frame-style.js';
 import { destination } from '../test/ask-fixtures.js';
 import { commentsClose, commentsRegion } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, showResolvedOn } from '../test/page-actions.js';
 import { text } from '../src/strings.js';
 import { rgb, tokens } from './tokens.js';
 
@@ -60,6 +60,8 @@ for (const width of [1440, 390])
       await page.addInitScript((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
+      // The matrix lists every thread, resolved ones included.
+      await showResolvedOn(page);
       await page.goto('/');
       await run(page, 'mount', {
         creator: true,
@@ -195,20 +197,10 @@ for (const width of [1440, 390])
       // The position in the panel's header is the way back to the list.
       await commentsRegion(page).getByRole('button', { name: 'All comments', exact: true }).click();
       await expectCommentsEdge(commentsRegion(page), theme);
-      // The numbers are split between the Open and Resolved views (the open thread shows in both).
-      const allNumbers = async () => {
-        const seen = new Set<string>();
-        for (const view of ['Open', 'Resolved']) {
-          await panel.getByRole('tab', { name: view, exact: true }).click();
-          for (const value of await panel
-            .locator('.annotation-row .annotation-number')
-            .allTextContents())
-            seen.add(value);
-        }
-        return [...seen].sort();
-      };
+      // With Show resolved on, the Open view lists every thread.
+      const allNumbers = async () =>
+        (await panel.locator('.annotation-row .annotation-number').allTextContents()).sort();
       expect(await allNumbers()).toEqual(['1', '2', '3', '4', '5']);
-      await panel.getByRole('tab', { name: 'Resolved', exact: true }).click();
       await panel.locator('.annotation-row').filter({ hasText: 'old decision text' }).click();
       const resolved = panel.getByTestId('comment-thread');
       await expect(

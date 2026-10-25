@@ -110,8 +110,8 @@ list) draws no title in the header: the header keeps its accessible name, and th
   `by <name>` (original author only) replace the default left group. Attribution is display-only, with no
   switcher or menu; full labels remain accessible. Hide author below 900 px, then
   attribution text below 640 px; keep the Remote mark, title and state chip. At
-  every width, Discussion (count) and More remain; Agent status, Files (count),
-  Source and Export live in More with their current authority and disabled
+  every width, More remains (Comments and Chat are the page dock's actions, not the header's); Agent
+  status, Files (count), Source and Export live in More with their current authority and disabled
   states. Agent status is writer-only; its secondary Recheck uses a decorative refresh icon that yields to the busy mark. The title truncates within the shared-height row. Reader and native
   guidance headers retain the default mark and caption layout.
 - Primitive: shared Header; host-owned optional attribution and title-prefix slots.
@@ -789,7 +789,8 @@ proposing agent and Approve / Decline / Follow up / Resolve actions. Approve is
 the emphasized decision; Resolve is muted. Follow up opens a composer inside
 the card. Resolved proposals fold to a plain one-line row with a resolved mark,
 retained-history disclosure and Reopen. Comments lists the page's threads in
-views `Open`, `Needs you` and `Resolved` (and `Proposals` when the page has one),
+views `Open` and `Needs you` (and `Proposals` when the page has one; resolved threads join `Open`
+only while `Show resolved` is on),
 a 1px rule under the view strip, as rows of number, title, quoted passage and
 `N comments · state`, each closed by a 1px rule with 18px of vertical padding; the title stays at
 14px (the compact body token) and the quote and meta take the caption size; the selected view tab uses the shared

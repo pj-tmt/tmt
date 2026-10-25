@@ -1,6 +1,6 @@
 import { headerHeight } from './tokens.js';
 import { commentsClose, commentsRegion, openPanel } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, chatAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 import { text } from '../src/strings.js';
@@ -239,9 +239,6 @@ test('mobile Chat preserves an open autocomplete inside its dialog across keyboa
   await close.focus();
   await close.press('Enter');
   await expect(page.locator('.tmt-ui-drawer[data-panel=chat][open]')).toHaveCount(0);
-  const more = page.locator('#ask-page-fixture').getByRole('button', { name: /^Discussion \(/ });
-  await more.focus();
-  await more.press('Enter');
   const toggle = await pageAction(page.locator('#ask-page-fixture'), 'Chat');
   await toggle.focus();
   await toggle.press('Enter');
@@ -955,7 +952,7 @@ for (const width of [1440, 390]) {
     await input.press('Escape');
     await expect(chat).toBeHidden();
     await expect(openPanel(page)).toHaveCount(0);
-    await expect(page.locator('.page-header-actions button:focus')).toHaveCount(1);
+    await expect(chatAction(page)).toBeFocused();
     await (await pageAction(page, 'Chat')).click();
     await expect(input).toHaveText('Chat draft @');
     expect((await run(page, 'proof')).sends).toEqual([]);
@@ -1033,8 +1030,8 @@ for (const [width, theme] of [
     });
     await keys.detach();
     await expect(page.getByTestId('chat-panel')).toHaveCount(0);
-    const discussion = page.getByRole('button', { name: /^Discussion \(/ });
-    await discussion.click();
+    // An open menu keeps the shortcut from opening Chat.
+    await page.locator('.page-header-actions').getByRole('button', { name: 'More' }).click();
     await page.keyboard.press('Shift+@');
     await expect(page.getByRole('menu')).toBeVisible();
     await expect(page.getByTestId('chat-panel')).toHaveCount(0);

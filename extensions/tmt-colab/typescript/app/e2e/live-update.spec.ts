@@ -1,5 +1,5 @@
 import { commentsRegion, openPanel } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { pageAction, showResolvedOn } from '../test/page-actions.js';
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
@@ -344,6 +344,7 @@ for (const width of [1440, 390]) {
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
+      await showResolvedOn(page);
       await page.goto('/');
       await run(page, 'mount');
       await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');

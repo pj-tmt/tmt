@@ -27,8 +27,8 @@ async function captureHeader(page: Page, testInfo: TestInfo, screen: 'page' | 'h
         await expect(connection).toHaveText('Private · Live');
         expect((await connection.boundingBox())!.width).toBeLessThanOrEqual(1);
         const actions = header.getByRole('navigation', { name: 'Page actions' });
-        await expect(actions.getByRole('button')).toHaveCount(2);
-        for (const name of [/^Discussion \(/, 'More'])
+        await expect(actions.getByRole('button')).toHaveCount(1);
+        for (const name of ['More'])
           await expect(actions.getByRole('button', { name, exact: true })).toBeInViewport();
         await expect(
           page

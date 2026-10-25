@@ -1,5 +1,5 @@
 import { commentsClose, commentsRegion } from '../test/comments-region.js';
-import { pageAction } from '../test/page-actions.js';
+import { chatAction, commentsAction, pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
@@ -95,8 +95,9 @@ for (const width of [1440, 390])
       // The connection words stay in the document for assistive technology; nothing shows.
       await expect(bar.locator('.page-connection')).toHaveText('Private · Live');
       await expect(bar.locator('.page-attention')).toHaveCount(0);
-      // Discussion and More at every width; Agent status is a writer-only More entry.
-      await expect(bar.locator('.page-header-actions button')).toHaveCount(2);
+      // More alone at every width (Comments and Chat are the dock's); Agent status is a writer-only
+      // More entry.
+      await expect(bar.locator('.page-header-actions button')).toHaveCount(1);
       await page.getByRole('button', { name: 'More', exact: true }).click();
       await expect(
         page.getByRole('menuitemradio', { name: 'Theme: System', exact: true }),
@@ -164,7 +165,7 @@ for (const width of [1440, 390])
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-comments.png` });
       await commentsClose(page, 'list').click();
       await expect(comments).not.toBeVisible();
-      await expect(page.getByRole('button', { name: /^Discussion \(/ })).toBeFocused();
+      await expect(commentsAction(page)).toBeFocused();
       await (await pageAction(page, 'Chat')).click();
       const asks = page.locator('.tmt-ui-drawer[data-panel=chat]');
       await expect(asks.getByTestId('chat-panel')).toBeVisible();
@@ -221,8 +222,9 @@ for (const width of [1440, 390])
     });
     await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
     const actions = page.getByRole('navigation', { name: 'Page actions' });
-    // The same two entries at every width; Agent status, Files, Source and Export live in More.
-    const names = [/^Discussion \(0\)$/, /^More$/];
+    // The header holds More alone at every width (Comments and Chat are the dock's); Agent status,
+    // Files, Source and Export live in More.
+    const names = [/^More$/];
     for (const name of names) {
       const button = actions.getByRole('button', { name });
       await expect(button).toBeInViewport();
@@ -240,25 +242,9 @@ for (const width of [1440, 390])
       await expect(tooltip).toBeHidden();
       await expect(button).toBeFocused();
     }
-    const discussion = actions.getByRole('button', { name: /^Discussion \(/ });
-    await discussion.evaluate((node: HTMLButtonElement) => node.click());
-    await expect(actions.getByRole('menu')).toHaveCount(0);
-    await discussion.press('ArrowDown');
-    const chat = actions.getByRole('menuitem', { name: 'Chat', exact: true });
-    const comments = actions.getByRole('menuitem', { name: 'Comments 0', exact: true });
-    await expect(chat).toBeFocused();
-    await page.keyboard.press('ArrowUp');
-    await expect(comments).toBeFocused();
-    await page.keyboard.press('ArrowDown');
-    await expect(chat).toBeFocused();
-    await page.keyboard.press('End');
-    await expect(comments).toBeFocused();
-    await page.keyboard.press('Home');
-    await expect(chat).toBeFocused();
-    await page.keyboard.press('Escape');
-    await expect(discussion).toBeFocused();
-    await discussion.press('Space');
-    await chat.press('Enter');
+    // The dock opens Chat; Escape closes it and focus returns to the action that opened it.
+    const dockChat = chatAction(page);
+    await dockChat.press('Enter');
     const drawer = page.locator('.tmt-ui-drawer[data-panel=chat][open]');
     await expect(drawer).toBeVisible();
     const close = drawer.getByRole('button', { name: 'Close Chat', exact: true });
@@ -268,7 +254,7 @@ for (const width of [1440, 390])
     // One Escape dismisses the tooltip and closes its containing drawer.
     await page.keyboard.press('Escape');
     await expect(drawer).toHaveCount(0);
-    await expect(discussion).toBeFocused();
+    await expect(dockChat).toBeFocused();
     await expect(page.locator('.tmt-ui-icon-action-tooltip:popover-open')).toHaveCount(0);
     const frame = page.locator('#ask-page-fixture iframe');
     const render = await frame.getAttribute('data-render-id');
@@ -455,7 +441,7 @@ test('one-row fitting retains full labels, stable content and compact action aut
     expect(await heading.evaluate((node, saved) => node === saved, titleHandle)).toBe(true);
     await expect(heading).toBeVisible();
     const actions = header.getByRole('navigation', { name: 'Page actions' });
-    await expect(actions.getByRole('button')).toHaveCount(2);
+    await expect(actions.getByRole('button')).toHaveCount(1);
     const more = actions.getByRole('button', { name: 'More', exact: true });
     await more.press('ArrowDown');
     // Share… waits on page management and a page that holds no file shows no Files entry; the first

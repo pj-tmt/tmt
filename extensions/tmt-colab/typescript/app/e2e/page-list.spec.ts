@@ -1330,14 +1330,12 @@ for (const width of [1440, 390])
       await page.screenshot({ path: await capturePath(`3747-scoped-list-${width}-${theme}.png`) });
       await rows(page).first().getByRole('link', { name: 'Alpha plan' }).click();
       const crumb = app(page).locator('.colab-scope-crumb', { hasText: /^design$/ });
-      if (width > 390) await expect(crumb).toBeVisible();
-      else await expect(crumb).toBeHidden();
+      // The page's header holds only More, so the crumb has room on a phone too.
+      await expect(crumb).toBeVisible();
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3747-page-crumb-${width}-${theme}.png`) });
-      if (width > 390) {
-        await crumb.click();
-        await showAll(page);
-      } else await page.goBack();
+      await crumb.click();
+      await showAll(page);
       await scopeTo(page, 'All pages');
       await expect(titles(page)).toHaveCount(4);
       await app(page)
@@ -1574,9 +1572,10 @@ for (const width of [1440, 390, 320])
         await expect(scopeTrigger(page, long)).toBeVisible();
         expect(await inside()).toEqual({ scroll: 0, crumbInside: true, railOverflow: 0 });
         await rows(page).first().getByRole('link', { name: 'Long names' }).click();
-        // A heading too narrow for the crumb and the title leaves the crumb out; the title stays.
+        // The header holds only More, so a phone has room for the crumb (ellipsized at its own cap); a
+        // heading too narrow for the crumb and the title (320px) leaves the crumb out.
         const crumb = app(page).locator('.colab-scope-crumb', { hasText: long });
-        if (width > 390) await expect(crumb).toBeVisible();
+        if (width >= 390) await expect(crumb).toBeVisible();
         else await expect(crumb).toBeHidden();
         expect(
           await page.evaluate(
@@ -1587,7 +1586,7 @@ for (const width of [1440, 390, 320])
           await page.screenshot({
             path: await capturePath(`3747-page-crumb-long-${width}-${theme}.png`),
           });
-        if (width > 390) {
+        if (width >= 390) {
           await crumb.click();
           await showAll(page);
         } else await page.goBack();
