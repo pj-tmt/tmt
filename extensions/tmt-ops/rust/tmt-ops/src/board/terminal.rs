@@ -370,10 +370,17 @@ pub fn restore_before_panic_reports() {
             use std::io::Write;
             match crash_note(info) {
                 Ok(path) => {
-                    let _ = writeln!(io::stderr(), "Ops crash note: {}", path.display());
+                    let _ = writeln!(
+                        tmt_cli_style::stream::stderr(),
+                        "Ops crash note: {}",
+                        path.display()
+                    );
                 }
                 Err(error) => {
-                    let _ = writeln!(io::stderr(), "Ops crash note unavailable: {error}");
+                    let _ = writeln!(
+                        tmt_cli_style::stream::stderr(),
+                        "Ops crash note unavailable: {error}"
+                    );
                 }
             }
             previous(info);
