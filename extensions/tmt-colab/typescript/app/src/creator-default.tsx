@@ -1,8 +1,4 @@
-import { BrowserToggle } from '@tmt/browser-ui/react';
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import { useMedia } from './use-media.js';
-import { AgentChip, agentSentence } from './components/agent-chip.js';
-import { text } from './strings.js';
 
 type Preference = { enabled: boolean; revision: number; toggle(): void };
 const CreatorDefault = createContext<Preference | undefined>(undefined);
@@ -52,26 +48,5 @@ export function useCreatorDefault(): Preference {
       ...local,
       toggle: () => setLocal({ enabled: !local.enabled, revision: local.revision + 1 }),
     }
-  );
-}
-const compactQuery = '(max-width: 640px)';
-
-/** The leaf owns its toggle-button semantics; Colab owns the responsive recipient label. */
-export function CreatorToggle({ name, preference }: { name: string; preference: Preference }) {
-  const compact = useMedia(compactQuery);
-  return (
-    <span className="creator-toggle">
-      <BrowserToggle
-        pressed={preference.enabled}
-        // The visible label compacts to the agent; the accessible name keeps the whole phrase.
-        label={
-          compact ? <AgentChip name={name} /> : agentSentence(text.messageCreatorToggleLabel, name)
-        }
-        ariaLabel={text.messageCreatorToggle(name)}
-        onActivate={(event) => {
-          if (event.isTrusted) preference.toggle();
-        }}
-      />
-    </span>
   );
 }

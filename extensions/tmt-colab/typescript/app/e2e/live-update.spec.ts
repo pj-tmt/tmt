@@ -390,7 +390,7 @@ for (const width of [1440, 390]) {
       const threadId = await thread.getAttribute('data-thread-id');
       const editorBox = (await input.boundingBox())!;
       await expect(dialog.locator('.annotation-reply-label')).toBeHidden();
-      const hintBox = (await dialog.locator('.annotation-anchor-note').boundingBox())!;
+      const hintBox = (await dialog.locator('.annotation-hint').boundingBox())!;
       expect(hintBox.y).toBeGreaterThan(editorBox.y + editorBox.height);
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-sent.png` });
       // Shared top-layer menus fit the viewport, independently of the history scroller.
@@ -472,7 +472,7 @@ for (const width of [1440, 390]) {
         useInnerText: true,
       });
       await expect(discussion.locator('.annotation-hint[role="status"]')).toContainText(
-        'Asks Agent 1.',
+        'Asks Agent 1 · Enter to send',
       );
       await expect
         .poll(() =>

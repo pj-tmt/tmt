@@ -164,9 +164,16 @@ export const text = {
   authorAttributionNote:
     'Names are publisher-provided labels, not proof of identity or permission.',
   messageLabel: 'Message',
-  messageCreatorToggle: (name: string) => `Send to @${name}`,
-  messageCreatorToggleLabel: 'Send to {agent}',
   messageCreator: 'Creator',
+  /** The recipient pill: who this message will ask; it opens the agent list to change that. */
+  recipientCommentOnly: 'Comment only',
+  /** Up to two names, then how many more. */
+  recipientAsks: (names: readonly string[]) =>
+    `Ask ${names.slice(0, 2).join(', ')}${names.length > 2 ? ` +${names.length - 2}` : ''}`,
+  recipientMenu: 'Who is asked',
+  recipientMenuHelp: 'Choose who to ask',
+  recipientCreatorStart: (name: string) => `Start new messages with @${name}`,
+  messageMention: 'Mention an agent',
   messageMentionState: {
     online: 'Online',
     offline: 'Offline',
@@ -195,8 +202,10 @@ export const text = {
   messageSending: 'Sending…',
   messageComment: 'Posts as a comment.',
   messageCommentOnly: 'Posts as a comment. No agent will be asked.',
-  messageAskCreator: (name: string) => `Ask @${name}`,
   messageAsks: 'Asks {agents}.',
+  /** The helper line under the field: who is asked, or that nobody is, and how to send. */
+  messageAsksSend: 'Asks {agents} · Enter to send',
+  messageCommentSend: 'Comment only, no agent is asked · Enter to send',
   messageUnknown: (name: string) => `No agent named @${name}.`,
   messageUnknownComment: 'This posts as a comment.',
   messageAmbiguous: 'Several agents are named {agent}. Choose one.',

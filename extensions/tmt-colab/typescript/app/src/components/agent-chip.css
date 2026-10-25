@@ -80,7 +80,8 @@
  * keep the chip inside the line height. */
 .agent-chip[data-variant='chip'] {
   align-items: baseline;
-  padding: 0 6px;
+  /* The website's tag: 9px around the label, 8 of padding and the 1px edge. */
+  padding: 0 8px;
   border: 1px solid transparent;
   /* The website's tags and chips round at 5 to 7px. */
   border-radius: var(--tmt-ui-radius-s);
@@ -96,9 +97,56 @@
 .agent-chip[data-variant='chip'] > :is(.agent-chip-mark, .tmt-ui-icon-action) {
   align-self: center;
 }
-/* The remove control keeps its 24px hit area; only 16px of it counts toward the line. */
+/* The remove control keeps its 24px hit area; only 16px of it counts toward the line. Where there is
+ * no hover (touch) it stays here, in the line and visible. */
 .agent-chip[data-variant='chip'] > .tmt-ui-icon-action {
   margin-block: -4px;
+}
+/* The chip is a tag with the name bold behind a faint @. */
+.agent-chip[data-variant='chip'] .agent-chip-name {
+  font-weight: 600;
+}
+.agent-chip-at {
+  opacity: 0.55;
+  font-weight: 400;
+}
+/* With a pointer the remove control is out of the line: a resting chip is its label and padding. When
+ * the pointer or focus is on the chip a 16px round badge appears on its top-right corner, 7px outside
+ * it (the badge's own box then stops where the label's ends, so it never covers the name), with a 24px
+ * hit area, and the text after the chip does not move. */
+@media (hover: hover) {
+  .agent-chip[data-variant='chip'] {
+    position: relative;
+  }
+  .agent-chip[data-variant='chip'] > .tmt-ui-icon-action {
+    --tmt-ui-host-icon-action-size: 16px;
+    --tmt-ui-header-icon-size: 10px;
+    position: absolute;
+    inset-inline-end: -7px;
+    top: -7px;
+    z-index: 1;
+    margin: 0;
+    opacity: 0;
+  }
+  .agent-chip[data-variant='chip']:is(:hover, :focus-within) > .tmt-ui-icon-action {
+    opacity: 1;
+  }
+  .agent-chip[data-variant='chip'] .tmt-ui-icon-action-control {
+    border: 1px solid var(--tmt-ui-color-edge);
+    border-radius: var(--tmt-ui-radius-pill);
+    background: var(--tmt-ui-surface-sheet);
+    color: var(--tmt-ui-color-secondary);
+  }
+  .agent-chip[data-variant='chip'] .tmt-ui-icon-action-control:hover {
+    background: var(--tmt-ui-surface-hover);
+    color: var(--tmt-ui-color-text);
+  }
+  /* The badge is small to look at and 24px to hit. */
+  .agent-chip[data-variant='chip'] .tmt-ui-icon-action-control::after {
+    content: '';
+    position: absolute;
+    inset: -5px;
+  }
 }
 /* A name nobody answers to has no fill: the dashed edge says it without colour. */
 .agent-chip[data-variant='chip'][data-state='not-found'] {

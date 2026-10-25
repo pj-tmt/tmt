@@ -164,21 +164,13 @@ for (const width of [1440, 390])
         'tmt-ui-drawer-body',
       ]);
 
-      // At rest the reply field shows four lines (the website's) and the note and its hint flow as
-      // one line of text beside Reply.
+      // At rest the reply field is 44px high and the helper line sits under its box.
       const line = await lineHeight(field);
       const rest = (await field.boundingBox())!.height;
-      expect(Math.abs(rest - 4 * line)).toBeLessThanOrEqual(1);
-      const note = composer.locator('.annotation-anchor-note');
-      const hint = composer.locator('.annotation-hint');
-      await expect(note).toHaveText('Attached to this sentence');
-      const [noteBox, hintBox] = await Promise.all([note.boundingBox(), hint.boundingBox()]);
-      // The hint starts on the note's line, or on the next one when the 286px column is too narrow
-      // for both in the font at hand (a wider system font wraps it); it is never a block of its own.
-      // The line box is the paragraph's, not the smaller note text's.
-      const paragraph = await lineHeight(note.locator('xpath=..'));
-      expect(hintBox!.y - noteBox!.y).toBeLessThanOrEqual(paragraph + 1);
-      await expect(hint).toHaveText('Posts as a comment.');
+      expect(Math.abs(rest - 44)).toBeLessThanOrEqual(1);
+      await expect(composer.locator('.annotation-hint')).toHaveText(
+        'Comment only, no agent is asked · Enter to send',
+      );
 
       await page.screenshot({
         path: await capturePath(`comments-composer-rest-${width}-${theme}.png`),
@@ -214,9 +206,9 @@ test('the on-screen keyboard shrinks the Comments message area and the reply fie
   await expect(field).toBeFocused();
   await expect.poll(() => pinned(composer, scroller)).toBe(true);
   const [bar, box] = await Promise.all([composer.boundingBox(), scroller.boundingBox()]);
-  // The four-line reply field gives way to the compact two-line field in a short viewport.
+  // The 44px reply field gives way to one line (and its 14px of padding) in a short viewport.
   const line = await lineHeight(field);
-  expect(Math.abs(resting - bar!.height - 2 * line)).toBeLessThanOrEqual(1);
+  expect(Math.abs(resting - bar!.height - (44 - (line + 14)))).toBeLessThanOrEqual(1);
   // The composer is fully on screen and messages keep room above it.
   expect(box!.height - bar!.height).toBeGreaterThan(100);
   // The last message stays reachable above the composer. The sheet is 75dvh high, so at the end of

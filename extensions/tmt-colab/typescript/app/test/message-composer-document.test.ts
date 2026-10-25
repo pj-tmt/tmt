@@ -1,10 +1,13 @@
 import { expect, it } from 'vite-plus/test';
 import { createEditor } from 'lexical';
 import {
+  $insertMentionTrigger,
   $messageText,
   $messageSelection,
   $prependMessageMention,
+  $removeMessageMentions,
   $selectMessageRange,
+  $toggleMessageMention,
   $messageMentions,
   $replaceMessage,
   $setDefaultCreator,
@@ -143,4 +146,60 @@ it('an explicit recipient prepends one manual chip, preserving text and shifted 
     );
     expect(editor.getEditorState().read($messageText)).toBe('@creator 😀 Body\nsecond');
   }
+});
+
+it('the recipient choice toggles one agent: a chip goes in front when none names it, and every chip goes with its space when one does', () => {
+  const key = { machine: 'machine', agent: 'agent' };
+  const other = { machine: 'machine', agent: 'other' };
+  const editor = createEditor({ namespace: 'fixture', nodes: [MessageMentionNode] });
+  editor.update(
+    () => {
+      $replaceMessage('Body @one and @one again', [
+        { key, range: { start: 5, end: 9 } },
+        { key, range: { start: 14, end: 18 } },
+      ]);
+      $toggleMessageMention(key, 'one');
+    },
+    { discrete: true },
+  );
+  editor.getEditorState().read(() => {
+    expect($messageText()).toBe('Body and again');
+    expect($messageMentions()).toEqual([]);
+  });
+  editor.update(() => $toggleMessageMention(key, 'one'), { discrete: true });
+  editor.getEditorState().read(() => {
+    expect($messageText()).toBe('@one Body and again');
+    expect($messageMentions()).toEqual([{ key, range: { start: 0, end: 4 } }]);
+  });
+  // Another agent's chip stays; removing one that is not there changes nothing.
+  editor.update(() => $toggleMessageMention(other, 'two'), { discrete: true });
+  editor.update(() => expect($removeMessageMentions({ ...key, agent: 'none' })).toBe(0), {
+    discrete: true,
+  });
+  editor.update(() => expect($removeMessageMentions(key)).toBe(1), { discrete: true });
+  editor.getEditorState().read(() => {
+    expect($messageText()).toBe('@two Body and again');
+    expect($messageMentions()).toEqual([{ key: other, range: { start: 0, end: 4 } }]);
+  });
+});
+
+it('the Mention button types an @ at the caret, or at the end without one', () => {
+  const editor = createEditor({ namespace: 'fixture', nodes: [MessageMentionNode] });
+  editor.update(
+    () => {
+      $replaceMessage('Hello world');
+      $selectMessageRange(5, 5);
+      $insertMentionTrigger();
+    },
+    { discrete: true },
+  );
+  expect(editor.getEditorState().read($messageText)).toBe('Hello@ world');
+  editor.update(
+    () => {
+      $replaceMessage('Plain');
+      $insertMentionTrigger();
+    },
+    { discrete: true },
+  );
+  expect(editor.getEditorState().read($messageText)).toBe('Plain@');
 });

@@ -61,7 +61,16 @@ export function AgentChip({
           <Bot className="agent-chip-icon" />
         </span>
       )}
-      <span className="agent-chip-name">{name}</span>
+      <span className="agent-chip-name">
+        {variant === 'chip' && name.startsWith('@') ? (
+          <>
+            <span className="agent-chip-at">@</span>
+            {name.slice(1)}
+          </>
+        ) : (
+          name
+        )}
+      </span>
       {working && (
         <span className="agent-chip-state tmt-ui-visually-hidden">, {text.agentWorking}</span>
       )}

@@ -268,11 +268,12 @@ Export downloads use the shared Action inside the drawer, with its header provid
 `RichInput` editing boundary and `BrowserField`. The caller owns popup ARIA and
 message policy; the shared input owns focus, caret/IME and editor history. Its
 optional accessory is inside the input below text at the shared text left edge.
-The creator toggle belongs to the shared message action row, with Send on the right
-and recipient status in its hint line. It uses the leaf toggle-button semantics,
-with a full accessible label and a compact recipient label at 640px and below.
-Its preference is shared by this page/viewer device's Chat, annotations and replies;
-the accessory slot remains presentation-only and separate from recipient ownership.
+The accessory holds the shared `MessageToolbar` (Attach, Mention, the recipient pill and
+Send); the helper line sits under the input. The pill's list is a multi-select `Listbox`
+whose choices edit the mention tokens through the editor, and its last row is the creator
+preference (`Start new messages with @creator`), shared by this page/viewer device's Chat,
+annotations and replies. The accessory stays presentation-only and separate from recipient
+ownership.
 `BrowserDrawer` owns the shared title, audience caption and Close action; Chat
 keeps its mounted `ConversationWindow` history/composer with its inner header hidden.
 Close uses `BrowserIconAction`; its tooltip and focus presentation belong to the leaf.

@@ -41,7 +41,35 @@ async function mount(
     );
   return input;
 }
-const toggle = (page: Page) => page.getByRole('button', { name: 'Send to @alpha', exact: true });
+// The creator preference is the last row of the recipient pill's agent list; Escape closes the list.
+const pill = (page: Page) => page.getByRole('button', { name: /^Who is asked/ });
+const creatorRow = (page: Page) =>
+  page.getByRole('option', { name: /^Start new messages with @alpha/ });
+async function toggle(page: Page, index = 0) {
+  await pill(page).nth(index).click();
+  await creatorRow(page).click();
+}
+async function creatorOn(page: Page, index = 0) {
+  await pill(page).nth(index).click();
+  const on = (await creatorRow(page).getAttribute('aria-selected')) === 'true';
+  await page.keyboard.press('Escape');
+  await expect(creatorRow(page)).toHaveCount(0);
+  return on;
+}
+async function hasCreatorRow(page: Page) {
+  if (!(await pill(page).first().isEnabled())) return false;
+  await pill(page).first().click();
+  await expect(page.getByRole('option').first()).toBeVisible();
+  const has = (await creatorRow(page).count()) > 0;
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('listbox')).toHaveCount(0);
+  return has;
+}
+/** The one-off manual choice: pick the agent in the same list. */
+async function pickAlpha(page: Page) {
+  await pill(page).first().click();
+  await page.getByRole('option', { name: /^@alpha/ }).click();
+}
 for (const surface of ['annotation', 'reply', 'chat']) {
   test(`${surface}: every fresh message gets one admitted default, removed for one message only`, async ({
     page,
@@ -57,9 +85,8 @@ for (const surface of ['annotation', 'reply', 'chat']) {
     await page.getByRole('button', { name: /^Remove mention: @alpha/ }).click();
     await input.pressSequentially('Plain');
     if (surface === 'chat') {
-      await expect(toggle(page)).toHaveCount(0);
       await expect(page.locator('.annotation-hint[role="status"]').first()).toContainText(
-        'Posts as a comment.',
+        'Comment only',
       );
     }
     await input.press('Enter');
@@ -68,10 +95,9 @@ for (const surface of ['annotation', 'reply', 'chat']) {
       .toMatchObject({ writes: 2, preparations: 1, commits: 2 });
     await expect(input).toHaveText('@alpha ', { useInnerText: true });
     if (surface === 'chat') {
-      await expect(toggle(page)).toBeVisible();
-      await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
+      expect(await creatorOn(page)).toBe(true);
       await expect(page.locator('.annotation-hint[role="status"]').first()).not.toContainText(
-        'Posts as a comment.',
+        'Comment only',
       );
     }
     const proof = await run(page, 'editingProof');
@@ -94,7 +120,7 @@ test('toggle updates the open draft, preserves its body/caret/undo, and stays of
     text: document.getSelection()?.anchorNode?.textContent,
     offset: document.getSelection()?.anchorOffset,
   }));
-  await toggle(page).click();
+  await toggle(page);
   await expect(input).toHaveText(' Body line\nsecond', { useInnerText: true });
   expect(
     await input.evaluate(() => ({
@@ -111,23 +137,23 @@ test('toggle updates the open draft, preserves its body/caret/undo, and stays of
     .poll(() => run(page, 'proof'))
     .toMatchObject({ writes: 1, preparations: 0, commits: 1 });
   await expect(input).toHaveText('', { useInnerText: true });
-  await expect(toggle(page)).toHaveAttribute('aria-pressed', 'false');
+  expect(await creatorOn(page)).toBe(false);
 });
 test('manual typed and picked mentions survive off; toggling on does not duplicate them', async ({
   page,
 }) => {
   const input = await mount(page);
-  await toggle(page).click();
+  await toggle(page);
   await input.fill('@alpha Manual');
   await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
-  await toggle(page).click();
-  await toggle(page).click();
+  await toggle(page);
+  await toggle(page);
   await expect(input).toHaveText('@alpha Manual', { useInnerText: true });
   await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
   await input.fill('@');
   await page.getByRole('option', { name: /@alpha/ }).click();
-  await toggle(page).click();
-  await toggle(page).click();
+  await toggle(page);
+  await toggle(page);
   await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
   await expect(input).toHaveText('@alpha ', { useInnerText: true });
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0 });
@@ -136,12 +162,12 @@ test('page/viewer preference persists across reload and surfaces, with isolated 
   page,
 }) => {
   await mount(page, 'chat');
-  await toggle(page).click();
+  await toggle(page);
   let input = await mount(page, 'reply');
-  await expect(toggle(page)).toHaveAttribute('aria-pressed', 'false');
+  expect(await creatorOn(page)).toBe(false);
   await expect(input).toHaveText('', { useInnerText: true });
   input = await mount(page, 'annotation', { scope: 'different-page' });
-  await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
+  expect(await creatorOn(page)).toBe(true);
   await expect(input).toHaveText('@alpha ', { useInnerText: true });
 });
 test('restored unknown-provenance creator mention is manual, and off does not delete it', async ({
@@ -156,7 +182,7 @@ test('restored unknown-provenance creator mention is manual, and off does not de
       ],
     },
   });
-  await toggle(page).click();
+  await toggle(page);
   await expect(input).toHaveText('@alpha Saved', { useInnerText: true });
   await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
 });
@@ -166,7 +192,7 @@ test('an offline saved creator stays seeded, and an offline agent on an online m
   const unavailable = await mount(page, 'chat', {
     agents: [{ ...alpha, online: 'offline' }],
   });
-  await expect(toggle(page)).toBeVisible();
+  expect(await hasCreatorRow(page)).toBe(true);
   await expect(unavailable).toHaveText('@alpha ', { useInnerText: true });
   await unavailable.pressSequentially('Waiting');
   await expect(
@@ -177,7 +203,7 @@ test('an offline saved creator stays seeded, and an offline agent on an online m
   const input = await mount(page, 'chat', {
     agents: [{ ...alpha, presence: 'offline' }],
   });
-  await expect(toggle(page)).toBeVisible();
+  expect(await hasCreatorRow(page)).toBe(true);
   await expect(input).toHaveText('@alpha ', { useInnerText: true });
   await input.pressSequentially('Inbox');
   await input.press('Enter');
@@ -196,7 +222,7 @@ test('no creator admission hides the toggle and never invents a fallback recipie
     [alpha, { ...alpha, online: 'offline' as typeof alpha.online }],
   ]) {
     const input = await mount(page, 'chat', { agents });
-    await expect(toggle(page)).toHaveCount(0);
+    expect(await hasCreatorRow(page)).toBe(false);
     await expect(input).toHaveText('', { useInnerText: true });
     await input.pressSequentially('Comment');
     expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0 });
@@ -206,23 +232,22 @@ for (const variant of [
   { width: 1440, theme: 'light' },
   { width: 390, theme: 'dark' },
 ] as const) {
-  test(`responsive creator action ${variant.width} ${variant.theme}`, async ({ page }) => {
+  test(`creator row in the agent list ${variant.width} ${variant.theme}`, async ({ page }) => {
     await page.setViewportSize({ width: variant.width, height: 900 });
     await page.emulateMedia({ colorScheme: variant.theme });
     await mount(page);
-    await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
-    await expect(toggle(page)).toHaveText(variant.width <= 640 ? /alpha/ : /Send to alpha/);
-    // The visible label is the shared chip; the accessible name keeps the whole phrase.
-    await expect(toggle(page).locator('.agent-chip')).toHaveCount(1);
-    const geometry = await toggle(page).evaluate((node) => {
+    await pill(page).click();
+    await expect(creatorRow(page)).toHaveAttribute('aria-selected', 'true');
+    await expect(creatorRow(page)).toBeVisible();
+    // The list stays inside the viewport at any width.
+    const geometry = await page.getByRole('listbox').evaluate((node) => {
       const r = node.getBoundingClientRect();
       return { left: r.left, right: r.right };
     });
     expect(geometry.left).toBeGreaterThanOrEqual(0);
     expect(geometry.right).toBeLessThanOrEqual(variant.width);
-    await expect(
-      page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
-    ).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
   });
 }
 
@@ -242,8 +267,8 @@ test('storage refusal retains the tab-local off preference without changing Send
     };
   });
   const input = await mount(page);
-  await toggle(page).click();
-  await expect(toggle(page)).toHaveAttribute('aria-pressed', 'false');
+  await toggle(page);
+  expect(await creatorOn(page)).toBe(false);
   await input.fill('Local only');
   await input.press('Enter');
   await expect.poll(() => run(page, 'proof')).toMatchObject({ writes: 1, preparations: 0 });
@@ -252,12 +277,20 @@ test('storage refusal retains the tab-local off preference without changing Send
 test('a preference changed during Send affects only the next draft, not the frozen message', async ({
   page,
 }) => {
-  const input = await mount(page);
+  // The sending composer's own toolbar is fenced; the page's other composer changes the preference.
+  const input = await mount(page, 'linked');
+  await expect(input).toHaveText('@alpha ', { useInnerText: true });
   await run(page, 'holdWrite');
+  await input.evaluate((node) => {
+    node.focus();
+    document.getSelection()!.selectAllChildren(node);
+    document.getSelection()!.collapseToEnd();
+  });
   await input.pressSequentially('Frozen');
-  await page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).first().click();
   await expect(input).toHaveAttribute('contenteditable', 'false');
-  await toggle(page).click();
+  await expect(pill(page).first()).toBeDisabled();
+  await toggle(page, 1);
   await run(page, 'releaseWrite');
   await expect
     .poll(() => run(page, 'proof'))
@@ -300,49 +333,45 @@ for (const variant of [
     const capture = async (state: string) =>
       page.screenshot({ path: `${captures}/${variant.width}-${variant.theme}-${state}.png` });
     const input = await open(true);
-    await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
+    expect(await creatorOn(page)).toBe(true);
     await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
     await capture('on');
-    await toggle(page).click();
+    await toggle(page);
     await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
     await capture('off');
-    await toggle(page).click();
+    await toggle(page);
     await input.getByRole('button', { name: /^Remove mention:/ }).click();
     await input.pressSequentially('A draft stays here.');
-    // A manual comment has no creator toggle; the saved default returns on a fresh draft.
-    await expect(toggle(page)).toHaveCount(0);
-    await expect(
-      page.getByText('Posts as a comment. No agent will be asked.', { exact: true }),
-    ).toBeVisible();
+    // A manual comment keeps the saved default in the list; it returns on a fresh draft.
+    await expect(page.getByText(commentOnly, { exact: true })).toBeVisible();
     await capture('removed');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
-    await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
+    expect(await creatorOn(page)).toBe(true);
     await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
     await capture('fresh');
     await open(false);
-    await expect(toggle(page)).toHaveCount(0);
+    expect(await hasCreatorRow(page)).toBe(false);
     await capture('hidden');
   });
 }
 
 test('a toggled seed alone is not a persisted draft; body edits are', async ({ page }) => {
   const input = await mount(page);
-  await toggle(page).click();
-  await toggle(page).click();
+  await toggle(page);
+  await toggle(page);
   await expect.poll(() => run(page, 'editingProof')).toMatchObject({ edit: { edited: false } });
   await input.pressSequentially('Keep this body');
   await expect.poll(() => run(page, 'editingProof')).toMatchObject({ edit: { edited: true } });
 });
 test('one page preference changes both mounted composers without publishing', async ({ page }) => {
   await mount(page, 'linked');
-  const toggles = toggle(page);
   const chips = page.locator('.agent-chip[data-variant="chip"]');
   await expect(chips).toHaveCount(2);
-  await toggles.first().click();
-  await expect(toggles.nth(1)).toHaveAttribute('aria-pressed', 'false');
+  await toggle(page, 0);
+  expect(await creatorOn(page, 1)).toBe(false);
   await expect(chips).toHaveCount(0);
-  await toggles.nth(1).click();
-  await expect(toggles.first()).toHaveAttribute('aria-pressed', 'true');
+  await toggle(page, 1);
+  expect(await creatorOn(page, 0)).toBe(true);
   await expect(chips).toHaveCount(2);
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0 });
 });
@@ -351,7 +380,7 @@ test('disabled talk or missing creation identity hides the control, with no hidd
 }) => {
   for (const options of [{ talk: false }, { creator: false }]) {
     const input = await mount(page, 'chat', options);
-    await expect(toggle(page)).toHaveCount(0);
+    expect(await hasCreatorRow(page)).toBe(false);
     await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
     await input.fill('Plain comment');
     await input.press('Enter');
@@ -359,20 +388,19 @@ test('disabled talk or missing creation identity hides the control, with no hidd
   }
 });
 
-const commentOnly = 'Posts as a comment. No agent will be asked.';
+const commentOnly = 'Comment only, no agent is asked · Enter to send';
 for (const surface of ['chat', 'annotation']) {
   for (const selected of [false, true]) {
-    test(`${surface}: a suppressed creator action preserves ${selected ? 'selection' : 'caret'} and only explicit Send asks`, async ({
+    test(`${surface}: a creator choice made while the directory loads is fenced, and picking the agent preserves ${selected ? 'selection' : 'caret'} and only explicit Send asks`, async ({
       page,
     }) => {
       const input = await mount(page, surface, { directory: 'park' });
       await input.fill('Typed before the directory');
-      await expect(page.getByRole('button', { name: 'Ask @alpha', exact: true })).toHaveCount(0);
+      await expect(pill(page)).toBeDisabled();
       await expect(page.locator('.annotation-hint').first()).toHaveText('Checking for agents…');
       expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, commits: 0 });
       await run(page, 'releaseDirectory');
-      const action = page.getByRole('button', { name: 'Ask @alpha', exact: true });
-      await expect(action).toBeVisible();
+      await expect(pill(page)).toBeEnabled();
       await expect(page.locator('.annotation-hint').first()).toHaveText(commentOnly);
       await expect(input).toHaveText('Typed before the directory');
       await input.evaluate((node, selected) => {
@@ -396,15 +424,16 @@ for (const surface of ['chat', 'annotation']) {
         selected: document.getSelection()?.toString(),
       }));
       if (selected) {
-        await action.focus();
-        await action.press('Enter');
-      } else await action.click();
+        // The keyboard path: open the list on the pill, take its first agent.
+        await pill(page).focus();
+        await pill(page).press('Enter');
+        await pill(page).press('Enter');
+      } else await pickAlpha(page);
       await expect(input).toBeFocused();
       await expect(input).toHaveText('@alpha Typed before the directory', { useInnerText: true });
       await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
-      await expect(action).toHaveCount(0);
       await expect(page.locator('.annotation-hint').first()).toHaveText(
-        surface === 'chat' ? '' : 'Asks alpha.',
+        'Asks alpha · Enter to send',
       );
       expect(
         await input.evaluate(() => ({
@@ -434,7 +463,7 @@ for (const surface of ['chat', 'annotation']) {
     });
   }
 }
-test('the comment-only hint needs exactly one creator and never replaces another mention state', async ({
+test('the creator row needs exactly one admitted creator and never replaces another mention state', async ({
   page,
 }) => {
   for (const agents of [[], [alpha, alpha], [{ ...alpha, agent: id(9) }]]) {
@@ -442,41 +471,39 @@ test('the comment-only hint needs exactly one creator and never replaces another
       agents,
       initialEdit: { value: 'Restored plain draft', edited: true },
     });
-    await expect(page.getByRole('button', { name: 'Ask @alpha', exact: true })).toHaveCount(0);
-    await expect(page.locator('.annotation-hint').first()).not.toHaveText(commentOnly);
+    expect(await hasCreatorRow(page)).toBe(false);
     await expect(input).toHaveText('Restored plain draft');
   }
   await mount(page, 'chat', { initialEdit: { value: '@missing draft', edited: true } });
-  await expect(page.getByRole('button', { name: 'Ask @alpha', exact: true })).toHaveCount(0);
   await expect(page.locator('.annotation-hint').first()).toContainText('No agent named @missing');
 });
-test('a removed creator offers an explicit manual choice without changing the saved default', async ({
+test('a removed creator can be chosen again in the list without changing the saved default', async ({
   page,
 }) => {
   const input = await mount(page);
   await page.getByRole('button', { name: /^Remove mention: @alpha/ }).click();
   await input.fill('A plain draft');
   await expect(page.locator('.annotation-hint').first()).toHaveText(commentOnly);
-  await page.getByRole('button', { name: 'Ask @alpha', exact: true }).click();
+  await pickAlpha(page);
   await expect(input).toHaveText('@alpha A plain draft', { useInnerText: true });
-  await toggle(page).click();
+  expect(await creatorOn(page)).toBe(true);
+  await toggle(page);
   await expect(input).toHaveText('@alpha A plain draft', { useInnerText: true });
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, commits: 0 });
 });
 
-test('creator preference off keeps the one-off manual Ask action without changing the preference', async ({
+test('creator preference off keeps the one-off manual choice without changing the preference', async ({
   page,
 }) => {
   const input = await mount(page);
-  await toggle(page).click();
-  await expect(toggle(page)).toHaveAttribute('aria-pressed', 'false');
+  await toggle(page);
+  expect(await creatorOn(page)).toBe(false);
   await input.fill('One-off request');
-  await expect(toggle(page)).toHaveCount(0);
   await expect(page.locator('.annotation-hint').first()).toHaveText(commentOnly);
-  await page.getByRole('button', { name: 'Ask @alpha', exact: true }).click();
+  await pickAlpha(page);
   await expect(input).toHaveText('@alpha One-off request', { useInnerText: true });
   await expect(input).toBeFocused();
-  await expect(toggle(page)).toHaveAttribute('aria-pressed', 'false');
+  expect(await creatorOn(page)).toBe(false);
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, commits: 0 });
 });
 

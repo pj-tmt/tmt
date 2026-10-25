@@ -171,7 +171,10 @@ async function shell(window: Locator) {
     chat ? '0px' : '1px',
   );
   if (chat)
-    await expect(window.locator('.annotation-compose')).toHaveCSS('border-top-width', '1px');
+    await expect(window.locator('.annotation-compose .rich-input-surface')).toHaveCSS(
+      'border-top-width',
+      '1px',
+    );
   for (const button of await window.locator('.conversation-composer button').all())
     await expect(button).toBeInViewport();
   const bounds = await window.evaluate((node) => {
@@ -349,8 +352,8 @@ async function chatGeometry(window: Locator) {
       header: rect(drawer.querySelector('.tmt-ui-drawer-header')!),
       composer: rect(composer),
       field: rect(find('[role="combobox"]')),
-      status: rect(find('.annotation-status-row')),
-      send: rect(find('.annotation-status-row [data-variant="primary"]')),
+      status: rect(find('.annotation-helper')),
+      send: rect(find('.message-toolbar-end [data-variant="primary"]')),
       history: rect(history),
       historyTop: history.scrollTop,
       historyOverflow: history.scrollHeight - history.clientHeight,
@@ -605,14 +608,14 @@ async function windowGeometry(window: Locator) {
     const rect = (selector: string) =>
       node.querySelector(selector)!.getBoundingClientRect().toJSON();
     const history = node.querySelector<HTMLElement>('.conversation-messages')!;
-    const quote = node.querySelector('.annotation-anchor-note')!;
+    const quote = node.querySelector('.annotation-quote')!;
     return {
       window: node.getBoundingClientRect().toJSON(),
       header: rect('.conversation-window-bar'),
-      quote: rect('.annotation-anchor-note'),
+      quote: rect('.annotation-quote'),
       composer: rect('.conversation-composer'),
       field: rect('[role="combobox"]'),
-      send: rect('.annotation-status-row [data-variant="primary"]'),
+      send: rect('.message-toolbar-end [data-variant="primary"]'),
       history: rect('.conversation-messages'),
       scrollHeight: history.scrollHeight,
       clientHeight: history.clientHeight,
@@ -643,9 +646,9 @@ async function windowStyles(window: Locator) {
       [
         '.conversation-window-bar',
         '.conversation-composer',
-        '.annotation-status-row',
+        '.annotation-helper',
         '[role="combobox"]',
-        '.annotation-status-row [data-variant="primary"]',
+        '.message-toolbar-end [data-variant="primary"]',
       ].map((selector) => {
         const style = getComputedStyle(node.querySelector(selector)!);
         return [
@@ -734,10 +737,7 @@ for (const width of [1440, 390])
       // annotation without clicking an offscreen selection affordance.
       await page.keyboard.press('Alt+Enter');
       await expect(annotation).toBeVisible();
-      await expect(annotation.locator('.annotation-anchor-note')).toHaveAttribute(
-        'title',
-        longQuote,
-      );
+      await expect(annotation.locator('.annotation-quote')).toHaveAttribute('title', longQuote);
       const long = await record(annotation, 'long-quote');
       const history = annotation.locator('.conversation-messages');
       await history.evaluate((node) => {
@@ -994,9 +994,8 @@ for (const [width, theme] of [
     const input = panel.getByRole('combobox', { name: 'Message', exact: true });
     await input.fill('A comment without a recipient.');
     await expect(panel.locator('.annotation-hint[role="status"]')).toContainText(
-      text.messageComment,
+      text.messageCommentSend,
     );
-    await expect(panel.locator('.creator-toggle')).toHaveCount(0);
     await capture(page, panel, `chat-polish-comment-${width}-${theme}`);
     // Lexical admits the selection through trusted editing keys.
     await input.press('ControlOrMeta+A');
@@ -1004,11 +1003,10 @@ for (const [width, theme] of [
     await expect(input).toHaveText('');
     await input.pressSequentially('@A');
     await page.getByRole('option').first().click();
-    await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText('Asks ');
+    await expect(panel.locator('.annotation-hint[role="status"]')).toContainText('Asks ');
     await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText(
-      text.messageComment,
+      text.messageCommentSend,
     );
-    await expect(panel.locator('.creator-toggle')).toBeVisible();
     await capture(page, panel, `chat-polish-recipient-${width}-${theme}`);
     await panel.getByTestId('attachment-input').setInputFiles([
       { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Notes') },

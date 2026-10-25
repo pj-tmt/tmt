@@ -62,8 +62,8 @@ async function appearance(composer: Locator) {
     };
     return {
       field: read(node.querySelector('.message-composer-field')!),
-      status: read(node.querySelector('.annotation-status-row')!),
-      send: read(node.querySelector('.annotation-status-row [data-variant="primary"]')!),
+      status: read(node.querySelector('.annotation-helper')!),
+      send: read(node.querySelector('.message-toolbar-end [data-variant="primary"]')!),
       structure: [...node.querySelectorAll('*')]
         .map((element) => ({ tag: element.tagName, className: element.className }))
         .filter((element) => element.tag !== 'P'),
@@ -111,17 +111,12 @@ for (const width of [1440, 390])
             await expect(status).toHaveAttribute('role', 'status');
             await expect(status).toHaveText(
               state === 'default'
-                ? surface === 'chat'
-                  ? ''
-                  : 'Asks Agent 1.'
+                ? 'Asks Agent 1 · Enter to send'
                 : state === 'multi'
-                  ? surface === 'chat'
-                    ? ''
-                    : 'Asks Agent 1, Agent 2.'
+                  ? 'Asks Agent 1, Agent 2 · Enter to send'
                   : 'No agent named @missing. This posts as a comment.',
             );
-            if (surface === 'chat' && state !== 'unknown') await expect(status).toBeHidden();
-            else await expect(status).toBeVisible();
+            await expect(status).toBeVisible();
           }
           await expect(
             composer.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),

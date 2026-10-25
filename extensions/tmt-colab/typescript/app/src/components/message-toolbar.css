@@ -1,0 +1,148 @@
+/* The row inside the field under the text: tools at the start; who is asked and Send at the end. */
+.message-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px 6px;
+}
+.message-toolbar-tools,
+.message-toolbar-end {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.message-toolbar-end {
+  gap: 8px;
+}
+.message-toolbar-tools {
+  --tmt-ui-host-icon-action-size: 28px;
+  --tmt-ui-header-icon-size: 16px;
+}
+.message-toolbar-tools .tmt-ui-icon-action-control {
+  border-radius: 8px;
+  color: var(--tmt-ui-color-secondary);
+}
+/* The agent list's trigger is a pill, not the listbox's full-width block. */
+.message-toolbar .tmt-listbox {
+  display: flex;
+  width: auto;
+  min-width: 0;
+  margin: 0;
+}
+.recipient-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 3px 8px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-pill);
+  background: transparent;
+  color: var(--tmt-ui-color-secondary);
+  font: 400 var(--tmt-ui-caption-size) / 1.4 var(--tmt-ui-font-body);
+  cursor: pointer;
+}
+.recipient-pill > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recipient-pill > svg {
+  flex: none;
+  width: 11px;
+  height: 11px;
+}
+.recipient-pill[data-asking] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--tmt-ui-color-accent) 13%, transparent);
+  color: var(--tmt-ui-color-accent);
+  font-weight: 600;
+}
+.recipient-pill:hover:not(:disabled) {
+  background: var(--tmt-ui-surface-hover);
+}
+.recipient-pill[data-asking]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--tmt-ui-color-accent) 20%, transparent);
+}
+.recipient-pill:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: 1px;
+}
+.recipient-pill:disabled {
+  color: var(--tmt-ui-color-disabled-text);
+  cursor: default;
+}
+/* The agent list: the same popover as the @ list, rounded, with a row per agent. */
+.recipient-list,
+.tmt-listbox-input-list {
+  padding: 4px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: 10px;
+  background: var(--tmt-ui-surface-sheet);
+  box-shadow: var(--tmt-ui-shadow-overlay);
+}
+.tmt-listbox-input-list .tmt-listbox-option {
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+}
+.tmt-listbox-input-list .tmt-listbox-option:hover,
+.tmt-listbox-input-list .tmt-listbox-option[data-active='true'] {
+  background: var(--tmt-ui-surface-hover);
+}
+.tmt-listbox-input-list .tmt-listbox-option[data-active='true'] {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
+.tmt-listbox-input-list .tmt-listbox-option[aria-selected='true']::before {
+  content: none;
+}
+.recipient-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.recipient-row .agent-chip {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.recipient-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tmt-ui-color-disabled-text);
+}
+.recipient-dot[data-online] {
+  background: var(--tmt-ui-color-accent);
+}
+.recipient-state {
+  flex: none;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.recipient-check {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--tmt-ui-color-accent);
+}
+.recipient-creator {
+  justify-content: space-between;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.tmt-listbox-input-list .tmt-listbox-option:has(.recipient-creator) {
+  margin-top: 4px;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: 0 0 7px 7px;
+}

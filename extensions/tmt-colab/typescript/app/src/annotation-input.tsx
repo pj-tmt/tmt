@@ -3,7 +3,7 @@ import type { ComposerConnectionPresentation } from './router.js';
 import { ConversationPresentation } from './components/conversation-presentation.js';
 import { attachmentInputHandlers, useAttachmentDropTarget } from './attachment-drop.js';
 import { BrowserAction, BrowserIconAction, type BrowserActionProps } from '@tmt/browser-ui/react';
-import { ArrowRight, Send } from 'lucide-react';
+import { ArrowUp } from 'lucide-react';
 import {
   Fragment,
   useContext,
@@ -13,18 +13,15 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { CreatorToggle, useCreatorDefault } from './creator-default.js';
+import { useCreatorDefault } from './creator-default.js';
 import { AttachmentDraft } from './attachment-draft.js';
 import { AttachmentStaleError } from './attachment-service.js';
 import { AttachButton, PendingAttachments } from './attachment-tray.js';
 import { useAgentDirectory } from './agent-directory.js';
 import { AgentChip, agentSentence, agentsSentence } from './components/agent-chip.js';
 import { MessageComposer } from './components/message-composer.js';
-import type {
-  ComposerActivation,
-  ComposerEdit,
-  ComposerMentionRequest,
-} from './components/message-composer-edit.js';
+import { MessageToolbar } from './components/message-toolbar.js';
+import type { ComposerActivation, ComposerEdit } from './components/message-composer-edit.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { messageRecipient } from './message-recipient.js';
 import {
@@ -45,6 +42,9 @@ import type { DiscussionRef, QuoteSelector, ThreadView } from './thread-records.
 
 import { sendCommentAsks, type MessageSendFailure } from './comment-send.js';
 export type { MessageSendFailure } from './comment-send.js';
+
+const sameKey = (a: { machine: string; agent: string }, b: { machine: string; agent: string }) =>
+  a.machine === b.machine && a.agent === b.agent;
 
 /** One trusted input. Enter is the explicit effect; disclosure never prepares or sends an intent. */
 export function AnnotationInput({
@@ -103,7 +103,6 @@ export function AnnotationInput({
   const echoHost = useContext(MessageEchoContext);
   const [edit, setEdit] = useState<ComposerEdit>(initialEdit ?? { value: initialValue ?? '' });
   const value = edit.value;
-  const [prependMention, setPrependMention] = useState<ComposerMentionRequest>();
   const creatorPreference = useCreatorDefault();
   const statusId = useId();
   const initialized = useRef(initialEdit !== undefined || !!initialValue);
@@ -211,23 +210,25 @@ export function AnnotationInput({
       destinations: agents,
     });
   const decision = decide(edit);
-  // Manual drafts without a creator mention do not use the stored fresh-draft default.
-  // A blank off control stays available to restore that default.
-  const showCreatorToggle =
-    !!creator &&
-    (!chat ||
-      !edit.edited ||
-      (!creatorPreference.enabled && !value.trim()) ||
-      decision.agents.some(
-        (agent) => agent.machine === creator.machine && agent.agent === creator.agent,
-      ));
+  // The pill names everyone this message mentions, including an agent that cannot be asked now:
+  // the helper line says why Send is held, and the list can still take that mention off.
+  const asked = decision.mentions
+    .filter(
+      (mention, index, all) => all.findIndex((other) => sameKey(other.key, mention.key)) === index,
+    )
+    .map((mention) => ({
+      ...mention.key,
+      agentName:
+        agents?.find((agent) => sameKey(agent, mention.key))?.agentName ??
+        value.slice(mention.range.start + 1, mention.range.end),
+    }));
   const quote = thread?.anchor?.exact ?? anchor?.exact ?? '';
   const audience = decision.agents.length > 0 && (
     <>
       {decision.agents.map((agent, index) => (
         <Fragment key={`${agent.machine}:${agent.agent}`}>
           {index > 0 && ', '}
-          <AgentChip name={agent.agentName} />
+          <AgentChip name={agent.agentName} mark={false} />
           {agent.presence === 'offline' && ' (offline)'}
         </Fragment>
       ))}
@@ -248,11 +249,7 @@ export function AnnotationInput({
       `${text.messageUnknown(decision.unknown[0])} ${text.messageUnknownComment}`
     )
   ) : audience ? (
-    chat ? (
-      ''
-    ) : (
-      agentsSentence(text.messageAsks, audience)
-    )
+    agentsSentence(text.messageAsksSend, audience)
   ) : agents?.length === 0 ? (
     chat ? (
       text.messageComment
@@ -260,19 +257,8 @@ export function AnnotationInput({
       text.messageAgentsEmpty
     )
   ) : (
-    text.messageComment
+    text.messageCommentSend
   );
-  const showCreatorHint =
-    !!creator &&
-    directory.state === 'ready' &&
-    !!(edit.edited || value.trim()) &&
-    !decision.mentions.length &&
-    status === text.messageComment &&
-    !connectionPresentation &&
-    !busy &&
-    !blocked &&
-    !recoveryRequired &&
-    !recorded;
   const nextDraft = useRef(freshEdit);
   nextDraft.current = freshEdit;
   function clearDraft() {
@@ -454,9 +440,7 @@ export function AnnotationInput({
               ? text.messageAgentsChecking
               : binding && directory.state === 'failed'
                 ? `${text.messageAgentsUnavailable} ${text.messageCommentAvailable}`
-                : showCreatorHint
-                  ? text.messageCommentOnly
-                  : status}
+                : status}
       {!busy &&
         !recoveryRequired &&
         !connectionPresentation &&
@@ -505,10 +489,7 @@ export function AnnotationInput({
     inert = !!unsent || (blocked && !recoveryRequired) || !!recorded || !discussion;
   const sendActionProps = {
     type: 'button',
-    label:
-      chat || !decision.agents.length
-        ? text.askSend
-        : `Send · to ${decision.agents.map((agent) => agent.agentName).join(', ')}`,
+    label: text.askSend,
     variant: 'primary',
     busy: busy && !echoing,
     disabled:
@@ -534,7 +515,6 @@ export function AnnotationInput({
     >
       <MessageComposer
         activation={activation}
-        prependMention={prependMention}
         edit={edit}
         onChange={(next) => {
           initialized.current = true;
@@ -566,23 +546,39 @@ export function AnnotationInput({
             : undefined
         }
         accessory={
-          sendFailureNotice || (discussion?.attachments && !echoing && !unsent) ? (
-            <>
-              {sendFailureNotice}
-              {/* Sent files leave with the echo; a failed row holds them until Edit. */}
-              {discussion?.attachments && !echoing && !unsent && (
-                <PendingAttachments
-                  draft={files}
-                  disabled={!attachable}
-                  onRemoved={() => {
-                    section.current
-                      ?.querySelector<HTMLElement>('[role="combobox"]')
-                      ?.focus({ preventScroll: true });
-                  }}
-                />
-              )}
-            </>
-          ) : undefined
+          <>
+            {sendFailureNotice}
+            {/* Sent files leave with the echo; a failed row holds them until Edit. */}
+            {discussion?.attachments && !echoing && !unsent && (
+              <PendingAttachments
+                draft={files}
+                disabled={!attachable}
+                onRemoved={() => {
+                  section.current
+                    ?.querySelector<HTMLElement>('[role="combobox"]')
+                    ?.focus({ preventScroll: true });
+                }}
+              />
+            )}
+            <MessageToolbar
+              attach={
+                discussion?.attachments && <AttachButton draft={files} disabled={!attachable} />
+              }
+              send={<BrowserIconAction {...sendActionProps} icon={<ArrowUp />} />}
+              asked={asked}
+              candidates={agents}
+              creator={
+                creator
+                  ? {
+                      name: creator.agentName,
+                      enabled: creatorPreference.enabled,
+                      toggle: creatorPreference.toggle,
+                    }
+                  : undefined
+              }
+              disabled={inFlight || inert}
+            />
+          </>
         }
         describedBy={statusId}
         resetKey={resetKey}
@@ -607,45 +603,8 @@ export function AnnotationInput({
             cancel();
         }}
       />
-      {!chat && (
-        <div className="annotation-note-line">
-          {anchor && (
-            <p className="annotation-anchor-note" title={quote}>
-              Attached to this sentence
-            </p>
-          )}
-          {!showCreatorHint && recipientHint}
-        </div>
-      )}
-      <div className="annotation-status-row" data-creator-toggle={!!creator || undefined}>
-        {discussion?.attachments && (
-          <AttachButton draft={files} disabled={!attachable} labeled label={text.messageAttach} />
-        )}
-        {showCreatorToggle && creator && (
-          <CreatorToggle name={creator.agentName} preference={creatorPreference} />
-        )}
-        {showCreatorHint && creator ? (
-          <div className="annotation-creator-hint">
-            {recipientHint}
-            <BrowserAction
-              type="button"
-              variant="text"
-              label={text.messageAskCreator(creator.agentName)}
-              onActivate={(event) => {
-                if (!event.isTrusted || sending.current || blocked || recorded) return;
-                setPrependMention({
-                  id: crypto.randomUUID(),
-                  key: { machine: creator.machine, agent: creator.agent },
-                  label: creator.agentName,
-                  consumed: () => setPrependMention(undefined),
-                });
-              }}
-            />
-          </div>
-        ) : chat ? (
-          recipientHint
-        ) : null}
-
+      <div className="annotation-helper">
+        {recipientHint}
         {binding &&
           !busy &&
           !recoveryRequired &&
@@ -676,17 +635,6 @@ export function AnnotationInput({
               if (event.isTrusted && !sending.current) cancel();
             }}
           />
-        )}
-        {presentation === 'discussion' ? (
-          <BrowserAction
-            {...sendActionProps}
-            visibleLabel={text.discussionReply}
-            leadingIcon={<Send />}
-          />
-        ) : chat ? (
-          <BrowserAction {...sendActionProps} visibleLabel={text.askSend} leadingIcon={<Send />} />
-        ) : (
-          <BrowserIconAction {...sendActionProps} icon={<ArrowRight />} />
         )}
       </div>
       <CommentSendFailures
