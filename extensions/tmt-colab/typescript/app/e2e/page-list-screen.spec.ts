@@ -382,3 +382,314 @@ for (const width of [1440, 390])
     expect(geometry.gap).toBeLessThanOrEqual(10);
     expect(geometry.overlap).toBe(true);
   });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`sticky controls retain search and commands at ${width} ${theme}`, async ({ page }) => {
+      await mount(page, width, theme);
+      const home = app(page).locator('[data-page-list]');
+      const controls = home.locator('.page-list-controls');
+      const search = home.getByRole('combobox', { name: 'Search pages' });
+      await search.fill('unfinished query');
+      const editor = await search.elementHandle();
+      await home.evaluate((node) => (node.scrollTop = 520));
+      await expect(home).toHaveAttribute('data-compact', '');
+      await expect(search).toHaveText('unfinished query');
+      expect(await search.evaluate((node, previous) => node === previous, editor)).toBe(true);
+      const geometry = await controls.evaluate((node) => {
+        const root = node.closest('[data-page-list]')!;
+        const box = node.getBoundingClientRect();
+        const search = node.querySelector('.page-list-search')!.getBoundingClientRect();
+        const action = node.querySelector('.page-list-compact-create')!.getBoundingClientRect();
+        return {
+          top: box.top - root.getBoundingClientRect().top,
+          height: box.height,
+          searchTop: search.top,
+          searchBottom: search.bottom,
+          actionTop: action.top,
+          actionBottom: action.bottom,
+          overflow: root.scrollWidth > root.clientWidth,
+        };
+      });
+      expect(Math.abs(geometry.top)).toBeLessThan(1);
+      expect(geometry.height).toBe(58);
+      expect(geometry.searchTop).toBeLessThan(geometry.actionBottom);
+      expect(geometry.actionTop).toBeLessThan(geometry.searchBottom);
+      expect(geometry.overflow).toBe(false);
+      await expect(controls.locator('.page-scope-filters')).toBeVisible({ visible: width > 650 });
+      await expect(controls.locator('.page-list-sort')).toBeHidden();
+      await search.focus();
+      await expect(search).toBeFocused();
+      const create = home.getByRole('button', { name: 'New page', exact: true });
+      await create.click();
+      const dialog = page.getByRole('dialog', { name: 'New page', exact: true });
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+      await expect(create).toBeFocused();
+      await home.evaluate((node) => (node.scrollTop = 0));
+      await expect(home).not.toHaveAttribute('data-compact');
+      await expect(search).toHaveText('unfinished query');
+      expect(await search.evaluate((node, previous) => node === previous, editor)).toBe(true);
+      await expect(home.getByRole('button', { name: 'New page', exact: true })).toBeFocused();
+      expect(
+        await page.evaluate(() => ({
+          projects: window.__projectRequests,
+          manage: window.__projectManage,
+          pins: window.__pinRequests,
+          operations: window.__pageOperations,
+        })),
+      ).toEqual({ projects: [], manage: [], pins: [], operations: [] });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+    });
+
+test('compact projects preserve the draft and scope, with no duplicate phone project row', async ({
+  page,
+}) => {
+  await mount(page, 1440, 'light');
+  const home = app(page).locator('[data-page-list]');
+  const search = home.getByRole('combobox', { name: 'Search pages' });
+  await search.fill('a long unfinished query that remains a draft');
+  await home.evaluate((node) => (node.scrollTop = 520));
+  await expect(home).toHaveAttribute('data-compact', '');
+  await home.getByRole('button', { name: 'Scope to blog', exact: true }).click();
+  await expect(home).not.toHaveAttribute('data-compact');
+  await expect(home.getByRole('heading', { name: 'blog', exact: true })).toBeVisible();
+  await expect(search).toHaveText('a long unfinished query that remains a draft');
+  expect(new URL(page.url()).hash).toContain('scope=blog');
+  await home.evaluate((node) => (node.scrollTop = 520));
+  await expect(home).toHaveAttribute('data-compact', '');
+  await home.getByRole('button', { name: 'Scope to blog', exact: true }).focus();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(search).toBeFocused();
+  await expect(home.locator('.page-scope-filters')).toBeHidden();
+  await expect(home.locator('.page-list-controls')).toHaveCSS('animation-name', 'none');
+  expect(await home.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(home.locator('.page-scope-filters')).toBeVisible();
+  await search.fill('');
+  await search.press('Escape');
+  await page.keyboard.press('/');
+  await expect(search).toBeFocused();
+});
+
+test('compact list keeps row keys, bulk selection, lazy drawing and pin changes with their owners', async ({
+  page,
+}) => {
+  await mount(page, 1440, 'light');
+  const home = app(page).locator('[data-page-list]');
+  await home.evaluate((node) => (node.scrollTop = node.scrollHeight));
+  await expect(rows(page)).toHaveCount(75);
+  await expect(home).toHaveAttribute('data-compact', '');
+  const link = rows(page).last().locator('.page-row-title > a');
+  await link.focus();
+  await page.keyboard.press('k');
+  await expect(rows(page).nth(73).locator('.page-row-title > a')).toBeFocused();
+  await page.keyboard.press('x');
+  await expect(home.getByRole('region', { name: 'Bulk actions' })).toContainText('1');
+  await page.keyboard.press('l');
+  await expect(page.getByRole('menuitemcheckbox').first()).toBeVisible();
+  await page.keyboard.press('Escape');
+  expect(await page.evaluate(() => window.__projectRequests)).toEqual([]);
+  await home.evaluate((node) => (node.scrollTop = 0));
+  await expect(home).not.toHaveAttribute('data-compact');
+  await home.getByRole('button', { name: 'Clear selection', exact: true }).click();
+  const first = rows(page).first();
+  await first.getByRole('button', { name: /^Pin / }).click();
+  await expect(home.getByRole('list', { name: 'Pinned pages' }).getByRole('link')).toHaveCount(1);
+  await home.evaluate((node) => (node.scrollTop = 520));
+  await expect(home).toHaveAttribute('data-compact', '');
+  await home.evaluate((node) => (node.scrollTop = 0));
+  await expect(home).not.toHaveAttribute('data-compact');
+  expect(await page.evaluate(() => window.__pinRequests)).toHaveLength(1);
+});
+
+test('short and empty lists stay full; viewers omit empty project lists and writers keep the picker', async ({
+  page,
+}) => {
+  await mount(page, 1440, 'light');
+  for (const size of ['none', 'unmanaged', 'few'] as const) {
+    await page.evaluate(async (size) => {
+      const path = '/test/page-list-browser.tsx';
+      await (await import(path)).mountPageList(size);
+    }, size);
+    const home = app(page).locator('[data-page-list]');
+    await expect(home).toBeVisible();
+    await home.evaluate((node) => (node.scrollTop = node.scrollHeight));
+    await expect(home).not.toHaveAttribute('data-compact');
+    if (size !== 'none') {
+      const row = rows(page).filter({ hasText: 'Gamma notes' });
+      await expect(row.locator('ul[aria-label="Projects"]')).toHaveCount(
+        size === 'unmanaged' ? 0 : 1,
+      );
+      await expect(row.getByRole('button', { name: /^Projects for/ })).toHaveCount(
+        size === 'few' ? 1 : 0,
+      );
+    }
+  }
+});
+
+test('list replacement disconnects its scroll observers', async ({ page }) => {
+  await page.goto('/');
+  const observers = await page.evaluateHandle(() => {
+    const records: { root: Element | Document | null; disconnected: boolean }[] = [];
+    const Original = IntersectionObserver;
+    window.IntersectionObserver = class extends Original {
+      private record: (typeof records)[number];
+      constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+        super(callback, options);
+        this.record = { root: options?.root ?? null, disconnected: false };
+        records.push(this.record);
+      }
+      override disconnect() {
+        this.record.disconnected = true;
+        super.disconnect();
+      }
+    };
+    const OriginalResize = ResizeObserver;
+    window.ResizeObserver = class extends OriginalResize {
+      private records: typeof records = [];
+      override observe(target: Element, options?: ResizeObserverOptions) {
+        const record = { root: target, disconnected: false };
+        this.records.push(record);
+        records.push(record);
+        super.observe(target, options);
+      }
+      override unobserve(target: Element) {
+        for (const record of this.records) if (record.root === target) record.disconnected = true;
+        super.unobserve(target);
+      }
+      override disconnect() {
+        for (const record of this.records) record.disconnected = true;
+        super.disconnect();
+      }
+    };
+    return records;
+  });
+  await page.evaluate(async () => {
+    const path = '/test/page-list-browser.tsx';
+    await (await import(path)).mountPageList('work');
+  });
+  await expect(app(page).locator('[data-page-list]')).toBeVisible();
+  const count = await observers.evaluate(
+    (records) =>
+      records.filter(
+        (record) => record.root instanceof Element && record.root.matches('[data-page-list]'),
+      ).length,
+  );
+  expect(count).toBeGreaterThanOrEqual(3);
+  await page.evaluate(async () => {
+    const path = '/test/page-list-browser.tsx';
+    await (await import(path)).mountPageList('none');
+  });
+  await expect
+    .poll(() =>
+      observers.evaluate((records) =>
+        records
+          .filter((record) => record.root instanceof Element && !record.root.isConnected)
+          .every((record) => record.disconnected),
+      ),
+    )
+    .toBe(true);
+});
+
+test('a scroll transition never steals dialog focus and dismissal returns to the visible create action', async ({
+  page,
+}) => {
+  await mount(page, 1440, 'light');
+  const home = app(page).locator('[data-page-list]');
+  const create = home.getByRole('button', { name: 'New page', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'New page', exact: true });
+  await create.click();
+  await expect(dialog).toBeVisible();
+  await home.evaluate((node) => (node.scrollTop = 520));
+  await expect(home).toHaveAttribute('data-compact', '');
+  expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(create).toBeFocused();
+  await create.click();
+  await home.evaluate((node) => (node.scrollTop = 0));
+  await expect(home).not.toHaveAttribute('data-compact');
+  expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(create).toBeFocused();
+});
+
+for (const width of [1440, 390])
+  test(`sticky mode stays stable just across its boundary at ${width}`, async ({ page }) => {
+    await mount(page, width, 'light');
+    const home = app(page).locator('[data-page-list]');
+    const transitions = await home.evaluate(async (node) => {
+      const events: boolean[] = [];
+      const observer = new MutationObserver(() => events.push(node.hasAttribute('data-compact')));
+      observer.observe(node, { attributes: true, attributeFilter: ['data-compact'] });
+      const boundary = node.querySelector('.page-list-controls-boundary')!;
+      const threshold =
+        boundary.getBoundingClientRect().bottom - node.getBoundingClientRect().top + node.scrollTop;
+      node.scrollTop = threshold + 2;
+      // Frames let the real IntersectionObserver and scroll anchoring settle. No timer advances state.
+      for (let frame = 0; frame < 30; frame++) await new Promise(requestAnimationFrame);
+      observer.disconnect();
+      return {
+        events,
+        compact: node.hasAttribute('data-compact'),
+        scroll: node.scrollTop,
+        threshold,
+      };
+    });
+    expect(transitions.events).toEqual([true]);
+    expect(transitions.compact).toBe(true);
+    expect(Math.abs(transitions.scroll - transitions.threshold - 2)).toBeLessThan(1);
+    await home.evaluate((node) => (node.scrollTop = 0));
+    await expect(home).not.toHaveAttribute('data-compact');
+  });
+
+test('motion preferences control both directions of the compact transition', async ({ page }) => {
+  await mount(page, 1440, 'light');
+  const home = app(page).locator('[data-page-list]');
+  const controls = home.locator('.page-list-controls');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await expect(controls).toHaveCSS('animation-name', 'page-list-full-in');
+  await home.evaluate((node) => (node.scrollTop = 520));
+  await expect(home).toHaveAttribute('data-compact', '');
+  await expect(controls).toHaveCSS('animation-name', 'page-list-compact-in');
+  await home.evaluate((node) => (node.scrollTop = 0));
+  await expect(home).not.toHaveAttribute('data-compact');
+  await expect(controls).toHaveCSS('animation-name', 'page-list-full-in');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(controls).toHaveCSS('animation-name', 'none');
+  await home.evaluate((node) => (node.scrollTop = 520));
+  await expect(home).toHaveAttribute('data-compact', '');
+  await expect(controls).toHaveCSS('animation-name', 'none');
+});
+
+for (const width of [1440, 390])
+  test(`instant scroll and short viewport geometry restore the full header at ${width}`, async ({
+    page,
+  }) => {
+    await mount(page, width, 'light');
+    await page.setViewportSize({ width, height: 280 });
+    const home = app(page).locator('[data-page-list]');
+    const outside = await home.evaluate(
+      (node) =>
+        node.querySelector('.page-list-controls-boundary')!.getBoundingClientRect().top >
+        node.getBoundingClientRect().bottom,
+    );
+    expect(outside).toBe(true);
+    await home.evaluate((node) => (node.scrollTop = 520));
+    await expect(home).toHaveAttribute('data-compact', '');
+    await home.evaluate((node) => (node.scrollTop = 0));
+    await expect(home).not.toHaveAttribute('data-compact');
+    await home.evaluate((node) => (node.scrollTop = 520));
+    await expect(home).toHaveAttribute('data-compact', '');
+    if (width === 1440) {
+      await home.getByRole('button', { name: 'Scope to blog', exact: true }).click();
+      await expect(home).not.toHaveAttribute('data-compact');
+      expect(await home.evaluate((node) => node.scrollTop)).toBe(0);
+    }
+    await page.setViewportSize({ width, height: 1000 });
+    await home.evaluate((node) => (node.scrollTop = 0));
+    await expect(home).not.toHaveAttribute('data-compact');
+    expect(await page.evaluate(() => window.__pageOperations)).toEqual([]);
+  });

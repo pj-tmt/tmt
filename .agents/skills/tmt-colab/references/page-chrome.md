@@ -128,6 +128,15 @@ secondary text; trouble surfaces in the notice below the header. The base action
 width; the pin moves into More below 640px as described above, and CSS owns fitting. Header, body and
 update-notice offsets use shared heights, including at 320px. Reader and guidance headers keep their defaults. No menu grants writer admission.
 
+Home keeps one vertical list viewport. After its full controls boundary passes the top,
+a 58px sticky row retains project scopes, the same mounted search editor and New page;
+through 650px it keeps only search and New page, below the unchanged phone module strip.
+The heading, pins, stage tabs and sort scroll away and return at the top. A list-root
+IntersectionObserver derives this presentation without a stored preference; resize and instant
+scroll jumps sample the same boundary geometry. Observers and listeners disconnect on unmount. Search drafts, route filters, row selection and command owners survive the
+transition; reduced motion disables its animation. A viewer's project list is absent when
+it has no items, while a writer retains the picker entry.
+
 Header search results and page-list titles are real links with router-generated URLs.
 Plain click/Enter keep the existing same-tab navigation and focus behavior. Modified clicks
 retain the browser's native tab/window and context-menu actions; Ctrl/Cmd+Enter opens the

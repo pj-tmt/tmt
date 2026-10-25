@@ -11,7 +11,7 @@ import {
 } from '@tmt/browser-ui/react';
 import { getRouteApi, useRouter } from '@tanstack/react-router';
 import { Archive, ArchiveRestore, ExternalLink, Pin, Plus, Search } from 'lucide-react';
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ProjectWriting,
   ManageProjectsDialog,
@@ -371,6 +371,88 @@ export function Home() {
   const pages = filterPages(scoped, filter, sort);
   const section = useRef<HTMLElement>(null);
   const listEnd = useRef<HTMLParagraphElement>(null);
+  const controlsBoundary = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+  const compactFocus = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!compactFocus.current) return;
+    section.current
+      ?.querySelector<HTMLElement>(compactFocus.current)
+      ?.focus({ preventScroll: true });
+    compactFocus.current = undefined;
+  }, [compact]);
+  useEffect(() => {
+    const root = section.current;
+    const boundary = controlsBoundary.current;
+    if (!root || !boundary) return;
+    // Observe normal flow, never the sticky row: its changing height must not move the trigger.
+    const measure = () => {
+      const next = boundary.getBoundingClientRect().bottom <= root.getBoundingClientRect().top;
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && root.contains(active)) {
+        if (next && active.closest('.page-list-hero'))
+          compactFocus.current = '.page-list-compact-create button';
+        else if (!next && active.closest('.page-list-compact-create'))
+          compactFocus.current = '.page-list-hero .tmt-ui-action';
+        else if (
+          next &&
+          (active.closest('.page-list-sort') ||
+            (matchMedia('(max-width: 650px)').matches && active.closest('.page-scope-filters')))
+        )
+          compactFocus.current = '.page-list-search [contenteditable]';
+      }
+      setCompact(next);
+    };
+    const observer = new IntersectionObserver(measure, { root });
+    // An instant scroll can jump the marker from above to below a very short viewport
+    // without changing its intersection ratio. The same geometry handles that jump.
+    root.addEventListener('scroll', measure, { passive: true });
+    const resize = new ResizeObserver(measure);
+    resize.observe(root);
+    for (const node of root.querySelectorAll('.page-list-hero, .page-pins, .tmt-ui-tabs-header'))
+      resize.observe(node);
+    observer.observe(boundary);
+    const phone = matchMedia('(max-width: 650px)');
+    // Some browsers clear focus as the media rule hides a project button, before the
+    // change event. Retain only that in-flight focus; an ordinary blur clears it.
+    let focusedScope: HTMLElement | undefined;
+    const remember = (event: FocusEvent) => {
+      focusedScope =
+        event.target instanceof HTMLElement &&
+        root.contains(event.target) &&
+        event.target.closest('.page-scope-filters')
+          ? event.target
+          : undefined;
+    };
+    const leave = (event: FocusEvent) => {
+      if (!phone.matches || !root.hasAttribute('data-compact') || event.relatedTarget !== null)
+        focusedScope = undefined;
+    };
+    const fit = () => {
+      const active = document.activeElement;
+      if (
+        phone.matches &&
+        root.hasAttribute('data-compact') &&
+        (active?.closest('.page-scope-filters') ||
+          (active === document.body && focusedScope?.isConnected))
+      )
+        root
+          .querySelector<HTMLElement>('.page-list-search [contenteditable]')
+          ?.focus({ preventScroll: true });
+      focusedScope = undefined;
+    };
+    root.addEventListener('focusin', remember);
+    root.addEventListener('focusout', leave);
+    phone.addEventListener('change', fit);
+    return () => {
+      observer.disconnect();
+      resize.disconnect();
+      root.removeEventListener('scroll', measure);
+      root.removeEventListener('focusin', remember);
+      root.removeEventListener('focusout', leave);
+      phone.removeEventListener('change', fit);
+    };
+  }, [view, scope, space.pages]);
   const drawn = useShownRows(
     section,
     listEnd,
@@ -582,71 +664,84 @@ export function Home() {
     filter.text !== '' ||
     filter.needsYou;
   const controls = (
-    <div className="page-list-controls">
-      <div className="page-scope-filters" aria-label={t.projectScopes}>
-        {[undefined, ...projectNames].map((name) => (
-          <button
-            key={name === undefined ? 'all-projects' : `project:${name}`}
-            type="button"
-            className="project-filter-button"
-            aria-label={name === undefined ? t.allProjects : t.scopeTo(name)}
-            aria-pressed={scope === name}
-            onClick={(event) => {
-              if (!event.isTrusted) return;
-              writeScope(spaceId, name);
-              setSearch({ scope: name });
-            }}
-          >
-            <span className="page-scope-name">{name ?? t.allProjects}</span>
-            <span className="project-count">
-              {
-                inScope(
-                  homePages.filter((page) => !page.archived),
-                  name,
-                ).length
+    <>
+      <div className="page-list-controls-boundary" ref={controlsBoundary} aria-hidden="true" />
+      <div className="page-list-controls">
+        <div className="page-scope-filters" aria-label={t.projectScopes}>
+          {[undefined, ...projectNames].map((name) => (
+            <button
+              key={name === undefined ? 'all-projects' : `project:${name}`}
+              type="button"
+              className="project-filter-button"
+              aria-label={name === undefined ? t.allProjects : t.scopeTo(name)}
+              aria-pressed={scope === name}
+              onClick={(event) => {
+                if (!event.isTrusted) return;
+                writeScope(spaceId, name);
+                setSearch({ scope: name });
+              }}
+            >
+              <span className="page-scope-name">{name ?? t.allProjects}</span>
+              <span className="project-count">
+                {
+                  inScope(
+                    homePages.filter((page) => !page.archived),
+                    name,
+                  ).length
+                }
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="page-list-search">
+          <Search className="page-list-search-mark" size={14} aria-hidden="true" />
+          <PageListSearch
+            edit={edit}
+            onChange={setEdit}
+            resetKey={resetKey}
+            projects={counts}
+            authors={authors}
+            stages={HOME_STAGES.map((name) => ({
+              name,
+              count: name === 'all' ? activeInScope.length : stages[name],
+            }))}
+            onStage={(stage) => chooseView(stage as HomeStage)}
+            onApply={apply}
+            onClear={() => {
+              if (!filtered && edit.value === '' && edit.tokens.length === 0) {
+                (document.activeElement as HTMLElement | null)?.blur();
+                return;
               }
-            </span>
-          </button>
-        ))}
+              replaceDraft(editFromSearch([], ''));
+              if (filter.needsYou && !port) setSearch({ needs: undefined });
+            }}
+          />
+        </div>
+        <span className="page-list-sort">
+          <BrowserMenu
+            label={`${t.sort}: ${sortLabel}`}
+            triggerText={sortLabel}
+            items={(['updated', 'title'] as const).map((key) => ({
+              key,
+              label: t.sortOptions[key],
+              role: 'menuitemradio' as const,
+              checked: sort === key,
+            }))}
+            onSelect={(key) => setSearch({ sort: key === 'title' ? 'title' : undefined })}
+          />
+        </span>
+        <span className="page-list-compact-create" inert={!compact}>
+          <BrowserAction
+            type="button"
+            variant="primary"
+            presentation="compact"
+            label={t.newPage}
+            leadingIcon={<Plus size={14} />}
+            onActivate={() => setNewPage(true)}
+          />
+        </span>
       </div>
-      <div className="page-list-search">
-        <Search className="page-list-search-mark" size={14} aria-hidden="true" />
-        <PageListSearch
-          edit={edit}
-          onChange={setEdit}
-          resetKey={resetKey}
-          projects={counts}
-          authors={authors}
-          stages={HOME_STAGES.map((name) => ({
-            name,
-            count: name === 'all' ? activeInScope.length : stages[name],
-          }))}
-          onStage={(stage) => chooseView(stage as HomeStage)}
-          onApply={apply}
-          onClear={() => {
-            if (!filtered && edit.value === '' && edit.tokens.length === 0) {
-              (document.activeElement as HTMLElement | null)?.blur();
-              return;
-            }
-            replaceDraft(editFromSearch([], ''));
-            if (filter.needsYou && !port) setSearch({ needs: undefined });
-          }}
-        />
-      </div>
-      <span className="page-list-sort">
-        <BrowserMenu
-          label={`${t.sort}: ${sortLabel}`}
-          triggerText={sortLabel}
-          items={(['updated', 'title'] as const).map((key) => ({
-            key,
-            label: t.sortOptions[key],
-            role: 'menuitemradio' as const,
-            checked: sort === key,
-          }))}
-          onSelect={(key) => setSearch({ sort: key === 'title' ? 'title' : undefined })}
-        />
-      </span>
-    </div>
+    </>
   );
   const newPageAction = (
     <BrowserAction
@@ -747,41 +842,43 @@ export function Home() {
                       ) : undefined
                     }
                     projects={
-                      <ul className="page-projects" aria-label={t.projects}>
-                        {p.projects?.map((name) => (
-                          <li key={name}>
-                            <button
-                              type="button"
-                              className="page-project"
-                              title={name}
-                              data-project-tone={projectTone(name)}
-                              aria-pressed={filter.projects.includes(name)}
-                              onClick={(event) => {
-                                if (event.isTrusted) replaceDraft(toggleProject(edit, name));
-                              }}
-                            >
-                              <span>{name}</span>
-                            </button>
-                          </li>
-                        ))}
-                        {port && (
-                          <li className="page-project-entry">
-                            <span className="page-project-entry-anchor">
-                              <PageProjectsMenu
-                                page={p}
-                                openRequest={
-                                  projectsRequest?.pageId === p.id
-                                    ? projectsRequest.count
-                                    : undefined
-                                }
-                                names={projectNames}
-                                toggle={(page, name) => void toggleOnPage(page, name)}
-                                create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
-                              />
-                            </span>
-                          </li>
-                        )}
-                      </ul>
+                      p.projects?.length || port ? (
+                        <ul className="page-projects" aria-label={t.projects}>
+                          {p.projects?.map((name) => (
+                            <li key={name}>
+                              <button
+                                type="button"
+                                className="page-project"
+                                title={name}
+                                data-project-tone={projectTone(name)}
+                                aria-pressed={filter.projects.includes(name)}
+                                onClick={(event) => {
+                                  if (event.isTrusted) replaceDraft(toggleProject(edit, name));
+                                }}
+                              >
+                                <span>{name}</span>
+                              </button>
+                            </li>
+                          ))}
+                          {port && (
+                            <li className="page-project-entry">
+                              <span className="page-project-entry-anchor">
+                                <PageProjectsMenu
+                                  page={p}
+                                  openRequest={
+                                    projectsRequest?.pageId === p.id
+                                      ? projectsRequest.count
+                                      : undefined
+                                  }
+                                  names={projectNames}
+                                  toggle={(page, name) => void toggleOnPage(page, name)}
+                                  create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
+                                />
+                              </span>
+                            </li>
+                          )}
+                        </ul>
+                      ) : null
                     }
                     actions={
                       port ? (
@@ -866,13 +963,20 @@ export function Home() {
     </>
   );
   return (
-    <section className="home tmt-ui-page" data-page-list ref={section}>
+    <section
+      className="home tmt-ui-page"
+      data-page-list
+      data-compact={compact ? '' : undefined}
+      ref={section}
+    >
       <header className="page-list-hero">
         <div>
           <h1>{scope ?? t.heroTitle}</h1>
           <p>{t.heroBody}</p>
         </div>
-        {newPageAction}
+        <span className="page-list-hero-create" inert={compact}>
+          {newPageAction}
+        </span>
       </header>
       <PinnedPages
         pages={
@@ -886,7 +990,15 @@ export function Home() {
         hints={titleHints}
         scope={scope}
       />
-      <NewPageDialog open={newPage} onClose={() => setNewPage(false)} />
+      <NewPageDialog
+        open={newPage}
+        onClose={() => setNewPage(false)}
+        focusFallback={() =>
+          section.current?.querySelector<HTMLElement>(
+            compact ? '.page-list-compact-create button' : '.page-list-hero .tmt-ui-action',
+          ) ?? null
+        }
+      />
       {port ? (
         <div className="page-stage-tabs">
           <BrowserTabs
