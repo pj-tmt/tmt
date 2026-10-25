@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import type { ShellAnswer, ShellMenu } from '@tmt/browser-ui/shell';
-import { moduleLinks, settingsRows, tmtSettingsPage } from '../src/tmt-settings-page.js';
+import { moduleLinks, tmtSettingsPage } from '../src/tmt-settings-page.js';
 import type { RemoteShell } from '../src/remote-shell.js';
 import { mockSettingsSource, type TmtSettings } from '../src/settings-source.js';
 
@@ -162,14 +162,6 @@ const sample: TmtSettings = {
   hooks: { rows: [{ provider: 'claude', usage: false }] },
 };
 
-it('lists live agents first, then by name, with provider and word', () => {
-  expect(settingsRows('identities', sample)).toEqual([
-    { mark: '●', title: 'alpha', detail: 'saved · claude', state: 'active' },
-    { mark: '●', title: 'beta', detail: 'temporary · codex', state: 'active' },
-    { mark: '○', title: 'zed', detail: 'saved', state: 'offline' },
-  ]);
-});
-
 const colabAnswer: ShellAnswer = {
   version: 1,
   modules: [
@@ -261,22 +253,79 @@ it('labels sample module records as sample data, and a real read as read only', 
   expect(section().textContent).toContain('Read-only module records');
 });
 
-it('marks a driver that no longer runs as approved, and shows hooks beside drivers', () => {
-  expect(settingsRows('drivers', sample)).toEqual([
-    {
-      mark: '◆',
-      waiting: true,
-      title: 'herdr',
-      detail: 'Host driver 0.2.0',
-      state: 'binary changed',
+const commandCopies = () =>
+  section()
+    .all((node) => node.attributes.get('aria-label')?.startsWith('Copy ') ?? false)
+    .map((node) => node.attributes.get('aria-label'));
+
+it('lists drivers and hooks as records, naming a driver that no longer runs as approved', async () => {
+  hash = '#drivers';
+  const read: TmtSettings = {
+    ...sample,
+    drivers: {
+      rows: [
+        { name: 'herdr', version: '0.2.0', state: 'binary changed' },
+        { name: 'custom', version: '1.0.0', state: 'ok' },
+      ],
     },
-    {
-      mark: '●',
-      title: 'claude',
-      detail: 'Agent hooks · usage collection off',
-      state: 'set up',
+    hooks: {
+      rows: [
+        { provider: 'claude', usage: false },
+        { provider: 'codex', usage: true },
+        { provider: 'other', usage: true },
+      ],
     },
-  ]);
+  };
+  tmtSettingsPage(shell(), { read: async () => read });
+  await settle();
+  expect(title.textContent).toBe('Drivers & hooks');
+  expect(records().map(recordText)).toEqual(['Herdr', 'Custom', 'Claude', 'Codex', 'Other']);
+  const [herdr, custom, claude, codex, other] = records();
+  // The reason replaces Approved, beside the version, and the product's line is for its own driver.
+  expect(herdr!.textContent).toContain('Host driver for agent windows.');
+  expect(herdr!.textContent).toContain('binary changed');
+  expect(herdr!.textContent).toContain('0.2.0');
+  expect(herdr!.textContent).not.toContain('Approved');
+  expect(custom!.textContent).toContain('Approved');
+  expect(custom!.textContent).not.toContain('Host driver for agent windows.');
+  expect(claude!.textContent).toContain('Usage collection records agent usage for Digest.');
+  expect(claude!.textContent).toContain('Collection off');
+  expect(claude!.textContent).toContain('Set up');
+  expect(codex!.textContent).toContain('Collection on');
+  expect(other!.textContent).not.toContain('Usage collection');
+  expect(commandCopies()).toEqual(['Copy tmt driver ls', 'Copy tmt setup --status']);
+});
+
+it('shows only the notice, the commands and the roles when the browser has no driver read', async () => {
+  hash = '#drivers';
+  const none: TmtSettings = {
+    ...sample,
+    drivers: { rows: [], unavailable: 'TMT settings is not in the browser yet.' },
+    hooks: { rows: [], unavailable: 'TMT settings is not in the browser yet.' },
+  };
+  tmtSettingsPage(shell(), { read: async () => none });
+  await settle();
+  expect(records()).toEqual([]);
+  expect(section().textContent).toContain(
+    'Driver and hook records are not available to this browser yet.',
+  );
+  expect(section().textContent).toContain('Different connections. Clear roles.');
+  expect(commandCopies()).toEqual(['Copy tmt driver ls', 'Copy tmt setup --status']);
+  // No value is shown that the source did not read.
+  expect(section().textContent).not.toContain('Approved');
+  expect(section().textContent).not.toContain('0.2.0');
+  expect(note().hidden).toBe(true);
+});
+
+it('labels sample driver records as sample data, and a real read as read only', async () => {
+  hash = '#drivers';
+  tmtSettingsPage(shell(), { read: async () => ({ ...sample, sample: true }) });
+  await settle();
+  expect(section().textContent).toContain('These sample records are not this machine.');
+  expect(note().hidden).toBe(true);
+  tmtSettingsPage(shell(), { read: async () => sample });
+  await settle();
+  expect(section().textContent).toContain('Read-only driver and hook records');
 });
 
 it('renders General with the theme choice, stores a pick and applies it to the root', async () => {

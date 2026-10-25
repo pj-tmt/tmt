@@ -1,7 +1,9 @@
 /** TMT Settings follows the shell's section menu. General owns browser appearance and Core
- * guidance; Identities has a read-only table and local detail. Other sections retain their list
- * rows. SettingsSource owns the records; only the shared browser theme choice is persisted. */
-import { identitiesView, orderedIdentities } from './tmt-settings-identities.js';
+ * guidance; Identities has a read-only table and local detail; Modules and Drivers & hooks list
+ * read-only records. SettingsSource owns the records; only the shared browser theme choice is
+ * persisted. */
+import { driversView } from './tmt-settings-drivers.js';
+import { identitiesView } from './tmt-settings-identities.js';
 import { modulesView } from './tmt-settings-modules.js';
 import {
   element,
@@ -18,12 +20,7 @@ import { browserUiClasses } from '@tmt/browser-ui/static';
 import type { ShellAnswer } from '@tmt/browser-ui/shell';
 import { THEMES, setStoredTheme, storedTheme, type ThemeChoice } from '@tmt/browser-ui/theme';
 import type { RemoteShell } from './remote-shell.js';
-import {
-  settingsSource,
-  type Part,
-  type SettingsSource,
-  type TmtSettings,
-} from './settings-source.js';
+import { settingsSource, type SettingsSource, type TmtSettings } from './settings-source.js';
 
 export const SECTIONS = [
   { id: 'general', label: 'General' },
@@ -39,12 +36,9 @@ const THEME_LABELS: Record<ThemeChoice, string> = {
   dark: 'Dark',
 };
 
-/** One shared list row: a mark, a title (a link when `href` is set), a detail and a state word. */
-export interface SettingsRow {
-  mark: string;
-  waiting?: boolean;
+/** One list row: a title, a detail and a state word. */
+interface SettingsRow {
   title: string;
-  href?: string;
   detail: string;
   state: string;
 }
@@ -63,54 +57,13 @@ export function moduleLinks(answer: ShellAnswer | undefined): Map<string, Module
   return links;
 }
 
-/** The section's rows; identities show live agents first, then by name. */
-export function settingsRows(
-  section: Exclude<Section, 'modules'>,
-  settings: TmtSettings,
-): SettingsRow[] {
-  if (section === 'general')
-    return settings.general.rows.map((row) => ({
-      mark: '',
-      title: row.name,
-      detail: row.description,
-      state: row.value,
-    }));
-  if (section === 'identities')
-    return orderedIdentities(settings.identities.rows).map((row) => ({
-      mark: row.online ? '●' : '○',
-      title: row.name,
-      detail: row.provider ? `${row.lifetime} · ${row.provider}` : row.lifetime,
-      state: row.online ? 'active' : 'offline',
-    }));
-  return [
-    ...settings.drivers.rows.map((row) => ({
-      mark: row.state === 'ok' ? '●' : '◆',
-      waiting: row.state !== 'ok',
-      title: row.name,
-      detail: `Host driver ${row.version}`,
-      state: row.state === 'ok' ? 'approved' : row.state,
-    })),
-    ...settings.hooks.rows.map((row) => ({
-      mark: '●',
-      title: row.provider,
-      detail: `Agent hooks · usage collection ${row.usage ? 'on' : 'off'}`,
-      state: 'set up',
-    })),
-  ];
-}
-
-/** Why a section has nothing to list: the source could not read it, or there is none. */
-function emptyText(section: Exclude<Section, 'modules'>, settings: TmtSettings): string {
-  const parts: Part<unknown>[] =
-    section === 'drivers' ? [settings.drivers, settings.hooks] : [settings[section]];
-  const unavailable = parts.map((part) => part.unavailable).find(Boolean);
-  if (unavailable) return unavailable;
-  return {
-    general: 'No settings to show.',
-    identities: 'No identities yet.',
-    drivers: 'No drivers or agent hooks are set up.',
-  }[section];
-}
+/** General's rows: each setting's name, description and value. */
+const generalRows = (settings: TmtSettings): SettingsRow[] =>
+  settings.general.rows.map((row) => ({
+    title: row.name,
+    detail: row.description,
+    state: row.value,
+  }));
 
 function row(item: SettingsRow): HTMLLIElement {
   const node = document.createElement('li');
@@ -119,19 +72,12 @@ function row(item: SettingsRow): HTMLLIElement {
   const sign = document.createElement('div');
   sign.className = 'tmt-ui-list-leading';
   sign.setAttribute('aria-hidden', 'true');
-  sign.textContent = item.mark;
-  if (item.waiting) sign.dataset.tone = 'waiting';
   // The label and its description stack on the left; the state, the value, sits on the right.
   const name = document.createElement('div');
   name.className = 'tmt-ui-list-title';
   const label = document.createElement('span');
   label.className = 'tmt-ui-list-label';
-  if (item.href) {
-    const link = document.createElement('a');
-    link.href = item.href;
-    link.textContent = item.title;
-    label.append(link);
-  } else label.textContent = item.title;
+  label.textContent = item.title;
   name.append(label);
   if (item.detail) {
     const detail = document.createElement('span');
@@ -228,7 +174,7 @@ function generalView(settings: TmtSettings): HTMLElement[] {
   );
   const core = settingsCard('Core configuration', 'tmt-settings-core-title');
   core.append(settingsReadOnly());
-  const rows = settingsRows('general', settings);
+  const rows = generalRows(settings);
   if (rows.length) {
     const list = element('ul', 'tmt-ui-list');
     list.append(...rows.map(row));
@@ -307,21 +253,7 @@ export function settingsSection(
   if (section === 'general') return generalView(settings);
   if (section === 'identities') return identitiesView(settings);
   if (section === 'modules') return modulesView(settings, links ?? new Map());
-  const rows = settingsRows(section, settings);
-  const body: HTMLElement[] = [];
-  if (rows.length) {
-    const list = document.createElement('ul');
-    list.className = 'tmt-ui-list';
-    list.append(...rows.map(row));
-    body.push(list);
-  } else {
-    const none = document.createElement('p');
-    none.className = 'home-note';
-    // The empty state may name a terminal command in backticks; it shows as code.
-    notAvailable(none, emptyText(section, settings));
-    body.push(none);
-  }
-  return body;
+  return driversView(settings);
 }
 
 /** The page in its route; everything it starts ends on the route's `shell.signal`. */
@@ -341,7 +273,8 @@ export function tmtSettingsPage(shell: RemoteShell, source: SettingsSource = set
     const section = current();
     if (settings) {
       note.replaceChildren();
-      note.hidden = !settings.sample || section === 'identities' || section === 'modules';
+      // Only General keeps the page-level sample note; the other sections label their own records.
+      note.hidden = !settings.sample || section !== 'general';
       if (!note.hidden)
         notAvailable(
           note,
@@ -351,7 +284,7 @@ export function tmtSettingsPage(shell: RemoteShell, source: SettingsSource = set
     const page = document.getElementById('tmt-settings-page');
     if (page) {
       page.dataset.section = section;
-      page.className = `tmt-page tmt-settings${section === 'general' || section === 'identities' || section === 'modules' ? ' tmt-ui-page' : ''}`;
+      page.className = 'tmt-page tmt-settings tmt-ui-page';
     }
     shell.setMenu({
       title: 'TMT settings',
