@@ -1174,6 +1174,7 @@ describe('component map', () => {
         'ops.test.ts',
         'extension-install.test.ts',
         'extension-upgrade-proof.test.ts',
+        'native-installation.test.ts',
         'uninstall.test.ts',
       ],
       e2eFiles: ['ops.e2e.test.ts', 'ops-reminder.e2e.test.ts', 'claude-channel.e2e.test.ts'],
@@ -1974,7 +1975,7 @@ describe('CI diff and command integration', () => {
         colab_firestore: 'false',
         native_sync_emulator: 'false',
         scoped_native_tests:
-          'ops.test.ts extension-install.test.ts extension-upgrade-proof.test.ts uninstall.test.ts',
+          'ops.test.ts extension-install.test.ts extension-upgrade-proof.test.ts native-installation.test.ts uninstall.test.ts',
         e2e_shard_1: 'ops.e2e.test.ts ops-reminder.e2e.test.ts claude-channel.e2e.test.ts',
         e2e_shard_2: '',
       });
@@ -3446,9 +3447,8 @@ describe('required CI gate', () => {
       const debugBuilds = [...(fixtures?.body.matchAll(/cargo build ([^\n]+)/g) ?? [])]
         .map((match) => match[1])
         .filter((args) => !args.includes('--release'));
-      // Guided setup is full-scope only and prepares the Digest archive too (#5081).
-      const products = ['tmt-ops', 'tmt-remote', 'tmt-colab'];
-      if (scope === 'full') products.push('tmt-digest');
+      // Both scopes prepare all official extension archives, including Digest (#5182).
+      const products = ['tmt-ops', 'tmt-remote', 'tmt-colab', 'tmt-digest'];
       for (const product of products) {
         expect(
           debugBuilds.some((args) => new RegExp(`(?:^|\\s)-p\\s+${product}(?=\\s|$)`).test(args)),

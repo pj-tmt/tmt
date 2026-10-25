@@ -65,6 +65,7 @@
           "ops.test.ts",
           "extension-install.test.ts",
           "extension-upgrade-proof.test.ts",
+          "native-installation.test.ts",
           "uninstall.test.ts"
         ],
         "e2eFiles": ["ops.e2e.test.ts", "ops-reminder.e2e.test.ts", "claude-channel.e2e.test.ts"]
