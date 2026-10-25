@@ -178,9 +178,18 @@ it.each(['claude', 'codex'] as const)(
         const status = path.join(fixture.root, 'provider.status');
         const args =
           provider === 'claude'
-            ? ['--permission-mode', 'bypassPermissions', '--model', model]
+            ? ['--model', model]
             : ['--dangerously-bypass-approvals-and-sandbox', '--dangerously-bypass-hook-trust'];
-        submit(fixture, pane, ['run', name, provider, ...args], status, env);
+        // A plain text turn needs no Claude permission bypass. Supply initial input
+        // at launch instead of requiring SessionStart before a first user prompt.
+        // The response marker is never typed, so input echo cannot satisfy proof.
+        submit(
+          fixture,
+          pane,
+          ['run', name, provider, ...args, 'Reply briefly with plain text. Do not use tools.'],
+          status,
+          env
+        );
         try {
           let identity: ListedIdentity | undefined;
           await expect
@@ -193,15 +202,6 @@ it.each(['claude', 'codex'] as const)(
               { timeout: 45_000, interval: 500 }
             )
             .toBeTruthy();
-          // The response marker is never typed: terminal input echo cannot satisfy this check.
-          fixture.tmux([
-            'send-keys',
-            '-t',
-            pane,
-            '-l',
-            'Reply briefly with plain text. Do not use tools.',
-          ]);
-          fixture.tmux(['send-keys', '-t', pane, 'Enter']);
           await expect
             .poll(
               async () => {
