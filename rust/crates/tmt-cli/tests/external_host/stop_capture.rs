@@ -23,6 +23,87 @@ fn digest_does_not_enable_provider_capture_when_answer_hooks_are_not_installed()
     blocking_digest("codex", false);
 }
 
+#[test]
+fn a_stop_without_a_new_activity_transition_still_records_consented_usage() {
+    register();
+    for (driver, tree, source, tokens) in [
+        (
+            "claude",
+            ".claude/projects/-workspace",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../tmt-adapters/src/runtime/fixtures/claude-usage-sequence.jsonl"
+            )),
+            355113,
+        ),
+        (
+            "codex",
+            ".codex/sessions/2026/09/29",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../tmt-adapters/src/runtime/fixtures/codex-token-count.jsonl"
+            )),
+            146577,
+        ),
+    ] {
+        let fixture = Fixture::delivering(&format!("capture-usage-{driver}"));
+        let record = fixture.approve();
+        bind(&fixture, record);
+        let home = fixture.root.join("home");
+        let transcript = home.join(tree).join("s-1.jsonl");
+        fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+        fs::write(
+            &transcript,
+            format!(
+                "{{\"type\":\"user\"}}\n{}\n",
+                source.lines().next().unwrap()
+            ),
+        )
+        .unwrap();
+        let settings = home.join(if driver == "claude" {
+            ".claude/settings.json"
+        } else {
+            ".codex/hooks.json"
+        });
+        let entry = tmt_adapters::runtime::hook_protocol::command_entry(driver, "/stable/tmt");
+        fs::write(
+            settings,
+            serde_json::json!({"hooks":{"Stop":[entry]}}).to_string(),
+        )
+        .unwrap();
+        let mut provider = SteppedProvider::start(&fixture, driver, "usage-steps");
+        let event = |name| {
+            if driver == "claude" {
+                claude_event(name)
+            } else {
+                codex_event(name, None)
+            }
+        };
+        ok(provider.hook(event("SessionStart")));
+        // No prompt was admitted, so this Stop cannot produce a captured final.
+        // It must still refresh usage, as must an ordinary repeated Stop.
+        let mut stop = event("Stop");
+        stop["transcript_path"] = transcript.to_string_lossy().into_owned().into();
+        stop["last_assistant_message"] = "not an admitted final".into();
+        for _ in 0..2 {
+            ok(provider.hook(stop.clone()));
+            let list = fixture.json(&["ls", "--json"]);
+            assert_eq!(
+                worker(&list)["resume"]["usage"]["tokens"],
+                tokens,
+                "{list:#}"
+            );
+        }
+        let db = rusqlite::Connection::open(fixture.state().join("tmt.db")).unwrap();
+        let count: i64 = db
+            .query_row("SELECT count(*) FROM recent_responses", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+}
+
 fn observer(provider: &mut SteppedProvider, payload: Value, capture: bool) {
     if !capture {
         fs::write(

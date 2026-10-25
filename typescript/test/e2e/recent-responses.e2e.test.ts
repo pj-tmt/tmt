@@ -133,6 +133,7 @@ it.each(['claude', 'codex'] as const)(
             const text = expected[n];
             expect(resource.items[n]).toEqual({
               responseId: expect.stringMatching(/^rsp_\d+$/),
+              inputBatchId: expect.stringMatching(/^[0-9a-f-]{36}$/),
               text: Buffer.byteLength(text) > 16384 ? 'x'.repeat(16382) : text,
               endedMs: expect.any(Number),
               provider,

@@ -250,9 +250,6 @@ fn observe_turn(
     }) else {
         return Ok(Observation::default());
     };
-    let Some(activity) = activity else {
-        return Ok(Observation::default());
-    };
     let usage_on = !activity_only
         && tmt_adapters::drivers::Registry::builtin()
             .find(provider)
@@ -261,6 +258,9 @@ fn observe_turn(
     // before capture; optional usage never precedes capture of supplied text.
     let mut failure = tmt_adapters::storage::CaptureFailure::Worker;
     let pending = (|| -> Result<bool, ()> {
+        let Some(activity) = activity else {
+            return Ok(false);
+        };
         let fallback = if turn.final_text.is_none() && usage_on {
             let environment = ProviderEnvironment::capture().map_err(|_| ())?;
             lifecycle
@@ -293,9 +293,8 @@ fn observe_turn(
             .and_then(|value| closed.map(|()| value))
             .map_err(|_| ())
     })();
-    match pending {
-        Ok(true) => {}
-        Ok(false) => return Err(()),
+    let captured = match pending {
+        Ok(captured) => captured,
         Err(()) => {
             if Instant::now() >= deadline {
                 failure = tmt_adapters::storage::CaptureFailure::Budget;
@@ -311,8 +310,9 @@ fn observe_turn(
             }
             return Err(());
         }
-    }
-    // A fresh snapshot preserves the committed Idle state. Sampling is optional:
+    };
+    // A Stop without a new activity transition still refreshes consented usage.
+    // A fresh snapshot preserves any committed Idle state. Sampling is optional:
     // no failure here can roll back or discard the final already retained.
     if usage_on && mode == TurnMode::Full {
         let _ = (|| -> Result<(), ()> {
@@ -371,7 +371,7 @@ fn observe_turn(
     }
     Ok(Observation {
         context: String::new(),
-        workspace: Some(binding.server.clone()),
+        workspace: captured.then(|| binding.server.clone()),
     })
 }
 
