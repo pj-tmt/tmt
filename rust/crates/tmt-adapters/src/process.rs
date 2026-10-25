@@ -128,6 +128,13 @@ pub trait CommandRunner {
 
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError>;
 
+    /// One program that never forks, such as `ps`. The Unix runner keeps it in
+    /// the caller's process group, so a supervisor that kills that group also
+    /// ends it (#3834); its own failure cleanup signals only its pid.
+    fn execute_leaf(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        self.execute(request)
+    }
+
     /// Observe bounded stderr chunks without changing stdout, deadlines or child ownership.
     /// Scripted runners may return their captured observation at completion; the Unix runner
     /// invokes the observer as pipe bytes arrive. Observers grant no execution authority.
@@ -194,6 +201,10 @@ impl<R: CommandRunner + ?Sized> CommandRunner for &R {
 
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
         (**self).execute(request)
+    }
+
+    fn execute_leaf(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        (**self).execute_leaf(request)
     }
 
     fn execute_with_environment(
@@ -288,6 +299,10 @@ impl CommandRunner for UnixCommandRunner {
 
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
         self.start(request)?.wait()
+    }
+
+    fn execute_leaf(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        start_command(request, false)?.wait()
     }
 
     fn execute_with_environment(
@@ -844,6 +859,94 @@ mod cleanup_policy_tests {
             );
             std::fs::write(directory.join("result"), "timeout-clean").unwrap();
             drop(stream);
+        });
+    }
+
+    const LEAF_FIXTURE: &str =
+        "process::cleanup_policy_tests::leaf_probe_caller_waits_on_its_probe";
+    const LEAF_DIRECTORY: &str = "TMT_LEAF_PROBE_DIRECTORY";
+
+    /// Like a Core CLI that an extension starts in a new group and then kills
+    /// by group (#3834): the probe must not outlive that kill.
+    #[test]
+    fn a_leaf_probe_dies_with_its_callers_group() {
+        use crate::test_support::{TestChild, TestDirectory};
+        use nix::sys::signal::kill;
+        use std::os::unix::process::CommandExt;
+
+        let directory = TestDirectory::new();
+        let mut directory_env = OsString::from(format!("{LEAF_DIRECTORY}="));
+        directory_env.push(&directory.path);
+        let caller = std::process::Command::new("/usr/bin/env")
+            .arg(directory_env)
+            .arg(std::env::current_exe().unwrap())
+            .args([LEAF_FIXTURE, "--exact", "--ignored", "--nocapture"])
+            .args(["--test-threads=1"])
+            .stdin(std::process::Stdio::null())
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let mut caller = TestChild::new(caller);
+        let caller_group = Pid::from_raw(i32::try_from(caller.child.id()).unwrap());
+        let ready = directory.path.join("probe.pid");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let probe = loop {
+            // A partial write parses as nothing; poll again.
+            if let Some(pid) = std::fs::read_to_string(&ready)
+                .ok()
+                .and_then(|pid| pid.strip_suffix('\n')?.parse().ok())
+            {
+                break Pid::from_raw(pid);
+            }
+            assert!(
+                caller.child.try_wait().unwrap().is_none(),
+                "caller exited before its probe was ready"
+            );
+            assert!(Instant::now() < deadline, "probe readiness deadline");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        // Only the group this test created, as tmt-invoke's cleanup does.
+        killpg(caller_group, Signal::SIGKILL).unwrap();
+        caller.wait_for_exit(Duration::from_secs(5));
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let survived = loop {
+            if kill(probe, None) == Err(Errno::ESRCH) {
+                break false;
+            }
+            if Instant::now() >= deadline {
+                break true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        if survived && nix::unistd::getpgid(Some(probe)) == Ok(probe) {
+            // The leaked probe leads its own group: end the probe this test
+            // started, so a failed run leaves nothing behind.
+            let _ = killpg(probe, Signal::SIGKILL);
+        }
+        assert!(!survived, "leaf probe {probe} outlived its caller's group");
+    }
+
+    #[test]
+    #[ignore = "re-exec helper owned by the leaf probe test"]
+    fn leaf_probe_caller_waits_on_its_probe() {
+        let Some(directory) = std::env::var_os(LEAF_DIRECTORY) else {
+            return;
+        };
+        let directory = std::path::PathBuf::from(directory);
+        let args = [
+            "-c".into(),
+            // `printf` is a shell builtin and `exec` keeps the pid: the probe
+            // never forks.
+            "printf '%s\\n' \"$$\" > \"$1\" && exec /bin/sleep 30".into(),
+            "leaf-probe".into(),
+            directory.join("probe.pid").into_os_string(),
+        ];
+        let _ = UnixCommandRunner.execute_leaf(CommandRequest {
+            program: OsStr::new("/bin/sh"),
+            args: &args,
+            input: &[],
+            deadline: Instant::now() + Duration::from_secs(20),
+            max_output_bytes: 128,
         });
     }
 
