@@ -1052,6 +1052,159 @@
       "pending": [
         "00000000-0000-0000-0000-000000000002"
       ]
+    },
+    {
+      "name": "unassigned questions count without a creator or markup",
+      "registry": [
+        {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "state": "open",
+          "title": "Renamed first question",
+          "group": "00000000-0000-0000-0000-000000000003",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1
+          }
+        },
+        {
+          "id": "00000000-0000-0000-0000-000000000002",
+          "state": "open",
+          "title": "Second question",
+          "group": "00000000-0000-0000-0000-000000000003",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1
+          }
+        }
+      ],
+      "threads": [
+        {
+          "writer": "10000000-0000-4000-8000-000000000001",
+          "id": "10000000-0000-4000-8000-000000000002",
+          "deleted": false,
+          "resolved": false,
+          "comments": []
+        }
+      ],
+      "deviceWriters": [
+        "10000000-0000-4000-8000-000000000001"
+      ],
+      "asks": [],
+      "expected": [
+        {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "state": "open",
+          "title": "Renamed first question",
+          "group": "00000000-0000-0000-0000-000000000003",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1
+          }
+        },
+        {
+          "id": "00000000-0000-0000-0000-000000000002",
+          "state": "open",
+          "title": "Second question",
+          "group": "00000000-0000-0000-0000-000000000003",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1
+          }
+        }
+      ],
+      "pending": [
+        "00000000-0000-0000-0000-000000000001",
+        "00000000-0000-0000-0000-000000000002"
+      ]
+    },
+    {
+      "name": "an unassigned on-page answer is answered without Ask",
+      "registry": [
+        {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "state": "open",
+          "title": "Renamed first question",
+          "group": "00000000-0000-0000-0000-000000000003",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1
+          }
+        },
+        {
+          "id": "00000000-0000-0000-0000-000000000002",
+          "state": "open",
+          "title": "Second question",
+          "group": "00000000-0000-0000-0000-000000000003",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1
+          }
+        }
+      ],
+      "threads": [
+        {
+          "writer": "10000000-0000-4000-8000-000000000001",
+          "id": "10000000-0000-4000-8000-000000000002",
+          "deleted": false,
+          "resolved": false,
+          "comments": [
+            {
+              "writer": "10000000-0000-4000-8000-000000000001",
+              "id": "10000000-0000-4000-8000-000000000011",
+              "revision": "1",
+              "sequence": "1",
+              "body": "Answer to “Original title”: Yes\nPage: Old page",
+              "at": "1",
+              "questionId": "00000000-0000-0000-0000-000000000001",
+              "deleted": false
+            }
+          ]
+        }
+      ],
+      "deviceWriters": [
+        "10000000-0000-4000-8000-000000000001"
+      ],
+      "asks": [
+        {
+          "writer": "10000000-0000-4000-8000-000000000001",
+          "thread": "10000000-0000-4000-8000-000000000002",
+          "messageIds": [],
+          "state": "failed",
+          "replied": false
+        }
+      ],
+      "expected": [
+        {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "state": "answered",
+          "title": "Renamed first question",
+          "group": "00000000-0000-0000-0000-000000000003",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1
+          },
+          "answer": "Answer to “Original title”: Yes Page: Old page",
+          "answeredAt": "1",
+          "answerRef": {
+            "writer": "10000000-0000-4000-8000-000000000001",
+            "id": "10000000-0000-4000-8000-000000000011",
+            "revision": "1"
+          }
+        },
+        {
+          "id": "00000000-0000-0000-0000-000000000002",
+          "state": "open",
+          "title": "Second question",
+          "group": "00000000-0000-0000-0000-000000000003",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1
+          }
+        }
+      ],
+      "pending": [
+        "00000000-0000-0000-0000-000000000002"
+      ]
     }
   ]
 }

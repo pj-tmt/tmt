@@ -85,13 +85,12 @@ impl Engine {
             })
             .transpose()?;
         let questions = if let Some(template) = template {
-            let creator = creator.as_ref().ok_or(OwnerFault::Invalid)?;
             if !crate::templates::admits(
                 template,
                 source,
-                creator["agent"]["name"]
-                    .as_str()
-                    .ok_or(OwnerFault::Invalid)?,
+                creator
+                    .as_ref()
+                    .and_then(|creator| creator["agent"]["name"].as_str()),
             ) {
                 return Err(OwnerFault::Invalid.into());
             }
@@ -101,7 +100,10 @@ impl Engine {
             }
             let mut questions = serde_json::json!([]);
             for question in report.questions {
-                let mut body = serde_json::json!({"id":question.id,"agent":creator["agent"],"title":question.title});
+                let mut body = serde_json::json!({"id":question.id,"title":question.title});
+                if let Some(creator) = &creator {
+                    body["agent"] = creator["agent"].clone();
+                }
                 if let Some(group) = question.group {
                     body["group"] = serde_json::json!(group);
                 }
@@ -113,7 +115,14 @@ impl Engine {
                 )
                 .map_err(|_| OwnerFault::Invalid)?;
             }
-            Some(questions)
+            if questions
+                .as_array()
+                .is_some_and(|questions| questions.is_empty())
+            {
+                None
+            } else {
+                Some(questions)
+            }
         } else {
             None
         };

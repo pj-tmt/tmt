@@ -73,8 +73,8 @@ pub fn question_command() -> Command {
                 .arg(
                     Arg::new("agent")
                         .long("agent")
-                        .required(true)
-                        .value_name("NAME|UUID"),
+                        .value_name("NAME|UUID")
+                        .help("Assign this identity; omit to inherit the creator or keep answers on the page"),
                 )
                 .arg(Arg::new("title").long("title").value_name("TITLE"))
                 .arg(Arg::new("group").long("group").value_name("UUID"));
@@ -162,7 +162,7 @@ fn select_observed(
 /// Captured once before source admission or local initialization.
 pub(crate) struct CreateMetadata {
     pub caller: Option<core::CallerSnapshot>,
-    pub selected: SelectedAgent,
+    pub selected: Option<SelectedAgent>,
     pub template: Option<String>,
 }
 pub(crate) fn creation(args: &ArgMatches, template: Option<&str>) -> Result<CreateMetadata> {
@@ -187,14 +187,14 @@ pub(crate) fn creation(args: &ArgMatches, template: Option<&str>) -> Result<Crea
                 suffix.push_str(&format!(" {}", option("file", &file.to_string_lossy())));
             }
         }
-        select_agent(
+        Some(select_agent(
             selector,
             &[],
             &format!("{prefix} {}{suffix}", option("creator", selector)),
             &format!("{prefix} --creator UUID{suffix}"),
-        )?
+        )?)
     } else {
-        default_creator(caller.as_ref())?
+        default_creator(caller.as_ref())
     };
     Ok(CreateMetadata {
         caller,
@@ -202,10 +202,26 @@ pub(crate) fn creation(args: &ArgMatches, template: Option<&str>) -> Result<Crea
         template: template.map(str::to_owned),
     })
 }
-pub(crate) fn default_creator(caller: Option<&core::CallerSnapshot>) -> Result<SelectedAgent> {
-    caller.and_then(|caller| caller.agent_id.as_ref().map(|id| SelectedAgent {
-        agent: json!({"id":id,"name":caller.name}), unverified:false,
-    })).ok_or_else(|| fail("COLAB_CREATOR_REQUIRED", "This page needs a stable creator identity. Nothing was created. Retry the create command with --creator UUID, replacing UUID with a canonical identity UUID; or retry from an identified agent."))
+pub(crate) fn default_creator(caller: Option<&core::CallerSnapshot>) -> Option<SelectedAgent> {
+    caller.and_then(|caller| {
+        caller.agent_id.as_ref().map(|id| SelectedAgent {
+            agent: json!({"id":id,"name":caller.name}),
+            unverified: false,
+        })
+    })
+}
+/// Anonymous templates register unassigned questions; an observed creator fills their target.
+pub(crate) fn template_source(
+    template: &tmt_colab::templates::Template,
+    metadata: &CreateMetadata,
+) -> Result<String> {
+    Ok(tmt_colab::templates::source_for_creator(
+        &template.source()?,
+        metadata
+            .selected
+            .as_ref()
+            .and_then(|selected| selected.agent["name"].as_str()),
+    ))
 }
 pub(crate) fn admit_create_file(
     source: &str,
@@ -218,11 +234,17 @@ pub(crate) fn admit_create_file(
     }
     let quote = tmt_colab::repair::argument;
     let option = tmt_colab::repair::option;
+    let selected = metadata
+        .selected
+        .as_ref()
+        .and_then(|selected| selected.agent["id"].as_str());
     let mut create = format!(
-        "tmt colab page create {} --creator {}",
+        "tmt colab page create {}",
         option("title", args.get_one::<String>("title").expect("title")),
-        quote(metadata.selected.agent["id"].as_str().expect("creator"))
     );
+    if let Some(creator) = selected {
+        create.push_str(&format!(" --creator {}", quote(creator)));
+    }
     for field in ["layout", "reason"] {
         if let Some(value) = args.get_one::<String>(field) {
             create.push_str(&format!(" {}", option(field, value)));
@@ -233,18 +255,15 @@ pub(crate) fn admit_create_file(
         if !tmt_colab::page_check::valid_question_id(&question.id) {
             continue;
         }
-        let agent = if question.agent.trim().is_empty() {
-            metadata.selected.agent["id"].as_str().expect("creator")
-        } else if tmt_colab::decoder::valid_publisher_agent(question.agent.trim()) {
-            question.agent.trim()
-        } else {
-            "AGENT_UUID"
-        };
-        let mut register = format!(
-            "tmt colab question add PAGE --id {} {}",
-            quote(&question.id),
-            option("agent", agent)
-        );
+        let mut register = format!("tmt colab question add PAGE --id {}", quote(&question.id));
+        if !question.agent.trim().is_empty() {
+            let agent = if tmt_colab::decoder::valid_publisher_agent(question.agent.trim()) {
+                question.agent.trim()
+            } else {
+                "AGENT_UUID"
+            };
+            register.push_str(&format!(" {}", option("agent", agent)));
+        }
         if let Some(accepted) = report
             .questions
             .iter()
@@ -267,7 +286,7 @@ pub(crate) fn admit_create_file(
     Err(fail(
         "COLAB_QUESTION_UNREGISTERED",
         &format!(
-            "Authored question blocks must be registered before their first source write. Nothing was created. Run the create command, replace PAGE below with its returned page ID, then register and write (for stdin, save the source in a file first):\n{}",
+            "Authored question blocks must be registered before their first source write. Nothing was created. Run the create command, replacing UUID with a known canonical identity UUID when shown, replace PAGE below with its returned page ID, then register and write (for stdin, save the source in a file first):\n{}",
             lines.join("\n")
         ),
     ))
@@ -305,6 +324,8 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
         if args.get_flag("json") {
             writeln!(output, "{value}")?;
         } else {
+            let creator = current.creator.as_ref().map(|value| value["agent"].clone()).or_else(||
+                current.creation_recipient.as_ref().map(|recipient| json!({"id":recipient.agent_id,"name":current.original_author.as_deref().unwrap_or(&recipient.agent_id)})));
             let terminal = output.terminal();
             let rows: Vec<_> = value["questions"]
                 .as_array()
@@ -316,7 +337,9 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
                         format!(
                             "{} · {} · {}",
                             entry["state"].as_str().unwrap_or_default(),
-                            entry["agent"]["name"].as_str().unwrap_or_default(),
+                            tmt_colab::question_registry::question_agent(entry, creator.as_ref())
+                                .and_then(|agent| agent["name"].as_str())
+                                .unwrap_or("On this page"),
                             entry["title"].as_str().unwrap_or_default()
                         ),
                     )
@@ -355,7 +378,9 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
             }
         }
     }
-    if matches!(name, "add" | "creator") {
+    if matches!(name, "add" | "creator")
+        && let Some(selector) = args.get_one::<String>("agent")
+    {
         let mut stored = Vec::new();
         if let Some(creator) = &current.creator {
             stored.push(creator["agent"].clone());
@@ -363,9 +388,12 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
             stored.push(json!({"id":recipient.agent_id,"name":current.original_author.as_deref().unwrap_or(&recipient.agent_id)}));
         }
         if let Some(entries) = current.questions.as_ref().and_then(Value::as_array) {
-            stored.extend(entries.iter().map(|entry| entry["agent"].clone()));
+            stored.extend(
+                entries
+                    .iter()
+                    .filter_map(|entry| entry.get("agent").cloned()),
+            );
         }
-        let selector = args.get_one::<String>("agent").expect("agent");
         let quote = tmt_colab::repair::argument;
         let prefix = if name == "creator" {
             format!("tmt colab page creator {page_id}")

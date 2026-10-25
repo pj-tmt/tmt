@@ -259,22 +259,120 @@ fn authored_file_mismatches_refuse_before_create_and_before_write_without_partia
     assert!(offline.status.success(), "{offline:?}");
 }
 #[test]
-fn missing_creator_and_unavailable_name_lookup_offer_repairs_before_local_initialization() {
+fn anonymous_creation_including_question_templates_keeps_unassigned_questions_on_page() {
+    for template in [
+        None,
+        Some("report"),
+        Some("board"),
+        Some("gallery"),
+        Some("review"),
+        Some("compare"),
+    ] {
+        let pilot = Pilot::new(None);
+        fs::remove_file(pilot.root.join("publisher")).unwrap();
+        let mut args = vec!["page", "create", "--title", "Anonymous", "--json"];
+        if let Some(template) = template {
+            args.extend(["--template", template]);
+        } else {
+            args.extend(["--layout", "column"]);
+        }
+        let created = pilot.call(&args);
+        assert!(created.get("identityVerified").is_none());
+        let page = created["pageId"].as_str().unwrap();
+        let before = pilot.call(&["page", "read", page, "--json"]);
+        assert!(before.get("creator").is_none());
+        assert!(before.get("creationRecipient").is_none());
+        assert!(before.get("originalAuthor").is_none());
+        if let Some(questions) = before["questions"].as_array() {
+            assert!(!questions.is_empty());
+            assert!(
+                questions
+                    .iter()
+                    .all(|question| question.get("agent").is_none() && question["state"] == "open")
+            );
+            assert!(
+                !before["source"]
+                    .as_str()
+                    .unwrap()
+                    .contains("data-agent=\"Your agent name\"")
+            );
+        }
+        pilot.call(&[
+            "question",
+            "add",
+            page,
+            "--id",
+            QUESTION,
+            "--title",
+            "Unassigned",
+            "--json",
+        ]);
+        let registered = pilot.call(&["page", "read", page, "--json"]);
+        let file = pilot.root.join("unassigned-question.html");
+        let source = format!(
+            "<tmt-question data-id=\"{QUESTION}\" data-kind=\"short\"><p data-question>Choose</p></tmt-question>"
+        );
+        fs::write(&file, &source).unwrap();
+        pilot.call(&[
+            "page",
+            "write",
+            page,
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let after = pilot.call(&["page", "read", page, "--json"]);
+        assert_eq!(after["source"], source);
+        assert_eq!(after["questions"], registered["questions"]);
+        assert!(after.get("creator").is_none());
+        assert!(
+            after["questionStates"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|question| question["state"] == "open" && question.get("agent").is_none())
+        );
+        fs::write(
+            &file,
+            source.replace(
+                "data-kind=\"short\"",
+                "data-kind=\"short\" data-agent=\"unregistered agent\"",
+            ),
+        )
+        .unwrap();
+        refused(
+            &pilot,
+            &[
+                "page",
+                "write",
+                page,
+                "--file",
+                file.to_str().unwrap(),
+                "--json",
+            ],
+            "COLAB_QUESTION_AGENT_MISMATCH",
+        );
+        assert_eq!(
+            pilot.call(&["page", "read", page, "--json"])["revision"],
+            after["revision"]
+        );
+        pilot.call(&["page", "creator", page, AGENT, "--json"]);
+        let with_creator = pilot.call(&["page", "read", page, "--json"]);
+        assert_eq!(with_creator["creator"]["agent"]["id"], AGENT);
+        assert_eq!(with_creator["questions"], registered["questions"]);
+        assert!(
+            pilot.call(&["threads", page, "--json"])["threads"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+    }
+}
+
+#[test]
+fn an_explicit_unavailable_creator_name_offers_repairs_before_local_initialization() {
     let pilot = Pilot::new(None);
     fs::remove_file(pilot.root.join("publisher")).unwrap();
-    refused(
-        &pilot,
-        &[
-            "page",
-            "create",
-            "--title",
-            "No identity",
-            "--layout",
-            "column",
-            "--json",
-        ],
-        "COLAB_CREATOR_REQUIRED",
-    );
     let refusal = refused(
         &pilot,
         &[

@@ -155,7 +155,6 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
           'COLAB_QUESTION_UNREGISTERED',
           'COLAB_QUESTION_AGENT_MISMATCH',
           'COLAB_QUESTION_AGENT_UNKNOWN',
-          'COLAB_CREATOR_REQUIRED',
         ].includes(finding.code as string) &&
           Number.isSafeInteger(finding.line) &&
           (finding.line as number) >= 1 &&

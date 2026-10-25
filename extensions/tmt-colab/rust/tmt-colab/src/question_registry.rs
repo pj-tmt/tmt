@@ -64,11 +64,13 @@ pub fn validate(value: &Value) -> Result<()> {
     for entry in entries {
         keys(
             entry,
-            &["id", "agent", "state", "attribution"],
-            &["title", "group", "task"],
+            &["id", "state", "attribution"],
+            &["agent", "title", "group", "task"],
         )?;
         require(seen.insert(question_id(&entry["id"])?))?;
-        validate_agent(&entry["agent"])?;
+        if let Some(agent) = entry.get("agent") {
+            validate_agent(agent)?;
+        }
         validate_attribution(&entry["attribution"])?;
         require(matches!(text(&entry["state"])?, "open" | "handled"))?;
         if let Some(value) = entry.get("title") {
@@ -94,14 +96,18 @@ pub fn apply(base: &Value, action: &str, body: &Value, attribution: &Value) -> R
     let entries = next.as_array_mut().ok_or(Invalid)?;
     match action {
         "question.add" => {
-            keys(body, &["id", "agent"], &["title", "group"])?;
+            keys(body, &["id"], &["agent", "title", "group"])?;
             let id = question_id(&body["id"])?;
-            validate_agent(&body["agent"])?;
+            if let Some(agent) = body.get("agent") {
+                validate_agent(agent)?;
+            }
             let existing = entries.iter_mut().find(|entry| entry["id"] == id);
             if let Some(entry) = existing {
                 // An explicit editor update changes routing, never the handled lifecycle state.
-                if entry["agent"] != body["agent"] {
-                    entry["agent"] = body["agent"].clone();
+                if let Some(agent) = body.get("agent")
+                    && entry.get("agent") != Some(agent)
+                {
+                    entry["agent"] = agent.clone();
                     entry["attribution"] = attribution.clone();
                 }
                 if let Some(group) = body.get("group")
@@ -118,9 +124,8 @@ pub fn apply(base: &Value, action: &str, body: &Value, attribution: &Value) -> R
                     }
                 }
             } else {
-                let mut entry =
-                    json!({"id":id,"agent":body["agent"],"state":"open","attribution":attribution});
-                for key in ["title", "group"] {
+                let mut entry = json!({"id":id,"state":"open","attribution":attribution});
+                for key in ["agent", "title", "group"] {
                     if let Some(value) = body.get(key) {
                         entry[key] = value.clone();
                     }
@@ -215,6 +220,11 @@ pub fn creator_agent(meta: &Value) -> Option<Value> {
     Some(json!({"id":id,"name":name}))
 }
 
+/// An omitted assignment follows the creator; selecting a creator never backfills the entry.
+pub fn question_agent<'a>(question: &'a Value, creator: Option<&'a Value>) -> Option<&'a Value> {
+    question.get("agent").or(creator)
+}
+
 /// Registry findings over the markup checker's existing parsed tree, including ignored blocks.
 /// `identities` is descriptive lookup evidence, not authorization.
 pub fn findings(
@@ -236,22 +246,19 @@ pub fn findings(
             entries.and_then(|entries| entries.iter().find(|entry| entry["id"] == block.id));
         let explicit = block.agent.trim();
         let registration = || {
-            let agent = if explicit.is_empty() {
-                creator
-                    .as_ref()
-                    .and_then(|agent| agent["id"].as_str())
-                    .unwrap_or("NAME")
-            } else if crate::decoder::valid_publisher_agent(explicit) {
-                explicit
-            } else {
-                "AGENT_UUID"
-            };
             let mut fix = format!(
-                "tmt colab question add {} --id {} {}",
+                "tmt colab question add {} --id {}",
                 argument(page),
-                argument(&block.id),
-                option("agent", agent)
+                argument(&block.id)
             );
+            if !explicit.is_empty() {
+                let agent = if crate::decoder::valid_publisher_agent(explicit) {
+                    explicit
+                } else {
+                    "AGENT_UUID"
+                };
+                fix.push_str(&format!(" {}", option("agent", agent)));
+            }
             if let Some(question) = report
                 .questions
                 .iter()
@@ -264,37 +271,27 @@ pub fn findings(
             }
             fix
         };
-        let (code, fix) = if explicit.is_empty() && creator.is_none() {
-            let agent = entry
-                .and_then(|entry| entry["agent"]["id"].as_str())
-                .unwrap_or("NAME");
-            (
-                "COLAB_CREATOR_REQUIRED",
-                format!(
-                    "tmt colab page creator {} {}",
-                    argument(page),
-                    argument(agent)
-                ),
-            )
-        } else if entry.is_none() {
-            ("COLAB_QUESTION_UNREGISTERED", registration())
-        } else {
-            let entry = entry.expect("checked registration");
-            let agent_id = entry["agent"]["id"].as_str().unwrap_or_default();
-            if identities.and_then(|known| known.get(agent_id)) == Some(&None) {
+        let (code, fix) = if let Some(entry) = entry {
+            // An unassigned registration inherits the creator without rewriting the registry.
+            // An assigned registration keeps its own target across creator changes.
+            let target = question_agent(entry, creator.as_ref());
+            let agent_id = target.and_then(|agent| agent["id"].as_str());
+            if !explicit.is_empty()
+                && agent_id.and_then(|id| identities.and_then(|known| known.get(id))) == Some(&None)
+            {
                 ("COLAB_QUESTION_AGENT_UNKNOWN", registration())
+            } else if explicit.is_empty()
+                || target.is_some_and(|agent| {
+                    agent["name"].as_str() == Some(explicit)
+                        || agent["id"].as_str() == Some(explicit)
+                })
+            {
+                continue;
             } else {
-                // The registry retains this question's routing. Changing the creator seeds
-                // new drafts; an omitted data-agent never retargets an existing registration.
-                // The missing-creator case was refused above.
-                let agrees = explicit.is_empty()
-                    || explicit == entry["agent"]["name"].as_str().unwrap_or_default()
-                    || explicit == agent_id;
-                if agrees {
-                    continue;
-                }
                 ("COLAB_QUESTION_AGENT_MISMATCH", registration())
             }
+        } else {
+            ("COLAB_QUESTION_UNREGISTERED", registration())
         };
         found.push(Finding {
             fix: Some(fix),
@@ -367,9 +364,6 @@ pub fn reason(code: &str) -> Option<&'static str> {
         }
         "COLAB_QUESTION_AGENT_UNKNOWN" => {
             "The registered identity was positively reported as unknown; choose a known identity and use the same identity in data-agent."
-        }
-        "COLAB_CREATOR_REQUIRED" => {
-            "This question has no data-agent and the page has no creator; replace NAME in the repair with a known identity or canonical UUID."
         }
         _ => return None,
     })
@@ -549,10 +543,8 @@ mod tests {
         let registry = apply(&json!([]), "question.add", &registration(), &attribution(1)).unwrap();
         let mut meta = json!({"questions":registry,"originalAuthor":"agent"});
         let report = crate::page_check::check(&source("")).unwrap();
-        assert_eq!(
-            findings(&report, &meta, "page", None)[0].code,
-            "COLAB_CREATOR_REQUIRED"
-        );
+        assert!(creator_agent(&meta).is_none());
+        assert!(findings(&report, &meta, "page", None).is_empty());
         meta["creationRecipient"] = json!({"agentId":registration()["agent"]["id"],"machineId":"20000000-0000-4000-8000-000000000001"});
         assert!(findings(&report, &meta, "page", None).is_empty());
         assert!(meta.get("creator").is_none());
@@ -584,9 +576,51 @@ mod tests {
             "COLAB_QUESTION_AGENT_MISMATCH"
         );
         meta.as_object_mut().unwrap().remove("creator");
+        assert!(findings(&report, &meta, "page", None).is_empty());
+    }
+
+    #[test]
+    fn unassigned_questions_inherit_creator_without_mutating_assigned_questions() {
+        let entry = json!({"id":QUESTION,"title":"Choose"});
+        let unassigned = apply(&json!([]), "question.add", &entry, &attribution(1)).unwrap();
+        assert!(unassigned[0].get("agent").is_none());
         assert_eq!(
-            findings(&report, &meta, "page", None)[0].code,
-            "COLAB_CREATOR_REQUIRED"
+            apply(&unassigned, "question.add", &entry, &attribution(2)).unwrap(),
+            unassigned
+        );
+        let mut meta = json!({"questions":unassigned});
+        assert!(question_agent(&unassigned[0], None).is_none());
+        assert!(admit_source(&source(""), &meta, "page", None).is_ok());
+        assert!(admit_source(&source("agent"), &meta, "page", None).is_err());
+        for (id, name) in [
+            ("50000000-0000-1000-8000-000000000001", "agent"),
+            ("50000000-0000-1000-8000-000000000002", "New creator"),
+        ] {
+            meta["creator"] =
+                set_creator(&json!({"agent":{"id":id,"name":name}}), &attribution(3)).unwrap();
+            let creator = creator_agent(&meta).unwrap();
+            assert_eq!(
+                question_agent(&unassigned[0], Some(&creator)),
+                Some(&creator)
+            );
+            assert!(admit_source(&source(name), &meta, "page", None).is_ok());
+            assert_eq!(meta["questions"], unassigned);
+        }
+        let assigned = apply(
+            &unassigned,
+            "question.add",
+            &registration(),
+            &attribution(4),
+        )
+        .unwrap();
+        assert_eq!(
+            apply(&assigned, "question.add", &entry, &attribution(5)).unwrap(),
+            assigned
+        );
+        let creator = creator_agent(&meta).unwrap();
+        assert_eq!(
+            question_agent(&assigned[0], Some(&creator)).unwrap()["name"],
+            "agent"
         );
     }
 

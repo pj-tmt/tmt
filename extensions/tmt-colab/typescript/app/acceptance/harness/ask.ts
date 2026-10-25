@@ -56,12 +56,13 @@ export interface CreatedPage {
   path: string;
 }
 
-/** Create a private page through the real `tmt colab page create` (source on stdin). */
+/** Create/register/write through the real CLI; fixture registration is explicit, never parsed here. */
 export function createPage(
   world: AcceptanceWorld,
   title: string,
   html: string,
   callerPane?: string,
+  registrations: readonly { id: string; agent?: string }[] = [],
 ): CreatedPage {
   // Creation captures optional provenance through the real public Remote status command.
   world.linkExtensions();
@@ -81,10 +82,35 @@ export function createPage(
         '--json',
         '--no-open',
       ],
-      html,
+      registrations.length ? '' : html,
       callerPane,
     ),
   ) as { pageId: string; path: string };
+  if (registrations.length) {
+    for (const question of registrations)
+      run(
+        world,
+        world.binaries.colab,
+        [
+          'question',
+          'add',
+          created.pageId,
+          '--id',
+          question.id,
+          ...(question.agent === undefined ? [] : ['--agent', question.agent]),
+          '--json',
+        ],
+        undefined,
+        callerPane,
+      );
+    run(
+      world,
+      world.binaries.colab,
+      ['page', 'write', created.pageId, '--file', '-', '--json'],
+      html,
+      callerPane,
+    );
+  }
   return { pageId: created.pageId, path: created.path };
 }
 

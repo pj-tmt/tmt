@@ -102,13 +102,21 @@ pub fn creator_source(source: &str, name: &str) -> String {
     )
 }
 
+/// The optional creator of a compiled first-party template; anonymous questions stay on-page.
+pub fn source_for_creator(source: &str, creator: Option<&str>) -> String {
+    match creator {
+        Some(name) => creator_source(source, name),
+        None => source.replace(" data-agent=\"Your agent name\"", ""),
+    }
+}
+
 /// No arbitrary initial-registry payload is admitted. IDs and titles come from this checked
 /// first-party source; authored files must register their questions before a later write.
-pub fn admits(name: &str, source: &str, creator: &str) -> bool {
+pub fn admits(name: &str, source: &str, creator: Option<&str>) -> bool {
     let Some(template) = find(name) else {
         return false;
     };
-    let pattern = creator_source(
+    let pattern = source_for_creator(
         &template
             .source
             .replace("{{style}}", base_style().trim_end()),

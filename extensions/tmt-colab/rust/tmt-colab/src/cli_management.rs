@@ -729,13 +729,13 @@ fn commit_creation_with(
         return Err(management_error("CAPACITY"));
     }
     let (caller, selected, template) = match metadata {
-        Some(metadata) => (metadata.caller, Some(metadata.selected), metadata.template),
+        Some(metadata) => (metadata.caller, metadata.selected, metadata.template),
         None => {
             let caller = crate::core::caller_snapshot();
             let selected = if shell {
                 None
             } else {
-                Some(crate::cli_metadata::default_creator(caller.as_ref())?)
+                crate::cli_metadata::default_creator(caller.as_ref())
             };
             (caller, selected, None)
         }

@@ -950,6 +950,48 @@
         "machineId": "20000000-0000-4000-8000-000000000001"
       },
       "valid": false
+    },
+    {
+      "name": "unassigned registered question",
+      "kind": "questions",
+      "value": [
+        {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "state": "open",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1000
+          }
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "unassigned agent is absent not null",
+      "kind": "questions",
+      "value": [
+        {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "state": "open",
+          "attribution": {
+            "writerId": "10000000-0000-4000-8000-000000000001",
+            "timeMs": 1000
+          },
+          "agent": null
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "creator still requires an agent",
+      "kind": "creator",
+      "value": {
+        "attribution": {
+          "writerId": "10000000-0000-4000-8000-000000000001",
+          "timeMs": 1000
+        }
+      },
+      "valid": false
     }
   ]
 }

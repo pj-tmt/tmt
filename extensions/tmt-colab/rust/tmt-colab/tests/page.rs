@@ -2975,7 +2975,7 @@ fn frozen_creation_preference_survives_compaction_epoch_reload_and_export() {
 }
 
 #[test]
-fn creation_observes_snapshots_once_and_requires_a_creator_before_door_lookup() {
+fn creation_observes_each_public_snapshot_once_and_absence_never_blocks_creation() {
     let identity =
         json!({"identity":{"name":"creator","id":"50000000-0000-1000-8000-000000000001"}});
     let running = json!({"running":true,"origin":"http://127.0.0.1:53253","path":"/r/abcdefghijkl2345","machineId":"40000000-0000-4000-8000-000000000001"});
@@ -3060,21 +3060,6 @@ else:
             ])
             .output()
             .unwrap();
-        if caller["identity"]["id"].is_null() {
-            assert!(!output.status.success(), "a missing creator must refuse");
-            let refusal: Value = serde_json::from_slice(&output.stdout).unwrap();
-            assert_eq!(refusal["error"]["code"], "COLAB_CREATOR_REQUIRED");
-            let observed = fs::read_to_string(f.root.join("observations")).unwrap();
-            assert_eq!(
-                observed
-                    .lines()
-                    .filter(|line| *line == "identity show --json")
-                    .count(),
-                1
-            );
-            assert!(!observed.lines().any(|line| line.starts_with("remote ")));
-            continue;
-        }
         assert!(
             output.status.success(),
             "{}",

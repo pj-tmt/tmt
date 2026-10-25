@@ -18,7 +18,7 @@ export interface PageCreator {
 }
 export interface RegisteredQuestion {
   id: string;
-  agent: RegisteredAgent;
+  agent?: RegisteredAgent;
   title?: string;
   group?: string;
   state: 'open' | 'handled';
@@ -42,13 +42,13 @@ export function validateQuestionRegistry(value: unknown): asserts value is Regis
   for (const entry of value) {
     const question = keys(
       entry,
-      ['id', 'agent', 'state', 'attribution'],
-      ['title', 'group', 'task'],
+      ['id', 'state', 'attribution'],
+      ['agent', 'title', 'group', 'task'],
     );
     requireValue(typeof question.id === 'string' && validQuestionId(question.id));
     requireValue(!seen.has(question.id));
     seen.add(question.id);
-    validateRegisteredAgent(question.agent);
+    if (Object.hasOwn(question, 'agent')) validateRegisteredAgent(question.agent);
     validateAttribution(question.attribution);
     requireValue(question.state === 'open' || question.state === 'handled');
     if (Object.hasOwn(question, 'title')) {

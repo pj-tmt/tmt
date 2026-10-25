@@ -393,7 +393,7 @@ fn grammar() -> Command {
                             cli_template::create_arg(cli_layout::create_args(
                                 tmt_cli_style::command(&CREATE)
                                     .arg(cli_page_check::strict())
-                                    .arg(Arg::new("creator").long("creator").value_name("NAME|UUID").help("Creator for new question drafts; defaults to the invoking identity"))
+                                    .arg(Arg::new("creator").long("creator").value_name("NAME|UUID").help("Creator for new drafts; uses the invoking identity when known, otherwise leaves no creator"))
                                     .arg(Arg::new("title").long("title").required(true).value_name("TITLE"))
                                     .arg(Arg::new("file").long("file").value_name("path|-")
                                         .value_parser(clap::value_parser!(std::path::PathBuf))),
@@ -917,12 +917,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         };
         let metadata = cli_metadata::creation(args, template.map(|template| template.name))?;
         let source = match template {
-            Some(template) => tmt_colab::templates::creator_source(
-                &template.source()?,
-                metadata.selected.agent["name"]
-                    .as_str()
-                    .expect("creator name"),
-            ),
+            Some(template) => cli_metadata::template_source(template, &metadata)?,
             None => args
                 .get_one::<std::path::PathBuf>("file")
                 .map(|path| page_source(path))

@@ -184,6 +184,8 @@ for (const [destination, forceFallback] of [
         world,
         `${destination} notifications`,
         `<div style="height:1100px">Context above the block.</div>${destination === 'Answer' ? `<tmt-question data-id="${qid}" data-kind="short" data-agent="${agent.name}"><p data-question>What should we do next?</p></tmt-question><div style="height:1000px">Context below the block.</div>` : ''}`,
+        agent.pane,
+        destination === 'Answer' ? [{ id: qid, agent: agent.id }] : [],
       );
       if (destination === 'Proposal')
         run(

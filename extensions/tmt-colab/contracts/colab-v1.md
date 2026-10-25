@@ -1090,23 +1090,28 @@ and frozen export manifests. They confer no identity, role, send or content auth
 Core UUID; `name` is the existing bounded publisher display label. The optional `machineId`
 is a canonical Remote UUIDv4 routing hint. `attribution` is the admitted editor's
 `{writerId,timeMs,displayAgent?}` value used by Work, not a selected agent's claim.
-`page create` captures its invoking identity once and requires a stable creator; `--creator
-NAME|UUID` selects another through bounded public identity lookup. No resolved invoking
-identity gives `COLAB_CREATOR_REQUIRED` before local initialization. `page creator PAGE
+`page create` captures its invoking identity once. An anonymous plain-shell create proceeds
+without a creator; no identity is guessed or backfilled. `--creator NAME|UUID` explicitly selects
+one through bounded public identity lookup and refuses an unresolved named selection.
+Anonymous compiled templates also create successfully and register their questions unassigned.
+Their answers stay on the page with no Ask until a creator or explicit question agent is selected. `page creator PAGE
 NAME|UUID` changes this preference against the current revision (or `--expected-revision`),
 without changing `originalAuthor`, existing questions or sent messages. New drafts use the
-new preference. An existing registration keeps its agent when its block omits `data-agent`;
-changing the creator does not retarget it. A block without `data-agent` still requires a creator. A legacy page reads its complete `creationRecipient` pair as the creator
+new preference. An assigned registration keeps its agent across creator changes. An unassigned
+registration follows the current creator for new drafts, without backfilling its stored value;
+without a creator its answers stay on the page and send no Ask. A legacy page reads its complete
+`creationRecipient` pair as the creator
 without writing it back; `originalAuthor` alone never supplies a creator. Without either
 reference the creator remains absent.
 
 `questions` is an array of at most 50 entries, unique by the existing authored question UUID.
-Each entry is exactly `{id,agent,state,attribution,title?,group?,task?}`. `agent` uses the same
-stable ID/display-label pair. `title` is nonempty inert text of at most 200 Unicode code
+Each entry is exactly `{id,state,attribution,agent?,title?,group?,task?}`. Optional `agent` uses
+the same stable ID/display-label pair; absence means unassigned and null is invalid. `title` is nonempty inert text of at most 200 Unicode code
 points; `group` is an authored group UUID. Stored `state` is `open` or `handled`; `task` is
 optional only for `handled` and must name a task on this page when the action sets it.
-`question add PAGE --id UUID --agent NAME|UUID [--title TITLE] [--group UUID]` registers or
-explicitly updates that entry. Repeating an unchanged registration publishes nothing;
+`question add PAGE --id UUID [--agent NAME|UUID] [--title TITLE] [--group UUID]` registers or
+explicitly updates that entry. Omitted agent leaves a new entry unassigned and preserves an
+existing assignment. Repeating an unchanged registration publishes nothing;
 changed routing, group or title is attributed and never reopens it. `question handle PAGE
 ID [--task T-n]` and `question reopen PAGE ID` change the editor-owned lifecycle; reopening
 clears the task link. These closed actions use the ordinary conditional content publisher,
@@ -1121,14 +1126,13 @@ also requires the UUID. No Core store is read and no new Core API is introduced.
 
 Supported native write/patch/owner-Save preparation compares authored question blocks from
 the existing bounded HTML parse with the verified registry before preparing a content batch.
-A missing registration, different `data-agent`, positively missing agent or absent agent
-without a creator refuses with `COLAB_QUESTION_UNREGISTERED`,
-`COLAB_QUESTION_AGENT_MISMATCH`, `COLAB_QUESTION_AGENT_UNKNOWN` or
-`COLAB_CREATOR_REQUIRED`. Each finding names its source line and a quoted command repair;
+A missing registration or an explicitly named mismatched or positively missing agent refuses
+with `COLAB_QUESTION_UNREGISTERED`, `COLAB_QUESTION_AGENT_MISMATCH` or
+`COLAB_QUESTION_AGENT_UNKNOWN`. Each finding names its source line and a quoted command repair;
 registry findings use `severity:"warning"` for admitted markup but are mandatory publication
 refusals, independently of `--strict`. An empty
-`data-agent` uses the creator's stable ID and must agree with the registration. An explicit
-value must equal its registered ID or observed name. Existing markup findings still describe
+`data-agent` is valid without a creator. An explicit value must equal the assigned registered
+ID/name, or the current creator for an unassigned registration. Existing markup findings still describe
 ignored shapes; the parser's depth and page limits do not become an unbounded second parse.
 `page check FILE` remains markup-only/offline; `--page PAGE` adds this registry comparison.
 Nonblocking `hints` remain separate from findings.
@@ -1137,7 +1141,8 @@ Nonblocking `hints` remain separate from findings.
 per-question register and source-write sequence, using the file's IDs and admitted titles.
 There is no authored initial-registry input. Built-in `--template` creation instead fills
 question `data-agent` from the selected creator and registers the template's questions in the
-same create commit. The owner checks the source's literal bytes and repeated UUID slots
+same create commit. Without a creator, it omits the compiled placeholder agent attributes and
+registers the questions with no agent. The owner checks the source's literal bytes and repeated UUID slots
 against the compiled template; arbitrary source cannot claim that exception. User templates
 remain outside this first-party path.
 

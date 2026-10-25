@@ -921,6 +921,7 @@ test('answer blocks publish verified normal annotations and keep changes and age
       'Question review',
       '<h1>Project notes</h1><p>Before the question.</p><tmt-question data-id="10000000-0000-4000-8000-000000000090" data-kind="single" data-agent="answer-agent"><p data-question>Which heading should we use?</p><span data-choice>Keep it</span><span data-choice>Change it</span></tmt-question><p>The page continues here.</p>',
       agent.pane,
+      [{ id: '10000000-0000-4000-8000-000000000090', agent: agent.id }],
     );
     const page = await openPage(door, browser, created);
     const card = page.locator('.question-group-card');
@@ -1030,6 +1031,11 @@ test('answer Send names start with visible text through the served question grou
       world,
       'Question names',
       '<h1>Question names</h1><tmt-questions data-id="10000000-0000-4000-8000-000000000100"><p data-title>Review choices</p><tmt-question data-id="10000000-0000-4000-8000-000000000101" data-kind="single"><p data-question>Keep the heading?</p><span data-choice>Yes</span><span data-choice>No</span></tmt-question><tmt-question data-id="10000000-0000-4000-8000-000000000102" data-kind="short"><p data-question>Any details?</p></tmt-question></tmt-questions>',
+      undefined,
+      [
+        { id: '10000000-0000-4000-8000-000000000101' },
+        { id: '10000000-0000-4000-8000-000000000102' },
+      ],
     );
     const page = await openPage(door, browser, created);
     const group = page.locator('[data-question-group]');
@@ -1072,6 +1078,11 @@ test('a served question group records three answers and asks each recipient once
       'Batch review',
       '<h1>Batch review</h1><tmt-questions data-id="10000000-0000-4000-8000-000000000110"><p data-title>Review choices</p><tmt-question data-id="10000000-0000-4000-8000-000000000111" data-kind="single" data-agent="batch-alpha"><p data-question>Keep the heading?</p><span data-choice>Yes</span><span data-choice>No</span></tmt-question><tmt-question data-id="10000000-0000-4000-8000-000000000112" data-kind="short" data-agent="batch-beta"><p data-question>Any details?</p></tmt-question><tmt-question data-id="10000000-0000-4000-8000-000000000113" data-kind="long" data-agent="batch-alpha"><p data-question>Any tradeoffs?</p></tmt-question></tmt-questions>',
       alpha.pane,
+      [
+        { id: '10000000-0000-4000-8000-000000000111', agent: alpha.id },
+        { id: '10000000-0000-4000-8000-000000000112', agent: beta.id },
+        { id: '10000000-0000-4000-8000-000000000113', agent: alpha.id },
+      ],
     );
     const page = await openPage(door, browser, created);
     const group = page.locator('[data-question-group]');

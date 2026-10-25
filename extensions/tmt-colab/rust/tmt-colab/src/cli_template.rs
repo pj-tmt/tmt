@@ -187,6 +187,18 @@ mod tests {
 
     #[test]
     fn a_page_gets_fresh_ids_each_time_and_one_id_per_placeholder_name() {
+        for template in &TEMPLATES {
+            let source =
+                tmt_colab::templates::source_for_creator(&template.source().unwrap(), None);
+            assert!(tmt_colab::templates::admits(template.name, &source, None));
+            let report = tmt_colab::page_check::check(&source).unwrap();
+            assert!(
+                report
+                    .question_sources
+                    .iter()
+                    .all(|question| question.agent.is_empty())
+            );
+        }
         let review = find("review").unwrap();
         let ids = |source: &str| -> Vec<String> {
             source
@@ -310,14 +322,14 @@ mod registry_creation_tests {
         for template in &TEMPLATES {
             let source = tmt_colab::templates::creator_source(&template.source().unwrap(), creator);
             assert!(
-                tmt_colab::templates::admits(template.name, &source, creator),
+                tmt_colab::templates::admits(template.name, &source, Some(creator)),
                 "{}",
                 template.name
             );
             assert!(!tmt_colab::templates::admits(
                 template.name,
                 &(source.clone() + "<p>extra</p>"),
-                creator
+                Some(creator)
             ));
             let report = tmt_colab::page_check::check(&source).unwrap();
             for question in report.questions {
@@ -329,12 +341,12 @@ mod registry_creation_tests {
         assert!(!tmt_colab::templates::admits(
             "review",
             &source,
-            "another agent"
+            Some("another agent")
         ));
         assert!(!tmt_colab::templates::admits(
             "user-authored",
             &source,
-            creator
+            Some(creator)
         ));
     }
 }

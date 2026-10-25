@@ -15,7 +15,10 @@ Replace PAGE with the created ID and NAME with the resolved identity. Register e
 question ID in the examples before writing them. `page create --file` containing live questions
 refuses and prints this sequence. Built-in `--template` creation fills the creator and registers
 its compiled questions in the same commit. User-authored templates do not get that exception.
-`page create` defaults to its invoking stable identity; if unavailable, supply `--creator UUID`.
+`page create` uses its invoking stable identity when available and otherwise creates with no
+creator. Anonymous review/compare templates register unassigned questions: answers remain on
+the page without Ask. Omit `--agent` to register an unassigned question; it follows the creator
+for new drafts once one is set. Explicit assignments keep their target across creator changes.
 Change future drafts with `tmt colab page creator PAGE NAME`; this never rewrites sent messages.
 Unavailable lookup is unverified, not unknown. New names without lookup need a canonical UUID
 or a retry; never guess their IDs.
@@ -120,8 +123,10 @@ explicitly reopened, and deleting its last verified answer otherwise returns it 
 Run `tmt colab page check FILE` before publishing; it is markup-only and offline. Add `--page
 PAGE` to compare against that page's registry and creator. Native write/patch/owner Save refuse
 `COLAB_QUESTION_UNREGISTERED`, `COLAB_QUESTION_AGENT_MISMATCH`,
-`COLAB_QUESTION_AGENT_UNKNOWN` and `COLAB_CREATOR_REQUIRED` with a line and a command repair,
-without a partial source write. Match `data-agent` to the registered name/UUID, or omit it only
-when the page creator matches the registration. An identity lookup failure alone is never
+`COLAB_QUESTION_AGENT_UNKNOWN` with a line and a command repair, without a partial source write.
+An explicit `data-agent` must match the registered assignment, or the creator for an unassigned
+question. Empty or omitted `data-agent` uses the assigned registration, or the creator for an unassigned
+question. Without either target, answers stay on the page and no Ask is sent.
+Anonymous creation never fabricates an identity. An identity lookup failure alone is never
 proof that an identity is unknown. Malformed controls are ignored; the markup check reports
 reason codes and lines. A structurally skipped wrapper also reports `questionsSkipped`.
