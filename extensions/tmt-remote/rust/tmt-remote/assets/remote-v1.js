@@ -3956,6 +3956,8 @@ function mountShell(root, view, select) {
 	const rail = document.createElement("nav");
 	rail.className = "tmt-ui-rail";
 	rail.setAttribute("aria-label", "TMT");
+	const syncRailScroll = () => rail.toggleAttribute("data-scrolled", rail.scrollTop > 0);
+	rail.addEventListener("scroll", syncRailScroll, { passive: true });
 	const menu = document.createElement("nav");
 	menu.className = "tmt-ui-module-menu";
 	root.prepend(open, rail);
@@ -4121,7 +4123,10 @@ function mountShell(root, view, select) {
 		if (key === shown) return;
 		shown = key;
 		hideTip();
+		const railTop = rail.scrollTop;
 		rail.replaceChildren(brand, railList(next.rail.main, void 0, onPhone ? void 0 : next.menu), railList(next.rail.bottom, "tmt-ui-rail-bottom", onPhone ? void 0 : next.menu));
+		rail.scrollTop = railTop;
+		syncRailScroll();
 		root.dataset.menu = next.menu ? "shown" : "none";
 		if (!next.menu || !onPhone) {
 			menu.replaceChildren();
@@ -4172,6 +4177,7 @@ function mountShell(root, view, select) {
 			hideTip();
 			open.remove();
 			tip.remove();
+			rail.removeEventListener("scroll", syncRailScroll);
 			rail.remove();
 			menu.remove();
 		}

@@ -404,7 +404,7 @@ test.describe('the door serving the TMT app', () => {
       await expect(
         page
           .getByRole('navigation', { name: 'TMT', exact: true })
-          .getByRole('link', { name: 'Colab' }),
+          .getByRole('link', { name: 'Colab', exact: true }),
       ).not.toHaveAttribute('aria-disabled', 'true');
     });
 
@@ -497,7 +497,9 @@ test.describe('the door serving the TMT app', () => {
         await expect(card).toBeVisible({ timeout: 1000 });
       }).toPass({ timeout: 20000 });
       const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
-      const items = await rail.getByRole('link').allTextContents();
+      // Module links stay stable; the active module adds its own nested pages.
+      const moduleLinks = rail.locator(':scope > .tmt-ui-rail-items > li > a');
+      const items = await moduleLinks.allTextContents();
       await page.evaluate(() => ((window as unknown as { __same: boolean }).__same = true));
       await card.click();
       await expect.poll(() => here(page)).toBe(`/colab/pages/${id}`);
@@ -505,7 +507,8 @@ test.describe('the door serving the TMT app', () => {
       expect(await page.evaluate(() => (window as unknown as { __same?: boolean }).__same)).toBe(
         true,
       );
-      expect(await rail.getByRole('link').allTextContents()).toEqual(items);
+      expect(await moduleLinks.allTextContents()).toEqual(items);
+      await expect(rail.getByRole('link', { name: 'All pages', exact: true })).toBeVisible();
     });
 
     test('moving between routes never runs out of this device’s sessions', async ({ page }) => {
@@ -516,7 +519,7 @@ test.describe('the door serving the TMT app', () => {
       expect(limit.status, String(limit.stderr)).toBe(0);
       await door!.createPage('Session page', '<h1>Session content</h1>');
       await door!.pair(page);
-      await page.goto(`${door!.origin}/remote/settings`);
+      await page.goto(`${door!.origin}/remote/devices`);
       // In-document moves, as the rail and in-page links make them.
       const go = (path: string) =>
         page.evaluate((path) => {
@@ -532,13 +535,13 @@ test.describe('the door serving the TMT app', () => {
         expect(await live(), `round ${round}`).toBeLessThanOrEqual(2);
         await go('/ops');
         await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
-        await go('/remote/settings');
+        await go('/remote/devices');
         await expect(thisDevice).toBeVisible();
         await expect(page.locator('#access')).not.toContainText('connection limit');
         await go('/colab/');
         await expect(page.locator('.colab-route')).toBeVisible();
         await expect(page.getByRole('tab', { name: /^Discussion/ })).toBeVisible();
-        await go('/remote/settings');
+        await go('/remote/devices');
       }
       await expect(thisDevice).toBeVisible();
       expect(await live()).toBeLessThanOrEqual(2);

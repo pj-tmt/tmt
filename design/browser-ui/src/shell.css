@@ -73,15 +73,31 @@
 }
 /* The rail's head: the TMT mark and wordmark, the one place the brand sits. */
 .tmt-ui-shell-brand {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   flex: none;
   align-items: center;
   gap: var(--tmt-ui-rail-brand-gap);
   box-sizing: border-box;
-  height: calc(var(--tmt-ui-rail-brand-height) + var(--tmt-ui-rail-brand-after));
-  padding: 0 var(--tmt-ui-rail-brand-padding-inline) var(--tmt-ui-rail-brand-after);
+  height: var(--tmt-ui-rail-sticky-height);
+  /* Cover the selection marker's gutter too, keeping the mark at its original inset. */
+  margin-inline: calc(-1 * var(--tmt-ui-rail-padding-inline));
+  background: var(--tmt-ui-surface-rail);
+  padding: var(--tmt-ui-rail-padding-top)
+    calc(var(--tmt-ui-rail-brand-padding-inline) + var(--tmt-ui-rail-padding-inline))
+    var(--tmt-ui-rail-brand-after);
   color: var(--tmt-ui-color-selected-text);
   white-space: nowrap;
+}
+/* The brand covers the scrolling rows; the rule appears only after they move underneath. */
+.tmt-ui-rail[data-scrolled] .tmt-ui-shell-brand::after {
+  position: absolute;
+  inset: auto 0 0;
+  height: var(--tmt-ui-rule-width);
+  background: var(--tmt-ui-surface-rule);
+  content: '';
 }
 .tmt-ui-shell-brand > .tmt-brand-mark {
   flex: none;
@@ -149,8 +165,12 @@
   }
 }
 /* The rail runs the full height: brand, the modules with the current one's pages nested under it,
-   then TMT settings at the bottom. */
+   then TMT settings in flow (at the bottom when the content fits). */
 .tmt-ui-rail {
+  --tmt-ui-rail-sticky-height: calc(
+    var(--tmt-ui-rail-brand-height) + var(--tmt-ui-rail-brand-after) +
+      var(--tmt-ui-rail-padding-top)
+  );
   grid-area: 1 / 1 / 3 / 2;
   position: sticky;
   top: 0;
@@ -158,10 +178,12 @@
   flex-direction: column;
   box-sizing: border-box;
   width: var(--tmt-ui-rail-width);
-  padding: var(--tmt-ui-rail-padding-top) var(--tmt-ui-rail-padding-inline)
-    var(--tmt-ui-rail-padding-bottom);
+  padding: 0 var(--tmt-ui-rail-padding-inline) var(--tmt-ui-rail-padding-bottom);
   height: 100dvh;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-top: var(--tmt-ui-rail-sticky-height);
   border-right: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   background: var(--tmt-ui-surface-rail);
   font: var(--tmt-ui-rail-item-size)/1.3 var(--tmt-ui-font-body);
@@ -231,14 +253,13 @@
 .tmt-ui-rail-items:not(.tmt-ui-rail-bottom) {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  flex: 1 1 auto;
+  flex: none;
   align-content: start;
   gap: 2px;
-  min-height: 0;
-  overflow-y: auto;
 }
 .tmt-ui-rail-bottom {
   flex: none;
+  margin-top: auto;
   padding-top: var(--tmt-ui-space-s);
   border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
@@ -291,6 +312,8 @@
 /* The current module's pages, nested under it. */
 .tmt-ui-rail-sub {
   display: grid;
+  /* Keep long names inside the rail instead of giving the nested grid a content-sized track. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   /* Ben direct: text starts 8px past the parent icon, independent of its label. */
   margin: var(--tmt-ui-space-xs) 0 var(--tmt-ui-space-s)
@@ -302,6 +325,7 @@
 }
 .tmt-ui-rail-sub-items {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   margin: 0;
   /* Ben direct: one more indent for named groups, retaining the counts' right edge. */
@@ -474,6 +498,7 @@
     display: none;
   }
   .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail {
+    --tmt-ui-rail-sticky-height: var(--tmt-ui-header-compact-height);
     position: fixed;
     inset: 0 auto 0 0;
     z-index: 52;

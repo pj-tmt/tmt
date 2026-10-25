@@ -107,7 +107,10 @@ borders remain 1px. This supersedes earlier shadow and opacity proposals only.
 Input autocomplete remains a host-owned listbox. No native select or new font loading enters this leaf.
 
 The shell keeps its full 232px rail on wide screens, ignoring older collapse preferences.
-There is no collapse toggle; Settings stays at the bottom. The phone menu and drawer are unchanged.
+There is no collapse toggle. The rail owns one scroll column; only its brand stays sticky,
+with a rule while content scrolls underneath. Settings follows navigation in normal flow:
+at the bottom when content fits, reachable by scrolling when it does not. The phone
+menu and drawer retain their behavior and the same single scroll owner.
 The shell and heading metrics follow the concept website: 232px rail, 45px module
 rows, 33px sub-items and a 45px brand mark. Body and display text use
 `Inter, -apple-system, system-ui, "Segoe UI", sans-serif`, without bundled fonts or

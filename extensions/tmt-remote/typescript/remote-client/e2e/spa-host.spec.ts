@@ -670,6 +670,15 @@ test.describe('the app in a browser', () => {
     expect(settingsBox.y).toBeGreaterThan((await home.boundingBox())!.y);
     expect(railBox!.y + railBox!.height - settingsBox.y - settingsBox.height).toBeLessThan(24);
     await expect(rail.locator('.tmt-ui-rail-bottom')).toHaveCSS('border-top-style', 'solid');
+    await expect(rail.locator('.tmt-ui-rail-bottom')).toHaveCSS('position', 'static');
+    expect(
+      await rail.evaluate((node) =>
+        [node, ...node.querySelectorAll('*')]
+          .filter((entry) => ['auto', 'scroll'].includes(getComputedStyle(entry).overflowY))
+          .map((entry) => entry.className),
+      ),
+    ).toEqual(['tmt-ui-rail']);
+    await expect(brand).toHaveCSS('position', 'sticky');
     await expect(brand.locator('.tmt-ui-shell-brand-text')).toBeVisible();
     await expect(home.locator('.tmt-ui-rail-label')).toBeVisible();
     // Normal labelled entries have no tooltip; unavailable reasons keep their existing owner.
