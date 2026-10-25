@@ -679,11 +679,12 @@ pub fn create_page(
     source: String,
     page_layout: &tmt_colab::decoder::PageLayout,
     checks: &[page_check::Finding],
+    hints: &[page_check::Hint],
 ) -> Result<()> {
-    create_page_kind(root, args, source, Some(page_layout), checks, false)
+    create_page_kind(root, args, source, Some(page_layout), checks, hints, false)
 }
 pub fn create_dashboard(root: &Path, args: &ArgMatches) -> Result<()> {
-    create_page_kind(root, args, String::new(), None, &[], true)
+    create_page_kind(root, args, String::new(), None, &[], &[], true)
 }
 /// A page committed through ordinary creation, and what was observed of the machine while it was.
 pub(crate) struct Created {
@@ -793,6 +794,7 @@ fn create_page_kind(
     source: String,
     page_layout: Option<&tmt_colab::decoder::PageLayout>,
     checks: &[page_check::Finding],
+    hints: &[page_check::Hint],
     shell: bool,
 ) -> Result<()> {
     let title = text(args, "title");
@@ -849,6 +851,7 @@ fn create_page_kind(
     if args.get_flag("json") {
         reach.annotate(&mut result, &relative);
         result["warnings"] = crate::cli_page_check::warnings_json(checks);
+        result["hints"] = crate::cli_page_check::hints_json(hints);
         return output(&result, true);
     }
     let mut out = tmt_cli_style::stream::stdout(false);
@@ -881,6 +884,7 @@ fn create_page_kind(
         tmt_cli_style::message::warning(&mut err, terminal, what, None)?;
     }
     crate::cli_page_check::print_warnings(checks)?;
+    crate::cli_page_check::print_hints(hints)?;
     Ok(())
 }
 /// Names a page's title, or, when that page cannot be opened, records why on that page alone so
