@@ -309,8 +309,28 @@ pub(super) fn upgrade(
     downloaded: &DownloadedRelease,
     channel: Channel,
     pin: PinAction,
+    checkpoint: impl FnMut() -> io::Result<()>,
+    runner: &impl CommandRunner,
+) -> io::Result<InstallReport> {
+    upgrade_observed(
+        current,
+        downloaded,
+        channel,
+        pin,
+        checkpoint,
+        runner,
+        &|_| {},
+    )
+}
+
+pub(super) fn upgrade_observed(
+    current: &ManagedInstallation,
+    downloaded: &DownloadedRelease,
+    channel: Channel,
+    pin: PinAction,
     mut checkpoint: impl FnMut() -> io::Result<()>,
     runner: &impl CommandRunner,
+    progress: super::ProgressObserver<'_>,
 ) -> io::Result<InstallReport> {
     let version = if matches!(downloaded.provenance, Provenance::Pr(_))
         || matches!(current.state.channel, Channel::Pr(_))
@@ -320,6 +340,7 @@ pub(super) fn upgrade(
         MOVED_VERSION
     };
     let limit = input_limit(version);
+    progress(super::ProgressEvent::Verifying);
     let artifact = artifact::acquire_candidate(
         &downloaded.manifest,
         &downloaded.archive_name,
@@ -333,6 +354,7 @@ pub(super) fn upgrade(
             "Candidate does not match the verified release metadata.",
         ));
     }
+    progress(super::ProgressEvent::Verified);
     let staging = Staging::create()?;
     let result = (|| {
         // The transport decoder validated every entry before creating this private tree.
@@ -426,6 +448,7 @@ pub(super) fn upgrade(
         if input.len() > limit {
             return Err(invalid("Installer handoff exceeds its bound."));
         }
+        progress(super::ProgressEvent::Activating);
         let result = runner.execute(CommandRequest {
             program: std::ffi::OsStr::new("/usr/bin/env"),
             args: &[
@@ -475,6 +498,7 @@ pub(super) fn upgrade(
         }
         if let Some(report) = &response.installation {
             validate_report(current, downloaded, report)?;
+            progress(super::ProgressEvent::Activated);
         }
         match (response.installation, response.error) {
             (Some(report), None) => Ok(report),

@@ -240,7 +240,13 @@ fn cancellation_after_child_readiness_reaps_the_process_and_closes_its_socket() 
 fn helper_protocol_and_provider_contract_fixtures_run_in_the_native_gate() {
     let script =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/deploy_firestore/helper.test.cjs");
-    let args = [OsString::from("--test"), script.into_os_string()];
+    let permissions = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/deploy_firestore/permissions.test.cjs");
+    let args = [
+        OsString::from("--test"),
+        script.into_os_string(),
+        permissions.into_os_string(),
+    ];
     let env = DeployFirestore::environment_names();
     let output = tmt_invoke::invoke(
         tmt_invoke::Request {

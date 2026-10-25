@@ -295,8 +295,8 @@ for behavior and limits; module rules: [storage and requests reference](.agents/
 
 ### Tmux and process effects
 
-`tmt-adapters::process` is the one bounded subprocess owner (output caps, monotonic
-deadlines, process-group cleanup, reaping); `process::interactive` owns direct
+`tmt-adapters::process` owns bounded child execution and byte observations (stream caps,
+monotonic deadlines, group cleanup, reaping); `process::interactive` owns direct
 terminal children without taking the shared process group. `tmux` pins caller or recorded
 sockets, with bounded budgets and no ambient fallback; a failed paste
 or Enter is uncertain and never retried as unsent; [pane cosmetics](.agents/skills/tmt-core-runtime/references/hosts-drivers.md) own only pane-local badge overrides.
@@ -555,7 +555,7 @@ owner-installed [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`; publ
 Serve: Auth/runtime/factory/tick/joins/flush; v3 opt-in.
 `native_sync`: COUNT/read limits; Colab cursors; no Core/carrier. Emulation never ships.
 [object-backends](.agents/skills/tmt-remote/references/object-backends.md): channels/backends/quotas.
-Deploy: Firestore input/permission manifest, recorded resource choices; `hosting` hash; owner setup/consent/history; Rules/Hosting fences; EXPECTED+ACTIVE/live ID/readiness.
+Deploy: Firestore input/permission manifest, IAM preflight before consent, recorded choices; `hosting` hash; owner setup/consent/history; Rules/Hosting fences; EXPECTED+ACTIVE/live ID/readiness.
 [Modules](.agents/skills/tmt-remote/references/architecture-internals.md);
 [door/discovery](.agents/skills/tmt-remote/references/door-and-discovery.md): lifecycle/status/management.
 [Background](contracts/extension-serve-v1.md).

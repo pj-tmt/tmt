@@ -634,8 +634,10 @@ test.describe('the app in a browser', () => {
     await page.close();
   });
 
-  test('puts the TMT mark in the rail head and the page title alone in the bar; the rail toggle has its own row', async () => {
-    const { page } = await openApp('/ops');
+  test('keeps the full rail and selected sub-page despite an old preference, with the phone drawer unchanged', async () => {
+    const { page } = await openApp('/ops', async (page) => {
+      await page.addInitScript(() => localStorage.setItem('tmt.shell.rail', 'collapsed'));
+    });
     await page.setViewportSize({ width: 1440, height: 900 });
     const rail = page.locator('nav.tmt-ui-rail');
     const brand = rail.locator('> .tmt-ui-shell-brand');
@@ -659,46 +661,30 @@ test.describe('the app in a browser', () => {
     await expect(header.locator('.tmt-ui-wordmark, .tmt-ui-brand')).toHaveCount(0);
     await expect(header.locator('.tmt-ui-title')).toHaveText('Agents');
     await expect(page.locator('.tmt-ui-module-menu-title')).toHaveCount(0);
-    // The toggle is the rail's foot row, ruled off above TMT settings.
-    const toggle = page.locator('nav.tmt-ui-rail > .tmt-ui-rail-top > .tmt-ui-rail-toggle');
-    await expect(toggle).toHaveAttribute('aria-label', 'Collapse sidebar');
-    const home = page.locator('nav.tmt-ui-rail a[data-id="home"]');
-    const settings = page.locator('nav.tmt-ui-rail').getByRole('link', {
-      name: 'TMT settings',
-      exact: true,
-    });
-    expect((await toggle.boundingBox())!.y).toBeGreaterThan((await home.boundingBox())!.y);
-    expect((await toggle.boundingBox())!.y).toBeLessThan((await settings.boundingBox())!.y);
-    await expect(page.locator('.tmt-ui-rail-top')).toHaveCSS('border-top-style', 'solid');
-    // Expanded, a label needs no tooltip.
+    await expect(rail).toHaveCSS('width', '232px');
+    await expect(page.getByRole('button', { name: /sidebar/i })).toHaveCount(0);
+    await expect(rail.locator('.tmt-ui-rail-sub [aria-current="page"]')).toBeVisible();
+    const home = rail.locator('a[data-id="home"]');
+    const settings = rail.getByRole('link', { name: 'TMT settings', exact: true });
+    const settingsBox = (await settings.boundingBox())!;
+    expect(settingsBox.y).toBeGreaterThan((await home.boundingBox())!.y);
+    expect(railBox!.y + railBox!.height - settingsBox.y - settingsBox.height).toBeLessThan(24);
+    await expect(rail.locator('.tmt-ui-rail-bottom')).toHaveCSS('border-top-style', 'solid');
+    await expect(brand.locator('.tmt-ui-shell-brand-text')).toBeVisible();
+    await expect(home.locator('.tmt-ui-rail-label')).toBeVisible();
+    // Normal labelled entries have no tooltip; unavailable reasons keep their existing owner.
     await home.hover();
     await expect(page.locator('.tmt-ui-rail-tip')).toBeHidden();
-    const icon = await home.locator('svg').boundingBox();
-    // Collapsing slides the rail (a width transition) and keeps each icon where it was.
-    await expect(page.locator('nav.tmt-ui-rail')).toHaveCSS('transition-property', 'width');
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-label', 'Expand sidebar');
-    await expect(page.locator('nav.tmt-ui-rail')).toHaveCSS('width', '56px');
-    // The brand keeps its mark and drops its words.
-    await expect(brand.locator('.tmt-ui-shell-brand-text')).toBeHidden();
-    await expect(brand.locator('svg').first()).toBeVisible();
-    expect((await home.locator('svg').boundingBox())!.x).toBe(icon!.x);
-    await expect(home.locator('.tmt-ui-rail-label')).toBeHidden();
-    // Collapsed, hovering or focusing an item shows its label beside the rail.
-    await home.hover();
-    const tip = page.locator('.tmt-ui-rail-tip');
-    await expect(tip).toBeVisible();
-    await expect(tip).toHaveText('Home');
-    const [tipBox, homeBox] = await Promise.all(
-      [tip, home].map(async (node) => (await node.boundingBox())!),
-    );
-    expect(tipBox!.x).toBeGreaterThanOrEqual(homeBox!.x + homeBox!.width);
-    await page.mouse.move(800, 600);
-    await expect(tip).toBeHidden();
-    await page.locator('nav.tmt-ui-rail a[data-id="digest"]').focus();
-    await expect(tip).toHaveText('Digest');
-    await toggle.click();
-    await expect(page.locator('nav.tmt-ui-rail')).toHaveCSS('width', '232px');
+    await page.setViewportSize({ width: 390, height: 900 });
+    await expect(rail).toBeHidden();
+    const open = page.getByRole('button', { name: 'Open navigation', exact: true });
+    await open.click();
+    await expect(rail).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(rail).toBeHidden();
+    await expect(open).toBeFocused();
+    await expect(page.locator('.tmt-ui-module-menu [aria-current="page"]')).toBeVisible();
+    expect(await page.evaluate(() => localStorage.getItem('tmt.shell.rail'))).toBe('collapsed');
     await page.close();
   });
 });

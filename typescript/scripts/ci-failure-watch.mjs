@@ -31,6 +31,7 @@ export const WATCH_LIMITS = Object.freeze({
   deadlineMs: 120_000,
   maxPages: 10,
   maxSignatures: 2000,
+  maxNoticeBytes: 24_000,
 });
 const events = ['push', 'merge_group', 'workflow_dispatch', 'schedule'];
 const clean = (value, limit = 240) =>
@@ -137,10 +138,11 @@ function normalizeRun(run, repo) {
     ].map((k) => [k, run[k]])
   );
 }
-export function failureSignature(run, job) {
-  // v1 has no test-name component: obtaining one would require forbidden log reads.
+export function failureSignature(run, jobs) {
+  // A one-job key keeps its persisted v1 identity; larger sets ignore API ordering.
+  const names = [...new Set(Array.isArray(jobs) ? jobs : [jobs])].sort();
   return createHash('sha256')
-    .update(JSON.stringify([run.workflow_id, job]))
+    .update(JSON.stringify([run.workflow_id, names.length === 1 ? names[0] : names]))
     .digest('hex');
 }
 export function observeRun(state, run, jobs, routing, now) {
@@ -152,7 +154,14 @@ export function observeRun(state, run, jobs, routing, now) {
   if (run.conclusion === 'success')
     state.green[eventKey] = Math.max(state.green[eventKey] ?? 0, ended);
   if (run.conclusion === 'failure') {
-    const failed = jobs.filter((job) => ['failure', 'timed_out'].includes(job.conclusion));
+    const failed = jobs
+      .map((job, index) => ({ ...job, index, started: Date.parse(job.started_at) }))
+      .filter((job) => ['failure', 'timed_out'].includes(job.conclusion))
+      .sort((a, b) => {
+        const first = Number.isFinite(a.started) ? a.started : Infinity;
+        const second = Number.isFinite(b.started) ? b.started : Infinity;
+        return (first === second ? 0 : first - second) || a.index - b.index;
+      });
     const names = failed.length
       ? failed.map((job) => job.name)
       : ['[failure has no failed-job metadata]'];
@@ -160,37 +169,37 @@ export function observeRun(state, run, jobs, routing, now) {
       new Set(names).size === names.length,
       'WATCH_METADATA: ambiguous duplicate failed job names'
     );
-    for (const job of names) {
+    for (const job of names)
       assert(
         typeof job === 'string' && job.length > 0 && job.length < 2000,
         'WATCH_METADATA: invalid job name'
       );
-      const signature = failureSignature(run, job);
-      const old = state.alerts[signature];
-      const recovered = (state.green[eventKey] ?? 0) > (old?.lastFailure ?? Infinity);
-      const notify =
-        !old ||
-        old.lastNotifiedAt === undefined ||
-        now - old.lastNotifiedAt >= WATCH_LIMITS.dedupMs ||
-        recovered;
-      state.alerts[signature] = {
-        ...old,
-        signature,
-        workflow: run.name,
-        workflowPath: run.path,
-        event: run.event,
-        job,
-        route: routeFailure(routing, run.path, job),
-        firstSeen: old?.firstSeen ?? now,
-        lastSeen: now,
-        lastFailure: ended,
-        count: (old?.count ?? 0) + 1,
-        runUrl: run.html_url,
-        runId: run.id,
-        attempt: run.run_attempt,
-        pending: Boolean(old?.pending || notify),
-      };
-    }
+    const signature = failureSignature(run, names);
+    const old = state.alerts[signature];
+    const recovered = (state.green[eventKey] ?? 0) > (old?.lastFailure ?? Infinity);
+    const notify =
+      !old ||
+      old.lastNotifiedAt === undefined ||
+      now - old.lastNotifiedAt >= WATCH_LIMITS.dedupMs ||
+      recovered;
+    state.alerts[signature] = {
+      ...old,
+      signature,
+      workflow: run.name,
+      workflowPath: run.path,
+      event: run.event,
+      job: names[0],
+      jobs: names,
+      route: routeFailure(routing, run.path, names[0]),
+      firstSeen: old?.firstSeen ?? now,
+      lastSeen: now,
+      lastFailure: ended,
+      count: (old?.count ?? 0) + 1,
+      runUrl: run.html_url,
+      runId: run.id,
+      attempt: run.run_attempt,
+      pending: Boolean(old?.pending || notify),
+    };
   }
   state.seen[token] = ended;
   assert(
@@ -243,14 +252,27 @@ export function notificationGroups(state, now) {
   const pending = Object.values(state.alerts)
     .filter((a) => a.pending)
     .sort((a, b) => a.firstSeen - b.firstSeen || a.signature.localeCompare(b.signature));
+  for (const alert of pending)
+    assert(
+      Buffer.byteLength(formatNotification([alert])) <= WATCH_LIMITS.maxNoticeBytes,
+      'WATCH_NOTICE_LIMIT: failed-job list exceeds one complete notice'
+    );
   if (pending.length <= available) return pending.map((a) => [a]);
   const squads = new Map();
   for (const a of pending) {
     const key = a.route.squad;
     if (!squads.has(key)) squads.set(key, []);
-    if (squads.get(key).length < 12) squads.get(key).push(a);
+    const group = squads.get(key);
+    if (
+      group.length < 12 &&
+      Buffer.byteLength(formatNotification([...group, a])) <= WATCH_LIMITS.maxNoticeBytes
+    )
+      group.push(a);
   }
   return [...squads.values()].slice(0, available);
+}
+function failedJobNames(alert) {
+  return alert.jobs ?? [alert.job];
 }
 export function formatNotification(group) {
   return (
@@ -258,7 +280,9 @@ export function formatNotification(group) {
     group
       .map(
         (a) =>
-          `${clean(a.workflow, 80)} / ${clean(a.job, 160)} — ${a.runUrl}${a.issueUrl ? ` (${a.issueUrl})` : ''}`
+          `${clean(a.workflow, 80)} / ${failedJobNames(a)
+            .map((job) => clean(job, 1999))
+            .join(', ')} — ${a.runUrl}${a.issueUrl ? ` (${a.issueUrl})` : ''}`
       )
       .join('; ')
   );
@@ -486,6 +510,7 @@ export function deliverWatchAlerts(state, effects, now) {
     !state.delivery,
     'WATCH_DELIVERY_UNCERTAIN: inspect the recorded tmt request before clearing intent'
   );
+  let recoveredIssue;
   if (state.issueIntent) {
     const matches = effects.findIssues(state.issueIntent);
     assert(
@@ -493,12 +518,13 @@ export function deliverWatchAlerts(state, effects, now) {
       'WATCH_ISSUE_UNCERTAIN: resolve the recorded create before retry'
     );
     state.alerts[state.issueIntent].issueUrl = matches[0];
+    recoveredIssue = state.issueIntent;
     state.issueIntent = null;
     effects.save(state);
   }
   for (const group of notificationGroups(state, now)) {
     for (const alert of group) {
-      if (alert.coverage || alert.issueUrl) continue;
+      if (alert.coverage || alert.signature === recoveredIssue) continue;
       const matches = effects.findIssues(alert.signature);
       assert(matches.length <= 1, 'WATCH_ISSUE: duplicate signature issues');
       if (matches.length) {
@@ -510,6 +536,7 @@ export function deliverWatchAlerts(state, effects, now) {
         !state.issueIntent,
         'WATCH_ISSUE_UNCERTAIN: prior create not visible in search; inspect before retry'
       );
+      delete alert.issueUrl;
       effects.reserve?.(25_000);
       state.issueIntent = alert.signature;
       effects.save(state);
@@ -660,21 +687,27 @@ function liveEffects(root, repo, identity, api) {
       assert(api.remainingMs >= ms, 'WATCH_BUDGET: leave pending alerts for the next pass');
     },
     findIssues(signature) {
-      const q = `repo:${repo} is:issue in:body "ci-watch:${signature}"`;
+      const q = `repo:${repo} is:issue is:open in:body "ci-watch:${signature}"`;
       const result = api.get(`search/issues?${new URLSearchParams({ q, per_page: '100' })}`).body;
       assert(
         !result.incomplete_results && result.total_count === result.items.length,
         'WATCH_ISSUE: incomplete signature search'
       );
       return result.items
-        .filter((r) => r.body?.includes(`ci-watch:${signature}`))
+        .filter((r) => r.state === 'open' && r.body?.includes(`ci-watch:${signature}`))
         .map((r) => issueUrl(r.html_url, repo));
     },
     createIssue(alert) {
       const request = path.join(root, 'issue-request.json');
       atomicJson(request, {
         title: `ci: ${clean(alert.workflow, 60)} / ${clean(alert.job, 100)}`,
-        body: `Part of #4742. CI failure watcher (#4825).\n\nSuggested squad: ${alert.route.squad} (${alert.route.source}).\nWorkflow: ${clean(alert.workflow)}\nFailed job: ${clean(alert.job)}\nRun: ${alert.runUrl} (attempt ${alert.attempt})\nNo logs read; cause and test name are unknown.\n\nci-watch:${alert.signature}\n`,
+        body: `Part of #4742. CI failure watcher (#4825).\n\nSuggested squad: ${alert.route.squad} (${alert.route.source}).\nWorkflow: ${clean(alert.workflow)}\nFailed jobs:\n${failedJobNames(
+          alert
+        )
+          .map((job) => `- ${clean(job, 1999)}`)
+          .join(
+            '\n'
+          )}\nRun: ${alert.runUrl} (attempt ${alert.attempt})\nNo logs read; cause and test name are unknown.\n\nci-watch:${alert.signature}\n`,
       });
       try {
         return issueUrl(

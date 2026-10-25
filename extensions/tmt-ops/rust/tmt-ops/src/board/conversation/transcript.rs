@@ -1,6 +1,7 @@
-//! Pane-output presentation shares the conversation viewport, never its request authority.
+//! Pane output and checklist activity share the conversation viewport, never request authority.
+use super::activity::Source;
 use super::*;
-use crate::board::recent_responses::{Observation, Source};
+use crate::board::recent_responses::Observation;
 
 /// R1 for the conversation's loading line: nothing for the first 400 ms.
 const LOADING_DELAY_MS: u64 = 400;
@@ -38,6 +39,7 @@ impl Default for Exchanges {
 
 #[derive(Default, PartialEq, Eq)]
 pub(super) struct Context {
+    pub activity: Option<std::sync::Arc<super::activity::Presentation>>,
     pub enabled: bool,
     pub name: String,
     pub times: Vec<u64>,
@@ -250,7 +252,10 @@ impl Session {
                 .collect(),
             _ => vec![],
         };
+        let activity =
+            super::activity::Presentation::get(app, self.transcript_context.activity.as_ref(), id);
         let context = Context {
+            activity,
             enabled,
             name,
             times,
@@ -341,7 +346,11 @@ impl Session {
 
     /// Whether anything is held that the placeholder would stand in for.
     fn holds_content(&self) -> bool {
-        self.reply.is_some()
+        self.transcript_context
+            .activity
+            .as_ref()
+            .is_some_and(|activity| !activity.is_empty())
+            || self.reply.is_some()
             || !self.outgoing.is_empty()
             || !self.finals.is_empty()
             || self.restored_sends().next().is_some()
@@ -392,6 +401,7 @@ impl Session {
     ) -> RenderedTranscript {
         let original_notes = self.original_note_sources();
         let Context {
+            activity,
             enabled,
             name,
             times,
@@ -404,7 +414,8 @@ impl Session {
             dropped_age,
         } = &self.transcript_context;
         let sends: Vec<_> = self.restored_sends().collect();
-        if self.finals.is_empty()
+        if activity.as_ref().is_none_or(|activity| activity.is_empty())
+            && self.finals.is_empty()
             && sends.is_empty()
             && !(*enabled && self.pane_failure.is_some())
             && !matches!(&self.pane_output, Observation::Observed(page)
@@ -602,7 +613,15 @@ impl Session {
                 }
             }
         }
-        let order = crate::board::recent_responses::merge(&times, items);
+        if let Some(activity) = activity {
+            for caption in &activity.captions {
+                next_note.set(unavailable);
+                for line in history_caption(caption, width, look) {
+                    append(line, vec![], None);
+                }
+            }
+        }
+        let order = super::activity::merge(&times, items, activity.as_deref());
         // Sends that follow each other in the transcript, with no final, pane output or exchange
         // between them, may form one message block.
         let mut places = vec![super::answer_order::Place::default(); sends.len()];
@@ -630,12 +649,13 @@ impl Session {
                     super::history::Block::Sent(index) => run.push(index),
                     _ => group(&mut run, &mut places),
                 },
-                Source::Pane(_) => group(&mut run, &mut places),
+                Source::Pane(_) | Source::Checklist(_) => group(&mut run, &mut places),
             }
         }
         group(&mut run, &mut places);
         let mut first = true;
         let mut previous: Option<&str> = None;
+        let mut previous_activity = false;
         for source in order {
             if matches!(source, Source::Pane(index) if captured_outputs.contains(&index)) {
                 continue;
@@ -657,17 +677,31 @@ impl Session {
                     super::history::Block::Sent(index) => Some(sends[index].text.as_str()),
                     _ => None,
                 },
-                Source::Pane(_) => None,
+                Source::Pane(_) | Source::Checklist(_) => None,
             };
             let spaced = stacked
                 && matches!((previous, current),
                     (Some(previous), Some(current)) if super::answer_order::spaced(previous, current));
-            if !first && (!stacked || spaced) {
+            let compact_activity = previous_activity && matches!(source, Source::Checklist(_));
+            previous_activity = matches!(source, Source::Checklist(_));
+            if !first && (!stacked || spaced) && !compact_activity {
                 append(Line::default(), vec![], None);
             }
             previous = current;
             first = false;
             match source {
+                Source::Checklist(index) => {
+                    let activity = activity.as_ref().expect("activity source has held facts");
+                    next_note.set(unavailable);
+                    let mut first = true;
+                    for line in history_caption(&activity.rows[index].text, width, look) {
+                        let row = append(line, vec![], None);
+                        if first {
+                            header_anchors.insert(row, activity.anchor(index));
+                            first = false;
+                        }
+                    }
+                }
                 Source::Exchange(block) => {
                     if let super::history::Block::Sent(index) = messages[block].1 {
                         let send = sends[index];

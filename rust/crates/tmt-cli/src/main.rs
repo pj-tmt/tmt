@@ -39,6 +39,7 @@ mod install_command;
 mod invocation;
 mod mcp_command;
 mod native_install_command;
+mod native_progress;
 mod native_upgrade_command;
 mod notes_command;
 mod output;
@@ -475,8 +476,8 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
                 parsed.mode,
             );
         }
-        Invocation::NativeUpgradeExtensions { plan } => {
-            return extension_install_command::upgrade_all::execute(plan, parsed.mode);
+        Invocation::NativeUpgradeExtensions { plan, progress } => {
+            return extension_install_command::upgrade_all::execute(plan, progress, parsed.mode);
         }
         Invocation::NativeRefreshSkills { managed } => {
             return skill_refresh_command::execute(managed, parsed.mode);

@@ -331,6 +331,11 @@ pub(in crate::grammar) fn upgrade_extensions() -> Command {
     )
     .hide(true)
     .arg(
+        Arg::new("progress")
+            .long("progress")
+            .action(ArgAction::SetTrue),
+    )
+    .arg(
         Arg::new("plan")
             .long("plan")
             .action(ArgAction::SetTrue)

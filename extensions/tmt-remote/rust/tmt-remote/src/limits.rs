@@ -229,6 +229,9 @@ pub const HOSTING_APPLY_CALL: Duration = Duration::from_secs(90);
 pub const DEPLOY_PROVIDER_BYTES: usize = 4 * 1024 * 1024;
 /// Finite inventory of provider field configs or Rulesets.
 pub const DEPLOY_PROVIDER_PAGES: usize = 10;
+/// Bound the read-only IAM probe's exact names; mirrored in the embedded helper.
+pub const DEPLOY_PERMISSION_COUNT: usize = 128;
+pub const DEPLOY_PERMISSION_BYTES: usize = 128;
 
 /// Installed tool metadata is bounded independently of provider output.
 pub const DEPLOY_TOOL_METADATA_BYTES: usize = 64 * 1024;

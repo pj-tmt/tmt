@@ -164,6 +164,16 @@ impl Https {
         maximum: usize,
         deadline: Instant,
     ) -> io::Result<Response> {
+        self.get_actions_observed(url, maximum, deadline, &|_, _| {})
+    }
+
+    pub(crate) fn get_actions_observed(
+        &self,
+        url: &str,
+        maximum: usize,
+        deadline: Instant,
+        progress: &dyn Fn(u64, Option<u64>),
+    ) -> io::Result<Response> {
         let initial = validate_url(url)?;
         if self.token.is_none()
             || !is_api(&initial)
@@ -181,7 +191,7 @@ impl Https {
             maximum,
             deadline,
             true,
-            &|_, _| {},
+            progress,
         )
     }
 

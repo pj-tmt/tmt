@@ -8,13 +8,19 @@ test.afterEach(disposeActiveWorlds);
 // offline composer (`compose_hosting`, #3048) and served from a local static server that applies
 // the composed per-file headers and rewrites. No Hosting emulator, no network and no host browser.
 // The browser uses the canonical demo origin, routed only to these local bytes.
-const HOSTED_ORIGIN = 'https://demo-tmt-hosted.web.app';
+const PROJECT = 'demo-tmt-hosted';
+// The project-default site is named for the project; a dedicated Hosting site (#4930) is not, and
+// the same-origin init config still names the project.
+const ORIGINS = {
+  'the project-default site': `https://${PROJECT}.web.app`,
+  'a dedicated Hosting site': 'https://demo-tmt-hosted-docs.web.app',
+};
 const INIT_PATH = '/__/firebase/init.json';
 // Files the composer adds next to Colab's manifest; Colab never declares anything under it.
 const COMPOSER_OWNED_PREFIX = '/tmt/declarations/';
 const SHELL_ROUTES = ['/', '/colab', '/p/AbCd1234', '/read/AbCd1234', '/pair'];
 
-test("the embedded hosted bundle serves its declared bytes and shell under Remote's composition", async () => {
+const bundleServesOn = (HOSTED_ORIGIN: string) => async () => {
   await withWorld(async (world) => {
     const { view, manifest, files } = composed(world);
     const { origin, requests } = await serve(world, view, files);
@@ -74,8 +80,8 @@ test("the embedded hosted bundle serves its declared bytes and shell under Remot
           json: {
             apiKey: 'offline-public-key',
             appId: 'offline-public-app',
-            authDomain: 'demo-tmt-hosted.firebaseapp.com',
-            projectId: 'demo-tmt-hosted',
+            authDomain: `${PROJECT}.firebaseapp.com`,
+            projectId: PROJECT,
           },
         });
       } else {
@@ -135,4 +141,9 @@ test("the embedded hosted bundle serves its declared bytes and shell under Remot
     expect(statuses.get('/tmt/declarations/colab.json')).toBe(200);
     expect(errors.map((message) => message.text())).toEqual([]);
   });
-});
+};
+for (const [kind, origin] of Object.entries(ORIGINS))
+  test(
+    `the embedded hosted bundle serves its declared bytes and shell under Remote's composition on ${kind}`,
+    bundleServesOn(origin),
+  );

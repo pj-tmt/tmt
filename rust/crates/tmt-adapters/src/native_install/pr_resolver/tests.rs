@@ -164,9 +164,15 @@ impl Fixture {
         fixture
     }
     fn download(&mut self) -> io::Result<DownloadedRelease> {
+        match self.resolve(true)? {
+            Resolved::Downloaded(release) => Ok(release),
+            Resolved::Preview(_) => unreachable!(),
+        }
+    }
+    fn resolve(&mut self, acquire_payload: bool) -> io::Result<Resolved> {
         let opt_in = self.opt_in;
         let local = self.local;
-        download(
+        resolve(
             Request {
                 product: Product::Cli,
                 pr: PrNumber::parse(PR).unwrap(),
@@ -203,6 +209,7 @@ impl Fixture {
                 }])
             },
             || Ok(NOW),
+            acquire_payload,
         )
     }
 }
@@ -614,4 +621,44 @@ fn excessive_generation_discovery_refuses_before_any_producer_or_payload_fetch()
             .contains("run inventory exceeds its bound")
     );
     assert_eq!(fixture.calls.len(), 3);
+}
+
+#[test]
+fn preview_authenticates_the_catalog_without_acquiring_the_payload() {
+    let mut fixture = Fixture::new();
+    let payloads: Vec<_> = fixture
+        .routes
+        .keys()
+        .filter(|url| url.ends_with("/zip") && !url.ends_with("/8201/zip"))
+        .cloned()
+        .collect();
+    assert!(!payloads.is_empty());
+    for url in &payloads {
+        fixture.routes.remove(url);
+    }
+    let Resolved::Preview(metadata) = fixture.resolve(false).unwrap() else {
+        panic!("preview cannot acquire a release");
+    };
+    assert_eq!(metadata.version.to_string(), "5.0.0-alpha.92");
+    assert!(metadata.archive_bytes > 0);
+    assert!(metadata.application_schema.is_some());
+    assert!(!fixture.calls.iter().any(|url| payloads.contains(url)));
+    assert_eq!(metadata.fingerprint.len(), 64);
+}
+
+#[test]
+fn preview_refuses_a_changed_head_before_returning_a_target() {
+    let mut fixture = Fixture::new();
+    fixture.modify("pulls/234", true, |value| {
+        value["head"]["sha"] = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into();
+    });
+    let error = fixture.resolve(false).err().unwrap();
+    assert!(error.to_string().contains("head changed"), "{error}");
+}
+
+#[test]
+fn preview_keeps_schema_downgrade_admission() {
+    let mut fixture = Fixture::new();
+    fixture.local = u32::MAX;
+    assert!(fixture.resolve(false).is_err());
 }

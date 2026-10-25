@@ -175,6 +175,9 @@ fn bootstrap_record(layout: &Layout) {
             web_apps: vec![],
             live: None,
         },
+        PROJECT,
+        None,
+        true,
     )
     .unwrap();
     let prepared = deploy_run::prepare_with_hosting(

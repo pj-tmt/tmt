@@ -6,6 +6,9 @@ const crypto = require('node:crypto');
 const SUPPORTED = ['15.29.0'];
 const BYTES = 4 * 1024 * 1024;
 const PAGES = 10;
+// Mirrors limits::DEPLOY_PERMISSION_COUNT and DEPLOY_PERMISSION_BYTES.
+const PERMISSION_COUNT = 128;
+const PERMISSION_BYTES = 128;
 // Private helper mirror, pinned to limits::CLOUD_DESCRIPTOR_BYTES by the adapter test.
 const CLOUD_DESCRIPTOR_BYTES = 4096;
 const FILE_SAMPLE_COUNT = 4;
@@ -125,6 +128,7 @@ function validate(request) {
   const fields = {
     compatibility: [],
     account: [],
+    'permission-probe': ['project', 'permissions'],
     'hosting-inventory': ['project', 'site'],
     ...Object.fromEntries(
       ['observe-hosting', 'apply-hosting', 'verify-hosting'].map((op) => [
@@ -163,6 +167,16 @@ function validate(request) {
   if (!Object.hasOwn(fields, request.operation)) fail('provider-rejected');
   keys(request.input, fields[request.operation]);
   const i = request.input;
+  if (
+    request.operation === 'permission-probe' &&
+    (!Array.isArray(i.permissions) ||
+      i.permissions.length === 0 ||
+      i.permissions.length > PERMISSION_COUNT ||
+      i.permissions.some(permission =>
+        typeof permission !== 'string' || permission.length > PERMISSION_BYTES ||
+        !/^[a-z][a-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*){2,}$/.test(permission)) ||
+      new Set(i.permissions).size !== i.permissions.length)
+  ) fail('provider-rejected');
   if (i.project !== undefined && !/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(i.project))
     fail('provider-rejected');
   if (request.operation === 'owner-access-config' &&
@@ -449,6 +463,42 @@ async function execute(request, deps) {
     rules: 'https://firebaserules.googleapis.com/v1',
     hosting: 'https://firebasehosting.googleapis.com/v1beta1',
   };
+  // testIamPermissions is a read despite its POST verb. Keep it outside api()'s
+  // mutation claim/reconciliation path; it cannot renew the original deadline.
+  if (r.operation === 'permission-probe') {
+    let reply;
+    try {
+      if (now() >= callBound) fail('unknown');
+      reply = await deps.http(
+        `https://cloudresourcemanager.googleapis.com/v3/projects/${project}:testIamPermissions`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${credential.token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ permissions: i.permissions }),
+        },
+        callBound
+      );
+    } catch {
+      fail('unknown');
+    }
+    if (now() >= callBound) fail('unknown');
+    if (reply.status !== 200) {
+      if (!Number.isInteger(reply.status) || reply.status < 400 || reply.status > 599)
+        fail('unknown');
+      fail(fault(reply, reply.body), { operation: 'permission-probe', status: reply.status });
+    }
+    const body = reply.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body) ||
+        Object.keys(body).some(key => key !== 'permissions')) fail('unknown');
+    const granted = body.permissions === undefined ? [] : body.permissions;
+    if (!Array.isArray(granted) ||
+        granted.some(permission => !i.permissions.includes(permission)) ||
+        new Set(granted).size !== granted.length) fail('unknown');
+    return granted;
+  }
   async function api(
     service,
     route,

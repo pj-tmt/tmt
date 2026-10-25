@@ -128,6 +128,23 @@ pub trait CommandRunner {
 
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError>;
 
+    /// Observe bounded stderr chunks without changing stdout, deadlines or child ownership.
+    /// Scripted runners may return their captured observation at completion; the Unix runner
+    /// invokes the observer as pipe bytes arrive. Observers grant no execution authority.
+    fn execute_observed(
+        &self,
+        request: CommandRequest<'_>,
+        stderr_limit: usize,
+        observer: &mut dyn FnMut(&[u8]),
+    ) -> Result<CommandOutput, CommandError> {
+        let output = self.execute(request)?;
+        if output.stderr.len() > stderr_limit {
+            return Err(CommandError::new(CommandFailure::OutputLimit));
+        }
+        observer(&output.stderr);
+        Ok(output)
+    }
+
     /// Child-only overrides. Runners without this capability refuse before any spawn.
     fn execute_with_environment(
         &self,
@@ -151,6 +168,14 @@ pub trait CommandRunner {
 /// A borrowed runner, so a short-lived caller (one external host driver per
 /// binding session) runs through its handle's runner.
 impl<R: CommandRunner + ?Sized> CommandRunner for &R {
+    fn execute_observed(
+        &self,
+        request: CommandRequest<'_>,
+        stderr_limit: usize,
+        observer: &mut dyn FnMut(&[u8]),
+    ) -> Result<CommandOutput, CommandError> {
+        (**self).execute_observed(request, stderr_limit, observer)
+    }
     fn process_parent(&self, pid: u64, deadline: Instant) -> Option<u64> {
         (**self).process_parent(pid, deadline)
     }
@@ -237,6 +262,14 @@ impl CommandRunner for SupervisedProbeRunner {
 }
 
 impl CommandRunner for UnixCommandRunner {
+    fn execute_observed(
+        &self,
+        request: CommandRequest<'_>,
+        stderr_limit: usize,
+        observer: &mut dyn FnMut(&[u8]),
+    ) -> Result<CommandOutput, CommandError> {
+        self.start(request)?.wait_observed(stderr_limit, observer)
+    }
     fn process_parent(&self, pid: u64, deadline: Instant) -> Option<u64> {
         process_info::parent(pid, deadline)
     }
@@ -319,8 +352,23 @@ pub struct RunningCommand {
 }
 
 impl RunningCommand {
-    pub fn wait(mut self) -> Result<CommandOutput, CommandError> {
-        match communicate(&mut self.job, self.deadline, self.max_output_bytes) {
+    pub fn wait(self) -> Result<CommandOutput, CommandError> {
+        let limit = self.max_output_bytes;
+        self.wait_observed(limit, &mut |_| {})
+    }
+
+    fn wait_observed(
+        mut self,
+        stderr_limit: usize,
+        observer: &mut dyn FnMut(&[u8]),
+    ) -> Result<CommandOutput, CommandError> {
+        match communicate(
+            &mut self.job,
+            self.deadline,
+            self.max_output_bytes,
+            stderr_limit,
+            observer,
+        ) {
             Ok(output) => {
                 self.finished = true;
                 Ok(output)
@@ -344,9 +392,11 @@ fn communicate(
     job: &mut Job,
     deadline: Instant,
     max_output_bytes: usize,
+    stderr_limit: usize,
+    observer: &mut dyn FnMut(&[u8]),
 ) -> Result<CommandOutput, CommandError> {
     let mut stdout = CappedOutput::new(max_output_bytes);
-    let mut stderr = CappedOutput::new(max_output_bytes);
+    let mut stderr = CappedOutput::new(stderr_limit);
     {
         // Keep the Job. Exec::communicate detaches; consuming convenience
         // timeout methods can instead block inside Process::drop on failure.
@@ -354,7 +404,13 @@ fn communicate(
             .communicate()
             .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?
             .limit_time(remaining(deadline)?);
-        if let Err(cause) = communication.read_to(&mut stdout, &mut stderr) {
+        if let Err(cause) = communication.read_to(
+            &mut stdout,
+            &mut ObservedOutput {
+                output: &mut stderr,
+                observer,
+            },
+        ) {
             let kind = if stdout.exceeded || stderr.exceeded {
                 CommandFailure::OutputLimit
             } else if cause.kind() == io::ErrorKind::TimedOut {
@@ -393,6 +449,22 @@ struct CappedOutput {
     bytes: Vec<u8>,
     limit: usize,
     exceeded: bool,
+}
+
+struct ObservedOutput<'a> {
+    output: &'a mut CappedOutput,
+    observer: &'a mut dyn FnMut(&[u8]),
+}
+
+impl Write for ObservedOutput<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let written = self.output.write(bytes)?;
+        (self.observer)(&bytes[..written]);
+        Ok(written)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 impl CappedOutput {

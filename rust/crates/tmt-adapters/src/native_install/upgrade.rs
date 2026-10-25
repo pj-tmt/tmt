@@ -21,6 +21,11 @@ pub struct UpgradeRequest<'a> {
     pub unpin: bool,
 }
 
+mod preview;
+#[cfg(test)]
+use preview::prepare_product_with;
+pub use preview::{MigrationPreview, PreparedUpgrade, prepare_upgrade, upgrade_prepared};
+
 #[derive(Debug)]
 pub struct UpgradeReport {
     pub installation: InstallReport,
@@ -132,6 +137,8 @@ pub fn upgrade_product_with_schema_consent(
         request,
         verifier,
         Acquisition {
+            prepared: None,
+            progress: &|_| {},
             selected: None,
             allow_schema_ahead,
             deadline,
@@ -180,6 +187,18 @@ pub fn upgrade_product_selected(
     verifier: Option<ReleaseVerifier<'_>>,
     checkpoint: impl FnMut() -> io::Result<()>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
+    upgrade_product_selected_observed(product, request, version, verifier, checkpoint, &|_| {})
+}
+
+/// Exact consented selection with read-only acquisition/publication observations.
+pub fn upgrade_product_selected_observed(
+    product: super::Product,
+    request: UpgradeRequest<'_>,
+    version: &str,
+    verifier: Option<ReleaseVerifier<'_>>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+    progress: super::ProgressObserver<'_>,
+) -> Result<UpgradeReport, UpgradeFailure> {
     let version = version
         .parse::<semver::Version>()
         .map_err(io::Error::other)?;
@@ -198,6 +217,8 @@ pub fn upgrade_product_selected(
         request,
         verifier,
         Acquisition {
+            prepared: None,
+            progress,
             selected: Some(&version),
             allow_schema_ahead: false,
             deadline,
@@ -212,9 +233,29 @@ pub fn upgrade_product_selected(
                 }
             ) && url.ends_with("/zip")
             {
-                client.get_actions(url, limit, deadline)
+                client.get_actions_observed(url, limit, deadline, &|received_bytes, total_bytes| {
+                    if limit == super::pr_catalog::PAYLOAD_ZIP_LIMIT {
+                        progress(super::ProgressEvent::Download {
+                            received_bytes,
+                            total_bytes,
+                        });
+                    }
+                })
             } else {
-                client.get(url, accept, limit, deadline)
+                client.get_observed(
+                    url,
+                    accept,
+                    limit,
+                    deadline,
+                    &|received_bytes, total_bytes| {
+                        if accept == "application/octet-stream" && url.ends_with(".tar.gz") {
+                            progress(super::ProgressEvent::Download {
+                                received_bytes,
+                                total_bytes,
+                            });
+                        }
+                    },
+                )
             }
         },
         install_cli,
@@ -256,6 +297,8 @@ fn upgrade_product_with(
         request,
         verifier,
         Acquisition {
+            prepared: None,
+            progress: &|_| {},
             selected,
             allow_schema_ahead: false,
             deadline: Instant::now() + Duration::from_secs(60),
@@ -267,6 +310,8 @@ fn upgrade_product_with(
 }
 
 struct Acquisition<'a> {
+    progress: super::ProgressObserver<'a>,
+    prepared: Option<&'a PreparedUpgrade>,
     selected: Option<&'a semver::Version>,
     allow_schema_ahead: bool,
     deadline: Instant,
@@ -288,6 +333,8 @@ fn upgrade_product_with_options(
     ) -> io::Result<InstallReport>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
     let Acquisition {
+        progress,
+        prepared,
         selected,
         allow_schema_ahead,
         deadline,
@@ -301,25 +348,28 @@ fn upgrade_product_with_options(
         request.unpin,
     )
     .map_err(io::Error::other)?;
+    if let Some(prepared) = prepared
+        && (current.id != prepared.current.id
+            || current.state != prepared.current.state
+            || current.prefix != prepared.current.prefix
+            || selection != prepared.selection
+            || request.channel.is_some() != prepared.explicit_channel)
+    {
+        return Err(super::invalid("The installation changed after the upgrade preview. Nothing was changed; rerun tmt upgrade.").into());
+    }
+    if prepared.is_some_and(PreparedUpgrade::lagging_pointer) {
+        return Ok(unchanged(current, false));
+    }
     let UpgradeSelection::Fetch {
         channel,
         exact,
         pin,
     } = selection
     else {
-        return Ok(UpgradeReport {
-            installation: InstallReport {
-                executable: current.executable,
-                active_executable: current.active_executable,
-                version: current.state.version.to_string(),
-                changed: false,
-            },
-            state: current.state,
-            skipped_pinned: true,
-        });
+        return Ok(unchanged(current, true));
     };
     let mut downloaded = if let Channel::Pr(pr) = channel {
-        super::pr_resolver::download_current(
+        super::pr_resolver::download_current_observed(
             super::pr_resolver::Request {
                 product,
                 pr,
@@ -329,17 +379,25 @@ fn upgrade_product_with_options(
                 deadline,
             },
             &mut get,
+            progress,
         )?
     } else {
-        release::download_product(
+        release::download_product_observed(
             product,
             channel,
             selected.or(exact.as_ref()),
             &current.target,
             deadline,
             &mut get,
+            progress,
         )?
     };
+    if let Some(metadata) = prepared.and_then(|prepared| prepared.metadata.as_ref())
+        && (downloaded.version != metadata.version
+            || downloaded.upgrade_fingerprint()? != metadata.fingerprint)
+    {
+        return Err(super::invalid("The release changed after the upgrade preview. Nothing was changed; rerun tmt upgrade.").into());
+    }
     // Published channel discovery is advisory: its verified-only pointer can lag this installation.
     // Explicit exact selections and pin/channel transitions keep the version policy owner.
     if !matches!(channel, Channel::Pr(_))
@@ -349,16 +407,7 @@ fn upgrade_product_with_options(
         && !request.unpin
         && downloaded.version.cmp_precedence(&current.state.version) == std::cmp::Ordering::Less
     {
-        return Ok(UpgradeReport {
-            installation: InstallReport {
-                executable: current.executable,
-                active_executable: current.active_executable,
-                version: current.state.version.to_string(),
-                changed: false,
-            },
-            state: current.state,
-            skipped_pinned: false,
-        });
+        return Ok(unchanged(current, false));
     }
     downloaded.explicit_channel = request.channel.is_some();
     if matches!(current.state.channel, Channel::Pr(_)) && !matches!(channel, Channel::Pr(_)) {
@@ -389,6 +438,7 @@ fn upgrade_product_with_options(
     let result = if product == super::Product::Cli {
         install_cli(&current, &downloaded, channel, pin, &mut checkpoint)
     } else {
+        progress(super::ProgressEvent::Verifying);
         let artifact = artifact::acquire_bytes(
             product,
             &downloaded.manifest,
@@ -396,7 +446,9 @@ fn upgrade_product_with_options(
             &downloaded.archive,
             &current.target,
         )?;
-        activate(
+        progress(super::ProgressEvent::Verified);
+        progress(super::ProgressEvent::Activating);
+        let result = activate(
             ActivationRequest {
                 caller: super::Caller::Current,
                 product,
@@ -418,7 +470,11 @@ fn upgrade_product_with_options(
             },
             &artifact,
             &mut checkpoint,
-        )
+        );
+        if result.is_ok() {
+            progress(super::ProgressEvent::Activated);
+        }
+        result
     };
     result
         .map(|installation| UpgradeReport {
@@ -439,6 +495,19 @@ fn upgrade_product_with_options(
                 });
             UpgradeFailure { activated, cause }
         })
+}
+
+fn unchanged(current: super::ManagedInstallation, skipped_pinned: bool) -> UpgradeReport {
+    UpgradeReport {
+        installation: InstallReport {
+            executable: current.executable,
+            active_executable: current.active_executable,
+            version: current.state.version.to_string(),
+            changed: false,
+        },
+        state: current.state,
+        skipped_pinned,
+    }
 }
 
 fn install_cli(

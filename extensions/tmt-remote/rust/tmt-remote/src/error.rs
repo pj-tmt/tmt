@@ -116,6 +116,7 @@ impl From<io::Error> for RemoteError {
 pub enum DeployOperation {
     Identity,
     Project,
+    PermissionProbe,
     Database,
     OwnerRegistration,
     Fields,
@@ -150,6 +151,7 @@ impl DeployOperation {
         match self {
             Self::Identity => "the signed-in account",
             Self::Project => "the project",
+            Self::PermissionProbe => "deployment permissions",
             Self::Database => "the database",
             Self::OwnerRegistration => "machine owner registration",
             Self::Fields => "Firestore field configurations",

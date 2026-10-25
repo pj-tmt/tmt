@@ -163,7 +163,14 @@ The conversation renders every loaded final as a distinct request-keyed message,
 deduplicating a local outgoing reply by request ID rather than text. Replies and
 pane captures preserve authored single newlines through the conversation Markdown
 entry; the underlying bytes and request-source authority remain unchanged.
-Unavailable/expired source is not an annotatable response.
+Unavailable/expired source is not an annotatable response. Conversation Checklist changes by
+someone other than the Core user appear as muted `≡ actor · checklist · action title · age`
+rows. Current held titles identify items; missing items or actor labels say `an item` or
+`an agent`. Reorders say `reordered the checklist`. Activity, gap and failure captions
+share the transcript viewport but carry no message-source or acknowledgment authority.
+The [checklist owner](data-and-state.md#checklist-storage-and-service) holds the public
+mutation log cursor and bounded facts; the transcript neither infers changes from snapshots
+nor performs reads while painting.
 
 `board::conversation` owns one session per sender/recipient UUID and paints the
 same selected-agent response in the Agents detail area for both list modes. Each session

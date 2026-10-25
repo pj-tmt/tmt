@@ -200,6 +200,14 @@ pub(super) fn write(
     }
     table.write(output, terminal)?;
     let mut next = Next::default();
+    for row in account.products {
+        if let Some(url) = row["releaseUrl"].as_str() {
+            next.optional(format!(
+                "What changed ({}): {url}",
+                Component::of(row, None).name
+            ));
+        }
+    }
     let retry = account.repeat.filter(|_| {
         account
             .products

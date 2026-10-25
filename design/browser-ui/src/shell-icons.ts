@@ -70,16 +70,6 @@ export const shellIconNodes = {
     ['path', { d: 'm3.3 7 8.7 5 8.7-5' }],
     ['path', { d: 'M12 22V12' }],
   ],
-  'panel-left-close': [
-    ['rect', { width: '18', height: '18', x: '3', y: '3', rx: '2' }],
-    ['path', { d: 'M9 3v18' }],
-    ['path', { d: 'm16 15-3-3 3-3' }],
-  ],
-  'panel-left-open': [
-    ['rect', { width: '18', height: '18', x: '3', y: '3', rx: '2' }],
-    ['path', { d: 'M9 3v18' }],
-    ['path', { d: 'm14 9 3 3-3 3' }],
-  ],
   menu: [
     ['path', { d: 'M4 5h16' }],
     ['path', { d: 'M4 12h16' }],

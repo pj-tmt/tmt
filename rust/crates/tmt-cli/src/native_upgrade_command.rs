@@ -2,12 +2,14 @@
 
 mod database;
 mod extensions;
+mod preview;
 mod rename;
 mod summary;
 
 use crate::{invocation::OutputMode, output::Failure};
 use serde_json::{Value, json};
 use std::{
+    cell::{Cell, RefCell},
     collections::BTreeMap,
     error::Error,
     fs,
@@ -50,43 +52,86 @@ pub fn execute_with_schema_consent(
         }
     };
     let current = std::env::current_exe().ok();
-    let prior = Prior {
-        repeat: repeat_command(channel, exact, unpin, yes, allow_schema_ahead),
-        ran_from_moved_prefix: current
-            .as_deref()
-            .is_some_and(native_install::in_moved_prefix),
-        versions: current
-            .as_deref()
-            .map(installed_versions)
-            .unwrap_or_default(),
-    };
+    let versions = current
+        .as_deref()
+        .map(installed_versions)
+        .unwrap_or_default();
+    let ran_from_moved_prefix = current
+        .as_deref()
+        .is_some_and(native_install::in_moved_prefix);
+    let presentation = RefCell::new(crate::native_progress::InstallProgress::new(
+        "Upgrading",
+        native_install::Product::Cli,
+        tmt_cli_style::Interaction::detect(mode.json),
+    ));
+    let show_progress = Cell::new(false);
     let result = (|| {
         let executable = std::env::current_exe()?;
-        native_install::upgrade_product_with_schema_consent(
+        let request = || UpgradeRequest {
+            executable: &executable,
+            channel,
+            exact,
+            unpin,
+        };
+        let checkpoint = || {
+            if interrupt.is_interrupted() {
+                Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "Native update interrupted.",
+                ))
+            } else {
+                Ok(())
+            }
+        };
+        checkpoint()?;
+        let prepared = native_install::prepare_upgrade(
             tmt_core::native_install::Product::Cli,
-            UpgradeRequest {
-                executable: &executable,
-                channel,
-                exact,
-                unpin,
-            },
+            request(),
             allow_schema_ahead,
-            None,
-            || {
-                if interrupt.is_interrupted() {
-                    Err(io::Error::new(
-                        io::ErrorKind::Interrupted,
-                        "Native update interrupted.",
-                    ))
-                } else {
-                    Ok(())
-                }
-            },
+        )?;
+        let extensions =
+            crate::extension_install_command::upgrade_all::plan(prepared.current().prefix());
+        checkpoint()?;
+        let approval = preview::approve(
+            &prepared,
+            &extensions,
+            channel.is_some() || exact.is_some() || unpin,
+            yes,
+            mode,
         )
+        .map_err(|failure| {
+            let message = failure
+                .source()
+                .map_or_else(|| failure.to_string(), |cause| format!("{failure} {cause}"));
+            io::Error::other(message)
+        })?;
+        if !approval.proceed {
+            return Ok(None);
+        }
+        show_progress.set(
+            prepared
+                .selected_version()
+                .is_some_and(|selected| selected != &prepared.current().state.version)
+                || channel.is_some()
+                || exact.is_some()
+                || unpin,
+        );
+        let observed = |event: native_install::ProgressEvent<'_>| {
+            if show_progress.get() {
+                presentation.borrow_mut().observe(event);
+            }
+        };
+        let result =
+            native_install::upgrade_prepared(&prepared, request(), None, checkpoint, &observed);
+        result.map(|report| Some((report, extensions, approval.extensions)))
     })();
-    let report = match result {
-        Ok(report) => report,
+    let (report, extensions, extension_consent) = match result {
+        Ok(Some(report)) => report,
+        Ok(None) => return Ok(0),
         Err(mut error) => {
+            if show_progress.get() {
+                presentation.borrow_mut().failed();
+            }
             let activated = error.activated.take();
             let status = if error.kind() == io::ErrorKind::Interrupted {
                 130
@@ -99,11 +144,20 @@ pub fn execute_with_schema_consent(
             return publish(activated.as_deref(), None, Some(failure), mode);
         }
     };
+    let prior = Prior {
+        repeat: repeat_command(channel, exact, unpin, yes, allow_schema_ahead),
+        ran_from_moved_prefix,
+        versions,
+        extensions,
+    };
     if report.skipped_pinned {
         drop(interrupt);
-        return finish(&report, None, None, yes, &prior, None, mode);
+        return finish(&report, None, None, extension_consent, &prior, None, mode);
     }
     if interrupt.is_interrupted() {
+        if show_progress.get() {
+            presentation.borrow_mut().failed();
+        }
         return publish(
             Some(&report),
             None,
@@ -127,13 +181,31 @@ pub fn execute_with_schema_consent(
             130,
         ));
     }
+    if show_progress.get() && report.installation.changed {
+        if failure.is_some() {
+            presentation.borrow_mut().failed();
+        } else {
+            let warning = skills
+                .as_ref()
+                .is_some_and(|skills| skills["status"] == "warning");
+            presentation.borrow_mut().settled(warning);
+        }
+    }
     drop(interrupt);
     // The activated executable renames the Core database (#2292), on every
     // completed unpinned upgrade; whatever happens there never fails the upgrade.
     let database = failure
         .is_none()
         .then(|| database::run(&report.installation.active_executable, &UnixCommandRunner));
-    finish(&report, skills, failure, yes, &prior, database, mode)
+    finish(
+        &report,
+        skills,
+        failure,
+        extension_consent,
+        &prior,
+        database,
+        mode,
+    )
 }
 
 /// What the upgrade started from: where it ran and which versions were installed, for the
@@ -143,6 +215,7 @@ struct Prior {
     repeat: String,
     ran_from_moved_prefix: bool,
     versions: BTreeMap<String, String>,
+    extensions: crate::extension_install_command::upgrade_all::Plan,
 }
 
 /// The bare retry the extension rows suggest; a repeated invocation replaces it.
@@ -206,8 +279,9 @@ fn finish(
     mode: OutputMode,
 ) -> io::Result<u8> {
     let extensions = if failure.is_none() {
-        extensions::upgrade(
+        extensions::upgrade_frozen(
             &report.installation.active_executable,
+            &prior.extensions,
             yes,
             mode,
             &UnixCommandRunner,
@@ -533,7 +607,53 @@ fn product_rows(
         "error": failure.map(|failure| failure_document(failure)["error"].clone()),
     })];
     products.extend(extensions);
+    for row in &mut products {
+        if row["status"] != "changed"
+            && !(row["product"] == "cli"
+                && report.is_some_and(|report| report.installation.changed))
+        {
+            continue;
+        }
+        let Some(product) = native_install::Product::ALL
+            .into_iter()
+            .find(|p| row["product"] == p.as_str())
+        else {
+            continue;
+        };
+        let Some(version) = row["version"].as_str().filter(|v| {
+            !v.is_empty()
+                && v.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b".-+".contains(&b))
+        }) else {
+            continue;
+        };
+        let url = match report
+            .filter(|_| product == native_install::Product::Cli)
+            .map(|r| r.state.channel)
+        {
+            Some(Channel::Pr(pr)) => format!("https://github.com/pj-tmt/tmt/pull/{pr}"),
+            _ if version.contains('+') => "https://github.com/pj-tmt/tmt/releases".into(),
+            _ => format!(
+                "https://github.com/pj-tmt/tmt/releases/tag/{}{version}",
+                product.tag_prefix()
+            ),
+        };
+        row["releaseUrl"] = url.into();
+    }
     products
+}
+
+/// Ops/Colab expose no public liveness observation here; a conditional notice grants no effect.
+pub(crate) fn restart_hint(product: native_install::Product, version: &str) -> Option<String> {
+    match product {
+        native_install::Product::Ops => Some(format!(
+            "If an Ops board is open, restart it to use ops {version}."
+        )),
+        native_install::Product::Colab => Some(format!(
+            "If Colab serve is running, restart it to use colab {version}."
+        )),
+        _ => None,
+    }
 }
 
 fn path_warning(executable: &Path) -> Option<String> {

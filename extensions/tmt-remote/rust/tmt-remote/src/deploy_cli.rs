@@ -86,6 +86,11 @@ pub trait FirestoreCommandPort: DeployPort {
     /// Supply private layout only; preview never signs in or registers a machine.
     fn prepare_owner(&mut self, _layout: &crate::state::Layout) {}
     fn login(&mut self) -> Result<(), crate::deploy_firestore::DeploySetupError>;
+    fn check_permissions(
+        &mut self,
+        project: &str,
+        permissions: &[&str],
+    ) -> Result<Vec<String>, crate::deploy_firestore::DeployPreflightError>;
     /// Return database presence observed by the existing budget read, if known.
     fn check_index_budget(
         &mut self,
@@ -122,6 +127,13 @@ impl FirestoreCommandPort for crate::deploy_firestore::DeployFirestore<'_> {
     }
     fn login(&mut self) -> Result<(), crate::deploy_firestore::DeploySetupError> {
         self.login_account().map(|_| ())
+    }
+    fn check_permissions(
+        &mut self,
+        project: &str,
+        permissions: &[&str],
+    ) -> Result<Vec<String>, crate::deploy_firestore::DeployPreflightError> {
+        self.check_permissions(project, permissions)
     }
     fn check_index_budget(
         &mut self,
@@ -290,6 +302,11 @@ pub fn execute_with_confirmation<P: FirestoreCommandPort>(
     let mut provider = provider_factory()?;
     provider.prepare_owner(&layout);
     provider.login().map_err(DeployCliError::Setup)?;
+    let names = crate::deploy_permissions::requested(&requirements);
+    let granted = provider
+        .check_permissions(&args.project, &names)
+        .map_err(DeployCliError::Provider)?;
+    crate::deploy_permissions::check(&requirements, &granted).map_err(DeployCliError::Local)?;
     let path = store.record_path();
     let mut output = execute_prepared(
         args,
@@ -300,6 +317,7 @@ pub fn execute_with_confirmation<P: FirestoreCommandPort>(
         &path,
         confirmation,
     )?;
+    crate::deploy_permissions::annotate(&mut output, &requirements, args.details);
     if output.json["declined"] != true
         && output.json["record"]["run"]["steps"]
             .as_array()
@@ -468,6 +486,11 @@ fn execute_prepared<P: FirestoreCommandPort>(
             let mut preview = prepared
                 .preview(&input, store, hosting.as_ref())
                 .map_err(map)?;
+            let requirements = inputs::permission_requirements(
+                &discovered.extensions,
+                discovered.hosting.is_some(),
+            );
+            crate::deploy_permissions::annotate(&mut preview, &requirements, args.details);
             if args.details {
                 preview.human.push_str(&confirmation_notice(
                     prepared.plan(),
@@ -672,6 +695,7 @@ fn short_preview(
         view.sign_in.join(", "),
     ));
     text.push_str(&supersession_notice(plan, record));
+    text.push_str("Permissions: checked\n");
     text.push_str("Full plan: run the same command with --details.\n");
     text
 }

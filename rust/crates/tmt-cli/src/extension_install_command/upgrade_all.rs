@@ -1,6 +1,6 @@
 //! One consent decision over installed official extensions; activation keeps its existing owner.
-use super::{INSTALLABLE_EXTENSIONS, ask_declining, failure, installed, list_upgrade::upgrade_at};
-use crate::{consent, invocation::OutputMode, output::Failure};
+use super::{INSTALLABLE_EXTENSIONS, failure, installed};
+use crate::{invocation::OutputMode, output::Failure};
 use serde_json::{Value, json};
 use std::{
     io::{self, Read, Write},
@@ -11,7 +11,7 @@ mod protocol;
 pub(crate) use protocol::{LIMIT, Plan, parse_results};
 use tmt_adapters::native_install::{self, Product};
 
-fn plan(prefix: &Path) -> Plan {
+pub(crate) fn plan(prefix: &Path) -> Plan {
     plan_with(prefix, |product, channel| {
         native_install::latest_release_version(product, channel).map(|version| version.to_string())
     })
@@ -57,35 +57,26 @@ fn plan_with(
     }
 }
 
-pub(crate) fn ask(plan: &Plan, yes: bool, mode: OutputMode) -> Result<bool, Failure> {
-    if !yes && !consent::interactive(mode, &tmt_cli_style::stream::stdout(mode.json)) {
-        return Ok(false);
-    }
-    ask_declining(
-        yes,
-        mode,
-        &question(&plan.pending),
-        "No extension changes made.",
-        true,
-    )
-}
-
 pub(crate) fn without_consent(plan: Plan, consent: Result<bool, Failure>) -> Vec<Value> {
     settle(
         plan.products,
         plan.pending,
         |_| consent,
-        |_, _| unreachable!("no apply without consent"),
+        |_, _, _| unreachable!("no apply without consent"),
     )
 }
 
-pub(crate) fn execute(planning: bool, mode: OutputMode) -> io::Result<u8> {
+pub(crate) fn execute(planning: bool, progress: bool, mode: OutputMode) -> io::Result<u8> {
     let result: Result<(Value, u8), Failure> = (|| {
         let executable =
             std::env::current_exe().map_err(|error| failure("EXTENSION_UPGRADE_FAILED", error))?;
         let current = native_install::inspect(&executable)
             .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
         if planning {
+            if progress {
+                let _ = tmt_cli_style::stream::stderr()
+                    .write_all(crate::native_progress::child::CAPABILITY);
+            }
             return Ok((plan(current.prefix()).document(), 0));
         }
         let mut bytes = Vec::new();
@@ -102,12 +93,38 @@ pub(crate) fn execute(planning: bool, mode: OutputMode) -> io::Result<u8> {
                     1,
                 )
             })?;
+        let sender = std::cell::RefCell::new(crate::native_progress::child::Sender::default());
         let products = settle(
             Vec::new(),
             plan.pending,
             |_| Ok(true),
-            |product, selected| {
-                upgrade_at(product, current.prefix(), None, None, false, Some(selected))
+            |product, previous, selected| {
+                let observe = |event: native_install::ProgressEvent<'_>| {
+                    if progress {
+                        sender.borrow_mut().observe(product, event);
+                    }
+                };
+                let outcome = super::list_upgrade::upgrade_at_observed(
+                    product,
+                    current.prefix(),
+                    None,
+                    None,
+                    false,
+                    Some((previous, selected)),
+                    &observe,
+                );
+                if progress {
+                    let event = match &outcome {
+                        Ok(Some((document, _))) => {
+                            crate::native_progress::child::UpgradeProgress::Settled {
+                                warning: document["skills"]["status"] == "warning",
+                            }
+                        }
+                        _ => crate::native_progress::child::UpgradeProgress::Failed,
+                    };
+                    sender.borrow_mut().send(product, event);
+                }
+                outcome
             },
         );
         let status = u8::from(products.iter().any(|product| product["status"] == "failed"));
@@ -135,7 +152,7 @@ fn settle(
     mut outcomes: Vec<Value>,
     pending: Vec<(Product, String, String)>,
     consent: impl FnOnce(&str) -> Result<bool, Failure>,
-    mut upgrade: impl FnMut(Product, &str) -> Result<super::Outcome, Failure>,
+    mut upgrade: impl FnMut(Product, &str, &str) -> Result<super::Outcome, Failure>,
 ) -> Vec<Value> {
     if pending.is_empty() {
         return outcomes;
@@ -146,7 +163,7 @@ fn settle(
         match &accepted {
             Ok(false) => outcomes.push(consent_required(product, &version, &selected)),
             Err(error) => outcomes.push(failed_ref(product, error)),
-            Ok(true) => match upgrade(product, &selected) {
+            Ok(true) => match upgrade(product, &version, &selected) {
                 Ok(Some((document, _))) => outcomes.push(upgraded(product, document)),
                 Ok(None) => unreachable!("consented upgrade always reports"),
                 Err(error) => outcomes.push(failed(product, error)),
@@ -177,7 +194,7 @@ fn consent_required(product: Product, version: &str, selected: &str) -> Value {
     })
 }
 
-fn upgraded(product: Product, document: Value) -> Value {
+fn upgraded(product: Product, mut document: Value) -> Value {
     if document["skippedPinned"] == true {
         return pinned(
             product,
@@ -189,6 +206,13 @@ fn upgraded(product: Product, document: Value) -> Value {
     } else {
         "unchanged"
     };
+    if status == "changed"
+        && let Some(hint) = document["version"]
+            .as_str()
+            .and_then(|version| crate::native_upgrade_command::restart_hint(product, version))
+    {
+        document["restartHint"] = hint.into();
+    }
     json!({
         "product": product.as_str(),
         "status": status,
