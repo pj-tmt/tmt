@@ -21,6 +21,9 @@ const host = (name: string) => {
   return value;
 };
 const origin = `https://${project}.web.app`;
+// A dedicated Hosting site is not named for the project (#4930): the second holder opens the
+// same link there, with the same project's init config.
+const siteOrigin = 'https://demo-tmt-colab-hosted-docs.web.app';
 const config = {
   apiKey: 'fake-key',
   appId: '1:12345:web:proof',
@@ -553,7 +556,8 @@ test('a hosted editor verifies native content, publishes own edit requests and o
       for (const holder of Object.values(holders))
         await expect(heading(holder)).toHaveText(words, { timeout: 60000 });
     }
-    // A second hosted holder of the same link: its own browser profile, so its own Firebase uid.
+    // A second hosted holder of the same link: its own browser profile, so its own Firebase uid,
+    // and the dedicated Hosting site's origin (the first holder is on the project-default one).
     // The Rules continue the shared hosted stream across the two uids of one link, in both
     // directions, and the owner applies every request.
     const second = await browser.newContext();
@@ -562,7 +566,7 @@ test('a hosted editor verifies native content, publishes own edit requests and o
       const incoming = route.request(),
         url = new URL(incoming.url());
       paths.push(url.origin + url.pathname);
-      if (url.origin === origin) {
+      if (url.origin === siteOrigin) {
         if (url.pathname === '/__/firebase/init.json') await route.fulfill({ json: config });
         else
           await route.fulfill({
@@ -613,7 +617,7 @@ test('a hosted editor verifies native content, publishes own edit requests and o
     });
     const secondPage = await second.newPage();
     secondPage.on('pageerror', (error) => crashes.push(error.message));
-    await secondPage.goto(`${origin}/read/${created.pageId}${fragment}`);
+    await secondPage.goto(`${siteOrigin}/read/${created.pageId}${fragment}`);
     await secondPage.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(secondPage.getByText('Live', { exact: true })).toBeVisible({ timeout: 25000 });
     await expect(heading(secondPage)).toHaveText('Door holder second request', { timeout: 60000 });

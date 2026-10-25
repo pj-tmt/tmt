@@ -60,10 +60,14 @@ fn in_cloud(emulator: &Emulator, page: &str, collection: &str, needle: &str) -> 
         .count()
 }
 
-/// The public remote reference (`tmt remote add`) for a demo project, with its checksum.
-fn remote_link(project: &str) -> String {
+/// The public remote reference (`tmt remote add`) for a demo project, with its checksum. On a
+/// dedicated Hosting site (#4930) the checksummed body also names the site, which is the origin.
+fn remote_link(project: &str, site: Option<&str>) -> String {
+    let named = site
+        .map(|site| format!(r#""hostingSite":"{site}","#))
+        .unwrap_or_default();
     let body = format!(
-        r#"{{"kind":"firestore","publicWebConfig":{{"apiKey":"fake-key","appId":"1:12345:web:proof","authDomain":"{project}.firebaseapp.com","projectId":"{project}"}},"version":1}}"#
+        r#"{{{named}"kind":"firestore","publicWebConfig":{{"apiKey":"fake-key","appId":"1:12345:web:proof","authDomain":"{project}.firebaseapp.com","projectId":"{project}"}},"version":1}}"#
     );
     let checksum: String = Sha256::digest(body.as_bytes())
         .iter()
@@ -71,12 +75,19 @@ fn remote_link(project: &str) -> String {
         .collect();
     let descriptor = format!(r#"{{"checksum":"{checksum}",{}"#, &body[1..]);
     let fragment = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(descriptor);
-    format!("https://{project}.web.app/pair#{fragment}")
+    format!(
+        "https://{}.web.app/pair#{fragment}",
+        site.unwrap_or(project)
+    )
 }
 /// Point a home's Remote at the emulator project. The first home signs in; the second reuses
 /// that sign-in, which is the owner's second machine under one account.
 fn remote_setup(world: &World, inputs: &Inputs) {
-    world.remote(&["add", "proof", &remote_link(&inputs.project)]);
+    remote_setup_on(world, inputs, None);
+}
+/// As [`remote_setup`], with the reference naming a dedicated Hosting site when one is given.
+fn remote_setup_on(world: &World, inputs: &Inputs, site: Option<&str>) {
+    world.remote(&["add", "proof", &remote_link(&inputs.project, site)]);
     world.remote(&["settings", "default-remote", "proof"]);
 }
 fn sign_in(world: &World, inputs: &Inputs) -> String {
@@ -297,8 +308,11 @@ fn owner_homes_on_one_key_converge_in_both_directions() {
     let emulator = Emulator::new(&inputs);
     let a = World::new(&inputs, "own-a");
     let b = World::new(&inputs, "own-b");
+    // The reference of this proof names a dedicated Hosting site; the other proofs keep the
+    // project-default form, so both link forms are exercised.
+    let site = format!("{}-docs", inputs.project);
     for world in [&a, &b] {
-        remote_setup(world, &inputs);
+        remote_setup_on(world, &inputs, Some(&site));
     }
     sign_in(&a, &inputs);
     share_sign_in(&a, &b, &inputs.project);

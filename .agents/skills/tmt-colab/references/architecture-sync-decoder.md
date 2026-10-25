@@ -65,7 +65,9 @@ and `limits.rs`; do not restate them.
 
 `hosted-main`/`hosted-entry` own origin routing, explicit sign-in and the selected parsed link;
 `reader-keys` selects the reviewed door/hosted link-device derivation. `hosted-bootstrap` loads one exact release
-declaration and Remote SDK; `hosted-admission` retains the single enrollment attempt and reads
+declaration and Remote SDK, and keeps the reference the SDK verified for the page origin (the origin,
+which may be a dedicated Hosting site, and the public config; Colab never derives a host from the
+project) that `hosted-entry` requires every sealed port's config to equal; `hosted-admission` retains the single enrollment attempt and reads
 page hints. `hosted-session` and `hosted-interests` fence, close and join one three-interest group
 before switching or bounded recovery. `hosted-budget` owns the cross-tab origin ledger.
 `hosted-discovery`/`hosted-query` bound finite reads; `hosted-documents` reconstructs the native

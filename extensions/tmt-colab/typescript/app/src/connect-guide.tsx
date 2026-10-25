@@ -12,10 +12,14 @@ export interface ConnectGuideState {
   /** Available for copying only after Remote has validated the original public link. */
   remoteLink?: string;
 }
+/** The guide connects the link it was given; it never verifies or replaces it. */
+type GuideSdk = {
+  firebaseRemote: Pick<HostedRemoteSdk['firebaseRemote'], 'originLink' | 'connect'>;
+};
 interface Options {
   state(state: ConnectGuideState): void;
   fetch?: typeof fetch;
-  load?(): Promise<Pick<HostedRemoteSdk, 'firebaseRemote'>>;
+  load?(): Promise<GuideSdk>;
 }
 
 /** Owns one Auth reference, not page admission or a second Remote link parser. */
@@ -55,7 +59,7 @@ export function createConnectGuide(link: string, options: Options) {
       };
       const sdk = options.load
         ? await options.load()
-        : ((await remoteSdk()) as unknown as Pick<HostedRemoteSdk, 'firebaseRemote'>);
+        : ((await remoteSdk()) as unknown as GuideSdk);
       if (closed) return;
       // The same SDK check verifies the canonical carrier, declaration and same-origin config.
       const owner = await sdk.firebaseRemote.connect(link, declaration);

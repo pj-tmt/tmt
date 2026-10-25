@@ -3,6 +3,7 @@ import { expect, it, vi } from 'vite-plus/test';
 import { digest, text } from '@tmt/colab-client';
 import { verifyHostedDeclaration } from '../../../../tmt-remote/typescript/remote-client/src/firebase-declaration.js';
 import type { HostedAuth } from '../../../../tmt-remote/typescript/remote-client/src/firebase-auth.js';
+import type { HostedReference } from '../../../../tmt-remote/typescript/remote-client/src/firebase-bootstrap.js';
 import * as math from '../../../../tmt-remote/typescript/remote-client/src/budget.js';
 import { bootstrapHosted } from '../src/hosted-bootstrap.js';
 import { responseBytes, jsonResponse } from '../src/registration.js';
@@ -18,7 +19,16 @@ const bytes = ` \n${vector.declaration}\n`;
 const hash = async (raw: Uint8Array) =>
   [...(await digest(raw))].map((value) => value.toString(16).padStart(2, '0')).join('');
 const call = () => ({ signal: new AbortController().signal, deadlineAtMs: Date.now() + 30_000 });
-function fixture(response = new Response(bytes)) {
+const publicWebConfig = {
+  apiKey: 'public-key',
+  appId: '1:12345:web:bootstrap',
+  authDomain: 'demo-example.firebaseapp.com',
+  projectId: 'demo-example',
+};
+function fixture(
+  response = new Response(bytes),
+  reference: HostedReference = { origin: 'https://demo-example.web.app', publicWebConfig },
+) {
   const requests: unknown[] = [],
     declarations: unknown[] = [];
   const auth = { signInAnonymous: vi.fn(), close: vi.fn(async () => {}) } as unknown as HostedAuth;
@@ -28,6 +38,10 @@ function fixture(response = new Response(bytes)) {
   }) as unknown as typeof fetch;
   const link = 'https://demo-example.web.app/pair#canonical';
   const originLink = vi.fn(async () => link);
+  const verifyLink = vi.fn(async (selected: string) => {
+    expect(selected).toBe(link);
+    return reference;
+  });
   const connect = vi.fn(
     async (selected: string, declaration: { bytes: string; digest: string }) => {
       expect(selected).toBe(link);
@@ -38,9 +52,9 @@ function fixture(response = new Response(bytes)) {
   );
   const options = {
     fetch: fetcher,
-    load: async () => ({ firebaseRemote: { originLink, connect }, budget: math }),
+    load: async () => ({ firebaseRemote: { originLink, verifyLink, connect }, budget: math }),
   };
-  return { auth, options, requests, declarations, originLink, connect };
+  return { auth, options, requests, declarations, originLink, verifyLink, connect };
 }
 
 it('binds the one exact served declaration and derives every run limit from those same bytes', async () => {
@@ -49,7 +63,9 @@ it('binds the one exact served declaration and derives every run limit from thos
   expect(f.requests).toHaveLength(1);
   expect((f.requests[0] as unknown[])[0]).toBe('/tmt/declarations/colab.json');
   expect(f.originLink).toHaveBeenCalledOnce();
+  expect(f.verifyLink).toHaveBeenCalledOnce();
   expect(f.connect).toHaveBeenCalledOnce();
+  expect(boot.reference).toEqual({ origin: 'https://demo-example.web.app', publicWebConfig });
   expect(f.declarations).toEqual([{ bytes, digest: await hash(text(bytes)) }]);
   expect(boot.declaration).toEqual(f.declarations[0]);
   for (const resource of declaration.resources)
@@ -75,6 +91,29 @@ it.each([
     expect(f.auth.signInAnonymous).not.toHaveBeenCalled();
   },
 );
+
+it('keeps the verified reference of a dedicated Hosting site, whose host is not the project', async () => {
+  const reference = {
+    origin: 'https://demo-site.web.app',
+    publicWebConfig,
+    hostingSite: 'demo-site',
+  };
+  const f = fixture(undefined, reference),
+    boot = await bootstrapHosted(call(), f.options);
+  expect(boot.reference).toBe(reference);
+  expect(f.connect).toHaveBeenCalledOnce();
+  await boot.auth.close();
+});
+
+it('stops before connect when the link does not verify, and falls back to nothing', async () => {
+  const f = fixture();
+  f.verifyLink.mockRejectedValueOnce({ code: 'REMOTE_INPUT_INVALID' });
+  await expect(bootstrapHosted(call(), f.options)).rejects.toMatchObject({
+    code: 'REMOTE_INPUT_INVALID',
+  });
+  expect(f.connect).not.toHaveBeenCalled();
+  expect(f.auth.signInAnonymous).not.toHaveBeenCalled();
+});
 
 it('never creates Auth or reads a declaration after caller cancellation', async () => {
   const f = fixture();

@@ -1,5 +1,6 @@
 import { digest, requireValue } from '@tmt/colab-client';
 import type { HostedAuth } from '../../../../tmt-remote/typescript/remote-client/src/firebase-auth.js';
+import type { HostedReference } from '../../../../tmt-remote/typescript/remote-client/src/firebase-bootstrap.js';
 import type { HostedDeclaration } from '../../../../tmt-remote/typescript/remote-client/src/firebase-declaration.js';
 import type { SyncCall } from '../../../../tmt-remote/typescript/remote-client/src/sealed-sync.js';
 import {
@@ -16,6 +17,7 @@ import { hex } from './export.js';
 export interface HostedRemoteSdk {
   firebaseRemote: {
     originLink(): Promise<string>;
+    verifyLink(link: string): Promise<HostedReference>;
     connect(link: string, declaration: HostedDeclaration): Promise<HostedAuth>;
   };
   budget: HostedBudgetMath;
@@ -26,7 +28,9 @@ interface Options {
   store?: HostedBudgetStore;
 }
 export interface HostedBootstrap {
-  origin: string;
+  /** The SDK-verified public descriptor of the hosted origin: the origin, never a host guessed
+   * from the project, and the one public config every sealed port must carry. */
+  reference: HostedReference;
   auth: HostedAuth;
   declaration: HostedDeclaration;
   budget: HostedBudget;
@@ -68,6 +72,7 @@ export async function bootstrapHosted(
     : ((await remoteSdk()) as unknown as HostedRemoteSdk);
   live(call);
   const link = await sdk.firebaseRemote.originLink();
+  const reference = await sdk.firebaseRemote.verifyLink(link);
   live(call);
   const auth = await sdk.firebaseRemote.connect(link, declaration);
   try {
@@ -89,7 +94,7 @@ export async function bootstrapHosted(
       ]),
     );
     return {
-      origin: new URL(link).origin,
+      reference,
       auth,
       declaration,
       limits,

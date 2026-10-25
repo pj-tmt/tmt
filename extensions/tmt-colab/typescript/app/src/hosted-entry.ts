@@ -1,4 +1,5 @@
 import { certificate, requireValue } from '@tmt/colab-client';
+import type { PublicWebConfig } from '../../../../tmt-remote/typescript/remote-client/src/firebase-bootstrap.js';
 import type { SyncCall } from '../../../../tmt-remote/typescript/remote-client/src/sealed-sync.js';
 import { Admission } from './admission.js';
 import { HostedAdmission } from './hosted-admission.js';
@@ -14,6 +15,11 @@ import type { EditRequestOutcome, ReaderEdit } from './reader-source.js';
 import { PageAnswer, sendEditRequest } from './link-edit.js';
 import { EditTooLarge } from './save.js';
 
+const sameConfig = (a: PublicWebConfig, b: PublicWebConfig) =>
+  a.apiKey === b.apiKey &&
+  a.appId === b.appId &&
+  a.authDomain === b.authDomain &&
+  a.projectId === b.projectId;
 type Usage = Awaited<ReturnType<HostedBudget['snapshot']>>;
 export type HostedEntryState =
   | { phase: 'loading' | 'link-needed' | 'recovering' | 'paused' }
@@ -209,7 +215,7 @@ export class HostedEntry {
                 port.context.uid === this.signedIn &&
                 port.context.extension === 'colab' &&
                 port.context.declarationDigest === boot.declaration.digest &&
-                `https://${port.context.config.projectId}.web.app` === boot.origin,
+                sameConfig(port.context.config, boot.reference.publicWebConfig),
             );
             const hints = await page.admission.open(
               port,
