@@ -1040,6 +1040,8 @@ console.log(JSON.stringify({status:'sent',requestId:'fixture-request'}));
       process.execPath,
       [
         fileURLToPath(new URL('../../scripts/ci-failure-watch.mjs', import.meta.url)),
+        '--repo',
+        'pj-tmt/tmt',
         '--once',
         '--state',
         directory,

@@ -1259,7 +1259,7 @@ else throw Error('Unexpected endpoint');
       const execute = (fail: boolean, extra: string[] = [], queueFail = false) =>
         spawnSync(
           process.execPath,
-          [script, '--output', directory, '--review-map', map, ...extra],
+          [script, '--repo', 'pj-tmt/tmt', '--output', directory, '--review-map', map, ...extra],
           {
             encoding: 'utf8',
             timeout: 10_000,
@@ -1562,6 +1562,8 @@ else if(endpoint.includes('/pulls?')){
           [
             ...(mode === 'clock-budget' ? ['--import', clockHook] : []),
             fileURLToPath(new URL('../../scripts/infra-tick-summary.mjs', import.meta.url)),
+            '--repo',
+            'pj-tmt/tmt',
             '--output',
             directory,
             '--review-map',
