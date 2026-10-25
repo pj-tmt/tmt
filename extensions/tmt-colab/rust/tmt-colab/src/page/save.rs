@@ -59,6 +59,44 @@ pub enum Prepared {
     Unchanged(Box<super::Receipt>),
     Write(FrozenPublication),
 }
+/// Share the operation/no-op fence across structured owner commands. A no-op must not
+/// claim an operation ID already recorded for a different publication.
+pub(super) fn structured(
+    source: &Source,
+    page: &str,
+    operation: &str,
+    prepared: super::PublicationPreparation,
+) -> crate::Result<Prepared> {
+    Ok(match prepared {
+        super::PublicationPreparation::Noop {
+            epoch,
+            membership_head,
+            base_revision,
+            memory_limit,
+        } => {
+            if super::publication_status_by_operation(
+                &source.store,
+                &source.keyring,
+                page,
+                operation,
+            )?
+            .is_some()
+            {
+                return Err(OwnerFault::Conflict.into());
+            }
+            Prepared::Unchanged(Box::new(super::Receipt::unchanged(
+                &source.keyring,
+                page,
+                "",
+                epoch,
+                membership_head,
+                base_revision,
+                memory_limit,
+            )))
+        }
+        super::PublicationPreparation::Write(frozen) => Prepared::Write(frozen),
+    })
+}
 /// Prepare outside every lock. The commit that follows rechecks every fence, so a page that
 /// moved meanwhile turns this save into a stale-base refusal, never a silent overwrite.
 ///

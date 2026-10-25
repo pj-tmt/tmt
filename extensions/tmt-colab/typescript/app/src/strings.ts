@@ -28,6 +28,44 @@ const frameLimit =
   'A page’s scripts can open another address inside the page’s own frame, which can pass along what the page can read. Colab cannot fully prevent that.';
 
 export const text = {
+  metadata: {
+    questions: 'Questions',
+    questionsItem: 'Questions…',
+    creatorTitle: 'Page creator',
+    creatorItem: (name?: string) => (name ? `Creator: ${name}…` : 'Set creator…'),
+    setCreator: 'Set creator',
+    creator: 'Creator',
+    noCreator: 'No creator',
+    ownerOnly: 'Only the page owner can change this here',
+    unavailable: 'Page metadata unavailable',
+    verifying: 'Verifying question answers…',
+    noRegistry: 'This page has no question registry.',
+    empty: 'No registered questions.',
+    removed: 'Removed from page source',
+    onPage: 'On this page',
+    currentCreator: (name: string) => `Current creator: ${name}`,
+    assignedTo: (name: string) => `Assigned to ${name}`,
+    summary: (open: number, answered: number, handled: number) =>
+      `${open} open · ${answered} answered · ${handled} handled`,
+    cancel: 'Cancel',
+    close: 'Close',
+    creatorHint:
+      'New drafts use the creator. Existing question assignments and sent messages keep their recipients.',
+    directoryUnavailable: (code?: string) =>
+      `Agent directory unavailable${code ? ` (${code})` : ''}. The current creator is unchanged.`,
+    findAgent: 'Find an agent',
+    loading: 'Loading agents…',
+    retry: 'Retry',
+    status: {
+      open: 'Open',
+      answered: 'Answered',
+      handled: 'Handled',
+      unknown: 'Verifying…',
+      unregistered: 'Not registered',
+    },
+    handle: 'Mark handled',
+    reopen: 'Reopen',
+  },
   pageLink: {
     close: 'Close',
     external: 'Open this link in a new tab?',

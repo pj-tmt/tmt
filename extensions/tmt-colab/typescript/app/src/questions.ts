@@ -712,21 +712,24 @@ export function answerOf(question: Pick<Question, 'title'>, body: string): strin
   return page >= 0 ? answer.slice(0, page) : answer;
 }
 
-/** The caller supplies only verified comments associated by resolved normal quote selectors.
- * Publisher timestamps and agent replies never decide the current answer. */
+/** Bound answers survive title/quote changes. Unbound legacy display history still uses the
+ * resolved quote and fixed answer prefix. Another question's binding never matches by text. */
 export function currentAnswer(question: Question, comments: readonly CommentView[]) {
   return comments
     .filter(
       (comment) =>
         comment.deviceAuthor === true &&
         !comment.deleted &&
-        comment.body.startsWith(answerPrefix(question)),
+        (comment.questionId === question.id ||
+          (comment.questionId === undefined && comment.body.startsWith(answerPrefix(question)))),
     )
-    .sort((a, b) =>
-      compareCommentOrder(
-        { sequence: Number(a.sequence ?? '0'), writer: a.ref.writer, id: a.ref.id },
-        { sequence: Number(b.sequence ?? '0'), writer: b.ref.writer, id: b.ref.id },
-      ),
+    .sort(
+      (a, b) =>
+        Number(a.questionId === question.id) - Number(b.questionId === question.id) ||
+        compareCommentOrder(
+          { sequence: Number(a.sequence ?? '0'), writer: a.ref.writer, id: a.ref.id },
+          { sequence: Number(b.sequence ?? '0'), writer: b.ref.writer, id: b.ref.id },
+        ),
     )
     .at(-1);
 }
@@ -736,6 +739,19 @@ export function canonicalQuestionThread<T extends Pick<ThreadView, 'ref' | 'comm
   question: Question,
   threads: readonly T[],
 ) {
+  const latestBound = currentAnswer(
+    question,
+    threads
+      .flatMap((thread) => thread.comments)
+      .filter((comment) => comment.questionId === question.id),
+  );
+  if (latestBound)
+    return threads.find((thread) =>
+      thread.comments.some(
+        (comment) =>
+          comment.ref.writer === latestBound.ref.writer && comment.ref.id === latestBound.ref.id,
+      ),
+    )!;
   return [...threads].sort((a, b) => {
     const answered =
       Number(!!currentAnswer(question, b.comments)) - Number(!!currentAnswer(question, a.comments));

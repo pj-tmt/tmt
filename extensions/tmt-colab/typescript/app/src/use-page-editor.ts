@@ -151,7 +151,10 @@ export function usePageEditor({
       landed = true;
     } catch (failure) {
       const problem: SaveProblem = {
-        message: saveMessage(failure),
+        message:
+          failure instanceof SaveRefused && failure.findings?.length && !binding.canMetadata?.()
+            ? text.metadata.ownerOnly
+            : saveMessage(failure),
         unconfirmed: failure instanceof SaveOutcomeUnknown,
         ...(failure instanceof SaveConflict ? { conflict: true as const } : {}),
       };

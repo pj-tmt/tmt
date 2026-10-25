@@ -185,8 +185,14 @@ export async function sendAnswers(
             answer.body,
             answer.thread.revision,
             attach,
+            answer.question.id,
           )
-        : await bindings.discussion.create(answer.body, answer.selector, attach);
+        : await bindings.discussion.create(
+            answer.body,
+            answer.selector,
+            attach,
+            answer.question.id,
+          );
       answer.files?.committed();
       states.push({ question: answer.question.id, state: 'recorded', context });
       recorded.push({ answer, context, conversation: index });

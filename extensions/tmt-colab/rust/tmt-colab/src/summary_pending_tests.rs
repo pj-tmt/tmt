@@ -87,7 +87,7 @@ pub(crate) fn view(case: &Value) -> Conversations {
 }
 
 #[test]
-fn legacy_vectors_preserve_other_needs_you_kinds_without_inventing_registrations() {
+fn legacy_vectors_preserve_the_markup_needs_you_rule_without_a_registry() {
     let vectors: Value =
         serde_json::from_str(include_str!("../../../contracts/vectors/needs-you-v1.json")).unwrap();
     for case in vectors["cases"].as_array().unwrap() {
@@ -101,17 +101,15 @@ fn legacy_vectors_preserve_other_needs_you_kinds_without_inventing_registrations
         let (report, anchors) =
             crate::page_check::summary(case["source"].as_str().unwrap(), &view.threads).unwrap();
         assert_eq!(
-            serde_json::to_value(items(&report, &anchors, &view, &writers, &[])).unwrap(),
-            Value::Array(
-                case["expected"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .filter(|item| item["kind"] != "answer")
-                    .cloned()
-                    .collect()
-            ),
+            serde_json::to_value(items(&report, &anchors, &view, &writers, None)).unwrap(),
+            case["expected"],
             "{}",
+            case["name"]
+        );
+        let explicit_empty = items(&report, &anchors, &view, &writers, Some(&[]));
+        assert!(
+            explicit_empty.iter().all(|item| item.kind != "answer"),
+            "{}: explicit empty registry replaces markup",
             case["name"]
         );
     }
@@ -154,7 +152,7 @@ fn a_page_without_admitted_blocks_keeps_its_summary_above_the_quote_text_budget(
     let conversations = view(case);
     let source = "plain text ".repeat(30_000);
     let (report, anchors) = crate::page_check::summary(&source, &conversations.threads).unwrap();
-    let pending = items(&report, &anchors, &conversations, &Default::default(), &[]);
+    let pending = items(&report, &anchors, &conversations, &Default::default(), None);
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].kind, "proposal");
     assert_eq!(pending[0].id, case["expected"][0]["id"].as_str().unwrap());
@@ -185,7 +183,7 @@ fn complete_reading_descriptors_match_the_shared_browser_cases() {
         let (report, anchors) =
             crate::page_check::summary(case["source"].as_str().unwrap(), &conversations.threads)
                 .unwrap();
-        let pending = items(&report, &anchors, &conversations, &writers, &[]);
+        let pending = items(&report, &anchors, &conversations, &writers, None);
         let actual = crate::summary_readings::descriptors(&report, &anchors, &pending);
         assert_eq!(
             serde_json::to_value(actual).unwrap(),

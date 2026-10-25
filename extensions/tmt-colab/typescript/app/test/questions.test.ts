@@ -122,3 +122,23 @@ it('a later empty sibling with a smaller id cannot take over an answered thread'
   const unanswered = { ...answered, comments: [] };
   expect(canonicalQuestionThread(question, [unanswered, empty])).toBe(empty);
 });
+
+it('a bound answer follows its ID across changed titles and quote associations, with one global order', () => {
+  const old = {
+    ...comment('b', 'c', '1', 'An answer under an old title'),
+    questionId: question.id,
+  };
+  const newer = { ...comment('a', 'd', '2', 'A newer bound answer'), questionId: question.id };
+  const forged = {
+    ...comment('a', 'e', '9', 'Answer to “Which colour?”: wrong question'),
+    questionId: 'another',
+  };
+  expect(currentAnswer(question, [old, forged])).toBe(old);
+  const legacy = comment('a', 'f', '99', 'Answer to “Which colour?”: legacy history');
+  expect(currentAnswer(question, [old, legacy])).toBe(old);
+  const first = { ref: { writer: 'b', id: 'b' }, comments: [old] };
+  const second = { ref: { writer: 'a', id: 'a' }, comments: [newer] };
+  expect(canonicalQuestionThread(question, [first, second])).toBe(second);
+  expect(currentAnswer(question, [forged])).toBeUndefined();
+  expect(currentAnswer(question, [{ ...newer, deleted: true }])).toBeUndefined();
+});

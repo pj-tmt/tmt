@@ -49,6 +49,9 @@ export type WorkAction =
   /** Makes a page from the task, then links it; the one action that makes a page. */
   | 'task.convert';
 
+/** Closed metadata actions; the native owner checks the expected revision and body. */
+export type MetadataAction = 'creator.set' | 'question.handle' | 'question.reopen';
+
 /** The source is over the page limit; nothing was sent. */
 export class SaveTooLarge extends Error {
   constructor(

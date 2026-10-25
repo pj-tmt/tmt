@@ -42,7 +42,7 @@ import {
 } from 'lucide-react';
 import { moreButtonRect, PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
-import { PageAttribution } from './page-attribution.js';
+import { creatorName, PageAttribution } from './page-attribution.js';
 import { PageLayoutSection } from './page-layout-section.js';
 import { ErrorDetails, NoticeCard } from './notice-card.js';
 import { openFailure } from './open-failure.js';
@@ -122,7 +122,9 @@ import { ChatPanel } from './chat-panel.js';
 import { dockPanel, useDockMotion } from './dock-motion.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
 import { FilesSurface } from './files-panel.js';
-import { CreatorDefaultProvider } from './creator-default.js';
+import { MetadataDialogs } from './metadata-dialogs.js';
+import { verifiedQuestionStates } from './question-registry.js';
+import { CreatorDefaultProvider, creatorTarget } from './creator-default.js';
 import { CHAT_DRAFT, SavedDrafts, savedDrafts } from './saved-drafts.js';
 import { isChatThread, threadNumbers } from './thread-records.js';
 import { PageSizeSection, usePageSize } from './page-size.js';
@@ -1351,6 +1353,7 @@ function OpenPage({
   const [projects, setProjects] = useState<{ request: number; from?: DOMRect }>({ request: 0 });
   const openProjects = (from?: DOMRect) =>
     setProjects((previous) => ({ request: previous.request + 1, from }));
+  const [metadataDialog, setMetadataDialog] = useState<'creator' | 'questions' | null>(null);
   const [pin, setPin] = useState<PagePinState>();
   const [pinRequest, setPinRequest] = useState<PagePinRequest>();
   const requestPin = (action: PagePinRequest['action']) =>
@@ -1364,6 +1367,9 @@ function OpenPage({
     source: snapshot.source,
     title: snapshot.title,
     originalAuthor: snapshot.originalAuthor,
+    creator: snapshot.creator,
+    questions: snapshot.questions,
+    creationRecipient: snapshot.creationRecipient,
     layout: snapshot.layout,
     layoutReason: snapshot.layoutReason,
     publisherAgent: snapshot.publisherAgent,
@@ -1427,6 +1433,9 @@ function OpenPage({
       source: snapshot.source,
       title: snapshot.title,
       originalAuthor: snapshot.originalAuthor,
+      creator: snapshot.creator,
+      questions: snapshot.questions,
+      creationRecipient: snapshot.creationRecipient,
       layout: snapshot.layout,
       layoutReason: snapshot.layoutReason,
       publisherAgent: snapshot.publisherAgent,
@@ -1919,20 +1928,35 @@ function OpenPage({
                       item.kind === 'reading' ? { read: item.id } : undefined,
                     )
                   }
-                  items={pendingNeedsYou([
-                    ...proposalLayer.navigation,
-                    ...readingLayer.items
-                      .filter((item) => inlineSlots.readingIds.has(item.id))
-                      .map((item) => ({
-                        ...item,
-                        kind: 'reading' as const,
-                        agents: [
-                          readings.find((reading) => reading.id === item.id)?.agent ?? '',
-                        ].filter(Boolean),
-                      })),
-                    ...questionLayer.navigation,
-                    ...reviewLayer.navigation,
-                  ])}
+                  items={pendingNeedsYou(
+                    [
+                      ...proposalLayer.navigation,
+                      ...readingLayer.items
+                        .filter((item) => inlineSlots.readingIds.has(item.id))
+                        .map((item) => ({
+                          ...item,
+                          kind: 'reading' as const,
+                          agents: [
+                            readings.find((reading) => reading.id === item.id)?.agent ?? '',
+                          ].filter(Boolean),
+                        })),
+                      ...(view.questions === undefined
+                        ? questionLayer.navigation
+                        : (verifiedQuestionStates(view) ?? [])
+                            .filter((question) => question.state === 'open')
+                            .map((question) => ({
+                              kind: 'answer' as const,
+                              state: 'unanswered' as const,
+                              id: question.id,
+                              title: question.title ?? question.id,
+                              agents: [
+                                question.agent?.name ?? view.creator?.agent.name ?? '',
+                              ].filter(Boolean),
+                            }))),
+                      ...reviewLayer.navigation,
+                    ],
+                    view.questions !== undefined,
+                  )}
                   onPick={(item) => {
                     if (item.kind === 'proposal') {
                       if (!proposalLayer.jump(item.id)) {
@@ -1940,8 +1964,10 @@ function OpenPage({
                         if (ref) openThread(ref);
                       }
                     } else if (item.kind === 'reading') readingLayer.jump(item.id, true);
-                    else if (item.kind === 'answer') questionLayer.jump(item.targetId ?? item.id);
-                    else if (item.kind === 'review') reviewLayer.jump(item.id);
+                    else if (item.kind === 'answer') {
+                      if (!questionLayer.open(item.targetId ?? item.id))
+                        setMetadataDialog('questions');
+                    } else if (item.kind === 'review') reviewLayer.jump(item.id);
                   }}
                 />
               )}
@@ -1983,13 +2009,24 @@ function OpenPage({
             canFiles={!!snapshot.binding?.files}
             canProjects={!!transport.management}
             pin={pin}
+            creatorLabel={creatorName(view)}
             onSelect={(action) => {
-              if (action === 'projects') openProjects(moreButtonRect());
+              if (action === 'creator' || action === 'questions') {
+                close();
+                setMetadataDialog(action);
+              } else if (action === 'projects') openProjects(moreButtonRect());
               else if (action === 'pin') requestPin('toggle');
               else toggle(action);
             }}
           />
         }
+      />
+      <MetadataDialogs
+        key={snapshot.id}
+        kind={metadataDialog}
+        view={view}
+        binding={snapshot.binding}
+        onDismiss={() => setMetadataDialog(null)}
       />
       <PagePinNotice failure={pin?.failure} close={() => requestPin('dismiss')} />
       <p role="status" className="archive-announcement tmt-ui-visually-hidden">
@@ -2027,6 +2064,8 @@ function OpenPage({
         <section aria-labelledby="about-author-heading">
           <h3 id="about-author-heading">{text.aboutAuthor}</h3>
           <PageAttribution
+            creator={view.creator}
+            creationRecipient={view.creationRecipient}
             originalAuthor={view.originalAuthor}
             publisherAgent={view.publisherAgent}
           />
@@ -2178,7 +2217,7 @@ function OpenPage({
               connectionPresentation={connectionPresentation}
               archived={archived}
               reopenProposal={proposalLayer.reopenProposal}
-              creationRecipient={view.creationRecipient}
+              creationRecipient={creatorTarget(view)}
               hideHeader
               numbers={numbers}
               renderProposal={proposalLayer.renderProposal}
@@ -2342,7 +2381,7 @@ function OpenPage({
                         connectionPresentation={connectionPresentation}
                         archived={archived}
                         creationRecipient={
-                          annotationThread?.proposal?.proposer ?? view.creationRecipient
+                          annotationThread?.proposal?.proposer ?? creatorTarget(view)
                         }
                         binding={snapshot.binding.ask}
                         discussion={snapshot.binding.discussion}
@@ -2440,7 +2479,7 @@ function OpenPage({
             <ChatPanel
               connectionPresentation={connectionPresentation}
               archived={archived}
-              creationRecipient={view.creationRecipient}
+              creationRecipient={creatorTarget(view)}
               key={`chat:${snapshot.id}:${draftsReady}`}
               initialEdit={drafts.current.get(CHAT_DRAFT)}
               activation={

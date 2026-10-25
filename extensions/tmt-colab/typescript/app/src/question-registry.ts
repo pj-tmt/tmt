@@ -114,3 +114,14 @@ export function questionStates(
     };
   });
 }
+
+/** Missing discussion is still being verified; it must never become an unanswered projection. */
+export function verifiedQuestionStates(view: {
+  questions?: readonly RegisteredQuestion[];
+  threads?: readonly ThreadView[];
+  discussionPending?: boolean;
+}): QuestionState[] | undefined {
+  if (view.questions === undefined || view.discussionPending || view.threads === undefined)
+    return undefined;
+  return questionStates(view.questions, view.threads);
+}

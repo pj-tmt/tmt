@@ -1,6 +1,6 @@
 import type { ComposerConnectionPresentation } from './router.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
-import type { CreationRecipient } from './fold-protocol.js';
+import type { CreatorTarget } from './creator-default.js';
 import { Check, ChevronUp, CircleCheck, CircleDot, RotateCcw, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import {
@@ -481,7 +481,7 @@ export function threadTitle(thread: ThreadView) {
 
 export type ThreadWindowProps = {
   number?: number;
-  creationRecipient?: CreationRecipient;
+  creationRecipient?: CreatorTarget;
   /** Absent until the first committed turn; the composer stays in this same window. */
   thread?: ThreadView;
   anchor?: QuoteSelector;
@@ -959,7 +959,7 @@ export function ThreadPanel({
   showInPage,
   headerSlot,
 }: {
-  creationRecipient?: CreationRecipient;
+  creationRecipient?: CreatorTarget;
   hideHeader?: boolean;
   threads: readonly ThreadView[];
   /** The Open view also lists resolved threads, marked as resolved. */

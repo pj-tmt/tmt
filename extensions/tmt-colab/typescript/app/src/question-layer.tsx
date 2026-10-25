@@ -22,6 +22,8 @@ import type {
   ReadingRenderBlock,
   mountRenderer,
 } from './renderer.js';
+import { text } from './strings.js';
+import { verifiedQuestionStates } from './question-registry.js';
 import type { CommentContext } from './thread-store.js';
 
 /** The parent owns logical groups and viewer disclosures. The frame supplies quotes/geometry. */
@@ -68,16 +70,20 @@ export function useQuestionLayer({
   const focusPanel = useRef<string | undefined>(undefined);
   const navigationFocus = useRef<string | undefined>(undefined);
   const threads = useMemo(
-    () =>
-      (view.threads ?? []).filter((thread) => !thread.deleted && !thread.proposal && thread.anchor),
+    () => (view.threads ?? []).filter((thread) => !thread.deleted && !thread.proposal),
     [view.threads],
   );
   const associated = useCallback(
     (id: string) =>
-      threads.filter((thread) =>
-        anchors
-          ?.find((anchor) => anchor.id === id)
-          ?.threads.includes(`${thread.ref.writer}:${thread.ref.id}`),
+      threads.filter(
+        (thread) =>
+          thread.comments.some(
+            (comment) =>
+              !comment.deleted && comment.deviceAuthor === true && comment.questionId === id,
+          ) ||
+          anchors
+            ?.find((anchor) => anchor.id === id)
+            ?.threads.includes(`${thread.ref.writer}:${thread.ref.id}`),
       ),
     [anchors, threads],
   );
@@ -111,10 +117,16 @@ export function useQuestionLayer({
     ),
   );
   const identity = JSON.stringify(
-    threads.map((thread) => ({
-      id: `${thread.ref.writer}:${thread.ref.id}`,
-      selector: thread.anchor!,
-    })),
+    threads.flatMap((thread) =>
+      thread.anchor
+        ? [
+            {
+              id: `${thread.ref.writer}:${thread.ref.id}`,
+              selector: thread.anchor,
+            },
+          ]
+        : [],
+    ),
   );
   useLayoutEffect(() => {
     if (state !== 'ready') return;
@@ -260,6 +272,17 @@ export function useQuestionLayer({
             >
               <QuestionGroupCard
                 group={group}
+                registry={view.questions}
+                states={verifiedQuestionStates(view)}
+                creator={
+                  view.creator?.agent ??
+                  (view.creationRecipient
+                    ? {
+                        id: view.creationRecipient.agentId,
+                        name: view.originalAuthor ?? text.unknownAuthor,
+                      }
+                    : undefined)
+                }
                 members={members}
                 selected={current}
                 onSelect={(id) => setActive((previous) => ({ ...previous, [group.id]: id }))}

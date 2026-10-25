@@ -352,7 +352,7 @@ test('a group inside a section closes it only when every question is answered', 
   page,
 }) => {
   const card = await mount(page, { group: true });
-  await expect(page.getByRole('button', { name: 'Needs you: 2', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Needs you: 3', exact: true })).toBeVisible();
   const group = page.locator('.question-group-card');
   const active = page.locator('.question-card:visible').first();
   await group.locator('.question-line').first().click();

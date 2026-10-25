@@ -72,3 +72,15 @@ test('question bindings on ordinary signed comments use the existing question UU
   for (const questionId of [null, '', 'not-a-question', 'ABCDEF00-0000-0000-0000-000000000001'])
     expect(() => validateDiscussionRecord('messages', key, { ...comment, questionId })).toThrow();
 });
+
+import { verifiedQuestionStates } from '../src/question-registry.js';
+test('unknown discussion never projects unanswered registrations, including removed source', () => {
+  const registry = answers.cases[0].registry;
+  expect(verifiedQuestionStates({ questions: registry })).toBeUndefined();
+  expect(
+    verifiedQuestionStates({ questions: registry, threads: [], discussionPending: true }),
+  ).toBeUndefined();
+  expect(verifiedQuestionStates({ questions: registry, threads: [] })).toEqual(registry);
+  expect(verifiedQuestionStates({ threads: [] })).toBeUndefined();
+  expect(verifiedQuestionStates({ questions: [], threads: [] })).toEqual([]);
+});

@@ -142,6 +142,18 @@ secondary text; trouble surfaces in the notice below the header. The base action
 width; the pin moves into More below 640px as described above, and CSS owns fitting. Header, body and
 update-notice offsets use shared heights, including at 320px. Reader and guidance headers keep their defaults. No menu grants writer admission.
 
+More places Questions… and Creator… after Pin to top and before Agent status. The header has no
+creator action at any width. Creator display remains in About beside the immutable original author.
+The creator dialog uses the existing directory/Listbox and shared modal, with an explicit selection,
+Retry on unavailable discovery and no guessed identities. The Questions dialog includes source-removed
+registrations and verified Open / Answered / Handled state; only the owner device gets Mark handled
+and Reopen. Link editors see “Only the page owner can change this here”, never CLI guidance for the
+owner's store. Both editors capture one verified revision and retain choices on refusal. Source keeps
+its own draft/save lifetime; metadata neither subscribes to keystrokes nor replaces its save owner. The
+shared-link reader keeps its existing Info surface: creator attribution and the same read-only registry
+rows, with no metadata write callback or owner-store CLI guidance. Native and hosted readers derive
+those rows from their already-admitted own records; no extra read, pairing or Ask is introduced.
+
 Home keeps one vertical list viewport. After its full controls boundary passes the top,
 a 58px sticky row retains project scopes, the same mounted search editor and New page;
 through 650px it keeps only search and New page, below the unchanged phone module strip.
@@ -282,7 +294,7 @@ the highlight, select, question and slot effects without a `loading` state; the 
 the question, review and reading marks on the blocks the parent admits and clears them (and the
 `hidden` it put on a question's choices) from any element it no longer admits (#5213); a refusal, the 2 s
 deadline or a port error remounts. The reader view (`reader-app.tsx`) still remounts on every
-source. The About drawer's `PageLayoutSection` names the layout and a canvas's reason. The About drawer is four sections (Author and publisher, Layout, Page size, Page scripts), each a heading over a rule, in `about-drawer.css` scoped to that drawer; the reader's Page information keeps its own rows. An inline `style`
+source. The About drawer's `PageLayoutSection` names the layout and a canvas's reason. The About drawer is four sections (Creator, original author and publisher; Layout; Page size; Page scripts), each a heading over a rule, in `about-drawer.css` scoped to that drawer; the reader's Page information keeps its own rows. An inline `style`
 with `!important` is the one author declaration the frame cannot override.
 
 Source revisions replace or update only the author renderer, not parent chrome. `router.tsx`

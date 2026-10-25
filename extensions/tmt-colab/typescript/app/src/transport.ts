@@ -13,7 +13,7 @@ import type { ExportBundle } from './export.js';
 import type { ManagementPort } from './management.js';
 import type { ReadingDetails } from './reading-details.js';
 import type { OwnState, Projection } from './fold-protocol.js';
-import type { WorkAction } from './save.js';
+import type { MetadataAction, WorkAction } from './save.js';
 export interface PageView extends Projection {
   /** The document is shown, but its threads and asks are still being verified: `threads`, `asks`
    * and `threadPresentations` are absent, never empty, so nothing unverified reads as verified. */
@@ -58,6 +58,9 @@ export interface PageSnapshot extends PageSummary {
   readonly shell?: Projection['shell'];
   /** The page's summary and task list (`meta.work`); never on a dashboard. */
   readonly work?: Projection['work'];
+  readonly creator?: Projection['creator'];
+  readonly questions?: Projection['questions'];
+  readonly creationRecipient?: Projection['creationRecipient'];
   readonly originalAuthor?: Projection['originalAuthor'];
   readonly publisherAgent?: Projection['publisherAgent'];
   readonly source: string;
@@ -98,6 +101,15 @@ export interface PageBinding {
   /** One closed work action, committed by the serve; the new value follows through `subscribe`.
    * Throws `SaveRefused` with the serve's code (`COLAB_WIP_LIMIT`, `COLAB_STALE_BASE`, …). */
   work?(action: WorkAction, body: Record<string, unknown>): Promise<WorkOutcome>;
+  /** Metadata writes belong only to the authenticated owner device, independently of Work. */
+  canMetadata?(): boolean;
+  /** Freeze the verified revision when opening an editor, never silently retarget a stale choice. */
+  metadataRevision?(shown: Pick<PageView, 'creator' | 'questions'>): Promise<string>;
+  metadata?(
+    action: MetadataAction,
+    body: Record<string, unknown>,
+    expectedRevision: string,
+  ): Promise<void>;
   /** How full the page is, from the serve. Present only where this device may save. */
   usage?(): Promise<PageUsage>;
   /** Combine this serve's own stream and report what changed. Present only where `usage` is. */

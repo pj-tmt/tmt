@@ -117,6 +117,8 @@ for (const width of [1440, 390])
       expect(rows.map((row) => row.replace(/\s+/g, ' ').trim())).toEqual([
         'Share… Link · Live',
         'Remote · offline',
+        'Questions…',
+        'Set creator…',
         'Agent status',
         'Source',
         'Export page',

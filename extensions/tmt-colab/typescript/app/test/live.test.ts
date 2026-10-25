@@ -38,6 +38,7 @@ const connections = vi.hoisted(
         head: { revision: bigint; hash: Uint8Array } | null;
         root: object | null;
         validatePage: ReturnType<typeof vi.fn>;
+        ownerDevice(device: string): boolean;
         registration: Registration;
       };
     }[],
@@ -53,7 +54,12 @@ const connectionPlans = vi.hoisted(
 /** Connections the serve upgraded without an object channel; later ones start so too when set. */
 const objectChannel = vi.hoisted(() => ({ missing: new Set<object>(), startMissing: false }));
 const unseen = vi.hoisted(() => ({ cuts: new Set<object>(), startUnseen: false }));
-const saves = vi.hoisted(() => ({ save: vi.fn(), status: vi.fn(), work: vi.fn() }));
+const saves = vi.hoisted(() => ({
+  save: vi.fn(),
+  status: vi.fn(),
+  work: vi.fn(),
+  metadata: vi.fn(),
+}));
 const mutations = vi.hoisted(() => ({
   submitOwn: vi.fn(),
   submitOwnRecords: vi.fn(),
@@ -86,6 +92,7 @@ vi.mock('../src/admission.js', () => ({
     head = { revision: 2n, hash: new Uint8Array(32).fill(10) };
     root = {};
     validatePage = vi.fn();
+    ownerDevice = () => true;
     constructor(
       readonly space: string,
       readonly page: string,
@@ -160,6 +167,9 @@ vi.mock('../src/connection.js', () => ({
     }
     work(operationId: string, action: string, body: unknown) {
       return saves.work(this, operationId, action, body);
+    }
+    metadata(operationId: string, action: string, body: unknown, expectedRevision: string) {
+      return saves.metadata(this, operationId, action, body, expectedRevision);
     }
     get active() {
       return this.close.mock.calls.length === 0;
@@ -2425,6 +2435,58 @@ it('a convert resolves with the page it made, and a refusal after the page was m
     const unlinked = await live.work('task.convert', { taskId: 'T-1' }).catch((error) => error);
     expect(unlinked).toMatchObject({ childPage: page });
     expect(saves.status).toHaveBeenCalledOnce();
+  } finally {
+    live.close();
+  }
+});
+
+it('metadata revision capture refuses unseen choices and a lost reply is recovered without resending', async () => {
+  saves.metadata.mockReset();
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'uqvpga22vglwpngpg7jd7zpk5vzjtoud',
+      revision: '1',
+      owner: new Uint8Array(32),
+      projects: [],
+      projectPins: { names: [], automatic: true },
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId: '00000000-0000-4000-8000-000000000002', epoch: '1', sharing: 'private' } as PageInfo,
+  );
+  try {
+    const shown = await live.snapshot();
+    expect(await live.metadataRevision(shown)).toBe('v1:revision');
+    const connection = connections.at(-1)!;
+    connection.publish({ source: 'verified', title: 'Page', questions: [] });
+    await expect(live.metadataRevision(shown)).rejects.toMatchObject({ code: 'COLAB_STALE_BASE' });
+    expect(saves.metadata).not.toHaveBeenCalled();
+    const latest = await live.snapshot();
+    const revision = await live.metadataRevision(latest);
+    saves.metadata.mockImplementationOnce(async (lost) => {
+      lost.failed(new Error('Sync disconnected'));
+      throw new Error('Reply lost');
+    });
+    saves.status.mockImplementationOnce(async (_connection, operationId) => ({
+      operationId,
+      state: 'committed',
+      revision: 'v1:revision',
+    }));
+    await live.metadata(
+      'question.handle',
+      { id: '10000000-0000-4000-8000-000000000001' },
+      revision,
+    );
+    expect(saves.metadata).toHaveBeenCalledTimes(1);
+    const [, operationId, action, body, expected] = saves.metadata.mock.calls[0];
+    expect([action, body, expected]).toEqual([
+      'question.handle',
+      { id: '10000000-0000-4000-8000-000000000001' },
+      revision,
+    ]);
+    expect(saves.status.mock.calls.at(-1)?.[1]).toBe(operationId);
   } finally {
     live.close();
   }

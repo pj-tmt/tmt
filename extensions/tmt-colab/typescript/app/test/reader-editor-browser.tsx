@@ -24,7 +24,7 @@ export function script(next: typeof answer) {
 export function settle(source: string) {
   release?.(source);
 }
-export async function mount(role: 'viewer' | 'editor') {
+export async function mount(role: 'viewer' | 'editor', metadata = false) {
   document.getElementById('root')!.style.display = 'none';
   let host = document.getElementById('reader-editor-fixture');
   if (!host) {
@@ -43,7 +43,34 @@ export async function mount(role: 'viewer' | 'editor') {
     <ReaderApp
       state={{
         kind: 'ready',
-        view: { title: 'Release notes', source: '<main><h1>Release notes</h1></main>' },
+        view: {
+          title: 'Release notes',
+          source: '<main><h1>Release notes</h1></main>',
+          ...(metadata
+            ? {
+                originalAuthor: 'Original writer',
+                creator: {
+                  agent: { id: '10000000-0000-4000-8000-000000000001', name: 'Selected creator' },
+                  attribution: { writerId: '10000000-0000-4000-8000-000000000002', timeMs: 1 },
+                },
+                questions: [
+                  {
+                    id: '10000000-0000-4000-8000-000000000003',
+                    title: 'Long_question_title_'.repeat(7),
+                    state: 'open' as const,
+                    attribution: { writerId: '10000000-0000-4000-8000-000000000002', timeMs: 1 },
+                  },
+                  {
+                    id: '10000000-0000-4000-8000-000000000004',
+                    title: 'Handled reader question',
+                    state: 'handled' as const,
+                    attribution: { writerId: '10000000-0000-4000-8000-000000000002', timeMs: 1 },
+                  },
+                ],
+                threads: [],
+              }
+            : {}),
+        },
       }}
       canEdit={editor}
       edit={

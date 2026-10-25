@@ -14,7 +14,9 @@ export type PageHeaderAction =
   | 'source'
   | 'export'
   | 'manage'
-  | 'about';
+  | 'about'
+  | 'questions'
+  | 'creator';
 
 /** The More trigger's decorative icon; hosts retain each action's authority. */
 function MoreIcon() {
@@ -46,6 +48,7 @@ export function PageHeaderActions({
   canFiles,
   canProjects,
   pin,
+  creatorLabel,
   access,
   onSelect,
 }: {
@@ -56,6 +59,7 @@ export function PageHeaderActions({
   /** The viewer can set the page's projects (the picker is beside the title). */
   canProjects: boolean;
   pin?: PagePinState;
+  creatorLabel?: string;
   readOnly?: boolean;
   /** The page's sharing and connection words, the secondary text of the Share… item. */
   access: string;
@@ -80,6 +84,8 @@ export function PageHeaderActions({
       },
       ...(canProjects ? [{ key: 'projects', label: text.projectsItem }] : []),
       ...(pinItem ? [pinItem] : []),
+      { key: 'questions', label: text.metadata.questionsItem },
+      { key: 'creator', label: text.metadata.creatorItem(creatorLabel) },
       ...(!readOnly ? [{ key: 'agents', label: text.agentStatus }] : []),
       // A page that cannot hold a file and holds none has nothing to open; a writer keeps the entry,
       // which is where files are added.
@@ -101,6 +107,8 @@ export function PageHeaderActions({
       else if (key === 'projects') onSelect('projects');
       else if (key === 'pin') onSelect('pin');
       else if (
+        key === 'questions' ||
+        key === 'creator' ||
         key === 'agents' ||
         key === 'manage' ||
         key === 'about' ||

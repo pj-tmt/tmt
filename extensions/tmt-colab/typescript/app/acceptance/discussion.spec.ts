@@ -999,6 +999,10 @@ test('answer blocks publish verified normal annotations and keep changes and age
     const initial = threads();
     expect(initial).toHaveLength(1);
     expect(initial[0].anchor.exact).toBe('Which heading should we use?');
+    expect(initial[0].comments[0].questionId).toBe('10000000-0000-4000-8000-000000000090');
+    const metadata = () =>
+      JSON.parse(run(world, world.binaries.colab, ['page', 'read', created.pageId, '--json']));
+    expect(metadata().questionStates[0].state).toBe('answered');
     await card.getByRole('button', { name: 'Change answer', exact: true }).click();
     await card.getByLabel('Change it', { exact: true }).check();
     await card.getByRole('button', { name: /^Send answer/ }).click();
@@ -1009,6 +1013,9 @@ test('answer blocks publish verified normal annotations and keep changes and age
     expect(changed).toHaveLength(1);
     expect(changed[0].id).toBe(initial[0].id);
     expect(changed[0].comments).toHaveLength(2);
+    expect(
+      changed[0].comments.map((comment: { questionId: string }) => comment.questionId),
+    ).toEqual(Array(2).fill('10000000-0000-4000-8000-000000000090'));
     await page.reload();
     await expect(row).toHaveAttribute('data-state', 'answered');
     await expect(row.locator('.question-line-answer')).toHaveText('Change it');

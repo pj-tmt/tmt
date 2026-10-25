@@ -143,7 +143,7 @@ fn fold_details(source: &mut Source, page: &str) -> Result<(SummaryProjection, O
         &anchors,
         &conversations,
         &folded.status_writers,
-        &questions,
+        folded.meta.get("questions").map(|_| questions.as_slice()),
     );
     if pending.len() > crate::limits::NEEDS_YOU_ITEMS {
         return Err(std::io::Error::other("summary item budget").into());
@@ -436,7 +436,7 @@ mod tests {
     fn count(view: &Conversations, author: Option<&str>) -> Summary {
         let (report, anchors) = crate::page_check::summary("", &view.threads).unwrap();
         let pending =
-            crate::summary_pending::items(&report, &anchors, view, &Default::default(), &[]);
+            crate::summary_pending::items(&report, &anchors, view, &Default::default(), None);
         super::count(
             view,
             &json!({"originalAuthor":author}),

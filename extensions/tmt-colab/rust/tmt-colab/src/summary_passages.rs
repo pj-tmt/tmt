@@ -124,9 +124,20 @@ pub(crate) fn needs(
                 )
             }
             "answer" => {
-                let question = questions
-                    .iter()
-                    .find(|question| question["id"] == item.id)?;
+                let Some(question) = questions.iter().find(|question| question["id"] == item.id)
+                else {
+                    let group = report.groups.iter().find(|group| group.id == item.id)?;
+                    let first = group.questions.iter().find_map(|id| {
+                        report.questions.iter().find(|question| &question.id == id)
+                    })?;
+                    return need(
+                        NeedKind::Question,
+                        &item.id,
+                        group.title.as_deref().unwrap_or(&first.title),
+                        Some(&first.agent),
+                        None,
+                    );
+                };
                 let title = question["title"]
                     .as_str()
                     .or_else(|| {
