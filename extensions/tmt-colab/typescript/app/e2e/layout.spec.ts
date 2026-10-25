@@ -336,12 +336,12 @@ for (const width of [1440, 390])
         );
       };
       if (width === 1440) {
-        // A column: 24px clear of the viewport's right edge, sticky 20px under the header, ruled on
-        // its left only; it reflows the page beside it, so the marker lane stays uncovered.
+        // A column: 24px clear of the viewport's right edge, sticky 20px under the header, with no
+        // edge of its own; it reflows the page beside it, so the marker lane stays uncovered.
         await expect(panel).toHaveAttribute('data-mode', 'column');
         expect(edge.x + edge.width).toBe(width - (await length('--colab-panel-edge')));
         expect(edge.y).toBe(headerHeight(width) + (await length('--colab-panel-sticky-gap')));
-        await expect(panel).toHaveCSS('border-left-width', '1px');
+        await expect(panel).toHaveCSS('border-left-width', '0px');
         await expect(panel).toHaveCSS('border-right-width', '0px');
         expect((await frame.boundingBox())?.width).toBeLessThan(before!.width);
         await expect.poll(frameAt).toBe(true);

@@ -1,10 +1,10 @@
 /* The non-modal Comments panel beside or over the page (concept 20). The leaf draws the panel and
-   its card and sheet; this file owns the page grid a column sits in, its sticky offset and rule.
-   panel-mode.ts picks the mode from the viewport width. */
+   its card and sheet; this file owns the page grid a column sits in and its sticky offset. The
+   page's own edge is the one edge between it and a column: the column draws none, and its content
+   starts one gap from that edge. panel-mode.ts picks the mode from the viewport width. */
 .workspace {
   --colab-panel-width: 286px;
-  --colab-panel-gap: 34px;
-  --colab-panel-inset: 23px;
+  --colab-panel-gap: 23px;
   /* The column keeps this much clear of the viewport's right edge, as the page margin does on the
      website; the track is that much wider so the panel keeps the website's 286px of content. */
   --colab-panel-edge: 24px;
@@ -14,8 +14,7 @@
 @media (min-width: 1600px) {
   .workspace {
     --colab-panel-width: 310px;
-    --colab-panel-gap: 42px;
-    --colab-panel-inset: 28px;
+    --colab-panel-gap: 28px;
   }
 }
 /* While the column is open the workspace is two tracks: the page, then the panel. The bands above the
@@ -41,8 +40,6 @@
       var(--colab-panel-sticky-gap)
   );
   margin-inline-end: var(--colab-panel-edge);
-  padding-inline-start: var(--colab-panel-inset);
-  border-inline-start: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 /* The column eases in beside the page when it opens (reduced motion: it appears). The page's own track
    changes width at once: it is not animated, so the page never reflows through a frame. */
