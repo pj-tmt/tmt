@@ -79,7 +79,7 @@ Use `--file -` for stdin; omit `--file` for an empty page. Returns
 browser, creation opens the page without a TTY or with `--json`;
 `--no-open` suppresses it. Share `shortLink`, not `link`; if null,
 inspect serving status, never invent a URL.
-`paired: false` and `next` mean user-only pairing, never an agent command.
+`paired: false` and `next` mean user-only pairing, never an agent command. Run `read` entries first.
 `tmt colab show PAGE --json` shows the page and its link.
 
 When asked to open a page, run `tmt colab open PAGE`; omit PAGE for space home.

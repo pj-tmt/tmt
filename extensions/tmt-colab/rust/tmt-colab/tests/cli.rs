@@ -4847,6 +4847,20 @@ fn create_refuses_a_missing_or_malformed_layout_choice_before_reading_or_creatin
     assert!(!freeform.status.success());
     assert!(!pilot.root.join("selected/colab").exists());
 }
+/// The `read` entries of an HTML page's creation result: the commands every new page starts from,
+/// then the page type's own.
+fn read_first(own: &[&str]) -> Value {
+    json!(
+        [
+            "tmt colab skill layout",
+            "tmt colab skill components",
+            "tmt colab skill page-style"
+        ]
+        .iter()
+        .chain(own)
+        .collect::<Vec<_>>()
+    )
+}
 #[test]
 fn create_and_show_report_layout_while_ls_only_lists_metadata() {
     let pilot = Pilot::new(None);
@@ -4868,7 +4882,13 @@ fn create_and_show_report_layout_while_ls_only_lists_metadata() {
         command.push("--json");
         let created = pilot.call(&command);
         assert_eq!(created["layout"], *kind, "{created}");
-        assert_eq!(created["read"], json!(["layout", "components"]));
+        // A canvas draws its own frame with the page's script, so it also reads the runtime.
+        let expected = if *kind == "canvas" {
+            read_first(&["tmt colab skill runtime"])
+        } else {
+            read_first(&[])
+        };
+        assert_eq!(created["read"], expected, "{created}");
         match why {
             Some(why) => assert_eq!(created["layoutReason"], *why),
             None => assert!(created.get("layoutReason").is_none(), "{created}"),
@@ -4922,9 +4942,61 @@ fn create_and_show_report_layout_while_ls_only_lists_metadata() {
     // One row, so the two topics do not read like a duplicated label.
     assert_eq!(text.matches("read first").count(), 1, "{text}");
     assert!(
-        text.contains("tmt colab skill layout · tmt colab skill components"),
+        text.contains(
+            "tmt colab skill layout · tmt colab skill components · tmt colab skill page-style"
+        ),
         "{text}"
     );
+}
+#[test]
+fn create_adds_the_runtime_to_the_read_first_set_only_for_a_page_that_opts_in() {
+    let pilot = Pilot::new(None);
+    let interactive = pilot.root.join("interactive.html");
+    fs::write(
+        &interactive,
+        "<meta name=\"tmt-colab-runtime\" content=\"react tailwind\">\n<div id=\"app\"></div>\n",
+    )
+    .unwrap();
+    let plain = pilot.root.join("plain.html");
+    fs::write(&plain, "<p>Static</p>\n").unwrap();
+    for (file, expected) in [
+        (&interactive, read_first(&["tmt colab skill runtime"])),
+        (&plain, read_first(&[])),
+    ] {
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Opt-in",
+            "--layout",
+            "column",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        assert_eq!(created["read"], expected, "{created}");
+    }
+    // A dashboard has no author markup, so it is sent to its own reference only.
+    let dashboard = pilot.call(&["dashboard", "create", "--title", "Board", "--json"]);
+    assert_eq!(
+        dashboard["read"],
+        json!(["tmt colab skill dashboard"]),
+        "{dashboard}"
+    );
+    let human = pilot
+        .command()
+        .args(["dashboard", "create", "--title", "Board again"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(human.stdout).unwrap();
+    assert_eq!(text.matches("read first").count(), 1, "{text}");
+    assert!(text.contains("tmt colab skill dashboard"), "{text}");
+    for markup in ["layout", "components", "page-style"] {
+        assert!(
+            !text.contains(&format!("tmt colab skill {markup}")),
+            "{text}"
+        );
+    }
 }
 #[test]
 fn template_ls_lists_every_template_with_its_layout_and_needs_no_state() {
@@ -4987,7 +5059,7 @@ fn create_from_a_template_stores_its_layout_and_a_source_with_fresh_ids() {
         ]);
         assert_eq!(created["template"], name, "{created}");
         assert_eq!(created["layout"], kind, "{created}");
-        assert_eq!(created["read"], json!(["layout", "components"]));
+        assert_eq!(created["read"], read_first(&[]), "{created}");
         assert_eq!(created["warnings"], json!([]), "{created}");
         let id = created["pageId"].as_str().unwrap();
         let shown = pilot.call(&["show", id, "--json"]);
