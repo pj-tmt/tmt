@@ -67,7 +67,7 @@ export interface WatchApi {
   get(endpoint: string, etag?: string): { status: number; etag?: string; body: unknown };
 }
 export function newWatchState(now: number): WatchState;
-export function validateRouting(map: unknown): RoutingMap;
+export function validateRouting(map: unknown, repo?: string): RoutingMap;
 export function routeFailure(
   map: RoutingMap,
   workflow: string,
@@ -99,7 +99,7 @@ export function collectWatchCycle(options: {
   state: WatchState;
   api: WatchApi;
   routing: RoutingMap;
-  repo?: string;
+  repo: string;
   now: number;
   initial?: boolean;
   dryRun?: boolean;

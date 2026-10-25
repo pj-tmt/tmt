@@ -247,8 +247,9 @@ describe('REST ledger', () => {
   });
   it('rejects unsafe endpoints/repositories and caps above 800', () => {
     expect(() => demandReader({ repo: '../repo' })).toThrow();
-    expect(() => demandReader({ maxRequests: 801 })).toThrow();
+    expect(() => demandReader({ repo: 'pj-tmt/tmt', maxRequests: 801 })).toThrow();
     const read = demandReader({
+      repo: 'pj-tmt/tmt',
       execute: () => '{"resources":{"core":{"remaining":5000,"limit":5000,"reset":1}}}',
     });
     expect(() => read('graphql')).toThrow('path');
@@ -374,6 +375,7 @@ it('keeps the attempt-route fixture identities and retained successes on run-wid
 it('refuses hydration below the shared REST floor without spending data calls', () => {
   const paths: string[] = [];
   const read = demandReader({
+    repo: 'pj-tmt/tmt',
     maxRequests: 800,
     execute: (_cmd, args) => {
       paths.push(args.at(-1)!);

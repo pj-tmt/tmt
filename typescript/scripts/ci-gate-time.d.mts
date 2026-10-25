@@ -1,4 +1,4 @@
-export type GateEvent = "pull_request" | "merge_group";
+export type GateEvent = 'pull_request' | 'merge_group';
 
 export interface GateJob {
   readonly id: number;
@@ -64,12 +64,13 @@ export function median(values: readonly number[]): number | null;
 export function percentile(values: readonly number[], p: number): number | null;
 export function ghReader(options: {
   repo?: string;
+  env?: NodeJS.ProcessEnv;
   maxRequests?: number;
   execute?: (command: string, args: string[], options: object) => string;
 }): RestReader & { requests: () => number };
 export function collectGateRuns(
   read: RestReader,
-  options?: { workflow?: string; count?: number; events?: readonly GateEvent[] },
+  options?: { workflow?: string; count?: number; events?: readonly GateEvent[] }
 ): GateRun[];
 export function summarizeGate(runs: readonly GateRun[], required?: readonly string[]): GateSummary;
 export function parseBudgets(text: string): Budgets;
@@ -81,5 +82,5 @@ export function unmeasuredBudgets(
 export function renderReport(
   summary: GateSummary,
   budgets: Budgets,
-  options?: { workflow?: string },
+  options?: { workflow?: string }
 ): string;
