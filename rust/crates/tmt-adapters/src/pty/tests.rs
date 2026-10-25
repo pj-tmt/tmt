@@ -616,8 +616,9 @@ fn delivery_wraps_paste_only_in_the_program_mode_and_never_counts_as_typing() {
 fn a_paste_end_marker_in_the_message_stays_inside_the_one_bracketed_paste() {
     use tmt_pty_protocol::{Control, ControlReply};
     // 6 (start) + 1 + 3 (U+241B) + 5 + 1 + 6 (end) bytes of paste, then the Enter.
-    let script =
-        r"stty raw -echo; printf '\033[?2004hready'; dd bs=1 count=23 2>/dev/null | od -An -tx1";
+    // The program stays alive after printing what it read (`read` holds it until the test
+    // ends), so the capture never races its exit and the screen still proves the bytes.
+    let script = r"stty raw -echo; printf '\033[?2004hready'; dd bs=1 count=23 2>/dev/null | od -An -tx1; read hold";
     let member = Member::start(&["sh", "-c", script]);
     let mut client = member.connect();
     let deadline = Instant::now() + WAIT;
@@ -654,6 +655,8 @@ fn a_paste_end_marker_in_the_message_stays_inside_the_one_bracketed_paste() {
         );
         std::thread::yield_now();
     }
+    // Release the program and let the supervisor end with it (raw mode: a newline, not Enter).
+    client.input(b"\n").unwrap();
     drop(client);
     member.finish().unwrap();
 }
