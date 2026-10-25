@@ -7350,6 +7350,35 @@ async function remoteApp(shell, main, bar, settingsStyles, pages) {
 	await show();
 }
 //#endregion
+//#region src/tmt-settings-copy.ts
+var MODULE_COPY = {
+	colab: {
+		icon: "file-text",
+		description: "Shared pages and agent collaboration."
+	},
+	remote: {
+		icon: "monitor-smartphone",
+		description: "Browser access to your machine."
+	},
+	ops: {
+		icon: "users",
+		description: "Squads, agent state and timers."
+	},
+	digest: {
+		icon: "chart-column",
+		description: "Usage and message batching."
+	}
+};
+/** Host drivers by name: only herdr, the one driver the product ships. */
+var DRIVER_COPY = { herdr: "Host driver for agent windows." };
+var USAGE_HOOK = "Usage collection records agent usage for Digest.";
+/** Agent hooks by provider name. */
+var HOOK_COPY = {
+	claude: USAGE_HOOK,
+	codex: USAGE_HOOK
+};
+var displayName = (name) => name.charAt(0).toUpperCase() + name.slice(1);
+//#endregion
 //#region src/tmt-settings-parts.ts
 /** Stateless DOM pieces shared by TMT Settings sections. */
 function element$1(tag, className, text) {
@@ -7423,6 +7452,84 @@ function settingsAction(label, href) {
 	const link = element$1("a", `${browserUiClasses.action} tmt-settings-action`, label);
 	link.href = href;
 	return link;
+}
+//#endregion
+//#region src/tmt-settings-drivers.ts
+/** Host drivers and agent hooks: read-only records and the terminal commands that read them. */
+function driverRecord(row) {
+	const approved = row.state === "ok";
+	const copy = DRIVER_COPY[row.name];
+	return settingsRecord({
+		icon: "box",
+		name: displayName(row.name),
+		...copy ? { description: copy } : {},
+		facts: [settingsState(approved ? "Approved" : row.state, approved ? "working" : "waiting"), element$1("span", "tmt-settings-fact tmt-settings-mono", row.version)]
+	});
+}
+function hookRecord(row) {
+	const copy = HOOK_COPY[row.provider];
+	return settingsRecord({
+		icon: "terminal",
+		name: displayName(row.provider),
+		...copy ? { description: copy } : {},
+		facts: [element$1("span", "tmt-settings-fact", row.usage ? "Collection on" : "Collection off"), settingsState("Set up", "working")]
+	});
+}
+/** The two roles, in words about the product; no value of this machine. */
+function rolesCard() {
+	const roles = element$1("aside", `${browserUiClasses.card} tmt-settings-card`);
+	roles.append(element$1("h2", browserUiClasses.cardTitle, "Different connections. Clear roles."), element$1("p", "tmt-settings-help", "Host drivers connect TMT to terminal host windows. Agent hooks report provider events and can collect usage for Digest."), element$1("hr", "tmt-settings-rule"), element$1("p", "tmt-settings-help", "The browser observes these records. Approval and installation stay with their existing terminal commands."));
+	return roles;
+}
+function driversView(settings) {
+	const unavailable = settings.drivers.unavailable ?? settings.hooks.unavailable;
+	const drivers = settings.drivers.rows;
+	const hooks = settings.hooks.rows;
+	const none = !drivers.length && !hooks.length;
+	const head = settingsHead("Drivers & hooks", "The connections that bring your terminal team together.");
+	const commands = element$1("div", "tmt-settings-commands");
+	commands.append(commandCopy("tmt driver ls"), commandCopy("tmt setup --status"));
+	if (unavailable || none) {
+		const notice = settingsNotice(unavailable ? "Driver and hook records are not available to this browser yet." : "No drivers or agent hooks are set up.", "Read current drivers and hook setup in your terminal.", unavailable ? "waiting" : "neutral");
+		if (unavailable && unavailable !== notInBrowser("TMT settings", "tmt config show")) {
+			const reason = element$1("p");
+			notAvailable(reason, unavailable);
+			notice.append(reason);
+		}
+		return [
+			head,
+			notice,
+			commands,
+			rolesCard(),
+			element$1("p", "tmt-settings-foot", "Read only · Current records require a machine read")
+		];
+	}
+	const notice = settingsNotice(settings.sample ? "Sample data" : "Read-only driver and hook records", settings.sample ? "These sample records are not this machine. Read the current ones in your terminal." : "Approval and installation stay with their terminal commands.", "neutral");
+	const stack = element$1("div", "tmt-settings-stack");
+	if (drivers.length) {
+		const card = settingsCard("Host drivers", "tmt-settings-drivers-title");
+		card.append(settingsReadOnly());
+		const list = settingsRecords("Host drivers");
+		list.append(...drivers.map(driverRecord));
+		card.append(list);
+		stack.append(card);
+	}
+	if (hooks.length) {
+		const card = settingsCard("Agent hooks", "tmt-settings-hooks-title");
+		const list = settingsRecords("Agent hooks");
+		list.append(...hooks.map(hookRecord));
+		card.append(list);
+		stack.append(card);
+	}
+	const grid = element$1("div", "tmt-settings-grid");
+	grid.append(stack, rolesCard());
+	return [
+		head,
+		notice,
+		commands,
+		grid,
+		element$1("p", "tmt-settings-foot", settings.sample ? "Sample records · Read only" : "Read only · Current records require a machine read")
+	];
 }
 //#endregion
 //#region src/tmt-settings-identities.ts
@@ -7545,27 +7652,6 @@ function identitiesView(settings) {
 	];
 }
 //#endregion
-//#region src/tmt-settings-copy.ts
-var MODULE_COPY = {
-	colab: {
-		icon: "file-text",
-		description: "Shared pages and agent collaboration."
-	},
-	remote: {
-		icon: "monitor-smartphone",
-		description: "Browser access to your machine."
-	},
-	ops: {
-		icon: "users",
-		description: "Squads, agent state and timers."
-	},
-	digest: {
-		icon: "chart-column",
-		description: "Usage and message batching."
-	}
-};
-var displayName = (name) => name.charAt(0).toUpperCase() + name.slice(1);
-//#endregion
 //#region src/tmt-settings-modules.ts
 /** Installed modules: the module list with each module's own settings, from the shell's description. */
 function moduleRecord(row, link) {
@@ -7646,8 +7732,9 @@ var settingsSource = { async read() {
 //#endregion
 //#region src/tmt-settings-page.ts
 /** TMT Settings follows the shell's section menu. General owns browser appearance and Core
-* guidance; Identities has a read-only table and local detail. Other sections retain their list
-* rows. SettingsSource owns the records; only the shared browser theme choice is persisted. */
+* guidance; Identities has a read-only table and local detail; Modules and Drivers & hooks list
+* read-only records. SettingsSource owns the records; only the shared browser theme choice is
+* persisted. */
 var SECTIONS = [
 	{
 		id: "general",
@@ -7680,43 +7767,12 @@ function moduleLinks(answer) {
 	});
 	return links;
 }
-/** The section's rows; identities show live agents first, then by name. */
-function settingsRows(section, settings) {
-	if (section === "general") return settings.general.rows.map((row) => ({
-		mark: "",
-		title: row.name,
-		detail: row.description,
-		state: row.value
-	}));
-	if (section === "identities") return orderedIdentities(settings.identities.rows).map((row) => ({
-		mark: row.online ? "●" : "○",
-		title: row.name,
-		detail: row.provider ? `${row.lifetime} · ${row.provider}` : row.lifetime,
-		state: row.online ? "active" : "offline"
-	}));
-	return [...settings.drivers.rows.map((row) => ({
-		mark: row.state === "ok" ? "●" : "◆",
-		waiting: row.state !== "ok",
-		title: row.name,
-		detail: `Host driver ${row.version}`,
-		state: row.state === "ok" ? "approved" : row.state
-	})), ...settings.hooks.rows.map((row) => ({
-		mark: "●",
-		title: row.provider,
-		detail: `Agent hooks · usage collection ${row.usage ? "on" : "off"}`,
-		state: "set up"
-	}))];
-}
-/** Why a section has nothing to list: the source could not read it, or there is none. */
-function emptyText(section, settings) {
-	const unavailable = (section === "drivers" ? [settings.drivers, settings.hooks] : [settings[section]]).map((part) => part.unavailable).find(Boolean);
-	if (unavailable) return unavailable;
-	return {
-		general: "No settings to show.",
-		identities: "No identities yet.",
-		drivers: "No drivers or agent hooks are set up."
-	}[section];
-}
+/** General's rows: each setting's name, description and value. */
+var generalRows = (settings) => settings.general.rows.map((row) => ({
+	title: row.name,
+	detail: row.description,
+	state: row.value
+}));
 function row(item) {
 	const node = document.createElement("li");
 	node.className = "tmt-ui-list-row";
@@ -7724,18 +7780,11 @@ function row(item) {
 	const sign = document.createElement("div");
 	sign.className = "tmt-ui-list-leading";
 	sign.setAttribute("aria-hidden", "true");
-	sign.textContent = item.mark;
-	if (item.waiting) sign.dataset.tone = "waiting";
 	const name = document.createElement("div");
 	name.className = "tmt-ui-list-title";
 	const label = document.createElement("span");
 	label.className = "tmt-ui-list-label";
-	if (item.href) {
-		const link = document.createElement("a");
-		link.href = item.href;
-		link.textContent = item.title;
-		label.append(link);
-	} else label.textContent = item.title;
+	label.textContent = item.title;
 	name.append(label);
 	if (item.detail) {
 		const detail = document.createElement("span");
@@ -7822,7 +7871,7 @@ function generalView(settings) {
 	appearance.append(element$1("p", "tmt-settings-intro", "Choose how TMT looks in this browser."), themeChoice(), element$1("p", "tmt-settings-help", "Saved in this browser only. System follows this device."));
 	const core = settingsCard("Core configuration", "tmt-settings-core-title");
 	core.append(settingsReadOnly());
-	const rows = settingsRows("general", settings);
+	const rows = generalRows(settings);
 	if (rows.length) {
 		const list = element$1("ul", "tmt-ui-list");
 		list.append(...rows.map(row));
@@ -7868,20 +7917,7 @@ function settingsSection(section, settings, links) {
 	if (section === "general") return generalView(settings);
 	if (section === "identities") return identitiesView(settings);
 	if (section === "modules") return modulesView(settings, links ?? /* @__PURE__ */ new Map());
-	const rows = settingsRows(section, settings);
-	const body = [];
-	if (rows.length) {
-		const list = document.createElement("ul");
-		list.className = "tmt-ui-list";
-		list.append(...rows.map(row));
-		body.push(list);
-	} else {
-		const none = document.createElement("p");
-		none.className = "home-note";
-		notAvailable(none, emptyText(section, settings));
-		body.push(none);
-	}
-	return body;
+	return driversView(settings);
 }
 /** The page in its route; everything it starts ends on the route's `shell.signal`. */
 function tmtSettingsPage(shell, source = settingsSource) {
@@ -7899,13 +7935,13 @@ function tmtSettingsPage(shell, source = settingsSource) {
 		const section = current();
 		if (settings) {
 			note.replaceChildren();
-			note.hidden = !settings.sample || section === "identities" || section === "modules";
+			note.hidden = !settings.sample || section !== "general";
 			if (!note.hidden) notAvailable(note, "Sample data: Core has no web read of this machine yet. `tmt ls`, `tmt extension ls` and `tmt driver ls` show the real values.");
 		}
 		const page = document.getElementById("tmt-settings-page");
 		if (page) {
 			page.dataset.section = section;
-			page.className = `tmt-page tmt-settings${section === "general" || section === "identities" || section === "modules" ? " tmt-ui-page" : ""}`;
+			page.className = "tmt-page tmt-settings tmt-ui-page";
 		}
 		shell.setMenu({
 			title: "TMT settings",

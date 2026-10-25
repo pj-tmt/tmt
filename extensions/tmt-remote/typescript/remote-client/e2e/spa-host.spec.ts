@@ -1518,14 +1518,18 @@ test.describe('Settings General website presentation', () => {
           expect(await page.evaluate(() => localStorage.getItem('tmt-ui-theme'))).toBeNull();
           await link.click();
           await expect(page).toHaveURL(/#modules$/);
-          // Modules has its own page; the other sections that keep their list do not take the inset.
+          // Modules has its own page and takes the inset like every settings section.
           await expect(general).toHaveClass(/tmt-ui-page/);
           await expect(
             general.getByRole('heading', { name: 'Modules, in one place.' }),
           ).toBeVisible();
           await expect(general).not.toContainText('Make TMT feel like yours.');
           await menu.getByRole('link', { name: 'Drivers & hooks', exact: true }).click();
-          await expect(general).not.toHaveClass(/tmt-ui-page/);
+          await expect(general).toHaveClass(/tmt-ui-page/);
+          await expect(
+            general.getByRole('heading', { name: 'Drivers & hooks', exact: true, level: 2 }),
+          ).toBeVisible();
+          await expect(general.getByRole('button', { name: 'Copy tmt driver ls' })).toBeVisible();
           await menu.getByRole('link', { name: 'General', exact: true }).click();
           await expect(
             general.getByRole('heading', { name: 'Appearance', exact: true }),

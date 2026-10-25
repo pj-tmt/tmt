@@ -282,11 +282,20 @@
   }
 }
 
-/* Modules and Drivers: records of a glyph tile, a name and its line, then facts and one action. */
-.tmt-settings-section > .tmt-settings-warning {
+/* Modules and Drivers & hooks: records of a glyph tile, a name and its line, then facts and one action. */
+.tmt-settings-section > .tmt-settings-warning,
+.tmt-settings-section > .tmt-settings-commands {
   box-sizing: border-box;
   width: 100%;
   margin-block: var(--tmt-ui-space-l) var(--tmt-ui-space-xl);
+}
+.tmt-settings-commands {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tmt-ui-space-l);
+}
+.tmt-settings-commands > .tmt-ui-command {
+  margin: 0;
 }
 .tmt-settings-warning[data-tone='neutral'] {
   background: var(--tmt-ui-surface-hover);
@@ -345,6 +354,9 @@
   text-decoration: none;
 }
 @media (max-width: 760px) {
+  .tmt-settings-commands {
+    grid-template-columns: minmax(0, 1fr);
+  }
   /* The action stays at the end of the name row; the facts take the line below. */
   .tmt-settings-record {
     grid-template-columns: auto minmax(0, 1fr) auto;

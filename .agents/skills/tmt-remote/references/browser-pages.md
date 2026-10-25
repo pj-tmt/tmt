@@ -258,6 +258,17 @@ Remote card and its link appear only for an installed, described Remote. Without
 page shows the amber notice and the command and no record, version or channel; sample injection stays
 labelled "Sample installed modules". No install, update or read is added by this page.
 
+## TMT Settings Drivers & hooks
+
+Drivers & hooks takes the same inset and shell menu: a hero, a note, two nonexecuting Copy commands
+(`tmt driver ls` and `tmt setup --status`), a Host drivers card, an Agent hooks card and a card that
+says what each role is. A driver is its name, the product's line for herdr (the one map in
+`tmt-settings-copy.ts`; another name shows no line), an Approved state and the version in mono; a
+driver that no longer runs as approved shows its reason in the waiting tone instead of Approved. A hook
+is its provider, whether usage collection is on, and a Set up state. Without a browser read the page
+shows the amber notice, the commands and the roles card and no record, version or state; sample
+injection is labelled "Sample data". The page installs, approves and removes nothing.
+
 ## Digest presentation
 
 `digest-page` combines per-seat activity with Token usage through its Stacked/Lines and Absolute/Share
