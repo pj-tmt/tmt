@@ -87,7 +87,19 @@ const pending = () => {
   });
   return { resolve, promise };
 };
-async function fixture() {
+// A dedicated Hosting site: the page origin names the site, not the project.
+const config = {
+  apiKey: 'public-key',
+  appId: '1:12345:web:entry',
+  authDomain: 'demo-example.firebaseapp.com',
+  projectId: 'demo-example',
+};
+const reference = Object.freeze({
+  origin: 'https://demo-site.web.app',
+  publicWebConfig: config,
+  hostingSite: 'demo-site',
+});
+async function fixture(portConfig = config) {
   effects.length = 0;
   publication.records = [];
   publication.fits = false;
@@ -110,7 +122,7 @@ async function fixture() {
         uid: 'holder-uid',
         extension: 'colab',
         declarationDigest: 'a'.repeat(64),
-        config: { projectId: 'demo-example' },
+        config: portConfig,
       },
       async read(target: { resource: string; id: string }) {
         if (target.resource === 'members') return rows.get(target.id);
@@ -165,7 +177,7 @@ async function fixture() {
     return port;
   };
   const boot = {
-    origin: 'https://demo-example.web.app',
+    reference,
     declaration: { bytes: 'exact declaration', digest: 'a'.repeat(64) },
     limits: new Map(),
     auth: {
@@ -254,6 +266,30 @@ it('consumes Colab parsed keys before bootstrap, then one Rules admission and re
   await f.entry.close();
   expect(f.active()).toBe(0);
   expect(effects.indexOf('reader-close')).toBeLessThan(effects.indexOf('auth-close'));
+});
+
+it('a page on a dedicated Hosting site opens, and a port that is not the verified descriptor is refused', async () => {
+  expect(reference.hostingSite).not.toBe(reference.publicWebConfig.projectId);
+  const opened = await fixture();
+  await opened.entry.select(target());
+  await opened.entry.signIn();
+  expect(opened.states.at(-1)).toMatchObject({ phase: 'ready' });
+  await opened.entry.close();
+  for (const other of [
+    { ...config, projectId: 'demo-other', authDomain: 'demo-other.firebaseapp.com' },
+    { ...config, appId: '1:12345:web:other' },
+    { ...config, apiKey: 'other-key' },
+    { ...config, authDomain: 'other.firebaseapp.com' },
+  ]) {
+    const f = await fixture(other);
+    await f.entry.select(target());
+    await f.entry.signIn();
+    expect(f.states.at(-1)).toMatchObject({ phase: 'failed' });
+    expect(f.states.some((state) => state.phase === 'ready')).toBe(false);
+    expect(f.creates).toEqual([]);
+    expect(f.active()).toBe(0);
+    await f.entry.close();
+  }
 });
 
 it('the default editor wires fresh Colab ownAuthor and the one-document request-size hook', async () => {

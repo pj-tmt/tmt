@@ -220,7 +220,8 @@ handbook copy, **Local** / **Firebase** for kinds and **this machine** for the h
 - **Add remote:** the dialog has `Remote name` and `Door address or remote link`
   fields, with Continue / Cancel. A Local door asks `Add remote <name>?`, showing
   its address; a Firebase remote link asks `Add Firebase remote <project ID>?`,
-  with the public Hosting address `<project>.web.app` on the next line. Add /
+  with the link's public Hosting address on the next line (`<project>.web.app`,
+  or `<site>.web.app` for a dedicated Hosting site). Add /
   Cancel confirms a public reference; pairing, sign-in and space admission stay
   separate. No free-form JSON field. Invalid input says
   `The remote name or link is invalid`; capacity refusal says
