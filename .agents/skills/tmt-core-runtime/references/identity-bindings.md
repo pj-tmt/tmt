@@ -493,6 +493,7 @@ delivery. They install and launch nothing.
   each target under the installer lock. The [extension owner](install-architecture.md#extensions-through-tmt-extension)
   verifies healthy binaries without upgrading and retries missing bundled skills. Each
   extension outcome is additive JSON; partial failure keeps completed work and exits nonzero.
+  An interrupted installer stops later items, retains completed outcomes and exits 130.
 - `tmt uninstall` plans read-only, asks once (`--yes` never implies `--purge`) and then removes
   hooks (the exact inverse of setup), owners' skills and bundled links, extensions before the
   CLI, the setup record and, with `--purge`, the data directory. An unreadable record stops it

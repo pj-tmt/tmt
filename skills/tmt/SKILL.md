@@ -924,6 +924,7 @@ upgrade; missing bundled skills are retried from the verified active release.
 Independent items continue after a failure; completed work stays installed and
 `tmt setup --yes` retries missing work. A failed Remote installation skips Colab.
 JSON adds per-extension outcomes and a nonzero exit for incomplete setup.
+Interrupting installation stops later items, keeps completed work and exits 130.
 For read-only installation facts, use `tmt extension ls --json`: its four official
 rows include installed state, active version, `missing` and `dependencies` (Colab
 needs Remote). An unhealthy installation has recovery diagnostics; it is not

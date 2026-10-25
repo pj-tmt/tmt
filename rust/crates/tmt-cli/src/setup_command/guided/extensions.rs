@@ -236,7 +236,10 @@ impl Plan {
                 continue;
             }
             let progress = RefCell::new(InstallProgress::new("Set up", *product, interaction));
-            let result = if !dependency_ready(*product, remote_ready) {
+            let result = if interrupted(&rows) {
+                json!({"extension":product.as_str(),"selected":true,"status":"skipped",
+                    "reason":"Setup was interrupted. Rerun: tmt setup --yes"})
+            } else if !dependency_ready(*product, remote_ready) {
                 json!({"extension":product.as_str(),"selected":true,"status":"skipped",
                     "reason":"Remote is not ready; Colab needs Remote. Rerun: tmt setup --yes"})
             } else {
@@ -266,7 +269,7 @@ impl Plan {
                     }
                     Err(error) => {
                         progress.borrow_mut().failed();
-                        json!({"extension":product.as_str(),"selected":true,"status":"failed",
+                        json!({"extension":product.as_str(),"selected":true,"status":if error.status == 130 {"interrupted"} else {"failed"},
                             "error":error.document()["error"],"retry":"tmt setup --yes"})
                     }
                 }
@@ -282,7 +285,7 @@ impl Plan {
                 );
                 if matches!(
                     result["status"].as_str(),
-                    Some("failed" | "skipped" | "needs_attention")
+                    Some("failed" | "interrupted" | "skipped" | "needs_attention")
                 ) {
                     let detail = result["error"]["message"]
                         .as_str()
@@ -371,17 +374,26 @@ impl Drop for RawMode {
     }
 }
 
+pub(super) fn interrupted(rows: &[Value]) -> bool {
+    rows.iter().any(|row| row["status"] == "interrupted")
+}
+
 pub(super) fn failed(rows: &[Value]) -> bool {
     rows.iter().any(|row| {
         matches!(
             row["status"].as_str(),
-            Some("failed" | "skipped" | "needs_attention")
+            Some("failed" | "interrupted" | "skipped" | "needs_attention")
         )
     })
 }
 
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Setup was interrupted. Rerun: tmt setup --yes",
+        &[""],
+        &[],
+    ),
     crate::cli_style_tests::HintSpec::core(
         "Remote is not ready; Colab needs Remote. Rerun: tmt setup --yes",
         &[""],
@@ -485,6 +497,50 @@ mod tests {
             output.is_empty(),
             "JSON must contain no progress or human lines"
         );
+    }
+
+    #[test]
+    fn ordinary_failure_continues_with_later_independent_products() {
+        let plan = missing_plan();
+        let mut called = Vec::new();
+        let rows = plan.apply_with(&mut Vec::new(), Terminal::PLAIN, OutputMode { json:true }, |product, _| {
+            called.push(product);
+            if product == Product::Ops {
+                return Err(Failure::new("EXTENSION_INSTALL_FAILED", "fixture download failure", 1));
+            }
+            Ok(json!({"extension":product.as_str(),"installed":true,"changed":true,"skills":{"status":"current"}}))
+        }).unwrap();
+        assert_eq!(called, PRODUCTS);
+        assert_eq!(rows[0]["status"], "failed");
+        assert!(rows[1..].iter().all(|row| row["status"] == "installed"));
+        assert!(!interrupted(&rows));
+    }
+
+    #[test]
+    fn interruption_keeps_completed_outcomes_and_stops_later_installation() {
+        let plan = missing_plan();
+        let mut called = Vec::new();
+        let mut output = Vec::new();
+        let rows = plan.apply_with(&mut output, Terminal::PLAIN, OutputMode { json:true }, |product, _| {
+            called.push(product);
+            if product == Product::Digest {
+                return Err(Failure::new("EXTENSION_INSTALL_FAILED", "interrupted before activation", 130));
+            }
+            Ok(json!({"extension":product.as_str(),"installed":true,"changed":true,"skills":{"status":"current"}}))
+        }).unwrap();
+        assert_eq!(called, [Product::Ops, Product::Digest]);
+        assert_eq!(rows[0]["status"], "installed");
+        assert_eq!(rows[1]["status"], "interrupted");
+        for row in &rows[2..] {
+            assert_eq!(row["status"], "skipped");
+            assert_eq!(
+                row["reason"],
+                "Setup was interrupted. Rerun: tmt setup --yes"
+            );
+        }
+        assert!(interrupted(&rows));
+        assert!(failed(&rows));
+        assert!(output.is_empty());
     }
 
     #[test]

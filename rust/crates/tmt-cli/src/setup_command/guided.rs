@@ -320,6 +320,11 @@ pub(super) fn run(
         .as_ref()
         .map_or(true, |report| !report.failures.is_empty())
         || extensions::failed(&extension_rows);
+    let status = if extensions::interrupted(&extension_rows) {
+        130
+    } else {
+        u8::from(incomplete)
+    };
     if mode.json {
         let mut document = document(
             &plan,
@@ -373,7 +378,7 @@ pub(super) fn run(
         }
         backup_warnings(&plan, output, terminal)?;
     }
-    Ok(u8::from(incomplete))
+    Ok(status)
 }
 
 fn backup_warnings(
