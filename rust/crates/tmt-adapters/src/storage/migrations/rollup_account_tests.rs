@@ -24,6 +24,15 @@ fn cursor(connection: &Connection) -> i64 {
         .unwrap()
 }
 
+/// The rollup is a usage table: its writes advance the usage cursor (schema 74).
+fn usage(connection: &Connection) -> i64 {
+    connection
+        .query_row("SELECT value FROM usage_cursor WHERE id=1", [], |row| {
+            row.get(0)
+        })
+        .unwrap()
+}
+
 #[test]
 fn the_rollup_account_columns_are_additive_and_leave_every_existing_row_alone() {
     let directory = TestDirectory::new();
@@ -66,7 +75,7 @@ fn the_rollup_account_columns_are_additive_and_leave_every_existing_row_alone() 
         .unwrap();
 
     let storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 73);
+    assert_eq!(storage.health().unwrap().schema_version, 74);
     let columns = columns(&oracle);
     assert_eq!(&columns[columns.len() - 2..], ["credits", "service_tier"]);
     // No row was rewritten: every original cell is the same, both new cells are absent,
@@ -82,15 +91,17 @@ fn the_rollup_account_columns_are_additive_and_leave_every_existing_row_alone() 
         .unwrap();
     assert_eq!(absent, 2);
 
-    // A change to either new column advances the cursor, an unchanged write does not,
-    // and the size limits hold.
+    // A change to either new column advances the usage cursor, an unchanged write does not,
+    // none of them moves the change cursor, and the size limits hold.
+    let usage_before = usage(&oracle);
     let write = |sql: &str| oracle.execute(sql, []);
     write("UPDATE consumption_tier5m SET credits='{\"balance\":\"1\"}' WHERE from_ms=0").unwrap();
-    assert_eq!(cursor(&oracle), cursor_before + 1);
+    assert_eq!(usage(&oracle), usage_before + 1);
     write("UPDATE consumption_tier5m SET credits='{\"balance\":\"1\"}' WHERE from_ms=0").unwrap();
-    assert_eq!(cursor(&oracle), cursor_before + 1);
+    assert_eq!(usage(&oracle), usage_before + 1);
     write("UPDATE consumption_tier5m SET service_tier='priority' WHERE from_ms=0").unwrap();
-    assert_eq!(cursor(&oracle), cursor_before + 2);
+    assert_eq!(usage(&oracle), usage_before + 2);
+    assert_eq!(cursor(&oracle), cursor_before);
     assert!(
         write(&format!(
             "UPDATE consumption_tier5m SET service_tier='{}' WHERE from_ms=0",

@@ -490,7 +490,7 @@ describe('public local extension API', () => {
       const cursor = async () => {
         const result = await api(sandbox, 'changes.cursor', {});
         expect(result.status).toBe(0);
-        expect(Object.keys(result.body)).toEqual(['cursor']);
+        expect(Object.keys(result.body)).toEqual(['cursor', 'usage']);
         return result.body.cursor as number;
       };
       const start = await cursor();

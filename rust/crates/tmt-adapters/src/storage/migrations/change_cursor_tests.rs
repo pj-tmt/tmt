@@ -1,5 +1,6 @@
 //! Schema 40's change cursor: which tables advance it, and that every covered
-//! table does so on insert, update and delete.
+//! table does so on insert, update and delete. The usage tables advance their own
+//! cursor instead (schema 74, #5019).
 use std::collections::BTreeSet;
 
 use crate::{storage::Storage, test_support::TestDirectory};
@@ -7,7 +8,21 @@ use rusqlite::{Connection, types::Value};
 
 /// Bookkeeping, not records: migration history, extension cutover receipts
 /// and the counter itself.
-const BOOKKEEPING: &[&str] = &["_migrations", "change_cursor", "extension_storage_cutovers"];
+const BOOKKEEPING: &[&str] = &[
+    "_migrations",
+    "change_cursor",
+    "usage_cursor",
+    "extension_storage_cutovers",
+];
+
+/// The sampler's tables: their writes are telemetry, not a change the board reloads for.
+const USAGE: &[&str] = &[
+    "consumption_sources",
+    "consumption_buckets",
+    "consumption_tier5m",
+    "consumption_family",
+    "consumption_family_files",
+];
 
 /// Append-only journals paged on demand, independently of board refreshes.
 const ON_DEMAND_JOURNALS: &[&str] = &["orchestration_decisions"];
@@ -43,7 +58,8 @@ fn extension_owned(connection: &Connection) -> BTreeSet<String> {
     .collect()
 }
 
-/// Board-relevant tables, excluding bookkeeping, on-demand journals and extension data.
+/// Board-relevant tables, excluding bookkeeping, on-demand journals, the sampler's usage tables
+/// and extension data.
 fn covered(connection: &Connection) -> Vec<String> {
     let owned = extension_owned(connection);
     strings(
@@ -55,17 +71,24 @@ fn covered(connection: &Connection) -> Vec<String> {
     .filter(|table| {
         !BOOKKEEPING.contains(&table.as_str())
             && !ON_DEMAND_JOURNALS.contains(&table.as_str())
+            && !USAGE.contains(&table.as_str())
             && !owned.contains(table)
     })
     .collect()
 }
 
-fn cursor(connection: &Connection) -> i64 {
+fn counter(connection: &Connection, table: &str) -> i64 {
     connection
-        .query_row("SELECT value FROM change_cursor WHERE id = 1", [], |row| {
-            row.get(0)
-        })
+        .query_row(
+            &format!("SELECT value FROM {table} WHERE id = 1"),
+            [],
+            |row| row.get(0),
+        )
         .unwrap()
+}
+
+fn cursor(connection: &Connection) -> i64 {
+    counter(connection, "change_cursor")
 }
 
 /// A future table, or a rebuilt one that lost its triggers, fails here until
@@ -127,6 +150,81 @@ fn row_values(connection: &Connection, table: &str) -> (Vec<String>, Vec<Value>)
         .unzip()
 }
 
+/// Insert, a same-value rewrite, each column changed alone, and delete, on `table`: `counter`
+/// advances exactly when a row really changed, and `other` never moves.
+fn assert_advances(connection: &Connection, table: &str, counter_table: &str, other: &str) {
+    let (columns, values) = row_values(connection, table);
+    let before = counter(connection, counter_table);
+    let untouched = counter(connection, other);
+    connection
+        .execute(
+            &format!(
+                "INSERT INTO {table} ({}) VALUES ({})",
+                columns.join(", "),
+                vec!["?"; columns.len()].join(", ")
+            ),
+            rusqlite::params_from_iter(&values),
+        )
+        .unwrap_or_else(|error| panic!("{table}: {error}"));
+    assert_eq!(
+        counter(connection, counter_table),
+        before + 1,
+        "{table} insert"
+    );
+
+    // Rewriting every column with its own value is not a change.
+    let same: Vec<String> = columns
+        .iter()
+        .map(|column| format!("{column} = {column}"))
+        .collect();
+    connection
+        .execute(&format!("UPDATE {table} SET {}", same.join(", ")), [])
+        .unwrap();
+    assert_eq!(
+        counter(connection, counter_table),
+        before + 1,
+        "{table} same-value update"
+    );
+
+    // A new value in any compared column is; one column at a time, so a
+    // column added later without being compared fails here.
+    let mut expected = before + 1;
+    for (column, value) in columns.iter().zip(&values) {
+        if OBSERVATIONS.contains(&(table, column.as_str())) {
+            continue;
+        }
+        let other_value = match value {
+            Value::Integer(_) => Value::Integer(2),
+            Value::Blob(_) => Value::Blob(vec![1]),
+            Value::Real(_) => Value::Real(2.0),
+            _ => Value::Text(format!("{column}-changed")),
+        };
+        connection
+            .execute(&format!("UPDATE {table} SET {column} = ?"), [other_value])
+            .unwrap();
+        expected += 1;
+        assert_eq!(
+            counter(connection, counter_table),
+            expected,
+            "{table}.{column} update"
+        );
+    }
+
+    connection
+        .execute(&format!("DELETE FROM {table}"), [])
+        .unwrap();
+    assert_eq!(
+        counter(connection, counter_table),
+        expected + 1,
+        "{table} delete"
+    );
+    assert_eq!(
+        counter(connection, other),
+        untouched,
+        "{table} moved {other}"
+    );
+}
+
 #[test]
 fn insert_update_and_delete_each_advance_the_cursor_on_every_board_relevant_core_table() {
     let (_directory, connection) = migrated();
@@ -134,54 +232,38 @@ fn insert_update_and_delete_each_advance_the_cursor_on_every_board_relevant_core
         .execute_batch("PRAGMA foreign_keys = OFF; PRAGMA ignore_check_constraints = ON;")
         .unwrap();
     for table in covered(&connection) {
-        let (columns, values) = row_values(&connection, &table);
-        let before = cursor(&connection);
-        connection
-            .execute(
-                &format!(
-                    "INSERT INTO {table} ({}) VALUES ({})",
-                    columns.join(", "),
-                    vec!["?"; columns.len()].join(", ")
-                ),
-                rusqlite::params_from_iter(&values),
-            )
-            .unwrap_or_else(|error| panic!("{table}: {error}"));
-        assert_eq!(cursor(&connection), before + 1, "{table} insert");
+        assert_advances(&connection, &table, "change_cursor", "usage_cursor");
+    }
+}
 
-        // Rewriting every column with its own value is not a change.
-        let same: Vec<String> = columns
+/// The sampler's writes wake nothing: they advance the usage cursor and leave the change cursor.
+#[test]
+fn insert_update_and_delete_each_advance_only_the_usage_cursor_on_every_usage_table() {
+    let (_directory, connection) = migrated();
+    connection
+        .execute_batch("PRAGMA foreign_keys = OFF; PRAGMA ignore_check_constraints = ON;")
+        .unwrap();
+    for table in USAGE {
+        assert_advances(&connection, table, "usage_cursor", "change_cursor");
+    }
+}
+
+#[test]
+fn every_usage_table_has_the_three_usage_cursor_triggers() {
+    let (_directory, connection) = migrated();
+    for table in USAGE {
+        let triggers = strings(
+            &connection,
+            &format!(
+                "SELECT name FROM sqlite_schema WHERE type = 'trigger' AND tbl_name = '{table}' \
+                 AND name LIKE '%_advances_%_cursor_on_%' ORDER BY name"
+            ),
+        );
+        let expected: Vec<String> = ["delete", "insert", "update"]
             .iter()
-            .map(|column| format!("{column} = {column}"))
+            .map(|operation| format!("{table}_advances_usage_cursor_on_{operation}"))
             .collect();
-        connection
-            .execute(&format!("UPDATE {table} SET {}", same.join(", ")), [])
-            .unwrap();
-        assert_eq!(cursor(&connection), before + 1, "{table} same-value update");
-
-        // A new value in any compared column is; one column at a time, so a
-        // column added later without being compared fails here.
-        let mut expected = before + 1;
-        for (column, value) in columns.iter().zip(&values) {
-            if OBSERVATIONS.contains(&(table.as_str(), column.as_str())) {
-                continue;
-            }
-            let other = match value {
-                Value::Integer(_) => Value::Integer(2),
-                Value::Blob(_) => Value::Blob(vec![1]),
-                Value::Real(_) => Value::Real(2.0),
-                _ => Value::Text(format!("{column}-changed")),
-            };
-            connection
-                .execute(&format!("UPDATE {table} SET {column} = ?"), [other])
-                .unwrap();
-            expected += 1;
-            assert_eq!(cursor(&connection), expected, "{table}.{column} update");
-        }
-
-        connection
-            .execute(&format!("DELETE FROM {table}"), [])
-            .unwrap();
-        assert_eq!(cursor(&connection), expected + 1, "{table} delete");
+        assert_eq!(triggers, expected, "{table}");
     }
 }
 

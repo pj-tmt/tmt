@@ -12,6 +12,8 @@ use std::{path::PathBuf, time::SystemTime};
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Stamp {
     cursor: Option<Value>,
+    /// Core's usage cursor: the sampler's writes, which do not wake the board (#5019).
+    usage: Option<Value>,
     /// ops.toml's modification time and length; None when it is missing.
     config: Option<(SystemTime, u64)>,
     layout: Option<PathBuf>,
@@ -27,9 +29,14 @@ impl Stamp {
     }
 
     /// History is stored in core tables; unlike pane/notebook freshness it may
-    /// reuse a successful durable cursor within the same closed time bucket.
+    /// reuse a successful durable cursor within the same closed time bucket. It
+    /// changes with either cursor: usage rows are its evidence, the roster and
+    /// bindings its causes. Both only grow, so their sum moves exactly when one does.
     pub(super) fn history_cursor(&self) -> Option<u64> {
-        self.cursor.as_ref().and_then(Value::as_u64)
+        let cursor = self.cursor.as_ref().and_then(Value::as_u64)?;
+        // A core without the usage cursor counts those writes in `cursor`.
+        let usage = self.usage.as_ref().and_then(Value::as_u64).unwrap_or(0);
+        Some(cursor.saturating_add(usage))
     }
 
     #[cfg(test)]
@@ -43,6 +50,7 @@ impl Stamp {
     pub fn cursor(cursor: u64) -> Self {
         Self {
             cursor: Some(json!(cursor)),
+            usage: None,
             config: None,
             layout: None,
             fields: None,
@@ -51,7 +59,8 @@ impl Stamp {
 
     /// Whether `now` shows a change since `self`. ops.toml appearing,
     /// disappearing or being rewritten counts; the cursor counts only when
-    /// both reads succeeded, so a failed read never triggers a reload.
+    /// both reads succeeded, so a failed read never triggers a reload. The usage
+    /// cursor never counts: usage views refresh on their own clock.
     pub fn moved(&self, now: &Stamp) -> bool {
         self.layout_moved(now)
             || self.config != now.config
@@ -91,9 +100,11 @@ impl Changes {
     }
 
     pub fn stamp(&mut self, core: &Core) -> Stamp {
+        let (cursor, usage) = self.cursors(core);
         Stamp {
             layout: self.config.clone(),
-            cursor: self.cursor(core),
+            cursor,
+            usage,
             config: self.config.as_ref().and_then(|path| {
                 let metadata = std::fs::metadata(path).ok()?;
                 Some((metadata.modified().ok()?, metadata.len()))
@@ -105,18 +116,23 @@ impl Changes {
         }
     }
 
-    fn cursor(&mut self, core: &Core) -> Option<Value> {
+    /// The change cursor and the usage cursor, from one request. A core before the
+    /// usage cursor returns only the first.
+    fn cursors(&mut self, core: &Core) -> (Option<Value>, Option<Value>) {
         if !self.cursor {
-            return None;
+            return (None, None);
         }
         match core.api("changes.cursor", json!({})) {
-            Ok(document) => document.get("cursor").cloned(),
+            Ok(document) => (
+                document.get("cursor").cloned(),
+                document.get("usage").cloned(),
+            ),
             // An older core: it has no such operation.
             Err(error) if error.code == "API_INPUT_INVALID" => {
                 self.cursor = false;
-                None
+                (None, None)
             }
-            Err(_) => None,
+            Err(_) => (None, None),
         }
     }
 }
@@ -142,7 +158,7 @@ mod tests {
                  if [ \"$1\" = error ]; then\n\
                  echo \"{{\\\"error\\\":{{\\\"code\\\":\\\"$2\\\",\\\"message\\\":\\\"no\\\"}}}}\"; exit 2\n\
                  fi\n\
-                 echo \"{{\\\"cursor\\\":$1}}\"\n",
+                 if [ -n \"$2\" ]; then echo \"{{\\\"cursor\\\":$1,\\\"usage\\\":$2}}\"; else echo \"{{\\\"cursor\\\":$1}}\"; fi\n",
                 log = log.display(),
                 cursor = cursor.display(),
             ),
@@ -183,6 +199,35 @@ mod tests {
         assert!(second.moved(&third), "ops.toml appeared");
         std::fs::write(&config, "[board]\nrefresh = \"2s\"\n").unwrap();
         assert!(third.moved(&changes.stamp(&core)), "ops.toml was rewritten");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_usage_cursor_move_wakes_nothing_but_still_moves_the_history_cursor() {
+        let (mut changes, cursor, _config, dir) = fake("usage");
+        let core = Core::at(dir.join("tmt"));
+        std::fs::write(&cursor, "7 1").unwrap();
+        let first = changes.stamp(&core);
+        std::fs::write(&cursor, "7 2").unwrap();
+        let sampled = changes.stamp(&core);
+        assert!(!first.moved(&sampled), "a sampler write is not a reload");
+        assert_ne!(
+            first.history_cursor(),
+            sampled.history_cursor(),
+            "but the usage history it left is new"
+        );
+
+        std::fs::write(&cursor, "8 2").unwrap();
+        let roster = changes.stamp(&core);
+        assert!(
+            sampled.moved(&roster),
+            "a roster, request or focus change is"
+        );
+        assert_ne!(sampled.history_cursor(), roster.history_cursor());
+
+        // A core before the usage cursor counts those writes in `cursor` alone.
+        std::fs::write(&cursor, "9").unwrap();
+        assert_eq!(changes.stamp(&core).history_cursor(), Some(9));
         let _ = std::fs::remove_dir_all(dir);
     }
 
