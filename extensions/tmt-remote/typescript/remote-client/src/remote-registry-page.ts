@@ -358,11 +358,7 @@ export function remoteRegistryPage(
         const role = row.querySelector<HTMLElement>('[data-role]')!;
         role.querySelector<HTMLElement>('.tmt-ui-chip-label')!.textContent = entry.roleLabel;
         role.dataset.roleTone =
-          entry.roleLabel === 'Admin'
-            ? 'selected'
-            : entry.roleLabel === 'Role unknown'
-              ? 'muted'
-              : 'neutral';
+          entry.role === 'owner' ? 'selected' : entry.role === undefined ? 'muted' : 'neutral';
         const state = row.querySelector<HTMLElement>('.tmt-ui-list-state')!;
         state.textContent = `${entry.connection.mark} ${entry.connection.text}`;
         state.dataset.tone = entry.connection.tone;
@@ -435,11 +431,7 @@ export function remoteRegistryPage(
         role.className += ' remote-role';
         role.dataset.role = '';
         role.dataset.roleTone =
-          entry.roleLabel === 'Admin'
-            ? 'selected'
-            : entry.roleLabel === 'Role unknown'
-              ? 'muted'
-              : 'neutral';
+          entry.role === 'owner' ? 'selected' : entry.role === undefined ? 'muted' : 'neutral';
         label.append(role);
         const description = node(
           'span',

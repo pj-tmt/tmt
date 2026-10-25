@@ -30,6 +30,7 @@ export interface RemoteRegistryRow {
   readonly thisMachine: boolean;
   readonly backend: 'Local' | 'Firebase';
   readonly project: string | null;
+  readonly role: ViewerRole | undefined;
   readonly roleLabel: ReturnType<typeof remoteRole>;
   readonly connection: RemoteConnectionView;
 }
@@ -61,6 +62,7 @@ export function registryView(
     thisMachine,
     backend: entry?.kind === 'firestore' ? 'Firebase' : 'Local',
     project: entry?.project ?? null,
+    role: thisMachine ? observed.role : undefined,
     roleLabel: remoteRole(thisMachine ? observed.role : undefined),
     connection: remoteState(observed.state, thisMachine),
   });

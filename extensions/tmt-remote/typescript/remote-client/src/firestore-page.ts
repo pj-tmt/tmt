@@ -1,7 +1,8 @@
 /** Read-only settings presentation; all evidence was validated on the signed SDK lane. */
 import { budget } from 'remote-browser-sdk';
 import { browserUiClasses } from '@tmt/browser-ui/static';
-import { firestoreTitles, firestoreItems, firestoreReasons } from './firestore.js';
+import { firestoreTitles, firestoreItems, firestoreReasons, serviceCommands } from './firestore.js';
+import { commandCopy } from './command-copy.js';
 import type { FirestoreSettingsView } from './management.js';
 const states = {
   enabled: ['✓', 'Enabled', 'working'],
@@ -13,11 +14,6 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, text = ''): HTMLEle
   const element = document.createElement(tag);
   element.textContent = text;
   return element;
-}
-function command(text: string): HTMLElement {
-  const code = node('code', text);
-  code.className = 'tmt-ui-code';
-  return code;
 }
 function mark(state: keyof typeof states): HTMLElement {
   const [icon, text, tone] = states[state];
@@ -44,6 +40,119 @@ function allowance(amount: number, bytes: boolean, period: string): string {
   }
   return `${written}${period ? ` per ${period}` : ''}`;
 }
+function link(text: string, href: string): HTMLAnchorElement {
+  const anchor = node('a', text);
+  anchor.href = href;
+  anchor.target = '_blank';
+  anchor.rel = 'noopener noreferrer';
+  return anchor;
+}
+function checks(): HTMLElement {
+  const section = node('section');
+  section.className = 'firestore-layer';
+  section.setAttribute('aria-label', 'Checks before an update');
+  section.append(node('h3', 'Before an update'));
+  const rows = [
+    {
+      id: 'version',
+      title: 'Deployed version and required version',
+      detail:
+        'Version comparison is not available here. Check this Remote’s setup in this machine’s terminal before upgrading.',
+      command: serviceCommands.status,
+    },
+    {
+      id: 'changes',
+      title: 'What will change',
+      detail:
+        'No deployment plan has been checked here. Preview the exact changes in this machine’s terminal.',
+      command: serviceCommands.preview,
+    },
+    {
+      id: 'permissions',
+      title: 'Account permissions',
+      detail:
+        'Permissions have not been checked here. Use the Firebase account that manages the project in this machine’s terminal to check them.',
+      command: serviceCommands.preview,
+    },
+  ];
+  for (const row of rows) {
+    const item = node('section');
+    item.dataset.serviceCheck = row.id;
+    const title = node('h4', `${row.title}: `);
+    title.append(mark('unknown'));
+    item.append(title, node('p', row.detail), commandCopy(row.command));
+    section.append(item);
+  }
+  section.append(
+    node(
+      'p',
+      'Replace <project-id> and <region> with your Firebase project and its region. The preview command does not authorize deployment.',
+    ),
+  );
+  return section;
+}
+function guidance(): HTMLElement {
+  const section = node('section');
+  section.className = 'firestore-layer';
+  section.append(node('h3', 'Where to check and make changes'));
+  const steps = node('ol');
+  const consoleStep = node(
+    'li',
+    'In the provider console, choose your Firebase project. Review its sign-in, database rules and usage. ',
+  );
+  consoleStep.append(link('Open Firebase console', 'https://console.firebase.google.com/'));
+  const permissionStep = node(
+    'li',
+    'In the provider console, open Project settings → Users and permissions. Ask the project administrator for missing access. ',
+  );
+  permissionStep.append(
+    link('Firebase roles and permissions', 'https://firebase.google.com/docs/projects/iam/roles'),
+  );
+  steps.append(
+    node(
+      'li',
+      'In this machine’s terminal, install the Firebase CLI and sign in with the account that manages the project.',
+    ),
+    consoleStep,
+    node(
+      'li',
+      'In this machine’s terminal, copy the preview command above to review changes and check permissions. Review and authorize any deployment there.',
+    ),
+    permissionStep,
+    node(
+      'li',
+      'After you act in the terminal or provider console, return here and use Refresh values. That rechecks this machine’s saved setup facts; it does not run a live provider check.',
+    ),
+  );
+  section.append(steps);
+  return section;
+}
+function paidStorage(): HTMLElement {
+  const paid = node(
+    'p',
+    'Paid Firebase Blaze usage and separate consent are required when file storage becomes available. ',
+  );
+  paid.append(
+    link(
+      'Firebase pricing plans',
+      'https://firebase.google.com/docs/projects/billing/firebase-pricing-plans',
+    ),
+  );
+  return paid;
+}
+function futureServices(includeStorage = false): HTMLElement {
+  const section = node('section');
+  section.className = 'firestore-layer';
+  section.setAttribute('aria-label', 'Other services');
+  section.append(node('h3', 'Other services'));
+  if (includeStorage)
+    section.append(
+      node('p', 'File storage (paid add-on) — Not available in this release.'),
+      paidStorage(),
+    );
+  section.append(node('p', 'Cloudflare — Coming soon.'));
+  return section;
+}
 // This is presentation equality only: signed observations and their fences always run.
 const painted = new WeakMap<HTMLElement, string>();
 export function renderFirestore(
@@ -59,7 +168,7 @@ export function renderFirestore(
     access === 'checking'
       ? ''
       : access !== 'confirmed' || !view
-        ? 'Firestore setup could not be confirmed.'
+        ? 'Service status could not be confirmed.'
         : !view.firestoreLayers.length
           ? 'Firestore is not configured.'
           : view.firestoreLayers
@@ -76,23 +185,29 @@ export function renderFirestore(
       node(
         'p',
         access === 'checking'
-          ? 'Checking recorded Firestore setup…'
-          : 'Firestore setup could not be confirmed.',
+          ? 'Checking service status…'
+          : 'Service status could not be confirmed.',
       ),
     );
-    if (access !== 'checking') {
-      const hint = node('p', 'Check with ');
-      hint.append(
-        command('tmt remote status --layers'),
-        document.createTextNode(' on the machine that runs Remote.'),
-      );
-      target.append(hint);
-    }
+    if (access !== 'checking') target.append(checks(), guidance(), futureServices(true));
     target.dataset.tone = access === 'checking' ? 'waiting' : 'blocked';
     return;
   }
   target.dataset.tone = 'review';
-  if (!view.firestoreLayers.length) target.append(node('p', 'Firestore is not configured.'));
+  target.append(
+    node(
+      'p',
+      view.firestoreLayers.length
+        ? 'Cloud service: Firebase (Firestore).'
+        : 'Firestore is not configured.',
+    ),
+  );
+  target.append(
+    node(
+      'p',
+      'These setup facts come from this machine. They are not a live check of your Firebase project.',
+    ),
+  );
   for (const layer of view.firestoreLayers) {
     const group = node('section');
     group.className = 'firestore-layer';
@@ -102,6 +217,7 @@ export function renderFirestore(
     if (layer.prerequisites.some((p) => p.item === 'support' && p.reason === 'not-implemented')) {
       const line = node('h3', `${title} — Not available in this release.`);
       group.append(line);
+      if (layer.layer === 'attachments') group.append(paidStorage());
     } else {
       const heading = node('h3', `${title} `);
       heading.append(mark(layer.state));
@@ -120,9 +236,8 @@ export function renderFirestore(
         if (item.reason) row.append(node('p', firestoreReasons[item.item]![item.reason]![0]));
         if (item.next) {
           const nextLine = firestoreReasons[item.item]![item.reason!]![2];
-          const hint = node('p', nextLine ?? 'Next command on the machine that runs Remote: ');
-          if (!nextLine) hint.append(command(item.next));
-          row.append(hint);
+          const hint = node('p', nextLine ?? 'Run this in this machine’s terminal:');
+          row.append(hint, commandCopy(item.next));
         }
         list.append(row);
       }
@@ -137,6 +252,11 @@ export function renderFirestore(
     }
     target.append(group);
   }
+  target.append(
+    checks(),
+    guidance(),
+    futureServices(!view.firestoreLayers.some((layer) => layer.layer === 'attachments')),
+  );
   const details = node('details');
   details.id = 'firestore-budget';
   details.className = browserUiClasses.disclosure;

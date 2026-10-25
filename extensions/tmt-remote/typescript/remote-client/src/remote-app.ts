@@ -129,12 +129,7 @@ export async function remoteApp(
       renameLabel.textContent = observed?.current.reference
         ? 'Rename in this browser'
         : 'Remember this Remote';
-    const role =
-      observed?.current.roleLabel === 'Admin'
-        ? 'owner'
-        : observed?.current.roleLabel === 'Member'
-          ? 'user'
-          : undefined;
+    const role = observed?.current.role;
     const access = remoteTabAccess(shown, role);
     needsYou.hidden = shown.id !== 'overview' || reportedNeeds === undefined;
     needsYou.textContent =
@@ -142,7 +137,7 @@ export async function remoteApp(
         ? ''
         : reportedNeeds === 0
           ? 'Nothing needs you.'
-          : `${reportedNeeds} items need your attention.`;
+          : `${reportedNeeds} ${reportedNeeds === 1 ? 'item needs' : 'items need'} your attention.`;
     frame.hidden = shown.id === 'remotes';
     heading.textContent = `${observed?.current.name ?? 'This Remote'} · ${observed?.current.roleLabel ?? 'Role unknown'}`;
     designation.textContent =

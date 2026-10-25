@@ -3338,7 +3338,10 @@ async function captureFirestore(
     });
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  const directory = process.env.TMT_REMOTE_CAPTURE_DIR;
+  await settled(page);
+  const directory =
+    process.env.TMT_REMOTE_CAPTURE_DIR ??
+    (process.env.CI ? join(test.info().outputDir, 'service-captures') : undefined);
   if (!directory) return;
   await mkdir(directory, { recursive: true });
   const path = join(directory, `firestore-${state}-${width}-${theme}.png`);
@@ -3353,7 +3356,7 @@ async function captureFirestore(
       path,
       evidence,
       lookAt:
-        'Read-only recorded readiness, unsupported-layer one-liners; dated budget is not actual usage',
+        'Read-only Service guidance; injected saved facts, unchecked version/plan/permissions and unavailable add-ons; dated budget is not usage',
     }) + '\n',
   );
 }
@@ -3418,9 +3421,7 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     await expect(page.locator('#opening')).toBeEnabled();
     await expect(page.locator('#refresh')).toBeEnabled();
     await expect(page.locator('.device-summary')).toContainText('Firestore browser');
-    await expect(page.locator('#firestore-content')).toHaveText(
-      'Checking recorded Firestore setup…',
-    );
+    await expect(page.locator('#firestore-content')).toHaveText('Checking service status…');
   } finally {
     optional.release();
     await optionalJoined.reached;
@@ -3440,7 +3441,7 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
   try {
     await page.click('#refresh');
     await expect(page.locator('#firestore-content')).toContainText(
-      'Firestore setup could not be confirmed.',
+      'Service status could not be confirmed.',
     );
     await expect(page.locator('#access')).toHaveText('Current browser access confirmed.');
     await expect(page.locator('#opening')).toBeEnabled();
@@ -3506,8 +3507,78 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     });
   };
   await page.route('**/sdk/settings-v1.js', fixtureModule);
+  const settingsBrowser = inventory.devices.find(
+    (row: { name: string }) => row.name === 'Firestore browser',
+  );
+  expect(settingsBrowser).toBeTruthy();
+  execFileSync(BINARY, ['devices', 'designate', settingsBrowser.clientId, '--json'], { env });
   await gotoSettings(page, { tab: 'service' });
+  await expect(page.locator('#remote-designation')).toHaveText('This browser manages this Remote.');
   await expect(page.locator('[data-layer="sharing"]')).toContainText('Enabled');
+  const serviceChecks = page.locator('[data-service-check]');
+  await expect(serviceChecks).toHaveCount(3);
+  for (const check of await serviceChecks.all()) {
+    await expect(check).toContainText('Not checked');
+    await expect(check.getByRole('button')).toHaveCount(1);
+  }
+  const preview = page.locator('[data-service-check="changes"]');
+  const printed =
+    "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json";
+  await expect(preview.locator('code')).toHaveText(printed);
+  expect(printed).not.toContain('--authorize');
+  const beforeCopy = [...observed];
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          (window as unknown as { serviceCopied: string }).serviceCopied = text;
+        },
+      },
+    });
+  });
+  await preview.getByRole('button').click();
+  await expect(preview.getByRole('status')).toHaveText('Copied.');
+  expect(
+    await page.evaluate(() => (window as unknown as { serviceCopied: string }).serviceCopied),
+  ).toBe(printed);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new Error('clipboard-denied fixture');
+        },
+      },
+    });
+  });
+  await preview.getByRole('button').click();
+  await expect(preview.getByRole('status')).toHaveText(
+    'Copy failed. Select the command and copy it manually.',
+  );
+  expect(observed).toEqual(beforeCopy);
+  await expect(page.locator('[data-layer="attachments"]')).toContainText('separate consent');
+  await expect(page.locator('[data-layer="attachments"] button')).toHaveCount(0);
+  await expect(page.locator('#firestore-content')).toContainText('Cloudflare — Coming soon.');
+  // Settle the copy feedback before the review captures; no command or provider action runs.
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async () => undefined },
+    });
+  });
+  await preview.getByRole('button').click();
+  await expect(preview.getByRole('status')).toHaveText('Copied.');
+  for (const width of [390, 1440])
+    for (const theme of ['light', 'dark'] as const)
+      await captureFirestore(
+        page,
+        'service-upgrade',
+        width,
+        theme,
+        'Real door and signed reads; test-only enabled projection; version/plan/permission remain unchecked and copy performs no request',
+      );
+
   for (const layer of ['operations', 'attachments']) {
     await expect(page.locator(`[data-layer="${layer}"]`)).toContainText(
       'Not available in this release.',

@@ -663,7 +663,7 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
     );
     assert!(
         page.body
-            .contains("Recorded setup, not a live Firebase check.")
+            .contains("Review this Remote’s service status. Make changes in this machine’s terminal or the provider console.")
     );
     assert!(page.body.contains("id=\"firestore-content\""));
     assert!(page.body.contains("id=\"access-announcement\""));

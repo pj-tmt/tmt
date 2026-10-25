@@ -197,9 +197,17 @@ states at 1440/390 light/dark and 320 fit. Refresh restores its initiating keybo
 only when the person has not moved elsewhere. Device forms and action names use the admitted
 device name, never an unsent draft. The capture index records the served state and provenance.
 
-The Firestore section is read-only: it explicitly requests the signed settings projection,
-sharing status's recorded layer evidence and dated published limits. Unsupported layers use
-one not-available line, even when their other prerequisites are off or unknown. The page
+Service & upgrade is read-only: it explicitly requests the signed settings projection,
+sharing status's saved evidence and dated published limits. Backend and add-on availability
+come from that observation; unsupported add-ons remain unavailable, including paid file
+storage until it ships. Cloudflare is coming soon. Missing deployed/required version, plan
+and permission observations stay **Not checked**. Copy-only references use `status --layers`
+and a `deploy firestore --defaults --json` preview without `--authorize`, from the single
+`assets/service-commands.json` catalog shared with the native parser proof; they run only when
+the person copies them into this machine's terminal. Provider-console links explain where
+to review project setup, permissions and billing. Refresh values rereads this machine's
+saved facts after the person acts; it is not a live provider check. No browser execute or
+confirmation action, provider call, native field or second readiness owner is added. The page
 never displays reason codes, measured usage or an invented quota warning; ready sharing includes the
 [contract's fixed limits note](../../../../contracts/remote-channel-v1.md#local-cli-discovery). Native Details
 contains the wrapping budget table and its date, Pacific reset and local guard thresholds.
