@@ -143,3 +143,25 @@
   overflow-wrap: anywhere;
 }
 
+
+/* My Remotes composes the shipped list roles without a second registry or leaf override. */
+.settings-page #remote-list .tmt-ui-list-meta {
+  grid-template-columns: auto;
+  gap: var(--tmt-ui-space-xs);
+}
+.settings-page #remote-list .tmt-ui-list-description {
+  overflow-wrap: anywhere;
+}
+.settings-page #remote-list .tmt-ui-chip {
+  margin-inline-start: var(--tmt-ui-space-xs);
+}
+@media (max-width: 650px) {
+  .settings-page #remote-list .tmt-ui-list-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+.settings-page #remote-list .tmt-ui-list-actions {
+  gap: var(--tmt-ui-space-xs);
+}

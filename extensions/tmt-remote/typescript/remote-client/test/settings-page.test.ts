@@ -267,8 +267,19 @@ class Element {
   }
   querySelectorAll(selector: string): Element[] {
     return this.descendants().filter((node) =>
-      selector === '[data-remote]' ? 'remote' in node.dataset : node.tag === selector,
+      selector === '[data-remote]'
+        ? 'remote' in node.dataset
+        : selector === '[data-role]'
+          ? 'role' in node.dataset
+          : selector === '[data-action="open"]'
+            ? node.dataset.action === 'open'
+            : selector.startsWith('.')
+              ? node.className.split(' ').includes(selector.slice(1))
+              : node.tag === selector,
     );
+  }
+  querySelector(selector: string): Element | undefined {
+    return this.querySelectorAll(selector)[0];
   }
   button(text: string): Element {
     return this.querySelectorAll('button').find((node) => node.textContent === text)!;
@@ -289,6 +300,7 @@ async function registryPage() {
   vi.stubGlobal('document', {
     getElementById: (id: string) => ids.get(id) ?? null,
     createElement: (tag: string) => new Element(tag, page),
+    createElementNS: (_namespace: string, tag: string) => new Element(tag, page),
     documentElement: { dataset: { tmtPage: 'settings' } },
   });
   vi.stubGlobal('location', {
@@ -322,7 +334,7 @@ async function registryPage() {
   const { remoteRegistryPage } = await vi.importActual<
     typeof import('../src/remote-registry-page.js')
   >('../src/remote-registry-page.js');
-  remoteRegistryPage();
+  const observe = remoteRegistryPage();
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
   await settle();
   const dialogs = () => ids.get('remotes')!.querySelectorAll('dialog');
@@ -330,6 +342,8 @@ async function registryPage() {
   const entry = { name: 'alpha', kind: 'local', url: 'https://door.test/', project: null };
   return {
     page,
+    list: ids.get('remote-list')!,
+    observe,
     add: ids.get('remote-add')!,
     dialogs,
     title,
@@ -393,6 +407,25 @@ test('an Add validation on its live dialog still confirms, and its failure stays
     await view.settle();
     assert.deepEqual(view.added, ['alpha']);
     assert.deepEqual(view.dialogs(), []);
+  } finally {
+    cleanUp();
+  }
+});
+
+test('registry observations retain the focused row control and never guess a role', async () => {
+  const view = await registryPage();
+  try {
+    const row = view.list.children[0]!;
+    const open = row.button('Open');
+    open.focus();
+    view.observe('Offline');
+    assert.equal(view.list.children[0], row);
+    assert.equal(row.button('Open'), open);
+    assert.equal(view.page.focused, open);
+    assert.equal(row.querySelector('.tmt-ui-list-state')!.textContent, '✗ Offline');
+    assert.equal(row.querySelector('[data-role]')!.textContent, 'Role unknown');
+    view.observe('unreported');
+    assert.equal(row.querySelector('.tmt-ui-list-state')!.textContent, '? Status unknown');
   } finally {
     cleanUp();
   }

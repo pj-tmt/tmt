@@ -131,6 +131,15 @@ Rules that are easy to get wrong:
 - **Parked add-on.** `typescript/browser-addon` is a demo shell with no crypto,
   pairing or network; it is not a working channel (#1056).
 
+## Browser remote list
+
+`remote-registry` owns the origin-local public catalog and its pure `registryView` projection.
+The list and rail consume that one projection: this machine first, foreign references unprobed,
+role and connection only from explicit observations. `remote-registry-page` owns public-reference
+CAS/import/rename/forget/undo and guarded navigation; `remote-menu` links to the list and current
+machine views without a second catalog. These display observations never enter grant authority
+or persistence. My Remotes reuses `/remote/settings`; no public route or backend call is added.
+
 ## Member storage
 
 `members` keeps the per-Remote person mapping and owner/user policy in the existing

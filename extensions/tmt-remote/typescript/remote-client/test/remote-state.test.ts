@@ -1,37 +1,35 @@
 import assert from 'node:assert/strict';
 import { test } from 'vite-plus/test';
-import { remoteState, currentRemote } from '../src/remote-state.js';
+import { remoteState, currentRemote, remoteRole } from '../src/remote-state.js';
 
-test('list and header use one current-origin state in words only and the neutral tone', () => {
-  assert.deepEqual(remoteState('Connected'), {
-    text: 'Connected',
-    word: 'connected',
-    mark: '',
-    tone: 'neutral',
-    action: '',
-  });
-  assert.equal(remoteState('Checking').word, 'connecting');
-  assert.equal(remoteState('Checking').text, 'Checking…');
-  for (const state of ['Connected', 'Checking', 'Not paired', 'Unconfirmed', 'Different machine']) {
-    assert.equal(remoteState(state).mark, '');
-    assert.equal(remoteState(state).tone, 'neutral');
-  }
+test('connection words and marks require current explicit observations', () => {
+  assert.equal(remoteState('Connected').mark, '●');
+  assert.equal(remoteState('Connected').text, 'Connected');
+  assert.equal(remoteState('Checking').mark, '◌');
+  assert.equal(remoteState('Offline').word, 'offline');
   assert.equal(remoteState('Access ended').action, 'Pair again');
-  for (const state of ['Not accepted', 'Unconfirmed']) {
-    assert.equal(remoteState(state).word, 'unreachable');
-    assert.equal(remoteState(state).action, 'Retry');
-  }
   assert.equal(remoteState('Different machine').word, 'different machine');
-  assert.equal(remoteState('Different machine').action, 'Pair again');
-  for (const state of ['Connected', 'Access ended', 'Checking']) {
+  assert.equal(remoteState('Unconfirmed').action, 'Retry');
+  assert.equal(remoteState('Not accepted').text, 'Not accepted');
+  for (const value of ['something not reported', 'constructor', '__proto__'])
+    assert.equal(remoteState(value).word, 'unknown');
+  assert.equal(remoteState('something not reported').action, '');
+  for (const state of ['Connected', 'Access ended', 'Checking', 'Offline']) {
     assert.deepEqual(remoteState(state, false), {
-      text: 'not checked',
+      text: 'Not checked',
       word: 'not checked',
-      mark: '',
+      mark: '◌',
       tone: 'muted',
       action: '',
     });
   }
+});
+
+test('roles use the approved display labels without guessing from a capability or pairing', () => {
+  assert.equal(remoteRole('owner'), 'Admin');
+  assert.equal(remoteRole('user'), 'Member');
+  for (const value of [undefined, null, true, 'browser', 'paired', 'admin', { talk: true }])
+    assert.equal(remoteRole(value), 'Role unknown');
 });
 
 test('current remote uses the same door root for prefix and root pages', () => {

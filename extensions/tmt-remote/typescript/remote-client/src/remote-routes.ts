@@ -42,20 +42,19 @@ export const REMOTE_ITEMS: readonly RemoteItem[] = [
   {
     id: 'settings',
     path: '/remote/settings',
-    label: 'Remote settings',
-    title: 'Remote settings',
+    label: 'My Remotes',
+    title: 'My Remotes',
     page: 'settings',
   },
 ];
 
 /**
- * The route's paths. `/remote/` comes last: the rail links to a route's last path, and `/remote`
- * (no slash) is the same row.
+ * The rail opens My Remotes. Existing connection and management paths remain addressable.
  */
 export const REMOTE_PATHS: readonly string[] = [
-  ...REMOTE_ITEMS.filter((item) => item.id !== 'status').map((item) => item.path),
+  ...REMOTE_ITEMS.filter((item) => item.id !== 'settings').map((item) => item.path),
   '/remote',
-  '/remote/',
+  '/remote/settings',
 ];
 
 /** The row a path names; `/remote` and `/remote/` are Status, anything else under it is none. */

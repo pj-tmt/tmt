@@ -1,10 +1,11 @@
 import { remoteShell, type RemoteShell } from './remote-shell.js';
 import { remoteMenu } from './remote-menu.js';
-import { remoteState, currentRemote } from './remote-state.js';
+import { createIcon } from '@tmt/browser-ui/glyph';
 import { browserUiClasses } from '@tmt/browser-ui/static';
 /** Remote pages' public-reference consumer. It never probes a foreign origin or shares a key. */
 import {
   remoteRegistry,
+  registryView,
   reference,
   RemoteRegistryError,
   type RemoteReference,
@@ -73,20 +74,6 @@ export function remoteRegistryPage(
   const menu = remoteMenu(
     {
       refresh: () => render(),
-      open: (entry) => {
-        if (blocked()) return;
-        void remoteRegistry
-          .navigation(entry)
-          .then((url) => location.assign(url))
-          .catch((error: unknown) => showError(error, status));
-      },
-      add: () => {
-        // The registry lives on the settings view: go there (the same route, so the page only
-        // shows another view), then open the form.
-        if (document.documentElement.dataset.tmtPage !== 'settings')
-          (shell ?? remoteShell())?.navigate(settings.href);
-        add.click();
-      },
       recover: (action) => {
         const home = new URL('./', location.href).href;
         if (action === 'Retry') {
@@ -111,7 +98,6 @@ export function remoteRegistryPage(
           pair?.focus();
         }
       },
-      blocked,
     },
     shell,
   );
@@ -168,7 +154,10 @@ export function remoteRegistryPage(
     currentDialog = box;
     return { box, body, buttons, message, end };
   };
-  const save = async (run: () => Promise<void>, view: ReturnType<typeof dialog>): Promise<void> => {
+  const save = async (
+    run: () => Promise<void>,
+    view: ReturnType<typeof dialog>,
+  ): Promise<boolean> => {
     const buttons = [...view.box.querySelectorAll('button')];
     buttons.forEach((b) => {
       b.disabled = true;
@@ -177,8 +166,10 @@ export function remoteRegistryPage(
       await run();
       await render();
       view.end();
+      return true;
     } catch (error) {
       showError(error, view.message);
+      return false;
     } finally {
       buttons.forEach((b) => {
         b.disabled = false;
@@ -265,76 +256,136 @@ export function remoteRegistryPage(
     view.box.showModal();
   };
   const remove = (entry: RemoteReference, opener: HTMLElement): void => {
-    const view = dialog(`Remove ${entry.name} from this browser?`, opener);
+    const view = dialog(`Forget ${entry.name} in this browser?`, opener);
     view.body.append(
       node('p', 'This only removes the entry here. It does not sign out or revoke access.'),
     );
     view.buttons.append(
-      action('Remove', () => {
-        void save(() => remoteRegistry.remove(entry.name), view);
+      action('Forget', () => {
+        void save(() => remoteRegistry.remove(entry.name), view).then((saved) => {
+          if (!saved) return;
+          status.replaceChildren(
+            node('span', `Forgot ${entry.name} in this browser. Access is unchanged. `),
+            action('Undo', () => {
+              void remoteRegistry
+                .add(entry.name, entry.url)
+                .then(async () => {
+                  await render();
+                  status.textContent = `Restored ${entry.name}.`;
+                })
+                .catch((error: unknown) => showError(error, status));
+            }),
+          );
+        });
       }),
       action('Cancel', view.end),
     );
     view.box.showModal();
   };
-  const current = (entry: RemoteReference): boolean => currentRemote(entry, address, location.href);
-  const render = async (): Promise<void> => {
-    try {
-      catalog = await remoteRegistry.list();
-      const rows = catalog.entries.map((entry) => {
+  const paint = (): void => {
+    const projection = registryView(catalog, { pageUrl: location.href, state: observed, address });
+    const existing = [...list.children] as HTMLElement[];
+    if (
+      existing.length === projection.rows.length &&
+      existing.every((row, index) => {
+        const entry = projection.rows[index]!;
+        return (
+          row.dataset.remote === entry.id &&
+          row.dataset.url === entry.url &&
+          row.dataset.thisMachine === String(entry.thisMachine)
+        );
+      })
+    ) {
+      for (const [index, row] of existing.entries()) {
+        const entry = projection.rows[index]!;
+        row.querySelector<HTMLElement>('[data-role]')!.textContent = entry.roleLabel;
+        const state = row.querySelector<HTMLElement>('.tmt-ui-list-state')!;
+        state.textContent = `${entry.connection.mark} ${entry.connection.text}`;
+        state.dataset.tone = entry.connection.tone;
+        const open = row.querySelector<HTMLButtonElement>('[data-action="open"]')!;
+        open.disabled = !entry.thisMachine && !!blocked();
+        open.title = !entry.thisMachine ? blocked() : '';
+      }
+      menu(projection);
+      return;
+    }
+    list.replaceChildren(
+      ...projection.rows.map((entry) => {
         const row = node('li');
         row.className = browserUiClasses.listRow;
-        row.dataset.remote = entry.name;
+        row.dataset.remote = entry.id;
+        row.dataset.thisMachine = String(entry.thisMachine);
         row.dataset.url = entry.url;
-        row.dataset.kind = entry.kind;
+        row.dataset.kind = entry.reference?.kind ?? 'local';
+        row.dataset.leading = '';
+        const leading = node('div');
+        leading.className = browserUiClasses.listLeading;
+        leading.append(createIcon(entry.backend === 'Local' ? 'terminal' : 'box'));
         const title = node('div');
         title.className = browserUiClasses.listTitle;
         const label = node('span', entry.name);
         label.className = browserUiClasses.listLabel;
-        const description = node('span', `${kindLabel(entry)} · ${entry.url}`);
+        if (entry.thisMachine && entry.name !== 'This machine') {
+          const here = node('span', 'This machine');
+          here.className = browserUiClasses.chip;
+          label.append(here);
+        }
+        const description = node(
+          'span',
+          `${entry.backend}${entry.project ? ` · ${entry.project}` : ''} · ${entry.url}`,
+        );
         description.className = browserUiClasses.listDescription;
         title.append(label, description);
         const meta = node('div');
         meta.className = browserUiClasses.listMeta;
-        const state = node('div', remoteState(observed, current(entry)).text);
+        const role = node('span', entry.roleLabel);
+        role.dataset.role = '';
+        const state = node('div', `${entry.connection.mark} ${entry.connection.text}`);
         state.className = browserUiClasses.listState;
-        state.dataset.tone = remoteState(observed, current(entry)).tone;
-        meta.append(state);
+        state.dataset.tone = entry.connection.tone;
+        meta.append(role, state);
         const actions = node('div');
         actions.className = browserUiClasses.listActions;
         const open = action('Open', () => {
+          if (entry.thisMachine) {
+            (shell ?? remoteShell())?.navigate(new URL('./', location.href).href);
+            return;
+          }
           void (async () => {
             try {
-              if (!blocked()) location.assign(await remoteRegistry.navigation(entry));
+              if (!blocked() && entry.reference)
+                location.assign(await remoteRegistry.navigation(entry.reference));
             } catch (error) {
               showError(error, status);
             }
           })();
         });
         open.dataset.action = 'open';
-        const renameButton = action('Rename', () => rename(entry, renameButton));
-        const removeButton = action('Remove', () => remove(entry, removeButton));
-        renameButton.setAttribute('aria-label', `Rename ${entry.name}`);
-        removeButton.setAttribute('aria-label', `Remove ${entry.name}`);
-        if (!current(entry)) {
-          open.disabled = !!blocked();
-          open.title = blocked();
-          actions.append(open);
+        open.dataset.variant = 'text';
+        open.setAttribute('aria-label', `Open ${entry.name}`);
+        open.disabled = !entry.thisMachine && !!blocked();
+        open.title = !entry.thisMachine ? blocked() : '';
+        actions.append(open);
+        if (entry.reference) {
+          const reference = entry.reference;
+          const renameButton = action('Rename', () => rename(reference, renameButton));
+          const removeButton = action('Forget', () => remove(reference, removeButton));
+          renameButton.dataset.variant = 'text';
+          removeButton.dataset.variant = 'text';
+          renameButton.setAttribute('aria-label', `Rename ${entry.name}`);
+          removeButton.setAttribute('aria-label', `Forget ${entry.name}`);
+          actions.append(renameButton, removeButton);
         }
-        actions.append(renameButton, removeButton);
-        row.append(title, meta, actions);
+        row.append(leading, title, meta, actions);
         return row;
-      });
-      list.replaceChildren(...rows);
-      if (!rows.length) {
-        const empty = node('li');
-        empty.className = browserUiClasses.listRow;
-        const text = node('div', 'No remotes added in this browser.');
-        text.className = browserUiClasses.listTitle;
-        empty.append(text);
-        list.append(empty);
-      }
-      menu(catalog, observed, address ?? '');
+      }),
+    );
+    menu(projection);
+  };
+  const render = async (): Promise<void> => {
+    try {
+      catalog = await remoteRegistry.list();
+      paint();
     } catch (error) {
       showError(error, status);
     }
@@ -390,21 +441,7 @@ export function remoteRegistryPage(
   const observe = (state: string, checkedAddress?: string): void => {
     observed = state;
     if (checkedAddress) address = checkedAddress;
-    for (const row of list.querySelectorAll<HTMLElement>('[data-remote]')) {
-      const stateNode = row.querySelector<HTMLElement>('.tmt-ui-list-state')!;
-      const entry = catalog.entries.find((entry) => entry.name === row.dataset.remote);
-      const isCurrent = !!entry && currentRemote(entry, address, location.href);
-      const view = remoteState(observed, isCurrent);
-      stateNode.textContent = view.text;
-      stateNode.dataset.tone = view.tone;
-      const open = row.querySelector<HTMLButtonElement>('[data-action="open"]');
-      if (open) {
-        open.disabled = !!blocked();
-        open.title = blocked();
-      }
-      if (isCurrent) row.querySelector('[data-action="open"]')?.remove();
-    }
-    menu(catalog, observed, address ?? '');
+    paint();
   };
   return Object.assign(observe, {
     blockedBy: (reason: () => string): void => {

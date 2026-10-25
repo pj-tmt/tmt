@@ -2,6 +2,14 @@
 import { base64url } from './canonical-bytes.js';
 import { verifyHostedLink } from './firebase-bootstrap.js';
 import { readRegistry, writeRegistry } from './browser-store.js';
+import {
+  currentDoor,
+  currentRemote,
+  remoteRole,
+  remoteState,
+  type RemoteConnectionView,
+  type ViewerRole,
+} from './remote-state.js';
 
 export interface RemoteReference {
   readonly name: string;
@@ -13,6 +21,60 @@ export interface RemoteCatalog {
   readonly version: 1;
   readonly entries: readonly RemoteReference[];
 }
+/** Ephemeral presentation; it never enters catalog persistence or management authority. */
+export interface RemoteRegistryRow {
+  readonly id: string;
+  readonly name: string;
+  readonly url: string;
+  readonly reference: RemoteReference | null;
+  readonly thisMachine: boolean;
+  readonly backend: 'Local' | 'Firebase';
+  readonly project: string | null;
+  readonly roleLabel: ReturnType<typeof remoteRole>;
+  readonly connection: RemoteConnectionView;
+}
+export interface RemoteRegistryView {
+  readonly rows: readonly RemoteRegistryRow[];
+  readonly current: RemoteRegistryRow;
+  readonly address: string | undefined;
+}
+export interface CurrentRemoteObservation {
+  readonly pageUrl: string;
+  readonly state: string;
+  readonly address?: string;
+  readonly role?: ViewerRole;
+}
+
+/** One projection feeds the list and rail; this machine is first even without a saved alias. */
+export function registryView(
+  catalog: RemoteCatalog,
+  observed: CurrentRemoteObservation,
+): RemoteRegistryView {
+  const selected = catalog.entries.find((entry) =>
+    currentRemote(entry, observed.address, observed.pageUrl),
+  );
+  const row = (entry: RemoteReference | null, thisMachine: boolean): RemoteRegistryRow => ({
+    id: entry?.name ?? '@this-machine',
+    name: entry?.name ?? 'This machine',
+    url: entry?.url ?? currentDoor(observed.pageUrl),
+    reference: entry,
+    thisMachine,
+    backend: entry?.kind === 'firestore' ? 'Firebase' : 'Local',
+    project: entry?.project ?? null,
+    roleLabel: remoteRole(thisMachine ? observed.role : undefined),
+    connection: remoteState(observed.state, thisMachine),
+  });
+  const current = row(selected ?? null, true);
+  return {
+    rows: [
+      current,
+      ...catalog.entries.filter((entry) => entry !== selected).map((entry) => row(entry, false)),
+    ],
+    current,
+    address: observed.address,
+  };
+}
+
 export interface NavigationHint {
   readonly spaceId: string;
   readonly pageId: string;

@@ -148,6 +148,7 @@ async function captureState(
             : `${owner} button:nth-of-type(${position})`.trim(),
           label: button.textContent?.trim(),
           ariaLabel: button.getAttribute('aria-label'),
+          variant: button.dataset.variant ?? '',
           labelledBy: button
             .getAttribute('aria-labelledby')
             ?.split(/\s+/)
@@ -178,13 +179,20 @@ async function captureState(
   };
   const { controls, ...presentation } = snapshot;
   for (const control of controls) {
-    const diagnostic = `${state}: ${JSON.stringify({ head: SOURCE_HEAD, phase, ...presentation, control, expected })}`;
+    // Shipped borderless actions keep their transparent surface when disabled.
+    const controlExpected = {
+      ...expected,
+      background: ['text', 'ghost'].includes(control.context.variant)
+        ? 'rgba(0, 0, 0, 0)'
+        : expected.background,
+    };
+    const diagnostic = `${state}: ${JSON.stringify({ head: SOURCE_HEAD, phase, ...presentation, control, expected: controlExpected })}`;
     expect(control.context, diagnostic).toMatchObject({
       disabled: true,
       disabledProperty: true,
       connected: true,
     });
-    expect(control.style, diagnostic).toEqual(expected);
+    expect(control.style, diagnostic).toEqual(controlExpected);
   }
   if (contained) await feedbackBounds(page, contained);
   if (!directory) return;
@@ -199,6 +207,7 @@ async function captureState(
       await page.emulateMedia({ colorScheme: theme });
       for (const width of widths) {
         await page.setViewportSize({ width, height: 900 });
+        await settled(page);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
           true,
         );
@@ -2281,7 +2290,7 @@ async function gotoSettings(page: Page, options?: { waitUntil: 'commit' }): Prom
   await page.goto(`${origin}/remote/settings`, options);
   await page.waitForFunction(
     () => {
-      const shown = document.querySelector<HTMLElement>('#firestore-title');
+      const shown = document.querySelector<HTMLElement>('#remotes');
       return !!shown && !shown.closest<HTMLElement>('[data-view]')!.hidden;
     },
     undefined,
@@ -4065,8 +4074,8 @@ for (const [width, theme] of [
       }
       await page.mouse.move(1000, 600);
       await modulePages(page).hover();
-      const foreign = modulePages(page).locator('a', { hasText: /^Open foreign/ });
-      await expect(foreign).toHaveAttribute('aria-disabled', 'true');
+      const foreign = page.locator('[data-remote="foreign"] [data-action="open"]');
+      await expect(foreign).toBeDisabled();
       await expect(foreign).toHaveAttribute(
         'title',
         'A request is in progress. Wait for its outcome.',
@@ -4086,17 +4095,17 @@ for (const [width, theme] of [
     await expect(name).toBeFocused();
     await expect(name).toHaveValue('Unsent next draft');
     await modulePages(page).hover();
-    const foreign = modulePages(page).locator('a', { hasText: /^Open foreign/ });
-    await expect(foreign).toHaveAttribute('aria-disabled', 'true');
+    const foreign = page.locator('[data-remote="foreign"] [data-action="open"]');
+    await expect(foreign).toBeDisabled();
     await expect(foreign).toHaveAttribute(
       'title',
       'Another change is still unconfirmed. Check the saved value first.',
     );
     const menu = modulePages(page);
-    await expect(menu.getByRole('link', { name: 'Add remote…' })).not.toHaveAttribute(
+    await expect(menu.getByRole('link', { name: 'My Remotes' })).not.toHaveAttribute(
       'aria-disabled',
     );
-    await expect(menu.getByRole('link', { name: 'Remote settings' })).toBeVisible();
+    await expect(menu.getByRole('link', { name: 'My Remotes' })).toBeVisible();
     // On a phone the module menu is tabs at the top; hovering it scrolled there, so return.
     await row.evaluate((form) => scrollTo(0, form.getBoundingClientRect().top + scrollY - 70));
     await name.focus();
@@ -4483,17 +4492,8 @@ test('landing registry keeps two origins independent and confirms public-only ha
           page,
           `registry-${state}`,
           lookAt,
-          [1440],
-          ['light'],
-          undefined,
-          captureDirectory,
-        );
-        await captureState(
-          page,
-          `registry-${state}`,
-          lookAt,
-          [390],
-          ['dark'],
+          [1440, 390],
+          ['light', 'dark'],
           undefined,
           captureDirectory,
         );
@@ -4503,21 +4503,35 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await expect(modulePages(page)).toContainText(/connected/i);
       const first = await identity();
       expect(first.extractable).toBe(false);
+      await expect(page.locator('#remote-list > li')).toHaveCount(1);
+      await expect(page.locator('#remote-list > li').first()).toHaveAttribute(
+        'data-remote',
+        '@this-machine',
+      );
+      await expect(page.locator('#remote-list [data-role]')).toHaveText('Role unknown');
+      await capture(
+        'empty',
+        'This machine remains visible without a remembered reference; its role is not guessed.',
+      );
       await sdk('add', ['studio', `${origin}/`]);
       await sdk('add', ['desk', `${secondOrigin}/`]);
       await page.reload();
       await expect(modulePages(page)).toContainText(/connected/i);
       await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveText(
-        'Connected',
+        '● Connected',
       );
-      await expect(
-        page.locator('[data-remote="studio"]').getByRole('button', { name: 'Open' }),
-      ).toHaveCount(0);
+      await expect(page.locator('#remote-list > li').first()).toHaveAttribute(
+        'data-remote',
+        'studio',
+      );
+      await expect(page.locator('[data-remote="studio"]')).toContainText('This machine');
+      await expect(page.locator('[data-remote="studio"] [data-role]')).toHaveText('Role unknown');
+      await expect(page.getByRole('button', { name: 'Open studio', exact: true })).toBeVisible();
       await expect(
         page.locator('[data-remote="studio"]').getByRole('button', { name: 'Rename studio' }),
       ).toHaveText('Rename');
       await expect(page.locator('[data-remote="desk"] .tmt-ui-list-state')).toHaveText(
-        'not checked',
+        '◌ Not checked',
       );
       await expect(page.locator('[data-remote="desk"] .state-mark')).toHaveCount(0);
       expect(network.filter((url) => url.startsWith(secondOrigin))).toEqual([]);
@@ -4541,7 +4555,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await expect(page.locator('#remote-add')).toBeFocused();
       await expect(page.locator('[data-remote="spare"] .tmt-ui-list-state')).toHaveText(
-        'not checked',
+        '◌ Not checked',
       );
       expect(network.some((url) => url.startsWith('http://127.0.0.1:9876/'))).toBe(false);
       expect(await identity()).toEqual(first);
@@ -4594,19 +4608,24 @@ test('landing registry keeps two origins independent and confirms public-only ha
       );
       await page.getByLabel('Remote name').fill('first');
       await page.getByRole('button', { name: 'Save', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Remove first', exact: true })).toBeVisible();
-      await page.getByRole('button', { name: 'Remove first', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Forget first', exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Forget first', exact: true }).click();
       await expect(
-        page.getByRole('heading', { name: 'Remove first from this browser?' }),
+        page.getByRole('heading', { name: 'Forget first in this browser?' }),
       ).toBeVisible();
       await capture(
         'remove',
         'Removing public reference data does not revoke or sign out the device.',
       );
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Remove first', exact: true })).toBeFocused();
-      await page.getByRole('button', { name: 'Remove first', exact: true }).click();
-      await page.getByRole('button', { name: 'Remove', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Forget first', exact: true })).toBeFocused();
+      await page.getByRole('button', { name: 'Forget first', exact: true }).click();
+      await page.getByRole('button', { name: 'Forget', exact: true }).click();
+      await page.getByRole('button', { name: 'Undo', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Forget first', exact: true })).toBeVisible();
+      expect(await identity()).toEqual(second);
+      await page.getByRole('button', { name: 'Forget first', exact: true }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Forget', exact: true }).click();
       await expect(page.locator('#remote-add')).toBeFocused();
       expect(await identity()).toEqual(second);
       // A's old fixed-key device record remains readable and unchanged after a B round trip.
@@ -4711,7 +4730,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
   );
 });
 
-test('the Remote module menu lists both origins and keeps settings drafts across them', async () => {
+test('My Remotes is the one list and keeps settings drafts across origin switches', async () => {
   await withRegistryWorld(async ({ page, secondOrigin, secondEnv, pairAt, identity, sdk }) => {
     await pairAt(secondEnv, 'Registry B');
     await page.goto(`${secondOrigin}/remote/settings`);
@@ -4724,7 +4743,7 @@ test('the Remote module menu lists both origins and keeps settings drafts across
     const menu = modulePages(page);
     // Status is the row for the connection; settings light their own row.
     await page.goto(`${origin}/remote/`);
-    await expect(menu.getByRole('link', { name: 'Status · connected' })).toHaveAttribute(
+    await expect(menu.getByRole('link', { name: 'Status · Connected' })).toHaveAttribute(
       'aria-current',
       'page',
     );
@@ -4732,15 +4751,27 @@ test('the Remote module menu lists both origins and keeps settings drafts across
     await sdk('add', ['desk', `${secondOrigin}/`]);
     await page.reload();
     await expect(modulePages(page)).toContainText(/connected/i);
-    const currentItem = menu.getByRole('link', { name: 'studio · connected' });
-    const foreignItem = menu.locator('a', { hasText: /^Open desk/ });
+    const currentItem = menu.getByRole('link', { name: 'Status · Connected' });
+    const foreignItem = page.getByRole('button', {
+      name: 'Open desk',
+      exact: true,
+      includeHidden: true,
+    });
     await expect(currentItem).toHaveAttribute('aria-current', 'page');
+    await expect(menu.locator('a', { hasText: /^Open desk/ })).toHaveCount(0);
+    await menu.getByRole('link', { name: 'My Remotes', exact: true }).click();
     await expect(foreignItem).toBeVisible();
-    await expect(foreignItem).not.toHaveAttribute('aria-current');
     const switchCapture = process.env.TMT_REMOTE_SWITCHER_CAPTURE_DIR;
     async function switchShot(state: string, lookAt: string) {
-      await captureState(page, state, lookAt, [1440], ['light'], undefined, switchCapture);
-      await captureState(page, state, lookAt, [390], ['dark'], undefined, switchCapture);
+      await captureState(
+        page,
+        state,
+        lookAt,
+        [1440, 390],
+        ['light', 'dark'],
+        undefined,
+        switchCapture,
+      );
     }
     await switchShot(
       'remote-menu',
@@ -4749,14 +4780,22 @@ test('the Remote module menu lists both origins and keeps settings drafts across
     const ownerDevices = JSON.parse(
       execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
     );
-    execFileSync(BINARY, ['devices', 'designate', ownerDevices.devices[0].clientId, '--json'], {
-      env,
-    });
-    await menu.getByRole('link', { name: 'Remote settings', exact: true }).click();
+    const currentClient = (first.paired as { clientId: string }).clientId;
+    expect(
+      ownerDevices.devices.some(
+        (device: { clientId: string }) => device.clientId === currentClient,
+      ),
+    ).toBe(true);
+    execFileSync(BINARY, ['devices', 'designate', currentClient, '--json'], { env });
+    // Designation is an external owner action; observe its current permission before editing.
+    await page.reload();
+    await menu.getByRole('link', { name: 'My Remotes', exact: true }).click();
     await expect(page.locator('#access')).toHaveText('Current browser access confirmed.');
     await expect(page.locator('#remotes')).toBeVisible();
-    await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveText('Connected');
-    await expect(menu.getByRole('link', { name: 'Remote settings', exact: true })).toHaveAttribute(
+    await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveText(
+      '● Connected',
+    );
+    await expect(menu.getByRole('link', { name: 'My Remotes', exact: true })).toHaveAttribute(
       'aria-current',
       'page',
     );
@@ -4773,18 +4812,22 @@ test('the Remote module menu lists both origins and keeps settings drafts across
     // it, as a person does to type the name, then come back.
     await page.mouse.move(1000, 600);
     await menu.hover();
-    await expect(foreignItem).toHaveAttribute('aria-disabled', 'true');
+    await expect(foreignItem).toBeDisabled();
     await expect(foreignItem).toHaveAttribute(
       'title',
       'Save or restore the unsent device name before changing pages.',
     );
-    // Playwright refuses aria-disabled targets; press it anyway to prove it stays put.
-    await foreignItem.click({ force: true });
+    // The list stays mounted while Devices shows. Dispatch past the disabled DOM control
+    // to prove the navigation handler also fences an unsent name.
+    await foreignItem.evaluate((button) =>
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true })),
+    );
     await expect(page).toHaveURL(`${origin}/remote/devices`);
     await ownName.fill('Registry A');
     await page.mouse.move(1000, 600);
     await menu.hover();
-    await expect(foreignItem).not.toHaveAttribute('aria-disabled');
+    await expect(foreignItem).toBeEnabled();
+    await menu.getByRole('link', { name: 'My Remotes', exact: true }).click();
     await foreignItem.click();
     await expect(
       page.getByRole('heading', { name: 'Add these remotes to this browser?' }),
@@ -4795,12 +4838,13 @@ test('the Remote module menu lists both origins and keeps settings drafts across
     // The import was asked on the settings view, where the remotes are; the connected remote's row
     // is the Status row, lit once that view shows.
     await expect(page).toHaveURL(`${secondOrigin}/remote/settings`);
-    await menu.getByRole('link', { name: 'desk · connected' }).click();
-    await expect(menu.getByRole('link', { name: 'desk · connected' })).toHaveAttribute(
+    await page.getByRole('button', { name: 'Open desk', exact: true }).click();
+    await expect(menu.getByRole('link', { name: 'Status · Connected' })).toHaveAttribute(
       'aria-current',
       'page',
     );
-    await menu.locator('a', { hasText: /^Open studio/ }).click();
+    await menu.getByRole('link', { name: 'My Remotes', exact: true }).click();
+    await page.getByRole('button', { name: 'Open studio', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(page.locator('#state-label')).toHaveText('Connected');
@@ -4821,7 +4865,7 @@ test('the Remote module menu lists both origins and keeps settings drafts across
     // Not paired is the Status view's word: open it again.
     await page.goto(`${origin}/remote/`);
     await expect(page.locator('#state-label')).toHaveText('Not paired');
-    await expect(menu.getByRole('link', { name: 'studio · not paired' })).toBeVisible();
+    await expect(menu.getByRole('link', { name: 'Status · Not paired' })).toBeVisible();
     await menu.getByRole('link', { name: 'Pair again', exact: true }).click();
     await expect(page.locator('#copy-missing-pair')).toBeFocused();
   });
@@ -4891,7 +4935,7 @@ test('Home and TMT settings render in the shell and fit both sizes and themes', 
     );
     await expect(rail.getByRole('link', { name: 'Remote', exact: true })).toHaveAttribute(
       'href',
-      `${origin}/remote/`,
+      `${origin}/remote/settings`,
     );
     await expect(rail.getByRole('link', { name: 'TMT settings', exact: true })).toHaveAttribute(
       'href',
