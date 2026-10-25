@@ -182,6 +182,13 @@ enum TurnMode {
     BeforeDigest,
 }
 
+/// Only a capture failure after current binding/session authority was proved
+/// may defer Digest. Inapplicable observations grant nothing to either hook.
+enum TurnFailure {
+    NotApplicable,
+    CaptureFailed,
+}
+
 fn observe_turn(
     provider: &str,
     harness: &HarnessId,
@@ -190,7 +197,7 @@ fn observe_turn(
     mode: TurnMode,
     activity: Option<&tmt_adapters::runtime::hook_protocol::ActivityObservation>,
     run: Run<'_>,
-) -> Result<Observation, ()> {
+) -> Result<Observation, TurnFailure> {
     let deadline = run.deadline;
     let activity_only = mode == TurnMode::ActivityOnly;
     // An interrupted turn ends activity only: no usage, consumption source or
@@ -207,9 +214,11 @@ fn observe_turn(
         return Ok(Observation::default());
     }
     let capture_on = !activity_only;
-    let host = lifecycle.host_evidence().map_err(|_| ())?;
+    let host = lifecycle
+        .host_evidence()
+        .map_err(|_| TurnFailure::NotApplicable)?;
     if matches!(host, HostEvidence::Unsupported) {
-        return unsupported_host(run);
+        return unsupported_host(run).map_err(|_| TurnFailure::NotApplicable);
     }
     let Caller::Bound(bound) = verified_lifecycle_caller(
         provider,
@@ -219,7 +228,8 @@ fn observe_turn(
         None,
         deadline,
         SupervisedProbeRunner,
-    )?
+    )
+    .map_err(|_| TurnFailure::NotApplicable)?
     else {
         return Ok(Observation::default());
     };
@@ -230,7 +240,11 @@ fn observe_turn(
         process,
         ..
     } = *bound;
-    let binding = stored.entry.binding.as_ref().ok_or(())?;
+    let binding = stored
+        .entry
+        .binding
+        .as_ref()
+        .ok_or(TurnFailure::NotApplicable)?;
     let Some(process) =
         lifecycle.activity_process(&binding.session, &process, &turn.session, host, deadline)
     else {
@@ -240,7 +254,7 @@ fn observe_turn(
         evaluate_binding(&stored.entry, &EndpointProbe::Live(snapshot)),
         BindingEvidence::Active(_)
     ) {
-        return Err(());
+        return Err(TurnFailure::NotApplicable);
     }
     let current = binding.session.key.as_ref().is_some_and(|key| {
         key.incarnation == process && key.provider_session.as_ref() == Some(&turn.session)
@@ -308,7 +322,7 @@ fn observe_turn(
                 );
                 let _ = storage.close();
             }
-            return Err(());
+            return Err(TurnFailure::CaptureFailed);
         }
     };
     // A Stop without a new activity transition still refreshes consented usage.
@@ -389,11 +403,17 @@ pub(crate) fn capture_before_digest(
         return Ok(());
     }
     let registry = RuntimeRegistry::first_party();
-    let harness = HarnessId::new(provider).map_err(|_| ())?;
-    let lifecycle = registry.lifecycle(&harness).ok_or(())?;
-    let turn = lifecycle.decode_turn(input).ok_or(())?;
+    let Ok(harness) = HarnessId::new(provider) else {
+        return Ok(());
+    };
+    let Some(lifecycle) = registry.lifecycle(&harness) else {
+        return Ok(());
+    };
+    let Some(turn) = lifecycle.decode_turn(input) else {
+        return Ok(());
+    };
     let activity = lifecycle.decode_activity(input);
-    let result = observe_turn(
+    match observe_turn(
         provider,
         &harness,
         lifecycle,
@@ -404,8 +424,10 @@ pub(crate) fn capture_before_digest(
             deadline,
             learning: None,
         },
-    )?;
-    result.workspace.is_some().then_some(()).ok_or(())
+    ) {
+        Ok(_) | Err(TurnFailure::NotApplicable) => Ok(()),
+        Err(TurnFailure::CaptureFailed) => Err(()),
+    }
 }
 
 /// Prefer the observed final when usage is on; otherwise keep the Stop payload's own
@@ -816,7 +838,8 @@ fn observe(
             },
             activity.as_ref(),
             Run { deadline, learning },
-        );
+        )
+        .map_err(|_| ());
     }
     if let Some(session) = lifecycle.decode_prompt(input.as_bytes()) {
         return observe_main_event(

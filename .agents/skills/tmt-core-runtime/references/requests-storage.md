@@ -360,7 +360,8 @@ fence, recomputing from current activity so a usage-only writer cannot discard t
 reverted. Claude and Codex payload finals commit before optional telemetry and before Digest can block. A missing
 payload final may use the existing consented driver reader; usage failure cannot roll back a kept
 answer. Both hooks use this capture entry point, so a normal Stop is retained once regardless of
-hook order. Interrupted and stale events retain nothing.
+hook order. Inapplicable capture leaves Digest's independent launch verification unchanged;
+a capture failure for a verified current caller defers its publication. Interrupted and stale events retain nothing.
 
 `storage::capture_batches` stores correlation and committed ordering over existing request and
 response bodies. An admitted prompt creates the input batch; verified folded deliveries and
