@@ -1,0 +1,59 @@
+<!-- layout: column. Colab sets the column width and the gaps: never set max-width or margin on a block. See tmt colab skill layout, section The frame -->
+<!-- style: the base look, from tmt colab skill page-style. Keep it, and change colours and type there, never the frame. See tmt colab skill page-style -->
+{{style}}
+<!-- component: section label and card. A card runs its table edge to edge inside its padding; keep what you use and delete the rest. See tmt colab skill components, section Design system -->
+<section class="tmt-ui-section">
+  <h2 class="tmt-ui-section-heading" data-variant="label">Checks</h2>
+  <div class="tmt-ui-card">
+    <div class="tmt-ui-card-head">
+      <h3 class="tmt-ui-card-title">Release</h3>
+      <span class="tmt-ui-card-meta">2 rows</span>
+    </div>
+    <table class="tmt-ui-table">
+      <thead>
+        <tr><th>Check</th><th>State</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Build</td><td><tmt-icon name="circle-check" label="Passed"></tmt-icon> Done</td></tr>
+        <tr><td>Review</td><td>◆ Waiting</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+<!-- component: actions and count chips. A page's own script gives them behaviour. See tmt colab skill components, section Design system -->
+<section class="tmt-ui-section">
+  <h2 class="tmt-ui-section-heading" data-variant="label">Actions</h2>
+  <p>
+    <button class="tmt-ui-action" data-variant="primary"><span class="tmt-ui-action-label">Approve</span></button>
+    <button class="tmt-ui-action"><span class="tmt-ui-action-label">Cancel</span></button>
+    <button class="tmt-ui-count-chip" data-tone="attention"><span>Needs you</span><span class="tmt-ui-count">2</span></button>
+  </p>
+</section>
+<!-- component: callout. What the reader has to decide; data-tone is working, waiting, review or blocked. See tmt colab skill components, section Design system -->
+<div class="tmt-ui-notice" data-tinted data-tone="waiting">
+  <div class="tmt-ui-notice-eyebrow">Needs you</div>
+  <h3 class="tmt-ui-notice-heading">Decide before release</h3>
+  <div class="tmt-ui-notice-body">What the reader has to decide, in a sentence.</div>
+</div>
+<!-- component: list, disclosure and field. See tmt colab skill components, section Design system -->
+<section>
+  <ul class="tmt-ui-list" aria-label="Tasks">
+    <li class="tmt-ui-list-row">
+      <div class="tmt-ui-list-title"><span class="tmt-ui-list-label">Write the report</span></div>
+      <div class="tmt-ui-list-meta"><div class="tmt-ui-list-state">Done</div></div>
+    </li>
+  </ul>
+  <details class="tmt-ui-disclosure">
+    <summary>More detail</summary>
+    <p>Hidden until opened.</p>
+  </details>
+  <div class="tmt-ui-field">
+    <label class="tmt-ui-field-label" for="note">Note</label>
+    <input class="tmt-ui-field-control" id="note" />
+  </div>
+</section>
+<!-- component: code. Inline code takes tmt-ui-code; a block is a plain pre and code that takes its look from the starter. See tmt colab skill components, section Design system -->
+<section>
+  <p>Run <code class="tmt-ui-code">tmt colab page check page.html</code> first.</p>
+  <pre><code>tmt colab page check page.html</code></pre>
+</section>

@@ -5638,9 +5638,11 @@ is no command that returns a page to freeform.
 `tmt colab page create --title <title> --template <name> [--json]` starts from a template instead
 of a layout choice and a file: `--template` conflicts with `--layout`, `--reason` and `--file`,
 because the template brings its own layout and source. The catalog is closed and compiled into the
-binary: `report`, `review` and `compare` (layout `column`) and `board` (layout `full`). Each source
-is under 8 KiB and passes the page check with no finding. It starts from the page-style starter
-(`tmt colab skill page-style`) without that starter's `body` rule, which frames `canvas` and
+binary: `report`, `review`, `compare` and `gallery` (layout `column`) and `board` (layout `full`).
+Each source is under 8 KiB and passes the page check with no finding. A card, table and callout is
+the design system's markup (`tmt-ui-card`, `tmt-ui-table`, `tmt-ui-notice`; `gallery` is a copyable
+catalog of the documented subset). It starts from the page-style starter
+(`tmt colab skill page-style`, the `tmt-starter` layer) without that starter's `body` rule, which frames `canvas` and
 `freeform` pages, and adds no width, margin or gap CSS of its own: those stay the frame's
 (`data-width` and `data-gap` are the only declarations it uses). A one-line
 HTML comment before each block names the rule and the `tmt colab skill` topic and section that
