@@ -115,7 +115,7 @@ write.
 To replace most of the page, edit the `source` of `page read PAGE --json` and write:
 
 ```sh
-tmt colab page write PAGE --file page.html --expected-revision REVISION --replace --json
+tmt colab page write PAGE --file page.html --expected-revision REVISION --json
 ```
 
 `revision` is opaque; use the returned token. `update` reports cost (`count`, `bytes`);

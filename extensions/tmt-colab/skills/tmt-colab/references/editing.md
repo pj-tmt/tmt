@@ -55,7 +55,7 @@ when replacing the page is what you mean; otherwise patch.
 
 ```sh
 tmt colab page read PAGE --json
-tmt colab page write PAGE --file page.html --expected-revision REVISION --replace --json
+tmt colab page write PAGE --file page.html --expected-revision REVISION --json
 ```
 
 On `COLAB_STALE_BASE`, read again, merge the edits and use the new revision.
