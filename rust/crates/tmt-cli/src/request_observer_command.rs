@@ -22,9 +22,19 @@ fn log_path(database: &Path, request_id: &str) -> io::Result<PathBuf> {
         .join(format!("{request_id}.log")))
 }
 
+/// A file name `start` generates: `req_<UUID>.log`.
+fn is_log_name(name: &str) -> bool {
+    name.strip_suffix(".log")
+        .and_then(|id| id.strip_prefix("req_"))
+        .is_some_and(|id| id.len() == 36 && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-'))
+}
+
 pub fn start(database: &Path, request_id: &str) -> io::Result<()> {
     let path = log_path(database, request_id)?;
-    fs::create_dir_all(path.parent().expect("log directory"))?;
+    let directory = path.parent().expect("log directory");
+    fs::create_dir_all(directory)?;
+    // Best effort: a failed prune never stops the observer from starting.
+    let _ = detached::prune_failed_logs(directory, is_log_name, detached::FAILED_LOG_RETENTION);
     let log = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -116,6 +126,24 @@ pub fn execute(request_id: &str) -> io::Result<u8> {
         Err(_) => {
             warn("request timeout observer unavailable; inspect the retained request.");
             Ok(1)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn only_generated_observer_log_names_qualify_for_pruning() {
+        assert!(super::is_log_name(
+            "req_4322708e-2007-4010-bac4-3c0aeeba5851.log"
+        ));
+        for name in [
+            "4322708e-2007-4010-bac4-3c0aeeba5851.log",
+            "req_4322708e-2007-4010-bac4-3c0aeeba5851",
+            "req_../../4322708e-2007-4010-bac4-3c0aeeb.log",
+            "req_short.log",
+        ] {
+            assert!(!super::is_log_name(name), "{name}");
         }
     }
 }
