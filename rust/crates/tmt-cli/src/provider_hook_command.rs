@@ -31,7 +31,8 @@ use tmt_core::{
 const BUDGET: Duration = Duration::from_millis(crate::invocation::MAXIMUM_HOOK_WORK_BUDGET_MS);
 use crate::session_learning::Learning;
 use tmt_core::binding::session::launch::{
-    SessionLearningReason as Reason, SessionLearningStep as Step,
+    SessionLearningDetail, SessionLearningEvent, SessionLearningReason as Reason,
+    SessionLearningStep as Step,
 };
 
 const ERROR_LINE: &str = "tmt: lifecycle context unavailable; continuing without context.";
@@ -181,14 +182,15 @@ fn observe_turn(
     turn: &TurnEnd,
     activity_only: bool,
     activity: Option<&tmt_adapters::runtime::hook_protocol::ActivityObservation>,
-    deadline: Instant,
+    run: Run<'_>,
 ) -> Result<Observation, ()> {
+    let deadline = run.deadline;
     // An interrupted turn ends activity only: no usage, consumption source or
     // final answer is read or captured for it.
     let activity_only = activity_only || turn.interrupted;
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
-        return Ok(Observation::default());
+        return unsupported_host(run);
     }
     let Caller::Bound(bound) = verified_lifecycle_caller(
         provider,
@@ -701,10 +703,12 @@ fn observe(
     let activity = lifecycle.decode_activity(input.as_bytes());
     // Notification observers receive non-permission notifications too. Declared
     // activity-only events that carry no admitted main event are quiet no-ops.
-    let activity_only_event = serde_json::from_str::<serde_json::Value>(input)
+    let event_name = serde_json::from_str::<serde_json::Value>(input)
         .ok()
-        .and_then(|value| value["hook_event_name"].as_str().map(str::to_owned))
-        .is_some_and(|event| lifecycle.activity_events().contains(&event.as_str()));
+        .and_then(|value| value["hook_event_name"].as_str().map(str::to_owned));
+    let activity_only_event = event_name
+        .as_deref()
+        .is_some_and(|event| lifecycle.activity_events().contains(&event));
     if activity_only_event && activity.is_none() {
         return Ok(Observation::default());
     }
@@ -716,7 +720,7 @@ fn observe(
             &turn,
             activity_only,
             activity.as_ref(),
-            deadline,
+            Run { deadline, learning },
         );
     }
     if let Some(session) = lifecycle.decode_prompt(input.as_bytes()) {
@@ -727,7 +731,7 @@ fn observe(
             &session,
             activity.as_ref(),
             Some(input.as_bytes()),
-            deadline,
+            Run { deadline, learning },
         );
     }
     if let Some(session) = lifecycle.decode_activity_session(input.as_bytes()) {
@@ -740,7 +744,14 @@ fn observe(
             || ConfigPaths::discover().map_err(|_| ()),
         );
     }
-    let event = lifecycle.decode(input.as_bytes()).ok_or(())?;
+    let Some(event) = lifecycle.decode(input.as_bytes()) else {
+        // Nothing accepted the payload: say which event it was, never what it held.
+        if let Some(learning) = learning {
+            let event = SessionLearningEvent::from_hook_name(event_name.as_deref());
+            let _ = learning.note(SessionLearningDetail::Refused(event), deadline);
+        }
+        return Err(());
+    };
     observe_lifecycle_event(
         provider,
         harness,
@@ -750,6 +761,26 @@ fn observe(
         deadline,
         learning,
     )
+}
+
+/// One hook run: its deadline and the launch diagnostic it reports to, if any.
+#[derive(Clone, Copy)]
+struct Run<'a> {
+    deadline: Instant,
+    learning: Option<&'a Learning>,
+}
+
+/// The driver found no provider process among the hook's ancestors, so the hook
+/// observes nothing. Say so in the launch's diagnostic instead of stopping silently.
+fn unsupported_host(run: Run<'_>) -> Result<Observation, ()> {
+    if let Some(learning) = run.learning {
+        let _ = learning.stage_detail(
+            Step::HostDiscovery,
+            SessionLearningDetail::HostUnsupported,
+            run.deadline,
+        );
+    }
+    Ok(Observation::default())
 }
 
 fn observe_lifecycle_event(
@@ -763,7 +794,7 @@ fn observe_lifecycle_event(
 ) -> Result<Observation, ()> {
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
-        return Ok(Observation::default());
+        return unsupported_host(Run { deadline, learning });
     }
     let BoundCaller {
         host,
@@ -1294,7 +1325,10 @@ fn observe_activity_event(
         session,
         Some(activity),
         None,
-        deadline,
+        Run {
+            deadline,
+            learning: None,
+        },
     )
 }
 
@@ -1307,11 +1341,12 @@ fn observe_main_event(
     session: &ProviderSessionId,
     activity: Option<&tmt_adapters::runtime::hook_protocol::ActivityObservation>,
     payload: Option<&[u8]>,
-    deadline: Instant,
+    run: Run<'_>,
 ) -> Result<Observation, ()> {
+    let deadline = run.deadline;
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
-        return Ok(Observation::default());
+        return unsupported_host(run);
     }
     let Caller::Bound(bound) = verified_lifecycle_caller(
         provider,
@@ -1559,6 +1594,9 @@ fn worker_arguments(provider: &str, remaining: Duration) -> Result<Vec<std::ffi:
     args.extend(["--work-budget-ms".into(), budget.to_string().into()]);
     Ok(args)
 }
+
+#[cfg(test)]
+mod decode_tests;
 
 #[cfg(test)]
 mod interrupt_tests;

@@ -462,8 +462,8 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                         &mut stdout,
                         terminal,
                         &format!(
-                            "The provider session was not recorded ({}: {}). Resume may be unavailable.",
-                            learning.step, learning.reason
+                            "The provider session was not recorded ({}). Resume may be unavailable.",
+                            learning.cause()
                         ),
                         Some(&learning.next_step),
                     )?;

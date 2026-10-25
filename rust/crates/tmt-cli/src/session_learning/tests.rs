@@ -7,6 +7,7 @@ use tmt_adapters::{
     process::{CommandRequest, CommandRunner, UnixCommandRunner},
     runtime::RuntimeRegistry,
 };
+use tmt_core::binding::session::launch::SessionLearningEvent;
 use tmt_core::{
     binding::BindingRepository,
     driver::ActionResult,
@@ -49,14 +50,39 @@ fn a_concurrent_preference_edit_wins_over_an_early_start() {
     }
 }
 
-struct Directory(std::path::PathBuf);
+pub(crate) struct Directory(std::path::PathBuf);
 impl Drop for Directory {
     fn drop(&mut self) {
         fs::remove_dir_all(&self.0).unwrap();
     }
 }
 
-fn early_start(host: HostKind, provider: &str, ended: bool, preference_edit: bool) {
+/// A saved identity bound to a pane, with a launch row owned by this test process.
+pub(crate) struct Launch {
+    pub(crate) directory: Directory,
+    pub(crate) paths: ConfigPaths,
+    pub(crate) storage: Storage,
+    pub(crate) identity: tmt_core::identity::Identity,
+    pub(crate) binding: tmt_core::binding::Binding,
+    pub(crate) owner: ProcessIncarnation,
+    pub(crate) driver: HarnessId,
+    pub(crate) learning: Learning,
+    pub(crate) deadline: Instant,
+}
+impl Launch {
+    /// What the launch's diagnostic says now.
+    pub(crate) fn diagnostic(&self) -> Option<LearningView> {
+        view(
+            &self.storage,
+            Some(&self.binding),
+            &self.identity,
+            &Default::default(),
+        )
+        .unwrap()
+    }
+}
+
+pub(crate) fn launch(host: HostKind, provider: &str) -> Launch {
     let directory = Directory(std::env::temp_dir().join(format!(
         "tmt-early-session-{}",
         tmt_core::operation::new_operation_id()
@@ -128,6 +154,32 @@ fn early_start(host: HostKind, provider: &str, ended: bool, preference_edit: boo
         driver: driver.clone(),
         paths: paths.clone(),
     };
+    Launch {
+        directory,
+        paths,
+        storage,
+        identity,
+        binding,
+        owner,
+        driver,
+        learning,
+        deadline,
+    }
+}
+
+fn early_start(host: HostKind, provider: &str, ended: bool, preference_edit: bool) {
+    let Launch {
+        directory,
+        paths,
+        mut storage,
+        identity,
+        binding,
+        owner,
+        driver,
+        learning,
+        deadline,
+    } = launch(host, provider);
+    let root = directory.0.as_path();
     if preference_edit {
         learning
             .stage(SessionLearningStep::ProviderVerification, deadline)
@@ -366,4 +418,76 @@ fn early_start(host: HostKind, provider: &str, ended: bool, preference_edit: boo
         ProcessObservation::Gone
     ));
     storage.close().unwrap();
+}
+
+#[test]
+fn a_detail_stays_with_its_step_until_the_next_stage() {
+    let launch = launch(HostKind::pty(), "codex");
+    let Launch {
+        learning, deadline, ..
+    } = &launch;
+    learning
+        .stage_detail(
+            SessionLearningStep::HostDiscovery,
+            SessionLearningDetail::HostUnsupported,
+            *deadline,
+        )
+        .unwrap();
+    let staged = launch.diagnostic().unwrap();
+    assert_eq!(
+        (staged.step, staged.reason, staged.detail),
+        ("host_discovery", "not_admitted", Some("host_unsupported"))
+    );
+    assert_eq!(
+        staged.cause(),
+        "host_discovery: not_admitted, host_unsupported"
+    );
+    // The parent's failure keeps the step and what it stopped on.
+    learning
+        .fail(SessionLearningReason::WorkerError, *deadline)
+        .unwrap();
+    let failed = launch.diagnostic().unwrap();
+    assert_eq!(
+        (failed.step, failed.reason, failed.detail),
+        ("host_discovery", "worker_error", Some("host_unsupported"))
+    );
+    // A later step is a new question: it does not inherit the old answer.
+    learning
+        .stage(SessionLearningStep::Storage, *deadline)
+        .unwrap();
+    let next = launch.diagnostic().unwrap();
+    assert_eq!(
+        (next.step, next.reason, next.detail),
+        ("storage", "not_admitted", None)
+    );
+    assert_eq!(next.cause(), "storage: not_admitted");
+    // A note names the current step without moving it.
+    learning
+        .note(
+            SessionLearningDetail::Refused(SessionLearningEvent::Stop),
+            *deadline,
+        )
+        .unwrap();
+    let noted = launch.diagnostic().unwrap();
+    assert_eq!(
+        (noted.step, noted.reason, noted.detail),
+        ("storage", "not_admitted", Some("refused:turn:Stop"))
+    );
+    assert_eq!(
+        document(&noted)["detail"],
+        "refused:turn:Stop",
+        "the public document carries the stored token"
+    );
+}
+
+#[test]
+fn a_diagnostic_without_a_detail_leaves_it_out_of_the_document() {
+    let launch = launch(HostKind::pty(), "claude");
+    launch
+        .learning
+        .stage(SessionLearningStep::Input, launch.deadline)
+        .unwrap();
+    let staged = launch.diagnostic().unwrap();
+    assert_eq!(staged.detail, None);
+    assert!(document(&staged).get("detail").is_none());
 }

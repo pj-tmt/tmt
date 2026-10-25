@@ -128,10 +128,10 @@ pub(crate) fn admit_foreground(
                 observed,
                 tmt_core::binding::session::launch::LaunchStatus::Settled,
                 Some(
-                    tmt_core::binding::session::launch::SessionLearningDiagnostic {
-                        step: tmt_core::binding::session::launch::SessionLearningStep::Storage,
-                        reason: tmt_core::binding::session::launch::SessionLearningReason::Conflict,
-                    },
+                    tmt_core::binding::session::launch::SessionLearningDiagnostic::new(
+                        tmt_core::binding::session::launch::SessionLearningStep::Storage,
+                        tmt_core::binding::session::launch::SessionLearningReason::Conflict,
+                    ),
                 ),
             )?;
             return Ok(None);
@@ -223,14 +223,14 @@ pub(crate) fn admit_foreground(
                     records,
                     observed,
                     LaunchStatus::Settled,
-                    Some(SessionLearningDiagnostic {
-                        step: SessionLearningStep::Storage,
-                        reason: if already_exited {
+                    Some(SessionLearningDiagnostic::new(
+                        SessionLearningStep::Storage,
+                        if already_exited {
                             SessionLearningReason::LaunchEnded
                         } else {
                             SessionLearningReason::Conflict
                         },
-                    }),
+                    )),
                 )?;
             }
         }
