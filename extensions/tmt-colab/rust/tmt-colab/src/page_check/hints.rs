@@ -47,9 +47,8 @@ fn styles_itself(tree: &Tree) -> bool {
 /// The hints for `source`, in a stable order.
 pub(super) fn of(source: &str, tree: &Tree) -> Vec<Hint> {
     let mut hints = Vec::new();
-    // Styled by hand with nothing of the starter or the design system: the pages Ben's question was
-    // about. A bare page has nothing to nudge toward, and a page that carries either is where it
-    // should be.
+    // Hand-styled pages that bypass both the starter and the design system. A bare page has nothing
+    // to nudge toward, and a page that carries either is where it should be.
     if styles_itself(tree) && !carries_starter(source) {
         hints.push(Hint {
             code: "own-style-only",

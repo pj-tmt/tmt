@@ -36,7 +36,7 @@ A page that needs the reader to decide asks with `tmt-question`, never in prose:
 </tmt-question></div>
 ```
 
-A fresh UUID per `data-id`; rules: [questions](references/questions.md) (`tmt colab skill questions`).
+A fresh UUID per `data-id`; rules under Ask and flag.
 
 ## Set up a page
 
@@ -85,7 +85,7 @@ inspect serving status, never invent a URL.
 When asked to open a page, run `tmt colab open PAGE`; omit PAGE for space home.
 It opens even with automatic-open off, but as an agent it only prints the link unless
 you pass `--open`. It never starts or pairs services. `--json` and `--no-open` suppress
-opening.
+opening. Open browsers only on request.
 
 ## Check HTML
 
