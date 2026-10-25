@@ -206,7 +206,9 @@ rescan, timer, subprocess or reader.
 scenario to a fixture-owned file. The board reads it once at startup; unset,
 empty or `0` stays off. It reuses the timing trace's private append-only sink
 and failure handling. Records contain keys, input owner, action verb and selected
-UUID before/after input, plus selection-write causes; no message-body, draft,
+UUID before/after input, plus selection changes observed once around each board
+event with its variant as the cause, and `Paint` or `ViewState` for frame or saved-view
+reconciliation; no message-body, draft,
 action-argument or query fields. The case includes the trace beside its captured
 screen on failure, preserving its assertions and deadlines. This is not a user
 feature or a selection policy.

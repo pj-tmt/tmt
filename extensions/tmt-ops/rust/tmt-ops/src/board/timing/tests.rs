@@ -185,7 +185,7 @@ fn navigation_is_file_only_and_off_without_a_path() {
 }
 
 #[test]
-fn navigation_records_end_ownership_and_a_later_selection_write() {
+fn navigation_records_end_ownership_and_action() {
     use crate::board::app::workspace::tests::{MEMBER, ROOM, board};
     use crate::board::workspace::{AgentsFilter, OpsTarget};
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -209,24 +209,6 @@ fn navigation_records_end_ownership_and_a_later_selection_write() {
         rows.iter()
             .any(|r| r["event"] == "action" && r["verb"] == "Ui(Last)")
     );
-    let count = rows.len();
-    app.carry_view_hint(
-        &crate::board::view_state::ViewState {
-            shell: crate::board::shell::OpsTab::Agents,
-            controls: None,
-            scrolls: Vec::new(),
-            expanded: [ROOM.into()].into(),
-            pool_expanded: false,
-            selected: Some(OpsTarget::Squad(ROOM.into())),
-        },
-        false,
-    );
-    let rows = records(&buffer);
-    assert!(rows[count..].iter().any(|r| {
-        r["event"] == "selection_write"
-            && r["selected"]["kind"] == "squad"
-            && r["cause"].as_str().is_some_and(|s| s.contains("carry.rs:"))
-    }));
     assert!(
         !String::from_utf8(buffer.lock().unwrap().clone())
             .unwrap()

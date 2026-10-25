@@ -77,7 +77,6 @@ impl App {
             return self.say("The row's agent is no longer observed.");
         };
         self.workspace.selected = Some(target);
-        self.trace_selection(concat!(file!(), ":", line!()));
         self.workspace_action(OpsUiAction::Inspect);
         self.say(&notice)
     }
@@ -893,7 +892,6 @@ impl App {
                         .find(|squad| squad.room_id == id)
                 }) {
                     self.workspace.selected = Some(OpsTarget::Squad(squad.room_id.clone()));
-                    self.trace_selection(concat!(file!(), ":", line!()));
                     self.shell.tab = OpsTab::Agents;
                 } else {
                     self.set_notice(
@@ -918,7 +916,6 @@ impl App {
             // another visible membership keeps the UUID; vanished targets stay
             // missing and never acquire a replacement membership automatically.
             self.workspace.selected = Some(row.target.clone());
-self.trace_selection(concat!(file!(), ":", line!()));
         }
         if self.shell.tab == OpsTab::Digest
             && self.workspace.selected.as_ref().is_some_and(|target| {
@@ -926,11 +923,9 @@ self.trace_selection(concat!(file!(), ":", line!()));
             })
         {
             self.workspace.selected = rows.first().map(|row| row.target.clone());
-            self.trace_selection(concat!(file!(), ":", line!()));
         }
         if self.workspace.selected.is_none() {
             self.workspace.selected = rows.first().map(|row| row.target.clone());
-            self.trace_selection(concat!(file!(), ":", line!()));
         }
         if query_changed
             && selects_matches
@@ -938,7 +933,6 @@ self.trace_selection(concat!(file!(), ":", line!()));
             && let Some(first) = rows.first()
         {
             self.workspace.selected = Some(first.target.clone());
-            self.trace_selection(concat!(file!(), ":", line!()));
         }
         if let Some(index) = rows
             .iter()
@@ -957,7 +951,6 @@ self.trace_selection(concat!(file!(), ":", line!()));
             return;
         };
         self.workspace.selected = Some(row.target.clone());
-        self.trace_selection(concat!(file!(), ":", line!()));
         if self.shell.tab == OpsTab::Digest {
             // These rows already carry current admission and ordering. Cursor
             // movement changes an anchor, not the acquired workspace/query.
@@ -1010,7 +1003,6 @@ self.trace_selection(concat!(file!(), ":", line!()));
             self.workspace.selected = rows
                 .get(index.min(rows.len().saturating_sub(1)))
                 .map(|row| row.target.clone());
-            self.trace_selection(concat!(file!(), ":", line!()));
         }
         self.workspace_reconcile();
         self.invalidate_frame_geometry();
@@ -1070,7 +1062,6 @@ self.trace_selection(concat!(file!(), ":", line!()));
                     .shell
                     .select_digit(digit, owner, &mut self.workspace.selected)
                 {
-                    self.trace_selection("shell::select_digit");
                     return Effect::None;
                 }
                 self.usage_chart.get_mut().release_focus();
@@ -1374,7 +1365,6 @@ self.trace_selection(concat!(file!(), ":", line!()));
             };
             if let Some(row) = member_of(lead.as_ref()).or_else(|| member_of(None)) {
                 self.workspace.selected = Some(row.target.clone());
-                self.trace_selection(concat!(file!(), ":", line!()));
             }
         }
         self.workspace_reconcile();

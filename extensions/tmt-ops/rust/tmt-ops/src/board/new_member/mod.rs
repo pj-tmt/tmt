@@ -241,7 +241,6 @@ impl App {
                 self.discovered_uuid = Some(identity_id.clone());
             }
             self.workspace.selected = Some(target);
-            self.trace_selection(concat!(file!(), ":", line!()));
             return Effect::Refresh;
         }
         Effect::None

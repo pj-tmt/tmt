@@ -1875,7 +1875,6 @@ impl App {
                 .map(|squad| super::workspace::OpsTarget::Squad(squad.room_id.clone()));
             if let Some(target) = target {
                 self.workspace.selected = Some(target);
-                self.trace_selection(concat!(file!(), ":", line!()));
                 self.shell.tab = super::shell::OpsTab::Agents;
                 self.workspace_reconcile();
                 return Effect::None;
@@ -2987,13 +2986,11 @@ impl App {
             // and draft owners move together to their Agents host.
             self.shell
                 .select(super::shell::OpsTab::Agents, &mut self.workspace.selected);
-            self.trace_selection("reply::select_agents");
             self.right_tab = super::shell::RightTab::Talk;
             self.workspace.selected = match &send.target {
                 RowTarget::Workspace(target) => Some(target.clone()),
                 _ => self.workspace.selected.clone(),
             };
-            self.trace_selection(concat!(file!(), ":", line!()));
             if let RowTarget::Workspace(super::workspace::OpsTarget::Member { room_id, .. }) =
                 &send.target
             {
@@ -3119,7 +3116,6 @@ impl App {
                         self.workspace.pool_expanded = true;
                     }
                     self.workspace.selected = Some(target);
-                    self.trace_selection(concat!(file!(), ":", line!()));
                     self.workspace_reconcile();
                     self.invalidate_frame_geometry();
                 }
@@ -3961,7 +3957,7 @@ impl App {
         }
     }
 
-    fn trace_target(&self) -> Value {
+    pub(super) fn trace_target(&self) -> Value {
         use super::workspace::OpsTarget;
         match self.workspace.selected.as_ref() {
             None => Value::Null,
@@ -3995,13 +3991,6 @@ impl App {
         trace.navigation(json!({"event":phase, "key":format!("{:?}",key.code),
             "modifiers":format!("{:?}",key.modifiers), "kind":format!("{:?}",key.kind),
             "owner":format!("{owner:?}"), "verb":verb, "selected":self.trace_target()}));
-    }
-
-    pub(in crate::board) fn trace_selection(&self, cause: &str) {
-        if let Some(trace) = &self.navigation_trace {
-            trace.navigation(json!({"event":"selection_write", "cause":cause,
-                "selected":self.trace_target()}));
-        }
     }
 
     pub fn key(&mut self, key: KeyEvent) -> Effect {
@@ -4675,7 +4664,6 @@ impl App {
                     return self.say("The painted timer target is no longer observed.");
                 }
                 self.workspace.selected = Some(hit.target);
-                self.trace_selection(concat!(file!(), ":", line!()));
                 self.workspace_reconcile();
                 return self.workspace_owner_timers(hit.room, hit.owner);
             }
