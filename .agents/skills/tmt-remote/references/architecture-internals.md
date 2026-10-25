@@ -40,6 +40,10 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `object_service`                                 | Lease-bound `ObjectService`: initial/demand single-flight Local setup, readiness, origins, admitted observation/upload; v3 bindings/awaiters share setup and dispatch; serve injects the shared native project factory; production Colab-only Local |
 | `tmt-extension-objects` (leaf)                   | Remote-owned protocol leaf, consumed by Remote `object_service` and Colab `object_channel`: canonical IDs/encodings, object and v3 sync DTOs/bounds, strict JSON and the Unix carrier; no backend, policy or Remote/Colab types, and grants nothing |
 
+`native_sync` bounds COUNT probes and document reads and returns query pages/cursors
+for sealed-document consumers, including Colab. It has no Core authority. Native carrier
+bytes/admission remain in `cloud_hpke`/`cloud_inbox`, while HTTP/Auth/budget is shared.
+
 `operations` forwards Core list evidence; the [operations contract](../../../../contracts/remote-channel-v1.md#operations)
 owns activity validation, post-read observation time and advisory decoding.
 
@@ -207,6 +211,7 @@ boundary. The [input contract](../../../../contracts/remote-channel-v1.md#deploy
 owns semantics; `deploy_cli::inputs` owns the Firestore manifest, pre-provider validation,
 recorded selection and permission-to-step metadata. The existing `deploy_record` owner
 persists optional resource intent; the captured run retains actual app/site identities.
+Per-project records retain the current run and superseded runs.
 `deploy_permissions` admits the manifest-derived grant subset and formats missing permission/step
 associations; it owns no second inventory or cache. After login and before inventory or consent,
 `deploy_cli` requires the adapter's bounded read-only IAM probe. Its fixed POST bypasses the helper's
@@ -235,7 +240,9 @@ owns the public declaration file, content identity, app/site selection, staged h
 diagnostics, user-file projection (including reserved init paths) and forward-only recovery.
 Rust `hosting` alone hashes content identity; the adapter supplies it privately to the helper,
 which uses it for labels/read-back without a second hash implementation. The same deploy runner
-executes Hosting and Rules, and joint verification alone records Complete.
+executes Hosting and Rules, and joint verification alone records Complete. Hosting read-back
+includes both EXPECTED and ACTIVE files; completion requires the captured file set to be
+ACTIVE and the live release/app/deployment identities to match.
 `remote_link` derives descriptors, including an optional selected Hosting site, only from
 that typed verified publication; the
 [link contract](../../../../contracts/remote-channel-v1.md#extension-backend-declarations) owns read-only reprinting and refusal.

@@ -532,32 +532,29 @@ manifest/source edges across dependency kinds, aliases and targets.
 Schemas, identity derivation and Remote's serve-lock proof remain extension-owned;
 the leaf discovers no roots and interprets no Core state or provider configuration.
 
-## Remote extension pilot
+## Remote extension
 
-`extensions/tmt-remote`: Fixed public Core JSON via absolute `TMT_EXECUTABLE`/`tmt-invoke`.
-Owns listener/restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery)
-and `<dataRoot>/remote/` ([state leaf](#shared-extension-state-layout)).
-Home/Remote/SDK; read-only auto-pair; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
-`cloud_hpke`: bytes; `cloud_keys`: renewals; `cloud_inbox`: carriers/finals, private reply binding.
+`extensions/tmt-remote` owns the listener, restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery),
+`<dataRoot>/remote/` ([state leaf](#shared-extension-state-layout)), the door and
+[SDK](extensions/tmt-remote/typescript/remote-client/README.md). Owner-installed
+[Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`.
 
-[Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
-settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
-Remote: member/grant authority, `invitations`, uid routes; UI grants none.
-Firestore: Auth/Rules only; Core never uses Remote trust.
-`message`: wire/grants/scope/allowlist/hold/uncertainty/audit; UUID/name checks.
-`talk --remote` → [message v1](contracts/remote-message-v1.md) → serving owner.
-`message` → `session`/`operations`: same-ID Core dispatch/recovery; cloud finals → receipt-bound `reply`.
-Door: `remote-v1.js` ([SDK](extensions/tmt-remote/typescript/remote-client/README.md));
-owner-installed [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`; public CLI/SDK/`tmt-extension-objects` elsewhere; never Remote state files.
+Remote uses public Core JSON only via absolute `TMT_EXECUTABLE`/`tmt-invoke`.
+Core never uses Remote trust. Other extensions use public CLI/SDK/`tmt-extension-objects`,
+never Remote state files. Remote owns channel authority; UI grants none;
+Firestore uses Auth/Rules only. Read-only auto-pair; no companions/skills.
+Emulation never ships.
 
-`object_service`: leased object/v3 carrier; `firebase_auth`: credentials/HTTP.
-Serve: Auth/runtime/factory/tick/joins/flush; v3 opt-in.
-`native_sync`: COUNT/read limits; Colab cursors; no Core/carrier. Emulation never ships.
-[object-backends](.agents/skills/tmt-remote/references/object-backends.md): channels/backends/quotas.
-Deploy: Firestore input/permission manifest, IAM preflight before consent, recorded choices; `hosting` hash; owner setup/consent/history; Rules/Hosting fences; EXPECTED+ACTIVE/live ID/readiness.
-[Modules](.agents/skills/tmt-remote/references/architecture-internals.md);
-[door/discovery](.agents/skills/tmt-remote/references/door-and-discovery.md): lifecycle/status/management.
-[Background](contracts/extension-serve-v1.md).
+`talk --remote` → [message v1](contracts/remote-message-v1.md) → serving owner,
+with scope/allowlist/hold and UUID/name checks and same-ID Core dispatch/recovery.
+Finals use receipt-bound Core `reply`.
+
+[Contract](contracts/remote-channel-v1.md) and [hard lines](contracts/remote-channel-v1.md#user-path);
+[internals](.agents/skills/tmt-remote/references/architecture-internals.md);
+[door/discovery](.agents/skills/tmt-remote/references/door-and-discovery.md);
+[object backends](.agents/skills/tmt-remote/references/object-backends.md);
+[release gates](.agents/skills/tmt-release/SKILL.md);
+[extension-serve](contracts/extension-serve-v1.md).
 
 ## Colab extension
 

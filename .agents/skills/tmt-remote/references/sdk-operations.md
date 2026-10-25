@@ -1,7 +1,7 @@
 # SDK operations and the embedded client
 
 Follow [tmt-dev](../../tmt-dev/SKILL.md), the
-[Remote architecture](../../../../ARCHITECTURE.md#remote-extension-pilot) and
+[Remote architecture](../../../../ARCHITECTURE.md#remote-extension) and
 [channel contract](../../../../contracts/remote-channel-v1.md). The
 [SDK README](../../../../extensions/tmt-remote/typescript/remote-client/README.md)
 owns caller-facing usage. Local paired operations and hosted Firebase Auth are distinct
