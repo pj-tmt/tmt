@@ -2412,6 +2412,8 @@ fn prepared_edit(decoder: &mut Decoder, old: &str, new: &str) -> (Vec<u8>, Vec<V
                 title: "Page",
                 publisher_agent: None,
                 creation_recipient: None,
+                creator: None,
+                questions: None,
                 source_digest: tmt_colab_model::crypto::digest(old.as_bytes()),
             },
             None,
