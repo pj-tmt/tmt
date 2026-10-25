@@ -120,6 +120,7 @@ describe('public local extension API', () => {
         identityId: id,
         items: [
           {
+            responseId: 'rsp_2',
             text: 'same text',
             endedMs: now - 1,
             provider: 'codex',
@@ -127,6 +128,7 @@ describe('public local extension API', () => {
             originalBytes: 9,
           },
           {
+            responseId: 'rsp_1',
             text: 'same text',
             endedMs: now,
             provider: 'claude',

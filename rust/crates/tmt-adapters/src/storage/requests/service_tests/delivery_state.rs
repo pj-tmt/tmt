@@ -5,7 +5,7 @@ use super::{
     passthrough::{claimed_passthrough, identity as person, mark_user as mark_person},
     support::{Fixture, NOW_MS, service},
 };
-use crate::storage::requests::passthrough::{capture, settle_turn};
+use crate::storage::requests::passthrough::{SettledFinal, capture, settle_turn};
 use tmt_core::{
     operation::new_operation_id,
     request::{
@@ -544,7 +544,11 @@ fn an_answered_capture_is_unread_for_its_sender_until_they_acknowledge_it() {
             &target,
             "session",
             None,
-            Some((&text, "claude")),
+            Some(SettledFinal {
+                text: &text,
+                provider: "claude",
+                response: 7,
+            }),
             NOW_MS + 10_000
         )
         .unwrap()
@@ -599,7 +603,11 @@ fn the_senders_watermark_reads_an_answered_capture_too() {
         &target,
         "session",
         None,
-        Some((&text, "claude")),
+        Some(SettledFinal {
+            text: &text,
+            provider: "claude",
+            response: 7,
+        }),
         NOW_MS + 10_000,
     )
     .unwrap();
@@ -650,7 +658,11 @@ fn a_passthrough_typed_into_a_running_turn_binds_to_it_and_the_turns_end_answers
             &target,
             "session",
             None,
-            Some((&text, "claude")),
+            Some(SettledFinal {
+                text: &text,
+                provider: "claude",
+                response: 7,
+            }),
             NOW_MS + 10_000
         )
         .unwrap()
@@ -696,7 +708,11 @@ fn a_driver_that_does_not_fold_queued_text_keeps_a_pending_prompt_matched_captur
                 &target,
                 "session",
                 None,
-                Some((&text, "claude")),
+                Some(SettledFinal {
+                    text: &text,
+                    provider: "claude",
+                    response: 7,
+                }),
                 NOW_MS + 10_000
             )
             .unwrap(),

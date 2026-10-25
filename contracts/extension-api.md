@@ -109,8 +109,12 @@ has hooks: `enabled` is whether that driver's turn-end hook is installed, so `fa
 means its answers are not captured until the user runs `tmt setup`. An absent
 `capture` says nothing (an agent that never ran a driver with hooks).
 
-Each item is `{text, endedMs, provider, truncated, originalBytes, sessionId?}`:
+Each item is `{responseId, text, endedMs, provider, truncated, originalBytes, sessionId?, requestId?}`:
 
+- `responseId` is an opaque string naming this retained final. Equal ids name the same final
+  and nothing else may be inferred from one (order, count, format). Core never reuses an id, so
+  the id of a pruned final resolves to nothing, never to another final. Every item has one,
+  including answers captured before the field existed.
 - `text` is the provider's final assistant text, preserving its text and line
   endings. It contains at most 16,384 UTF-8 bytes, cut on a Unicode scalar boundary.
   `truncated` is always a boolean and is true exactly when the byte cap omitted
@@ -122,6 +126,12 @@ Each item is `{text, endedMs, provider, truncated, originalBytes, sessionId?}`:
   internal committed sequence breaks equal timestamps and wall-clock rollback.
 - `provider` is `claude` or `codex`. `sessionId`, when available, is the admitted
   provider session identifier; otherwise the field is omitted, not null.
+- `requestId` is present exactly when this final is the captured answer of a
+  [passthrough](request-response-v1.md#passthrough) turn: the request whose text started or joined
+  that turn. Core writes the link in the transaction that settles the capture and never infers it
+  from time or text. When several typed texts joined one turn, `requestId` is the oldest of them
+  and each of those requests carries the same `responseId` on its `answer`. A final that answered
+  no request has no `requestId` (omitted, not null), and neither has one whose request has expired.
 
 Capture uses only the turn-end hook TMT installs: Claude `Stop` and Codex
 `Stop`/notify. It requires the existing verified current binding/session admission
@@ -898,8 +908,9 @@ submitted final (`answer:"final"`, at its submission time) or a passthrough's ca
 turn in state `answered` (`answer:"turn"`, at its settle time;
 [Passthrough](request-response-v1.md#passthrough)). A request is one or the other. An
 unanswered, refused, pending or `no_answer` request is absent. Items carry metadata
-only, `{requestId, kind, sender, recipientId, answeredAtMs, answer, revision, acknowledged}`,
-never a prompt, reply or captured text; `requests.show` returns those. Limits, snapshot and housekeeping
+only, `{requestId, kind, sender, recipientId, answeredAtMs, answer, revision, acknowledged, responseId?}`,
+never a prompt, reply or captured text; `requests.show` returns those. `responseId` is the same id as
+the captured turn's `answer.responseId`; a submitted final has none. Limits, snapshot and housekeeping
 follow the results view (default 8, `limit` 1 through 50). One cursor orders both kinds by
 `(answeredAtMs, requestId)` descending: `nextBefore` is null at the end or
 `{answeredAtMs, requestId}`, passed unchanged as `before`; any other cursor field is

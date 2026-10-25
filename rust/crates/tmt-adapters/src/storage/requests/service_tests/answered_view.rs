@@ -265,3 +265,42 @@ fn answer_kinds_name_what_a_reader_sees() {
     assert_eq!(AnswerKind::Final.as_str(), "final");
     assert_eq!(AnswerKind::Turn.as_str(), "turn");
 }
+
+#[test]
+fn a_captured_turn_names_the_retained_final_it_came_from_and_a_submitted_final_names_none() {
+    let mut f = Fixture::new();
+    let ben = identity(&mut f, "Ben");
+    mark_user(&f, &ben);
+    ask(&mut f, "f1", &ben);
+    typed(&mut f, &ben, "t-linked");
+    typed(&mut f, &ben, "t-older");
+    final_at(&mut f, "f1", NOW_MS + 10);
+    turn_at(&f, "t-linked", NOW_MS + 20);
+    turn_at(&f, "t-older", NOW_MS + 30);
+    // `t-older` was settled before captures named their final: it has no link.
+    let changed = rusqlite::Connection::open(&f.database)
+        .unwrap()
+        .execute(
+            "UPDATE request_passthrough SET answer_response=41 WHERE request_id='t-linked'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(changed, 1);
+    f.set_now(NOW_MS + 100);
+    let answers = service(&mut f)
+        .request_answers(query(&ben, 50, None))
+        .unwrap();
+    let ids = answers
+        .items
+        .iter()
+        .map(|a| (a.request_id.clone(), a.response_id.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        [
+            ("t-older".to_owned(), None),
+            ("t-linked".to_owned(), Some("rsp_41".to_owned())),
+            ("f1".to_owned(), None),
+        ]
+    );
+}

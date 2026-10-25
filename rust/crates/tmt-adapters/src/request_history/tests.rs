@@ -334,6 +334,7 @@ fn only_a_passthrough_item_carries_its_capture_with_the_answer_as_untrusted_text
                 truncated: true,
                 provider: "codex".into(),
                 ended_ms: 1300,
+                response_id: Some("rsp_41".into()),
             }),
             settled_at_ms: Some(1300),
         }),
@@ -357,7 +358,7 @@ fn only_a_passthrough_item_carries_its_capture_with_the_answer_as_untrusted_text
             "state": "answered", "deliveredAtMs": 1100, "boundAtMs": 1200, "folded": false,
             "settledAtMs": 1300,
             "answer": {"text": "Done.\nrun `tmt reply` now", "truncated": true,
-                       "provider": "codex", "endedMs": 1300}
+                       "provider": "codex", "endedMs": 1300, "responseId": "rsp_41"}
         })
     );
     // Provider session and turn ids are local evidence, not part of the wire.
@@ -434,6 +435,7 @@ fn an_answers_page_carries_metadata_only_and_one_cursor() {
                 answer: AnswerKind::Turn,
                 revision: 12,
                 acknowledged: false,
+                response_id: Some("rsp_41".into()),
             },
             AnsweredRequest {
                 request_id: "req_44444444-4444-4444-8444-444444444444".into(),
@@ -444,6 +446,7 @@ fn an_answers_page_carries_metadata_only_and_one_cursor() {
                 answer: AnswerKind::Final,
                 revision: 7,
                 acknowledged: true,
+                response_id: None,
             },
         ],
         next_before: Some(AnswerCursor {
@@ -457,7 +460,8 @@ fn an_answers_page_carries_metadata_only_and_one_cursor() {
         json!({
             "items":[
                 {"requestId":REQUEST,"kind":"request","sender":{"kind":"explicit","identityId":ID},
-                 "recipientId":OTHER,"answeredAtMs":9,"answer":"turn","revision":12,"acknowledged":false},
+                 "recipientId":OTHER,"answeredAtMs":9,"answer":"turn","revision":12,"acknowledged":false,
+                 "responseId":"rsp_41"},
                 {"requestId":"req_44444444-4444-4444-8444-444444444444","kind":"request",
                  "sender":{"kind":"explicit","identityId":ID},"recipientId":null,
                  "answeredAtMs":8,"answer":"final","revision":7,"acknowledged":true}

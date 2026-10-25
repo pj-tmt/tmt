@@ -1,5 +1,5 @@
 {
-  "description": "Synthetic local pane-output vector. Text is untrusted display data, never a request result. Equal text represents distinct committed turns.",
+  "description": "Synthetic local pane-output vector. Text is untrusted display data, never a request result. Equal text represents distinct committed turns. Each item names its final with an opaque responseId; the ids below are what this fixture's store assigns (one per capture, in capture order) and a client only compares them for equality.",
   "identityId": "11111111-1111-4111-8111-111111111111",
   "nowMs": 10000,
   "captures": [
@@ -33,6 +33,7 @@
     "identityId": "11111111-1111-4111-8111-111111111111",
     "items": [
       {
+        "responseId": "rsp_3",
         "text": "last\r\nline\n",
         "endedMs": 999,
         "provider": "codex",
@@ -41,6 +42,7 @@
         "originalBytes": 11
       },
       {
+        "responseId": "rsp_2",
         "text": "same final text",
         "endedMs": 1000,
         "provider": "claude",
@@ -49,6 +51,7 @@
         "originalBytes": 15
       },
       {
+        "responseId": "rsp_1",
         "text": "same final text",
         "endedMs": 1000,
         "provider": "claude",
@@ -65,6 +68,7 @@
     "nowMs": 604800999,
     "items": [
       {
+        "responseId": "rsp_2",
         "text": "same final text",
         "endedMs": 1000,
         "provider": "claude",
@@ -73,6 +77,7 @@
         "sessionId": "fixture-session"
       },
       {
+        "responseId": "rsp_1",
         "text": "same final text",
         "endedMs": 1000,
         "provider": "claude",

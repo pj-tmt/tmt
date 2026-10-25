@@ -62,6 +62,8 @@ pub struct PassthroughAnswer {
     pub truncated: bool,
     pub provider: String,
     pub ended_ms: u64,
+    /// The retained final this answer was taken from, when it was settled with one linked.
+    pub response_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

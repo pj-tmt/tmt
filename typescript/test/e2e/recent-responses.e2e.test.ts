@@ -132,6 +132,7 @@ it.each(['claude', 'codex'] as const)(
           for (let n = 0; n < expected.length; n++) {
             const text = expected[n];
             expect(resource.items[n]).toEqual({
+              responseId: expect.stringMatching(/^rsp_\d+$/),
               text: Buffer.byteLength(text) > 16384 ? 'x'.repeat(16382) : text,
               endedMs: expect.any(Number),
               provider,

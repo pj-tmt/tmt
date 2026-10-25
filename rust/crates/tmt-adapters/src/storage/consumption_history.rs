@@ -386,18 +386,22 @@ impl Storage {
             }
             // The coordinator offers text only for a newly admitted Stop. A
             // fresh sampler with unchanged preferences must never append it.
-            if let Some(response) = observation.response.as_ref()
-                && observation.preferences != &observation.expected.preferences
-            {
-                super::responses::append(
-                    connection,
-                    id,
-                    remembered.harness.as_str(),
-                    remembered.provider_session.as_str(),
-                    observation.now_ms,
-                    response,
-                )?;
-            }
+            let retained = match observation.response.as_ref() {
+                Some(response) if observation.preferences != &observation.expected.preferences => {
+                    Some((
+                        response,
+                        super::responses::append(
+                            connection,
+                            id,
+                            remembered.harness.as_str(),
+                            remembered.provider_session.as_str(),
+                            observation.now_ms,
+                            response,
+                        )?,
+                    ))
+                }
+                _ => None,
+            };
             if let Some(boundary) = observation.boundary
                 && observation.preferences != &observation.expected.preferences
             {
@@ -426,10 +430,14 @@ impl Storage {
                             id,
                             session,
                             turn,
-                            observation
-                                .response
-                                .as_ref()
-                                .map(|response| (&response.text, remembered.harness.as_str())),
+                            // The final settles its captures as the row it was just kept as.
+                            retained.map(|(response, key)| {
+                                super::requests::passthrough::SettledFinal {
+                                    text: &response.text,
+                                    provider: remembered.harness.as_str(),
+                                    response: key,
+                                }
+                            }),
                             now,
                         )?;
                     }

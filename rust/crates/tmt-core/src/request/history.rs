@@ -154,6 +154,8 @@ pub struct AnsweredRequest {
     /// it; a final and an answered turn raise it alike (#4915).
     pub revision: u64,
     pub acknowledged: bool,
+    /// The retained final a captured turn was taken from; a submitted final has none (#4993).
+    pub response_id: Option<String>,
 }
 
 pub struct AnswersPage {

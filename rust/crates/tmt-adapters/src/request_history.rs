@@ -235,10 +235,16 @@ fn item_document<T>(item: &HistoryItem<T>, content: impl FnOnce(&T) -> Option<Va
         value["passthrough"] = json!({
             "state":capture.state.as_str(),"deliveredAtMs":capture.delivered_at_ms,
             "boundAtMs":capture.bound_at_ms,"folded":capture.folded,"settledAtMs":capture.settled_at_ms,
-            "answer":capture.answer.as_ref().map(|answer| json!({
-                "text":answer.text,"truncated":answer.truncated,
-                "provider":answer.provider,"endedMs":answer.ended_ms
-            }))
+            "answer":capture.answer.as_ref().map(|answer| {
+                let mut value = json!({
+                    "text":answer.text,"truncated":answer.truncated,
+                    "provider":answer.provider,"endedMs":answer.ended_ms
+                });
+                if let Some(response) = &answer.response_id {
+                    value["responseId"] = json!(response);
+                }
+                value
+            })
         });
     }
     value
@@ -264,13 +270,19 @@ pub fn encode_history_page(page: &HistoryPage, results: bool) -> Vec<u8> {
 
 pub fn encode_answers_page(page: &AnswersPage) -> Vec<u8> {
     serde_json::to_vec(&json!({
-        "items":page.items.iter().map(|answer| json!({
-            "requestId":answer.request_id,"kind":answer.kind.as_str(),
-            "sender":{"kind":answer.originator.as_str(),"identityId":answer.originator.identity_id()},
-            "recipientId":answer.recipient_identity_id,
-            "answeredAtMs":answer.answered_at_ms,"answer":answer.answer.as_str(),
-            "revision":answer.revision,"acknowledged":answer.acknowledged
-        })).collect::<Vec<_>>(),
+        "items":page.items.iter().map(|answer| {
+            let mut value = json!({
+                "requestId":answer.request_id,"kind":answer.kind.as_str(),
+                "sender":{"kind":answer.originator.as_str(),"identityId":answer.originator.identity_id()},
+                "recipientId":answer.recipient_identity_id,
+                "answeredAtMs":answer.answered_at_ms,"answer":answer.answer.as_str(),
+                "revision":answer.revision,"acknowledged":answer.acknowledged
+            });
+            if let Some(response) = &answer.response_id {
+                value["responseId"] = json!(response);
+            }
+            value
+        }).collect::<Vec<_>>(),
         "nextBefore":page.next_before.as_ref().map(|cursor| json!({
             "answeredAtMs":cursor.answered_at_ms,"requestId":cursor.request_id
         })),

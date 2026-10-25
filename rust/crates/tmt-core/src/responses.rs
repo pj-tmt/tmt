@@ -11,6 +11,13 @@ pub const MAX_KEPT: u64 = 1_000;
 pub const MAX_PAGE: u64 = 50;
 pub const DEFAULT_PAGE: u64 = 10;
 
+/// The name of a retained final, made from its row key in the store (#4993). It is opaque: a
+/// reader compares two for equality and infers nothing else from one. The key is never reused,
+/// so the name of a pruned final resolves to nothing, not to another final.
+pub fn response_id(sequence: u64) -> String {
+    format!("rsp_{sequence}")
+}
+
 /// `text` cut to at most `max` bytes on a Unicode scalar boundary.
 pub fn cut_scalars(text: &str, max: usize) -> &str {
     let mut end = text.len().min(max);

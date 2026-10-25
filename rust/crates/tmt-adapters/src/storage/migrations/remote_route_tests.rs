@@ -25,7 +25,7 @@ const CHILDREN: [&str; 4] = [
 ];
 
 /// Columns later migrations added to those tables: this test is about the schema-65 rebuild.
-const ADDED_LATER: [&str; 1] = ["folded"];
+const ADDED_LATER: [&str; 2] = ["folded", "answer_response"];
 
 const SEED: &str = "
 INSERT INTO identities (id, name, canonical_name, created_at, updated_at)
@@ -176,7 +176,7 @@ fn the_rebuild_keeps_every_row_dependent_row_index_and_trigger() {
     drop(old);
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 71);
+    assert_eq!(storage.health().unwrap().schema_version, 72);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -451,7 +451,7 @@ fn a_failed_rebuild_changes_nothing() {
     // The same database then migrates, and nothing about the failed attempt lingers.
     drop(db);
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 71);
+    assert_eq!(storage.health().unwrap().schema_version, 72);
     storage.close().unwrap();
     assert_eq!(
         snapshot(&Connection::open(&path).unwrap()).attempts,

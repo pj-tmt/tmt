@@ -193,10 +193,12 @@ pub(super) fn list_request_history(
 /// is cut to `limit` by its own index before the two are merged; the turn side tests the
 /// originator on every entry it walks.
 /// Where `answers_query` selects, after the attempt columns: when the request was answered, whether
-/// the answer is a captured turn, and the originator's `x ackall` watermark.
+/// the answer is a captured turn, and the originator's `x ackall` watermark, then the retained
+/// final a turn was taken from (a submitted final has none).
 const ANSWERED_AT_COLUMN: usize = rows::ATTEMPT_COLUMN_COUNT;
 const ANSWER_TURN_COLUMN: usize = rows::ATTEMPT_COLUMN_COUNT + 1;
 const ANSWER_WATERMARK_COLUMN: usize = rows::ATTEMPT_COLUMN_COUNT + 2;
+const ANSWER_RESPONSE_COLUMN: usize = rows::ATTEMPT_COLUMN_COUNT + 3;
 
 pub(super) fn answers_query(has_cursor: bool) -> String {
     let columns = rows::qualified_attempt_columns();
@@ -214,14 +216,14 @@ pub(super) fn answers_query(has_cursor: bool) -> String {
     let turns = cursor("p.settled_at_ms", "p.request_id");
     format!(
         "SELECT * FROM (
-            SELECT {columns}, a.response_submitted_at_ms AS answered_at_ms, 0 AS turn, {through}
+            SELECT {columns}, a.response_submitted_at_ms AS answered_at_ms, 0 AS turn, {through}, NULL AS response
             FROM request_attempts AS a INDEXED BY request_history_originator_results
             WHERE a.originator_identity_id=?1 AND a.response_submitted_at_ms IS NOT NULL
               AND a.retention_expires_at_ms > ?5 AND {finals}
             ORDER BY a.response_submitted_at_ms DESC, a.request_id DESC LIMIT ?4)
          UNION ALL
          SELECT * FROM (
-            SELECT {columns}, p.settled_at_ms AS answered_at_ms, 1 AS turn, {through}
+            SELECT {columns}, p.settled_at_ms AS answered_at_ms, 1 AS turn, {through}, p.answer_response AS response
             FROM request_passthrough AS p INDEXED BY request_passthrough_answered
             JOIN request_attempts AS a ON a.request_id=p.request_id
             WHERE p.state='answered' AND a.originator_identity_id=?1
@@ -274,6 +276,8 @@ pub(super) fn list_answers(
                     },
                     revision,
                     acknowledged,
+                    response_id: rows::optional_u64_at(row, ANSWER_RESPONSE_COLUMN)?
+                        .map(tmt_core::responses::response_id),
                 })
             },
         )
