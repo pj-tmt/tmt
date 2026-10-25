@@ -19,6 +19,8 @@ export interface BrowserPanelProps extends Omit<
   keepMounted?: boolean;
   title: string;
   caption?: ReactNode;
+  /** Host-owned header actions, in DOM and keyboard order immediately before Close. */
+  headerActions?: ReactNode;
   /** The host chooses the layout; column geometry and reflow belong to its page grid. */
   mode: 'column' | 'card' | 'sheet';
   children: ReactNode;
@@ -32,6 +34,7 @@ export function BrowserPanel({
   keepMounted = false,
   title,
   caption,
+  headerActions,
   mode,
   children,
   onDismiss,
@@ -84,6 +87,7 @@ export function BrowserPanel({
       <DrawerHeader
         title={title}
         caption={caption}
+        headerActions={headerActions}
         label={label}
         headingRef={heading}
         focusHeading

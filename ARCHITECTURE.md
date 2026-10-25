@@ -45,7 +45,7 @@ owns moves and the tracked-file guard.
 
 `tmt-gui-lead` owns shared visual tokens and [private browser UI](design/browser-ui/README.md).
 `design/browser-ui`: `./ui`/`./react`: React/Radix/cmdk/CVA, themes/portals, decorative action marks; `./static`/`./shell`/`./chart`/`./menu-host`: framework-free DOM; hosts own domain state.
-`./ui` uses Radix; BrowserDialog/Drawer use native modality; BrowserPanel is non-modal. Hosts admit closure; see leaf contracts.
+`./ui` uses Radix; BrowserDialog/Drawer use native modality; BrowserPanel is non-modal. Drawer and Panel forward host-owned header actions to the shared header; hosts retain commands and admit closure. See leaf contracts.
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
