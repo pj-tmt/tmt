@@ -1,7 +1,7 @@
 {
   "baseline": "a5c85cb407003632dc9a5b3ac51ca2f6d92be355",
   "sha256": {
-    "generated/static.css": "82ba2e9068c9178037b607cbdad2401b46efb48edbf16570a6ed059a28ea791f",
+    "generated/static.css": "62d987d7c45a4bd818edb30b8b0c57089d10b0fbe63a8bb82927c7717dd5f9db",
     "src/action.css": "c6d89fbc0ee8a8ed004783f0079408d06a0b8215fbccabd196b7f4f4e5b80e0d",
     "src/action.tsx": "b9406611c1519fa806ac226f5b1a7665e4c2e0a65d25d36de6692947f5342934",
     "src/chips.css": "46ee249714c41bf206c7d8202835ac0b6014492222d3de0d35aa632e8ec61d19",
@@ -339,7 +339,6 @@
         "indicator-width": "3px",
         "tab-indicator-width": "2px",
         "rail-width": "232px",
-        "rail-collapsed-width": "56px",
         "module-menu-width": "230px",
         "spin-duration": "0.9s",
         "radius-s": "6px",

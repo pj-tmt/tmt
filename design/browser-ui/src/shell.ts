@@ -6,7 +6,7 @@ import { createShellTopBar, type ShellCommonControls, type ShellTopBar } from '.
 export type { ShellCommonControls, ShellRemoteStatus, ShellTopBar } from './topbar.js';
 
 /**
- * The one TMT web shell (#3937, Colab page c5ccd17a): a global rail that collapses to icons,
+ * The one TMT web shell (#3937, Colab page c5ccd17a): a full-width global rail,
  * an optional module menu, then the host's own header and content. One framework-free renderer
  * serves the static Remote pages and, through `BrowserShell`, React hosts; labels are always
  * text nodes. The rail is one fixed list, filled from Remote's composed module descriptions.
@@ -290,23 +290,7 @@ export function describedMenu(module: ShellModule, place: ShellPlace): ShellMenu
   return { title: module.rail.label, groups };
 }
 
-const RAIL_KEY = 'tmt.shell.rail';
 const SVG = 'http://www.w3.org/2000/svg';
-
-function railCollapsed(): boolean {
-  try {
-    return localStorage.getItem(RAIL_KEY) === 'collapsed';
-  } catch {
-    return false;
-  }
-}
-function rememberRail(collapsed: boolean): void {
-  try {
-    localStorage.setItem(RAIL_KEY, collapsed ? 'collapsed' : 'expanded');
-  } catch {
-    // The choice still applies to this page.
-  }
-}
 
 function icon(document: Document, name: ShellIcon): SVGSVGElement {
   const svg = document.createElementNS(SVG, 'svg');
@@ -432,13 +416,11 @@ export function mountShell(
   watchTools?.observe(toolsRoot);
   reserve();
 
-  let collapsed = railCollapsed();
   const setDrawer = (shown: boolean) => {
     root.dataset.drawer = shown ? 'open' : 'closed';
     open.setAttribute('aria-expanded', String(shown));
   };
-  // Labels on the collapsed rail (and an unavailable item's reason) show as one tooltip beside
-  // the hovered or focused item, in the top layer.
+  // Unavailable items keep their reason beside the hovered or focused item, in the top layer.
   const tip = document.createElement('div');
   tip.className = 'tmt-ui-rail-tip';
   tip.setAttribute('role', 'tooltip');
@@ -450,7 +432,7 @@ export function mountShell(
     if (tip.matches(':popover-open')) tip.hidePopover();
   };
   const showTip = (anchor: HTMLElement) => {
-    const text = collapsed ? anchor.dataset.tip : anchor.dataset.note;
+    const text = anchor.dataset.note;
     if (!text || root.dataset.drawer === 'open') return hideTip();
     release();
     release = claimIconActionTooltip(document, hideTip);
@@ -460,36 +442,13 @@ export function mountShell(
     tip.style.left = `${box.right}px`;
     tip.style.top = `${box.top + (box.height - tip.offsetHeight) / 2}px`;
   };
-  const tipFor = (anchor: HTMLElement, text: string, note?: string) => {
-    anchor.dataset.tip = text;
-    if (note) anchor.dataset.note = text;
+  const tipFor = (anchor: HTMLElement, text: string) => {
+    anchor.dataset.note = text;
     anchor.addEventListener('pointerenter', () => showTip(anchor));
     anchor.addEventListener('focus', () => showTip(anchor));
     anchor.addEventListener('pointerleave', hideTip);
     anchor.addEventListener('blur', hideTip);
   };
-  const paint = () => {
-    root.dataset.rail = collapsed ? 'collapsed' : 'expanded';
-    const label = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
-    toggle.setAttribute('aria-label', label);
-    toggle.setAttribute('aria-expanded', String(!collapsed));
-    toggle.dataset.tip = label;
-    toggle.replaceChildren(icon(document, collapsed ? 'panel-left-open' : 'panel-left-close'));
-  };
-  // The toggle has its own row above the rail's items.
-  const toggle = document.createElement('button');
-  toggle.type = 'button';
-  toggle.className = 'tmt-ui-rail-toggle';
-  tipFor(toggle, '');
-  toggle.onclick = () => {
-    collapsed = !collapsed;
-    rememberRail(collapsed);
-    paint();
-    hideTip();
-  };
-  const top = document.createElement('div');
-  top.className = 'tmt-ui-rail-top';
-  top.append(toggle);
   open.onclick = () => setDrawer(root.dataset.drawer !== 'open');
   const close = (event: KeyboardEvent) => {
     if (event.key === 'Escape' && root.dataset.drawer === 'open') {
@@ -572,13 +531,12 @@ export function mountShell(
     list.className = extra ? `tmt-ui-rail-items ${extra}` : 'tmt-ui-rail-items';
     for (const item of items) {
       const anchor = link('tmt-ui-rail-item', item);
-      // The count is part of the item's name (`Colab, 3 need you`), so a screen reader and the
-      // collapsed rail's tooltip say it even where the badge is only a corner dot.
+      // The count is part of the item's accessible name (`Colab, 3 need you`).
       const named = item.count
         ? `${item.label}, ${item.count.text}${item.count.needsYou ? (item.count.text === '1' ? ' needs you' : ' need you') : ''}`
         : item.label;
       if (item.count) anchor.setAttribute('aria-label', named);
-      tipFor(anchor, item.note ? `${item.label}: ${item.note}` : named, item.note);
+      if (item.note) tipFor(anchor, `${item.label}: ${item.note}`);
       const label = document.createElement('span');
       label.className = 'tmt-ui-rail-label';
       label.textContent = item.label;
@@ -610,7 +568,6 @@ export function mountShell(
     rail.replaceChildren(
       brand,
       railList(next.rail.main, undefined, onPhone ? undefined : next.menu),
-      top,
       railList(next.rail.bottom, 'tmt-ui-rail-bottom', onPhone ? undefined : next.menu),
     );
     root.dataset.menu = next.menu ? 'shown' : 'none';
@@ -647,7 +604,6 @@ export function mountShell(
   };
   const rewidth = () => render(latest);
   phone?.addEventListener('change', rewidth);
-  paint();
   setDrawer(false);
   render(view);
   return {

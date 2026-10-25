@@ -70,7 +70,6 @@ const frames: [string, string][] = [
   ['menu', ''],
   ['notifications', ''],
   ['shell', ''],
-  ['shell', '&rail=collapsed'],
   ['hosted', ''],
   ...['dialog', 'confirm', 'sheet', 'sheet-bottom', 'menu', 'popover', 'tooltip'].map(
     (kind): [string, string] => ['ui-overlay', `&kind=${kind}`],
@@ -212,14 +211,7 @@ for (const width of [1586, 390])
           return label.getBoundingClientRect().x - parent.getBoundingClientRect().x;
         });
         expect(indent).toBeCloseTo(8, 1);
-        const icon = page.locator('.tmt-ui-rail-item').first().locator('svg');
-        const expandedX = (await icon.boundingBox())!.x;
-        await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
-        await expect(page.locator('.tmt-ui-rail')).toHaveCSS('width', '56px');
-        await expect.poll(async () => (await icon.boundingBox())!.x).toBe(expandedX);
-        const railBox = (await page.locator('.tmt-ui-rail').boundingBox())!;
-        const iconBox = (await icon.boundingBox())!;
-        expect(iconBox.x + iconBox.width).toBeLessThan(railBox.x + railBox.width);
+        await expect(page.getByRole('button', { name: /sidebar/i })).toHaveCount(0);
         const badgeInset = await page
           .locator('.tmt-ui-rail-item .tmt-ui-shell-count')
           .first()
@@ -321,9 +313,39 @@ for (const theme of ['light', 'dark'] as const)
         const frames = await focusFrames(page, '.tmt-ui-rail');
         expect(frames.clipped).toEqual([]);
         expect(frames.doubled).toEqual([]);
-        await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
-        await expect(root).toBeHidden();
-        await page.getByRole('button', { name: 'Expand sidebar', exact: true }).click();
         await expect(group).toBeVisible();
       });
     }
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`full rail ignores an older preference and retains selected pages ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 992 });
+      await page.addInitScript(() => localStorage.setItem('tmt.shell.rail', 'collapsed'));
+      await page.goto(`/?frame=shell&counts&theme=${theme}&page=project`);
+      await expect(page.getByRole('button', { name: /sidebar/i })).toHaveCount(0);
+      const rail = page.locator('.tmt-ui-rail');
+      if (width === 1440) {
+        await expect(rail).toHaveCSS('width', '232px');
+        await expect(rail.locator('.tmt-ui-rail-sub [aria-current="page"]')).toBeVisible();
+        const settings = rail.locator('a[data-id="settings"]');
+        const box = (await rail.boundingBox())!;
+        const bottom = (await settings.boundingBox())!;
+        expect(box.y + box.height - bottom.y - bottom.height).toBeLessThan(24);
+      } else {
+        await expect(rail).toBeHidden();
+        const open = page.getByRole('button', { name: 'Open navigation', exact: true });
+        await open.click();
+        await expect(rail).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(rail).toBeHidden();
+        await expect(open).toBeFocused();
+        await expect(page.locator('.tmt-ui-module-menu [aria-current="page"]')).toHaveAttribute(
+          'href',
+          /\/colab\/p\/release$/,
+        );
+      }
+      expect(await page.evaluate(() => localStorage.getItem('tmt.shell.rail'))).toBe('collapsed');
+    });
