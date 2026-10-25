@@ -277,6 +277,9 @@ these without horizontal page overflow. Rows with divider rules remain square in
 fully bordered rounded list frame. Task progress is compact count text, without a repeated bar or comments line. Home is the sole vertical viewport, with the shared page insets and a truthful count/access footer. Successful action feedback remains an unobtrusive live region, while errors stay visible. Selection, keyboard actions, incremental rendering and
 management refusals retain their product owners. The shared flat state tabs show muted numeric
 counts and wrap on compact screens; the hero owns the heading and the shell bar keeps only tools.
+After the full controls scroll past, a 58px paper row with a thin lower rule retains projects,
+search and New page. Through 650px the compact row contains only search and New page,
+because the phone module strip already carries the projects. The transition respects reduced motion.
 
 ### Colab Projects
 

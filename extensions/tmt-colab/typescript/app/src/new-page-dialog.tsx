@@ -6,12 +6,21 @@ import './page-operation-dialog.css';
 const t = text.pageList;
 
 /** The browser does not create pages yet: New page gives the command that does, on the machine. */
-export function NewPageDialog({ open, onClose }: { open: boolean; onClose(): void }) {
+export function NewPageDialog({
+  open,
+  onClose,
+  focusFallback,
+}: {
+  open: boolean;
+  onClose(): void;
+  focusFallback(): HTMLElement | null;
+}) {
   return (
     <BrowserDialog
       open={open}
       title={t.newPageTitle}
       onDismiss={onClose}
+      focusFallback={focusFallback}
       actions={
         <BrowserAction
           type="button"

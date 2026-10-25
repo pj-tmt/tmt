@@ -9,6 +9,8 @@
   height: calc(100dvh - var(--colab-header-height) - var(--tmt-ui-shell-lead, 0px) - 57px);
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* Control height changes must not move the scroll offset across the observed boundary. */
+  overflow-anchor: none;
 }
 
 .page-list-hero {
@@ -35,7 +37,7 @@
   font-weight: 400;
 }
 
-.page-list-hero > .tmt-ui-action {
+.page-list-hero-create {
   flex: none;
   white-space: nowrap;
 }
@@ -932,5 +934,100 @@
   .page-row:has(> .tmt-ui-list-actions):is(:hover, :focus-within, :has([aria-expanded='true']))
     .page-row-access {
     padding-inline-end: var(--page-access-clearance);
+  }
+}
+
+/* Home retains one search editor; only this row sticks inside the list's own viewport. */
+.page-list-controls-boundary {
+  height: 1px;
+  flex: none;
+  pointer-events: none;
+}
+.page-list-controls {
+  position: sticky;
+  top: calc(-1 * var(--tmt-ui-page-padding-block));
+  z-index: 3;
+}
+.page-list-compact-create {
+  display: none;
+  flex: none;
+}
+.home:not([data-compact]) .page-list-controls {
+  animation: page-list-full-in 160ms ease-out;
+}
+.home[data-compact] .page-list-controls {
+  height: 58px;
+  box-sizing: border-box;
+  flex-wrap: nowrap;
+  margin-inline: calc(-1 * var(--tmt-ui-page-padding-inline));
+  padding-inline: var(--tmt-ui-page-padding-inline);
+  gap: 10px;
+  background: var(--tmt-ui-surface-paper);
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
+  animation: page-list-compact-in 160ms ease-out;
+}
+.home[data-compact] .page-scope-filters {
+  flex: 1 1 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 8px;
+  padding-block: 3px;
+}
+.home[data-compact] .page-scope-filters > button {
+  flex: none;
+}
+.home[data-compact] .page-list-search {
+  flex: 0 1 220px;
+  margin: 0;
+}
+.home[data-compact] .page-list-sort {
+  display: none;
+}
+.home[data-compact] .page-list-compact-create {
+  display: inline-flex;
+}
+.home[data-compact] .page-list-hero-create {
+  visibility: hidden;
+}
+@keyframes page-list-full-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes page-list-compact-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (max-width: 760px) {
+  .page-list-controls {
+    top: calc(-1 * var(--tmt-ui-page-compact-padding-block));
+  }
+  .home[data-compact] .page-list-controls {
+    margin-inline: calc(-1 * var(--tmt-ui-page-compact-padding-inline));
+    padding-inline: var(--tmt-ui-page-compact-padding-inline);
+  }
+}
+@media (max-width: 650px) {
+  .home[data-compact] .page-scope-filters {
+    display: none;
+  }
+  .home[data-compact] .page-list-search {
+    flex: 1 1 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home[data-page-list] .page-list-controls {
+    animation: none;
   }
 }

@@ -144,17 +144,16 @@ for (const width of [1440, 390])
             .map((node) => node.className),
         };
       });
-      // Home scrolls the hero, controls and rows together; the window has nothing to scroll. Only
-      // the shell's own chrome is positioned: the TMT mark, the bar (one header row) and its tools cluster with the
-      // rail and module menu (a phone's menu button instead of the mark and rail).
+      // Home remains the only scroll viewport. Its controls now stick below the shell chrome;
+      // this adds no nested scroller and does not make the document scroll.
       expect(scroll).toEqual({
         window: false,
         horizontal: false,
         nested: ['home tmt-ui-page'],
         fixed:
           width < 480
-            ? ['tmt-ui-shell-open', 'tmt-ui-shell-bar', 'tmt-ui-shell-tools']
-            : ['tmt-ui-rail', 'tmt-ui-shell-bar', 'tmt-ui-shell-tools'],
+            ? ['tmt-ui-shell-open', 'tmt-ui-shell-bar', 'tmt-ui-shell-tools', 'page-list-controls']
+            : ['tmt-ui-rail', 'tmt-ui-shell-bar', 'tmt-ui-shell-tools', 'page-list-controls'],
       });
     });
   }
