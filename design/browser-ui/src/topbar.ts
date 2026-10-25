@@ -98,7 +98,8 @@ export function createShellTopBar(root: HTMLElement, bar: Element, navigation: H
     };
     const searchHelp = help(search, 'Search TMT');
     const remoteHelp = help(remote, 'Remote: session count unconfirmed');
-    common.append(theme, searchHelp.wrapper, remoteHelp.wrapper);
+    left.append(searchHelp.wrapper);
+    common.append(theme, remoteHelp.wrapper);
     right.append(actions, common);
     header.append(left, right);
 

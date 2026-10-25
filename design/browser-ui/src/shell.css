@@ -431,8 +431,9 @@
 .tmt-ui-shell[data-topbar] > .tmt-ui-shell-content > .tmt-ui-shell-tools {
   display: none;
 }
-.tmt-ui-topbar-search,
-.tmt-ui-topbar-remote {
+/* These controls contain a shortcut or count, so their boxes must outgrow the icon-only square. */
+.tmt-ui-topbar .tmt-ui-topbar-search,
+.tmt-ui-topbar .tmt-ui-topbar-remote {
   width: auto;
   gap: var(--tmt-ui-space-xs);
   padding-inline: var(--tmt-ui-space-s);
@@ -453,6 +454,11 @@
 }
 .tmt-ui-topbar-remote .tmt-ui-count[hidden] {
   display: none;
+}
+@media (width < 640px) {
+  .tmt-ui-topbar-search kbd {
+    display: none;
+  }
 }
 /* Phone (the shell's own breakpoint, under the rail plus a readable column): the rail becomes a
    top-left menu button that opens it as a drawer; the current module's pages become tabs under

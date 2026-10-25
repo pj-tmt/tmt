@@ -29,6 +29,37 @@ for (const renderer of ['react', 'native', 'hosted'])
         );
         await expect(bar.getByRole('button', { name: /^Theme:/ })).toHaveCount(1);
         const search = bar.getByRole('button', { name: 'Search TMT', exact: true });
+        await expect(
+          bar
+            .locator('.tmt-ui-topbar-navigation')
+            .getByRole('button', { name: 'Search TMT', exact: true }),
+        ).toHaveCount(1);
+        await expect(
+          bar
+            .locator('.tmt-ui-topbar-controls')
+            .getByRole('button', { name: 'Search TMT', exact: true }),
+        ).toHaveCount(0);
+        const hint = search.locator('kbd');
+        if (width < 640) await expect(hint).toBeHidden();
+        else await expect(hint).toBeVisible();
+        const contained = await search.evaluate((button) => {
+          const box = button.getBoundingClientRect();
+          return [...button.querySelectorAll('svg,kbd')]
+            .filter((node) => node.getClientRects().length)
+            .every((node) => {
+              const child = node.getBoundingClientRect();
+              return (
+                child.left >= box.left &&
+                child.right <= box.right &&
+                child.top >= box.top &&
+                child.bottom <= box.bottom
+              );
+            });
+        });
+        expect(contained).toBe(true);
+        await search.focus();
+        await page.keyboard.press('Tab');
+        await expect(bar.getByRole('button', { name: 'Module action', exact: true })).toBeFocused();
         const remote = bar.getByRole('link', { name: 'Remote: 6 live sessions', exact: true });
         await expect(remote).toHaveAttribute('href', '/settings');
         await expect(remote.locator('.tmt-ui-count')).toHaveText('6');
@@ -179,3 +210,18 @@ test('a route load settling after root disposal cannot install a header or Searc
   await expect(page.getByTestId('search-requests')).toHaveText('0');
   await expect(page.locator('.tmt-ui-topbar')).toHaveCount(0);
 });
+
+for (const width of [639, 640])
+  test(`Search hint breakpoint and full focus box at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 992 });
+    await page.goto('/?frame=topbar&renderer=native');
+    const search = page.getByRole('button', { name: 'Search TMT', exact: true });
+    if (width < 640) await expect(search.locator('kbd')).toBeHidden();
+    else {
+      await expect(search.locator('kbd')).toBeVisible();
+      const box = (await search.boundingBox())!;
+      const hint = (await search.locator('kbd').boundingBox())!;
+      expect(hint.x).toBeGreaterThanOrEqual(box.x);
+      expect(hint.x + hint.width).toBeLessThanOrEqual(box.x + box.width);
+    }
+  });

@@ -125,8 +125,10 @@ The one TMT web UI frame (#3937): one header row, then a global rail, an optiona
 module menu and the host's content. Every Colab and Remote page except the refusal
 page renders in it.
 
-The opt-in shared top bar keeps module actions followed by common Theme, Search with its
-platform shortcut hint, and a Remote icon/count. Search opens the host's one switcher; the
+The opt-in shared top bar places Search first in its left group, after the phone navigation
+button and before host content (Ben’s approved deviation from the website). Its icon and platform
+shortcut hint share one hit, hover and focus box; the hint is hidden below 640px. The right group
+keeps module actions followed by Theme and a Remote icon/count. Search opens the host's one switcher; the
 leaf reads no product data. Remote counts live sessions; zero and unknown omit the badge
 but keep distinct accessible names. The bar draws no title or avatar: the rail names the
 module and the content supplies its real h1. Root-only bindings and the actions-only module
