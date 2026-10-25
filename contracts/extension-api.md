@@ -54,6 +54,7 @@ independent of storage access.
 | `requests.ack`           | `items`: 1–50 of `{requestId, revision}`; the envelope names the originator                         | `items`: per request `{requestId, revision, status}`; `status` is `acknowledged`, `already`, `conflict` (with `current`) or `notFound`                                      |
 | `workspace.capture`      | Empty object                                                                                        | Bounded `attempted`, `published`, `skipped` counts for recorded sockets only (see [Workspace recovery](workspace-v1.md#capture-triggers-and-public-backstop))               |
 | `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–50, default 10), optional `before` (cursor)      | `identityId`, `items`, `coverage`, `capture?`, `nextBefore?`: locally retained provider-final pane output (see below)                                                       |
+| `responses.timeline` | `identityId`, optional `limit` (1–50, default 50), optional opaque `before` | Ordered captured inputs and replies, canonical final bodies, coverage and painted-answer acknowledgement keys (see below) |
 | `pane.screen`            | `identityId` (canonical UUID)                                                                       | `identityId`, `host`, `format`, `text`: the identity's current visible pane screen, read-only (see below)                                                                   |
 | `dispatch.show`          | `operationId`                                                                                       | Immutable acceptance receipt                                                                                                                                                |
 | `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`, `mode`                 | Acceptance receipt; optional independent `wake` on first direct request (see [Passthrough](#passthrough-dispatch))                                                          |
@@ -125,7 +126,7 @@ Each item is `{responseId, text, endedMs, provider, truncated, originalBytes, se
 - `endedMs` is Core's observed turn-end time in Unix milliseconds, not a provider
   timestamp or a delivery/completion proof. Newest means capture order; an
   internal committed sequence breaks equal timestamps and wall-clock rollback.
-- `provider` is `claude` or `codex`. `sessionId`, when available, is the admitted
+- `provider` is `claude`, `codex` or `agy`. `sessionId`, when available, is the admitted
   provider session identifier; otherwise the field is omitted, not null.
 - `requestId` is present exactly when this final is the captured answer of a
   [passthrough](request-response-v1.md#passthrough) turn: the request whose text started or joined
@@ -191,6 +192,83 @@ that recent responses cannot be read; they do not show an empty-success result.
 An older Core's unknown-operation `API_INPUT_INVALID` is also unavailable,
 without a scrape or private-storage fallback. Additive response fields remain
 compatible. [Shared vectors](recent-responses-v1.json) pin bounds, ordering, expiry and error shapes.
+
+## Ordered captured conversation
+
+**Operation:** `responses.timeline`. Input `{identityId, limit?, before?}`; canonical identity UUID; limit 1–50, default 50; `before` is an opaque `nextBefore` cursor returned by this operation (not the numeric `responses.recent` cursor). Unknown fields and null cursors are invalid. Reads are storage-only and do not acknowledge requests, refresh hooks, probe providers, or perform retention writes.
+
+```json
+{
+  "identityId": "<UUID>",
+  "entries": [
+    {
+      "entryId": "<opaque committed entry key>",
+      "inputBatchId": "<opaque batch id>",
+      "kind": "input",
+      "requestId": "<original request/item id>",
+      "sender": {"identityId": "<UUID>", "name": "core-1"},
+      "delivery": "delivered",
+      "availability": "retained",
+      "text": "the original input",
+      "truncated": false,
+      "originalBytes": 18
+    },
+    {
+      "entryId": "<opaque committed entry key>",
+      "inputBatchId": "<same batch>",
+      "kind": "final",
+      "availability": "retained",
+      "responseId": "<immutable retained final id>"
+    },
+    {
+      "entryId": "<opaque committed entry key>",
+      "inputBatchId": "<same batch>",
+      "kind": "failure",
+      "failure": {"code": "budget_timeout", "nextStep": "See the agent's pane."}
+    }
+  ],
+  "responses": [{
+    "responseId": "<immutable retained final id>",
+    "inputBatchId": "<same batch>",
+    "text": "A",
+    "endedMs": 1,
+    "provider": "claude",
+    "truncated": false,
+    "originalBytes": 1
+  }],
+  "coverage": {"olderDropped": false},
+  "capture": {"enabled": true},
+  "nextBefore": "<opaque cursor when an older entry exists>"
+}
+```
+
+- `entries` are returned in **committed ascending order** within the selected newest page, across batches. To load history, prepend the next older page. Ops must not compare/sort opaque keys or timestamps. `entryId` is the stable identity of an input/reply/failure entry; a final's display identity is always `responseId`. Entries do not move after later inputs arrive.
+- `inputBatchId` is optional for legacy/uncorrelated entries. It groups consecutive folded inputs even before any final exists. A batch can contain interleaved input groups and finals. Capture order, not batch creation time, owns global placement.
+- Every input has its original `requestId`, a `sender` object (unknown attribution is `{}`, never guessed), and `delivery: "delivered" | "uncertain"`. A merely held/claimed, unhanded Digest item has no input entry. An uncertain handoff is explicitly uncertain, not confirmed input. Input text comes from the existing retained request body; `availability` is `retained | unavailable`. Available text is capped at 16,384 UTF-8 bytes on a scalar boundary with `truncated` and `originalBytes`; unavailable text omits those three fields and gets a display caption. No second stored copy of a request body is introduced.
+- `responses` contains the canonical recent-final items referenced by this page. Final entries have `availability: "retained" | "unavailable"`. An unavailable final has no body, and gets a coverage caption. Every retained final participates in this stream, including replies unassociated with a person's input. The existing `responses.recent` operation and numeric cursor keep their meanings; its items additionally gain optional `inputBatchId`.
+- Explicit `tmt reply` has `kind: "reply"`, `requestId`, `availability`, and the same bounded `text/truncated/originalBytes` body fields. It is deduped by requestId, independently of any separately emitted provider final. No content comparison is performed. The original request relationship remains authoritative; no provider-final answer is substituted for a submitted reply.
+- `failure` exists only for a capture failure Core actually recorded for that batch, not inferred from absence. Codes are bounded `worker_error | budget_timeout | storage_error`; the UI caption is the agreed `✗ reply not captured · see the agent's pane`. A total storage failure may prevent even this projection; the API then reports unavailable through its existing error path. No replay is implied.
+- `coverage`/`capture` retain their existing explicit incomplete-history and capture-off meanings. The page contains at most 50 entries and at most 50 referenced final bodies; every inline body has the 16 KiB projection cap. Stored links follow existing request/response retention and scrubbing. No past timeline is manufactured from timestamps for legacy data; legacy finals remain readable as unbatched finals.
+- Captured-send projections also gain optional `inputBatchId`; the existing `answer.responseId`, first-answer copy, and recent-final `requestId` are unchanged. A is Ben's first answer. The incident's committed entry order is Ben input, A, `from core-1` Digest input, B.
+
+
+For painted-answer acknowledgement, every `kind: "final"` or `kind: "reply"` timeline entry gains:
+
+```json
+{
+  "acknowledgements": [
+    {"identityId": "<originator UUID>", "requestId": "<request id>", "revision": 7}
+  ],
+  "acknowledgementsTruncated": false
+}
+```
+
+- The array has **0–50** keys, in stable request-id order. `acknowledgementsTruncated` is true exactly when more retained keys exist. Capture never fails or drops a final because more than 50 inputs folded. A 51-input regression must keep the answer for all 51, project 50 keys and true. There is **no new acknowledgement-read operation**.
+- `final` keys come from the originator attention revisions raised when that final settles its bound passthrough captures. `reply` keys come from the originator revisions raised by the explicit submitted reply. They are frozen in the same transaction that produces that body; reading the timeline never substitutes a request's later revision. Inputs and failure captions are not reply bodies and have no acknowledgement keys.
+- Ops acknowledges only the viewer's keys for **painted reply bodies**, through the existing `requests.ack` batches of at most 50. A conflict stays unread. The existing explicit **Mark read** flow covers any extra keys when truncated; painting must not claim those unseen keys were acknowledged.
+- Attribution prefers these explicit keys. Only when the array is empty may Ops use the same-batch preceding input group for muted sender attribution; page-start without that context stays normal/unattributed. This is the agreed display rule, not a Core inference from time or content.
+- Input `sender.identityId` equal to the viewer is normal; another sender is muted `from <name>`; `{}` means `from unknown sender`. `delivery: "uncertain"` renders `◌ delivery uncertain`. Local pending sends reconcile by requestId only once a timeline input exists.
+
 
 ## Pane screen
 

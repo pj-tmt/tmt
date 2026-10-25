@@ -335,6 +335,24 @@ impl BindingRecords for BindingRows<'_> {
         session::forget(self.0, &identity.id)?;
         self.0
             .execute(
+                "DELETE FROM capture_entries WHERE identity_id=?",
+                [&identity.id],
+            )
+            .map_err(|e| classify(e, "Remove conversation entries"))?;
+        self.0
+            .execute(
+                "DELETE FROM capture_floor WHERE identity_id=?",
+                [&identity.id],
+            )
+            .map_err(|e| classify(e, "Remove conversation coverage"))?;
+        self.0
+            .execute(
+                "DELETE FROM capture_batches WHERE identity_id=?",
+                [&identity.id],
+            )
+            .map_err(|e| classify(e, "Remove input batches"))?;
+        self.0
+            .execute(
                 "DELETE FROM recent_responses WHERE identity_id=?",
                 [&identity.id],
             )

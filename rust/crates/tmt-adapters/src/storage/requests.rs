@@ -581,14 +581,23 @@ impl RequestRecords for RequestRows<'_> {
     }
 
     fn settle_wake(&mut self, request_id: &str, state: WakeState) -> Result<bool, Self::Error> {
-        self.0
-            .execute(
-                "UPDATE request_attempts SET wake_state = ?
-                 WHERE request_id = ? AND wake_state = 'claimed'",
-                params![state.as_str(), request_id],
-            )
-            .map(|count| count == 1)
-            .map_err(|error| classify(error, "Settle request wake"))
+        let changed = self.0.execute(
+            "UPDATE request_attempts SET wake_state=? WHERE request_id=? AND wake_state='claimed'",
+            params![state.as_str(),request_id],
+        ).map_err(|error|classify(error,"Settle request wake"))? == 1;
+        if changed && matches!(state, WakeState::Sent | WakeState::Uncertain) {
+            super::capture_batches::delivered(
+                self.0,
+                request_id,
+                if state == WakeState::Sent {
+                    "delivered"
+                } else {
+                    "uncertain"
+                },
+                crate::request_runtime::wall_time_ms(),
+            )?;
+        }
+        Ok(changed)
     }
 
     fn find_context(&self, request_id: &str) -> Result<Option<RawRequestContext>, Self::Error> {
@@ -984,6 +993,7 @@ impl RequestRecords for RequestRows<'_> {
                 ),
             ));
         }
+        super::capture_batches::reply(self.0, &response.request_id, response.submitted_at_ms)?;
         Ok(())
     }
 
@@ -1030,6 +1040,18 @@ impl RequestRecords for RequestRows<'_> {
                 ],
             )
             .map_err(|error| classify(error, "Update request state"))?;
+        if changed == 1 && matches!(status, AttemptStatus::Sent | AttemptStatus::Uncertain) {
+            super::capture_batches::delivered(
+                self.0,
+                &attempt.request_id,
+                if status == AttemptStatus::Sent {
+                    "delivered"
+                } else {
+                    "uncertain"
+                },
+                now_ms,
+            )?;
+        }
         Ok(changed == 1)
     }
 
@@ -1146,6 +1168,7 @@ impl RequestRecords for RequestRows<'_> {
                 format!("Request '{request_id}' was not found"),
             ));
         }
+        super::capture_batches::acknowledgeable(self.0, request_id, revision)?;
         Ok(())
     }
 

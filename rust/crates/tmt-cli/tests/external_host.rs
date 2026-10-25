@@ -33,6 +33,8 @@ mod sampling;
 mod send_now;
 #[path = "external_host/stop.rs"]
 mod stop;
+#[path = "external_host/stop_capture.rs"]
+mod stop_capture;
 #[allow(dead_code)]
 mod support;
 #[path = "external_host/unrecoverable_session.rs"]
@@ -2084,7 +2086,13 @@ impl SteppedProvider {
                    while [ ! -e \"$1/$i.json\" ] && [ ! -e \"$1/$i.args\" ] && [ ! -e \"$1/stop\" ] && [ $w -lt 600 ]; do sleep 0.05; w=$((w+1)); done
                    if [ -e \"$1/$i.json\" ]; then
                      (if [ -e \"$1/$i.env\" ]; then while IFS= read -r v; do export \"$v\"; done < \"$1/$i.env\"; fi
-                      exec \"$0\" __hook \"$2\" < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"); echo $? > \"$1/$i.status\"
+                      if [ -e \"$1/$i.digest\" ]; then
+                        exec \"$0\" __digest-hook \"$2\" --discover-launch < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"
+                      elif [ -e \"$1/$i.activity\" ]; then
+                        exec \"$0\" __hook \"$2\" --activity-only < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"
+                      else
+                        exec \"$0\" __hook \"$2\" < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"
+                      fi); echo $? > \"$1/$i.status\"
                    elif [ -e \"$1/$i.args\" ]; then
                      (t=\"$0\"; s=\"$1/$i\"; set --
                       while IFS= read -r a; do set -- \"$@\" \"$a\"; done < \"$s.args\"
@@ -2188,6 +2196,17 @@ impl SteppedProvider {
     fn hook(&mut self, payload: Value) -> (i32, String, String) {
         self.hook_with_env(payload, &[])
     }
+    fn digest_hook(&mut self, payload: Value) -> (i32, String, String) {
+        fs::write(
+            self.steps
+                .join(self.next.to_string())
+                .with_extension("digest"),
+            "",
+        )
+        .unwrap();
+        self.hook(payload)
+    }
+
     /// `hook` with these variables exported for that hook only.
     fn hook_with_env(&mut self, payload: Value, env: &[(&str, &[u8])]) -> (i32, String, String) {
         let step = self.steps.join(self.next.to_string());

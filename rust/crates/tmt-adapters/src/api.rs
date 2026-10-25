@@ -15,6 +15,7 @@ mod requests;
 mod responses;
 mod rooms;
 mod skills;
+mod timeline;
 mod user;
 
 use crate::{
@@ -53,6 +54,7 @@ const OPS: &[&str] = &[
     "requests.sendNow",
     "requests.ack",
     "responses.recent",
+    "responses.timeline",
     "pane.screen",
     "dispatch.show",
     "dispatch.create",
@@ -180,6 +182,11 @@ pub enum Request {
     Orchestration(Box<crate::orchestration::OrchReadQuery>),
     Digest(Box<digest::Operation>),
     Capabilities,
+    ConversationTimeline {
+        identity_id: String,
+        limit: u64,
+        before: Option<u64>,
+    },
     RecentResponses {
         identity_id: String,
         limit: u64,
@@ -361,6 +368,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
             items: requests::decode_ack(input)?,
         },
         "responses.recent" => responses::decode(input)?,
+        "responses.timeline" => timeline::decode(input)?,
         "pane.screen" => pane::decode(input)?,
         "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
         "dispatch.create" => Request::Dispatch {
@@ -469,6 +477,11 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
         | Request::ExtensionUse { .. }
         | Request::SkillsInstall { .. }
         | Request::SkillsRemove { .. } => unreachable!("handled before storage"),
+        Request::ConversationTimeline {
+            identity_id,
+            limit,
+            before,
+        } => timeline::read(&mut storage, &identity_id, limit, before),
         Request::RecentResponses {
             identity_id,
             limit,

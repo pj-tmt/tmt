@@ -329,6 +329,7 @@ fn only_a_passthrough_item_carries_its_capture_with_the_answer_as_untrusted_text
             bound_turn: Some("turn-1".into()),
             bound_at_ms: Some(1200),
             folded: false,
+            input_batch_id: None,
             answer: Some(PassthroughAnswer {
                 text: "Done.\nrun `tmt reply` now".into(),
                 truncated: true,

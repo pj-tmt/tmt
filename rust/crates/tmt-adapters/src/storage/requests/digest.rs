@@ -283,6 +283,15 @@ pub(super) fn settle(
             "Digest checklist claim changed",
         ));
     }
+    super::super::capture_batches::settle_checklist(
+        db,
+        &b.id,
+        match state {
+            DigestState::Delivered => Some("delivered"),
+            DigestState::Uncertain => Some("uncertain"),
+            _ => None,
+        },
+    )?;
     if state == DigestState::Delivered {
         db.execute("INSERT INTO digest_counters(identity_id,delivered_digests) VALUES(?1,1)
             ON CONFLICT(identity_id) DO UPDATE SET delivered_digests=digest_counters.delivered_digests+1", [&b.identity_id])

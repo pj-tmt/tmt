@@ -214,7 +214,7 @@ fn typed_text_that_never_reached_the_pane_leaves_the_question_open() {
 }
 
 /// One `tmt api` call, as the person `ben` when it writes, with the driver's agent set to `agent`.
-fn api(fixture: &Fixture, agent: &str, operation: &str, input: Value) -> Value {
+pub(super) fn api(fixture: &Fixture, agent: &str, operation: &str, input: Value) -> Value {
     use std::io::Write;
     fs::write(fixture.root.join("driver/agent"), agent).unwrap();
     let mut command = fixture.command_in(None, &["api"]);
