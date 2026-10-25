@@ -83,6 +83,7 @@ export interface DemandReport {
 export function traceWorkflows(sources: WorkflowSource[]): SourceTrace[];
 export function demandReader(options?: {
   repo?: string;
+  env?: NodeJS.ProcessEnv;
   maxRequests?: number;
   execute?: (command: string, args: string[], options: object) => string;
 }): DemandReader;

@@ -19,6 +19,7 @@ import { parseArgs } from 'node:util';
 import { restClient } from './merge-queue-metrics.mjs';
 import { readReleaseCatalog } from './release-cut-read.mjs';
 import { runPackedCommand } from './packed-command.mjs';
+import { resolveRepository } from './github-repository.mjs';
 import { heartbeatStatus, readWatchHeartbeat } from './ci-failure-watch.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -1212,7 +1213,7 @@ export function renderInfraTick(report) {
 function main() {
   const { values } = parseArgs({
     options: {
-      repo: { type: 'string', default: 'pj-tmt/tmt' },
+      repo: { type: 'string' },
       output: { type: 'string' },
       'review-map': { type: 'string' },
       since: { type: 'string' },
@@ -1224,6 +1225,7 @@ function main() {
     values.output && values['review-map'],
     'Usage: infra-tick-summary.mjs --output DIR --review-map FILE [--bootstrap | --since UTC] [--until UTC] [--repo OWNER/REPO]'
   );
+  values.repo = resolveRepository({ repo: values.repo });
   mkdirSync(values.output, { recursive: true });
   const cursor = path.join(values.output, 'cursor.json');
   const until = values.until ?? new Date().toISOString();

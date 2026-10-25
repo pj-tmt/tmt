@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { median, percentile } from './ci-gate-time.mjs';
 import { runPackedCommand } from './packed-command.mjs';
+import { resolveRepository } from './github-repository.mjs';
 
 const iso = (ms) => new Date(ms).toISOString();
 const time = (value) => (typeof value === 'string' ? Date.parse(value) : NaN);
@@ -62,15 +63,12 @@ export function traceWorkflows(sources) {
 
 /** All attempts, retries and both REST-core snapshots share one hard ceiling. */
 export function demandReader({
-  repo = 'pj-tmt/tmt',
+  repo,
+  env = process.env,
   maxRequests = 800,
   execute = runPackedCommand,
 } = {}) {
-  assert.match(
-    repo,
-    /^[A-Za-z0-9_-][A-Za-z0-9_.-]*\/[A-Za-z0-9_-][A-Za-z0-9_.-]*$/,
-    'invalid repository'
-  );
+  repo = resolveRepository({ repo, env, execute });
   assert.ok(
     Number.isInteger(maxRequests) && maxRequests >= 2 && maxRequests <= 800,
     'REST budget must be 2..800'
@@ -598,7 +596,7 @@ export function renderDemand(report) {
 function main() {
   const { values } = parseArgs({
     options: {
-      repo: { type: 'string', default: 'pj-tmt/tmt' },
+      repo: { type: 'string' },
       since: { type: 'string' },
       until: { type: 'string' },
       sha: { type: 'string', default: 'HEAD' },
@@ -607,6 +605,7 @@ function main() {
     },
   });
   assert.ok(values.output, '--output PREFIX is required (JSON and Markdown)');
+  values.repo = resolveRepository({ repo: values.repo });
   const sourceSha = runPackedCommand(
     'git',
     ['rev-parse', '--verify', `${values.sha}^{commit}`],

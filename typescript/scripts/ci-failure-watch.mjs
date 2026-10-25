@@ -20,6 +20,7 @@ import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { setTimeout } from 'node:timers/promises';
 import { runPackedCommand } from './packed-command.mjs';
+import { resolveRepository, isRepository } from './github-repository.mjs';
 
 export const WATCH_LIMITS = Object.freeze({
   intervalMs: 60_000,
@@ -59,9 +60,11 @@ export function newWatchState(now) {
     issueIntent: null,
   };
 }
-export function validateRouting(map) {
+export function validateRouting(map, repo) {
   assert(
-    map?.source === 'https://github.com/pj-tmt/tmt/issues/606' &&
+    // Retain immutable provenance of reviewed pre-rename maps, not a repo default.
+    (map?.source === 'https://github.com/pj-tmt/tmt/issues/606' ||
+      (isRepository(repo) && map?.source === `https://github.com/${repo}/issues/606`)) &&
       Array.isArray(map.rules) &&
       map.rules.length <= 100,
     'WATCH_ROUTING: reviewed #606 map required'
@@ -287,7 +290,7 @@ export function formatNotification(group) {
       .join('; ')
   );
 }
-function coverageGap(state, key, text, now) {
+function coverageGap(state, key, text, now, repo) {
   if (state.coverage[key]) return;
   state.coverage[key] = now;
   const signature = createHash('sha256').update(`coverage:${key}`).digest('hex');
@@ -304,7 +307,7 @@ function coverageGap(state, key, text, now) {
     lastSeen: now,
     lastFailure: now,
     count: (previous?.count ?? 0) + 1,
-    runUrl: 'https://github.com/pj-tmt/tmt/issues/4825',
+    runUrl: `https://github.com/${repo}/issues/4825`,
     pending: true,
     coverage: true,
   };
@@ -382,11 +385,12 @@ export function collectWatchCycle({
   state: input,
   api,
   routing,
-  repo = 'pj-tmt/tmt',
+  repo,
   now,
   initial = false,
   dryRun = false,
 }) {
+  assert(isRepository(repo), 'WATCH_REPO: invalid repository');
   const state = structuredClone(input);
   const cutoff = Math.max(timestamp(state.cursor), now - WATCH_LIMITS.lookbackMs);
   if (initial && !dryRun)
@@ -394,14 +398,16 @@ export function collectWatchCycle({
       state,
       'restart-lookback',
       `restart coverage excludes unobserved runs created before ${new Date(now - WATCH_LIMITS.lookbackMs).toISOString()}; older history unknown`,
-      now
+      now,
+      repo
     );
   if (timestamp(state.cursor) < now - WATCH_LIMITS.lookbackMs - 1000 && !dryRun)
     coverageGap(
       state,
       `cursor-gap:${state.cursor}`,
       `cursor backlog before ${new Date(cutoff).toISOString()} is outside 24h catch-up`,
-      now
+      now,
+      repo
     );
   const runs = new Map();
   if (initial || dryRun) {
@@ -467,7 +473,8 @@ export function collectWatchCycle({
           state,
           key,
           `active ${status} page covers ${data.rows.length} of ${data.total}; unobserved older runs unknown`,
-          now
+          now,
+          repo
         );
       else delete state.coverage[key];
       for (const r of data.rows) if (watchedRun(r)) active.set(r.id, r);
@@ -743,7 +750,7 @@ async function main() {
       state: { type: 'string' },
       'routing-map': { type: 'string' },
       identity: { type: 'string' },
-      repo: { type: 'string', default: 'pj-tmt/tmt' },
+      repo: { type: 'string' },
       once: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
     },
@@ -753,8 +760,11 @@ async function main() {
       (values['dry-run'] || ((values.state || process.env[WATCH_STATE_ENV]) && values.identity)),
     'Usage: ci-failure-watch.mjs --routing-map FILE [--dry-run | --identity NAME [--state DIR | TMT_CI_WATCH_STATE=DIR] [--once]] [--repo OWNER/REPO]'
   );
-  assert(/^[\w.-]+\/[\w.-]+$/.test(values.repo), 'WATCH_REPO: invalid repository');
-  const routing = validateRouting(JSON.parse(readFileSync(values['routing-map'], 'utf8')));
+  values.repo = resolveRepository({ repo: values.repo });
+  const routing = validateRouting(
+    JSON.parse(readFileSync(values['routing-map'], 'utf8')),
+    values.repo
+  );
   const directory = values.state ?? process.env[WATCH_STATE_ENV];
   const root = directory && path.resolve(directory);
   let lock;

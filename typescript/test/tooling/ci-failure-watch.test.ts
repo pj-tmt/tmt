@@ -126,8 +126,9 @@ describe('finished-run coverage and ETag observations', () => {
     const state = newWatchState(now);
     state.cursor = iso(now - 60_000);
     const f = apiFor([run()], [], true);
-    const first = collectWatchCycle({ state, api: f.api, routing, now });
+    const first = collectWatchCycle({ repo: 'pj-tmt/tmt', state, api: f.api, routing, now });
     const second = collectWatchCycle({
+      repo: 'pj-tmt/tmt',
       state: first.state,
       api: f.api,
       routing,
@@ -149,7 +150,7 @@ describe('finished-run coverage and ETag observations', () => {
       run({ id: 5, updated_at: iso(now - 1001) }),
     ];
     const f = apiFor(rows);
-    const result = collectWatchCycle({ state, api: f.api, routing, now });
+    const result = collectWatchCycle({ repo: 'pj-tmt/tmt', state, api: f.api, routing, now });
     expect(result.examined.map((x) => x.run)).toEqual([4, 40072107154]);
     expect(watchedRun(run({ event: 'workflow_dispatch' }))).toBe(true);
     expect(watchedRun(run({ event: 'schedule' }))).toBe(true);
@@ -166,13 +167,14 @@ describe('finished-run coverage and ETag observations', () => {
     state.tracked['99'] = old;
     const done = { ...old, status: 'completed', conclusion: 'failure' };
     const f = apiFor([done]);
-    const result = collectWatchCycle({ state, api: f.api, routing, now });
+    const result = collectWatchCycle({ repo: 'pj-tmt/tmt', state, api: f.api, routing, now });
     expect(result.examined).toEqual([{ run: 99, attempt: 2, conclusion: 'failure' }]);
     expect(result.state.tracked).toEqual({});
     expect(f.calls.filter((c) => c.endpoint === 'repos/pj-tmt/tmt/actions/runs/99')).toHaveLength(
       1
     );
     const again = collectWatchCycle({
+      repo: 'pj-tmt/tmt',
       state: result.state,
       api: f.api,
       routing,
@@ -184,9 +186,17 @@ describe('finished-run coverage and ETag observations', () => {
     const state = newWatchState(now);
     const active = run({ status: 'in_progress', run_attempt: 3 });
     const f = apiFor([], [active]);
-    const result = collectWatchCycle({ state, api: f.api, routing, now, initial: true });
+    const result = collectWatchCycle({
+      repo: 'pj-tmt/tmt',
+      state,
+      api: f.api,
+      routing,
+      now,
+      initial: true,
+    });
     expect(result.state.tracked[String(active.id)].run_attempt).toBe(3);
     const restart = collectWatchCycle({
+      repo: 'pj-tmt/tmt',
       state: result.state,
       api: f.api,
       routing,
@@ -201,14 +211,15 @@ describe('finished-run coverage and ETag observations', () => {
     const api: WatchApi = {
       get: () => ({ status: 200, body: { total_count: 1000, workflow_runs: [] } }),
     };
-    expect(() => collectWatchCycle({ state, api, routing, now, initial: true })).toThrow(
-      'WATCH_COVERAGE'
-    );
+    expect(() =>
+      collectWatchCycle({ repo: 'pj-tmt/tmt', state, api, routing, now, initial: true })
+    ).toThrow('WATCH_COVERAGE');
     expect(state).toEqual(before);
   });
   it('refuses missing cached 304 and duplicate job identities', () => {
     expect(() =>
       collectWatchCycle({
+        repo: 'pj-tmt/tmt',
         state: newWatchState(now),
         api: { get: () => ({ status: 304, body: null }) },
         routing,
@@ -222,7 +233,7 @@ describe('finished-run coverage and ETag observations', () => {
         ? { status: 200, body: { total_count: 2, jobs: [jobs[0], jobs[0]] } }
         : original(endpoint, etag);
     expect(() =>
-      collectWatchCycle({ state: newWatchState(now), api: f.api, routing, now })
+      collectWatchCycle({ repo: 'pj-tmt/tmt', state: newWatchState(now), api: f.api, routing, now })
     ).toThrow('incomplete jobs');
   });
 });
@@ -374,7 +385,14 @@ describe('notification and crash boundaries', () => {
     const state = newWatchState(now);
     const before = structuredClone(state);
     const f = apiFor([run()]);
-    const result = collectWatchCycle({ state, api: f.api, routing, now, dryRun: true });
+    const result = collectWatchCycle({
+      repo: 'pj-tmt/tmt',
+      state,
+      api: f.api,
+      routing,
+      now,
+      dryRun: true,
+    });
     expect(state).toEqual(before);
     expect(result.groups).toHaveLength(1);
     expect(result.groups[0][0].issueUrl).toBeUndefined();
@@ -431,29 +449,36 @@ describe('GET admission, quota and heartbeat', () => {
   });
 });
 
-it('CLI dry-run ignores persistent state, writes nothing and cannot send or create an issue', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'tmt-watch-preview-'));
-  try {
-    const bin = path.join(root, 'bin');
-    mkdirSync(bin);
-    const stateRoot = path.join(root, 'state');
-    mkdirSync(stateRoot);
-    const stateFile = path.join(stateRoot, 'state.json');
-    const sentinel = 'Persistent live state must not be read or modified by dry-run.';
-    writeFileSync(stateFile, sentinel);
-    const map = path.join(root, 'routing.json');
-    writeFileSync(map, JSON.stringify(routing));
-    const calls = path.join(root, 'commands.jsonl');
-    const sample = run({
-      created_at: iso(Date.now() - 60_000),
-      updated_at: iso(Date.now() - 1000),
-    });
-    writeExecutable(
-      path.join(bin, 'gh'),
-      String.raw`#!/usr/bin/env node
+it.each(['env', 'flag', 'gh', 'remote'])(
+  'CLI dry-run resolves the renamed repository from %s without live effects',
+  (source) => {
+    const root = mkdtempSync(path.join(tmpdir(), 'tmt-watch-preview-'));
+    try {
+      const bin = path.join(root, 'bin');
+      mkdirSync(bin);
+      const stateRoot = path.join(root, 'state');
+      mkdirSync(stateRoot);
+      const stateFile = path.join(stateRoot, 'state.json');
+      const sentinel = 'Persistent live state must not be read or modified by dry-run.';
+      writeFileSync(stateFile, sentinel);
+      const map = path.join(root, 'routing.json');
+      writeFileSync(map, JSON.stringify(routing));
+      const calls = path.join(root, 'commands.jsonl');
+      const sample = run({
+        html_url: 'https://github.com/tmt-ninja/tmt/actions/runs/40072107154',
+        created_at: iso(Date.now() - 60_000),
+        updated_at: iso(Date.now() - 1000),
+      });
+      writeExecutable(
+        path.join(bin, 'gh'),
+        String.raw`#!/usr/bin/env node
 import { appendFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args) + '\n');
+if (args[0] === 'repo') {
+ if (${JSON.stringify(source)} === 'remote') process.exit(1);
+ process.stdout.write('tmt-ninja/tmt'); process.exit(0);
+}
 if (!args.includes('GET') || args.includes('POST')) process.exit(77);
 const endpoint = args[args.indexOf('--include') + 1];
 const run = ${JSON.stringify(sample)};
@@ -467,37 +492,50 @@ else {
 }
 process.stdout.write('HTTP/2.0 200 OK\nETag: "fixture"\nX-RateLimit-Resource: core\nX-RateLimit-Remaining: 4000\n\n' + JSON.stringify(body));
 `,
-      0o755
-    );
-    writeExecutable(path.join(bin, 'tmt'), '#!/bin/sh\nexit 99\n', 0o755);
-    const result = spawnSync(
-      process.execPath,
-      [
-        fileURLToPath(new URL('../../scripts/ci-failure-watch.mjs', import.meta.url)),
-        '--dry-run',
-        '--routing-map',
-        map,
-        '--state',
-        stateRoot,
-      ],
-      {
-        encoding: 'utf8',
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
-        timeout: 15_000,
-        maxBuffer: 1024 * 1024,
-      }
-    );
-    expect(result.status, result.stderr).toBe(0);
-    const report = JSON.parse(result.stdout);
-    expect(report.sends).toBe(0);
-    expect(report.issuesCreated).toBe(0);
-    expect(report.alerts).toHaveLength(1);
-    expect(readFileSync(stateFile, 'utf8')).toBe(sentinel);
-    expect(readFileSync(calls, 'utf8')).not.toContain('POST');
-  } finally {
-    rmSync(root, { recursive: true, force: true });
+        0o755
+      );
+      writeExecutable(
+        path.join(bin, 'git'),
+        "#!/bin/sh\nprintf '%s\\n' git@github.com:tmt-ninja/tmt.git\n",
+        0o755
+      );
+      writeExecutable(path.join(bin, 'tmt'), '#!/bin/sh\nexit 99\n', 0o755);
+      const result = spawnSync(
+        process.execPath,
+        [
+          fileURLToPath(new URL('../../scripts/ci-failure-watch.mjs', import.meta.url)),
+          '--dry-run',
+          '--routing-map',
+          map,
+          '--state',
+          stateRoot,
+          ...(source === 'flag' ? ['--repo', 'tmt-ninja/tmt'] : []),
+        ],
+        {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            PATH: `${bin}:${process.env.PATH}`,
+            GITHUB_REPOSITORY:
+              source === 'env' ? 'tmt-ninja/tmt' : source === 'flag' ? 'wrong/repo' : undefined,
+          },
+          timeout: 15_000,
+          maxBuffer: 1024 * 1024,
+        }
+      );
+      expect(result.status, result.stderr).toBe(0);
+      const report = JSON.parse(result.stdout);
+      expect(report.sends).toBe(0);
+      expect(report.issuesCreated).toBe(0);
+      expect(report.alerts).toHaveLength(1);
+      expect(report.alerts[0].runUrl).toContain('https://github.com/tmt-ninja/tmt/');
+      expect(readFileSync(stateFile, 'utf8')).toBe(sentinel);
+      expect(readFileSync(calls, 'utf8')).not.toContain('POST');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   }
-});
+);
 
 it('replays the actual #4752 merge-group envelope without inventing a failing test name', () => {
   const state = newWatchState(now);
@@ -580,10 +618,16 @@ it('does not lose a completion read after the fixed cursor boundary', () => {
   state.cursor = iso(now - 60_000);
   const future = run({ updated_at: iso(now + 1000) });
   const f = apiFor([future]);
-  const first = collectWatchCycle({ state, api: f.api, routing, now });
+  const first = collectWatchCycle({ repo: 'pj-tmt/tmt', state, api: f.api, routing, now });
   expect(first.examined).toEqual([]);
   expect(first.state.tracked[String(future.id)]).toBeTruthy();
-  const next = collectWatchCycle({ state: first.state, api: f.api, routing, now: now + 60_000 });
+  const next = collectWatchCycle({
+    repo: 'pj-tmt/tmt',
+    state: first.state,
+    api: f.api,
+    routing,
+    now: now + 60_000,
+  });
   expect(next.examined).toHaveLength(1);
 });
 
@@ -591,6 +635,7 @@ it('refuses a catch-up response outside its stated created window', () => {
   const old = run({ created_at: iso(now - WATCH_LIMITS.lookbackMs - 1000) });
   expect(() =>
     collectWatchCycle({
+      repo: 'pj-tmt/tmt',
       state: newWatchState(now),
       api: apiFor([old]).api,
       routing,
@@ -602,7 +647,14 @@ it('refuses a catch-up response outside its stated created window', () => {
 
 it('publishes coverage notes in the same heartbeat used during catch-up and completion', () => {
   const state = newWatchState(now);
-  const result = collectWatchCycle({ state, api: apiFor([]).api, routing, now, initial: true });
+  const result = collectWatchCycle({
+    repo: 'pj-tmt/tmt',
+    state,
+    api: apiFor([]).api,
+    routing,
+    now,
+    initial: true,
+  });
   const heartbeat = watchHeartbeat(result.state, now, 'checking', { reads: 3 });
   expect(heartbeatStatus(heartbeat, now).healthy).toBe(true);
   expect(heartbeat.coverageGaps).toContainEqual({
@@ -652,6 +704,7 @@ it.each([
   'coverage notes expire at the producer without removing retained alerts (age %i)',
   (age, included) => {
     const result = collectWatchCycle({
+      repo: 'pj-tmt/tmt',
       state: newWatchState(now),
       api: apiFor([]).api,
       routing,
@@ -684,13 +737,20 @@ describe.each(['in_progress', 'queued'])('real active-page overflow: %s (#4924)'
     };
   }
   it('accepts a short 5-of-6 listing without a false coverage note', () => {
-    const result = collectWatchCycle({ state: newWatchState(now), api: page(5, 6), routing, now });
+    const result = collectWatchCycle({
+      repo: 'pj-tmt/tmt',
+      state: newWatchState(now),
+      api: page(5, 6),
+      routing,
+      now,
+    });
     expect(Object.values(result.state.alerts).filter((a) => a.coverage)).toEqual([]);
     expect(result.groups).toEqual([]);
     expect(Object.keys(result.state.tracked)).toHaveLength(5);
   });
   it('reports one full 100-of-130 overflow and re-arms only after a clean pass', () => {
     const first = collectWatchCycle({
+      repo: 'pj-tmt/tmt',
       state: newWatchState(now),
       api: page(100, 130),
       routing,
@@ -702,6 +762,7 @@ describe.each(['in_progress', 'queued'])('real active-page overflow: %s (#4924)'
     expect(notes()).toHaveLength(1);
     expect(watchHeartbeat(first.state, now, 'ok').coverageGaps).toHaveLength(1);
     const still = collectWatchCycle({
+      repo: 'pj-tmt/tmt',
       state: first.state,
       api: page(100, 130),
       routing,
@@ -710,6 +771,7 @@ describe.each(['in_progress', 'queued'])('real active-page overflow: %s (#4924)'
     deliverWatchAlerts(still.state, out, now + 60_000);
     expect(notes()).toHaveLength(1);
     const clean = collectWatchCycle({
+      repo: 'pj-tmt/tmt',
       state: still.state,
       api: page(100, 100),
       routing,
@@ -717,6 +779,7 @@ describe.each(['in_progress', 'queued'])('real active-page overflow: %s (#4924)'
     });
     expect(clean.state.coverage[`active-page:${status}`]).toBeUndefined();
     const again = collectWatchCycle({
+      repo: 'pj-tmt/tmt',
       state: clean.state,
       api: page(100, 130),
       routing,
@@ -977,6 +1040,8 @@ console.log(JSON.stringify({status:'sent',requestId:'fixture-request'}));
       process.execPath,
       [
         fileURLToPath(new URL('../../scripts/ci-failure-watch.mjs', import.meta.url)),
+        '--repo',
+        'pj-tmt/tmt',
         '--once',
         '--state',
         directory,
@@ -1030,4 +1095,19 @@ it('refuses an oversized complete notice before issue or delivery effects', () =
   const out = effects();
   expect(() => deliverWatchAlerts(state, out, now)).toThrow('WATCH_NOTICE_LIMIT');
   expect(out.calls).toEqual([]);
+});
+
+it('accepts current repository routing provenance without accepting another repository map', () => {
+  expect(
+    validateRouting(
+      { ...routing, source: 'https://github.com/tmt-ninja/tmt/issues/606' },
+      'tmt-ninja/tmt'
+    )
+  ).toMatchObject({ rules: routing.rules });
+  expect(() =>
+    validateRouting(
+      { ...routing, source: 'https://github.com/foreign/repo/issues/606' },
+      'tmt-ninja/tmt'
+    )
+  ).toThrow('WATCH_ROUTING');
 });

@@ -13,8 +13,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runPackedCommand } from './packed-command.mjs';
+import { resolveRepository } from './github-repository.mjs';
 
-const DEFAULT_REPO = 'pj-tmt/tmt';
 const EVENTS = ['pull_request', 'merge_group'];
 const EVENT_LABELS = { pull_request: 'PR', merge_group: 'Merge group' };
 const PAGE_SIZE = 100;
@@ -68,12 +68,13 @@ const branchLabel = (name) =>
 const byCompletion = (a, b) => a.completed_at.localeCompare(b.completed_at) || a.id - b.id;
 
 /** Default REST reader: bounded `gh api` GETs against one repository. */
-export function ghReader({ repo = DEFAULT_REPO, maxRequests = 400, execute = runPackedCommand }) {
-  if (
-    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo) ||
-    repo.split('/').some((part) => part === '.' || part === '..')
-  )
-    throw new Error('repo must be OWNER/REPO.');
+export function ghReader({
+  repo,
+  env = process.env,
+  maxRequests = 400,
+  execute = runPackedCommand,
+}) {
+  repo = resolveRepository({ repo, env, execute });
   let requests = 0;
   const read = (path) => {
     if (requests >= maxRequests)
@@ -361,7 +362,7 @@ function main(argv) {
   const { values } = parseArgs({
     args: argv,
     options: {
-      repo: { type: 'string', default: DEFAULT_REPO },
+      repo: { type: 'string' },
       workflow: { type: 'string', default: 'ci.yml' },
       count: { type: 'string', default: '40' },
       'max-requests': { type: 'string', default: '400' },
@@ -371,6 +372,7 @@ function main(argv) {
     },
   });
   const budgets = parseBudgets(readFileSync(values.budgets, 'utf8'));
+  values.repo = resolveRepository({ repo: values.repo });
   const read = ghReader({ repo: values.repo, maxRequests: Number(values['max-requests']) });
   const runs = collectGateRuns(read, { workflow: values.workflow, count: Number(values.count) });
   const summary = summarizeGate(runs);

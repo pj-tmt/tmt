@@ -239,6 +239,7 @@ describe('merge queue REST metrics', () => {
     const endpoint = 'repos/pj-tmt/tmt/actions/runs/1';
     try {
       const api = restClient({
+        repo: 'pj-tmt/tmt',
         cache,
         maxRequests: 1,
         execute: (command, args) => {
@@ -252,7 +253,7 @@ describe('merge queue REST metrics', () => {
       expect(calls).toEqual([['api', '--method', 'GET', endpoint]]);
       expect(() => api.get(endpoint)).toThrow('budget');
       expect(() => api.get('graphql')).toThrow('REST paths');
-      const offline = restClient({ cache, offline: true });
+      const offline = restClient({ repo: 'pj-tmt/tmt', cache, offline: true });
       expect(offline.get(endpoint)).toEqual({ id: 1 });
       expect(() => offline.get(`${endpoint}/jobs`)).toThrow('Offline evidence missing');
     } finally {
@@ -265,6 +266,7 @@ describe('merge queue REST metrics', () => {
     let jobReads = 0;
     try {
       const api = restClient({
+        repo: 'pj-tmt/tmt',
         cache,
         execute: (_command, args) => {
           const endpoint = args.at(-1)!;
@@ -304,14 +306,18 @@ describe('merge queue REST metrics', () => {
           throw new Error('Unexpected ' + endpoint);
         },
       });
-      const first = collectMetrics(api, { since, until, tagPrs: [] });
+      const first = collectMetrics(api, { repo: 'pj-tmt/tmt', since, until, tagPrs: [] });
       expect(summarizeMetrics(first).inFlight).toBe(1);
       completed = true;
-      expect(summarizeMetrics(collectMetrics(api, { since, until, tagPrs: [] })).inFlight).toBe(0);
+      expect(
+        summarizeMetrics(collectMetrics(api, { repo: 'pj-tmt/tmt', since, until, tagPrs: [] }))
+          .inFlight
+      ).toBe(0);
       expect(jobReads).toBe(2);
-      collectMetrics(api, { since, until, tagPrs: [] });
+      collectMetrics(api, { repo: 'pj-tmt/tmt', since, until, tagPrs: [] });
       expect(jobReads).toBe(2);
       const offline = restClient({
+        repo: 'pj-tmt/tmt',
         cache,
         offline: true,
         execute: () => {
@@ -319,7 +325,8 @@ describe('merge queue REST metrics', () => {
         },
       });
       expect(
-        summarizeMetrics(collectMetrics(offline, { since, until, tagPrs: [] })).groupDuration.n
+        summarizeMetrics(collectMetrics(offline, { repo: 'pj-tmt/tmt', since, until, tagPrs: [] }))
+          .groupDuration.n
       ).toBe(1);
       expect(jobReads).toBe(2);
     } finally {
@@ -333,11 +340,12 @@ describe('merge queue REST metrics', () => {
     try {
       const legacy = { path: endpoint, data: { jobs: [job()], total_count: 1 } };
       writeFileSync(file, JSON.stringify(legacy));
-      const offline = restClient({ cache, offline: true });
+      const offline = restClient({ repo: 'pj-tmt/tmt', cache, offline: true });
       expect(() => offline.get(endpoint, true)).toThrow('unqualified');
       expect(offline.get(endpoint)).toEqual(legacy.data);
       let reads = 0;
       const api = restClient({
+        repo: 'pj-tmt/tmt',
         cache,
         execute: () => {
           reads++;
@@ -372,9 +380,9 @@ describe('merge queue REST metrics', () => {
           throw new Error('must not qualify incomplete acquisition');
         },
       };
-      expect(() => collectMetrics(collectApi, { since, until, tagPrs: [] })).toThrow(
-        'Incomplete REST page'
-      );
+      expect(() =>
+        collectMetrics(collectApi, { repo: 'pj-tmt/tmt', since, until, tagPrs: [] })
+      ).toThrow('Incomplete REST page');
       expect(JSON.parse(readFileSync(file, 'utf8'))).not.toHaveProperty('terminalJobs');
       collectApi.get = (route) =>
         route.includes('/actions/workflows/')
@@ -394,9 +402,9 @@ describe('merge queue REST metrics', () => {
           : route.includes('/pulls?')
             ? []
             : { jobs: [{ ...job(), status: 'in_progress', conclusion: null }], total_count: 1 };
-      expect(() => collectMetrics(collectApi, { since, until, tagPrs: [] })).toThrow(
-        'Nonterminal jobs'
-      );
+      expect(() =>
+        collectMetrics(collectApi, { repo: 'pj-tmt/tmt', since, until, tagPrs: [] })
+      ).toThrow('Nonterminal jobs');
     } finally {
       rmSync(cache, { recursive: true, force: true });
     }
@@ -408,6 +416,7 @@ describe('merge queue REST metrics', () => {
     const reads: number[] = [];
     try {
       const api = restClient({
+        repo: 'pj-tmt/tmt',
         cache,
         execute: (_command, args) => {
           const route = args.at(-1)!;
@@ -443,12 +452,16 @@ describe('merge queue REST metrics', () => {
           });
         },
       });
-      expect(() => collectMetrics(api, { since, until, tagPrs: [] })).toThrow('Nonterminal jobs');
-      expect(() => restClient({ cache, offline: true }).get(endpoint, true)).toThrow('unqualified');
+      expect(() => collectMetrics(api, { repo: 'pj-tmt/tmt', since, until, tagPrs: [] })).toThrow(
+        'Nonterminal jobs'
+      );
+      expect(() =>
+        restClient({ repo: 'pj-tmt/tmt', cache, offline: true }).get(endpoint, true)
+      ).toThrow('unqualified');
       complete = true;
-      collectMetrics(api, { since, until, tagPrs: [] });
+      collectMetrics(api, { repo: 'pj-tmt/tmt', since, until, tagPrs: [] });
       expect(reads).toEqual([1, 2, 1, 2]);
-      collectMetrics(api, { since, until, tagPrs: [] });
+      collectMetrics(api, { repo: 'pj-tmt/tmt', since, until, tagPrs: [] });
       expect(reads).toEqual([1, 2, 1, 2]);
     } finally {
       rmSync(cache, { recursive: true, force: true });
@@ -486,7 +499,7 @@ describe('merge queue REST metrics', () => {
           throw new Error('must not qualify inconsistent acquisition');
         },
       };
-      expect(() => collectMetrics(api, { since, until, tagPrs: [] })).toThrow(
+      expect(() => collectMetrics(api, { repo: 'pj-tmt/tmt', since, until, tagPrs: [] })).toThrow(
         variant === 'count-change'
           ? 'Inconsistent terminal job count'
           : 'Incomplete or duplicate terminal jobs'
@@ -503,6 +516,7 @@ describe('merge queue REST metrics', () => {
     const log = `##[group]Checking out the ref\n##[endgroup]\n[command]/usr/bin/git log -1 --format=%H\n2026-10-07T04:56:09Z ${sha}\n`;
     try {
       const api = restClient({
+        repo: 'pj-tmt/tmt',
         cache,
         execute: (_command, args) =>
           args.at(-1)!.endsWith('/logs') ? log : JSON.stringify({ sha, tree: { sha: tree } }),
@@ -523,6 +537,7 @@ describe('merge queue REST metrics', () => {
     const calls: string[][] = [];
     try {
       const api = restClient({
+        repo: 'pj-tmt/tmt',
         cache,
         execute: (_command, args) => {
           calls.push(args);
@@ -550,9 +565,9 @@ describe('merge queue REST metrics', () => {
         ],
         ['api', '--method', 'GET', `repos/pj-tmt/tmt/git/commits/${sha}`],
       ]);
-      expect(restClient({ cache, offline: true }).testedCheckout!(worker)).toEqual(
-        api.testedCheckout!(worker)
-      );
+      expect(
+        restClient({ repo: 'pj-tmt/tmt', cache, offline: true }).testedCheckout!(worker)
+      ).toEqual(api.testedCheckout!(worker));
       expect(calls).toHaveLength(2);
     } finally {
       rmSync(cache, { recursive: true, force: true });
@@ -567,6 +582,7 @@ describe('merge queue REST metrics', () => {
       const log = `##[group]Checking out the ref\n##[endgroup]\n[command]/usr/bin/git log -1 --format=%H\n2026-10-02T00:00:00Z ${sha}\n`;
       try {
         const api = restClient({
+          repo: 'pj-tmt/tmt',
           cache,
           execute: (_command, args) => {
             if (variant === 'oversized') throw new Error('spawnSync gh ENOBUFS');
@@ -594,7 +610,9 @@ describe('merge queue REST metrics', () => {
           reason: expect.any(String),
         });
         expect(commitReads).toBe(variant === 'wrong-commit' ? 1 : 0);
-        expect(restClient({ cache, offline: true }).testedCheckout!(job())).toMatchObject({
+        expect(
+          restClient({ repo: 'pj-tmt/tmt', cache, offline: true }).testedCheckout!(job())
+        ).toMatchObject({
           sha: null,
           tree: null,
         });
@@ -609,6 +627,7 @@ describe('merge queue REST metrics', () => {
     let requests = 0;
     try {
       const api = restClient({
+        repo: 'pj-tmt/tmt',
         cache,
         maxRequests: 1,
         execute: () => {
@@ -668,7 +687,7 @@ describe('merge queue REST metrics', () => {
         throw new Error(`Unexpected fixture endpoint ${endpoint}`);
       },
     };
-    const result = collectMetrics(api, { since, until, tagPrs: [963] });
+    const result = collectMetrics(api, { repo: 'pj-tmt/tmt', since, until, tagPrs: [963] });
     expect(result.runs).toHaveLength(3);
     expect(result.runs.map((r) => r.inclusion[963])).toEqual(['included', 'included', 'included']);
     expect(calls.some((endpoint) => endpoint.includes('original-pr-sha'))).toBe(false);
@@ -716,7 +735,7 @@ describe('merge queue REST metrics', () => {
         );
       },
     };
-    const result = collectMetrics(api, { since, until, tagPrs: [] });
+    const result = collectMetrics(api, { repo: 'pj-tmt/tmt', since, until, tagPrs: [] });
     expect(selected).toEqual([1, 2]);
     expect(result.runs[0]).toMatchObject({ sourceSha: 'e'.repeat(40), sourceTree: 'f'.repeat(40) });
     expect(result.runs[0]).not.toHaveProperty('tree');
@@ -730,7 +749,9 @@ describe('merge queue REST metrics', () => {
     ]);
     api.testedCheckout = (worker) =>
       checkout(worker.id, worker.id === 1 ? 'a'.repeat(40) : 'c'.repeat(40));
-    expect(summarizeMetrics(collectMetrics(api, { since, until, tagPrs: [] })).flakes).toEqual([]);
+    expect(
+      summarizeMetrics(collectMetrics(api, { repo: 'pj-tmt/tmt', since, until, tagPrs: [] })).flakes
+    ).toEqual([]);
   });
   it('reads every bounded page instead of silently dropping runs after the first page', () => {
     const calls: string[] = [];
@@ -759,7 +780,9 @@ describe('merge queue REST metrics', () => {
         throw new Error(`Unexpected fixture endpoint ${endpoint}`);
       },
     };
-    expect(collectMetrics(api, { since, until, tagPrs: [] }).runs).toHaveLength(31);
+    expect(collectMetrics(api, { repo: 'pj-tmt/tmt', since, until, tagPrs: [] }).runs).toHaveLength(
+      31
+    );
     expect(
       calls.some(
         (endpoint) =>
@@ -769,7 +792,10 @@ describe('merge queue REST metrics', () => {
   });
   it('refuses a short page whose advertised count proves evidence is incomplete', () => {
     expect(() =>
-      collectMetrics({ get: () => ({ workflow_runs: [], total_count: 1 }) }, { since, until })
+      collectMetrics(
+        { get: () => ({ workflow_runs: [], total_count: 1 }) },
+        { repo: 'pj-tmt/tmt', since, until }
+      )
     ).toThrow('Incomplete REST page');
   });
   it('terminates with an error when pagination never yields a final page', () => {
@@ -782,7 +808,7 @@ describe('merge queue REST metrics', () => {
             return { workflow_runs: Array.from({ length: 30 }, () => ({})) };
           },
         },
-        { since, until }
+        { repo: 'pj-tmt/tmt', since, until }
       )
     ).toThrow('Pagination bound exceeded');
     expect(requests).toBe(100);
@@ -809,7 +835,10 @@ describe('merge queue REST metrics', () => {
   });
   it('fails rather than reporting a truncated run-search result', () => {
     expect(() =>
-      collectMetrics({ get: () => ({ workflow_runs: [], total_count: 1001 }) }, { since, until })
+      collectMetrics(
+        { get: () => ({ workflow_runs: [], total_count: 1001 }) },
+        { repo: 'pj-tmt/tmt', since, until }
+      )
     ).toThrow('capped at 1000');
   });
 });
