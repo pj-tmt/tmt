@@ -320,6 +320,10 @@ layers, do not run again for a change elsewhere, and the document frame is sent 
 update that does not touch it (`e2e/large-page-update.spec.ts` counts what the frame receives).
 The view itself is still a new object for every publication: the binding (its Ask facade, its
 files) can change without the data changing, and the page must render to read it.
+The owner's Source draft is not route state: the route holds a `SourceDraft` store
+(`use-page-editor.ts`) and feeds it each replaced snapshot and live update, and only the Source
+drawer (`page-source.tsx`) subscribes to it and owns its Save, so a keystroke renders that drawer
+and not the route, its thread panel or its other drawers (`e2e/source-typing-renders.spec.ts`).
 
 One owner per open page decides what happens next: `useConnection` (`use-connection.ts`) wraps
 `ConnectionController` (`connection-controller.ts`), whose state (`connection-model.ts`) is
