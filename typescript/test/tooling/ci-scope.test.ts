@@ -3446,7 +3446,10 @@ describe('required CI gate', () => {
       const debugBuilds = [...(fixtures?.body.matchAll(/cargo build ([^\n]+)/g) ?? [])]
         .map((match) => match[1])
         .filter((args) => !args.includes('--release'));
-      for (const product of ['tmt-ops', 'tmt-remote', 'tmt-colab']) {
+      // Guided setup is full-scope only and prepares the Digest archive too (#5081).
+      const products = ['tmt-ops', 'tmt-remote', 'tmt-colab'];
+      if (scope === 'full') products.push('tmt-digest');
+      for (const product of products) {
         expect(
           debugBuilds.some((args) => new RegExp(`(?:^|\\s)-p\\s+${product}(?=\\s|$)`).test(args)),
           `${scope} native process fixtures must build ${product} in debug`
