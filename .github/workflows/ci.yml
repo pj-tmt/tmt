@@ -118,6 +118,9 @@ jobs:
           fetch-depth: 0
       - name: Set up Node.js and pnpm
         uses: ./.github/actions/setup-tooling
+      - name: Check PR commit author and committer emails
+        if: github.event_name == 'pull_request'
+        run: node typescript/scripts/pr-commit-email-check.mjs
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmt install --frozen-lockfile
@@ -133,7 +136,7 @@ jobs:
         working-directory: typescript
         run: |
           pnpm check:tooling
-          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/workspace-nextest.test.ts test/tooling/component-skills.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-source-at-ref.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts test/tooling/release-parity.test.ts test/tooling/release-rehearsal.test.ts test/tooling/guide-budget.test.ts test/tooling/markdown-links.test.ts test/tooling/pr-agent-check.test.ts test/tooling/docker-workspace.test.ts
+          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/workspace-nextest.test.ts test/tooling/component-skills.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-source-at-ref.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts test/tooling/release-parity.test.ts test/tooling/release-rehearsal.test.ts test/tooling/guide-budget.test.ts test/tooling/markdown-links.test.ts test/tooling/pr-agent-check.test.ts test/tooling/pr-commit-email-check.test.ts test/tooling/docker-workspace.test.ts
       - name: Verify isolated browser presentation leaf
         working-directory: typescript
         run: |
