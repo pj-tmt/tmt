@@ -12,6 +12,7 @@ pub enum OpsUiAction {
     Inspect,
     MonitorDetails,
     MemberSession,
+    SwitchTool,
     MemberNotes,
     MarkRead,
     Previous,
@@ -73,6 +74,13 @@ macro_rules! spec {
     };
 }
 const SPECS: &[OpsUiSpec] = &[
+    spec!(
+        SwitchTool,
+        "switch-tool",
+        "switch tool",
+        "switch the selected agent to another AI tool through its host template",
+        13
+    ),
     spec!(
         IdleAlert,
         "idle-alert",
@@ -392,6 +400,7 @@ impl OpsUiAction {
                 | Self::RenameMember
                 | Self::MonitorDetails
                 | Self::MemberSession
+                | Self::SwitchTool
                 | Self::MemberNotes
                 | Self::MarkRead
         )

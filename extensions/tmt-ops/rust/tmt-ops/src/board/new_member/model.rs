@@ -1,4 +1,5 @@
 //! Frozen form defaults and review over held public observations.
+use super::super::tool_choices::observed_model;
 use super::*;
 use crate::membership::workspace::RoomTarget;
 use std::collections::{BTreeMap, BTreeSet};
@@ -105,11 +106,6 @@ fn mode(values: impl Iterator<Item = String>, preferred: Option<&str>) -> Option
         .find(|(_, n)| *n == count)
         .map(|(value, _)| value)
 }
-fn observed_model(agent: &super::super::inventory::Agent) -> Option<&str> {
-    agent.parameters["resume"]["observedModel"]["model"]
-        .as_str()
-        .filter(|model| !model.is_empty())
-}
 impl Draft {
     pub fn from_app(app: &App) -> Self {
         let target = app.workspace.selected.as_ref();
@@ -160,26 +156,7 @@ impl Draft {
                 .and_then(observed_model),
         )
         .unwrap_or_default();
-        let mut models = BTreeMap::<String, Vec<String>>::new();
-        for agent in app.references.agents.values() {
-            if let (Some(tool), Some(model)) = (&agent.runtime, observed_model(agent)) {
-                let options = models.entry(tool.clone()).or_default();
-                if !options.iter().any(|option| option == model) {
-                    options.push(model.to_owned());
-                }
-            }
-        }
-        for options in models.values_mut() {
-            options.sort();
-        }
-        let tools = app
-            .references
-            .agents
-            .values()
-            .filter_map(|a| a.runtime.clone())
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect();
+        let (tools, models) = super::super::tool_choices::observed(&app.references);
         let location = selected
             .map(|a| &a.parameters["location"])
             .filter(|l| l["host"].is_string())
@@ -241,11 +218,6 @@ impl Draft {
                     .clone(),
             )
         };
-        let chosen = loaded
-            .hosts
-            .iter()
-            .find(|h| h.name == host && matches!(h.state.as_str(), "builtin" | "ok"))
-            .ok_or("Choose an available published host.")?;
         let mut command = vec![loaded.executable.clone(), "run".into()];
         if self.saved {
             command.push("--save".into());
@@ -254,24 +226,14 @@ impl Draft {
         if !model.is_empty() {
             command.push(format!("--model={model}"));
         }
-        let argv = loaded
-            .config
-            .launch_override(host)
-            .map_err(|e| e.message)?
-            .or_else(|| chosen.argv.clone());
-        // Validate a session even for copy-only reviews; it remains explicit.
-        let probe = ["host", "{session}", "{command}"].map(str::to_owned);
-        crate::launch::fill(&probe, session, &crate::launch::line(&command))?;
-        let outer = argv
-            .as_ref()
-            .map(|argv| crate::launch::fill(argv, session, &crate::launch::line(&command)))
-            .transpose()?;
+        let outer = loaded
+            .prepare(host, session, &command)
+            .map_err(|e| e.message)?;
         let mut display_command = command.clone();
         display_command[0] = loaded.display_executable.clone();
-        let display_outer = argv
-            .as_ref()
-            .map(|argv| crate::launch::fill(argv, session, &crate::launch::line(&display_command)))
-            .transpose()?;
+        let display_outer = loaded
+            .prepare(host, session, &display_command)
+            .map_err(|e| e.message)?;
         Ok(Review {
             name: name.into(),
             host: host.into(),

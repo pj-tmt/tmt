@@ -5,6 +5,11 @@ use ratatui::{Frame, layout::Rect};
 
 pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look::Look) {
     app.peek_areas.clear();
+    if let Some(switch) = &app.switch_tool
+        && app.switch_tool_shown()
+    {
+        switch.render(frame, app, look, body);
+    }
     if let Some(editor) = &app.idle_alert_editor {
         editor.render(frame, app, body);
     }
