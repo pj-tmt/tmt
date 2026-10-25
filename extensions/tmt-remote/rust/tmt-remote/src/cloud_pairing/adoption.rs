@@ -20,6 +20,19 @@ use crate::{
 use rusqlite::{TransactionBehavior, params};
 use sha2::{Digest, Sha256};
 
+/// Temporary capabilities clear on every exit; the admitted Connection owns the
+/// deliberately retained forward capability after successful adoption.
+struct RerouteSecrets {
+    forward: [u8; 32],
+    reverse: [u8; 32],
+}
+impl Drop for RerouteSecrets {
+    fn drop(&mut self) {
+        self.forward.fill(0);
+        self.reverse.fill(0);
+    }
+}
+
 pub struct ReceiptAdoption<'a> {
     pub context: &'a Context,
     pub submission: &'a Submission,
@@ -54,14 +67,16 @@ impl Store {
             std::str::from_utf8(&context.binding.owner_principal).map_err(|_| wire::invalid())?;
         let request = wire::v2::submission(context, submission)?;
         let body = crate::wire::strict_json(receipt).ok_or_else(wire::invalid)?;
-        let (mut forward, mut reverse) = wire::v2::reroute_tokens(context, candidate, key)?;
+        let secrets = {
+            let (forward, reverse) = wire::v2::reroute_tokens(context, candidate, key)?;
+            RerouteSecrets { forward, reverse }
+        };
         let receipt_token = body["rerouteToken"]
             .as_str()
             .ok_or_else(wire::missing_reroute_token)?;
         let token_matches = canonical::base64url_bytes(receipt_token, 32)
-            .is_ok_and(|value| value.as_slice() == forward);
-        let reverse_hash: [u8; 32] = Sha256::digest(reverse).into();
-        reverse.fill(0);
+            .is_ok_and(|value| value.as_slice() == secrets.forward);
+        let reverse_hash: [u8; 32] = Sha256::digest(secrets.reverse.as_slice()).into();
         if !token_matches
             || receipt.len() > crate::limits::CLOUD_ENROLLMENT_BYTES
             || body["grant"]["clientId"] != candidate.machine
@@ -77,7 +92,6 @@ impl Store {
             || connection.version != 1
             || !super::uid_ok(&connection.uid)
         {
-            forward.fill(0);
             return Err(wire::invalid());
         }
         let tx = self
@@ -87,7 +101,6 @@ impl Store {
         check(io)?;
         let now = crate::pairing::now_ms()?;
         if now >= context.expires_at_ms || crate::store::machine_in(&tx)?.id != candidate.machine {
-            forward.fill(0);
             return Err(wire::expired());
         }
         let previous =
@@ -103,7 +116,6 @@ impl Store {
             && previous.owner_key == context.owner_key
             && previous.peer == candidate.machine
         {
-            forward.fill(0);
             return Ok(previous);
         }
         let claimed = previous
@@ -114,7 +126,6 @@ impl Store {
             || claimed.request != request
             || previous.peer != candidate.machine
         {
-            forward.fill(0);
             return Err(wire::invalid());
         }
         if let Some(old) = grant_in(&tx, &context.owner)?.filter(|grant| !grant.disabled) {
@@ -141,10 +152,10 @@ impl Store {
                 disabled: false,
             };
             crate::members::confirm_member_grant_in(&tx, &grant)?;
-        }
-        if enable_sending {
-            crate::members::sending_for_client(&tx, &context.owner, true)?
-                .ok_or_else(wire::invalid)?;
+            if enable_sending {
+                crate::members::sending_for_client(&tx, &context.owner, true)?
+                    .ok_or_else(wire::invalid)?;
+            }
         }
         store::adopt_cloud_routes_in(
             &tx,
@@ -165,8 +176,7 @@ impl Store {
         confirmed.name = previous.name;
         confirmed.request = request;
         confirmed.confirmed = true;
-        confirmed.reroute_token = Some(forward);
-        forward.fill(0);
+        confirmed.reroute_token = Some(secrets.forward);
         confirmed.pending_submission = None;
         // This is the sole consuming writer; ordinary snapshot saves retain it.
         store::write_cloud_connection_in(&tx, &confirmed)?;

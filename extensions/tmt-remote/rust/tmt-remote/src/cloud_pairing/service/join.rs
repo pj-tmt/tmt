@@ -38,7 +38,8 @@ impl Service {
                 .invitation
                 .lock()
                 .map_err(crate::store::database)?
-                .clone();
+                .clone()
+                .and_then(|slot| slot.current());
             if let Some(current) = current.filter(|current| {
                 current.status(now).is_ok_and(|status| {
                     status.offer.as_deref() == Some(snapshot.context.offer.as_str())

@@ -54,7 +54,7 @@ pub struct Service {
     pub projects: Arc<Projects>,
     stop: Arc<AtomicBool>,
     wake: Arc<(Mutex<bool>, Condvar)>,
-    invitation: Mutex<Option<Arc<ceremony::Ceremony>>>,
+    invitation: Mutex<Option<Arc<ceremony::Slot>>>,
     last_error: Mutex<Option<String>>,
     published: Mutex<BTreeMap<String, Vec<u8>>>,
     cleanup: Mutex<BTreeMap<String, Instant>>,
@@ -131,20 +131,10 @@ impl Service {
         }
     }
     pub fn idle(&self) -> bool {
-        self.invitation_status().is_ok_and(|status| {
-            status.is_none_or(|status| {
-                status
-                    .expires_at_ms
-                    .is_some_and(|expiry| crate::pairing::now_ms().is_ok_and(|now| now >= expiry))
-                    || matches!(
-                        status.state,
-                        crate::invitations::service::State::Confirmed
-                            | crate::invitations::service::State::Refused
-                            | crate::invitations::service::State::Cancelled
-                            | crate::invitations::service::State::Expired
-                    )
-            })
-        })
+        let Ok(current) = self.invitation.lock().map(|handle| handle.clone()) else {
+            return false;
+        };
+        current.is_none_or(|slot| slot.idle().unwrap_or(false))
     }
     fn register(
         &self,
