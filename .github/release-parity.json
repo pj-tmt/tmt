@@ -23,7 +23,7 @@
           "id:index-app",
           "name:Advance the verified release index"
         ],
-        "sha256": "bb7f7968ab4f1fcb0d749889944c6f1a67174bc9723d7596f389e71e4454c5e1"
+        "sha256": "1bcecfd296ebbaf2a688bb9f852c083eb7b5c38ec6256c29fa4a4651b0f6b6b8"
       }
     },
     "native-release-bundle.yml": {
@@ -444,7 +444,7 @@
           "id:index-app",
           "name:Backfill the verified historical release"
         ],
-        "sha256": "5bc82fae03cd1fff4bb231f5f5a3fd275462b7e41535ed7cf51b17c3d8d2259f",
+        "sha256": "e05d0c22399a76396bf798a8f8b0a43d71c302c93af4c6ea678b0a6eedbe9965",
         "preMerge": [
           {
             "workflow": "ci.yml",

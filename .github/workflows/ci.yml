@@ -1068,7 +1068,7 @@ jobs:
       - packed-native-install
       - packed-native-install-macos
       - native-install-gate
-    if: ${{ always() && github.repository == 'pj-tmt/tmt' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.main_full_admitted == 'true' }}
+    if: ${{ always() && github.repository == 'tmt-ninja/tmt' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.main_full_admitted == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1086,7 +1086,7 @@ jobs:
   notify-main-failure:
     name: Report main verification failure
     needs: [changes, complete-main]
-    if: ${{ always() && github.repository == 'pj-tmt/tmt' && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.result == 'failure' || needs.complete-main.result == 'failure') }}
+    if: ${{ always() && github.repository == 'tmt-ninja/tmt' && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.result == 'failure' || needs.complete-main.result == 'failure') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

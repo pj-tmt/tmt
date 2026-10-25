@@ -176,7 +176,7 @@ jobs:
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          owner: pj-tmt
+          owner: ${{ github.repository_owner }}
           repositories: tmt
           permission-contents: write
       - name: Advance the verified release index

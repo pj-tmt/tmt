@@ -20,7 +20,7 @@ export const QUALIFICATION = Object.freeze({
   branch: 'infra-1/1980-live-qualification',
   workflow: 380603134,
 });
-const repository = 'pj-tmt/tmt';
+const repository = 'tmt-ninja/tmt';
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const MiB = 1024 * 1024;
 export function safeEvidence(value) {
