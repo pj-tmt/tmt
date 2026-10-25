@@ -49,6 +49,8 @@ pub mod summary_passages;
 mod summary_pending;
 pub mod summary_readings;
 pub mod sync;
+pub mod template_index;
+pub mod template_marks;
 pub mod templates;
 pub mod threads;
 pub mod transitions;

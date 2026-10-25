@@ -126,6 +126,13 @@ impl Engine {
         } else {
             None
         };
+        // A page created from a template records which one (the name; a user template adds its
+        // revision), and nothing else: it is independent of the template from then on.
+        let from_template = template
+            .map(|name| {
+                crate::template_marks::from_template(name, None).map_err(|_| OwnerFault::Invalid)
+            })
+            .transpose()?;
         let mut meta = serde_json::json!({});
         if let Some(creator) = &creator {
             meta["creator"] = creator.clone();
@@ -178,6 +185,8 @@ impl Engine {
                 let input = BaselineInput {
                     creator: creator.as_ref(),
                     questions: questions.as_ref(),
+                    template: None,
+                    from_template: from_template.as_ref(),
                     work: None,
                     original_author: publisher_agent,
                     layout,

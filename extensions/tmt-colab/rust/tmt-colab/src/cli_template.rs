@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn the_catalog_is_the_five_documented_templates_with_their_layouts() {
+    fn the_catalog_is_the_six_documented_templates_with_their_layouts() {
         let listed: Vec<(&str, &str)> = TEMPLATES
             .iter()
             .map(|template| (template.name, template.kind.as_str()))
@@ -120,6 +120,7 @@ mod tests {
         assert_eq!(
             listed,
             [
+                ("starter", "column"),
                 ("report", "column"),
                 ("review", "column"),
                 ("compare", "column"),

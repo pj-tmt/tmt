@@ -101,6 +101,8 @@ fn shell_baseline_preserves_structured_content_and_checks_its_commitment() {
     let view = || BaselineInput {
         creator: None,
         questions: None,
+        template: None,
+        from_template: None,
         work: None,
         layout: None,
         original_author: Some("Agent 1"),
@@ -151,6 +153,8 @@ fn shell_actions_prepare_replayable_updates_without_changing_the_admitted_base()
     let view = || BaselineInput {
         creator: None,
         questions: None,
+        template: None,
+        from_template: None,
         work: None,
         layout: None,
         original_author: None,
@@ -327,10 +331,189 @@ fn registry_metadata_survives_baselines_edits_and_preserves_content_authority() 
     gone(after.child_pid);
     assert_eq!(after.projection, rewritten.projection);
 }
+#[test]
+fn template_marks_survive_baselines_and_edits_and_the_mark_is_set_and_cleared_by_actions() {
+    use tmt_colab::decoder::{ContentBatch, ContentEdit, StructuredEdit, StructuredKind};
+    let from = serde_json::json!({"name":"report"});
+    let mut decoder = owner();
+    let baseline = decoder
+        .produce_page(
+            BaselineInput {
+                from_template: Some(&from),
+                ..work_view(b"<p>page</p>", None)
+            },
+            None,
+        )
+        .unwrap();
+    gone(baseline.child_pid);
+    let decode = |decoder: &mut Decoder, updates: &[&[u8]]| {
+        let decoded = decoder
+            .decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &baseline.update,
+                    updates,
+                },
+                Role::Editor,
+                None,
+            )
+            .unwrap();
+        gone(decoded.child_pid);
+        decoded.projection
+    };
+    let before = decode(&mut decoder, &[]);
+    assert_eq!(before["meta"]["fromTemplate"], from);
+    assert!(before["meta"].get("template").is_none());
+    let act =
+        |decoder: &mut Decoder, base: &serde_json::Value, updates: &[&[u8]], action: &str, body| {
+            let prepared = decoder.prepare_structured_batch(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &baseline.update,
+                    updates,
+                },
+                base,
+                &StructuredEdit {
+                    kind: StructuredKind::Template,
+                    action: action.into(),
+                    body,
+                    attribution: serde_json::json!({}),
+                },
+                None,
+            );
+            prepared.map(|prepared| {
+                gone(prepared.child_pid);
+                prepared
+            })
+        };
+    // Marking the page publishes one update and leaves the source and the origin alone.
+    let mark = serde_json::json!({"name":"weekly-review","description":"Shipped, open"});
+    let marked = act(&mut decoder, &before, &[], "template.set", mark.clone()).unwrap();
+    assert_eq!(marked.projection["meta"]["template"], mark);
+    assert_eq!(marked.projection["meta"]["fromTemplate"], from);
+    assert_eq!(marked.projection["html"], "<p>page</p>");
+    let ContentBatch::Updates(updates) = marked.batch else {
+        panic!("expected a template update")
+    };
+    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    assert_eq!(decode(&mut decoder, &refs), marked.projection);
+    // Setting the same mark again changes nothing.
+    let again = act(
+        &mut decoder,
+        &marked.projection,
+        &refs,
+        "template.set",
+        mark.clone(),
+    )
+    .unwrap();
+    assert!(matches!(again.batch, ContentBatch::Noop));
+    // A source edit keeps both marks, and so does a new baseline made from the projection.
+    let edited = decoder
+        .prepare_content_batch(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &refs,
+            },
+            &marked.projection,
+            ContentEdit {
+                source: "<p>changed</p>",
+                publisher_agent: None,
+                layout: None,
+                attachments: None,
+            },
+            None,
+        )
+        .unwrap();
+    gone(edited.child_pid);
+    assert_eq!(edited.projection["meta"]["template"], mark);
+    assert_eq!(edited.projection["meta"]["fromTemplate"], from);
+    let fresh = decoder
+        .produce_baseline(
+            BaselineInput {
+                template: edited.projection["meta"].get("template"),
+                from_template: edited.projection["meta"].get("fromTemplate"),
+                ..work_view(b"<p>changed</p>", None)
+            },
+            None,
+        )
+        .unwrap();
+    gone(fresh.child_pid);
+    let after = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &fresh.update,
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    gone(after.child_pid);
+    assert_eq!(after.projection, edited.projection);
+    // Clearing removes the key from the document, not just from the projection.
+    let cleared = act(
+        &mut decoder,
+        &marked.projection,
+        &refs,
+        "template.clear",
+        serde_json::json!({}),
+    )
+    .unwrap();
+    assert!(cleared.projection["meta"].get("template").is_none());
+    assert_eq!(cleared.projection["meta"]["fromTemplate"], from);
+    let ContentBatch::Updates(more) = cleared.batch else {
+        panic!("expected a clearing update")
+    };
+    let all = updates
+        .iter()
+        .chain(&more)
+        .map(Vec::as_slice)
+        .collect::<Vec<_>>();
+    assert_eq!(decode(&mut decoder, &all), cleared.projection);
+    // A built-in name, an unknown action and a stray member are refused before any update.
+    for (action, body) in [
+        (
+            "template.set",
+            serde_json::json!({"name":"report","description":""}),
+        ),
+        (
+            "template.set",
+            serde_json::json!({"name":"Weekly","description":""}),
+        ),
+        (
+            "template.set",
+            serde_json::json!({"name":"weekly","description":"d","extra":1}),
+        ),
+        ("template.clear", serde_json::json!({"name":"weekly"})),
+        ("template.rename", serde_json::json!({})),
+    ] {
+        assert!(
+            act(&mut decoder, &before, &[], action, body).is_err(),
+            "{action}"
+        );
+    }
+    // A baseline never carries an invalid mark.
+    for invalid in [
+        BaselineInput {
+            template: Some(&serde_json::json!({"name":"starter","description":""})),
+            ..work_view(b"", None)
+        },
+        BaselineInput {
+            from_template: Some(&serde_json::json!({"name":"report","revision":"007"})),
+            ..work_view(b"", None)
+        },
+    ] {
+        assert!(decoder.produce_page(invalid, None).is_err());
+    }
+}
 fn work_view<'a>(source: &'a [u8], work: Option<&'a serde_json::Value>) -> BaselineInput<'a> {
     BaselineInput {
         creator: None,
         questions: None,
+        template: None,
+        from_template: None,
         work,
         layout: None,
         original_author: None,
@@ -1234,6 +1417,8 @@ fn view<'a>(source: &'a [u8], title: &'a str) -> BaselineInput<'a> {
     BaselineInput {
         creator: None,
         questions: None,
+        template: None,
+        from_template: None,
         work: None,
         layout: None,
         original_author: None,
@@ -1309,6 +1494,8 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
                 BaselineInput {
                     creator: None,
                     questions: None,
+                    template: None,
+                    from_template: None,
                     work: None,
                     layout: layout.as_ref(),
                     original_author: vector["originalAuthor"].as_str(),
@@ -1383,6 +1570,8 @@ fn baseline_digest_commitment_and_materialization_mismatches_return_no_result() 
     let wrong_digest = BaselineInput {
         creator: None,
         questions: None,
+        template: None,
+        from_template: None,
         work: None,
         layout: None,
         original_author: None,
@@ -1596,6 +1785,8 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
             BaselineInput {
                 creator: None,
                 questions: None,
+                template: None,
+                from_template: None,
                 work: None,
                 layout: None,
                 original_author: Some("original-author"),
@@ -1831,6 +2022,8 @@ fn creation_recipient_survives_chunked_baselines_and_known_or_unknown_source_edi
                 BaselineInput {
                     creator: None,
                     questions: None,
+                    template: None,
+                    from_template: None,
                     work: None,
                     layout: None,
                     attachments: None,
@@ -2312,6 +2505,8 @@ fn content_batch_preserves_creation_recipient_through_replay_and_noop() {
                 BaselineInput {
                     creator: None,
                     questions: None,
+                    template: None,
+                    from_template: None,
                     work: None,
                     layout: None,
                     attachments: None,

@@ -1031,7 +1031,7 @@ document. The following roots are exhaustive:
 
 | Namespace | Roots                                                                                                                                                                                                                                             | Fold and authority                                                                   |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `originalAuthor`, `creationRecipient`, `creator`, `questions` ([question metadata](#question-metadata-5052)), `layout`, `layoutReason`, `work` ([Work](#work-4050)) | Shared page document, folded from admitted owner/editor streams in the current epoch |
+| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `originalAuthor`, `creationRecipient`, `creator`, `questions` ([question metadata](#question-metadata-5052)), `layout`, `layoutReason`, `template`, `fromTemplate`, `work` ([Work](#work-4050)) | Shared page document, folded from admitted owner/editor streams in the current epoch |
 | `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                                                                                                                                                                | Separate document per writer; only that writer's signed stream mutates it            |
 
 `meta.publisherAgent`, when present, is a nonempty string of at most 128 UTF-8
@@ -1060,6 +1060,26 @@ another device or by the CLI reframes an open page without a new source. Source 
 in the committed update bytes; only `page create` and `page layout` set them, and a native
 or browser projection with an unknown kind, a reason on a non-canvas page, a canvas without
 a reason or a dashboard with a layout is rejected.
+
+`meta.template`, when present, is exactly `{name, description}` and marks the page as a template
+(#5066). `name` is 1 to 40 characters of `a-z`, `0-9` and `-`, and is none of the built-in names
+(`starter`, `report`, `review`, `compare`, `board`, `gallery`); `description` is one trimmed line of
+at most 200 UTF-8 bytes without control characters, and may be empty. The template's ID is the page's
+ID. A page without the key is an ordinary page, which is an absence, never a stored value, so no page
+needs a migration. The mark is selection metadata, never authority: it gives no one a right to edit
+or use the page beyond the page's own roles. One page's fold cannot know the others, so a name's
+uniqueness in the space is the owner's check when the mark is set; a fold accepts any valid mark.
+
+`meta.fromTemplate`, when present, is exactly `{name}` or `{name, revision}`: where the page was
+created from. `name` follows the same grammar (a built-in name is allowed here) and `revision` is the
+template page's revision as a canonical unsigned decimal string, present only for a user template (a
+built-in has none). It records the source and nothing else: after creation the page is independent of
+the template, and a later change, removal or deletion of the template changes nothing here. A dashboard
+has neither key. Source writes, checkpoints, compaction and epoch baselines preserve both keys in the
+committed update bytes; only `page create --template` sets `fromTemplate`, and only `template save` and
+`template remove` set or clear `template`. A native or browser projection with a member beyond those
+named, a name outside the grammar, a built-in name in `template`, a description past its bounds or a
+dashboard with either key is rejected.
 
 `meta.creationRecipient`, when present, is exactly `{machineId,agentId}`: a
 canonical non-nil Remote UUIDv4 and canonical non-nil core UUID. It is an asserted

@@ -16,6 +16,14 @@ number is never reused), the state and reason rules, the text, count and byte bo
 exact edges, the whole-replacement `task.set`, summary attribution and the derived stage,
 progress, who and sign-off; the work-in-progress limit is an admission rule and appears in none.
 
+`template-marks-v1.json` contains the two template marks of a page's content metadata
+(`template` and `fromTemplate`, #5066) with their expected verdicts, shared by the native
+validator and the browser fold validator. The cases pin the name grammar and its 40-character
+edge, the six reserved built-in names, the 200-byte description in ASCII and multibyte text, the
+trimmed-line rule (white space and the byte order mark at either end), control characters, the
+exact member sets, and the decimal revision at its 15-digit edge. Uniqueness of a name in a space
+is not a property of one value and appears in none.
+
 `attachment-reference.py` independently frames descriptors/manifests, freezes
 strict selectors/creation-publication records and seals asset envelopes with
 Python cryptography over public RFC8032 fixture keys. Namespace and page-revision

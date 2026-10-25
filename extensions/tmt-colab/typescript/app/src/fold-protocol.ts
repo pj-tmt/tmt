@@ -3,6 +3,12 @@ import { validateShell, type Shell } from './shell.js';
 import { canonical } from './closed.js';
 import { validateWork, type Work } from './work.js';
 import {
+  validateTemplateMark,
+  validateTemplateSource,
+  type TemplateMark,
+  type TemplateSource,
+} from './template-marks.js';
+import {
   validatePageCreator,
   validateQuestionRegistry,
   type PageCreator,
@@ -71,6 +77,8 @@ export function validateCreationRecipient(value: unknown): asserts value is Crea
 export interface Projection {
   creator?: PageCreator;
   questions?: RegisteredQuestion[];
+  template?: TemplateMark;
+  fromTemplate?: TemplateSource;
   /** Structured content retains an empty wire text container; never render it as HTML. */
   pageType?: 'shell';
   shell?: Shell;
@@ -215,8 +223,13 @@ export interface FoldResult extends Projection {
 }
 export function validateProjection(value: unknown): asserts value is Projection {
   if (!value || typeof value !== 'object') throw new Error('Invalid decoder projection');
-  if (Object.hasOwn(value, 'creator') || Object.hasOwn(value, 'questions'))
+  if (
+    ['creator', 'questions', 'template', 'fromTemplate'].some((key) => Object.hasOwn(value, key))
+  )
     requireValue(!Object.hasOwn(value, 'pageType') && !Object.hasOwn(value, 'shell'));
+  if (Object.hasOwn(value, 'template')) validateTemplateMark((value as Projection).template);
+  if (Object.hasOwn(value, 'fromTemplate'))
+    validateTemplateSource((value as Projection).fromTemplate);
   if (Object.hasOwn(value, 'creator')) validatePageCreator((value as Projection).creator);
   if (Object.hasOwn(value, 'questions')) validateQuestionRegistry((value as Projection).questions);
   const { source, title, publisherAgent, originalAuthor, creationRecipient, layout, layoutReason } =
@@ -304,6 +317,10 @@ export function sameContent(a: ContentSnapshot, b: ContentSnapshot): boolean {
     canonical(a.creator) === canonical(b.creator) &&
     Object.hasOwn(a, 'questions') === Object.hasOwn(b, 'questions') &&
     canonical(a.questions) === canonical(b.questions) &&
+    Object.hasOwn(a, 'template') === Object.hasOwn(b, 'template') &&
+    canonical(a.template) === canonical(b.template) &&
+    Object.hasOwn(a, 'fromTemplate') === Object.hasOwn(b, 'fromTemplate') &&
+    canonical(a.fromTemplate) === canonical(b.fromTemplate) &&
     a.layout === b.layout &&
     a.layoutReason === b.layoutReason &&
     Object.hasOwn(a, 'creationRecipient') === Object.hasOwn(b, 'creationRecipient') &&
