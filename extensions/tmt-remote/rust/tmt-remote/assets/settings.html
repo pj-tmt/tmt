@@ -23,10 +23,16 @@
     </div>
     <div class="tmt-ui-shell-main">
     <main class="tmt-page settings-page">
-      <h2 class="settings-title" data-view="settings">My Remotes</h2>
-      <p class="settings-intro" data-view="settings">
-        Open a Remote or keep its public address in this browser. Each Remote keeps its own access.
-      </p>
+      <div id="remote-head" class="remote-head" data-view="settings">
+        <div class="remote-head-copy">
+          <h2 class="settings-title">My Remotes</h2>
+          <p class="settings-intro">Names and addresses stay in this browser. Forgetting a row leaves access unchanged.</p>
+        </div>
+        <div class="remote-head-actions">
+          <a class="tmt-ui-action" data-variant="primary" href="/remote/machine"><span class="tmt-ui-action-label">Create a Remote</span></a>
+          <span id="remote-join"></span>
+        </div>
+      </div>
       <section
         id="access-notice"
         class="tmt-ui-notice"
@@ -339,16 +345,8 @@
       </section>
       <section id="remotes" class="tmt-ui-section" data-view="settings" aria-labelledby="remote-heading">
         <h2 id="remote-heading" class="tmt-ui-visually-hidden">Remote list</h2>
-        <p class="entry-note">
-          Names and addresses stay in this browser. Forgetting an entry does not sign out or revoke access.
-        </p>
-        <div class="settings-actions">
-          <a class="tmt-ui-action" href="/remote/machine">Create a Remote</a>
-          <a class="tmt-ui-action" href="/remote/connect">Join a Remote</a>
-        </div>
         <ul id="remote-list" class="tmt-ui-list"></ul>
         <p id="remote-status" role="status"></p>
-        <button id="remote-add" class="tmt-ui-action" type="button">Add remote</button>
       </section>
     </main>
     </div>

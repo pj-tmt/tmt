@@ -141,7 +141,7 @@ export async function settingsPage(
   });
   function syncBusyMark(): void {
     for (const button of document.querySelectorAll<HTMLElement>('button.tmt-ui-action'))
-      if (!button.closest('#remotes, #remote-switcher')) markSlot(button);
+      if (!button.closest('#remotes, #remote-head, #remote-switcher')) markSlot(button);
     busyMark.set(page.busy);
   }
   function saveState(form: string, hint: string, changed: boolean, valid: boolean): void {
@@ -308,7 +308,7 @@ export async function settingsPage(
     element('controls-reason').textContent = reason;
     element('controls-reason').hidden = !reason;
     for (const button of document.querySelectorAll<HTMLButtonElement>('button')) {
-      if (button.closest('#remotes, #remote-switcher')) continue;
+      if (button.closest('#remotes, #remote-head, #remote-switcher')) continue;
       if (reason) button.setAttribute('aria-describedby', 'controls-reason');
       else button.removeAttribute('aria-describedby');
       button.setAttribute('aria-busy', String(page.busy));

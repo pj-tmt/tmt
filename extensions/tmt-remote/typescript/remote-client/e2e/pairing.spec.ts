@@ -4076,7 +4076,7 @@ for (const [width, theme] of [
       await page.mouse.move(1000, 600);
       await modulePages(page).hover();
       const foreign = page.locator('[data-remote="foreign"] [data-action="open"]');
-      await expect(foreign).toBeDisabled();
+      await expect(foreign).toHaveAttribute('aria-disabled', 'true');
       await expect(foreign).toHaveAttribute(
         'title',
         'A request is in progress. Wait for its outcome.',
@@ -4097,7 +4097,7 @@ for (const [width, theme] of [
     await expect(name).toHaveValue('Unsent next draft');
     await modulePages(page).hover();
     const foreign = page.locator('[data-remote="foreign"] [data-action="open"]');
-    await expect(foreign).toBeDisabled();
+    await expect(foreign).toHaveAttribute('aria-disabled', 'true');
     await expect(foreign).toHaveAttribute(
       'title',
       'Another change is still unconfirmed. Check the saved value first.',
@@ -4483,6 +4483,15 @@ async function withRegistryWorld(run: (world: RegistryWorld) => Promise<void>): 
   }
 }
 
+async function rememberRemote(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Join a Remote', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Remember a Remote', exact: true }).click();
+}
+async function remoteAction(page: Page, name: string, action: 'Rename' | 'Forget'): Promise<void> {
+  await page.getByRole('button', { name: `Actions for ${name}`, exact: true }).click();
+  await page.getByRole('menuitem', { name: action, exact: true }).click();
+}
+
 // B1 is Remote's registry consumer, not Colab routing or a foreign health probe.
 test('landing registry keeps two origins independent and confirms public-only handoffs', async () => {
   await withRegistryWorld(
@@ -4530,10 +4539,17 @@ test('landing registry keeps two origins independent and confirms public-only ha
       );
       await expect(page.locator('[data-remote="studio"]')).toContainText('This machine');
       await expect(page.locator('[data-remote="studio"] [data-role]')).toHaveText('Member');
-      await expect(page.getByRole('button', { name: 'Open studio', exact: true })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Open studio', exact: true })).toBeVisible();
+      const overflow = page.getByRole('button', { name: 'Actions for studio', exact: true });
+      await overflow.click();
+      await expect(page.getByRole('menuitem', { name: 'Rename', exact: true })).toBeVisible();
+      await expect(page.getByRole('menuitem').last()).toHaveText('Forget');
+      await page.keyboard.press('Escape');
+      await expect(overflow).toBeFocused();
       await expect(
-        page.locator('[data-remote="studio"]').getByRole('button', { name: 'Rename studio' }),
-      ).toHaveText('Rename');
+        page.getByRole('link', { name: 'Create a Remote', exact: true }),
+      ).toHaveAttribute('data-variant', 'primary');
+      await expect(page.getByRole('button', { name: 'Add remote', exact: true })).toHaveCount(0);
       await expect(page.locator('[data-remote="desk"] .tmt-ui-list-state')).toHaveText(
         '◌ Not checked',
       );
@@ -4544,20 +4560,20 @@ test('landing registry keeps two origins independent and confirms public-only ha
         'list',
         'Current access is verified; the other origin is not probed or marked.',
       );
-      await page.locator('#remote-add').click();
-      await expect(page.getByRole('dialog')).toBeVisible();
+      await rememberRemote(page);
+      await expect(page.locator('dialog.tmt-ui-dialog')).toBeVisible();
       await expect(page.getByLabel('Remote name')).toBeFocused();
       await capture('add', 'Explicit public door address or remote link; no implicit sign-in.');
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-      await expect(page.locator('#remote-add')).toBeFocused();
-      await page.locator('#remote-add').click();
+      await expect(page.getByRole('button', { name: 'Join a Remote', exact: true })).toBeFocused();
+      await rememberRemote(page);
       await page.getByLabel('Remote name').fill('spare');
       await page.getByLabel('Remote address or link').fill('http://127.0.0.1:9876/');
       await page.getByRole('button', { name: 'Continue', exact: true }).click();
       await expect(page.getByRole('heading', { name: 'Add remote spare?' })).toBeVisible();
       await page.getByRole('button', { name: 'Add', exact: true }).click();
-      await expect(page.getByRole('dialog')).toHaveCount(0);
-      await expect(page.locator('#remote-add')).toBeFocused();
+      await expect(page.locator('dialog.tmt-ui-dialog')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Join a Remote', exact: true })).toBeFocused();
       await expect(page.locator('[data-remote="spare"] .tmt-ui-list-state')).toHaveText(
         '◌ Not checked',
       );
@@ -4576,7 +4592,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       expect(second.publicKey).not.toEqual(first.publicKey);
       await sdk('add', ['studio', `${secondOrigin}/`]);
       await page.goto(openB);
-      await expect(page.getByRole('dialog')).toHaveAttribute(
+      await expect(page.locator('dialog.tmt-ui-dialog')).toHaveAttribute(
         'aria-labelledby',
         'remote-dialog-heading',
       );
@@ -4596,24 +4612,26 @@ test('landing registry keeps two origins independent and confirms public-only ha
         entries: [{ name: 'studio', kind: 'local', url: `${secondOrigin}/`, project: null }],
       });
       await page.goto(openB);
-      await expect(page.getByRole('dialog')).toBeVisible();
+      await expect(page.locator('dialog.tmt-ui-dialog')).toBeVisible();
       await page.getByRole('button', { name: 'Add', exact: true }).click();
-      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.locator('dialog.tmt-ui-dialog')).toHaveCount(0);
       expect(await identity()).toEqual(second);
       await page.goto(openB);
       await expect(page.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
       await expect(page.getByText('Nothing new to add.', { exact: true })).toBeVisible();
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-      await page.getByRole('button', { name: 'Rename studio-2', exact: true }).click();
+      await remoteAction(page, 'studio-2', 'Rename');
       await page.getByLabel('Remote name').fill('studio');
       await page.getByRole('button', { name: 'Save', exact: true }).click();
-      await expect(page.getByRole('dialog').getByRole('status')).toHaveText(
+      await expect(page.locator('dialog.tmt-ui-dialog').getByRole('status')).toHaveText(
         'You already have a remote named studio',
       );
       await page.getByLabel('Remote name').fill('first');
       await page.getByRole('button', { name: 'Save', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Forget first', exact: true })).toBeVisible();
-      await page.getByRole('button', { name: 'Forget first', exact: true }).click();
+      await expect(
+        page.getByRole('button', { name: 'Actions for first', exact: true }),
+      ).toBeVisible();
+      await remoteAction(page, 'first', 'Forget');
       await expect(
         page.getByRole('heading', { name: 'Forget first in this browser?' }),
       ).toBeVisible();
@@ -4622,15 +4640,22 @@ test('landing registry keeps two origins independent and confirms public-only ha
         'Removing public reference data does not revoke or sign out the device.',
       );
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Forget first', exact: true })).toBeFocused();
-      await page.getByRole('button', { name: 'Forget first', exact: true }).click();
+      await expect(
+        page.getByRole('button', { name: 'Actions for first', exact: true }),
+      ).toBeFocused();
+      await remoteAction(page, 'first', 'Forget');
       await page.getByRole('button', { name: 'Forget', exact: true }).click();
       await page.getByRole('button', { name: 'Undo', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Forget first', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: 'Actions for first', exact: true }),
+      ).toBeVisible();
       expect(await identity()).toEqual(second);
-      await page.getByRole('button', { name: 'Forget first', exact: true }).click();
-      await page.getByRole('dialog').getByRole('button', { name: 'Forget', exact: true }).click();
-      await expect(page.locator('#remote-add')).toBeFocused();
+      await remoteAction(page, 'first', 'Forget');
+      await page
+        .locator('dialog.tmt-ui-dialog')
+        .getByRole('button', { name: 'Forget', exact: true })
+        .click();
+      await expect(page.getByRole('button', { name: 'Join a Remote', exact: true })).toBeFocused();
       expect(await identity()).toEqual(second);
       // A's old fixed-key device record remains readable and unchanged after a B round trip.
       await page.goto(`${origin}/remote/settings`);
@@ -4756,7 +4781,7 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
     await page.reload();
     await expect(modulePages(page)).toContainText(/connected/i);
     const currentItem = menu.getByRole('link', { name: 'Status · Connected' });
-    const foreignItem = page.getByRole('button', {
+    const foreignItem = page.getByRole('link', {
       name: 'Open desk',
       exact: true,
       includeHidden: true,
@@ -4823,21 +4848,24 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
     // it, as a person does to type the name, then come back.
     await page.mouse.move(1000, 600);
     await menu.hover();
-    await expect(foreignItem).toBeDisabled();
+    await expect(foreignItem).toHaveAttribute('aria-disabled', 'true');
     await expect(foreignItem).toHaveAttribute(
       'title',
       'Save or restore the unsent device name before changing pages.',
     );
-    // The list stays mounted while Devices shows. Dispatch past the disabled DOM control
-    // to prove the navigation handler also fences an unsent name.
-    await foreignItem.evaluate((button) =>
-      button.dispatchEvent(new MouseEvent('click', { bubbles: true })),
-    );
+    // The mounted link has no destination while blocked; a cancelable click also proves
+    // the navigation handler fences an unsent name before the browser default action.
+    await expect(foreignItem).not.toHaveAttribute('href');
+    expect(
+      await foreignItem.evaluate((link) =>
+        link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })),
+      ),
+    ).toBe(false);
     await expect(page).toHaveURL(`${origin}/remote/devices`);
     await ownName.fill('Registry A');
     await page.mouse.move(1000, 600);
     await menu.hover();
-    await expect(foreignItem).toBeEnabled();
+    await expect(foreignItem).toHaveAttribute('aria-disabled', 'false');
     await menu.getByRole('link', { name: 'My Remotes', exact: true }).click();
     await foreignItem.click();
     await expect(
@@ -4849,13 +4877,13 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
     // The import was asked on the settings view, where the remotes are; the connected remote's row
     // is the Status row, lit once that view shows.
     await expect(page).toHaveURL(`${secondOrigin}/remote/settings`);
-    await page.getByRole('button', { name: 'Open desk', exact: true }).click();
+    await page.getByRole('link', { name: 'Open desk', exact: true }).click();
     await expect(menu.getByRole('link', { name: 'Status · Connected' })).toHaveAttribute(
       'aria-current',
       'page',
     );
     await menu.getByRole('link', { name: 'My Remotes', exact: true }).click();
-    await page.getByRole('button', { name: 'Open studio', exact: true }).click();
+    await page.getByRole('link', { name: 'Open studio', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(page.locator('#state-label')).toHaveText('Connected');

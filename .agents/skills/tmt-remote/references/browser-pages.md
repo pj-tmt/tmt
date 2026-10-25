@@ -79,7 +79,10 @@ Foreign entries show `◌ Not checked` and are never probed. Current access reus
 existing observation and grants no additional authority. Create a Remote and Join a Remote
 link to the existing machine/connect guidance until their dedicated flows ship.
 
-Add, rename, browser-local Forget and confirmed collision-aware import follow the
+Create is the primary page-head action; Join contains invitation guidance and remembering an
+address. Row titles open their Remote; the shared overflow menu owns Rename and destructive
+Forget, while passive chips show role and this-machine context. Add, rename, browser-local
+Forget and confirmed collision-aware import follow the
 [browser registry contract](../../../../contracts/remote-channel-v1.md#browser-remote-registry).
 Forget states that access is unchanged and offers Undo, which re-adds only the public reference
 through the same collision/CAS checks. Handoff fragments are erased before admission. Registry

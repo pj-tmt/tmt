@@ -206,7 +206,15 @@ class Element {
   parent: Element | undefined;
   connected = false;
   dataset: Record<string, string> = {};
-  textContent = '';
+  #text = '';
+  get textContent(): string {
+    return this.#text + this.children.map((child) => child.textContent).join('');
+  }
+  set textContent(value: string) {
+    this.#text = value;
+    for (const child of this.children) child.parent = undefined;
+    this.children = [];
+  }
   className = '';
   type = '';
   value = '';
@@ -292,8 +300,8 @@ async function registryPage() {
   const body = new Element('body', page);
   body.connected = true;
   const ids = new Map<string, Element>();
-  for (const id of ['remotes', 'remote-list', 'remote-status', 'remote-add']) {
-    const node = new Element(id === 'remote-add' ? 'button' : 'section', page);
+  for (const id of ['remotes', 'remote-list', 'remote-status', 'remote-join']) {
+    const node = new Element('section', page);
     ids.set(id, node);
     body.append(node);
   }
@@ -331,6 +339,36 @@ async function registryPage() {
     },
   }));
   vi.doMock('../src/remote-menu.js', () => ({ remoteMenu: () => () => {} }));
+  // Menu interactions/keyboard/focus use the real shared host in Chromium; this fixture owns
+  // the registry dialog's validation lifetime and observation updates only.
+  vi.doMock('@tmt/browser-ui/menu-host', () => ({
+    mountBrowserMenu: (
+      container: HTMLElement,
+      options: import('@tmt/browser-ui/menu-host').BrowserMenuHostOptions<string>,
+    ) => {
+      const trigger = document.createElement('button');
+      trigger.textContent = options.triggerText ?? options.label;
+      container.append(trigger);
+      for (const item of options.items) {
+        const choice = document.createElement('button');
+        choice.textContent = item.label;
+        choice.addEventListener('click', () =>
+          options.onSelect(item.key, new Event('click') as MouseEvent),
+        );
+        container.append(choice);
+      }
+      return {
+        open() {},
+        close() {
+          trigger.focus();
+        },
+        update() {},
+        dispose() {
+          container.replaceChildren();
+        },
+      };
+    },
+  }));
   const { remoteRegistryPage } = await vi.importActual<
     typeof import('../src/remote-registry-page.js')
   >('../src/remote-registry-page.js');
@@ -344,7 +382,7 @@ async function registryPage() {
     page,
     list: ids.get('remote-list')!,
     observe,
-    add: ids.get('remote-add')!,
+    add: ids.get('remote-join')!.button('Remember a Remote'),
     dialogs,
     title,
     validations,
@@ -357,6 +395,7 @@ async function registryPage() {
 function cleanUp() {
   vi.doUnmock('../src/remote-registry.js');
   vi.doUnmock('../src/remote-menu.js');
+  vi.doUnmock('@tmt/browser-ui/menu-host');
   vi.unstubAllGlobals();
   vi.resetModules();
 }
@@ -416,11 +455,11 @@ test('registry observations retain the focused row control and never guess a rol
   const view = await registryPage();
   try {
     const row = view.list.children[0]!;
-    const open = row.button('Open');
+    const open = row.querySelector('[data-action="open"]')!;
     open.focus();
     view.observe('Offline');
     assert.equal(view.list.children[0], row);
-    assert.equal(row.button('Open'), open);
+    assert.equal(row.querySelector('[data-action="open"]'), open);
     assert.equal(view.page.focused, open);
     assert.equal(row.querySelector('.tmt-ui-list-state')!.textContent, '✗ Offline');
     assert.equal(row.querySelector('[data-role]')!.textContent, 'Role unknown');

@@ -1,6 +1,7 @@
 import { remoteShell, type RemoteShell } from './remote-shell.js';
 import { remoteMenu } from './remote-menu.js';
 import type { ViewerRole } from './remote-state.js';
+import { mountBrowserMenu, type BrowserMenuHost } from '@tmt/browser-ui/menu-host';
 import { createIcon } from '@tmt/browser-ui/glyph';
 import { browserUiClasses } from '@tmt/browser-ui/static';
 /** Remote pages' public-reference consumer. It never probes a foreign origin or shares a key. */
@@ -18,8 +19,12 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, text = ''): HTMLEle
   result.textContent = text;
   return result;
 }
-function action(text: string, run: () => void): HTMLButtonElement {
-  const button = node('button', text);
+function action(text: string, run: () => void, variant?: 'destructive'): HTMLButtonElement {
+  const button = node('button');
+  const label = node('span', text);
+  label.className = browserUiClasses.actionLabel;
+  button.append(label);
+  if (variant) button.dataset.variant = variant;
   button.type = 'button';
   button.className = 'tmt-ui-action';
   button.addEventListener('click', run);
@@ -67,7 +72,30 @@ export function remoteRegistryPage(
   if (fragment) history.replaceState(null, '', location.pathname + location.search);
   const list = document.getElementById('remote-list')!;
   const status = document.getElementById('remote-status')!;
-  const add = document.getElementById('remote-add') as HTMLButtonElement;
+  const joinHost = document.getElementById('remote-join')!;
+  const joinMenu = mountBrowserMenu(joinHost, {
+    label: 'Join a Remote',
+    triggerText: 'Join a Remote',
+    items: [
+      { key: 'invite', label: 'Join with an invitation' },
+      { key: 'address', label: 'Remember a Remote', separated: true },
+    ],
+    onSelect: (key) => {
+      if (key === 'address') openAdd();
+      else
+        (shell ?? remoteShell())?.navigate(new URL('connect', new URL('./', location.href)).href);
+    },
+  });
+  const join = joinHost.querySelector<HTMLButtonElement>('button')!;
+  let rowMenus: Pick<BrowserMenuHost, 'dispose'>[] = [];
+  (shell ?? remoteShell())?.signal.addEventListener(
+    'abort',
+    () => {
+      joinMenu.dispose();
+      rowMenus.forEach((item) => item.dispose());
+    },
+    { once: true },
+  );
   let observed = 'Checking';
   let observedRole: ViewerRole | undefined;
   let address: string | undefined =
@@ -152,7 +180,7 @@ export function remoteRegistryPage(
         box.remove();
         if (currentDialog === box) {
           currentDialog = undefined;
-          (opener.isConnected ? opener : add).focus();
+          (opener.isConnected ? opener : join).focus();
         }
       },
       { once: true },
@@ -183,7 +211,7 @@ export function remoteRegistryPage(
     }
   };
   const importView = (plan: ImportPlan): void => {
-    const view = dialog('Add these remotes to this browser?', add);
+    const view = dialog('Add these remotes to this browser?', join);
     view.body.append(
       node('p', 'Only names and addresses are copied. No keys, pairings or drafts.'),
     );
@@ -267,23 +295,27 @@ export function remoteRegistryPage(
       node('p', 'This only removes the entry here. It does not sign out or revoke access.'),
     );
     view.buttons.append(
-      action('Forget', () => {
-        void save(() => remoteRegistry.remove(entry.name), view).then((saved) => {
-          if (!saved) return;
-          status.replaceChildren(
-            node('span', `Forgot ${entry.name} in this browser. Access is unchanged. `),
-            action('Undo', () => {
-              void remoteRegistry
-                .add(entry.name, entry.url)
-                .then(async () => {
-                  await render();
-                  status.textContent = `Restored ${entry.name}.`;
-                })
-                .catch((error: unknown) => showError(error, status));
-            }),
-          );
-        });
-      }),
+      action(
+        'Forget',
+        () => {
+          void save(() => remoteRegistry.remove(entry.name), view).then((saved) => {
+            if (!saved) return;
+            status.replaceChildren(
+              node('span', `Forgot ${entry.name} in this browser. Access is unchanged. `),
+              action('Undo', () => {
+                void remoteRegistry
+                  .add(entry.name, entry.url)
+                  .then(async () => {
+                    await render();
+                    status.textContent = `Restored ${entry.name}.`;
+                  })
+                  .catch((error: unknown) => showError(error, status));
+              }),
+            );
+          });
+        },
+        'destructive',
+      ),
       action('Cancel', view.end),
     );
     view.box.showModal();
@@ -309,17 +341,28 @@ export function remoteRegistryPage(
     ) {
       for (const [index, row] of existing.entries()) {
         const entry = projection.rows[index]!;
-        row.querySelector<HTMLElement>('[data-role]')!.textContent = entry.roleLabel;
+        const role = row.querySelector<HTMLElement>('[data-role]')!;
+        role.querySelector<HTMLElement>('.tmt-ui-chip-label')!.textContent = entry.roleLabel;
+        role.dataset.roleTone =
+          entry.roleLabel === 'Admin'
+            ? 'selected'
+            : entry.roleLabel === 'Role unknown'
+              ? 'muted'
+              : 'neutral';
         const state = row.querySelector<HTMLElement>('.tmt-ui-list-state')!;
         state.textContent = `${entry.connection.mark} ${entry.connection.text}`;
         state.dataset.tone = entry.connection.tone;
-        const open = row.querySelector<HTMLButtonElement>('[data-action="open"]')!;
-        open.disabled = !entry.thisMachine && !!blocked();
+        const open = row.querySelector<HTMLAnchorElement>('[data-action="open"]')!;
+        open.setAttribute('aria-disabled', String(!entry.thisMachine && !!blocked()));
+        if (!entry.thisMachine && blocked()) open.removeAttribute('href');
+        else open.href = entry.thisMachine ? new URL('./', location.href).href : entry.url;
         open.title = !entry.thisMachine ? blocked() : '';
       }
       menu(projection);
       return;
     }
+    rowMenus.forEach((item) => item.dispose());
+    rowMenus = [];
     list.replaceChildren(
       ...projection.rows.map((entry) => {
         const row = node('li');
@@ -334,30 +377,18 @@ export function remoteRegistryPage(
         leading.append(createIcon(entry.backend === 'Local' ? 'terminal' : 'box'));
         const title = node('div');
         title.className = browserUiClasses.listTitle;
-        const label = node('span', entry.name);
-        label.className = browserUiClasses.listLabel;
-        if (entry.thisMachine && entry.name !== 'This machine') {
-          const here = node('span', 'This machine');
-          here.className = browserUiClasses.chip;
-          label.append(here);
-        }
-        const description = node(
-          'span',
-          `${entry.backend}${entry.project ? ` · ${entry.project}` : ''} · ${entry.url}`,
-        );
-        description.className = browserUiClasses.listDescription;
-        title.append(label, description);
-        const meta = node('div');
-        meta.className = browserUiClasses.listMeta;
-        const role = node('span', entry.roleLabel);
-        role.dataset.role = '';
-        const state = node('div', `${entry.connection.mark} ${entry.connection.text}`);
-        state.className = browserUiClasses.listState;
-        state.dataset.tone = entry.connection.tone;
-        meta.append(role, state);
-        const actions = node('div');
-        actions.className = browserUiClasses.listActions;
-        const open = action('Open', () => {
+        const label = node('span');
+        label.className = `${browserUiClasses.listLabel} remote-label`;
+        const open = node('a', entry.name);
+        open.href = entry.thisMachine ? new URL('./', location.href).href : entry.url;
+        open.dataset.action = 'open';
+        open.setAttribute('role', 'link');
+        open.setAttribute('aria-label', `Open ${entry.name}`);
+        open.setAttribute('aria-disabled', String(!entry.thisMachine && !!blocked()));
+        if (!entry.thisMachine && blocked()) open.removeAttribute('href');
+        open.title = !entry.thisMachine ? blocked() : '';
+        open.addEventListener('click', (event) => {
+          event.preventDefault();
           if (entry.thisMachine) {
             (shell ?? remoteShell())?.navigate(new URL('./', location.href).href);
             return;
@@ -371,21 +402,57 @@ export function remoteRegistryPage(
             }
           })();
         });
-        open.dataset.action = 'open';
-        open.dataset.variant = 'text';
-        open.setAttribute('aria-label', `Open ${entry.name}`);
-        open.disabled = !entry.thisMachine && !!blocked();
-        open.title = !entry.thisMachine ? blocked() : '';
-        actions.append(open);
+        label.append(open);
+        const chip = (text: string) => {
+          const box = node('span');
+          box.className = browserUiClasses.chip;
+          const value = node('span', text);
+          value.className = browserUiClasses.chipLabel;
+          box.append(value);
+          return box;
+        };
+        if (entry.thisMachine && entry.name !== 'This machine') label.append(chip('This machine'));
+        const role = chip(entry.roleLabel);
+        role.className += ' remote-role';
+        role.dataset.role = '';
+        role.dataset.roleTone =
+          entry.roleLabel === 'Admin'
+            ? 'selected'
+            : entry.roleLabel === 'Role unknown'
+              ? 'muted'
+              : 'neutral';
+        label.append(role);
+        const description = node(
+          'span',
+          `${entry.backend}${entry.project ? ` · ${entry.project}` : ''} · ${entry.url}`,
+        );
+        description.className = browserUiClasses.listDescription;
+        title.append(label, description);
+        const meta = node('div');
+        meta.className = browserUiClasses.listMeta;
+        const state = node('div', `${entry.connection.mark} ${entry.connection.text}`);
+        state.className = browserUiClasses.listState;
+        state.dataset.tone = entry.connection.tone;
+        meta.append(state);
+        const actions = node('div');
+        actions.className = browserUiClasses.listActions;
         if (entry.reference) {
           const reference = entry.reference;
-          const renameButton = action('Rename', () => rename(reference, renameButton));
-          const removeButton = action('Forget', () => remove(reference, removeButton));
-          renameButton.dataset.variant = 'text';
-          removeButton.dataset.variant = 'text';
-          renameButton.setAttribute('aria-label', `Rename ${entry.name}`);
-          removeButton.setAttribute('aria-label', `Forget ${entry.name}`);
-          actions.append(renameButton, removeButton);
+          const destructive = node('span', 'Forget');
+          destructive.className = 'remote-forget';
+          const rowMenu = mountBrowserMenu(actions, {
+            label: `Actions for ${entry.name}`,
+            items: [
+              { key: 'rename', label: 'Rename' },
+              { key: 'forget', label: 'Forget', content: destructive, separated: true },
+            ],
+            onSelect: (key) => {
+              const opener = actions.querySelector<HTMLButtonElement>('button')!;
+              if (key === 'rename') rename(reference, opener);
+              else remove(reference, opener);
+            },
+          });
+          rowMenus.push(rowMenu);
         }
         row.append(leading, title, meta, actions);
         return row;
@@ -401,8 +468,8 @@ export function remoteRegistryPage(
       showError(error, status);
     }
   };
-  add.addEventListener('click', () => {
-    const view = dialog('Add remote', add);
+  function openAdd(): void {
+    const view = dialog('Add remote', join);
     const alias = field('Remote name', '');
     const url = field('Remote address or link', '');
     view.body.append(alias.label, url.label);
@@ -414,19 +481,19 @@ export function remoteRegistryPage(
             // a later opening.
             if (currentDialog !== view.box || !view.box.open || !view.box.isConnected) return;
             view.end();
-            confirmAdd(entry, add);
+            confirmAdd(entry, join);
           })
           .catch((error: unknown) => showError(error, view.message));
       }),
       action('Cancel', view.end),
     );
     view.box.showModal();
-  });
+  }
   void render().then(() => {
-    if (fragment === '#add-remote') add.click();
+    if (fragment === '#add-remote') openAdd();
     else if (fragment === '#remotes') {
       root.scrollIntoView();
-      add.focus({ preventScroll: true });
+      join.focus({ preventScroll: true });
     }
   });
   const receive = (value: string): void => {
