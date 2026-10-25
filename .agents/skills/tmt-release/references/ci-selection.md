@@ -349,7 +349,8 @@ Retention lives inside `--output`. After a complete tick has written its cursor,
 cached `evidence/<sha256>.json` files that are older than 48 hours, not named in
 `cursor.json` and not read by that tick, then the oldest unprotected ones while the rest
 exceeds 50 MB. It touches only regular files with that name, never links. An
-`INCOMPLETE` or refused tick prunes nothing. Each run first keeps `calls.jsonl` to the
+`INCOMPLETE` or refused tick prunes nothing, and a pruning failure is reported as
+skipped without changing the complete tick. Each run first keeps `calls.jsonl` to the
 invocations of the previous 24 hours (at most 20,000 lines). `summary.*` reports only
 the counts of pruned and kept files.
 

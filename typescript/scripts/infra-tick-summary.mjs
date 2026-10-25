@@ -1442,13 +1442,20 @@ function main() {
       );
       renameSync(temporary, cursor);
       // Only a complete tick prunes, after its cursor names what the next tick still needs.
-      report.retention = pruneTickEvidence(values.output, { keep: api.evidence().files });
+      // Pruning is best effort: its failure never turns the complete tick into a refusal.
+      let retention;
+      try {
+        report.retention = pruneTickEvidence(values.output, { keep: api.evidence().files });
+        retention = `\nEvidence retention: pruned ${report.retention.prunedFiles} files (${report.retention.prunedBytes} bytes); kept ${report.retention.keptFiles} files (${report.retention.keptBytes} bytes).\n`;
+      } catch (error) {
+        report.retention = { skipped: redactCredentials(error.message) };
+        retention = `\nEvidence retention skipped: ${report.retention.skipped}\n`;
+      }
       writeFileSync(
         path.join(values.output, 'summary.json'),
         redactCredentials(JSON.stringify(report, null, 2) + '\n'),
         { mode: 0o600 }
       );
-      const retention = `\nEvidence retention: pruned ${report.retention.prunedFiles} files (${report.retention.prunedBytes} bytes); kept ${report.retention.keptFiles} files (${report.retention.keptBytes} bytes).\n`;
       appendFileSync(path.join(values.output, 'summary.md'), retention, { mode: 0o600 });
       process.stdout.write(retention);
     } else process.exitCode = 1;

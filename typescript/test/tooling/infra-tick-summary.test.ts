@@ -1798,6 +1798,27 @@ else if(endpoint.includes('/pulls?')){
       test.cleanup();
     }
   });
+  it('a retention failure after the cursor is written leaves the tick complete', () => {
+    const test = volume(0);
+    const elsewhere = mkdtempSync(path.join(os.tmpdir(), 'tick-elsewhere-'));
+    try {
+      // The evidence directory is a link out of the output: pruning refuses it.
+      symlinkSync(elsewhere, path.join(test.directory, 'evidence'));
+      const result = test.invoke();
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      const report = test.report();
+      expect(report.complete).toBe(true);
+      expect(report.retention).toEqual({ skipped: 'Tick evidence is not a directory.' });
+      expect(JSON.parse(test.currentCursor()).until).toBe(options.until);
+      expect(result.stdout).toContain(
+        'Evidence retention skipped: Tick evidence is not a directory.'
+      );
+      expect(result.stdout).not.toContain('refused');
+    } finally {
+      test.cleanup();
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
   it('a complete tick prunes stale unreferenced evidence; a refused tick leaves every file', () => {
     const old = new Date(Date.now() - 72 * 60 * 60_000);
     const stale = (test: { directory: string }, name: string) => {

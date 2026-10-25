@@ -49,8 +49,10 @@ export interface TickReport {
   until: string;
   coverage: string;
   complete: boolean;
-  /** Present after a complete tick: what pruning its evidence removed and kept. */
-  retention?: { prunedFiles: number; prunedBytes: number; keptFiles: number; keptBytes: number };
+  /** Present after a complete tick: what pruning its evidence removed and kept, or why it was skipped. */
+  retention?:
+    | { prunedFiles: number; prunedBytes: number; keptFiles: number; keptBytes: number }
+    | { skipped: string };
   anomalies: ({ kind: string } & Record<string, unknown>)[];
   health: { created24h: number; createdSinceTick: number };
   baseline: string;
