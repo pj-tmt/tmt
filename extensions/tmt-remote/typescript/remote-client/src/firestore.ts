@@ -1,4 +1,5 @@
 /** Strict browser projection of the existing Remote readiness table; no provider I/O. */
+import commands from '../../../rust/tmt-remote/assets/service-commands.json' with { type: 'json' };
 export type FirestoreState = 'enabled' | 'not-enabled' | 'unknown';
 export interface FirestorePrerequisite {
   item: string;
@@ -26,11 +27,7 @@ export const firestoreItems: Record<string, string> = {
   support: 'Availability in this release',
 };
 /** Copy-only references; the browser never submits these commands. */
-export const serviceCommands = {
-  status: 'tmt remote status --layers',
-  preview:
-    "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json",
-} as const;
+export const serviceCommands = Object.freeze(commands);
 const deploy = 'tmt remote deploy firestore';
 // Reason vocabulary follows readiness::ROWS; copy is fixed, never provider text.
 export const firestoreReasons: Record<string, Record<string, [string, boolean, string?]>> = {

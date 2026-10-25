@@ -202,7 +202,8 @@ sharing status's saved evidence and dated published limits. Backend and add-on a
 come from that observation; unsupported add-ons remain unavailable, including paid file
 storage until it ships. Cloudflare is coming soon. Missing deployed/required version, plan
 and permission observations stay **Not checked**. Copy-only references use `status --layers`
-and a `deploy firestore --defaults --json` preview without `--authorize`; they run only when
+and a `deploy firestore --defaults --json` preview without `--authorize`, from the single
+`assets/service-commands.json` catalog shared with the native parser proof; they run only when
 the person copies them into this machine's terminal. Provider-console links explain where
 to review project setup, permissions and billing. Refresh values rereads this machine's
 saved facts after the person acts; it is not a live provider check. No browser execute or

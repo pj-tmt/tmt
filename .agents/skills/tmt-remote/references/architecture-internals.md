@@ -330,7 +330,9 @@ revalidates the current browser grant before disclosure. Only the explicit opt-i
 layer/budget members; ordinary settings and status shapes remain unchanged. Browser display
 uses strict typed projections, not another provider or readiness engine. Service & upgrade
 keeps absent version/plan/permission facts explicitly unchecked; its terminal references
-are copy-only and omit deployment authorization. Add-on availability and dated budgets
+are copy-only and omit deployment authorization. The UI and native parser proof consume
+one product-owned `assets/service-commands.json` catalog, keeping isolated Rust inputs
+inside the existing asset closure. Add-on availability and dated budgets
 retain the existing observation owner. Optional failure
 clears old evidence independently of management access and original-effect outcome ownership.
 

@@ -1645,31 +1645,15 @@ mod tests {
 
     #[test]
     fn service_copy_commands_round_trip_without_deployment_authorization() {
-        // Read the actual printed references, not a second independently copied command list.
-        let source = include_str!("../../../typescript/remote-client/src/firestore.ts");
-        let references = source
-            .split_once("export const serviceCommands = {")
-            .unwrap()
-            .1
-            .split_once("} as const;")
-            .unwrap()
-            .0;
-        let status = references
-            .lines()
-            .find_map(|line| {
-                line.trim()
-                    .strip_prefix("status: '")
-                    .and_then(|line| line.strip_suffix("',"))
-            })
-            .unwrap();
-        let preview = references
-            .lines()
-            .find_map(|line| {
-                line.trim()
-                    .strip_prefix('"')
-                    .and_then(|line| line.strip_suffix("\","))
-            })
-            .unwrap();
+        // The UI and this proof share product assets already present in isolated Rust builds.
+        let references: std::collections::BTreeMap<&str, &str> =
+            serde_json::from_str(include_str!("../assets/service-commands.json")).unwrap();
+        assert_eq!(
+            references.keys().copied().collect::<Vec<_>>(),
+            ["preview", "status"]
+        );
+        let status = references["status"];
+        let preview = references["preview"];
         for (printed, action) in [(status, "status"), (preview, "deploy")] {
             let argv = tmt_cli_style::Example {
                 command: printed,

@@ -2214,8 +2214,13 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		}
 	});
 }
+var service_commands_default = {
+	status: "tmt remote status --layers",
+	preview: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json"
+};
 //#endregion
 //#region src/firestore.ts
+/** Strict browser projection of the existing Remote readiness table; no provider I/O. */
 var firestoreTitles = {
 	sharing: "Page sharing",
 	operations: "Colab sync",
@@ -2231,10 +2236,7 @@ var firestoreItems = {
 	support: "Availability in this release"
 };
 /** Copy-only references; the browser never submits these commands. */
-var serviceCommands = {
-	status: "tmt remote status --layers",
-	preview: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json"
-};
+var serviceCommands = Object.freeze(service_commands_default);
 var firestoreReasons = {
 	project: {
 		"not-configured": ["No Firebase project is set up.", true],

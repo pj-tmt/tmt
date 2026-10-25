@@ -9072,8 +9072,10 @@ async function boundedAdmission(attempt, signal, clock = runtime) {
 	active(signal);
 	throw new ReopenSessionError(ambiguous ? "unconfirmed" : last.reason, "budget-exhausted");
 }
-//#endregion
-//#region src/firestore.ts
+Object.freeze({
+	status: "tmt remote status --layers",
+	preview: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json"
+});
 var deploy = "tmt remote deploy firestore";
 var firestoreReasons = {
 	project: {
