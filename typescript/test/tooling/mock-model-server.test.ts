@@ -563,3 +563,128 @@ it('accepts the observed Claude HEAD hello without consuming a turn or returning
   expect((await post(server, 'messages')).status).toBe(200);
   expect(server.snapshot().completedTurns).toBe(1);
 });
+
+describe('bounded same-model side requests (#4610)', () => {
+  const prompt = 'fixture input';
+  function options(protocol: ScriptedTextTurn['protocol']) {
+    return {
+      turns: [{ ...turn(protocol), inputText: prompt }],
+      sideRequests: [
+        {
+          method: 'POST' as const,
+          path: `/v1/${protocol}`,
+          maxCalls: 2,
+          unlessLastUserText: prompt,
+          turn: { ...turn(protocol), text: 'Fixed background reply' },
+        },
+      ],
+    };
+  }
+  function different(protocol: ScriptedTextTurn['protocol']) {
+    return {
+      ...body(protocol),
+      tools: [],
+      ...(protocol === 'messages'
+        ? { messages: [{ role: 'user', content: 'A synthetic background task' }] }
+        : { input: 'A synthetic background task' }),
+    };
+  }
+  it.each(['messages', 'responses'] as const)(
+    'keeps %s side calls separate before and after the one scripted turn',
+    async (protocol) => {
+      const server = await startMockModelServer(options(protocol));
+      servers.push(server);
+      const first = await post(server, protocol, different(protocol));
+      expect(first.status).toBe(200);
+      expect(await first.text()).toContain('Fixed background reply');
+      expect(server.snapshot()).toMatchObject({ sideRequestsSeen: 1, completedTurns: 0 });
+      expect((await post(server, protocol)).status).toBe(200);
+      expect(server.snapshot()).toMatchObject({ sideRequestsSeen: 1, completedTurns: 1 });
+      expect((await post(server, protocol, different(protocol))).status).toBe(200);
+      expect(server.snapshot()).toMatchObject({ sideRequestsSeen: 2, completedTurns: 1 });
+      expect(JSON.stringify(server.snapshot())).not.toContain('A synthetic background task');
+      expect((await post(server, protocol, different(protocol))).status).toBe(429);
+      expect(server.snapshot().failure?.code).toBe('MOCK_SIDE_LIMIT');
+    }
+  );
+  it.each(['messages', 'responses'] as const)(
+    'never classifies a %s request carrying tools as a background side call',
+    async (protocol) => {
+      const server = await startMockModelServer(options(protocol));
+      servers.push(server);
+      const response = await post(server, protocol, {
+        ...different(protocol),
+        tools: [{ name: 'forbidden-tool' }],
+      });
+      expect(response.status).toBe(409);
+      expect(server.snapshot()).toMatchObject({ completedTurns: 0, sideRequestsSeen: 0 });
+      expect(server.snapshot().failure?.code).toBe('MOCK_TURN_INPUT');
+    }
+  );
+  it.each(['messages', 'responses'] as const)(
+    'refuses opaque %s last-user content instead of treating it as a side call',
+    async (protocol) => {
+      const server = await startMockModelServer(options(protocol));
+      servers.push(server);
+      const content = [{ type: 'image_url', image_url: 'fixture.invalid' }];
+      const request = {
+        ...body(protocol),
+        ...(protocol === 'messages'
+          ? { messages: [{ role: 'user', content }] }
+          : { input: [{ role: 'user', content }] }),
+      };
+      expect((await post(server, protocol, request)).status).toBe(409);
+      expect(server.snapshot()).toMatchObject({ completedTurns: 0, sideRequestsSeen: 0 });
+    }
+  );
+  it('requires matching explicit scripted input and at most two side calls', async () => {
+    const unowned = options('messages');
+    delete (unowned.turns[0] as Partial<ScriptedTextTurn> & { inputText?: string }).inputText;
+    await expect(startMockModelServer(unowned)).rejects.toThrow('MOCK_CONFIG');
+    const tooMany = options('messages');
+    tooMany.sideRequests[0].maxCalls = 3;
+    await expect(startMockModelServer(tooMany)).rejects.toThrow('MOCK_CONFIG');
+  });
+  it.each(['messages', 'responses'] as const)(
+    'matches plain %s user text blocks without consuming a side allowance',
+    async (protocol) => {
+      const server = await startMockModelServer(options(protocol));
+      servers.push(server);
+      const content = [{ type: protocol === 'messages' ? 'text' : 'input_text', text: prompt }];
+      const request = {
+        ...body(protocol),
+        ...(protocol === 'messages'
+          ? {
+              messages: [
+                { role: 'user', content },
+                { role: 'assistant', content: 'Older output' },
+              ],
+            }
+          : {
+              input: [
+                { role: 'user', content },
+                { role: 'assistant', content: 'Older output' },
+              ],
+            }),
+      };
+      expect((await post(server, protocol, request)).status).toBe(200);
+      expect(server.snapshot()).toMatchObject({ completedTurns: 1, sideRequestsSeen: 0 });
+    }
+  );
+  it('refuses empty user text instead of treating it as a background request', async () => {
+    const server = await startMockModelServer(options('responses'));
+    servers.push(server);
+    expect((await post(server, 'responses', { ...body('responses'), input: '   ' })).status).toBe(
+      409
+    );
+    expect(server.snapshot()).toMatchObject({ completedTurns: 0, sideRequestsSeen: 0 });
+  });
+  it('requires the scripted turn input even without side-call declarations', async () => {
+    const server = await startMockModelServer({
+      turns: [{ ...turn('messages'), inputText: prompt }],
+    });
+    servers.push(server);
+    expect((await post(server, 'messages', different('messages'))).status).toBe(409);
+    expect(server.snapshot().completedTurns).toBe(0);
+  });
+});

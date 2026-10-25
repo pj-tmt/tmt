@@ -3,6 +3,8 @@ export interface ScriptedTextTurn {
   protocol: 'messages' | 'responses';
   model: string;
   text: string;
+  /** Optional exact last-user text; a mismatch cannot consume this turn. */
+  inputText?: string;
   inputTokens: number;
   outputTokens: number;
   /** Messages cache reads are separate from input; Responses caches are a subset. */
@@ -20,8 +22,14 @@ export type DeclaredSideRequest = {
   path: string;
   maxCalls: number;
 } & (
-  | { model?: string; response: JsonValue; turn?: never }
-  | { turn: ScriptedTextTurn; response?: never; model?: never }
+  | { model?: string; response: JsonValue; turn?: never; unlessLastUserText?: never }
+  | {
+      turn: ScriptedTextTurn;
+      response?: never;
+      model?: never;
+      /** At most two tool-free side calls with plain last-user text different from this input. */
+      unlessLastUserText?: string;
+    }
 );
 export interface MockModelSnapshot {
   requestsSeen: number;

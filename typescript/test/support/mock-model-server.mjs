@@ -18,10 +18,36 @@ function validModel(model) {
   return typeof model === 'string' && /^[a-zA-Z0-9_.:-]{1,128}$/.test(model);
 }
 
+function validInputText(text) {
+  return typeof text === 'string' && text.trim().length > 0 && Buffer.byteLength(text) <= 8192;
+}
+
+function lastUserText(input) {
+  if (typeof input === 'string') return input.trim() || undefined;
+  const content = input.findLast((item) => item?.role === 'user')?.content;
+  if (typeof content === 'string') return content.trim() || undefined;
+  if (
+    !Array.isArray(content) ||
+    !content.length ||
+    content.some(
+      (part) => !['text', 'input_text'].includes(part?.type) || typeof part.text !== 'string'
+    )
+  )
+    return undefined;
+  return (
+    content
+      .map((part) => part.text)
+      .join('\n')
+      .trim() || undefined
+  );
+}
+
 function compileTurn(turn, index) {
   if (!turn || !['messages', 'responses'].includes(turn.protocol))
     throw new Error('MOCK_CONFIG: unsupported turn protocol');
   if (!validModel(turn.model)) throw new Error('MOCK_CONFIG: invalid model');
+  if (turn.inputText !== undefined && !validInputText(turn.inputText))
+    throw new Error('MOCK_CONFIG: inputText must be nonempty and at most 8192 UTF-8 bytes');
   if (typeof turn.text !== 'string' || Buffer.byteLength(turn.text) > 8192)
     throw new Error('MOCK_CONFIG: text must be at most 8192 UTF-8 bytes');
   for (const name of ['inputTokens', 'outputTokens', 'cachedInputTokens']) {
@@ -122,7 +148,7 @@ function compileTurn(turn, index) {
     .map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
     .join('');
   if (Buffer.byteLength(wire) > 65536) throw new Error('MOCK_CONFIG: response exceeds 65536 bytes');
-  return { protocol, model, wire, json: JSON.stringify(result) };
+  return { protocol, model, inputText: turn.inputText?.trim(), wire, json: JSON.stringify(result) };
 }
 
 function compileSideRequest(side, index) {
@@ -139,8 +165,22 @@ function compileSideRequest(side, index) {
     const turn = compileTurn(side.turn, 1000 + index);
     if (side.method !== 'POST' || side.path !== `/v1/${turn.protocol}` || 'response' in side)
       throw new Error('MOCK_CONFIG: side text must match its protocol POST route');
-    return { ...side, turn, model: turn.model, maxCalls, calls: 0 };
+    if (
+      side.unlessLastUserText !== undefined &&
+      (!validInputText(side.unlessLastUserText) || maxCalls > 2)
+    )
+      throw new Error('MOCK_CONFIG: discriminated side text needs an input and at most two calls');
+    return {
+      ...side,
+      unlessLastUserText: side.unlessLastUserText?.trim(),
+      turn,
+      model: turn.model,
+      maxCalls,
+      calls: 0,
+    };
   }
+  if (side.unlessLastUserText !== undefined)
+    throw new Error('MOCK_CONFIG: input discrimination requires a text-turn side reply');
   if (['/v1/messages', '/v1/responses'].includes(side.path))
     throw new Error('MOCK_CONFIG: model routes need a text-turn reply');
   let json;
@@ -183,6 +223,13 @@ export async function startMockModelServer({
   const sides = sideRequests.map(compileSideRequest);
   const routes = [];
   for (const side of sides) {
+    const ownedTurns = side.turn && queues.get(key(side.turn.protocol, side.model));
+    const discriminated = side.unlessLastUserText !== undefined;
+    if (
+      discriminated &&
+      (!ownedTurns || ownedTurns.some((turn) => turn.inputText !== side.unlessLastUserText))
+    )
+      throw new Error('MOCK_CONFIG: discriminated side request needs matching scripted input');
     if (
       routes.some(
         (row) =>
@@ -190,7 +237,7 @@ export async function startMockModelServer({
           row.path === side.path &&
           (row.model === undefined || side.model === undefined || row.model === side.model)
       ) ||
-      (side.turn && queues.has(key(side.turn.protocol, side.model)))
+      (ownedTurns && !discriminated)
     )
       throw new Error('MOCK_CONFIG: duplicate or overlapping side request');
     routes.push(side);
@@ -341,7 +388,15 @@ export async function startMockModelServer({
           : protocol === 'responses' && typeof input === 'string' && input.length > 0)
       )
         return refuse(400, 'MOCK_REQUEST_SHAPE', 'Expected a text-turn request with input');
-      if (side) return sendSide(side, body.stream === true);
+      const userText = lastUserText(input);
+      if (
+        side &&
+        (side.unlessLastUserText === undefined ||
+          (userText !== undefined &&
+            userText !== side.unlessLastUserText &&
+            (body.tools === undefined || (Array.isArray(body.tools) && body.tools.length === 0))))
+      )
+        return sendSide(side, body.stream === true);
       const queue = queues.get(key(protocol, body.model));
       if (!queue) return refuse(409, 'MOCK_TURN_MISMATCH', 'No script for this protocol/model');
       if (!queue.length)
@@ -350,6 +405,8 @@ export async function startMockModelServer({
           'MOCK_SCRIPT_EXHAUSTED',
           'No scripted turn remains for this protocol/model'
         );
+      if (queue[0].inputText !== undefined && userText !== queue[0].inputText)
+        return refuse(409, 'MOCK_TURN_INPUT', 'Last user text does not match the scripted input');
       const turn = queue.shift();
       completedTurns++;
       entry.kind = 'turn';

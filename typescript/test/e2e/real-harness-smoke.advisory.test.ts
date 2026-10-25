@@ -85,6 +85,7 @@ it.each(['claude', 'codex'] as const)(
   async (provider: Provider) => {
     const started = performance.now();
     const marker = `fixture-reply-${randomUUID()}`;
+    const prompt = 'Reply briefly with plain text. Do not use tools.';
     const protocol = provider === 'claude' ? 'messages' : 'responses';
     const model = provider === 'claude' ? 'claude-sonnet-4-6' : 'gpt-5.4';
     const report: Record<string, unknown> = {
@@ -94,13 +95,30 @@ it.each(['claude', 'codex'] as const)(
       sessionCondition: 'not yet proven',
     };
     const mock = await startMockModelServer({
-      turns: [{ protocol, model, text: marker, inputTokens: 12, outputTokens: 8 }],
+      turns: [
+        { protocol, model, inputText: prompt, text: marker, inputTokens: 12, outputTokens: 8 },
+      ],
       sessionSource: provider === 'claude' ? 'claude-code-2.1.285' : 'codex-0.160.0',
-      // Observed in hosted run 40072755557; no other side route is assumed.
-      sideRequests:
-        provider === 'claude'
-          ? [{ method: 'HEAD', path: '/api/hello', maxCalls: 1, response: {} }]
-          : [],
+      // Same-model calls persisted after config changes in run 40156690277.
+      // Core approved this bounded, tool-free discriminator; no prompt enters the census.
+      sideRequests: [
+        ...(provider === 'claude'
+          ? [{ method: 'HEAD' as const, path: '/api/hello', maxCalls: 1, response: {} }]
+          : []),
+        {
+          method: 'POST',
+          path: `/v1/${protocol}`,
+          maxCalls: 2,
+          unlessLastUserText: prompt,
+          turn: {
+            protocol,
+            model,
+            text: 'Fixture background reply',
+            inputTokens: 4,
+            outputTokens: 4,
+          },
+        },
+      ],
     });
     try {
       await withE2EFixture(async (fixture) => {
@@ -154,7 +172,6 @@ it.each(['claude', 'codex'] as const)(
             'approval_policy = "never"',
             'approvals_reviewer = "user"',
             'model_reasoning_summary = "none"',
-            'model_supports_reasoning_summaries = false',
             'sandbox_mode = "danger-full-access"',
             'check_for_update_on_startup = false',
             'cli_auth_credentials_store = "ephemeral"',
@@ -203,18 +220,57 @@ it.each(['claude', 'codex'] as const)(
         // A plain text turn needs no permission bypass. Supply initial input
         // at launch instead of requiring SessionStart before a first user prompt.
         // The response marker is never typed, so input echo cannot satisfy proof.
-        submit(
-          fixture,
-          pane,
-          ['run', name, provider, ...args, 'Reply briefly with plain text. Do not use tools.'],
-          status,
-          env
-        );
+        submit(fixture, pane, ['run', name, provider, ...args, prompt], status, env);
         try {
           let identity: ListedIdentity | undefined;
           await expect
             .poll(
               async () => {
+                if (
+                  provider === 'codex' &&
+                  !report.processTree &&
+                  mock.snapshot().completedTurns > 0
+                ) {
+                  // Core requested ancestor-name evidence after the decoder probe passed.
+                  // This runs only in the isolated container and retains this pane's descendants.
+                  // Attempt this diagnostic once, even if ps itself fails.
+                  report.processTree = { error: 'HARNESS_PROCESS_CAPTURE_INCOMPLETE' };
+                  try {
+                    const panePid = Number(
+                      fixture.tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']).trim()
+                    );
+                    const rows = execFileSync('ps', ['-eo', 'pid=,ppid=,comm=,args='], {
+                      encoding: 'utf8',
+                      timeout: 2000,
+                      maxBuffer: 65536,
+                    })
+                      .trim()
+                      .split('\n')
+                      .map((line) => {
+                        const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
+                        if (!match) throw new Error('HARNESS_PROCESS_SHAPE');
+                        return {
+                          pid: Number(match[1]),
+                          ppid: Number(match[2]),
+                          comm: match[3].slice(0, 128),
+                          args: match[4].slice(0, 512),
+                        };
+                      });
+                    const owned = new Set([panePid]);
+                    for (let index = 0; index < rows.length; index++)
+                      for (const row of rows) if (owned.has(row.ppid)) owned.add(row.pid);
+                    const tree = rows.filter((row) => owned.has(row.pid));
+                    if (tree.length > 32) throw new Error('HARNESS_PROCESS_LIMIT');
+                    report.processTree = tree;
+                  } catch (error) {
+                    report.processTree = {
+                      error:
+                        error instanceof Error
+                          ? error.message.slice(0, 512)
+                          : 'HARNESS_PROCESS_CAPTURE_FAILED',
+                    };
+                  }
+                }
                 const result = await fixture.runJsonCli<{ identities: ListedIdentity[] }>(['ls']);
                 identity = result.json?.identities.find((row) => row.name === name);
                 return identity?.resume?.session;

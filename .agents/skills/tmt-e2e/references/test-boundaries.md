@@ -57,6 +57,9 @@ or prompt bodies. Declared side routes/models have fixed replies and per-route
 bounds, are counted separately, and never consume scenario turns; unknown requests
 still refuse. Counts prove replies served, not provider completion. A named refusal
 remains a fixture failure even if later requests arrive. The server never forwards traffic.
+An explicit scripted input may distinguish at most two same-model side calls:
+no tools, plain last-user text different from that input, fixed reply, side census only.
+Opaque content refuses; a mismatched scripted input cannot consume a turn.
 
 Hard ceilings are 16 turns, 16 side declarations (at most 16 calls each), 64 total
 requests, 1 MiB per request, 8 KiB text per turn,
