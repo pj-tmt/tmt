@@ -1,6 +1,6 @@
 //! All production yrs decoding lives here, reached only by the private child entry.
 use super::*;
-use crate::edit_scale::content_diff;
+use crate::edit_scale::content_hunks;
 use std::io::{Read, Write};
 use yrs::{
     Any, Doc, GetString, Map, MapRef, Out, ReadTxn, Root, StateVector, Text, TextRef, Transact,
@@ -441,24 +441,45 @@ fn prepare_content(
             updates.push(tx.encode_update_v1());
         } else {
             let old = before["html"].as_str().ok_or(DecodeFault::Rejected)?;
-            let (start, end) = content_diff(old, &wire.source);
-            let mut rest = &wire.source[start..wire.source.len() - end];
             let html = doc.get_or_insert_text("html");
             let meta = doc.get_or_insert_map("meta");
-            let mut first = true;
-            let mut offset = start;
-            while first || !rest.is_empty() {
-                let mut cut = rest.len().min(CREATE_CHUNK_BYTES);
-                while !rest.is_char_boundary(cut) {
-                    cut -= 1;
-                }
-                let (piece, tail) = rest.split_at(cut);
-                let mut tx = doc.transact_mut();
-                if first {
-                    let remove = old.len() - start - end;
-                    if remove > 0 {
-                        html.remove_range(&mut tx, start as u32, remove as u32);
+            // One step per changed region, last to first so that an edit never moves the offset
+            // of a region before it. A region's new text is cut into steps of at most
+            // CREATE_CHUNK_BYTES, the first of which removes the old text.
+            let mut steps: Vec<(usize, usize, &str)> = Vec::new();
+            for hunk in content_hunks(old, &wire.source).iter().rev() {
+                let (mut at, mut remove, mut rest) = (hunk.start, hunk.remove, hunk.insert);
+                loop {
+                    let mut cut = rest.len().min(CREATE_CHUNK_BYTES);
+                    while !rest.is_char_boundary(cut) {
+                        cut -= 1;
                     }
+                    let (piece, tail) = rest.split_at(cut);
+                    steps.push((at, remove, piece));
+                    (at, remove, rest) = (at + piece.len(), 0, tail);
+                    if rest.is_empty() {
+                        break;
+                    }
+                }
+            }
+            // Steps share an update until their new text would pass the chunk size. A change that
+            // touches only metadata is one update with no step.
+            let mut groups: Vec<Vec<(usize, usize, &str)>> = vec![Vec::new()];
+            let mut inserted = 0;
+            for step in steps {
+                if inserted + step.2.len() > CREATE_CHUNK_BYTES
+                    && !groups[groups.len() - 1].is_empty()
+                {
+                    groups.push(Vec::new());
+                    inserted = 0;
+                }
+                inserted += step.2.len();
+                let last = groups.len() - 1;
+                groups[last].push(step);
+            }
+            for (index, group) in groups.iter().enumerate() {
+                let mut tx = doc.transact_mut();
+                if index == 0 {
                     if before["meta"]["publisherAgent"].as_str() != edit.publisher_agent {
                         if let Some(agent) = edit.publisher_agent {
                             meta.insert(&mut tx, "publisherAgent", agent);
@@ -488,13 +509,15 @@ fn prepare_content(
                         }
                     }
                 }
-                if !piece.is_empty() {
-                    html.insert(&mut tx, offset as u32, piece);
+                for &(at, remove, piece) in group {
+                    if remove > 0 {
+                        html.remove_range(&mut tx, at as u32, remove as u32);
+                    }
+                    if !piece.is_empty() {
+                        html.insert(&mut tx, at as u32, piece);
+                    }
                 }
                 updates.push(tx.encode_update_v1());
-                offset += piece.len();
-                rest = tail;
-                first = false;
             }
         }
         if updates.len() > WRITE_TAIL_UPDATES

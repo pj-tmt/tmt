@@ -666,9 +666,12 @@ is added.
   re-evaluates on the page as it is, at most 3 more times, unless `--expected-revision` fences.
   The browser Save's merge uses the same evaluator (`apply_hunks`, `conflicting_hunks`), so a
   hunk places by the same rules in both front doors.
-- `edit_scale.rs` measures how much of the existing source a write replaces, on the span the
-  isolated decoder child publishes (`content_diff`): `EditScale::of` and `is_large_rewrite` (more
-  than half of a source of at least 2 KiB). `Decoder::prepare_mutation` sets it on
+- `edit_scale.rs` owns the regions a source edit replaces: `content_hunks` (a bounded Myers line
+  diff, each region trimmed to the characters that differ; an edit past 400 changed lines or the
+  step budget is one region over the differing span). The isolated decoder child emits one delta
+  per region, last to first, so text between far-apart edits is not rewritten and the source is
+  byte-identical after apply. `EditScale::of` and `is_large_rewrite` (more than half of a source
+  of at least 2 KiB) measure the same regions. `Decoder::prepare_mutation` sets the scale on
   `PreparedContent`, `FrozenPublication::scale` carries it to the receipt (not serialized), and
   `cli_edit_hint.rs` turns a warning, a non-minimal update or a large rewrite into the one `read`
   command a write or patch receipt names; a normal edit names nothing.

@@ -2271,3 +2271,125 @@ fn content_batch_preserves_creation_recipient_through_replay_and_noop() {
         }
     }
 }
+
+/// Lines of ASCII, CJK and emoji, so a character's UTF-8 byte offset is not its UTF-16 offset.
+fn mixed_page(lines: usize) -> String {
+    (0..lines)
+        .map(|n| format!("<p>第{n}行 🐈 row {n} 漢字 ✓</p>\n"))
+        .collect()
+}
+/// The ordered updates that turn a page of source `old` into `new`, prepared by the isolated
+/// decoder against the baseline of `old`, with the baseline they apply to.
+fn prepared_edit(decoder: &mut Decoder, old: &str, new: &str) -> (Vec<u8>, Vec<Vec<u8>>) {
+    use tmt_colab::decoder::{ContentBatch, ContentEdit};
+    let baseline = decoder
+        .produce_baseline(
+            BaselineInput {
+                work: None,
+                layout: None,
+                original_author: None,
+                attachments: None,
+                source: old.as_bytes(),
+                title: "Page",
+                publisher_agent: None,
+                creation_recipient: None,
+                source_digest: tmt_colab_model::crypto::digest(old.as_bytes()),
+            },
+            None,
+        )
+        .unwrap();
+    let batch = || UpdateBatch {
+        namespace: Namespace::Content,
+        baseline: baseline.update.as_slice(),
+        updates: &[],
+    };
+    let before = decoder.decode(batch(), Role::Editor, None).unwrap();
+    assert_eq!(before.projection["html"], old);
+    let prepared = decoder
+        .prepare_content_batch(
+            batch(),
+            &before.projection,
+            ContentEdit {
+                layout: None,
+                source: new,
+                publisher_agent: None,
+                attachments: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(prepared.projection["html"], new);
+    let ContentBatch::Updates(updates) = prepared.batch else {
+        panic!("expected updates")
+    };
+    (baseline.update, updates)
+}
+#[test]
+fn far_apart_edits_publish_one_delta_per_changed_region_and_the_text_is_exact() {
+    use yrs::{OffsetKind, Options};
+    let old = mixed_page(400);
+    assert!(old.len() > 15_000, "{}", old.len());
+    let cases: [(&str, String); 4] = [
+        (
+            "two replacements far apart",
+            old.replacen("row 5 ", "ROW FIVE 🐕 ", 1)
+                .replacen("row 395 ", "ROW 395 🐕🐕 ", 1),
+        ),
+        (
+            "an insertion at the start, a deletion near the end and a change between",
+            format!("<h1>标题 🚀</h1>\n{}", old)
+                .replacen("第200行", "第二百行", 1)
+                .replacen("<p>第390行 🐈 row 390 漢字 ✓</p>\n", "", 1),
+        ),
+        (
+            "a pure insertion and a pure deletion",
+            old.replacen("<p>第100行", "<p>🆕</p>\n<p>第100行", 1)
+                .replacen("<p>第300行 🐈 row 300 漢字 ✓</p>\n", "", 1),
+        ),
+        (
+            "one word inside a line",
+            old.replacen("漢字 ✓</p>\n<p>第201行", "漢字 ✗ 🐈</p>\n<p>第201行", 1),
+        ),
+    ];
+    let mut decoder = owner();
+    for (name, new) in cases {
+        assert_ne!(new, old, "{name}");
+        let (baseline, updates) = prepared_edit(&mut decoder, &old, &new);
+        let bytes: usize = updates.iter().map(Vec::len).sum();
+        // The text between the regions is not rewritten: the update carries the changed regions
+        // (a few hundred bytes), not the ~16 KB the page holds between them.
+        assert!(
+            bytes < 1_200,
+            "{name}: {bytes} bytes in {} updates",
+            updates.len()
+        );
+        // The source is byte-identical after the isolated decoder applies them...
+        let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        let replayed = decoder
+            .decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &baseline,
+                    updates: &refs,
+                },
+                Role::Editor,
+                None,
+            )
+            .unwrap();
+        assert_eq!(replayed.projection["html"], new, "{name}");
+        // ...and in a document that counts characters the way the browser's Yjs does, in UTF-16
+        // code units, where an emoji is two and a CJK character one.
+        let browser = Doc::with_options(Options {
+            offset_kind: OffsetKind::Utf16,
+            ..Options::default()
+        });
+        let text = browser.get_or_insert_text("html");
+        for bytes in std::iter::once(&baseline).chain(&updates) {
+            browser
+                .transact_mut()
+                .apply_update(Update::decode_v1(bytes).unwrap())
+                .unwrap();
+        }
+        assert_eq!(text.get_string(&browser.transact()), new, "{name}");
+    }
+}

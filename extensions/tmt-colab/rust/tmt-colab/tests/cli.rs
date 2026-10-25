@@ -2883,6 +2883,49 @@ fn an_edit_names_the_editing_reference_only_when_it_went_off_guidance() {
             .contains(EDITING_READ)
     );
 }
+#[test]
+fn a_write_of_two_far_apart_edits_costs_the_edits_and_not_the_text_between_them() {
+    let pilot = Pilot::new(None);
+    let page: String = (0..400)
+        .map(|n| format!("<p>第{n}行 🐈 row {n} 漢字 ✓</p>\n"))
+        .collect();
+    let file = pilot.root.join("page.html");
+    let path = file.to_str().unwrap();
+    fs::write(&file, &page).unwrap();
+    let created = pilot.call(&[
+        "page", "create", "--title", "Plan", "--layout", "column", "--file", path, "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap().to_owned();
+    let edited =
+        page.replacen("row 5 ", "ROW FIVE 🐕 ", 1)
+            .replacen("row 395 ", "ROW 395 🐕🐕 ", 1);
+    fs::write(&file, &edited).unwrap();
+    let written = pilot.call(&["page", "write", &id, "--file", path, "--json"]);
+    assert_eq!(written["changed"], true, "{written}");
+    assert_eq!(written["update"]["count"], 1, "{written}");
+    // The two changed regions, not the ~16 KB between them.
+    let bytes = written["update"]["bytes"].as_u64().unwrap();
+    assert!(bytes < 1_500, "{written}");
+    assert_eq!(
+        pilot.call(&["page", "read", &id, "--json"])["source"],
+        edited
+    );
+    // A patch of two distant hunks costs the same way and leaves the page byte-exact.
+    let patched = pilot.call(&[
+        "page",
+        "patch",
+        &id,
+        "--find",
+        "ROW FIVE 🐕 ",
+        "--replace",
+        "row 5 ",
+        "--json",
+    ]);
+    assert!(
+        patched["update"]["bytes"].as_u64().unwrap() < 1_500,
+        "{patched}"
+    );
+}
 /// Printable text that shares no run longer than a few bytes with any other seed's output, so a
 /// replacement is a full rewrite of the page rather than a small diff.
 fn varied_source(seed: u64, bytes: usize) -> String {
