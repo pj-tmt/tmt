@@ -5881,7 +5881,7 @@ describe('large board responsiveness', () => {
         const lines = screen().split('\n');
         const row = lines.findIndex((line) => line.includes(label));
         expect(row, screen()).toBeGreaterThanOrEqual(0);
-        const column = [...lines[row]!.slice(0, lines[row]!.indexOf(label))].length;
+        const column = lines[row]!.indexOf(label);
         for (const final of ['M', 'm'])
           tmux(['send-keys', '-t', pane, '-l', `\u001b[<0;${column + 1};${row + 1}${final}`]);
       };
