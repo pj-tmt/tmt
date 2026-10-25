@@ -314,6 +314,17 @@ fn locate(environment: &crate::skill_installation::ProviderEnvironment) -> super
     }
 }
 
+/// Keep the rate-limit windows the first-party Claude mod pushed (#5187), for the account of the
+/// environment's Claude root; the reader keeps the newest observation per account.
+pub fn push_allowance(
+    environment: &crate::skill_installation::ProviderEnvironment,
+    data_root: &std::path::Path,
+    input: &[u8],
+    now_ms: u64,
+) -> std::io::Result<bool> {
+    allowance::push(environment, data_root, input, now_ms)
+}
+
 fn config_root(environment: &crate::skill_installation::ProviderEnvironment) -> std::path::PathBuf {
     environment.var("CLAUDE_CONFIG_DIR").map_or_else(
         || environment.home().join(".claude"),

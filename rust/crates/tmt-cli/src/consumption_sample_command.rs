@@ -121,7 +121,9 @@ fn sample(deadline: Instant) -> Result<(), ()> {
     ) {
         return Ok(());
     }
-    let environment = ProviderEnvironment::capture().map_err(|_| ())?;
+    let environment = ProviderEnvironment::capture()
+        .map_err(|_| ())?
+        .with_data_root(&paths.global_dir);
     let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
     let locator = storage
         .consumption_locator(

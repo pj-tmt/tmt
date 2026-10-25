@@ -310,6 +310,15 @@ pub(in crate::grammar) fn uninstall() -> Command {
     )
 }
 
+pub(in crate::grammar) fn allowance_intake() -> Command {
+    internal(
+        "__allowance",
+        "Internal bounded intake of provider allowance observations",
+    )
+    .hide(true)
+    .arg(operand("provider", true).value_parser(["claude"]))
+}
+
 pub(in crate::grammar) fn refresh_skills() -> Command {
     internal("__native-refresh-skills", "Internal managed skill refresh")
         .hide(true)

@@ -31,6 +31,10 @@ pub enum Invocation {
     Version,
     Api,
     ConsumptionSample,
+    /// The first-party Claude mod hands over the rate-limit windows it measured (#5187).
+    AllowancePush {
+        provider: String,
+    },
     /// Agent-facing local stdio MCP tools bound to one saved identity.
     Mcp {
         identity: String,

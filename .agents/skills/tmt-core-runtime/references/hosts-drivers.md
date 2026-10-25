@@ -325,6 +325,13 @@ Claude owns `drivers/claude/plugins/` prompt-picker plugins (root `.claude-plugi
 marketplace; user-installed) and a read-only missing-plugin hint. Launch adds no
 plugin arguments or persistent provider settings.
 
+`drivers/claude/plugins/tmt-allowance` is the first-party mod that hands Claude's rate-limit
+windows to `tmt __allowance claude` (#5187). The marketplace stays picker-only. Intake keeps
+nothing without usage consent and never opens the SQL store: it writes one private JSON file
+under the data root, and `claude/allowance.rs` returns the newer of that entry and the
+`cachedUsageUtilization` cache ([extension API](../../../../contracts/extension-api.md)).
+Its own test runs under `claude plugin test`.
+
 - One `DriverDescriptor` (name, executables, hook format and display hue) plus one
   adapter module per driver; `drivers::Registry` joins them in descriptor order for
   setup, detection, skill targets, launch, runtime registration and caller recognition.

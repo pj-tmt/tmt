@@ -216,3 +216,218 @@ fn unreadable_malformed_oversized_or_linked_cache_is_unavailable_without_writes(
     assert_eq!(read(&environment, NOW), None);
     assert!(path.is_symlink());
 }
+
+// Observations the first-party mod pushes (#5187). The reset instants are the cache's, written the
+// way Claude Code reports them to a mod: UTC with milliseconds.
+const PUSHED_FIVE_RESET: u64 = FIVE_RESET - 679;
+
+fn push_body(five: f64, week: f64) -> Vec<u8> {
+    serde_json::to_vec(&json!({"rateLimits": [
+        {"kind": "five_hour", "percentUsed": five, "resetsAt": "2026-10-10T08:13:20.000Z"},
+        {"kind": "seven_day", "percentUsed": week, "resetsAt": "2026-10-14T03:29:18.000Z"},
+        {"kind": "spend_limit", "percentUsed": 3}
+    ]}))
+    .unwrap()
+}
+
+struct PushedFixture {
+    home: TestDirectory,
+    data: TestDirectory,
+}
+
+impl PushedFixture {
+    fn new(config: &Value) -> Self {
+        let pushed = Self {
+            home: TestDirectory::new(),
+            data: TestDirectory::new(),
+        };
+        pushed.config(config);
+        pushed
+    }
+    fn config(&self, config: &Value) {
+        fs::write(
+            self.home.path.join(".claude.json"),
+            serde_json::to_vec(config).unwrap(),
+        )
+        .unwrap();
+    }
+    fn environment(&self) -> ProviderEnvironment {
+        ProviderEnvironment::from_parts(&self.home.path, &self.home.path, Vec::new(), [])
+            .with_data_root(&self.data.path)
+    }
+    fn push(&self, body: &[u8], now: u64) -> io::Result<bool> {
+        push(&self.environment(), &self.data.path, body, now)
+    }
+    fn read(&self, now: u64) -> Option<RateLimits> {
+        read(&self.environment(), now)
+    }
+    fn store(&self) -> Option<PushedWindowStore> {
+        load(&self.data.path.join(STORE))
+    }
+}
+
+fn used(limits: &RateLimits) -> Vec<f64> {
+    limits
+        .windows
+        .iter()
+        .map(|window| window.used_percent)
+        .collect()
+}
+
+#[test]
+fn the_newest_observation_wins_whole_between_a_push_and_the_cache() {
+    let pushed = PushedFixture::new(&config());
+    let cache = fs::read(pushed.home.path.join(".claude.json")).unwrap();
+    // Before any push the cache answers, with its own age.
+    assert_eq!(pushed.read(NOW).unwrap().observed_at_ms, FETCHED);
+    assert!(pushed.push(&push_body(20.0, 80.0), NOW).unwrap());
+    let limits = pushed.read(NOW).unwrap();
+    assert_eq!(
+        (limits.provider.as_str(), limits.observed_at_ms),
+        ("claude", NOW)
+    );
+    assert_eq!(used(&limits), [20.0, 80.0]);
+    assert_eq!(limits.windows[0].resets_at_ms, PUSHED_FIVE_RESET);
+    assert_eq!(limits.windows[1].resets_at_ms, WEEK_RESET);
+    // The cache file itself is never written by a push.
+    assert_eq!(
+        fs::read(pushed.home.path.join(".claude.json")).unwrap(),
+        cache
+    );
+    // A newer cache beats the older push, whole: the windows are never mixed.
+    let mut newer = config();
+    newer["cachedUsageUtilization"]["fetchedAtMs"] = json!(NOW + 1_000);
+    pushed.config(&newer);
+    let limits = pushed.read(NOW + 5_000).unwrap();
+    assert_eq!(limits.observed_at_ms, NOW + 1_000);
+    assert_eq!(used(&limits), [12.5, 78.0]);
+    // A tie prefers the cache; a newer push beats it again.
+    assert!(pushed.push(&push_body(30.0, 81.0), NOW + 1_000).unwrap());
+    assert_eq!(used(&pushed.read(NOW + 5_000).unwrap()), [12.5, 78.0]);
+    assert!(pushed.push(&push_body(31.0, 82.0), NOW + 2_000).unwrap());
+    let limits = pushed.read(NOW + 5_000).unwrap();
+    assert_eq!(
+        (limits.observed_at_ms, used(&limits)),
+        (NOW + 2_000, vec![31.0, 82.0])
+    );
+}
+
+#[test]
+fn a_push_answers_alone_for_an_account_that_never_opened_usage_and_only_for_that_account() {
+    let mut bare = config();
+    bare.as_object_mut()
+        .unwrap()
+        .remove("cachedUsageUtilization");
+    let pushed = PushedFixture::new(&bare);
+    assert_eq!(pushed.read(NOW), None);
+    assert!(pushed.push(&push_body(9.0, 59.0), NOW).unwrap());
+    assert_eq!(used(&pushed.read(NOW).unwrap()), [9.0, 59.0]);
+    // The same data root under another account's root reads nothing.
+    let mut other = bare.clone();
+    other["oauthAccount"]["accountUuid"] = json!("account-b");
+    pushed.config(&other);
+    assert_eq!(pushed.read(NOW), None);
+    // An elapsed window is dropped individually, an elapsed push entirely.
+    pushed.config(&bare);
+    assert_eq!(pushed.read(PUSHED_FIVE_RESET).unwrap().windows.len(), 1);
+    assert_eq!(pushed.read(WEEK_RESET), None);
+    // A push from the future is not an observation.
+    assert_eq!(pushed.read(NOW - 1), None);
+}
+
+#[test]
+fn a_malformed_push_is_refused_and_leaves_no_store() {
+    let pushed = PushedFixture::new(&config());
+    let window =
+        json!({"kind": "five_hour", "percentUsed": 1, "resetsAt": "2026-10-10T08:13:20.000Z"});
+    let refused: Vec<Vec<u8>> = vec![
+        b"{broken".to_vec(),
+        serde_json::to_vec(&json!({"rateLimits": "no"})).unwrap(),
+        serde_json::to_vec(&json!({"rateLimits": [window, window, window, window]})).unwrap(),
+        // A duplicate kind, an out-of-range percentage and a window without its reset.
+        serde_json::to_vec(&json!({"rateLimits": [window, window]})).unwrap(),
+        serde_json::to_vec(
+            &json!({"rateLimits": [{"kind": "five_hour", "percentUsed": 100.5,
+            "resetsAt": "2026-10-10T08:13:20.000Z"}]}),
+        )
+        .unwrap(),
+        serde_json::to_vec(&json!({"rateLimits": [{"kind": "seven_day", "percentUsed": 5}]}))
+            .unwrap(),
+        serde_json::to_vec(
+            &json!({"rateLimits": [{"kind": "seven_day", "percentUsed": 5,
+            "resetsAt": "yesterday"}]}),
+        )
+        .unwrap(),
+    ];
+    for body in &refused {
+        assert!(
+            pushed.push(body, NOW).is_err(),
+            "{}",
+            String::from_utf8_lossy(body)
+        );
+    }
+    assert!(pushed.store().is_none());
+    assert!(!pushed.data.path.join(STORE).exists());
+    // Nothing relevant, or only elapsed windows, is not an error and stores nothing.
+    for body in [
+        serde_json::to_vec(&json!({"rateLimits": []})).unwrap(),
+        serde_json::to_vec(&json!({"rateLimits": [{"kind": "spend_limit", "percentUsed": 3}]}))
+            .unwrap(),
+    ] {
+        assert!(!pushed.push(&body, NOW).unwrap());
+    }
+    assert!(!pushed.push(&push_body(1.0, 2.0), WEEK_RESET + 1).unwrap());
+    assert!(pushed.store().is_none());
+    // Without an account in the root's own file there is nowhere to keep it.
+    pushed.config(&json!({"mcpServers": {}}));
+    assert!(!pushed.push(&push_body(1.0, 2.0), NOW).unwrap());
+    assert!(pushed.store().is_none());
+}
+
+#[test]
+fn the_store_is_private_bounded_to_eight_accounts_and_drops_the_oldest() {
+    use std::os::unix::fs::PermissionsExt;
+    let pushed = PushedFixture::new(&config());
+    for index in 0..10_u64 {
+        let mut account = config();
+        account["oauthAccount"]["accountUuid"] = json!(format!("account-{index}"));
+        pushed.config(&account);
+        assert!(pushed.push(&push_body(1.0, 2.0), NOW + index).unwrap());
+    }
+    let store = pushed.store().unwrap();
+    assert_eq!(store.accounts.len(), MAX_ACCOUNTS);
+    for index in 0..10 {
+        assert_eq!(
+            store.accounts.contains_key(&format!("account-{index}")),
+            index >= 2,
+            "account-{index}"
+        );
+    }
+    let path = pushed.data.path.join(STORE);
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        fs::metadata(path.parent().unwrap())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    // A foreign or corrupt store is replaced by the next push, never trusted.
+    fs::write(&path, b"{\"version\":2,\"accounts\":{}}").unwrap();
+    assert!(pushed.store().is_none());
+    assert!(pushed.push(&push_body(3.0, 4.0), NOW + 20).unwrap());
+    assert_eq!(pushed.store().unwrap().accounts.len(), 1);
+}
+
+#[test]
+fn without_a_data_root_the_cache_alone_answers() {
+    let pushed = PushedFixture::new(&config());
+    assert!(pushed.push(&push_body(20.0, 80.0), NOW).unwrap());
+    let rootless =
+        ProviderEnvironment::from_parts(&pushed.home.path, &pushed.home.path, Vec::new(), []);
+    assert_eq!(read(&rootless, NOW).unwrap().observed_at_ms, FETCHED);
+}

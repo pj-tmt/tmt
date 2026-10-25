@@ -262,6 +262,9 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             yes: flag(m, "yes"),
         },
         ["__consumption-sample"] => Invocation::ConsumptionSample,
+        ["__allowance"] => Invocation::AllowancePush {
+            provider: text(m, "provider").expect("required provider"),
+        },
         ["__digest-hook"] => Invocation::DigestHook {
             provider: text(m, "provider").expect("required provider"),
             launch: text(m, "launch"),

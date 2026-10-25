@@ -44,6 +44,7 @@ mod native_upgrade_command;
 mod notes_command;
 mod output;
 use tmt_adapters::pane_badge;
+mod allowance_command;
 mod consumption_sample_command;
 mod database_rename_command;
 mod digest_hook_command;
@@ -354,6 +355,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return setup_command::execute(provider, status, remove, usage, yes, parsed.mode);
         }
         Invocation::ConsumptionSample => return consumption_sample_command::execute(),
+        Invocation::AllowancePush { provider } => return allowance_command::execute(&provider),
         Invocation::DigestHook {
             provider,
             launch,
