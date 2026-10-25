@@ -6373,6 +6373,9 @@ describe('workspace snapshots in the real board', () => {
       const { tmux } = scratch;
       let serverPid: number | undefined;
       let boardPid: number | undefined;
+      // Core commands have a 15 s deadline; allow another deadline for loaded-runner
+      // worker joins and process reaping after the terminal has been restored.
+      const shutdownTimeout = 2 * 15_000;
       try {
         tmux([
           'new-session',
@@ -6388,6 +6391,8 @@ describe('workspace snapshots in the real board', () => {
           '/bin/sh',
         ]);
         const pane = tmux(['display-message', '-p', '#{pane_id}']);
+        // Keep the pane observable even if q exits before the restoration check.
+        tmux(['set-option', '-w', '-t', pane, 'remain-on-exit', 'on']);
         serverPid = Number(tmux(['display-message', '-p', '#{pid}']));
         boardPid = Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
         const session = tmux(['display-message', '-p', '#{session_id}']).replace(/^\$/, '');
@@ -6502,10 +6507,17 @@ describe('workspace snapshots in the real board', () => {
           timeout: 10_000,
           interval: 25,
         });
+        expect(tmux(['display-message', '-p', '-t', pane, '#{alternate_on}'])).toBe('1');
         tmux(['send-keys', '-t', pane, 'q']);
+        // q must leave the UI before we start the worker-shutdown allowance.
+        // PID liveness alone cannot distinguish a missed key from a slow join.
+        await vi.waitFor(
+          () => expect(tmux(['display-message', '-p', '-t', pane, '#{alternate_on}'])).toBe('0'),
+          { timeout: 10_000, interval: 50 }
+        );
         await vi.waitFor(() => expect(() => process.kill(boardPid!, 0)).toThrow(), {
-          timeout: 10_000,
-          interval: 25,
+          timeout: shutdownTimeout,
+          interval: 50,
         });
       } finally {
         scratch.stop();
@@ -6514,8 +6526,8 @@ describe('workspace snapshots in the real board', () => {
         for (const pid of [boardPid, serverPid]) {
           if (pid !== undefined) {
             await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow(), {
-              timeout: 10_000,
-              interval: 25,
+              timeout: shutdownTimeout,
+              interval: 50,
             });
           }
         }
