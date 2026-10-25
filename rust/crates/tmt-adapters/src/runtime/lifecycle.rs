@@ -403,6 +403,18 @@ pub trait RuntimeLifecycle {
         None
     }
 
+    /// Keep allowance windows the provider's own first-party mod pushed (#5187). Most drivers
+    /// have no such mod and keep nothing; `Ok(false)` means nothing was stored.
+    fn accept_allowance(
+        &self,
+        _environment: &ProviderEnvironment,
+        _data_root: &std::path::Path,
+        _input: &[u8],
+        _now_ms: u64,
+    ) -> std::io::Result<bool> {
+        Ok(false)
+    }
+
     /// Resolve an exact remembered source for foreground-owned collection.
     fn sampling_turn(
         &self,

@@ -319,7 +319,9 @@ fn observe_turn(
             return Ok(false);
         };
         let fallback = if turn.final_text.is_none() && usage_on {
-            let environment = ProviderEnvironment::capture().map_err(|_| ())?;
+            let environment = ProviderEnvironment::capture()
+                .map_err(|_| ())?
+                .with_data_root(&paths.global_dir);
             lifecycle
                 .turn_observation(
                     turn,
@@ -389,7 +391,9 @@ fn observe_turn(
             {
                 return Err(());
             }
-            let environment = ProviderEnvironment::capture().map_err(|_| ())?;
+            let environment = ProviderEnvironment::capture()
+                .map_err(|_| ())?
+                .with_data_root(&paths.global_dir);
             let now_ms = tmt_adapters::request_runtime::wall_time_ms();
             let observation = lifecycle.turn_observation(
                 turn,
@@ -1648,6 +1652,7 @@ fn observe_main_event(
             .is_some_and(tmt_adapters::setup::usage_consented)
     {
         ProviderEnvironment::capture().ok().and_then(|environment| {
+            let environment = environment.with_data_root(&paths.global_dir);
             let locator = lifecycle.consumption_locator(payload?, &environment);
             let turn =
                 lifecycle.sampling_turn(session, locator.as_deref(), &environment, deadline)?;

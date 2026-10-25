@@ -596,6 +596,18 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
             .state
     }
 
+    /// Keep the rate-limit windows the first-party Claude mod pushed, for the account of the
+    /// environment's Claude root; the reader keeps the newest observation per account.
+    fn accept_allowance(
+        &self,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        data_root: &std::path::Path,
+        input: &[u8],
+        now_ms: u64,
+    ) -> std::io::Result<bool> {
+        allowance::push(environment, data_root, input, now_ms)
+    }
+
     fn turn_observation(
         &self,
         turn: &crate::runtime::lifecycle::TurnEnd,

@@ -27,6 +27,10 @@ pub const HIDDEN: &[(&str, &str)] = &[
         "prints the completion script a shell sources",
     ),
     (
+        "tmt __allowance",
+        "bounded intake the first-party Claude allowance mod calls",
+    ),
+    (
         "tmt __consumption-sample",
         "bounded sampler that hook-driven runs spawn",
     ),

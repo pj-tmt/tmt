@@ -1,0 +1,5 @@
+{
+  "name": "tmt-allowance",
+  "version": "0.1.0",
+  "description": "Hands Claude Code's rate-limit windows to tmt so allowance figures stay fresh"
+}

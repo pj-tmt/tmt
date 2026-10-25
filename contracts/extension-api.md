@@ -589,9 +589,17 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   It admits the cache only when its nonempty `accountUuid` equals the same file's
   `oauthAccount.accountUuid`. Seats sharing a root share its cached windows; another
   root is never a fallback. This is best-effort, undocumented cached evidence, not
-  proof of every seat's authenticated account. Core neither reads credentials nor
-  refreshes, writes or makes a network request to obtain it. Only selected fields
-  are parsed. `observedAtMs` is `fetchedAtMs`, never read time or file mtime; future
+  proof of every seat's authenticated account. Core neither reads credentials, writes
+  that cache file nor makes a network request to obtain either source. Only selected
+  fields are parsed. The first-party `tmt-allowance` Claude mod may also push the
+  windows it measured through the hidden `tmt __allowance claude` intake (one JSON
+  document of at most 4 KiB on stdin; `five_hour` and `seven_day` only; nothing printed;
+  exit 0 always). Core keeps a push only while usage is consented, in the private file
+  `<data root>/claude/allowance.json` (at most 8 accounts and 8 KiB) keyed by the
+  root's `oauthAccount.accountUuid`, and stamps `observedAtMs` with its own receive time,
+  never the mod's. The reader returns whichever of the pushed entry and the cache has
+  the newer `observedAtMs`, whole; a tie prefers the cache. Windows of the two are never
+  merged or summed. `observedAtMs` is `fetchedAtMs`, never read time or file mtime; future
   fetch times are dropped. `five_hour` and `seven_day` map to 300 and 10,080 minutes;
   `utilization` is a percentage (0–100, never rescaled), and ISO resets become UTC
   milliseconds. Missing/null windows are optional; a malformed or partial window
