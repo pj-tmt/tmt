@@ -16,6 +16,25 @@ const FILTERS: readonly { id: Filter; label: string; states: readonly AgentState
   { id: 'unknown', label: 'Unknown', states: ['unknown'] },
 ];
 
+/** How long typing in the search box waits before the table filters; clearing and Enter apply at once. */
+const SEARCH_DEBOUNCE_MS = 200;
+
+/** Puts exactly `wanted` under `parent` in order, moving only nodes that are out of place, so a
+ * node that stays keeps its focus, text selection and scroll. */
+function reconcile(parent: Node, wanted: readonly Node[]): void {
+  // Leaving nodes go first, so they never stand in front of a kept one and force it to move.
+  const keep = new Set(wanted);
+  for (let child = parent.firstChild; child; ) {
+    const next = child.nextSibling;
+    if (!keep.has(child)) child.remove();
+    child = next;
+  }
+  wanted.forEach((node, index) => {
+    const at = parent.childNodes[index];
+    if (at !== node) parent.insertBefore(node, at ?? null);
+  });
+}
+
 /** What the reader has set on the agents page; it outlives every refresh of the board. */
 interface AgentsState {
   filter: Filter;
@@ -70,9 +89,21 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
   search.placeholder = 'Filter agents';
   search.setAttribute('aria-label', 'Filter agents');
   search.value = state.query;
-  search.addEventListener('input', () => {
+  let typing: ReturnType<typeof setTimeout> | undefined;
+  const applySearch = () => {
+    clearTimeout(typing);
+    typing = undefined;
+    if (state.query === search.value) return;
     state.query = search.value;
     renderTable();
+  };
+  search.addEventListener('input', () => {
+    clearTimeout(typing);
+    if (search.value) typing = setTimeout(applySearch, SEARCH_DEBOUNCE_MS);
+    else applySearch();
+  });
+  search.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') applySearch();
   });
   const searchField = el('div', browserUiClasses.searchField);
   searchField.append(createIcon('search'), search);
@@ -94,8 +125,8 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
     state.filter = filter;
     renderTable();
   }
-  function select(agent: OpsAgent): void {
-    state.selected = keyOf(agent);
+  function select(key: string): void {
+    state.selected = key;
     renderTable();
     renderDetail();
   }
@@ -108,8 +139,14 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
       .filter(Boolean)
       .some((value) => value!.toLowerCase().includes(query));
   };
+  let bannerShown = '';
   function renderBanner(): void {
     const waiting = (board?.agents ?? []).filter((agent) => agent.state === 'needs-you');
+    const shown = JSON.stringify(
+      waiting.map((agent) => [keyOf(agent), agent.name, agent.pending, agent.task, agent.next]),
+    );
+    if (shown === bannerShown) return;
+    bannerShown = shown;
     banner.replaceChildren();
     if (!waiting.length) return;
     const band = el('section', browserUiClasses.banner);
@@ -137,11 +174,8 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
     for (const agent of waiting) {
       const row = el('button', browserUiClasses.bannerRow);
       row.type = 'button';
-      row.addEventListener('click', () => {
-        state.selected = keyOf(agent);
-        renderTable();
-        renderDetail();
-      });
+      const key = keyOf(agent);
+      row.addEventListener('click', () => select(key));
       const word = el('span');
       word.append(mark('diamond'), AGENT_STATES['needs-you'].word);
       row.append(
@@ -156,73 +190,84 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
     }
     banner.append(band);
   }
-  function renderTable(): void {
-    for (const [index, filter] of FILTERS.entries()) {
-      const on = filter.id === state.filter;
-      tabButtons[index]!.setAttribute('aria-selected', String(on));
-      tabButtons[index]!.tabIndex = on ? 0 : -1;
-    }
-    scroll.setAttribute('aria-labelledby', `ops-filter-${state.filter}`);
-    if (!board) return;
-    const table = el('table', browserUiClasses.table);
-    table.dataset.roomy = '';
-    const headRow = el('tr');
-    for (const text of ['Agent', 'Status', 'Current work', 'Model', 'Waiting on you']) {
-      const cell = el('th');
-      cell.scope = 'col';
-      if (text === 'Model' || text === 'Waiting on you') cell.dataset.compactHide = '';
-      if (text === 'Waiting on you') cell.append(el('span', browserUiClasses.visuallyHidden, text));
-      else cell.textContent = text;
-      headRow.append(cell);
-    }
-    const thead = el('thead');
-    thead.append(headRow);
-    table.append(thead);
-    let shown = 0;
-    for (const { name, agents: all } of bySquad(board)) {
-      const agents = all.filter(matches);
-      if (!agents.length) continue;
-      shown += agents.length;
-      const open = !state.collapsed.has(name);
-      const body = el('tbody');
-      const groupRow = el('tr', browserUiClasses.tableGroup);
-      const group = el('th');
-      group.colSpan = 5;
-      group.scope = 'colgroup';
-      const toggle = el('button', browserUiClasses.tableGroupToggle);
-      toggle.type = 'button';
-      toggle.setAttribute('aria-expanded', String(open));
-      toggle.append(
-        createIcon('chevron-down'),
-        document.createTextNode(name),
-        el(
-          'span',
-          browserUiClasses.tableGroupCount,
-          `· ${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}`,
-        ),
-      );
-      toggle.addEventListener('click', () => {
-        if (state.collapsed.has(name)) state.collapsed.delete(name);
-        else state.collapsed.add(name);
-        renderTable();
-      });
-      group.append(toggle);
-      groupRow.append(group);
-      body.append(groupRow);
-      if (open)
-        for (const agent of agents) {
-          const info = AGENT_STATES[agent.state];
-          const row = el('tr');
-          if (keyOf(agent) === state.selected) row.dataset.selected = '';
+  // The table, its head and each squad's group are built once and kept; each agent's row is kept
+  // by its key, and a refresh replaces only the cells whose inputs changed.
+  const table = el('table', browserUiClasses.table);
+  table.dataset.roomy = '';
+  const thead = el('thead');
+  const headRow = el('tr');
+  for (const text of ['Agent', 'Status', 'Current work', 'Model', 'Waiting on you']) {
+    const cell = el('th');
+    cell.scope = 'col';
+    if (text === 'Model' || text === 'Waiting on you') cell.dataset.compactHide = '';
+    if (text === 'Waiting on you') cell.append(el('span', browserUiClasses.visuallyHidden, text));
+    else cell.textContent = text;
+    headRow.append(cell);
+  }
+  thead.append(headRow);
+  table.append(thead);
+  const empty = el('p', 'ops-empty');
+  let groups = new Map<
+    string,
+    { body: HTMLTableSectionElement; head: HTMLTableRowElement; shown: string }
+  >();
+  let rows = new Map<string, { row: HTMLTableRowElement; shown: string[] }>();
+  // The rows the render in progress keeps; it replaces `rows` when the render ends.
+  let nextRows = new Map<string, { row: HTMLTableRowElement; shown: string[] }>();
+  function groupHead(name: string, count: number, open: boolean): HTMLTableRowElement {
+    const groupRow = el('tr', browserUiClasses.tableGroup);
+    const group = el('th');
+    group.colSpan = 5;
+    group.scope = 'colgroup';
+    const toggle = el('button', browserUiClasses.tableGroupToggle);
+    toggle.type = 'button';
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.append(
+      createIcon('chevron-down'),
+      document.createTextNode(name),
+      el(
+        'span',
+        browserUiClasses.tableGroupCount,
+        `· ${count} ${count === 1 ? 'agent' : 'agents'}`,
+      ),
+    );
+    toggle.addEventListener('click', () => {
+      if (state.collapsed.has(name)) state.collapsed.delete(name);
+      else state.collapsed.add(name);
+      renderTable();
+    });
+    group.append(toggle);
+    groupRow.append(group);
+    return groupRow;
+  }
+  /** The row's five cells, each with the inputs it shows; equal inputs keep the cell. */
+  function agentCells(agent: OpsAgent): [string, () => HTMLElement][] {
+    const info = AGENT_STATES[agent.state];
+    const key = keyOf(agent);
+    return [
+      [
+        JSON.stringify([agent.name, agent.state]),
+        () => {
           const who = el('td');
           const pick = el('button', browserUiClasses.tableSelect);
           pick.type = 'button';
-          pick.setAttribute('aria-pressed', String(keyOf(agent) === state.selected));
           pick.append(mark(info.mark, info.tone), document.createTextNode(agent.name));
-          pick.addEventListener('click', () => select(agent));
+          pick.addEventListener('click', () => select(key));
           who.append(pick);
+          return who;
+        },
+      ],
+      [
+        JSON.stringify([agent.state]),
+        () => {
           const status = el('td');
           status.append(stateChip(agent.state));
+          return status;
+        },
+      ],
+      [
+        JSON.stringify([agent.task, agent.model, agent.waitingOnYou]),
+        () => {
           const work = el('td', undefined, agent.task || '—');
           // Under the compact width the model and the waiting count move under the work.
           work.append(
@@ -234,8 +279,20 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
                 .join(' · '),
             ),
           );
+          return work;
+        },
+      ],
+      [
+        JSON.stringify([agent.model]),
+        () => {
           const model = el('td', undefined, agent.model || '—');
           model.dataset.compactHide = '';
+          return model;
+        },
+      ],
+      [
+        JSON.stringify([agent.waitingOnYou]),
+        () => {
           const waiting = el('td');
           waiting.dataset.compactHide = '';
           if (agent.waitingOnYou > 0) {
@@ -245,19 +302,76 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
             count.append(el('span', browserUiClasses.chipLabel, String(agent.waitingOnYou)));
             waiting.append(count);
           }
-          row.append(who, status, work, model, waiting);
-          body.append(row);
-        }
-      table.append(body);
-    }
-    scroll.replaceChildren(
-      shown
-        ? table
-        : el('p', 'ops-empty', board.agents.length ? 'No agents match.' : 'No agents yet.'),
-    );
+          return waiting;
+        },
+      ],
+    ];
   }
+  function agentRow(agent: OpsAgent): HTMLTableRowElement {
+    const key = keyOf(agent);
+    const selected = key === state.selected;
+    const cells = agentCells(agent);
+    const kept = rows.get(key);
+    const row = kept?.row ?? el('tr');
+    if (selected) row.dataset.selected = '';
+    else delete row.dataset.selected;
+    const shown = cells.map(([inputs], index) => {
+      const old = row.children[index];
+      if (!old || kept?.shown[index] !== inputs) {
+        const cell = cells[index]![1]();
+        if (old) old.replaceWith(cell);
+        else row.append(cell);
+      }
+      return inputs;
+    });
+    // Selection changes in place, so the button the reader just pressed keeps its focus.
+    row.querySelector('button')?.setAttribute('aria-pressed', String(selected));
+    nextRows.set(key, { row, shown });
+    return row;
+  }
+  function renderTable(): void {
+    for (const [index, filter] of FILTERS.entries()) {
+      const on = filter.id === state.filter;
+      tabButtons[index]!.setAttribute('aria-selected', String(on));
+      tabButtons[index]!.tabIndex = on ? 0 : -1;
+    }
+    scroll.setAttribute('aria-labelledby', `ops-filter-${state.filter}`);
+    if (!board) return;
+    nextRows = new Map();
+    const nextGroups = new Map<
+      string,
+      { body: HTMLTableSectionElement; head: HTMLTableRowElement; shown: string }
+    >();
+    const bodies: HTMLTableSectionElement[] = [];
+    let shown = 0;
+    for (const { name, agents: all } of bySquad(board)) {
+      const agents = all.filter(matches);
+      if (!agents.length) continue;
+      shown += agents.length;
+      const open = !state.collapsed.has(name);
+      const inputs = JSON.stringify([agents.length, open]);
+      const kept = groups.get(name);
+      const body = kept?.body ?? el('tbody');
+      const head = kept && kept.shown === inputs ? kept.head : groupHead(name, agents.length, open);
+      nextGroups.set(name, { body, head, shown: inputs });
+      reconcile(body, [head, ...(open ? agents.map(agentRow) : [])]);
+      bodies.push(body);
+    }
+    groups = nextGroups;
+    rows = nextRows;
+    reconcile(table, [thead, ...bodies]);
+    if (shown) reconcile(scroll, [table]);
+    else {
+      empty.textContent = board.agents.length ? 'No agents match.' : 'No agents yet.';
+      reconcile(scroll, [empty]);
+    }
+  }
+  let detailShown: string | undefined;
   function renderDetail(): void {
     const agent = board?.agents.find((item) => keyOf(item) === state.selected);
+    const inputs = JSON.stringify(agent ?? null);
+    if (inputs === detailShown) return;
+    detailShown = inputs;
     if (!agent) {
       detail.replaceChildren(
         el('h3', browserUiClasses.cardTitle, 'Agent'),
@@ -296,6 +410,7 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
       el('p', 'ops-detail-note', 'Observation only, no agent controls'),
     );
   }
+  let statsShown: string | undefined;
   return {
     node: page,
     update(next) {
@@ -307,15 +422,19 @@ export function agentsView(): { node: HTMLElement; update(board: OpsBoard): void
         const first = rows.find((agent) => agent.state === 'needs-you') ?? rows[0];
         state.selected = first && keyOf(first);
       }
-      stats.replaceChildren(
-        statsStrip(next.agents, [
-          {
-            count: next.agents.length,
-            label: plural(next.agents.length, 'agent', 'agents'),
-            caption: 'Total in workspace',
-          },
-        ]),
-      );
+      const counted = JSON.stringify(next.agents.map((agent) => agent.state));
+      if (counted !== statsShown) {
+        statsShown = counted;
+        stats.replaceChildren(
+          statsStrip(next.agents, [
+            {
+              count: next.agents.length,
+              label: plural(next.agents.length, 'agent', 'agents'),
+              caption: 'Total in workspace',
+            },
+          ]),
+        );
+      }
       renderBanner();
       renderTable();
       renderDetail();
